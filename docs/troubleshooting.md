@@ -43,3 +43,18 @@ Checks:
 2. `IDENTRAIL_REPO_SCAN_ALLOWLIST` is set and includes the target.
 3. API target is remote (`owner/repo`, `https://...`, or `ssh://...`) and not a local filesystem path.
 4. Request uses write-authorized API key/scope.
+
+## GitHub Action says missing `VITE_IDENTRAIL_API_URL`
+
+Symptoms:
+1. `Vercel Production Deploy` workflow logs show missing `vars.VITE_IDENTRAIL_API_URL`.
+2. Vercel dashboard still shows successful deployments.
+
+Why this happens:
+1. GitHub workflow checks repository variable `vars.VITE_IDENTRAIL_API_URL`.
+2. Vercel can still deploy successfully when the variable already exists directly in Vercel project settings.
+
+Checks:
+1. In GitHub: `Settings` -> `Secrets and variables` -> `Actions` -> `Variables`, confirm `VITE_IDENTRAIL_API_URL` exists.
+2. In Vercel: `Project` -> `Settings` -> `Environment Variables`, confirm `VITE_IDENTRAIL_API_URL` exists for Production.
+3. Ensure the value points to the public API URL (not the web frontend URL).

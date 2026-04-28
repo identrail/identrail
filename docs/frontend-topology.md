@@ -11,6 +11,23 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
 - Vercel (marketing/demo deploy): set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables (or set GitHub Actions variable `VITE_IDENTRAIL_API_URL` so the deploy workflow upserts it).
 - Production deploys should be triggered from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
 
+### `VITE_IDENTRAIL_API_URL` value source
+
+- This value should be the public HTTPS base URL of the Identrail API service (not the website URL).
+- Typical value shape: `https://api.<your-domain>`
+- If the API is served from the same domain via reverse proxy, use that public API base path.
+
+### Where to configure it
+
+1. GitHub repository variable:
+   - `Settings` -> `Secrets and variables` -> `Actions` -> `Variables`
+   - Add `VITE_IDENTRAIL_API_URL`
+2. Vercel project environment variable:
+   - `Project` -> `Settings` -> `Environment Variables`
+   - Add `VITE_IDENTRAIL_API_URL` for Production (and Preview if needed)
+
+If GitHub Actions variable is missing, workflow upsert is skipped. Deploy may still succeed when Vercel already has the env var set manually.
+
 ## `site/` (legacy Next.js marketing surface)
 
 - Stack: Next.js
