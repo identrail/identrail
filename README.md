@@ -1,8 +1,11 @@
 <div align="center">
   <picture>
-    <img src="./docs/static/images/identrail-logo-bw-white.png" alt="Identrail Logo" width="220" />
+   <img src="./docs/static/images/identrail-logo-bw-white.png" alt="Identrail Logo" width="320" style="margin-bottom: 16px;" />
   </picture>
-  <h2>Identrail</h2>
+
+  <br />
+  <br />
+
   <p><strong>Open-source machine identity security for AWS and Kubernetes.</strong></p>
   <p>Discover trust paths, detect high-signal exposure risk, and apply authorization guardrails with explainable decisions.</p>
 </div>
