@@ -1404,7 +1404,7 @@ func auditLogMiddleware(logger *zap.Logger, sink AuditSink) gin.HandlerFunc {
 			zap.Int64("duration_ms", event.DurationMS),
 			zap.String("user_agent", event.UserAgent),
 		)
-		if err := sink.Write(event); err != nil {
+		if err := sink.Write(c.Request.Context(), event); err != nil {
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
 		}
 	}

@@ -253,7 +253,7 @@ func writeSimulationAuditEvent(logger *zap.Logger, sink AuditSink, c *gin.Contex
 	if apiKey := authContextString(c, "auth.api_key"); apiKey != "" {
 		event.APIKeyID = fingerprintAPIKey(apiKey)
 	}
-	if err := sink.Write(event); err != nil {
+	if err := sink.Write(c.Request.Context(), event); err != nil {
 		logger.Warn("authz simulation audit write failed", telemetry.ZapError(err))
 	}
 }
