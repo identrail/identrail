@@ -93,12 +93,12 @@ export const impactCards: TextCard[] = [
 
 // TODO: Oluwatobi will update real URL paths later.
 export const useCases: UseCaseCard[] = [
-  { id: '01', title: 'Machine Identity Posture Management', body: 'Reveal overprivileged service identities, stale credentials, and risky trust relationships before they are exploited.', href: '/use-cases/machine-identity-posture' },
-  { id: '02', title: 'Cloud Trust Path Analysis', body: 'See exactly who can assume what across AWS accounts and Kubernetes clusters with end-to-end trust path mapping.', href: '/use-cases/trust-path-analysis' },
-  { id: '03', title: 'Repository Exposure Monitoring', body: 'Continuously scan source repositories and CI artifacts to catch leaked credentials and machine identity exposure risks.', href: '/use-cases/repository-exposure-monitoring' },
-  { id: '04', title: 'Centralized Authorization', body: 'Define authorization intent once and propagate safely across services, cloud resources, and platform control points.', href: '/use-cases/centralized-authorization' },
-  { id: '05', title: 'Agentic AI Identity Governance', body: 'Control AI agent access to models, tools, secrets, and infrastructure with visibility into every delegated action path.', href: '/use-cases/agentic-ai-identity-governance' },
-  { id: '06', title: 'Compliance Evidence Automation', body: 'Generate machine identity access evidence for audits with continuously updated entitlement and policy snapshots.', href: '/use-cases/compliance-evidence-automation' }
+  { id: '01', title: 'Machine Identity Posture Management', body: 'Reveal overprivileged service identities, stale credentials, and risky trust relationships before they are exploited.', href: '/solutions/security-teams' },
+  { id: '02', title: 'Cloud Trust Path Analysis', body: 'See exactly who can assume what across AWS accounts and Kubernetes clusters with end-to-end trust path mapping.', href: '/features/trust-graph' },
+  { id: '03', title: 'Repository Exposure Monitoring', body: 'Continuously scan source repositories and CI artifacts to catch leaked credentials and machine identity exposure risks.', href: '/features/git-scanner' },
+  { id: '04', title: 'Centralized Authorization', body: 'Define authorization intent once and propagate safely across services, cloud resources, and platform control points.', href: '/solutions/platform-engineering' },
+  { id: '05', title: 'Agentic AI Identity Governance', body: 'Control AI agent access to models, tools, secrets, and infrastructure with visibility into every delegated action path.', href: '/security' },
+  { id: '06', title: 'Compliance Evidence Automation', body: 'Generate machine identity access evidence for audits with continuously updated entitlement and policy snapshots.', href: '/docs' }
 ];
 
 export const whoWeHelpCards: TextCard[] = [
