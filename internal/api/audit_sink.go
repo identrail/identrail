@@ -157,7 +157,9 @@ func (s *HTTPAuditSink) Write(ctx context.Context, event AuditEvent) error {
 		if !retryable || attempt == attempts-1 {
 			break
 		}
-		time.Sleep(backoffDuration(s.retryBackoff, attempt))
+		if waitErr := waitForRetry(ctx, backoffDuration(s.retryBackoff, attempt)); waitErr != nil {
+			return waitErr
+		}
 	}
 	return lastErr
 }
@@ -264,4 +266,15 @@ func (s *HTTPAuditSink) send(ctx context.Context, payload []byte) (bool, error) 
 		return retryable, fmt.Errorf("audit forward status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return false, nil
+}
+
+func waitForRetry(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
