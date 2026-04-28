@@ -15,7 +15,7 @@ export const siteLinks = {
   getStarted: 'https://github.com/identrail/identrail',
   watchDemo: '/demo',
   contribute: '/contribute',
-  quickstartDocker: '/docs/self-host/docker',
+  quickstartDocker: 'https://github.com/identrail/identrail/blob/main/deploy/docker/README.md',
   webSource: 'https://github.com/identrail/identrail/tree/main/web',
   reportDownload: '/resources/2026-state-of-machine-identity',
   accessGraph: '/product/access-graph',
