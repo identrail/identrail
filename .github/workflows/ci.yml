@@ -164,6 +164,9 @@ jobs:
       - name: Validate API Example Contract
         run: ./scripts/check_api_example_contract.sh
 
+      - name: Validate Web Route Integrity
+        run: ./scripts/check_web_route_integrity.sh
+
       - name: Install Web Dependencies
         run: npm ci --prefix web
 
