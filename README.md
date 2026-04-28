@@ -1,22 +1,14 @@
 <div align="center">
   <picture>
-    <img src="./docs/static/images/identrail-logo-glow.png" alt="Identrail Logo" width="220" />
+   <img src="./docs/static/images/identrail-logo-bw-white.png" alt="Identrail Logo" width="320" style="margin-bottom: 16px;" />
   </picture>
-  <h2>Identrail</h2>
-</div>
 
-<p align="center">
-  Open-source machine identity security platform for AWS and Kubernetes workloads.
-  <br />
-  <a href="https://github.com/identrail/identrail/blob/dev/docs/enterprise-quickstart.md"><strong>Get Started »</strong></a>
   <br />
   <br />
-  <a href="https://discord.gg/7jSUSnQC">Discord</a>
-  ·
-  <a href="https://www.identrail.com">Website</a>
-  ·
-  <a href="https://github.com/identrail/identrail/issues">Issues</a>
-</p>
+
+  <p><strong>Open-source machine identity security for AWS and Kubernetes.</strong></p>
+  <p>Discover trust paths, detect high-signal exposure risk, and apply authorization guardrails with explainable decisions.</p>
+</div>
 
 <p align="center">
   <a href="https://github.com/identrail/identrail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/identrail/identrail/ci.yml?branch=dev&style=flat&label=ci&colorA=000000&colorB=000000" alt="CI" /></a>
@@ -24,26 +16,129 @@
   <a href="https://github.com/identrail/identrail/stargazers"><img src="https://img.shields.io/github/stars/identrail/identrail?style=flat&colorA=000000&colorB=000000" alt="GitHub stars" /></a>
 </p>
 
-## About the Project
+<p align="center">
+  <a href="https://github.com/identrail/identrail/blob/dev/docs/enterprise-quickstart.md"><strong>Enterprise Quickstart</strong></a>
+  ·
+  <a href="https://www.identrail.com">Website</a>
+  ·
+  <a href="https://discord.gg/7jSUSnQC">Discord</a>
+  ·
+  <a href="https://github.com/identrail/identrail/issues">Issues</a>
+</p>
 
-Identrail discovers machine identities and trust paths across AWS and Kubernetes, detects high-signal exposure findings, scans repositories for credential risk, and supports rollout-safe authorization controls.
+## Who This Is For
 
-### Why Identrail
+Identrail is for security and platform teams that need to answer three questions quickly:
 
-Machine identity risk is usually split across cloud IAM, Kubernetes, and source code workflows. Identrail unifies those surfaces into one explainable model so teams can reduce blast radius with clear remediation paths.
+- Which machine identities can reach sensitive resources?
+- Where does trust sprawl create blast-radius risk?
+- How can we enforce safer access with auditable decisions?
 
-## Contribution
+Use it when you run AWS and/or Kubernetes workloads and want identity risk visibility plus deployment-safe control surfaces.
 
-Identrail is open source under the [Apache-2.0 License](./LICENSE).
+## 5-Minute Quickstart
 
-You can help by:
+Prerequisites: Docker, Docker Compose, `curl`, `jq`.
 
-- [Contributing to the source code](./CONTRIBUTING.md)
-- [Suggesting features and reporting issues](https://github.com/identrail/identrail/issues)
-- [Joining community discussions](https://discord.gg/7jSUSnQC)
+```bash
+make quickstart
+```
 
-## Security
+What this does:
 
-If you discover a security vulnerability, please email [security@identrail.com](mailto:security@identrail.com).
+- Boots API, worker, web, and Postgres with local-safe defaults.
+- Triggers an initial scan.
+- Prints follow-up commands to inspect findings.
 
-Please do not disclose vulnerabilities publicly until a fix is coordinated.
+Stop the stack:
+
+```bash
+make quickstart-down
+```
+
+For enterprise auth scope, tenant/workspace context, and decision audit verification, use the full [Enterprise Quickstart](./docs/enterprise-quickstart.md).
+
+## What Identrail Does
+
+- Discovers machine identities and trust relationships across AWS and Kubernetes.
+- Persists raw and normalized scan artifacts for explainability and auditability.
+- Produces deterministic findings with risk evidence and remediation context.
+- Provides API and CLI workflows for scans, findings, trends, and diff analysis.
+- Supports optional repository exposure scanning (secrets and CI/IaC risk) in an isolated pipeline.
+
+## What Identrail Does Not Do
+
+- It is not a cloud SIEM replacement.
+- It is not an endpoint runtime agent.
+- It is not a generic CSPM for every cloud/provider in V1.
+
+V1 is intentionally focused on machine identity security workflows for AWS and Kubernetes.
+
+## How It Works
+
+```text
+Collector -> Raw Assets -> Normalizer -> Graph -> Risk Rules -> Findings Store -> API/CLI/Web
+```
+
+Operational model:
+
+- API can enqueue scans (`POST /v1/scans`, `POST /v1/repo-scans`).
+- Worker drains queue and runs scheduled jobs.
+- Results are queryable via API and CLI with scan-aware filtering and history.
+
+## Deployment Options
+
+Choose the rollout path that matches your environment maturity:
+
+- Local / single host: Docker Compose (`deploy/docker`)
+- Cluster-native: Kubernetes manifests (`deploy/kubernetes`)
+- Upgrade-safe Kubernetes: Helm chart (`deploy/helm/identrail`)
+- IaC rollout: Terraform Helm module (`deploy/terraform`)
+- Non-Kubernetes runtime: Linux VM + systemd (`deploy/systemd`)
+
+See [Deployment Anywhere](./docs/deployment-anywhere.md) for exact commands.
+
+## Project Status
+
+Status: **Active** (v1 line in active support).
+
+Current focus:
+
+- Production hardening for scan reliability and auth safety defaults.
+- Stronger backward-compatibility and contract testing.
+- Operator readiness for repeatable multi-environment rollouts.
+
+Reference docs:
+
+- [Versioning and Support Policy](./docs/versioning-support-policy.md)
+- [Architecture](./docs/architecture.md)
+- [OpenAPI v1](./docs/openapi-v1.yaml)
+
+Demo video: _coming soon_.
+
+## Comparison (Where Identrail Fits)
+
+- Versus broad CSPM tools: Identrail is narrower and deeper on machine identity trust and authorization workflows.
+- Versus secret scanners alone: Identrail includes optional repo exposure scanning, but also links findings into identity risk context.
+- Versus policy engines alone: Identrail adds discovery + risk evidence, not only policy evaluation.
+
+## Security and Support SLA
+
+If you discover a vulnerability, please use private reporting only:
+
+- GitHub private advisories: <https://github.com/identrail/identrail/security/advisories/new>
+- Email: [security@identrail.com](mailto:security@identrail.com)
+
+Maintainer targets for supported versions:
+
+- Acknowledge valid reports within 72 hours.
+- Initial triage within 7 days.
+- Weekly status updates until resolution.
+
+Full policy: [SECURITY.md](./SECURITY.md).
+
+## Contributing
+
+- [Contributing Guide](./CONTRIBUTING.md)
+- [Code of Conduct](./CODE_OF_CONDUCT.md)
+- [Issues](https://github.com/identrail/identrail/issues)
