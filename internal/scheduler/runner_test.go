@@ -29,11 +29,11 @@ func TestRunnerRunOnce(t *testing.T) {
 
 func TestRunnerRunOnceAlreadyRunning(t *testing.T) {
 	locker := NewInMemoryLocker()
-	release, ok := locker.TryAcquire("scan:aws")
+	release, ok := locker.TryAcquire(context.Background(), "scan:aws")
 	if !ok {
 		t.Fatal("expected lock acquire")
 	}
-	defer release()
+	defer release(context.Background())
 
 	runner := Runner{
 		Locker:  locker,

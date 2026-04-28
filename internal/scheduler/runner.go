@@ -33,11 +33,11 @@ func (r Runner) RunOnce(ctx context.Context) error {
 	}
 
 	if r.Locker != nil {
-		release, ok := r.Locker.TryAcquire(r.key())
+		release, ok := r.Locker.TryAcquire(ctx, r.key())
 		if !ok {
 			return ErrAlreadyRunning
 		}
-		defer release()
+		defer release(ctx)
 	}
 
 	attempts := r.MaxAttempts

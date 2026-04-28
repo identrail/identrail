@@ -1,13 +1,16 @@
 package scheduler
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // ReleaseFn releases an acquired lock.
-type ReleaseFn func()
+type ReleaseFn func(context.Context)
 
 // Locker coordinates idempotent, non-overlapping scan execution.
 type Locker interface {
-	TryAcquire(key string) (ReleaseFn, bool)
+	TryAcquire(ctx context.Context, key string) (ReleaseFn, bool)
 }
 
 // InMemoryLocker is a keyed in-memory lock implementation.
@@ -22,7 +25,7 @@ func NewInMemoryLocker() *InMemoryLocker {
 }
 
 // TryAcquire acquires a key lock if available.
-func (l *InMemoryLocker) TryAcquire(key string) (ReleaseFn, bool) {
+func (l *InMemoryLocker) TryAcquire(_ context.Context, key string) (ReleaseFn, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -35,7 +38,7 @@ func (l *InMemoryLocker) TryAcquire(key string) (ReleaseFn, bool) {
 	l.locks[key] = true
 
 	released := false
-	return func() {
+	return func(_ context.Context) {
 		l.mu.Lock()
 		defer l.mu.Unlock()
 		if released {
