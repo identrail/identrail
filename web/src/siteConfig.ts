@@ -18,7 +18,7 @@ export const siteLinks = {
   quickstartDocker: '/docs/self-host/docker',
   webSource: 'https://github.com/identrail/identrail/tree/main/web',
   reportDownload: '/resources/2026-state-of-machine-identity',
-  accessGraph: '/product/access-graph',
+  accessGraph: '/features/trust-graph',
   platformOverview: '/platform',
   howWeDoIt: '/platform/how-it-works',
   impactQueries: 'https://github.com/identrail/identrail',
