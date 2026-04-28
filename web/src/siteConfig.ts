@@ -28,7 +28,7 @@ export const siteLinks = {
   technicalDocs: '/docs/technical-console',
   findingsDocs: '/docs/findings-queue',
   policyDocs: '/docs/policy-simulation',
-  repoScannerDocs: '/docs/repo-scanner',
+  repoScannerDocs: '/docs',
   whyIdentrail: '/platform/why-identrail',
   platformDemo: '/request-demo',
   blogInsights: '/blog',
