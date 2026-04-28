@@ -23,7 +23,7 @@ export const siteLinks = {
   howWeDoIt: '/platform/how-it-works',
   impactQueries: 'https://github.com/identrail/identrail',
   detectionEngine: 'https://github.com/identrail/identrail/tree/main/internal/detection',
-  interactiveDemo: '/demo/interactive-trust-graph',
+  interactiveDemo: '/demo',
   agentRelease: 'https://github.com/identrail/identrail',
   technicalDocs: '/docs/technical-console',
   findingsDocs: '/docs/findings-queue',
