@@ -126,3 +126,43 @@ func TestRunnerRunOnceDeadLetterOnFailure(t *testing.T) {
 		t.Fatalf("expected one dead-letter callback, got %d", deadLetterCalls)
 	}
 }
+
+func TestRunnerStartReturnsTriggerErrorWhenNoErrorHandler(t *testing.T) {
+	runner := Runner{
+		Interval: 1 * time.Millisecond,
+		Trigger:  func(context.Context) error { return errors.New("boom") },
+	}
+
+	err := runner.Start(context.Background())
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("expected trigger error to be returned, got %v", err)
+	}
+}
+
+func TestRunnerStartInvokesOnErrorAndContinues(t *testing.T) {
+	var calls int32
+	var onErrorCalls int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runner := Runner{
+		Interval: 1 * time.Millisecond,
+		Trigger: func(context.Context) error {
+			if atomic.AddInt32(&calls, 1) >= 2 {
+				cancel()
+			}
+			return errors.New("boom")
+		},
+		OnError: func(context.Context, error) {
+			atomic.AddInt32(&onErrorCalls, 1)
+		},
+	}
+
+	err := runner.Start(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+	if onErrorCalls == 0 {
+		t.Fatal("expected OnError to be invoked")
+	}
+}
