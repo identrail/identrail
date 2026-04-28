@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Auto-label current issue
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
           script: |
             const issue = context.payload.issue;
@@ -57,7 +57,7 @@ jobs:
               }
 
               let triage = "triage/needs-human-triage";
-              if (/(false positive|not reproducible|cannot reproduce|works as designed|expected behavior|by design)/.test(text)) {
+              if (/(false positive|not reproducible|cannot reproduce|works as designed|by design)/.test(text)) {
                 triage = "triage/likely-false-positive";
               } else if (/(steps to reproduce|expected behavior|actual behavior|logs|screenshots?|trace|curl|stack trace)/.test(text)) {
                 triage = "triage/likely-true-positive";
@@ -113,7 +113,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Auto-label open issues (backfill)
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           MAX_ISSUES: ${{ inputs.max_issues || '100' }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
@@ -133,7 +133,7 @@ jobs:
               }
 
               let triage = "triage/needs-human-triage";
-              if (/(false positive|not reproducible|cannot reproduce|works as designed|expected behavior|by design)/.test(text)) {
+              if (/(false positive|not reproducible|cannot reproduce|works as designed|by design)/.test(text)) {
                 triage = "triage/likely-false-positive";
               } else if (/(steps to reproduce|expected behavior|actual behavior|logs|screenshots?|trace|curl|stack trace)/.test(text)) {
                 triage = "triage/likely-true-positive";
