@@ -40,4 +40,9 @@ If AI tools were used materially for this PR, complete the fields below.
 
 ## Related Issues
 
-Link related issues (for example: `Closes #123`).
+Required for this repository size:
+
+- Include at least one issue reference using closing/reference keywords:
+  - `Closes #123`, `Fixes #123`, or `Refs #123`
+- If no issue exists, include an explicit exemption with rationale:
+  - `No issue: <reason>` (for example: docs-only typo fix, CI-only fix, or emergency hotfix)
