@@ -58,7 +58,7 @@ func (v fakeTokenVerifier) VerifyToken(_ context.Context, rawToken string) (Veri
 	return token, nil
 }
 
-func (s *recordingAuditSink) Write(event AuditEvent) error {
+func (s *recordingAuditSink) Write(_ context.Context, event AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
