@@ -17,8 +17,8 @@ const footerColumns = [
     links: [
       { label: 'Machine Identity Posture', href: '/solutions/security-teams' },
       { label: 'Cloud Trust Paths', href: '/solutions/aws' },
-      { label: 'Repo Exposure Monitoring', href: '/features/git-scanner' },
-      { label: 'Agentic AI Governance', href: '/solutions/platform-engineering' }
+      { label: 'Repo Exposure Monitoring', href: '/features' },
+      { label: 'Agentic AI Governance', href: '/security' }
     ]
   },
   {
