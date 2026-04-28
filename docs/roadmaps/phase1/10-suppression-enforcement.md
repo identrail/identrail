@@ -29,8 +29,8 @@ Implementation checklist:
 
 ## Validation
 - Self-review completed for clarity, scope boundaries, and merge safety.
--  content is lint-friendly and rendered correctly in GitHub preview.
-- Branch is rebased from  and changes are isolated to one roadmap file.
+- Markdown content is lint-friendly and rendered correctly in GitHub preview.
+- Branch is rebased from origin/dev and changes are isolated to one roadmap file.
 
 ## Risks & Mitigations
 - Risk: scope creep in implementation.
@@ -42,4 +42,4 @@ Implementation checklist:
 Prepared with AI-assisted drafting; technical decisions and boundaries were explicitly reviewed before opening.
 
 ## Related Issues
-- Phase 1 roadmap item 10.
+- Roadmap item 10.
