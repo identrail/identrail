@@ -1,0 +1,191 @@
+name: Issue Auto Triage
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      max_issues:
+        description: "Maximum open issues to process during backfill"
+        required: false
+        default: "100"
+      dry_run:
+        description: "If true, only log intended label updates"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage-single:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Auto-label current issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const issue = context.payload.issue;
+            if (!issue || issue.pull_request) {
+              core.info("Event payload is not a regular issue.");
+              return;
+            }
+
+            const managedPrefixes = ["severity/", "triage/"];
+            const managedLabels = [
+              "severity/high",
+              "severity/medium",
+              "severity/low",
+              "triage/likely-true-positive",
+              "triage/likely-false-positive",
+              "triage/needs-human-triage",
+            ];
+
+            const classify = (title, body) => {
+              const text = `${title || ""}\n${body || ""}`.toLowerCase();
+
+              let severity = "severity/low";
+              if (/(critical|p0|p1|rce|privilege escalation|data leak|data loss|outage|production down)/.test(text)) {
+                severity = "severity/high";
+              } else if (/(p2|regression|unauthorized|permission denied|panic|500|security|broken|fails)/.test(text)) {
+                severity = "severity/medium";
+              }
+
+              let triage = "triage/needs-human-triage";
+              if (/(false positive|not reproducible|cannot reproduce|works as designed|by design)/.test(text)) {
+                triage = "triage/likely-false-positive";
+              } else if (/(steps to reproduce|expected behavior|actual behavior|logs|screenshots?|trace|curl|stack trace)/.test(text)) {
+                triage = "triage/likely-true-positive";
+              }
+
+              return { severity, triage };
+            };
+
+            const currentLabels = (issue.labels || []).map((l) => l.name);
+            const staleManaged = currentLabels.filter((name) => managedPrefixes.some((p) => name.startsWith(p)));
+            const { severity, triage } = classify(issue.title, issue.body);
+            const target = [severity, triage];
+
+            for (const name of managedLabels) {
+              const exists = await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name,
+              }).catch(() => null);
+              if (!exists) {
+                core.warning(`Managed label '${name}' does not exist yet; sync labels workflow should create it.`);
+              }
+            }
+
+            for (const label of staleManaged) {
+              if (!target.includes(label)) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  name: label,
+                }).catch((error) => {
+                  if (error.status !== 404) throw error;
+                });
+              }
+            }
+
+            const missing = target.filter((label) => !currentLabels.includes(label));
+            if (missing.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: missing,
+              });
+            }
+
+            core.info(`Issue #${issue.number} triaged: ${target.join(", ")}`);
+
+  triage-open:
+    if: github.event_name != 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Auto-label open issues (backfill)
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          MAX_ISSUES: ${{ inputs.max_issues || '100' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        with:
+          script: |
+            const maxIssues = Number(process.env.MAX_ISSUES || "100");
+            const dryRun = String(process.env.DRY_RUN || "false").toLowerCase() === "true";
+            const managedPrefixes = ["severity/", "triage/"];
+
+            const classify = (title, body) => {
+              const text = `${title || ""}\n${body || ""}`.toLowerCase();
+              let severity = "severity/low";
+              if (/(critical|p0|p1|rce|privilege escalation|data leak|data loss|outage|production down)/.test(text)) {
+                severity = "severity/high";
+              } else if (/(p2|regression|unauthorized|permission denied|panic|500|security|broken|fails)/.test(text)) {
+                severity = "severity/medium";
+              }
+
+              let triage = "triage/needs-human-triage";
+              if (/(false positive|not reproducible|cannot reproduce|works as designed|by design)/.test(text)) {
+                triage = "triage/likely-false-positive";
+              } else if (/(steps to reproduce|expected behavior|actual behavior|logs|screenshots?|trace|curl|stack trace)/.test(text)) {
+                triage = "triage/likely-true-positive";
+              }
+              return { severity, triage };
+            };
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+
+            const targets = issues.filter((i) => !i.pull_request).slice(0, maxIssues);
+            core.info(`Processing ${targets.length} open issues (dry_run=${dryRun}).`);
+
+            for (const issue of targets) {
+              const currentLabels = (issue.labels || []).map((l) => l.name);
+              const staleManaged = currentLabels.filter((name) => managedPrefixes.some((p) => name.startsWith(p)));
+              const { severity, triage } = classify(issue.title, issue.body);
+              const target = [severity, triage];
+
+              const remove = staleManaged.filter((label) => !target.includes(label));
+              const add = target.filter((label) => !currentLabels.includes(label));
+
+              if (remove.length === 0 && add.length === 0) {
+                continue;
+              }
+
+              if (dryRun) {
+                core.notice(`[dry-run] #${issue.number} remove=[${remove.join(", ")}] add=[${add.join(", ")}]`);
+                continue;
+              }
+
+              for (const label of remove) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  name: label,
+                }).catch((error) => {
+                  if (error.status !== 404) throw error;
+                });
+              }
+
+              if (add.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  labels: add,
+                });
+              }
+            }

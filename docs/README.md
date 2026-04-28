@@ -63,12 +63,6 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - Contributing guide: `../CONTRIBUTING.md`
 - Code of conduct: `../CODE_OF_CONDUCT.md`
 
-## identrail-reviewer track
-
-- Reviewer overview: `identrail-reviewer/README.md`
-- Ground-truth dataset guide: `identrail-reviewer/ground-truth-dataset.md`
-- Reviewer operations runbook: `identrail-reviewer/operations-runbook.md`
-
 ## Architecture and provider internals
 
 - Architecture overview: `architecture.md`
@@ -87,10 +81,3 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 
 - GUAC scaffold notes: `supply-chain-guac.md`
 - Copilot autofix policy: `copilot-autofix.md`
-
-## identrail-reviewer weekly implementation logs
-
-- Week 1 foundation: `identrail-reviewer/week-1-foundation.md`
-- Week 2 judgment engine: `identrail-reviewer/week-2-judgment-engine.md`
-- Week 3 hardening: `identrail-reviewer/week-3-hardening.md`
-- Week 4 rollout: `identrail-reviewer/week-4-rollout.md`
