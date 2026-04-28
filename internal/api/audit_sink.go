@@ -61,7 +61,7 @@ type AuditSink interface {
 type NopAuditSink struct{}
 
 func (NopAuditSink) Write(context.Context, AuditEvent) error { return nil }
-func (NopAuditSink) Close() error           { return nil }
+func (NopAuditSink) Close() error                            { return nil }
 
 // FileAuditSink writes audit events in JSON lines format.
 type FileAuditSink struct {
