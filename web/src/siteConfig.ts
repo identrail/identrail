@@ -11,7 +11,7 @@ export const siteLinks = {
   blog: '/blog',
   discord: 'https://discord.gg/7jSUSnQC',
   starOnGithub: 'https://github.com/identrail/identrail',
-  requestDemo: '/request-demo',
+  requestDemo: '/demo',
   getStarted: 'https://github.com/identrail/identrail',
   watchDemo: '/demo',
   contribute: '/contribute',
