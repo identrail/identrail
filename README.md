@@ -124,7 +124,7 @@ Demo video: _coming soon_.
 
 ## Security and Support SLA
 
-If you discover a vulnerability, use private reporting only:
+If you discover a vulnerability, please use private reporting only:
 
 - GitHub private advisories: <https://github.com/identrail/identrail/security/advisories/new>
 - Email: [security@identrail.com](mailto:security@identrail.com)
@@ -136,16 +136,6 @@ Maintainer targets for supported versions:
 - Weekly status updates until resolution.
 
 Full policy: [SECURITY.md](./SECURITY.md).
-
-## Release Policy
-
-Identrail uses SemVer (`MAJOR.MINOR.PATCH`) with explicit deprecation and support windows.
-
-- Breaking changes ship in major releases (except emergency security actions).
-- Active support: latest minor of current major.
-- Maintenance support: latest minor of previous major.
-
-Full policy: [docs/versioning-support-policy.md](./docs/versioning-support-policy.md).
 
 ## Contributing
 
