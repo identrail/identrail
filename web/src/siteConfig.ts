@@ -26,7 +26,7 @@ export const siteLinks = {
   interactiveDemo: '/demo/interactive-trust-graph',
   agentRelease: 'https://github.com/identrail/identrail',
   technicalDocs: '/docs/technical-console',
-  findingsDocs: '/docs/findings-queue',
+  findingsDocs: '/docs',
   policyDocs: '/docs/policy-simulation',
   repoScannerDocs: '/docs/repo-scanner',
   whyIdentrail: '/platform/why-identrail',
