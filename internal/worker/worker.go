@@ -46,7 +46,7 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		_ = traceShutdown(shutdownCtx)
 	}()
 
-	svc, closeStore, err := runtime.BuildScanService(cfg)
+	svc, closeStore, err := runtime.BuildScanServiceWithContext(ctx, cfg)
 	if err != nil {
 		return err
 	}
