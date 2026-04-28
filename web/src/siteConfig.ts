@@ -4,7 +4,7 @@ export const siteLinks = {
   useCases: '/use-cases',
   solutions: '/solutions',
   resources: '/resources',
-  company: '/company',
+  company: '/about',
   pricing: '/pricing',
   docs: '/docs',
   github: 'https://github.com/identrail/identrail',
