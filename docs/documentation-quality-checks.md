@@ -8,6 +8,7 @@ Use this checklist before merging documentation changes.
 2. New docs are indexed in `docs/README.md`.
 3. API behavior statements match current handlers/contracts.
 4. Env var references match `internal/config/config.go` and `internal/config/security.go`.
+5. Web routes stay synchronized across router, prerender list, and sitemap.
 
 ## Link Integrity Check (local)
 
@@ -43,3 +44,23 @@ if errors:
 print('OK: no broken local markdown links')
 PY
 ```
+
+## Web Route Integrity Check
+
+Before merge, verify manually (or via CI guard when enabled) that:
+
+1. Static routes in `web/src/App.tsx` are included in `web/prerender-routes.ts`.
+2. Prerender routes are included in `web/public/sitemap.xml`.
+
+## Route Change Rules
+
+When adding a real, live page:
+
+1. Add the route in `web/src/App.tsx`.
+2. Add the route to `PRERENDER_ROUTES` in `web/prerender-routes.ts`.
+3. Add the route URL in `web/public/sitemap.xml`.
+
+When a page is planned but not implemented yet:
+
+1. Do not add speculative route URLs to sitemap/prerender lists.
+2. Keep references as explicit TODO notes in docs/config until the page exists.
