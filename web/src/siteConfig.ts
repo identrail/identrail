@@ -20,7 +20,7 @@ export const siteLinks = {
   reportDownload: '/resources/2026-state-of-machine-identity',
   accessGraph: '/product/access-graph',
   platformOverview: '/platform',
-  howWeDoIt: '/platform/how-it-works',
+  howWeDoIt: '/product',
   impactQueries: 'https://github.com/identrail/identrail',
   detectionEngine: 'https://github.com/identrail/identrail/tree/main/internal/detection',
   interactiveDemo: '/demo/interactive-trust-graph',
