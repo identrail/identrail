@@ -1,8 +1,6 @@
 name: identrail-reviewer-shadow
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, edited, ready_for_review]
   issues:
     types: [opened, edited, reopened]
 

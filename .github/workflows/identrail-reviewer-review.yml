@@ -1,8 +1,6 @@
 name: identrail-reviewer-review
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, edited]
   issues:
     types: [opened, edited, reopened]
 
