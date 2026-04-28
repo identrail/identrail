@@ -1,6 +1,6 @@
 <div align="center">
   <picture>
-    <img src="./docs/static/images/identrail-logo-glow.png" alt="Identrail Logo" width="220" />
+    <img src="./docs/static/images/identrail-logo-bw-white.png" alt="Identrail Logo" width="220" />
   </picture>
   <h2>Identrail</h2>
   <p><strong>Open-source machine identity security for AWS and Kubernetes.</strong></p>
