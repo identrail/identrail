@@ -37,7 +37,7 @@ func (r Runner) RunOnce(ctx context.Context) error {
 		if !ok {
 			return ErrAlreadyRunning
 		}
-		defer release(ctx)
+		defer release(context.Background())
 	}
 
 	attempts := r.MaxAttempts

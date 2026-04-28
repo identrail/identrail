@@ -257,7 +257,7 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 		if !ok {
 			return false, nil
 		}
-		defer release(ctx)
+		defer release(context.Background())
 	}
 	record, err := s.Store.ClaimNextQueuedScan(ctx, s.Provider)
 	if err != nil {
@@ -283,7 +283,7 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 		if !ok {
 			return RunScanResult{}, ErrScanInProgress
 		}
-		defer release(ctx)
+		defer release(context.Background())
 	}
 	record, err := s.Store.CreateScan(ctx, s.Provider, s.Now().UTC())
 	if err != nil {
@@ -437,7 +437,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		if !ok {
 			requeue = true
 		} else {
-			defer release(ctx)
+			defer release(context.Background())
 		}
 	}
 	if requeue {
@@ -467,7 +467,7 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 		if !ok {
 			return RunRepoScanResult{}, ErrRepoScanInProgress
 		}
-		defer release(ctx)
+		defer release(context.Background())
 	}
 	record, err := s.Store.CreateRepoScan(ctx, target, s.Now().UTC())
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // PostgresAdvisoryLocker implements Locker using PostgreSQL advisory locks.
@@ -46,10 +47,12 @@ func (l *PostgresAdvisoryLocker) TryAcquire(ctx context.Context, key string) (Re
 	var once sync.Once
 	return func(releaseCtx context.Context) {
 		once.Do(func() {
-			if releaseCtx == nil {
+			if releaseCtx == nil || releaseCtx.Err() != nil {
 				releaseCtx = context.Background()
 			}
-			_, _ = conn.ExecContext(releaseCtx, "SELECT pg_advisory_unlock($1)", lockKey)
+			unlockCtx, cancel := context.WithTimeout(releaseCtx, 5*time.Second)
+			defer cancel()
+			_, _ = conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", lockKey)
 			_ = conn.Close()
 		})
 	}, true
