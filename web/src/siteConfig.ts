@@ -1,7 +1,7 @@
 // TODO: Oluwatobi will update real URL later.
 export const siteLinks = {
   platform: '/platform',
-  useCases: '/use-cases',
+  useCases: '/solutions',
   solutions: '/solutions',
   resources: '/resources',
   company: '/company',
