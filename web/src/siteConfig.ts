@@ -27,7 +27,7 @@ export const siteLinks = {
   agentRelease: 'https://github.com/identrail/identrail',
   technicalDocs: '/docs/technical-console',
   findingsDocs: '/docs/findings-queue',
-  policyDocs: '/docs/policy-simulation',
+  policyDocs: '/docs',
   repoScannerDocs: '/docs/repo-scanner',
   whyIdentrail: '/platform/why-identrail',
   platformDemo: '/request-demo',
