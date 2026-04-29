@@ -102,9 +102,9 @@ func (r Runner) Start(ctx context.Context) error {
 			if err == nil || errors.Is(err, ErrAlreadyRunning) {
 				continue
 			}
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
 			if r.OnError != nil {
 				r.OnError(ctx, err)
 				continue
