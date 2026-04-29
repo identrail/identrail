@@ -26,7 +26,7 @@ jobs:
 
             const issuePattern =
               /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|ref(?:s)?)\s+(?:#\d+|[\w.-]+\/[\w.-]+#\d+|https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+)\b/i;
-            const noIssuePattern = /^\s*No issue:\s*\S.+$/im;
+            const noIssuePattern = /^\s*(?:[-*+]\s+)?No issue:\s*\S.+$/im;
 
             if (issuePattern.test(sanitized) || noIssuePattern.test(sanitized)) {
               core.info("PR satisfies linked-issue policy.");
