@@ -1,4 +1,4 @@
-FROM golang:1.25.9-alpine AS builder
+FROM golang:1.25.9-alpine@sha256:5caaf1cca9dc351e13deafbc3879fd4754801acba8653fa9540cea125d01a71f AS builder
 WORKDIR /src
 
 RUN apk add --no-cache ca-certificates tzdata git
@@ -12,7 +12,7 @@ ARG TARGET=server
 RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
     go build -trimpath -ldflags="-s -w" -o /out/identrail ./cmd/${TARGET}
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:a9329520abc449e3b14d5bc3a6ffae065bdde0f02667fa10880c49b35c109fd1
 WORKDIR /app
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
