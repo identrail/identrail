@@ -53,15 +53,15 @@ type AuditAuthzDecision struct {
 
 // AuditSink defines the export target for API audit events.
 type AuditSink interface {
-	Write(event AuditEvent) error
+	Write(ctx context.Context, event AuditEvent) error
 	Close() error
 }
 
 // NopAuditSink discards audit events when no export target is configured.
 type NopAuditSink struct{}
 
-func (NopAuditSink) Write(AuditEvent) error { return nil }
-func (NopAuditSink) Close() error           { return nil }
+func (NopAuditSink) Write(context.Context, AuditEvent) error { return nil }
+func (NopAuditSink) Close() error                            { return nil }
 
 // FileAuditSink writes audit events in JSON lines format.
 type FileAuditSink struct {
@@ -78,7 +78,7 @@ func NewFileAuditSink(path string) (*FileAuditSink, error) {
 	return &FileAuditSink{file: file}, nil
 }
 
-func (s *FileAuditSink) Write(event AuditEvent) error {
+func (s *FileAuditSink) Write(_ context.Context, event AuditEvent) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal audit event: %w", err)
@@ -138,15 +138,18 @@ func NewHTTPAuditSink(endpoint string, timeout time.Duration, hmacSecret string,
 	}, nil
 }
 
-func (s *HTTPAuditSink) Write(event AuditEvent) error {
+func (s *HTTPAuditSink) Write(ctx context.Context, event AuditEvent) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal audit event: %w", err)
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var lastErr error
 	attempts := s.maxRetries + 1
 	for attempt := 0; attempt < attempts; attempt++ {
-		retryable, err := s.send(payload)
+		retryable, err := s.send(ctx, payload)
 		if err == nil {
 			return nil
 		}
@@ -154,7 +157,9 @@ func (s *HTTPAuditSink) Write(event AuditEvent) error {
 		if !retryable || attempt == attempts-1 {
 			break
 		}
-		time.Sleep(backoffDuration(s.retryBackoff, attempt))
+		if waitErr := waitForRetry(ctx, backoffDuration(s.retryBackoff, attempt)); waitErr != nil {
+			return waitErr
+		}
 	}
 	return lastErr
 }
@@ -178,10 +183,10 @@ func NewMultiAuditSink(sinks ...AuditSink) *MultiAuditSink {
 	return &MultiAuditSink{sinks: filtered}
 }
 
-func (m *MultiAuditSink) Write(event AuditEvent) error {
+func (m *MultiAuditSink) Write(ctx context.Context, event AuditEvent) error {
 	var firstErr error
 	for _, sink := range m.sinks {
-		if err := sink.Write(event); err != nil && firstErr == nil {
+		if err := sink.Write(ctx, event); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -232,11 +237,15 @@ func validateAuditForwardURL(raw string) error {
 	}
 }
 
-func (s *HTTPAuditSink) send(payload []byte) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.client.Timeout)
+func (s *HTTPAuditSink) send(ctx context.Context, payload []byte) (bool, error) {
+	requestCtx := ctx
+	cancel := func() {}
+	if s.client.Timeout > 0 {
+		requestCtx, cancel = context.WithTimeout(ctx, s.client.Timeout)
+	}
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, s.url, bytes.NewReader(payload))
 	if err != nil {
 		return false, fmt.Errorf("build audit forward request: %w", err)
 	}
@@ -257,4 +266,15 @@ func (s *HTTPAuditSink) send(payload []byte) (bool, error) {
 		return retryable, fmt.Errorf("audit forward status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return false, nil
+}
+
+func waitForRetry(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

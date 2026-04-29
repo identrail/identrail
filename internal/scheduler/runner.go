@@ -15,6 +15,9 @@ type TriggerFunc func(context.Context) error
 // DeadLetterFunc is called when retries are exhausted and trigger still fails.
 type DeadLetterFunc func(context.Context, error)
 
+// ErrorFunc is called when scheduled RunOnce returns a non-cancellation error.
+type ErrorFunc func(context.Context, error)
+
 // Runner periodically executes a trigger while enforcing single-flight per key.
 type Runner struct {
 	Interval     time.Duration
@@ -24,6 +27,7 @@ type Runner struct {
 	MaxAttempts  int
 	RetryBackoff time.Duration
 	OnDeadLetter DeadLetterFunc
+	OnError      ErrorFunc
 }
 
 // RunOnce triggers a scan exactly once.
@@ -33,11 +37,11 @@ func (r Runner) RunOnce(ctx context.Context) error {
 	}
 
 	if r.Locker != nil {
-		release, ok := r.Locker.TryAcquire(r.key())
+		release, ok := r.Locker.TryAcquire(ctx, r.key())
 		if !ok {
 			return ErrAlreadyRunning
 		}
-		defer release()
+		defer release(context.Background())
 	}
 
 	attempts := r.MaxAttempts
@@ -94,7 +98,18 @@ func (r Runner) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			_ = r.RunOnce(ctx)
+			err := r.RunOnce(ctx)
+			if err == nil || errors.Is(err, ErrAlreadyRunning) {
+				continue
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			if r.OnError != nil {
+				r.OnError(ctx, err)
+				continue
+			}
+			return err
 		}
 	}
 }

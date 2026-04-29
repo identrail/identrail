@@ -823,7 +823,7 @@ type middlewareRecordingAuditSink struct {
 	events []AuditEvent
 }
 
-func (s *middlewareRecordingAuditSink) Write(event AuditEvent) error {
+func (s *middlewareRecordingAuditSink) Write(_ context.Context, event AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)

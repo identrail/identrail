@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +19,7 @@ type testRecordingAuditSink struct {
 	events []AuditEvent
 }
 
-func (s *testRecordingAuditSink) Write(event AuditEvent) error {
+func (s *testRecordingAuditSink) Write(_ context.Context, event AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
@@ -62,7 +63,7 @@ func TestFileAuditSinkWritesJSONL(t *testing.T) {
 			},
 		},
 	}
-	if err := sink.Write(event); err != nil {
+	if err := sink.Write(context.Background(), event); err != nil {
 		t.Fatalf("write audit event: %v", err)
 	}
 	if err := sink.Close(); err != nil {
@@ -113,7 +114,7 @@ func TestHTTPAuditSinkWritesEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new http audit sink: %v", err)
 	}
-	err = sink.Write(AuditEvent{Method: "GET", Path: "/v1/scans", Timestamp: time.Now().UTC()})
+	err = sink.Write(context.Background(), AuditEvent{Method: "GET", Path: "/v1/scans", Timestamp: time.Now().UTC()})
 	if err != nil {
 		t.Fatalf("write http audit event: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestHTTPAuditSinkRetriesOnTransientFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new http audit sink: %v", err)
 	}
-	if err := sink.Write(AuditEvent{Method: "GET", Path: "/v1/scans", Timestamp: time.Now().UTC()}); err != nil {
+	if err := sink.Write(context.Background(), AuditEvent{Method: "GET", Path: "/v1/scans", Timestamp: time.Now().UTC()}); err != nil {
 		t.Fatalf("write http audit event with retries: %v", err)
 	}
 	if requests != 3 {
@@ -166,7 +167,7 @@ func TestHTTPAuditSinkDoesNotRetryOnClientError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new http audit sink: %v", err)
 	}
-	if err := sink.Write(AuditEvent{Method: "GET", Path: "/v1/scans", Timestamp: time.Now().UTC()}); err == nil {
+	if err := sink.Write(context.Background(), AuditEvent{Method: "GET", Path: "/v1/scans", Timestamp: time.Now().UTC()}); err == nil {
 		t.Fatal("expected client error")
 	}
 	if requests != 1 {
@@ -177,7 +178,7 @@ func TestHTTPAuditSinkDoesNotRetryOnClientError(t *testing.T) {
 func TestMultiAuditSinkFanout(t *testing.T) {
 	record := &testRecordingAuditSink{}
 	multi := NewMultiAuditSink(record, NopAuditSink{})
-	if err := multi.Write(AuditEvent{Method: "GET", Path: "/v1/scans"}); err != nil {
+	if err := multi.Write(context.Background(), AuditEvent{Method: "GET", Path: "/v1/scans"}); err != nil {
 		t.Fatalf("write fanout event: %v", err)
 	}
 	record.mu.Lock()

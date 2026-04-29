@@ -58,7 +58,7 @@ func (v fakeTokenVerifier) VerifyToken(_ context.Context, rawToken string) (Veri
 	return token, nil
 }
 
-func (s *recordingAuditSink) Write(event AuditEvent) error {
+func (s *recordingAuditSink) Write(_ context.Context, event AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
@@ -639,11 +639,11 @@ func TestRouterScanEnqueueSucceedsWhenExecutionLockIsHeld(t *testing.T) {
 	svc := NewService(store, routerScanner{}, "aws")
 
 	locker := scheduler.NewInMemoryLocker()
-	release, ok := locker.TryAcquire("identrail:scan:aws")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:scan:aws")
 	if !ok {
 		t.Fatal("expected lock acquire")
 	}
-	defer release()
+	defer release(context.Background())
 	svc.Locker = locker
 
 	r := NewRouter(logger, metrics, svc, RouterOptions{})
@@ -663,11 +663,11 @@ func TestRouterRepoScanEnqueueSucceedsWhenExecutionLockIsHeld(t *testing.T) {
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.RepoScanAllowedTargets = []string{"owner/repo"}
 	locker := scheduler.NewInMemoryLocker()
-	release, ok := locker.TryAcquire("identrail:repo-scan:owner/repo")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:repo-scan:owner/repo")
 	if !ok {
 		t.Fatal("expected lock acquire")
 	}
-	defer release()
+	defer release(context.Background())
 	svc.Locker = locker
 
 	r := NewRouter(logger, metrics, svc, RouterOptions{})

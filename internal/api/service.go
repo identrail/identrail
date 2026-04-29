@@ -253,11 +253,11 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 	ctx = s.scopeContext(ctx)
 	if s.Locker != nil {
-		release, ok := s.Locker.TryAcquire(s.lockKey("scan:" + s.Provider))
+		release, ok := s.Locker.TryAcquire(ctx, s.lockKey("scan:"+s.Provider))
 		if !ok {
 			return false, nil
 		}
-		defer release()
+		defer release(context.Background())
 	}
 	record, err := s.Store.ClaimNextQueuedScan(ctx, s.Provider)
 	if err != nil {
@@ -279,11 +279,11 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 	ctx = s.scopeContext(ctx)
 	if s.Locker != nil {
-		release, ok := s.Locker.TryAcquire(s.lockKey("scan:" + s.Provider))
+		release, ok := s.Locker.TryAcquire(ctx, s.lockKey("scan:"+s.Provider))
 		if !ok {
 			return RunScanResult{}, ErrScanInProgress
 		}
-		defer release()
+		defer release(context.Background())
 	}
 	record, err := s.Store.CreateScan(ctx, s.Provider, s.Now().UTC())
 	if err != nil {
@@ -433,11 +433,11 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	}
 	requeue := false
 	if s.Locker != nil {
-		release, ok := s.Locker.TryAcquire(s.lockKey("repo-scan:" + strings.ToLower(record.Repository)))
+		release, ok := s.Locker.TryAcquire(ctx, s.lockKey("repo-scan:"+strings.ToLower(record.Repository)))
 		if !ok {
 			requeue = true
 		} else {
-			defer release()
+			defer release(context.Background())
 		}
 	}
 	if requeue {
@@ -463,11 +463,11 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 		return RunRepoScanResult{}, err
 	}
 	if s.Locker != nil {
-		release, ok := s.Locker.TryAcquire(s.lockKey("repo-scan:" + strings.ToLower(target)))
+		release, ok := s.Locker.TryAcquire(ctx, s.lockKey("repo-scan:"+strings.ToLower(target)))
 		if !ok {
 			return RunRepoScanResult{}, ErrRepoScanInProgress
 		}
-		defer release()
+		defer release(context.Background())
 	}
 	record, err := s.Store.CreateRepoScan(ctx, target, s.Now().UTC())
 	if err != nil {

@@ -133,6 +133,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			OnDeadLetter: func(_ context.Context, err error) {
 				logger.Error("cloud trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
 			},
+			OnError: func(_ context.Context, err error) {
+				logger.Error("cloud runner iteration failed", telemetry.ZapError(err))
+			},
 		},
 	}}
 	if cfg.WorkerRepoScanEnabled {
@@ -147,6 +150,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				RetryBackoff: defaultWorkerRetryBackoff,
 				OnDeadLetter: func(_ context.Context, err error) {
 					logger.Error("repo trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					logger.Error("repo runner iteration failed", telemetry.ZapError(err))
 				},
 			},
 		})
@@ -163,6 +169,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				RetryBackoff: defaultWorkerRetryBackoff,
 				OnDeadLetter: func(_ context.Context, err error) {
 					logger.Error("api job queue trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					logger.Error("api queue runner iteration failed", telemetry.ZapError(err))
 				},
 			},
 		})

@@ -118,11 +118,11 @@ func TestServiceRunScanFailure(t *testing.T) {
 func TestServiceRunScanLocked(t *testing.T) {
 	store := db.NewMemoryStore()
 	locker := scheduler.NewInMemoryLocker()
-	release, ok := locker.TryAcquire("identrail:scan:aws")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:scan:aws")
 	if !ok {
 		t.Fatal("expected lock acquire")
 	}
-	defer release()
+	defer release(context.Background())
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Locker = locker
@@ -961,11 +961,11 @@ func TestServiceRunRepoScanLocked(t *testing.T) {
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.RepoScanAllowedTargets = []string{"owner/repo"}
 	locker := scheduler.NewInMemoryLocker()
-	release, ok := locker.TryAcquire("identrail:repo-scan:owner/repo")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:repo-scan:owner/repo")
 	if !ok {
 		t.Fatal("expected repo lock acquire")
 	}
-	defer release()
+	defer release(context.Background())
 	svc.Locker = locker
 
 	if _, err := svc.RunRepoScanPersisted(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo"}); !errors.Is(err, ErrRepoScanInProgress) {
@@ -1189,11 +1189,11 @@ func TestServiceProcessQueuedRepoScanRequeuesWhenExecutionLockHeld(t *testing.T)
 		t.Fatalf("enqueue repo scan: %v", err)
 	}
 	locker := scheduler.NewInMemoryLocker()
-	release, ok := locker.TryAcquire("identrail:repo-scan:owner/repo")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:repo-scan:owner/repo")
 	if !ok {
 		t.Fatal("expected lock acquire")
 	}
-	defer release()
+	defer release(context.Background())
 	svc.Locker = locker
 
 	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
@@ -1244,11 +1244,11 @@ func TestServiceProcessQueuedRepoScanContinuesToNextTargetAfterRequeue(t *testin
 	}
 
 	locker := scheduler.NewInMemoryLocker()
-	release, ok := locker.TryAcquire("identrail:repo-scan:owner/repo-a")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:repo-scan:owner/repo-a")
 	if !ok {
 		t.Fatal("expected lock acquire")
 	}
-	defer release()
+	defer release(context.Background())
 	svc.Locker = locker
 
 	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())

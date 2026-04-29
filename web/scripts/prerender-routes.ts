@@ -93,15 +93,40 @@ const ROUTE_META: Record<string, RouteMeta> = {
     description:
       'Compare Open Source, Hosted SaaS, and Enterprise machine identity security plans based on team size, deployment needs, and controls.'
   },
+  '/roi-assessment': {
+    title: 'ROI Assessment | Quantify Machine Identity Risk Reduction',
+    description:
+      'Estimate expected risk reduction and operational impact from machine identity hardening with an ROI-first assessment workflow.'
+  },
+  '/read-only-scan': {
+    title: 'Read-Only Risk Scan | Safe Machine Identity Discovery',
+    description:
+      'Run a read-only machine identity risk scan across AWS and Kubernetes trust paths without making policy changes in your environment.'
+  },
+  '/deployment-models': {
+    title: 'Deployment Models | Self-Hosted, SaaS, and Enterprise Options',
+    description:
+      'Compare Identrail deployment models across self-hosted, hosted SaaS, and enterprise rollout patterns with security and control tradeoffs.'
+  },
   '/demo': {
     title: 'Demo | Interactive Trust Graph and Risk Workflows',
     description:
       'Explore an interactive trust graph demo showing machine identity attack-path evidence, risk scoring, and recommended controls.'
   },
+  '/integrations': {
+    title: 'Integrations | AWS, Kubernetes, GitHub, OIDC, and Observability',
+    description:
+      'Review current integrations and telemetry sources used to build machine identity trust paths and prioritized risk evidence.'
+  },
   '/docs': {
     title: 'Docs | Identrail Documentation Hub',
     description:
       'Read deployment, integration, and operational documentation for Identrail machine identity security workflows.'
+  },
+  '/faq': {
+    title: 'FAQ | Machine Identity Security and Product Operations',
+    description:
+      'Answers to common questions on read-only scanning, trust-path analysis, deployment models, and rollout-safe remediation.'
   },
   '/blog': {
     title: 'Blog | Machine Identity Security Guides and Insights',
@@ -152,6 +177,11 @@ const ROUTE_META: Record<string, RouteMeta> = {
     title: 'Security and Compliance | Identrail',
     description:
       'Review Identrail security controls, compliance roadmap, disclosure process, and deployment safeguards.'
+  },
+  '/responsible-disclosure': {
+    title: 'Responsible Disclosure | Report Security Issues to Identrail',
+    description:
+      'Report security vulnerabilities privately and review disclosure expectations, triage timelines, and coordination policy.'
   },
   '/about': {
     title: 'About | Identrail',

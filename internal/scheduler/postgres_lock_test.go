@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"regexp"
 	"testing"
 
@@ -24,13 +25,13 @@ func TestPostgresAdvisoryLockerTryAcquireAndRelease(t *testing.T) {
 		WithArgs(lockID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	release, ok := locker.TryAcquire("identrail:scan:aws")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:scan:aws")
 	if !ok || release == nil {
 		t.Fatal("expected advisory lock to be acquired")
 	}
-	release()
+	release(context.Background())
 	// Ensure release is idempotent.
-	release()
+	release(context.Background())
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
@@ -50,7 +51,7 @@ func TestPostgresAdvisoryLockerTryAcquireFailure(t *testing.T) {
 		WithArgs(lockID).
 		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(false))
 
-	release, ok := locker.TryAcquire("identrail:scan:aws")
+	release, ok := locker.TryAcquire(context.Background(), "identrail:scan:aws")
 	if ok || release != nil {
 		t.Fatal("expected lock acquisition failure")
 	}
@@ -69,7 +70,7 @@ func TestAdvisoryLockIDStability(t *testing.T) {
 
 func TestPostgresAdvisoryLockerTryAcquireWithNilDB(t *testing.T) {
 	locker := NewPostgresAdvisoryLocker(nil)
-	release, ok := locker.TryAcquire("scan:aws")
+	release, ok := locker.TryAcquire(context.Background(), "scan:aws")
 	if ok || release != nil {
 		t.Fatal("expected nil db locker to fail acquisition")
 	}
