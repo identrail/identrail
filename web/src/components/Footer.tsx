@@ -6,19 +6,19 @@ const footerColumns = [
   {
     title: 'Platform',
     links: [
-      { label: 'Access Graph', href: '/product/access-graph' },
-      { label: 'Risk Intelligence', href: '/product/risk-intelligence' },
-      { label: 'Exposure Scanning', href: '/product/exposure-scanning' },
-      { label: 'Authorization', href: '/product/authorization' }
+      { label: 'Access Graph', href: '/features/trust-graph' },
+      { label: 'Risk Intelligence', href: '/features/aws' },
+      { label: 'Exposure Scanning', href: '/features/git-scanner' },
+      { label: 'Authorization', href: '/solutions/platform-engineering' }
     ]
   },
   {
     title: 'Use Cases',
     links: [
-      { label: 'Machine Identity Posture', href: '/use-cases/machine-identity-posture' },
-      { label: 'Cloud Trust Paths', href: '/use-cases/trust-path-analysis' },
-      { label: 'Repo Exposure Monitoring', href: '/use-cases/repository-exposure-monitoring' },
-      { label: 'Agentic AI Governance', href: '/use-cases/agentic-ai-identity-governance' }
+      { label: 'Machine Identity Posture', href: '/solutions/security-teams' },
+      { label: 'Cloud Trust Paths', href: '/solutions/aws' },
+      { label: 'Repo Exposure Monitoring', href: '/features' },
+      { label: 'Agentic AI Governance', href: '/security' }
     ]
   },
   {

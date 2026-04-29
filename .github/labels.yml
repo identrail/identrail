@@ -43,6 +43,26 @@
   color: "0e8a16"
   description: Nice-to-have or low urgency
 
+- name: severity/high
+  color: "b60205"
+  description: High severity issue with significant user, security, or production impact
+- name: severity/medium
+  color: "fbca04"
+  description: Medium severity issue with clear impact but viable workarounds
+- name: severity/low
+  color: "0e8a16"
+  description: Low severity issue with limited impact
+
+- name: triage/likely-true-positive
+  color: "1d76db"
+  description: Automated triage suggests the report is likely valid
+- name: triage/likely-false-positive
+  color: "d93f0b"
+  description: Automated triage suggests the report may be invalid or expected behavior
+- name: triage/needs-human-triage
+  color: "ededed"
+  description: Automated triage could not classify confidently
+
 - name: area/iam
   color: "5319e7"
   description: Identity and access management rules or behavior

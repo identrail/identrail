@@ -17,6 +17,12 @@ import (
 
 // BuildScanService constructs store + scanner + API service from runtime config.
 func BuildScanService(cfg config.Config) (*api.Service, func() error, error) {
+	return BuildScanServiceWithContext(context.Background(), cfg)
+}
+
+// BuildScanServiceWithContext constructs store + scanner + API service from runtime config
+// and uses caller context for startup operations that may block.
+func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.Service, func() error, error) {
 	var store db.Store
 	var pgStore *db.PostgresStore
 	if cfg.DatabaseURL == "" {
@@ -52,7 +58,7 @@ func BuildScanService(cfg config.Config) (*api.Service, func() error, error) {
 				RiskRuleSet:          awsprovider.NewRuleSet(),
 			}
 		case "sdk":
-			iamAPI, iamErr := awsprovider.NewSDKIAMAPI(cfg.AWSRegion, cfg.AWSProfile)
+			iamAPI, iamErr := awsprovider.NewSDKIAMAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile)
 			if iamErr != nil {
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws sdk collector: %w", iamErr)

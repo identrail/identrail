@@ -15,7 +15,7 @@ Identrail takes security reports seriously. If you believe you have found a vuln
 Do not open public GitHub issues for suspected vulnerabilities.
 
 Use GitHub private vulnerability reporting or the company's email (we respond within 72 hours):
-- https://github.com/Oluwatobi-Mustapha/identrail/security/advisories/new
+- https://github.com/identrail/identrail/security/advisories/new
 - security@identrail.com
 
 If you cannot use that channel, contact the maintainer directly via LinkedIn:
