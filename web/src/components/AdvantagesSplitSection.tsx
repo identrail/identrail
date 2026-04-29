@@ -19,7 +19,6 @@ export function AdvantagesSplitSection() {
       <div className="section-card advantages-shell">
         <blockquote className="advantages-quote">
           <span aria-hidden="true">“</span>
-          {/* TODO: Oluwatobi will update real customer photo later. */}
           <div className="advantages-quote-avatar" aria-hidden="true" />
           <p>
             Identrail gave us board-level confidence in machine identity risk because every finding

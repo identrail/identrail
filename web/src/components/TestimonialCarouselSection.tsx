@@ -37,7 +37,6 @@ export function TestimonialCarouselSection() {
 
         <div className="testimonial-carousel" aria-label="Customer testimonial carousel">
           <div className="testimonial-track">
-            {/* TODO: Oluwatobi will update real customer photos later. */}
             {rail.map((item, index) => (
               <article key={`${item.author}-${index}`} className="testimonial-card">
                 <div className="testimonial-avatar" aria-hidden="true" />

@@ -1,7 +1,6 @@
 import { siteLinks } from '../siteConfig';
 import { SafeLink } from './SafeLink';
 
-// TODO: Oluwatobi will update real URL paths later.
 const footerColumns = [
   {
     title: 'Platform',

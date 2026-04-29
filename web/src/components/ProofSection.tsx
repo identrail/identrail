@@ -1,7 +1,6 @@
 import { siteLinks } from '../siteConfig';
 import { SafeLink } from './SafeLink';
 
-// TODO: Oluwatobi will update real customer names and media later.
 const logos = ['Global Bank', 'InfraCo', 'Cloud Retail', 'FinServe', 'HealthOps', 'ScaleWare'] as const;
 
 export function ProofSection() {

@@ -91,7 +91,6 @@ export const impactCards: TextCard[] = [
   }
 ];
 
-// TODO: Oluwatobi will update real URL paths later.
 export const useCases: UseCaseCard[] = [
   { id: '01', title: 'Machine Identity Posture Management', body: 'Reveal overprivileged service identities, stale credentials, and risky trust relationships before they are exploited.', href: '/solutions/security-teams' },
   { id: '02', title: 'Cloud Trust Path Analysis', body: 'See exactly who can assume what across AWS accounts and Kubernetes clusters with end-to-end trust path mapping.', href: '/features/trust-graph' },

@@ -1,7 +1,6 @@
 import { siteLinks } from '../siteConfig';
 import { SafeLink } from './SafeLink';
 
-// TODO: Oluwatobi will update real integration logos later.
 const integrations = [
   'AWS',
   'Kubernetes',
@@ -15,7 +14,6 @@ const integrations = [
   'Datadog'
 ] as const;
 
-// TODO: Oluwatobi will update real award badges later.
 const awards = [
   'Cloud Security Innovation 2026',
   'Top Open Source Identity Project',

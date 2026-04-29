@@ -1,4 +1,3 @@
-// TODO: Oluwatobi will update real URL later.
 export const siteLinks = {
   platform: '/product',
   useCases: '/solutions',
@@ -49,7 +48,6 @@ export const githubRepo = {
   name: 'identrail'
 } as const;
 
-// TODO: Oluwatobi will update real Docker Hub repos later if namespace changes.
 export const projectMetricsSource = {
   github: githubRepo,
   dockerHubRepos: ['identrail/api', 'identrail/worker', 'identrail/web']

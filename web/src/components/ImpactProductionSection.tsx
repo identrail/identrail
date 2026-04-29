@@ -28,7 +28,6 @@ const impactResults = [
   }
 ] as const;
 
-// TODO: Oluwatobi will update real customer logos later.
 const trustedBy = [
   'Northbank Group',
   'Apex Retail',
