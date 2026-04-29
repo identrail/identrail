@@ -46,7 +46,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		return Bootstrap{}, fmt.Errorf("initialize tracing: %w", err)
 	}
 
-	svc, closeStore, err := runtime.BuildScanService(cfg)
+	svc, closeStore, err := runtime.BuildScanServiceWithContext(ctx, cfg)
 	if err != nil {
 		_ = logger.Sync()
 		return Bootstrap{}, fmt.Errorf("initialize runtime: %w", err)

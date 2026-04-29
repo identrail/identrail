@@ -33,13 +33,19 @@ var _ IAMAPI = (*SDKIAMAPI)(nil)
 
 // NewSDKIAMAPI constructs an IAMAPI backed by the AWS SDK default credential chain.
 func NewSDKIAMAPI(region string, profile string) (IAMAPI, error) {
+	return NewSDKIAMAPIWithContext(context.Background(), region, profile)
+}
+
+// NewSDKIAMAPIWithContext constructs an IAMAPI backed by the AWS SDK credential chain
+// using the caller-provided context for config loading.
+func NewSDKIAMAPIWithContext(ctx context.Context, region string, profile string) (IAMAPI, error) {
 	loadOptions := []func(*awscfg.LoadOptions) error{
 		awscfg.WithRegion(strings.TrimSpace(region)),
 	}
 	if trimmedProfile := strings.TrimSpace(profile); trimmedProfile != "" {
 		loadOptions = append(loadOptions, awscfg.WithSharedConfigProfile(trimmedProfile))
 	}
-	cfg, err := awscfg.LoadDefaultConfig(context.Background(), loadOptions...)
+	cfg, err := awscfg.LoadDefaultConfig(ctx, loadOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
