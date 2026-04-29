@@ -22,7 +22,42 @@ function parseAppRoutes(src) {
     }
     routes.add(route);
   }
+  // Include static routes generated from mapped slug collections, e.g.
+  // path={`/features/${page.slug}`} inside FEATURE_DEEP_PAGES.map(...)
+  const mappedRouteRegex = /\{([A-Z0-9_]+)\.map\(\(page\)\s*=>\s*\([\s\S]*?<Route[^>]*\s+path=\{`([^`]*)\$\{page\.slug\}([^`]*)`\}/g;
+  while ((m = mappedRouteRegex.exec(src)) !== null) {
+    const collectionName = m[1];
+    const prefix = m[2];
+    const suffix = m[3];
+    for (const slug of parseSlugCollection(src, collectionName)) {
+      const route = `${prefix}${slug}${suffix}`;
+      if (route.includes('*') || route.includes(':')) {
+        continue;
+      }
+      routes.add(route);
+    }
+  }
+
   return routes;
+}
+
+function parseSlugCollection(src, collectionName) {
+  const collectionRegex = /const\s+([A-Z0-9_]+)\s*=\s*\[([\s\S]*?)\]\s*as const;/g;
+  const slugRegex = /slug:\s*'([^']+)'/g;
+  let m;
+  while ((m = collectionRegex.exec(src)) !== null) {
+    if (m[1] !== collectionName) {
+      continue;
+    }
+    const block = m[2];
+    const slugs = [];
+    let slugMatch;
+    while ((slugMatch = slugRegex.exec(block)) !== null) {
+      slugs.push(slugMatch[1]);
+    }
+    return slugs;
+  }
+  return [];
 }
 
 function parsePrerenderRoutes(src) {
