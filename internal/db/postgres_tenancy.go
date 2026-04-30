@@ -95,9 +95,11 @@ func (p *PostgresStore) UpsertWorkspace(ctx context.Context, workspace TenancyWo
 		return err
 	}
 	workspace.TenantID = scope.TenantID
-	if workspace.WorkspaceID == "" {
-		workspace.WorkspaceID = scope.WorkspaceID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspace.WorkspaceID)
+	if err != nil {
+		return err
 	}
+	workspace.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyWorkspaceForWrite(workspace)
 	if err != nil {
 		return err
@@ -126,6 +128,10 @@ func (p *PostgresStore) GetWorkspace(ctx context.Context, workspaceID string) (T
 	if err != nil {
 		return TenancyWorkspace{}, err
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
 	row := p.queryRowContext(
 		ctx,
 		`SELECT tenant_id, workspace_id, display_name, slug, created_at, updated_at
@@ -133,7 +139,7 @@ func (p *PostgresStore) GetWorkspace(ctx context.Context, workspaceID string) (T
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2`,
 		scope.TenantID,
-		workspaceID,
+		resolvedWorkspaceID,
 	)
 	var workspace TenancyWorkspace
 	if err := row.Scan(
@@ -152,7 +158,7 @@ func (p *PostgresStore) GetWorkspace(ctx context.Context, workspaceID string) (T
 	return workspace, nil
 }
 
-// ListWorkspaces returns all scoped workspaces ordered by creation time.
+// ListWorkspaces returns all tenant-scoped workspaces ordered by creation time.
 func (p *PostgresStore) ListWorkspaces(ctx context.Context, limit int) ([]TenancyWorkspace, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
@@ -200,13 +206,17 @@ func (p *PostgresStore) DeleteWorkspace(ctx context.Context, workspaceID string)
 	if err != nil {
 		return err
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
 	result, err := p.execContext(
 		ctx,
 		`DELETE FROM tenancy_workspaces
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2`,
 		scope.TenantID,
-		workspaceID,
+		resolvedWorkspaceID,
 	)
 	if err != nil {
 		return err
@@ -228,9 +238,11 @@ func (p *PostgresStore) UpsertWorkspaceMember(ctx context.Context, member Tenanc
 		return err
 	}
 	member.TenantID = scope.TenantID
-	if member.WorkspaceID == "" {
-		member.WorkspaceID = scope.WorkspaceID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, member.WorkspaceID)
+	if err != nil {
+		return err
 	}
+	member.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyWorkspaceMemberForWrite(member)
 	if err != nil {
 		return err
@@ -266,6 +278,10 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 	if err != nil {
 		return TenancyWorkspaceMember{}, err
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
 	row := p.queryRowContext(
 		ctx,
 		`SELECT tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
@@ -274,7 +290,7 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 		   AND workspace_id = $2
 		   AND member_id = $3`,
 		scope.TenantID,
-		workspaceID,
+		resolvedWorkspaceID,
 		memberID,
 	)
 	var member TenancyWorkspaceMember
@@ -306,6 +322,10 @@ func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID st
 	if limit <= 0 {
 		limit = 100
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := p.queryContext(
 		ctx,
 		`SELECT tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
@@ -315,7 +335,7 @@ func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID st
 		 ORDER BY joined_at ASC
 		 LIMIT $3`,
 		scope.TenantID,
-		workspaceID,
+		resolvedWorkspaceID,
 		limit,
 	)
 	if err != nil {
@@ -350,6 +370,10 @@ func (p *PostgresStore) DeleteWorkspaceMember(ctx context.Context, workspaceID s
 	if err != nil {
 		return err
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
 	result, err := p.execContext(
 		ctx,
 		`DELETE FROM tenancy_workspace_members
@@ -357,7 +381,7 @@ func (p *PostgresStore) DeleteWorkspaceMember(ctx context.Context, workspaceID s
 		   AND workspace_id = $2
 		   AND member_id = $3`,
 		scope.TenantID,
-		workspaceID,
+		resolvedWorkspaceID,
 		memberID,
 	)
 	if err != nil {
@@ -380,9 +404,11 @@ func (p *PostgresStore) UpsertProject(ctx context.Context, project TenancyProjec
 		return err
 	}
 	project.TenantID = scope.TenantID
-	if project.WorkspaceID == "" {
-		project.WorkspaceID = scope.WorkspaceID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, project.WorkspaceID)
+	if err != nil {
+		return err
 	}
+	project.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyProjectForWrite(project)
 	if err != nil {
 		return err
@@ -418,6 +444,10 @@ func (p *PostgresStore) GetProject(ctx context.Context, workspaceID string, proj
 	if err != nil {
 		return TenancyProject{}, err
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyProject{}, err
+	}
 	row := p.queryRowContext(
 		ctx,
 		`SELECT tenant_id, workspace_id, project_id, name, slug, COALESCE(description, ''), archived_at, created_at, updated_at
@@ -426,7 +456,7 @@ func (p *PostgresStore) GetProject(ctx context.Context, workspaceID string, proj
 		   AND workspace_id = $2
 		   AND project_id = $3`,
 		scope.TenantID,
-		workspaceID,
+		resolvedWorkspaceID,
 		projectID,
 	)
 	var project TenancyProject
@@ -463,11 +493,15 @@ func (p *PostgresStore) ListProjects(ctx context.Context, workspaceID string, in
 	if limit <= 0 {
 		limit = 100
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
 	query := `SELECT tenant_id, workspace_id, project_id, name, slug, COALESCE(description, ''), archived_at, created_at, updated_at
 		 FROM tenancy_projects
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2`
-	args := []any{scope.TenantID, workspaceID}
+	args := []any{scope.TenantID, resolvedWorkspaceID}
 	if !includeArchived {
 		query += " AND archived_at IS NULL"
 	}
@@ -511,6 +545,10 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 	if err != nil {
 		return err
 	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
 	result, err := p.execContext(
 		ctx,
 		`DELETE FROM tenancy_projects
@@ -518,7 +556,7 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 		   AND workspace_id = $2
 		   AND project_id = $3`,
 		scope.TenantID,
-		workspaceID,
+		resolvedWorkspaceID,
 		projectID,
 	)
 	if err != nil {
