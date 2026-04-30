@@ -35,3 +35,14 @@ This allows safe reruns and repeated persistence calls without duplicate row gro
 3. upsert artifacts
 4. upsert findings
 5. complete scan with counts/status
+
+## Tenancy CRUD Persistence
+
+Tenancy and project management CRUD now has dedicated scoped store operations:
+
+- organizations (`tenancy_organizations`)
+- workspaces (`tenancy_workspaces`)
+- workspace members (`tenancy_workspace_members`)
+- projects (`tenancy_projects`)
+
+Scope boundaries are enforced by requiring request scope (`tenant_id`, `workspace_id`) in all store operations, and tests cover cross-scope access denial expectations.
