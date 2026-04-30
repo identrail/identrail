@@ -81,9 +81,11 @@ func (m *MemoryStore) UpsertWorkspace(ctx context.Context, workspace TenancyWork
 		return err
 	}
 	workspace.TenantID = scope.TenantID
-	if workspace.WorkspaceID == "" {
-		workspace.WorkspaceID = scope.WorkspaceID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspace.WorkspaceID)
+	if err != nil {
+		return err
 	}
+	workspace.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyWorkspaceForWrite(workspace)
 	if err != nil {
 		return err
@@ -104,7 +106,11 @@ func (m *MemoryStore) GetWorkspace(ctx context.Context, workspaceID string) (Ten
 	if err != nil {
 		return TenancyWorkspace{}, err
 	}
-	key := tenancyWorkspaceKey(scope.TenantID, workspaceID)
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	key := tenancyWorkspaceKey(scope.TenantID, resolvedWorkspaceID)
 	workspace, exists := m.workspaces[key]
 	if !exists {
 		return TenancyWorkspace{}, ErrNotFound
@@ -126,7 +132,7 @@ func (m *MemoryStore) ListWorkspaces(ctx context.Context, limit int) ([]TenancyW
 	}
 	workspaces := make([]TenancyWorkspace, 0, limit)
 	for _, workspace := range m.workspaces {
-		if workspace.TenantID != scope.TenantID {
+		if workspace.TenantID != scope.TenantID || workspace.WorkspaceID != scope.WorkspaceID {
 			continue
 		}
 		workspaces = append(workspaces, workspace)
@@ -147,7 +153,10 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 	if err != nil {
 		return err
 	}
-	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	normalizedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
 	key := tenancyWorkspaceKey(scope.TenantID, normalizedWorkspaceID)
 	if _, exists := m.workspaces[key]; !exists {
 		return ErrNotFound
@@ -176,9 +185,11 @@ func (m *MemoryStore) UpsertWorkspaceMember(ctx context.Context, member TenancyW
 		return err
 	}
 	member.TenantID = scope.TenantID
-	if member.WorkspaceID == "" {
-		member.WorkspaceID = scope.WorkspaceID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, member.WorkspaceID)
+	if err != nil {
+		return err
 	}
+	member.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyWorkspaceMemberForWrite(member)
 	if err != nil {
 		return err
@@ -199,7 +210,11 @@ func (m *MemoryStore) GetWorkspaceMember(ctx context.Context, workspaceID string
 	if err != nil {
 		return TenancyWorkspaceMember{}, err
 	}
-	member, exists := m.members[tenancyMemberKey(scope.TenantID, workspaceID, memberID)]
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	member, exists := m.members[tenancyMemberKey(scope.TenantID, resolvedWorkspaceID, memberID)]
 	if !exists {
 		return TenancyWorkspaceMember{}, ErrNotFound
 	}
@@ -218,7 +233,10 @@ func (m *MemoryStore) ListWorkspaceMembers(ctx context.Context, workspaceID stri
 	if limit <= 0 {
 		limit = 100
 	}
-	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	normalizedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]TenancyWorkspaceMember, 0, limit)
 	for _, member := range m.members {
 		if member.TenantID != scope.TenantID || member.WorkspaceID != normalizedWorkspaceID {
@@ -242,7 +260,11 @@ func (m *MemoryStore) DeleteWorkspaceMember(ctx context.Context, workspaceID str
 	if err != nil {
 		return err
 	}
-	key := tenancyMemberKey(scope.TenantID, workspaceID, memberID)
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
+	key := tenancyMemberKey(scope.TenantID, resolvedWorkspaceID, memberID)
 	if _, exists := m.members[key]; !exists {
 		return ErrNotFound
 	}
@@ -260,9 +282,11 @@ func (m *MemoryStore) UpsertProject(ctx context.Context, project TenancyProject)
 		return err
 	}
 	project.TenantID = scope.TenantID
-	if project.WorkspaceID == "" {
-		project.WorkspaceID = scope.WorkspaceID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, project.WorkspaceID)
+	if err != nil {
+		return err
 	}
+	project.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyProjectForWrite(project)
 	if err != nil {
 		return err
@@ -283,7 +307,11 @@ func (m *MemoryStore) GetProject(ctx context.Context, workspaceID string, projec
 	if err != nil {
 		return TenancyProject{}, err
 	}
-	project, exists := m.projects[tenancyProjectKey(scope.TenantID, workspaceID, projectID)]
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyProject{}, err
+	}
+	project, exists := m.projects[tenancyProjectKey(scope.TenantID, resolvedWorkspaceID, projectID)]
 	if !exists {
 		return TenancyProject{}, ErrNotFound
 	}
@@ -302,7 +330,10 @@ func (m *MemoryStore) ListProjects(ctx context.Context, workspaceID string, incl
 	if limit <= 0 {
 		limit = 100
 	}
-	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	normalizedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
 	projects := make([]TenancyProject, 0, limit)
 	for _, project := range m.projects {
 		if project.TenantID != scope.TenantID || project.WorkspaceID != normalizedWorkspaceID {
@@ -329,7 +360,11 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 	if err != nil {
 		return err
 	}
-	key := tenancyProjectKey(scope.TenantID, workspaceID, projectID)
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
+	key := tenancyProjectKey(scope.TenantID, resolvedWorkspaceID, projectID)
 	if _, exists := m.projects[key]; !exists {
 		return ErrNotFound
 	}
