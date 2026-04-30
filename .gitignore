@@ -20,8 +20,8 @@ secrets/
 logs/
 tmp/
 *.tmp
-canceled
-succeeded
+/canceled
+/succeeded
 
 # Go
 bin/
