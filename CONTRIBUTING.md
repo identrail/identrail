@@ -17,7 +17,8 @@ Good contributions include:
 
 ## Ways to Contribute
 
-- Report bugs with clear reproduction steps.
+- Open an issue, or pick one or Report bugs with clear reproduction steps.
+- Ensures your PR description start with "Fixes", "Closes", "Resolves", and then the number of issues you are fixing e.g Fixes #500. This automatically links the PR to the issues, thereby making everyone's life easier
 - Propose enhancements with a concrete problem statement.
 - Submit focused pull requests with tests and docs updates when relevant.
 - Improve docs and runbooks when behavior or operations change.
@@ -154,6 +155,7 @@ Maintainers may request revision or rejection when:
 - security posture is weakened
 - code quality is below project standards
 - contributor cannot explain critical logic
+- Contributor has refused to sign DCO - this is a must.
 
 ## Security Issues
 
