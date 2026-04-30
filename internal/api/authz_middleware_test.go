@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
@@ -779,7 +780,7 @@ func newPolicyTriageRouter(scopes scopeSet, setPrincipal bool, store db.Store) *
 	return r
 }
 
-func newPolicyAuditTestRouter(scopes scopeSet, setPrincipal bool, resolver centralPolicyRuntimeResolver, metrics *telemetry.Metrics, sink AuditSink) *gin.Engine {
+func newPolicyAuditTestRouter(scopes scopeSet, setPrincipal bool, resolver centralPolicyRuntimeResolver, metrics *telemetry.Metrics, sink audit.AuditSink) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -820,10 +821,10 @@ type staticPolicyRuntimeResolver struct {
 
 type middlewareRecordingAuditSink struct {
 	mu     sync.Mutex
-	events []AuditEvent
+	events []audit.AuditEvent
 }
 
-func (s *middlewareRecordingAuditSink) Write(_ context.Context, event AuditEvent) error {
+func (s *middlewareRecordingAuditSink) Write(_ context.Context, event audit.AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)

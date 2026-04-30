@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
@@ -300,7 +301,7 @@ func TestAuthzSecurityRegressionDefaultDenyExplainable(t *testing.T) {
 	}
 }
 
-func newAuthzSecurityRegressionRouter(t *testing.T, store db.Store, resolver centralPolicyRuntimeResolver, sink AuditSink) *gin.Engine {
+func newAuthzSecurityRegressionRouter(t *testing.T, store db.Store, resolver centralPolicyRuntimeResolver, sink audit.AuditSink) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -354,7 +355,7 @@ func newAuthzSecurityRegressionRouter(t *testing.T, store db.Store, resolver cen
 	return r
 }
 
-func runAuthzSecurityRequest(t *testing.T, router *gin.Engine, sink *middlewareRecordingAuditSink, method string, path string, headers map[string]string) (int, AuditAuthzDecision) {
+func runAuthzSecurityRequest(t *testing.T, router *gin.Engine, sink *middlewareRecordingAuditSink, method string, path string, headers map[string]string) (int, audit.AuditAuthzDecision) {
 	t.Helper()
 
 	before := authzSecurityEventCount(sink)
@@ -375,7 +376,7 @@ func authzSecurityEventCount(sink *middlewareRecordingAuditSink) int {
 	return len(sink.events)
 }
 
-func latestAuthzDecisionAfter(t *testing.T, sink *middlewareRecordingAuditSink, previousCount int) AuditAuthzDecision {
+func latestAuthzDecisionAfter(t *testing.T, sink *middlewareRecordingAuditSink, previousCount int) audit.AuditAuthzDecision {
 	t.Helper()
 	sink.mu.Lock()
 	defer sink.mu.Unlock()

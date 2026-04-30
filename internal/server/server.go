@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/runtime"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
@@ -57,9 +58,9 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 	svc.OnAlertError = func(alertErr error) {
 		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
 	}
-	auditSinks := []api.AuditSink{}
+	auditSinks := []audit.AuditSink{}
 	if cfg.AuditLogFile != "" {
-		fileSink, sinkErr := api.NewFileAuditSink(cfg.AuditLogFile)
+		fileSink, sinkErr := audit.NewFileAuditSink(cfg.AuditLogFile)
 		if sinkErr != nil {
 			_ = closeStore()
 			_ = logger.Sync()
@@ -68,7 +69,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		auditSinks = append(auditSinks, fileSink)
 	}
 	if cfg.AuditForwardURL != "" {
-		forwardSink, sinkErr := api.NewHTTPAuditSink(
+		forwardSink, sinkErr := audit.NewHTTPAuditSink(
 			cfg.AuditForwardURL,
 			cfg.AuditForwardTimeout,
 			cfg.AuditForwardHMACSecret,
@@ -85,11 +86,11 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		}
 		auditSinks = append(auditSinks, forwardSink)
 	}
-	auditSink := api.AuditSink(api.NopAuditSink{})
+	auditSink := audit.AuditSink(audit.NopAuditSink{})
 	if len(auditSinks) == 1 {
 		auditSink = auditSinks[0]
 	} else if len(auditSinks) > 1 {
-		auditSink = api.NewMultiAuditSink(auditSinks...)
+		auditSink = audit.NewMultiAuditSink(auditSinks...)
 	}
 
 	var tokenVerifier api.TokenVerifier

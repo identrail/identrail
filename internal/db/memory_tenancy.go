@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 )
 
 // UpsertOrganization persists or updates one tenant organization record.
@@ -22,6 +24,13 @@ func (m *MemoryStore) UpsertOrganization(ctx context.Context, organization Tenan
 		return err
 	}
 	m.organizations[normalized.TenantID] = normalized
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.organization.upsert",
+		TenantID:     normalized.TenantID,
+		ResourceType: "tenancy_organization",
+		ResourceID:   normalized.TenantID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -69,6 +78,13 @@ func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 			delete(m.projects, key)
 		}
 	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.organization.delete",
+		TenantID:     scope.TenantID,
+		ResourceType: "tenancy_organization",
+		ResourceID:   scope.TenantID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -95,6 +111,14 @@ func (m *MemoryStore) UpsertWorkspace(ctx context.Context, workspace TenancyWork
 		return ErrNotFound
 	}
 	m.workspaces[tenancyWorkspaceKey(normalized.TenantID, normalized.WorkspaceID)] = normalized
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   normalized.WorkspaceID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -173,6 +197,14 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 			delete(m.projects, projectKey)
 		}
 	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  normalizedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   normalizedWorkspaceID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -199,6 +231,14 @@ func (m *MemoryStore) UpsertWorkspaceMember(ctx context.Context, member TenancyW
 		return ErrNotFound
 	}
 	m.members[tenancyMemberKey(normalized.TenantID, normalized.WorkspaceID, normalized.MemberID)] = normalized
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace_member.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_workspace_member",
+		ResourceID:   normalized.MemberID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -270,6 +310,14 @@ func (m *MemoryStore) DeleteWorkspaceMember(ctx context.Context, workspaceID str
 		return ErrNotFound
 	}
 	delete(m.members, key)
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace_member.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace_member",
+		ResourceID:   memberID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -296,6 +344,14 @@ func (m *MemoryStore) UpsertProject(ctx context.Context, project TenancyProject)
 		return ErrNotFound
 	}
 	m.projects[tenancyProjectKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID)] = normalized
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.project.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_project",
+		ResourceID:   normalized.ProjectID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -378,6 +434,14 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 		return ErrNotFound
 	}
 	delete(m.projects, key)
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.project.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_project",
+		ResourceID:   projectID,
+		Outcome:      "success",
+	})
 	return nil
 }
 

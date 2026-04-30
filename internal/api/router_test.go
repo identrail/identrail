@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
@@ -43,7 +44,7 @@ func (routerScanner) Run(_ context.Context) (app.ScanResult, error) {
 
 type recordingAuditSink struct {
 	mu     sync.Mutex
-	events []AuditEvent
+	events []audit.AuditEvent
 }
 
 type fakeTokenVerifier struct {
@@ -58,7 +59,7 @@ func (v fakeTokenVerifier) VerifyToken(_ context.Context, rawToken string) (Veri
 	return token, nil
 }
 
-func (s *recordingAuditSink) Write(_ context.Context, event AuditEvent) error {
+func (s *recordingAuditSink) Write(_ context.Context, event audit.AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)

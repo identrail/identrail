@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
@@ -62,7 +63,7 @@ type authzPolicySimulationResponse struct {
 	Policy   authzPolicySimulationPolicyResponse `json:"policy"`
 }
 
-func authzPolicySimulationHandler(logger *zap.Logger, store db.Store, resolver centralPolicyRuntimeResolver, sink AuditSink) gin.HandlerFunc {
+func authzPolicySimulationHandler(logger *zap.Logger, store db.Store, resolver centralPolicyRuntimeResolver, sink audit.AuditSink) gin.HandlerFunc {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -237,23 +238,29 @@ func resolveSimulationRuntime(c *gin.Context, store db.Store, resolver centralPo
 	}, nil
 }
 
-func writeSimulationAuditEvent(logger *zap.Logger, sink AuditSink, c *gin.Context, start time.Time) {
+func writeSimulationAuditEvent(logger *zap.Logger, sink audit.AuditSink, c *gin.Context, start time.Time) {
 	if sink == nil {
 		return
 	}
-	event := AuditEvent{
-		Timestamp:  time.Now().UTC(),
-		Method:     "SIMULATE",
-		Path:       "/v1/authz/policies/simulate",
-		Status:     http.StatusOK,
-		ClientIP:   c.ClientIP(),
-		DurationMS: time.Since(start).Milliseconds(),
-		UserAgent:  c.Request.UserAgent(),
+	ctx, correlationID := audit.EnsureCorrelationID(c.Request.Context())
+	actor := triageActorFromContext(c)
+	ctx = audit.WithActor(ctx, actor)
+	event := audit.AuditEvent{
+		Timestamp:     time.Now().UTC(),
+		Kind:          "api_request",
+		Actor:         actor,
+		CorrelationID: correlationID,
+		Method:        "SIMULATE",
+		Path:          "/v1/authz/policies/simulate",
+		Status:        http.StatusOK,
+		ClientIP:      c.ClientIP(),
+		DurationMS:    time.Since(start).Milliseconds(),
+		UserAgent:     c.Request.UserAgent(),
 	}
 	if apiKey := authContextString(c, "auth.api_key"); apiKey != "" {
-		event.APIKeyID = fingerprintAPIKey(apiKey)
+		event.APIKeyID = audit.FingerprintAPIKey(apiKey)
 	}
-	if err := sink.Write(c.Request.Context(), event); err != nil {
+	if err := sink.Write(ctx, event); err != nil {
 		logger.Warn("authz simulation audit write failed", telemetry.ZapError(err))
 	}
 }

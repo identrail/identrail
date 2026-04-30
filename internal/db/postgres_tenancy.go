@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 )
 
 // UpsertOrganization persists one scoped organization metadata row.
@@ -34,6 +36,15 @@ func (p *PostgresStore) UpsertOrganization(ctx context.Context, organization Ten
 	)
 	if isTenancyFKViolation(err) {
 		return ErrNotFound
+	}
+	if err == nil {
+		audit.WriteAction(ctx, audit.AuditEvent{
+			Action:       "tenancy.organization.upsert",
+			TenantID:     normalized.TenantID,
+			ResourceType: "tenancy_organization",
+			ResourceID:   normalized.TenantID,
+			Outcome:      "success",
+		})
 	}
 	return err
 }
@@ -89,6 +100,13 @@ func (p *PostgresStore) DeleteOrganization(ctx context.Context) error {
 	if affected == 0 {
 		return ErrNotFound
 	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.organization.delete",
+		TenantID:     scope.TenantID,
+		ResourceType: "tenancy_organization",
+		ResourceID:   scope.TenantID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -125,6 +143,16 @@ func (p *PostgresStore) UpsertWorkspace(ctx context.Context, workspace TenancyWo
 	)
 	if isTenancyFKViolation(err) {
 		return ErrNotFound
+	}
+	if err == nil {
+		audit.WriteAction(ctx, audit.AuditEvent{
+			Action:       "tenancy.workspace.upsert",
+			TenantID:     normalized.TenantID,
+			WorkspaceID:  normalized.WorkspaceID,
+			ResourceType: "tenancy_workspace",
+			ResourceID:   normalized.WorkspaceID,
+			Outcome:      "success",
+		})
 	}
 	return err
 }
@@ -235,6 +263,14 @@ func (p *PostgresStore) DeleteWorkspace(ctx context.Context, workspaceID string)
 	if affected == 0 {
 		return ErrNotFound
 	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -278,6 +314,16 @@ func (p *PostgresStore) UpsertWorkspaceMember(ctx context.Context, member Tenanc
 	)
 	if isTenancyFKViolation(err) {
 		return ErrNotFound
+	}
+	if err == nil {
+		audit.WriteAction(ctx, audit.AuditEvent{
+			Action:       "tenancy.workspace_member.upsert",
+			TenantID:     normalized.TenantID,
+			WorkspaceID:  normalized.WorkspaceID,
+			ResourceType: "tenancy_workspace_member",
+			ResourceID:   normalized.MemberID,
+			Outcome:      "success",
+		})
 	}
 	return err
 }
@@ -404,6 +450,14 @@ func (p *PostgresStore) DeleteWorkspaceMember(ctx context.Context, workspaceID s
 	if affected == 0 {
 		return ErrNotFound
 	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace_member.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace_member",
+		ResourceID:   memberID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -447,6 +501,16 @@ func (p *PostgresStore) UpsertProject(ctx context.Context, project TenancyProjec
 	)
 	if isTenancyFKViolation(err) {
 		return ErrNotFound
+	}
+	if err == nil {
+		audit.WriteAction(ctx, audit.AuditEvent{
+			Action:       "tenancy.project.upsert",
+			TenantID:     normalized.TenantID,
+			WorkspaceID:  normalized.WorkspaceID,
+			ResourceType: "tenancy_project",
+			ResourceID:   normalized.ProjectID,
+			Outcome:      "success",
+		})
 	}
 	return err
 }
@@ -593,5 +657,13 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 	if affected == 0 {
 		return ErrNotFound
 	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.project.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_project",
+		ResourceID:   projectID,
+		Outcome:      "success",
+	})
 	return nil
 }

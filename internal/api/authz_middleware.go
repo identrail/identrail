@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
@@ -437,19 +438,19 @@ func setAuthzDecisionContext(c *gin.Context, policySetID string, policyVersion i
 		firstNonEmpty(input.Subject.WorkspaceID, strings.TrimSpace(input.Context.Attributes[policyContextWorkspaceIDKey])),
 	)
 
-	auditDecision := AuditAuthzDecision{
+	auditDecision := audit.AuditAuthzDecision{
 		PolicySetID:  normalizedPolicySetID,
 		PolicySource: normalizedPolicySource,
 		RolloutMode:  normalizedRolloutMode,
 		Allowed:      decision.Allowed,
 		Stage:        strings.TrimSpace(string(decision.Stage)),
 		Reason:       strings.TrimSpace(decision.Reason),
-		Input: AuditAuthzInputSummary{
+		Input: audit.AuditAuthzInputSummary{
 			SubjectType:    strings.TrimSpace(input.Subject.Type),
-			SubjectIDHash:  fingerprintAuditIdentifier(input.Subject.ID),
+			SubjectIDHash:  audit.FingerprintIdentifier(input.Subject.ID),
 			Action:         strings.TrimSpace(input.Action),
 			ResourceType:   strings.TrimSpace(input.Resource.Type),
-			ResourceIDHash: fingerprintAuditIdentifier(input.Resource.ID),
+			ResourceIDHash: audit.FingerprintIdentifier(input.Resource.ID),
 			TenantID:       tenantID,
 			WorkspaceID:    workspaceID,
 		},
