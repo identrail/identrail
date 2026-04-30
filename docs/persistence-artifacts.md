@@ -45,4 +45,4 @@ Tenancy and project management CRUD now has dedicated scoped store operations:
 - workspace members (`tenancy_workspace_members`)
 - projects (`tenancy_projects`)
 
-Scope boundaries are enforced by requiring request scope (`tenant_id`, `workspace_id`) in all store operations, and tests cover cross-scope access denial expectations.
+Scope boundaries are enforced by requiring request scope (`tenant_id`, `workspace_id`) in all store operations, and workspace-bound CRUD paths deny cross-workspace access even within the same tenant.

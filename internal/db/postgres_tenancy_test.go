@@ -68,18 +68,35 @@ func TestPostgresStoreWorkspaceScopeIsolation(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, created_at, updated_at
-		 FROM tenancy_workspaces
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2`)).
-		WithArgs("tenant-a", "workspace-b").
-		WillReturnRows(sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "created_at", "updated_at"}))
-
 	_, err = store.GetWorkspace(ctx, "workspace-b")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected scoped workspace lookup to fail with ErrNotFound, got %v", err)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreUpsertProjectRejectsCrossWorkspaceScope(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	err = store.UpsertProject(ctx, TenancyProject{
+		WorkspaceID: "workspace-b",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for cross-workspace upsert, got %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

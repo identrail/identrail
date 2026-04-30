@@ -88,3 +88,17 @@ func MatchScope(scope Scope, tenantID string, workspaceID string) bool {
 	return strings.TrimSpace(tenantID) == normalized.TenantID &&
 		strings.TrimSpace(workspaceID) == normalized.WorkspaceID
 }
+
+// ResolveScopedWorkspaceID normalizes one workspace identifier and enforces
+// that it remains within the active request scope.
+func ResolveScopedWorkspaceID(scope Scope, workspaceID string) (string, error) {
+	normalizedScope := scope.Normalize()
+	resolved := strings.TrimSpace(workspaceID)
+	if resolved == "" {
+		resolved = normalizedScope.WorkspaceID
+	}
+	if resolved != normalizedScope.WorkspaceID {
+		return "", ErrNotFound
+	}
+	return resolved, nil
+}
