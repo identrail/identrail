@@ -44,3 +44,11 @@ Configured hooks include:
 - trailing whitespace and EOF normalization
 - Go formatting check
 - Go vet on pre-push
+- Local `.env.local` token hygiene check on pre-push (`VERCEL_OIDC_TOKEN`)
+
+## Local Token Hygiene
+
+If your local workflow uses Vercel OIDC and writes `VERCEL_OIDC_TOKEN` into `.env.local`:
+- Treat the token as short-lived and regenerate with `vercel env pull .env.local` when needed.
+- Never share raw token values in logs, screenshots, or pasted debug snippets.
+- Use the local runbook: `local-token-hygiene.md`.

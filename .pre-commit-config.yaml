@@ -21,3 +21,10 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      - id: local-token-hygiene
+        name: local env token hygiene
+        entry: ./scripts/check-local-token-hygiene.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
