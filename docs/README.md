@@ -45,6 +45,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - Repository exposure scanner: `repo-exposure.md`
 - Execution model (API enqueue + worker processing): `execution-model.md`
 - Configuration reference: `configuration-reference.md`
+- Domain entity model: `domain-entities.md`
 
 ## Release and supply chain track
 

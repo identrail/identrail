@@ -61,3 +61,33 @@ func TestIdentityJSONUsesSnakeCaseFields(t *testing.T) {
 		t.Fatalf("unexpected struct field casing leaked in payload: %s", text)
 	}
 }
+
+func TestAppModeEntityJSONUsesSnakeCaseFields(t *testing.T) {
+	now := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
+	connector := Connector{
+		ID:          "connector-1",
+		WorkspaceID: "workspace-1",
+		ProjectID:   "project-1",
+		Type:        ConnectorTypeGitHub,
+		DisplayName: "GitHub",
+		Status:      ConnectorStatusActive,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	payload, err := json.Marshal(connector)
+	if err != nil {
+		t.Fatalf("marshal connector: %v", err)
+	}
+	text := string(payload)
+	for _, expected := range []string{`"workspace_id"`, `"project_id"`, `"display_name"`, `"created_at"`} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected field %s in %s", expected, text)
+		}
+	}
+	for _, unexpected := range []string{`"WorkspaceID"`, `"ProjectID"`, `"DisplayName"`} {
+		if strings.Contains(text, unexpected) {
+			t.Fatalf("unexpected struct field casing leaked in payload: %s", text)
+		}
+	}
+}
