@@ -52,7 +52,7 @@ type FooterProps = {
   discordUrl: string;
 };
 
-const FOOTER_TRUST_LINKS = [
+export const FOOTER_TRUST_LINKS = [
   { label: 'FAQ', to: '/faq', external: false },
   { label: 'Privacy', to: '/privacy', external: false },
   { label: 'Terms', to: '/terms', external: false },

@@ -9,7 +9,7 @@ export type ProofArtifact = {
 export const TRUST_PROOF_LINKS: readonly ProofArtifact[] = [
   {
     label: 'Architecture Docs',
-    href: 'https://github.com/identrail/identrail/tree/main/docs',
+    href: 'https://github.com/identrail/identrail/tree/dev/docs',
     external: true,
     description: 'System architecture, deployment patterns, and control boundaries.',
     freshness: 'Updated monthly'

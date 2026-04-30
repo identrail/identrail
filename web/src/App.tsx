@@ -30,7 +30,7 @@ declare global {
 
 const SITE_URL = 'https://www.identrail.com';
 const GITHUB_REPO = 'https://github.com/identrail/identrail';
-const DOCS_REPO = 'https://github.com/identrail/identrail/tree/main/docs';
+const DOCS_REPO = 'https://github.com/identrail/identrail/tree/dev/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
