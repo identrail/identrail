@@ -23,6 +23,7 @@ var ErrNotFound = errors.New("record not found")
 var ErrScopeRequired = errors.New("scope is required")
 
 var authzOwnerTeamPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+var tenancySlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 const (
 	ScanEventLevelDebug = "debug"
@@ -105,6 +106,20 @@ var validAuthzPolicyRolloutModes = map[string]struct{}{
 	AuthzPolicyRolloutModeDisabled: {},
 	AuthzPolicyRolloutModeShadow:   {},
 	AuthzPolicyRolloutModeEnforce:  {},
+}
+
+var validTenancyMemberRoles = map[string]struct{}{
+	"owner":   {},
+	"admin":   {},
+	"analyst": {},
+	"viewer":  {},
+}
+
+var validTenancyMemberStatuses = map[string]struct{}{
+	"invited":   {},
+	"active":    {},
+	"suspended": {},
+	"removed":   {},
 }
 
 // ScanRecord tracks persisted scan execution metadata.
@@ -273,6 +288,51 @@ type AuthzPolicyEvent struct {
 	Message     string         `json:"message,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	CreatedAt   time.Time      `json:"created_at"`
+}
+
+// TenancyOrganization stores one tenant root metadata record.
+type TenancyOrganization struct {
+	TenantID    string    `json:"tenant_id"`
+	DisplayName string    `json:"display_name"`
+	Slug        string    `json:"slug"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// TenancyWorkspace stores one workspace metadata record.
+type TenancyWorkspace struct {
+	TenantID    string    `json:"tenant_id"`
+	WorkspaceID string    `json:"workspace_id"`
+	DisplayName string    `json:"display_name"`
+	Slug        string    `json:"slug"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// TenancyWorkspaceMember stores one workspace member assignment.
+type TenancyWorkspaceMember struct {
+	TenantID    string    `json:"tenant_id"`
+	WorkspaceID string    `json:"workspace_id"`
+	MemberID    string    `json:"member_id"`
+	UserID      string    `json:"user_id"`
+	Email       string    `json:"email,omitempty"`
+	Role        string    `json:"role"`
+	Status      string    `json:"status"`
+	JoinedAt    time.Time `json:"joined_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// TenancyProject stores one project metadata record.
+type TenancyProject struct {
+	TenantID    string     `json:"tenant_id"`
+	WorkspaceID string     `json:"workspace_id"`
+	ProjectID   string     `json:"project_id"`
+	Name        string     `json:"name"`
+	Slug        string     `json:"slug"`
+	Description string     `json:"description,omitempty"`
+	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // NormalizeScanEventLevel validates and normalizes event levels.
@@ -537,6 +597,170 @@ func containsInt(values []int, value int) bool {
 	return false
 }
 
+func validateTenancySlug(value, field string) error {
+	if len(value) > 63 {
+		return fmt.Errorf("%s must be 63 characters or fewer", field)
+	}
+	if !tenancySlugPattern.MatchString(value) {
+		return fmt.Errorf("%s must match %s", field, tenancySlugPattern.String())
+	}
+	return nil
+}
+
+// NormalizeTenancyOrganizationForWrite validates and canonicalizes organization metadata.
+func NormalizeTenancyOrganizationForWrite(organization TenancyOrganization) (TenancyOrganization, error) {
+	normalized := organization
+	normalized.TenantID = strings.TrimSpace(organization.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyOrganization{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.DisplayName = strings.TrimSpace(organization.DisplayName)
+	if normalized.DisplayName == "" {
+		return TenancyOrganization{}, fmt.Errorf("display name is required")
+	}
+	normalized.Slug = strings.ToLower(strings.TrimSpace(organization.Slug))
+	if normalized.Slug == "" {
+		return TenancyOrganization{}, fmt.Errorf("slug is required")
+	}
+	if err := validateTenancySlug(normalized.Slug, "slug"); err != nil {
+		return TenancyOrganization{}, err
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeTenancyWorkspaceForWrite validates and canonicalizes workspace metadata.
+func NormalizeTenancyWorkspaceForWrite(workspace TenancyWorkspace) (TenancyWorkspace, error) {
+	normalized := workspace
+	normalized.TenantID = strings.TrimSpace(workspace.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyWorkspace{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(workspace.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return TenancyWorkspace{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.DisplayName = strings.TrimSpace(workspace.DisplayName)
+	if normalized.DisplayName == "" {
+		return TenancyWorkspace{}, fmt.Errorf("display name is required")
+	}
+	normalized.Slug = strings.ToLower(strings.TrimSpace(workspace.Slug))
+	if normalized.Slug == "" {
+		return TenancyWorkspace{}, fmt.Errorf("slug is required")
+	}
+	if err := validateTenancySlug(normalized.Slug, "slug"); err != nil {
+		return TenancyWorkspace{}, err
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeTenancyWorkspaceMemberForWrite validates and canonicalizes workspace members.
+func NormalizeTenancyWorkspaceMemberForWrite(member TenancyWorkspaceMember) (TenancyWorkspaceMember, error) {
+	normalized := member
+	normalized.TenantID = strings.TrimSpace(member.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyWorkspaceMember{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(member.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return TenancyWorkspaceMember{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.MemberID = strings.TrimSpace(member.MemberID)
+	if normalized.MemberID == "" {
+		return TenancyWorkspaceMember{}, fmt.Errorf("member id is required")
+	}
+	normalized.UserID = strings.TrimSpace(member.UserID)
+	if normalized.UserID == "" {
+		return TenancyWorkspaceMember{}, fmt.Errorf("user id is required")
+	}
+	normalized.Email = strings.TrimSpace(member.Email)
+	normalized.Role = strings.ToLower(strings.TrimSpace(member.Role))
+	if _, ok := validTenancyMemberRoles[normalized.Role]; !ok {
+		return TenancyWorkspaceMember{}, fmt.Errorf("invalid member role")
+	}
+	normalized.Status = strings.ToLower(strings.TrimSpace(member.Status))
+	if normalized.Status == "" {
+		normalized.Status = "invited"
+	}
+	if _, ok := validTenancyMemberStatuses[normalized.Status]; !ok {
+		return TenancyWorkspaceMember{}, fmt.Errorf("invalid member status")
+	}
+	if normalized.JoinedAt.IsZero() {
+		normalized.JoinedAt = time.Now().UTC()
+	} else {
+		normalized.JoinedAt = normalized.JoinedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.JoinedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeTenancyProjectForWrite validates and canonicalizes project metadata.
+func NormalizeTenancyProjectForWrite(project TenancyProject) (TenancyProject, error) {
+	normalized := project
+	normalized.TenantID = strings.TrimSpace(project.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyProject{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(project.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return TenancyProject{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.ProjectID = strings.TrimSpace(project.ProjectID)
+	if normalized.ProjectID == "" {
+		return TenancyProject{}, fmt.Errorf("project id is required")
+	}
+	normalized.Name = strings.TrimSpace(project.Name)
+	if normalized.Name == "" {
+		return TenancyProject{}, fmt.Errorf("project name is required")
+	}
+	normalized.Slug = strings.ToLower(strings.TrimSpace(project.Slug))
+	if normalized.Slug == "" {
+		return TenancyProject{}, fmt.Errorf("project slug is required")
+	}
+	if err := validateTenancySlug(normalized.Slug, "project slug"); err != nil {
+		return TenancyProject{}, err
+	}
+	normalized.Description = strings.TrimSpace(project.Description)
+	if normalized.ArchivedAt != nil {
+		archived := normalized.ArchivedAt.UTC()
+		normalized.ArchivedAt = &archived
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
 // NormalizeAuthzPolicyEventForWrite validates and canonicalizes one immutable policy event.
 func NormalizeAuthzPolicyEventForWrite(event AuthzPolicyEvent) (AuthzPolicyEvent, error) {
 	normalized := event
@@ -633,6 +857,21 @@ type Store interface {
 	GetAuthzPolicyRollout(ctx context.Context, policySetID string) (AuthzPolicyRollout, error)
 	AppendAuthzPolicyEvent(ctx context.Context, event AuthzPolicyEvent) error
 	ListAuthzPolicyEvents(ctx context.Context, policySetID string, limit int) ([]AuthzPolicyEvent, error)
+	UpsertOrganization(ctx context.Context, organization TenancyOrganization) error
+	GetOrganization(ctx context.Context) (TenancyOrganization, error)
+	DeleteOrganization(ctx context.Context) error
+	UpsertWorkspace(ctx context.Context, workspace TenancyWorkspace) error
+	GetWorkspace(ctx context.Context, workspaceID string) (TenancyWorkspace, error)
+	ListWorkspaces(ctx context.Context, limit int) ([]TenancyWorkspace, error)
+	DeleteWorkspace(ctx context.Context, workspaceID string) error
+	UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error
+	GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (TenancyWorkspaceMember, error)
+	ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error)
+	DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error
+	UpsertProject(ctx context.Context, project TenancyProject) error
+	GetProject(ctx context.Context, workspaceID string, projectID string) (TenancyProject, error)
+	ListProjects(ctx context.Context, workspaceID string, includeArchived bool, limit int) ([]TenancyProject, error)
+	DeleteProject(ctx context.Context, workspaceID string, projectID string) error
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error

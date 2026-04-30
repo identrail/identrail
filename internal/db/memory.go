@@ -34,6 +34,10 @@ type MemoryStore struct {
 	authzRollouts map[string]AuthzPolicyRollout
 	authzEvents   map[string][]AuthzPolicyEvent
 	authzEventIDs map[string]struct{}
+	organizations map[string]TenancyOrganization
+	workspaces    map[string]TenancyWorkspace
+	members       map[string]TenancyWorkspaceMember
+	projects      map[string]TenancyProject
 	identities    map[string]domain.Identity
 	policies      map[string]domain.Policy
 	relationships map[string]domain.Relationship
@@ -61,6 +65,10 @@ func NewMemoryStore() *MemoryStore {
 		authzRollouts: map[string]AuthzPolicyRollout{},
 		authzEvents:   map[string][]AuthzPolicyEvent{},
 		authzEventIDs: map[string]struct{}{},
+		organizations: map[string]TenancyOrganization{},
+		workspaces:    map[string]TenancyWorkspace{},
+		members:       map[string]TenancyWorkspaceMember{},
+		projects:      map[string]TenancyProject{},
 		identities:    map[string]domain.Identity{},
 		policies:      map[string]domain.Policy{},
 		relationships: map[string]domain.Relationship{},
