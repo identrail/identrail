@@ -472,6 +472,9 @@ func SecurityWarnings(cfg Config) []string {
 	if strings.TrimSpace(cfg.AuditForwardURL) != "" && strings.TrimSpace(cfg.AuditForwardHMACSecret) == "" {
 		warnings = append(warnings, "audit forward signing is disabled; set IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET to enable receiver signature verification")
 	}
+	if strings.TrimSpace(cfg.AuditFingerprintSecret) == "" {
+		warnings = append(warnings, "audit fingerprinting uses legacy unkeyed hash; set IDENTRAIL_AUDIT_FINGERPRINT_SECRET for HMAC-SHA256 pseudonymization")
+	}
 	if strings.TrimSpace(cfg.AlertWebhookURL) != "" && strings.TrimSpace(cfg.AlertHMACSecret) == "" {
 		warnings = append(warnings, "alert webhook signing is disabled; set IDENTRAIL_ALERT_HMAC_SECRET to enable request signature verification")
 	}

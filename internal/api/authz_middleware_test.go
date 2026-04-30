@@ -752,7 +752,7 @@ func newPolicyTestRouterWithResolver(scopes scopeSet, setPrincipal bool, resolve
 		}
 		c.Next()
 	})
-	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics))
+	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics, nil))
 	r.POST("/v1/scans", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
@@ -773,7 +773,7 @@ func newPolicyTriageRouter(scopes scopeSet, setPrincipal bool, store db.Store) *
 		}
 		c.Next()
 	})
-	r.Use(requireCentralPolicyMiddleware(newCentralPolicyRuntimeResolver(store), nil, nil, store, telemetry.NewMetrics()))
+	r.Use(requireCentralPolicyMiddleware(newCentralPolicyRuntimeResolver(store), nil, nil, store, telemetry.NewMetrics(), nil))
 	r.PATCH("/v1/findings/:finding_id/triage", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
@@ -794,8 +794,8 @@ func newPolicyAuditTestRouter(scopes scopeSet, setPrincipal bool, resolver centr
 		}
 		c.Next()
 	})
-	r.Use(auditLogMiddleware(zap.NewNop(), sink))
-	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics))
+	r.Use(auditLogMiddleware(zap.NewNop(), sink, nil))
+	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics, nil))
 	r.POST("/v1/scans", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})

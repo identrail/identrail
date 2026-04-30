@@ -63,7 +63,7 @@ type authzPolicySimulationResponse struct {
 	Policy   authzPolicySimulationPolicyResponse `json:"policy"`
 }
 
-func authzPolicySimulationHandler(logger *zap.Logger, store db.Store, resolver centralPolicyRuntimeResolver, sink audit.AuditSink) gin.HandlerFunc {
+func authzPolicySimulationHandler(logger *zap.Logger, store db.Store, resolver centralPolicyRuntimeResolver, sink audit.AuditSink, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -122,7 +122,7 @@ func authzPolicySimulationHandler(logger *zap.Logger, store db.Store, resolver c
 		c.JSON(http.StatusOK, response)
 
 		if request.AuditEvent {
-			writeSimulationAuditEvent(logger, sink, c, start)
+			writeSimulationAuditEvent(logger, sink, fingerprinter, c, start)
 		}
 	}
 }
@@ -238,12 +238,12 @@ func resolveSimulationRuntime(c *gin.Context, store db.Store, resolver centralPo
 	}, nil
 }
 
-func writeSimulationAuditEvent(logger *zap.Logger, sink audit.AuditSink, c *gin.Context, start time.Time) {
+func writeSimulationAuditEvent(logger *zap.Logger, sink audit.AuditSink, fingerprinter *audit.Fingerprinter, c *gin.Context, start time.Time) {
 	if sink == nil {
 		return
 	}
 	ctx, correlationID := audit.EnsureCorrelationID(c.Request.Context())
-	actor := triageActorFromContext(c)
+	actor := triageActorFromContext(c, fingerprinter)
 	ctx = audit.WithActor(ctx, actor)
 	event := audit.AuditEvent{
 		Timestamp:     time.Now().UTC(),
@@ -258,7 +258,7 @@ func writeSimulationAuditEvent(logger *zap.Logger, sink audit.AuditSink, c *gin.
 		UserAgent:     c.Request.UserAgent(),
 	}
 	if apiKey := authContextString(c, "auth.api_key"); apiKey != "" {
-		event.APIKeyID = audit.FingerprintAPIKey(apiKey)
+		event.APIKeyID = fingerprintAPIKeyWith(fingerprinter, apiKey)
 	}
 	if err := sink.Write(ctx, event); err != nil {
 		logger.Warn("authz simulation audit write failed", telemetry.ZapError(err))

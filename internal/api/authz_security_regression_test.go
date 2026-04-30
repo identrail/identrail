@@ -337,8 +337,8 @@ func newAuthzSecurityRegressionRouter(t *testing.T, store db.Store, resolver cen
 		}
 		c.Next()
 	})
-	r.Use(auditLogMiddleware(zap.NewNop(), sink))
-	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, store, telemetry.NewMetrics()))
+	r.Use(auditLogMiddleware(zap.NewNop(), sink, nil))
+	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, store, telemetry.NewMetrics(), nil))
 
 	r.POST("/v1/scans", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)

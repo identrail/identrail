@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,7 @@ type authzPolicyRollbackResponse struct {
 	UpdatedAt                time.Time `json:"updated_at"`
 }
 
-func authzPolicyRollbackHandler(logger *zap.Logger, store db.Store, metrics *telemetry.Metrics) gin.HandlerFunc {
+func authzPolicyRollbackHandler(logger *zap.Logger, store db.Store, metrics *telemetry.Metrics, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -96,7 +97,7 @@ func authzPolicyRollbackHandler(logger *zap.Logger, store db.Store, metrics *tel
 			WorkspaceAllowlist: nil,
 			CanaryPercentage:   100,
 			ValidatedVersions:  appendValidatedVersion(rollout.ValidatedVersions, targetVersion),
-			UpdatedBy:          effectiveRollbackActor(c, request.Actor),
+			UpdatedBy:          effectiveRollbackActor(c, request.Actor, fingerprinter),
 			UpdatedAt:          updatedAt,
 		}
 		if err := store.UpsertAuthzPolicyRollout(c.Request.Context(), nextRollout); err != nil {
@@ -141,12 +142,12 @@ func authzPolicyRollbackHandler(logger *zap.Logger, store db.Store, metrics *tel
 	}
 }
 
-func effectiveRollbackActor(c *gin.Context, explicit string) string {
+func effectiveRollbackActor(c *gin.Context, explicit string, fingerprinter *audit.Fingerprinter) string {
 	normalized := strings.TrimSpace(explicit)
 	if normalized != "" {
 		return normalized
 	}
-	return triageActorFromContext(c)
+	return triageActorFromContext(c, fingerprinter)
 }
 
 func effectiveVersionBeforeRollback(rollout db.AuthzPolicyRollout) *int {

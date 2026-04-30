@@ -220,7 +220,7 @@ func defaultRouteActionReBACPolicies() map[string]rebacActionPolicy {
 	}
 }
 
-func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, writeKeys []string, scopedKeys map[string][]string, store db.Store, metrics *telemetry.Metrics) gin.HandlerFunc {
+func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, writeKeys []string, scopedKeys map[string][]string, store db.Store, metrics *telemetry.Metrics, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
 	normalizedWriteKeys := normalizeKeyList(writeKeys)
 	if resolver == nil {
 		resolver = newCentralPolicyRuntimeResolver(store)
@@ -304,7 +304,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 			}
 		}
 
-		setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input)
+		setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 
 		if !decision.Allowed {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
@@ -412,7 +412,7 @@ func recordPolicyDecisionMetric(metrics *telemetry.Metrics, policySetID string, 
 	metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(set, versionLabel, sourceLabel, modeLabel, allowedLabel).Inc()
 }
 
-func setAuthzDecisionContext(c *gin.Context, policySetID string, policyVersion int, policySource string, rolloutMode string, decision PolicyDecision, input PolicyInput) {
+func setAuthzDecisionContext(c *gin.Context, policySetID string, policyVersion int, policySource string, rolloutMode string, decision PolicyDecision, input PolicyInput, fingerprinter *audit.Fingerprinter) {
 	if c == nil {
 		return
 	}
@@ -447,10 +447,10 @@ func setAuthzDecisionContext(c *gin.Context, policySetID string, policyVersion i
 		Reason:       strings.TrimSpace(decision.Reason),
 		Input: audit.AuditAuthzInputSummary{
 			SubjectType:    strings.TrimSpace(input.Subject.Type),
-			SubjectIDHash:  audit.FingerprintIdentifier(input.Subject.ID),
+			SubjectIDHash:  fingerprintIdentifierWith(fingerprinter, input.Subject.ID),
 			Action:         strings.TrimSpace(input.Action),
 			ResourceType:   strings.TrimSpace(input.Resource.Type),
-			ResourceIDHash: audit.FingerprintIdentifier(input.Resource.ID),
+			ResourceIDHash: fingerprintIdentifierWith(fingerprinter, input.Resource.ID),
 			TenantID:       tenantID,
 			WorkspaceID:    workspaceID,
 		},

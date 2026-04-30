@@ -237,30 +237,68 @@ func (m *MultiAuditSink) Close() error {
 	return firstErr
 }
 
+// Fingerprinter produces keyed HMAC-SHA256 fingerprints for audit identifiers.
+type Fingerprinter struct {
+	key []byte
+}
+
+// NewFingerprinter creates a Fingerprinter that uses the given secret as the
+// HMAC-SHA256 key. The secret must be non-empty in production; an empty value
+// causes a panic to prevent accidental use of weak fingerprints.
+func NewFingerprinter(secret string) *Fingerprinter {
+	trimmed := strings.TrimSpace(secret)
+	if trimmed == "" {
+		panic("audit.NewFingerprinter: secret must not be empty; set IDENTRAIL_AUDIT_FINGERPRINT_SECRET")
+	}
+	return &Fingerprinter{key: []byte(trimmed)}
+}
+
+func (f *Fingerprinter) hmacFingerprint(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, f.key)
+	mac.Write([]byte(trimmed))
+	return "hmac256:" + hex.EncodeToString(mac.Sum(nil))[:24]
+}
+
+// Identifier returns a stable, keyed fingerprint suitable for correlating
+// principals/resources in audit logs without exposing raw IDs.
+func (f *Fingerprinter) Identifier(raw string) string {
+	return f.hmacFingerprint(raw)
+}
+
+// APIKey returns a stable, keyed fingerprint for API keys in audit logs.
+func (f *Fingerprinter) APIKey(raw string) string {
+	return f.hmacFingerprint(raw)
+}
+
 func fingerprintAPIKey(raw string) string {
-	return fingerprintAuditIdentifier(raw)
+	return legacyFingerprintAuditIdentifier(raw)
 }
 
 // FingerprintAPIKey returns a stable, non-secret identifier suitable for audit logs.
+// Deprecated: Use Fingerprinter.APIKey for keyed HMAC-SHA256 fingerprints.
 func FingerprintAPIKey(raw string) string {
 	return fingerprintAPIKey(raw)
 }
 
-func fingerprintAuditIdentifier(raw string) string {
+func legacyFingerprintAuditIdentifier(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return ""
 	}
 	hasher := fnv.New64a()
 	_, _ = hasher.Write([]byte(trimmed))
-	// Deterministic correlation identifier; truncated for compact audit payloads.
 	return fmt.Sprintf("fnv64a:%012x", hasher.Sum64()&0xFFFFFFFFFFFF)
 }
 
 // FingerprintIdentifier returns a stable, non-secret identifier suitable for
 // correlating principals/resources without logging raw IDs.
+// Deprecated: Use Fingerprinter.Identifier for keyed HMAC-SHA256 fingerprints.
 func FingerprintIdentifier(raw string) string {
-	return fingerprintAuditIdentifier(raw)
+	return legacyFingerprintAuditIdentifier(raw)
 }
 
 func validateAuditForwardURL(raw string) error {

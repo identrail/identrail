@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
@@ -115,6 +116,11 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		tokenVerifier = verifier
 	}
 
+	var auditFingerprinter *audit.Fingerprinter
+	if strings.TrimSpace(cfg.AuditFingerprintSecret) != "" {
+		auditFingerprinter = audit.NewFingerprinter(cfg.AuditFingerprintSecret)
+	}
+
 	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
 		APIKeys:            cfg.APIKeys,
 		WriteAPIKeys:       cfg.WriteAPIKeys,
@@ -124,6 +130,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		RateLimitRPM:       cfg.RateLimitRPM,
 		RateLimitBurst:     cfg.RateLimitBurst,
 		AuditSink:          auditSink,
+		AuditFingerprinter: auditFingerprinter,
 		TrustedProxies:     cfg.TrustedProxies,
 		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
 		DefaultTenantID:    cfg.DefaultTenantID,

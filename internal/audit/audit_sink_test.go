@@ -105,3 +105,84 @@ func TestMultiAuditSinkFanout(t *testing.T) {
 		t.Fatalf("expected one event, got %d", len(record.events))
 	}
 }
+
+func TestFingerprinterIdentifierProducesHMAC(t *testing.T) {
+	fp := NewFingerprinter("test-secret-key")
+	result := fp.Identifier("user-123")
+	if result == "" {
+		t.Fatal("expected non-empty fingerprint")
+	}
+	if !strings.HasPrefix(result, "hmac256:") {
+		t.Fatalf("expected hmac256 prefix, got %q", result)
+	}
+	if len(result) != len("hmac256:")+24 {
+		t.Fatalf("unexpected fingerprint length: %d", len(result))
+	}
+}
+
+func TestFingerprinterIdentifierIsDeterministic(t *testing.T) {
+	fp := NewFingerprinter("test-secret-key")
+	a := fp.Identifier("user-123")
+	b := fp.Identifier("user-123")
+	if a != b {
+		t.Fatalf("expected deterministic output, got %q and %q", a, b)
+	}
+}
+
+func TestFingerprinterDifferentKeysProduceDifferentOutput(t *testing.T) {
+	fp1 := NewFingerprinter("key-one")
+	fp2 := NewFingerprinter("key-two")
+	result1 := fp1.Identifier("user-123")
+	result2 := fp2.Identifier("user-123")
+	if result1 == result2 {
+		t.Fatal("different keys should produce different fingerprints")
+	}
+}
+
+func TestFingerprinterEmptyInputReturnsEmpty(t *testing.T) {
+	fp := NewFingerprinter("test-secret-key")
+	if fp.Identifier("") != "" {
+		t.Fatal("expected empty string for empty input")
+	}
+	if fp.Identifier("   ") != "" {
+		t.Fatal("expected empty string for whitespace-only input")
+	}
+}
+
+func TestFingerprinterAPIKeyMatchesIdentifier(t *testing.T) {
+	fp := NewFingerprinter("test-secret-key")
+	apiResult := fp.APIKey("my-api-key")
+	idResult := fp.Identifier("my-api-key")
+	if apiResult != idResult {
+		t.Fatalf("APIKey and Identifier should produce same output for same input, got %q and %q", apiResult, idResult)
+	}
+}
+
+func TestNewFingerprinterPanicsOnEmptySecret(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic on empty secret")
+		}
+	}()
+	NewFingerprinter("")
+}
+
+func TestLegacyFingerprintIdentifierStillWorks(t *testing.T) {
+	result := FingerprintIdentifier("user-123")
+	if result == "" {
+		t.Fatal("expected non-empty legacy fingerprint")
+	}
+	if !strings.HasPrefix(result, "fnv64a:") {
+		t.Fatalf("expected fnv64a prefix, got %q", result)
+	}
+}
+
+func TestLegacyFingerprintAPIKeyStillWorks(t *testing.T) {
+	result := FingerprintAPIKey("my-api-key")
+	if result == "" {
+		t.Fatal("expected non-empty legacy fingerprint")
+	}
+	if !strings.HasPrefix(result, "fnv64a:") {
+		t.Fatalf("expected fnv64a prefix, got %q", result)
+	}
+}
