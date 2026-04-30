@@ -219,6 +219,9 @@ func TestConnectorStatusTransitions(t *testing.T) {
 	if !CanTransitionConnectorStatus(ConnectorStatusDegraded, ConnectorStatusActive) {
 		t.Fatal("expected degraded -> active transition to be valid")
 	}
+	if CanTransitionConnectorStatus(ConnectorStatus("unknown"), ConnectorStatus("unknown")) {
+		t.Fatal("expected unknown -> unknown transition to be invalid")
+	}
 }
 
 func TestRemediationStatusTransitions(t *testing.T) {
@@ -233,5 +236,83 @@ func TestRemediationStatusTransitions(t *testing.T) {
 	}
 	if !CanTransitionRemediationJobStatus(RemediationJobStatusFailed, RemediationJobStatusQueued) {
 		t.Fatal("expected failed -> queued transition to be valid for retry")
+	}
+}
+
+func TestAppModeValidationRejectsInvalidEnums(t *testing.T) {
+	now := time.Now().UTC()
+
+	invalidMember := WorkspaceMember{
+		ID:          "member-1",
+		WorkspaceID: "workspace-core",
+		UserID:      "user-1",
+		Email:       "user@example.com",
+		Role:        MemberRole("bad-role"),
+		Status:      MemberStatus("bad-status"),
+		JoinedAt:    now,
+		UpdatedAt:   now,
+	}
+	if err := invalidMember.Validate(); err == nil {
+		t.Fatal("expected invalid member role/status to fail")
+	}
+
+	invalidConnector := Connector{
+		ID:          "connector-1",
+		WorkspaceID: "workspace-core",
+		ProjectID:   "project-core",
+		Type:        ConnectorType("bad-type"),
+		DisplayName: "connector",
+		Status:      ConnectorStatus("bad-status"),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := invalidConnector.Validate(); err == nil {
+		t.Fatal("expected invalid connector type/status to fail")
+	}
+
+	invalidScanPolicy := ScanPolicy{
+		ID:                 "policy-1",
+		WorkspaceID:        "workspace-core",
+		ProjectID:          "project-core",
+		Name:               "policy",
+		Enabled:            true,
+		TriggerMode:        ScanTriggerMode("bad-mode"),
+		MaxConcurrentScans: 1,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := invalidScanPolicy.Validate(); err == nil {
+		t.Fatal("expected invalid scan trigger mode to fail")
+	}
+
+	invalidSuppression := SuppressionPolicy{
+		ID:            "suppression-1",
+		WorkspaceID:   "workspace-core",
+		ProjectID:     "project-core",
+		Name:          "suppression",
+		Scope:         SuppressionScope("bad-scope"),
+		Target:        "target",
+		Reason:        "reason",
+		CreatedBy:     "user-1",
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := invalidSuppression.Validate(); err == nil {
+		t.Fatal("expected invalid suppression scope to fail")
+	}
+
+	invalidRemediation := RemediationJob{
+		ID:            "remediation-1",
+		WorkspaceID:   "workspace-core",
+		ProjectID:     "project-core",
+		FindingID:     "finding-1",
+		Type:          RemediationJobType("bad-type"),
+		Status:        RemediationJobStatus("bad-status"),
+		RequestedBy:   "user-1",
+		RequestedAt:   now,
+		LastUpdatedAt: now,
+	}
+	if err := invalidRemediation.Validate(); err == nil {
+		t.Fatal("expected invalid remediation type/status to fail")
 	}
 }

@@ -277,3 +277,64 @@ func TestMemoryStoreTenancyKeysAvoidDelimiterCollision(t *testing.T) {
 		t.Fatalf("expected isolated project records, got A=%q B=%q", projectA.Name, projectB.Name)
 	}
 }
+
+func TestMemoryStoreTenancyNotFoundAndListBranches(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.DeleteOrganization(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing organization delete to return ErrNotFound, got %v", err)
+	}
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+
+	if _, err := store.GetWorkspaceMember(ctx, "workspace-a", "missing-member"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing workspace member to return ErrNotFound, got %v", err)
+	}
+	if err := store.DeleteWorkspaceMember(ctx, "workspace-a", "missing-member"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing workspace member delete to return ErrNotFound, got %v", err)
+	}
+	if err := store.DeleteProject(ctx, "workspace-a", "missing-project"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing project delete to return ErrNotFound, got %v", err)
+	}
+
+	archivedAt := time.Now().UTC()
+	if err := store.UpsertProject(ctx, TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "active-project",
+		Name:        "Active",
+		Slug:        "active",
+	}); err != nil {
+		t.Fatalf("upsert active project: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "archived-project",
+		Name:        "Archived",
+		Slug:        "archived",
+		ArchivedAt:  &archivedAt,
+	}); err != nil {
+		t.Fatalf("upsert archived project: %v", err)
+	}
+
+	nonArchived, err := store.ListProjects(ctx, "workspace-a", false, 0)
+	if err != nil {
+		t.Fatalf("list non-archived projects: %v", err)
+	}
+	if len(nonArchived) != 1 || nonArchived[0].ProjectID != "active-project" {
+		t.Fatalf("expected only active project, got %+v", nonArchived)
+	}
+
+	allProjects, err := store.ListProjects(ctx, "workspace-a", true, 0)
+	if err != nil {
+		t.Fatalf("list all projects: %v", err)
+	}
+	if len(allProjects) != 2 {
+		t.Fatalf("expected both projects when includeArchived=true, got %+v", allProjects)
+	}
+}
