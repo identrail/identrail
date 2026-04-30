@@ -334,6 +334,7 @@ paths:
           required: true
           schema: { type: string }
         - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
         - in: query
           name: role
           schema:
