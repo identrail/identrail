@@ -241,6 +241,10 @@ func TestPostgresStoreDeleteOrganizationScoped(t *testing.T) {
 	if err := store.DeleteOrganization(ctx); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for missing organization delete, got %v", err)
 	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
 }
 
 func TestPostgresStoreListAndDeleteWorkspaceScoped(t *testing.T) {
@@ -279,6 +283,10 @@ func TestPostgresStoreListAndDeleteWorkspaceScoped(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	if err := store.DeleteWorkspace(ctx, "workspace-a"); err != nil {
 		t.Fatalf("delete workspace: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
 
@@ -339,6 +347,10 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 	if err := store.DeleteWorkspaceMember(ctx, "workspace-a", "member-1"); err != nil {
 		t.Fatalf("delete workspace member: %v", err)
 	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
 }
 
 func TestPostgresStoreProjectReadPaths(t *testing.T) {
@@ -387,6 +399,10 @@ func TestPostgresStoreProjectReadPaths(t *testing.T) {
 	if len(projects) != 1 || projects[0].ProjectID != "project-1" {
 		t.Fatalf("unexpected projects: %+v", projects)
 	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
 }
 
 func TestPostgresStoreWorkspaceAndMemberNotFoundPaths(t *testing.T) {
@@ -427,6 +443,10 @@ func TestPostgresStoreWorkspaceAndMemberNotFoundPaths(t *testing.T) {
 	if err := store.DeleteWorkspace(ctx, "workspace-a"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected missing workspace delete to return ErrNotFound, got %v", err)
 	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
 }
 
 func TestPostgresStoreListProjectsIncludesArchivedBranch(t *testing.T) {
@@ -455,5 +475,9 @@ func TestPostgresStoreListProjectsIncludesArchivedBranch(t *testing.T) {
 	}
 	if len(projects) != 1 || projects[0].ArchivedAt == nil {
 		t.Fatalf("expected archived project in result, got %+v", projects)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
