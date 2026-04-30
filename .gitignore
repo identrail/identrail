@@ -20,6 +20,8 @@ secrets/
 logs/
 tmp/
 *.tmp
+canceled
+succeeded
 
 # Go
 bin/
@@ -37,6 +39,8 @@ pnpm-debug.log*
 web/dist/
 web/build/
 web/coverage/
+web/coverage 2/
+web/coverage 3/
 web/.vercel/
 site/.next/
 site/.vercel/
@@ -72,6 +76,12 @@ build/
 
 # Cache
 .cache/
+
+# Local duplicate artifacts accidentally produced by manual copy operations
+/* 2
+/* 3
+/* 2.*
+/* 3.*
 
 # Legacy/optional frontend worktree snapshots (not part of active dev branch)
 site/

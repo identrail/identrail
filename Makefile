@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap quickstart quickstart-down fmt fmt-check vet test test-integration web-install web-test web-build api-example-contract-check vercel-prod-deploy helm-lint tfmt-check ci pre-commit
+.PHONY: help bootstrap quickstart quickstart-down clean-local fmt fmt-check vet test test-integration web-install web-test web-build api-example-contract-check vercel-prod-deploy helm-lint tfmt-check ci pre-commit
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -15,6 +15,9 @@ quickstart: ## Bootstrap local Docker stack and run first scan
 
 quickstart-down: ## Stop and remove quickstart Docker stack
 	docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env down
+
+clean-local: ## Remove local duplicate/temp artifacts not tracked in git
+	./scripts/clean_local.sh
 
 fmt: ## Auto-format Go and Terraform files
 	@if git ls-files '*.go' | grep -q .; then \

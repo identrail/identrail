@@ -16,6 +16,11 @@ tasks:
     cmds:
       - make fmt
 
+  clean:
+    desc: Remove local duplicate/temp artifacts not tracked in git
+    cmds:
+      - make clean-local
+
   fmt-check:
     desc: Check formatting without modifying files
     cmds:
