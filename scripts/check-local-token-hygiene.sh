@@ -13,9 +13,19 @@ if [[ -z "${token_line}" ]]; then
 fi
 
 token_value="${token_line#*=}"
+token_value="$(printf '%s' "${token_value}" | tr -d '\r')"
+
+# Strip inline comments (un-quoted # and everything after)
+token_value="$(printf '%s' "${token_value}" | sed -E 's/[[:space:]]+#.*$//')"
+
+# Strip surrounding quotes (double or single)
 token_value="${token_value%\"}"
 token_value="${token_value#\"}"
-token_value="$(printf '%s' "${token_value}" | tr -d '\r' | xargs)"
+token_value="${token_value%\'}"
+token_value="${token_value#\'}"
+
+# Trim leading/trailing whitespace
+token_value="$(printf '%s' "${token_value}" | xargs)"
 
 if [[ -z "${token_value}" ]]; then
   exit 0
