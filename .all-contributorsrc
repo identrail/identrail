@@ -1,6 +1,6 @@
 {
   "projectName": "identrail",
-  "projectOwner": "Oluwatobi-Mustapha",
+  "projectOwner": "identrail",
   "repoType": "github",
   "repoHost": "https://github.com",
   "files": [
@@ -8,6 +8,21 @@
   ],
   "imageSize": 100,
   "commit": false,
-  "contributors": [],
-  "contributorConvention": "all-contributors"
+  "contributors": [
+    {
+      "login": "Oluwatobi-Mustapha",
+      "name": "Oluwatobi Mustapha ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/201377892?v=4",
+      "profile": "http://oluwatobimustapha.vercel.app",
+      "contributions": [
+        "infra",
+        "test",
+        "code"
+      ]
+    }
+  ],
+  "contributorConvention": "all-contributors",
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributorsPerLine": 7
 }
