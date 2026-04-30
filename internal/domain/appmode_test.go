@@ -87,31 +87,31 @@ func TestAppModeEntitiesValidate(t *testing.T) {
 	}
 
 	suppression := SuppressionPolicy{
-		ID:            "suppression-1",
-		WorkspaceID:   workspace.ID,
-		ProjectID:     project.ID,
-		Name:          "temporary exception",
-		Scope:         SuppressionScopeRule,
-		Target:        "secret_exposure",
-		Reason:        "approved exception",
-		CreatedBy:     "admin-user",
-		CreatedAt:     now,
-		LastUpdatedAt: now,
+		ID:          "suppression-1",
+		WorkspaceID: workspace.ID,
+		ProjectID:   project.ID,
+		Name:        "temporary exception",
+		Scope:       SuppressionScopeRule,
+		Target:      "secret_exposure",
+		Reason:      "approved exception",
+		CreatedBy:   "admin-user",
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := suppression.Validate(); err != nil {
 		t.Fatalf("expected valid suppression policy, got %v", err)
 	}
 
 	remediation := RemediationJob{
-		ID:            "remediation-1",
-		WorkspaceID:   workspace.ID,
-		ProjectID:     project.ID,
-		FindingID:     "finding-123",
-		Type:          RemediationJobTypeCreateFixPR,
-		Status:        RemediationJobStatusQueued,
-		RequestedBy:   "admin-user",
-		RequestedAt:   now,
-		LastUpdatedAt: now,
+		ID:          "remediation-1",
+		WorkspaceID: workspace.ID,
+		ProjectID:   project.ID,
+		FindingID:   "finding-123",
+		Type:        RemediationJobTypeCreateFixPR,
+		Status:      RemediationJobStatusQueued,
+		RequestedBy: "admin-user",
+		RequestedAt: now,
+		UpdatedAt:   now,
 	}
 	if err := remediation.Validate(); err != nil {
 		t.Fatalf("expected valid remediation job, got %v", err)
@@ -194,15 +194,15 @@ func TestScanPolicyScheduledValidationRequiresCron(t *testing.T) {
 func TestRemediationJobValidationRequiresValidFindingID(t *testing.T) {
 	now := time.Now().UTC()
 	job := RemediationJob{
-		ID:            "remediation-1",
-		WorkspaceID:   "workspace-core",
-		ProjectID:     "project-core",
-		FindingID:     "finding bad",
-		Type:          RemediationJobTypeCreateFixPR,
-		Status:        RemediationJobStatusQueued,
-		RequestedBy:   "admin-user",
-		RequestedAt:   now,
-		LastUpdatedAt: now,
+		ID:          "remediation-1",
+		WorkspaceID: "workspace-core",
+		ProjectID:   "project-core",
+		FindingID:   "finding bad",
+		Type:        RemediationJobTypeCreateFixPR,
+		Status:      RemediationJobStatusQueued,
+		RequestedBy: "admin-user",
+		RequestedAt: now,
+		UpdatedAt:   now,
 	}
 	if err := job.Validate(); err == nil {
 		t.Fatal("expected remediation job finding_id validation to fail")
@@ -233,5 +233,11 @@ func TestRemediationStatusTransitions(t *testing.T) {
 	}
 	if !CanTransitionRemediationJobStatus(RemediationJobStatusFailed, RemediationJobStatusQueued) {
 		t.Fatal("expected failed -> queued transition to be valid for retry")
+	}
+	if CanTransitionRemediationJobStatus(RemediationJobStatusSucceeded, RemediationJobStatusSucceeded) {
+		t.Fatal("expected succeeded -> succeeded self-transition to be invalid")
+	}
+	if CanTransitionRemediationJobStatus(RemediationJobStatusCanceled, RemediationJobStatusCanceled) {
+		t.Fatal("expected canceled -> canceled self-transition to be invalid")
 	}
 }

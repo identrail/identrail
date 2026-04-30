@@ -37,14 +37,14 @@ This document defines the normalized multi-tenant app-mode entities introduced f
   - Trigger mode enum: `manual|scheduled|event|hybrid`
   - Validation: required ids/name, valid mode, `max_concurrent_scans > 0`.
 - `SuppressionPolicy`
-  - Fields: `id`, `workspace_id`, `project_id`, `name`, `scope`, `target`, `reason`, `expires_at`, `created_by`, `created_at`, `last_updated_at`
+  - Fields: `id`, `workspace_id`, `project_id`, `name`, `scope`, `target`, `reason`, `expires_at`, `created_by`, `created_at`, `updated_at`
   - Scope enum: `finding|rule|resource`
   - Validation: required ids, scope, target, reason, and creator id.
 
 ## Remediation Entity
 
 - `RemediationJob`
-  - Fields: `id`, `workspace_id`, `project_id`, `finding_id`, `type`, `status`, `requested_by`, `requested_at`, `started_at`, `completed_at`, `artifact_ref`, `error_message`, `last_updated_at`
+  - Fields: `id`, `workspace_id`, `project_id`, `finding_id`, `type`, `status`, `requested_by`, `requested_at`, `started_at`, `completed_at`, `artifact_ref`, `error_message`, `updated_at`
   - Type enum: `patch_template|create_fix_pr|ticket`
   - Status enum: `queued|running|succeeded|failed|canceled`
   - Transition contract:

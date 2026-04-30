@@ -159,34 +159,34 @@ type ScanPolicy struct {
 
 // SuppressionPolicy models policy-based finding suppressions.
 type SuppressionPolicy struct {
-	ID            string           `json:"id"`
-	WorkspaceID   string           `json:"workspace_id"`
-	ProjectID     string           `json:"project_id"`
-	Name          string           `json:"name"`
-	Scope         SuppressionScope `json:"scope"`
-	Target        string           `json:"target"`
-	Reason        string           `json:"reason"`
-	ExpiresAt     *time.Time       `json:"expires_at,omitempty"`
-	CreatedBy     string           `json:"created_by"`
-	CreatedAt     time.Time        `json:"created_at"`
-	LastUpdatedAt time.Time        `json:"last_updated_at"`
+	ID          string           `json:"id"`
+	WorkspaceID string           `json:"workspace_id"`
+	ProjectID   string           `json:"project_id"`
+	Name        string           `json:"name"`
+	Scope       SuppressionScope `json:"scope"`
+	Target      string           `json:"target"`
+	Reason      string           `json:"reason"`
+	ExpiresAt   *time.Time       `json:"expires_at,omitempty"`
+	CreatedBy   string           `json:"created_by"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
 }
 
 // RemediationJob models one remediation execution request.
 type RemediationJob struct {
-	ID            string               `json:"id"`
-	WorkspaceID   string               `json:"workspace_id"`
-	ProjectID     string               `json:"project_id"`
-	FindingID     string               `json:"finding_id"`
-	Type          RemediationJobType   `json:"type"`
-	Status        RemediationJobStatus `json:"status"`
-	RequestedBy   string               `json:"requested_by"`
-	RequestedAt   time.Time            `json:"requested_at"`
-	StartedAt     *time.Time           `json:"started_at,omitempty"`
-	CompletedAt   *time.Time           `json:"completed_at,omitempty"`
-	ArtifactRef   string               `json:"artifact_ref,omitempty"`
-	ErrorMessage  string               `json:"error_message,omitempty"`
-	LastUpdatedAt time.Time            `json:"last_updated_at"`
+	ID           string               `json:"id"`
+	WorkspaceID  string               `json:"workspace_id"`
+	ProjectID    string               `json:"project_id"`
+	FindingID    string               `json:"finding_id"`
+	Type         RemediationJobType   `json:"type"`
+	Status       RemediationJobStatus `json:"status"`
+	RequestedBy  string               `json:"requested_by"`
+	RequestedAt  time.Time            `json:"requested_at"`
+	StartedAt    *time.Time           `json:"started_at,omitempty"`
+	CompletedAt  *time.Time           `json:"completed_at,omitempty"`
+	ArtifactRef  string               `json:"artifact_ref,omitempty"`
+	ErrorMessage string               `json:"error_message,omitempty"`
+	UpdatedAt    time.Time            `json:"updated_at"`
 }
 
 func (o Organization) Validate() error {
@@ -376,7 +376,7 @@ func CanTransitionConnectorStatus(from ConnectorStatus, to ConnectorStatus) bool
 
 func CanTransitionRemediationJobStatus(from RemediationJobStatus, to RemediationJobStatus) bool {
 	if from == to {
-		return true
+		return from != RemediationJobStatusSucceeded && from != RemediationJobStatusCanceled
 	}
 	switch from {
 	case RemediationJobStatusQueued:
