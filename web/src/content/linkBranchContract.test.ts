@@ -50,7 +50,7 @@ describe('repo link branch contract', () => {
   });
 
   it('does not hardcode non-existent main branch links in any source file', () => {
-    const mainBranchPattern = /https:\/\/github\.com\/identrail\/identrail\/(tree|blob)\/main\//g;
+    const mainBranchPattern = /https:\/\/github\.com\/identrail\/identrail\/(tree|blob)\/main(?:[/?#]|$)/g;
     const violations: string[] = [];
 
     for (const [filePath, content] of Object.entries(sourceFiles)) {
