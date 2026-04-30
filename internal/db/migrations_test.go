@@ -230,6 +230,7 @@ func TestTwelfthMigrationContainsTenancyCoreTables(t *testing.T) {
 		"FOREIGN KEY (tenant_id, workspace_id) REFERENCES tenancy_workspaces(tenant_id, workspace_id)",
 		"idx_tenancy_workspaces_scope_created",
 		"idx_tenancy_members_scope_role_status",
+		"idx_tenancy_members_scope_joined",
 		"idx_tenancy_projects_scope_created",
 	}
 	for _, item := range required {

@@ -67,6 +67,9 @@ CREATE INDEX IF NOT EXISTS idx_tenancy_workspaces_scope_created
 CREATE INDEX IF NOT EXISTS idx_tenancy_members_scope_role_status
     ON tenancy_workspace_members (tenant_id, workspace_id, role, status);
 
+CREATE INDEX IF NOT EXISTS idx_tenancy_members_scope_joined
+    ON tenancy_workspace_members (tenant_id, workspace_id, joined_at);
+
 CREATE INDEX IF NOT EXISTS idx_tenancy_projects_scope_created
     ON tenancy_projects (tenant_id, workspace_id, created_at DESC);
 

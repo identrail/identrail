@@ -180,3 +180,100 @@ func TestMemoryStoreDeleteWorkspaceCascadesWithPaddedWorkspaceID(t *testing.T) {
 		t.Fatalf("expected project to be cascade-deleted, got %v", err)
 	}
 }
+
+func TestMemoryStoreProjectReadsCloneArchivedPointer(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Now().UTC()
+	archived := now
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Payments",
+		Slug:        "payments",
+		ArchivedAt:  &archived,
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	project, err := store.GetProject(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get project: %v", err)
+	}
+	if project.ArchivedAt == nil {
+		t.Fatal("expected archived_at to be set")
+	}
+	mutated := archived.Add(24 * time.Hour)
+	*project.ArchivedAt = mutated
+
+	projectAgain, err := store.GetProject(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get project again: %v", err)
+	}
+	if projectAgain.ArchivedAt == nil || !projectAgain.ArchivedAt.Equal(archived) {
+		t.Fatalf("expected stored archived_at to remain unchanged, got %+v want %v", projectAgain.ArchivedAt, archived)
+	}
+
+	listed, err := store.ListProjects(ctx, "workspace-a", true, 10)
+	if err != nil {
+		t.Fatalf("list projects: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ArchivedAt == nil {
+		t.Fatalf("expected one archived project, got %+v", listed)
+	}
+	listMutated := archived.Add(48 * time.Hour)
+	*listed[0].ArchivedAt = listMutated
+
+	projectAfterList, err := store.GetProject(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get project after list mutation: %v", err)
+	}
+	if projectAfterList.ArchivedAt == nil || !projectAfterList.ArchivedAt.Equal(archived) {
+		t.Fatalf("expected stored archived_at to remain unchanged after list mutation, got %+v want %v", projectAfterList.ArchivedAt, archived)
+	}
+}
+
+func TestMemoryStoreTenancyKeysAvoidDelimiterCollision(t *testing.T) {
+	store := NewMemoryStore()
+	ctxA := WithScope(context.Background(), Scope{TenantID: "tenant", WorkspaceID: "a|b"})
+	ctxB := WithScope(context.Background(), Scope{TenantID: "tenant|a", WorkspaceID: "b"})
+
+	if err := store.UpsertOrganization(ctxA, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org A: %v", err)
+	}
+	if err := store.UpsertOrganization(ctxB, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("upsert org B: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctxA, TenancyWorkspace{WorkspaceID: "a|b", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace A: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctxB, TenancyWorkspace{WorkspaceID: "b", DisplayName: "Workspace B", Slug: "workspace-b"}); err != nil {
+		t.Fatalf("upsert workspace B: %v", err)
+	}
+
+	if err := store.UpsertProject(ctxA, TenancyProject{WorkspaceID: "a|b", ProjectID: "project-1", Name: "A", Slug: "a"}); err != nil {
+		t.Fatalf("upsert project A: %v", err)
+	}
+	if err := store.UpsertProject(ctxB, TenancyProject{WorkspaceID: "b", ProjectID: "project-1", Name: "B", Slug: "b"}); err != nil {
+		t.Fatalf("upsert project B: %v", err)
+	}
+
+	projectA, err := store.GetProject(ctxA, "a|b", "project-1")
+	if err != nil {
+		t.Fatalf("get project A: %v", err)
+	}
+	projectB, err := store.GetProject(ctxB, "b", "project-1")
+	if err != nil {
+		t.Fatalf("get project B: %v", err)
+	}
+	if projectA.Name == projectB.Name {
+		t.Fatalf("expected isolated project records, got A=%q B=%q", projectA.Name, projectB.Name)
+	}
+}

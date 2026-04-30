@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 // UpsertOrganization persists one scoped organization metadata row.
@@ -31,6 +32,9 @@ func (p *PostgresStore) UpsertOrganization(ctx context.Context, organization Ten
 		normalized.CreatedAt,
 		normalized.UpdatedAt,
 	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
 	return err
 }
 
@@ -119,6 +123,9 @@ func (p *PostgresStore) UpsertWorkspace(ctx context.Context, workspace TenancyWo
 		normalized.CreatedAt,
 		normalized.UpdatedAt,
 	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
 	return err
 }
 
@@ -269,6 +276,9 @@ func (p *PostgresStore) UpsertWorkspaceMember(ctx context.Context, member Tenanc
 		normalized.JoinedAt,
 		normalized.UpdatedAt,
 	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
 	return err
 }
 
@@ -435,7 +445,17 @@ func (p *PostgresStore) UpsertProject(ctx context.Context, project TenancyProjec
 		normalized.CreatedAt,
 		normalized.UpdatedAt,
 	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
 	return err
+}
+
+func isTenancyFKViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "violates foreign key constraint")
 }
 
 // GetProject returns one scoped project.

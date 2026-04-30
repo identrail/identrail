@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -315,6 +316,10 @@ func (m *MemoryStore) GetProject(ctx context.Context, workspaceID string, projec
 	if !exists {
 		return TenancyProject{}, ErrNotFound
 	}
+	if project.ArchivedAt != nil {
+		archived := project.ArchivedAt.UTC()
+		project.ArchivedAt = &archived
+	}
 	return project, nil
 }
 
@@ -341,6 +346,10 @@ func (m *MemoryStore) ListProjects(ctx context.Context, workspaceID string, incl
 		}
 		if !includeArchived && project.ArchivedAt != nil {
 			continue
+		}
+		if project.ArchivedAt != nil {
+			archived := project.ArchivedAt.UTC()
+			project.ArchivedAt = &archived
 		}
 		projects = append(projects, project)
 	}
@@ -373,13 +382,24 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 }
 
 func tenancyWorkspaceKey(tenantID string, workspaceID string) string {
-	return strings.TrimSpace(tenantID) + "|" + strings.TrimSpace(workspaceID)
+	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID))
 }
 
 func tenancyMemberKey(tenantID string, workspaceID string, memberID string) string {
-	return tenancyWorkspaceKey(tenantID, workspaceID) + "|" + strings.TrimSpace(memberID)
+	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(memberID))
 }
 
 func tenancyProjectKey(tenantID string, workspaceID string, projectID string) string {
-	return tenancyWorkspaceKey(tenantID, workspaceID) + "|" + strings.TrimSpace(projectID)
+	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID))
+}
+
+func tenancyCompositeKey(parts ...string) string {
+	var builder strings.Builder
+	for _, part := range parts {
+		builder.WriteString(strconv.Itoa(len(part)))
+		builder.WriteByte(':')
+		builder.WriteString(part)
+		builder.WriteByte('|')
+	}
+	return builder.String()
 }

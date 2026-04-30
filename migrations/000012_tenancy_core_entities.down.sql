@@ -1,5 +1,6 @@
 DROP INDEX IF EXISTS idx_tenancy_projects_scope_archived;
 DROP INDEX IF EXISTS idx_tenancy_projects_scope_created;
+DROP INDEX IF EXISTS idx_tenancy_members_scope_joined;
 DROP INDEX IF EXISTS idx_tenancy_members_scope_role_status;
 DROP INDEX IF EXISTS idx_tenancy_workspaces_scope_created;
 
