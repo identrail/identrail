@@ -591,37 +591,37 @@ export const DOC_ENTRIES: DocEntry[] = [
   {
     title: 'Quickstart on Docker',
     description: 'Deploy Identrail locally in under 10 minutes using Docker Compose.',
-    href: 'https://github.com/identrail/identrail/blob/main/deploy/docker/README.md',
+    href: 'https://github.com/identrail/identrail/blob/dev/deploy/docker/README.md',
     tags: ['quickstart', 'docker', 'self-hosted']
   },
   {
     title: 'Deploy Anywhere Runbook',
     description: 'Production deployment guidance for Kubernetes, Helm, Terraform, and systemd.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/deployment-anywhere.md',
+    href: 'https://github.com/identrail/identrail/blob/dev/docs/deployment-anywhere.md',
     tags: ['deployment', 'kubernetes', 'terraform']
   },
   {
     title: 'Architecture Deep Dive',
     description: 'Understand ingestion pipelines, trust graph construction, and authorization controls.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/architecture.md',
+    href: 'https://github.com/identrail/identrail/blob/dev/docs/architecture.md',
     tags: ['architecture', 'graph', 'platform']
   },
   {
     title: 'AWS Collector',
     description: 'Collector configuration, permissions, and scaling tips for IAM role and policy discovery.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/aws-collector.md',
+    href: 'https://github.com/identrail/identrail/blob/dev/docs/aws-collector.md',
     tags: ['aws', 'iam', 'collector']
   },
   {
     title: 'Repo Exposure Scanner',
     description: 'Scan Git repositories for credential leaks and machine identity exposure patterns.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/repo-exposure.md',
+    href: 'https://github.com/identrail/identrail/blob/dev/docs/repo-exposure.md',
     tags: ['git', 'secrets', 'scanner']
   },
   {
     title: 'Security Hardening Guide',
     description: 'Hardening checklist, supply chain controls, and incident response guidance.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/security-hardening.md',
+    href: 'https://github.com/identrail/identrail/blob/dev/docs/security-hardening.md',
     tags: ['security', 'hardening', 'operations']
   }
 ];
