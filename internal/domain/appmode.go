@@ -357,6 +357,9 @@ func (j RemediationJob) Validate() error {
 }
 
 func CanTransitionConnectorStatus(from ConnectorStatus, to ConnectorStatus) bool {
+	if !validConnectorStatus(from) || !validConnectorStatus(to) {
+		return false
+	}
 	if from == to {
 		return true
 	}
