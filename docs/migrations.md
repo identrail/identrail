@@ -56,6 +56,7 @@ Current sequence in `migrations/`:
 10. `000009_authz_abac_rebac_data` - central authz ABAC/REBAC data model
 11. `000010_authz_policy_lifecycle_controls` - policy lifecycle primitives
 12. `000011_authz_policy_rollout_staged_controls` - staged rollout controls
+13. `000012_tenancy_core_entities` - organization/workspace/member/project tenancy core
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

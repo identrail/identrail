@@ -213,3 +213,28 @@ func TestTenthMigrationContainsAuthzPolicyLifecycleTables(t *testing.T) {
 		}
 	}
 }
+
+func TestTwelfthMigrationContainsTenancyCoreTables(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "000012_tenancy_core_entities.up.sql")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	required := []string{
+		"CREATE TABLE IF NOT EXISTS tenancy_organizations",
+		"CREATE TABLE IF NOT EXISTS tenancy_workspaces",
+		"CREATE TABLE IF NOT EXISTS tenancy_workspace_members",
+		"CREATE TABLE IF NOT EXISTS tenancy_projects",
+		"FOREIGN KEY (tenant_id) REFERENCES tenancy_organizations(tenant_id)",
+		"FOREIGN KEY (tenant_id, workspace_id) REFERENCES tenancy_workspaces(tenant_id, workspace_id)",
+		"idx_tenancy_workspaces_scope_created",
+		"idx_tenancy_members_scope_role_status",
+		"idx_tenancy_projects_scope_created",
+	}
+	for _, item := range required {
+		if !strings.Contains(text, item) {
+			t.Fatalf("expected tenancy core migration item %q", item)
+		}
+	}
+}
