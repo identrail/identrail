@@ -627,6 +627,89 @@ func TestParseInt(t *testing.T) {
 	}
 }
 
+func TestParseIntAllowZero(t *testing.T) {
+	if got := parseIntAllowZero("25", 1); got != 25 {
+		t.Fatalf("expected 25, got %d", got)
+	}
+	if got := parseIntAllowZero("0", 7); got != 0 {
+		t.Fatalf("expected 0, got %d", got)
+	}
+	if got := parseIntAllowZero("-1", 7); got != 7 {
+		t.Fatalf("expected fallback 7, got %d", got)
+	}
+	if got := parseIntAllowZero("bad", 9); got != 9 {
+		t.Fatalf("expected fallback 9, got %d", got)
+	}
+}
+
+func TestLoadAppModeDefaults(t *testing.T) {
+	t.Setenv("IDENTRAIL_APP_MODE_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_REMEDIATION_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_PREMIUM_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_PREMIUM_REPORTS_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_PREMIUM_AUTOFIX_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_ENABLED", "")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT", "")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST", "")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST", "")
+
+	cfg := Load()
+	if cfg.AppModeEnabled {
+		t.Fatal("expected app mode disabled by default")
+	}
+	if cfg.AppModeConnectorsEnabled || cfg.AppModeSchedulerEnabled || cfg.AppModeRemediationEnabled {
+		t.Fatal("expected app mode feature flags disabled by default")
+	}
+	if cfg.AppModePremiumEnabled || cfg.AppModePremiumReports || cfg.AppModePremiumAutofix {
+		t.Fatal("expected premium feature flags disabled by default")
+	}
+	if cfg.AppModeRolloutEnabled {
+		t.Fatal("expected rollout disabled by default")
+	}
+	if cfg.AppModeRolloutCanary != 0 {
+		t.Fatalf("expected rollout canary default 0, got %d", cfg.AppModeRolloutCanary)
+	}
+	if len(cfg.AppModeTenantAllowlist) != 0 || len(cfg.AppModeWorkspaceAllowlist) != 0 {
+		t.Fatal("expected empty rollout allowlists by default")
+	}
+}
+
+func TestLoadAppModeFromEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_APP_MODE_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_REMEDIATION_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_PREMIUM_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_PREMIUM_REPORTS_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_PREMIUM_AUTOFIX_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_ENABLED", "true")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT", "15")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST", "tenant-a,tenant-b")
+	t.Setenv("IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST", "workspace-a,workspace-b")
+
+	cfg := Load()
+	if !cfg.AppModeEnabled || !cfg.AppModeConnectorsEnabled || !cfg.AppModeSchedulerEnabled || !cfg.AppModeRemediationEnabled {
+		t.Fatal("expected app mode feature flags enabled from env")
+	}
+	if !cfg.AppModePremiumEnabled || !cfg.AppModePremiumReports || !cfg.AppModePremiumAutofix {
+		t.Fatal("expected premium feature flags enabled from env")
+	}
+	if !cfg.AppModeRolloutEnabled {
+		t.Fatal("expected rollout enabled from env")
+	}
+	if cfg.AppModeRolloutCanary != 15 {
+		t.Fatalf("expected rollout canary 15, got %d", cfg.AppModeRolloutCanary)
+	}
+	if len(cfg.AppModeTenantAllowlist) != 2 || cfg.AppModeTenantAllowlist[0] != "tenant-a" || cfg.AppModeTenantAllowlist[1] != "tenant-b" {
+		t.Fatalf("unexpected app mode tenant allowlist: %+v", cfg.AppModeTenantAllowlist)
+	}
+	if len(cfg.AppModeWorkspaceAllowlist) != 2 || cfg.AppModeWorkspaceAllowlist[0] != "workspace-a" || cfg.AppModeWorkspaceAllowlist[1] != "workspace-b" {
+		t.Fatalf("unexpected app mode workspace allowlist: %+v", cfg.AppModeWorkspaceAllowlist)
+	}
+}
+
 func TestParseKeyScopes(t *testing.T) {
 	scopes := parseKeyScopes("key1:read;key2:read,write;invalid;:missing")
 	if len(scopes) != 2 {

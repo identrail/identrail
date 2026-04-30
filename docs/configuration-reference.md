@@ -57,6 +57,22 @@ Cross-provider:
 - `IDENTRAIL_LOCK_BACKEND` (`auto|inmemory|postgres`)
 - `IDENTRAIL_LOCK_NAMESPACE`
 
+## App-Mode Feature Flags
+
+All app-mode feature flags are disabled by default and must be explicitly enabled.
+
+- `IDENTRAIL_APP_MODE_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_CONNECTORS_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_SCHEDULER_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_REMEDIATION_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_PREMIUM_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_PREMIUM_REPORTS_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_PREMIUM_AUTOFIX_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_ROLLOUT_ENABLED` (default: `false`)
+- `IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT` (`0..100`, default: `0`)
+- `IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST` (CSV tenant ids)
+- `IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST` (CSV workspace ids)
+
 ## Repository Exposure
 
 - `IDENTRAIL_REPO_SCAN_ENABLED`

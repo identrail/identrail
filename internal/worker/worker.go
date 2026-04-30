@@ -35,6 +35,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	for _, warning := range config.SecurityWarnings(cfg) {
 		logger.Warn("security configuration warning", telemetry.String("detail", warning))
 	}
+	for _, diagnostic := range config.StartupDiagnostics(cfg) {
+		logger.Info("startup configuration diagnostic", telemetry.String("detail", diagnostic))
+	}
 
 	traceShutdown, err := telemetry.SetupTracing(ctx, cfg.ServiceName+"-worker")
 	if err != nil {

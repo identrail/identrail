@@ -23,6 +23,7 @@ const (
 	minAPIKeyLength             = 24
 	maxScopeIdentifierLength    = 64
 	maxOIDCClaimNameLength      = 128
+	maxAppModeCanaryPercent     = 100
 )
 
 var allowedKeyScopes = map[string]struct{}{
@@ -95,6 +96,51 @@ func ValidateSecurity(cfg Config) error {
 	}
 	if err := validateScopeIdentifier("IDENTRAIL_DEFAULT_WORKSPACE_ID", defaultWorkspace); err != nil {
 		return err
+	}
+	if cfg.AppModeConnectorsEnabled && !cfg.AppModeEnabled {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED requires IDENTRAIL_APP_MODE_ENABLED=true")
+	}
+	if cfg.AppModeSchedulerEnabled && !cfg.AppModeEnabled {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED requires IDENTRAIL_APP_MODE_ENABLED=true")
+	}
+	if cfg.AppModeRemediationEnabled && !cfg.AppModeEnabled {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_REMEDIATION_ENABLED requires IDENTRAIL_APP_MODE_ENABLED=true")
+	}
+	if cfg.AppModePremiumEnabled && !cfg.AppModeEnabled {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_PREMIUM_ENABLED requires IDENTRAIL_APP_MODE_ENABLED=true")
+	}
+	if cfg.AppModePremiumReports && !cfg.AppModePremiumEnabled {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_PREMIUM_REPORTS_ENABLED requires IDENTRAIL_APP_MODE_PREMIUM_ENABLED=true")
+	}
+	if cfg.AppModePremiumAutofix && !cfg.AppModePremiumEnabled {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_PREMIUM_AUTOFIX_ENABLED requires IDENTRAIL_APP_MODE_PREMIUM_ENABLED=true")
+	}
+	if cfg.AppModeRolloutEnabled && !cfg.AppModeEnabled {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_ROLLOUT_ENABLED requires IDENTRAIL_APP_MODE_ENABLED=true")
+	}
+	if !cfg.AppModeRolloutEnabled {
+		if cfg.AppModeRolloutCanary > 0 {
+			return fmt.Errorf("IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT requires IDENTRAIL_APP_MODE_ROLLOUT_ENABLED=true")
+		}
+		if len(cfg.AppModeTenantAllowlist) > 0 {
+			return fmt.Errorf("IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST requires IDENTRAIL_APP_MODE_ROLLOUT_ENABLED=true")
+		}
+		if len(cfg.AppModeWorkspaceAllowlist) > 0 {
+			return fmt.Errorf("IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST requires IDENTRAIL_APP_MODE_ROLLOUT_ENABLED=true")
+		}
+	}
+	if cfg.AppModeRolloutCanary < 0 || cfg.AppModeRolloutCanary > maxAppModeCanaryPercent {
+		return fmt.Errorf("IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT must be between 0 and %d", maxAppModeCanaryPercent)
+	}
+	for _, tenantID := range cfg.AppModeTenantAllowlist {
+		if err := validateScopeIdentifier("IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST", tenantID); err != nil {
+			return err
+		}
+	}
+	for _, workspaceID := range cfg.AppModeWorkspaceAllowlist {
+		if err := validateScopeIdentifier("IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST", workspaceID); err != nil {
+			return err
+		}
 	}
 
 	oidcIssuer := strings.TrimSpace(cfg.OIDCIssuerURL)
@@ -440,6 +486,24 @@ func SecurityWarnings(cfg Config) []string {
 		warnings = append(warnings, "IDENTRAIL_LOCK_BACKEND is inmemory in database mode; use postgres lock backend for multi-instance deployments")
 	}
 	return warnings
+}
+
+// StartupDiagnostics returns startup-safe key runtime mode summaries.
+func StartupDiagnostics(cfg Config) []string {
+	diagnostics := []string{
+		fmt.Sprintf("app_mode.enabled=%t", cfg.AppModeEnabled),
+		fmt.Sprintf("app_mode.connectors.enabled=%t", cfg.AppModeConnectorsEnabled),
+		fmt.Sprintf("app_mode.scheduler.enabled=%t", cfg.AppModeSchedulerEnabled),
+		fmt.Sprintf("app_mode.remediation.enabled=%t", cfg.AppModeRemediationEnabled),
+		fmt.Sprintf("app_mode.premium.enabled=%t", cfg.AppModePremiumEnabled),
+		fmt.Sprintf("app_mode.premium.reports.enabled=%t", cfg.AppModePremiumReports),
+		fmt.Sprintf("app_mode.premium.autofix.enabled=%t", cfg.AppModePremiumAutofix),
+		fmt.Sprintf("app_mode.rollout.enabled=%t", cfg.AppModeRolloutEnabled),
+		fmt.Sprintf("app_mode.rollout.canary_percent=%d", cfg.AppModeRolloutCanary),
+		fmt.Sprintf("app_mode.rollout.tenant_allowlist_count=%d", len(cfg.AppModeTenantAllowlist)),
+		fmt.Sprintf("app_mode.rollout.workspace_allowlist_count=%d", len(cfg.AppModeWorkspaceAllowlist)),
+	}
+	return diagnostics
 }
 
 func hasShortAPIKey(keys []string, scoped map[string][]string) bool {

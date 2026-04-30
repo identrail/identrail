@@ -42,6 +42,15 @@ const (
 	defaultOIDCWorkspaceClaim          = "workspace_id"
 	defaultOIDCGroupsClaim             = "groups"
 	defaultOIDCRolesClaim              = "roles"
+	defaultAppModeEnabled              = false
+	defaultAppModeConnectorsEnabled    = false
+	defaultAppModeSchedulerEnabled     = false
+	defaultAppModeRemediationEnabled   = false
+	defaultAppModePremiumEnabled       = false
+	defaultAppModePremiumReports       = false
+	defaultAppModePremiumAutofix       = false
+	defaultAppModeRolloutEnabled       = false
+	defaultAppModeRolloutCanaryPercent = 0
 )
 
 // Config centralizes process-level configuration. It keeps module wiring simple
@@ -117,6 +126,17 @@ type Config struct {
 	OIDCWorkspaceClaim         string
 	OIDCGroupsClaim            string
 	OIDCRolesClaim             string
+	AppModeEnabled             bool
+	AppModeConnectorsEnabled   bool
+	AppModeSchedulerEnabled    bool
+	AppModeRemediationEnabled  bool
+	AppModePremiumEnabled      bool
+	AppModePremiumReports      bool
+	AppModePremiumAutofix      bool
+	AppModeRolloutEnabled      bool
+	AppModeRolloutCanary       int
+	AppModeTenantAllowlist     []string
+	AppModeWorkspaceAllowlist  []string
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -195,6 +215,17 @@ func Load() Config {
 		OIDCWorkspaceClaim:         getEnv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", defaultOIDCWorkspaceClaim),
 		OIDCGroupsClaim:            getEnv("IDENTRAIL_OIDC_GROUPS_CLAIM", defaultOIDCGroupsClaim),
 		OIDCRolesClaim:             getEnv("IDENTRAIL_OIDC_ROLES_CLAIM", defaultOIDCRolesClaim),
+		AppModeEnabled:             parseBool(getEnv("IDENTRAIL_APP_MODE_ENABLED", "false"), defaultAppModeEnabled),
+		AppModeConnectorsEnabled:   parseBool(getEnv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", "false"), defaultAppModeConnectorsEnabled),
+		AppModeSchedulerEnabled:    parseBool(getEnv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", "false"), defaultAppModeSchedulerEnabled),
+		AppModeRemediationEnabled:  parseBool(getEnv("IDENTRAIL_APP_MODE_REMEDIATION_ENABLED", "false"), defaultAppModeRemediationEnabled),
+		AppModePremiumEnabled:      parseBool(getEnv("IDENTRAIL_APP_MODE_PREMIUM_ENABLED", "false"), defaultAppModePremiumEnabled),
+		AppModePremiumReports:      parseBool(getEnv("IDENTRAIL_APP_MODE_PREMIUM_REPORTS_ENABLED", "false"), defaultAppModePremiumReports),
+		AppModePremiumAutofix:      parseBool(getEnv("IDENTRAIL_APP_MODE_PREMIUM_AUTOFIX_ENABLED", "false"), defaultAppModePremiumAutofix),
+		AppModeRolloutEnabled:      parseBool(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_ENABLED", "false"), defaultAppModeRolloutEnabled),
+		AppModeRolloutCanary:       parseIntAllowZero(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT", "0"), defaultAppModeRolloutCanaryPercent),
+		AppModeTenantAllowlist:     parseCommaSeparated(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST", "")),
+		AppModeWorkspaceAllowlist:  parseCommaSeparated(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST", "")),
 	}
 }
 
@@ -247,6 +278,14 @@ func parseBoolWithValidity(value string, fallback bool) (bool, bool) {
 func parseInt(value string, fallback int) int {
 	parsed, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func parseIntAllowZero(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed < 0 {
 		return fallback
 	}
 	return parsed

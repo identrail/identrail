@@ -582,3 +582,88 @@ func TestSecurityWarningsShortAPIKey(t *testing.T) {
 		t.Fatalf("expected short API key warning, got %+v", warnings)
 	}
 }
+
+func TestValidateSecurityAppModeRolloutRequiresToggle(t *testing.T) {
+	cfg := Config{
+		APIKeys:              []string{"reader"},
+		AppModeRolloutCanary: 10,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected app mode rollout toggle dependency error")
+	}
+}
+
+func TestValidateSecurityAppModePremiumReportsRequiresPremiumFlag(t *testing.T) {
+	cfg := Config{
+		APIKeys:               []string{"reader"},
+		AppModeEnabled:        true,
+		AppModePremiumReports: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected premium reports dependency error")
+	}
+}
+
+func TestValidateSecurityRejectsOutOfRangeAppModeCanary(t *testing.T) {
+	cfg := Config{
+		APIKeys:               []string{"reader"},
+		AppModeEnabled:        true,
+		AppModeRolloutEnabled: true,
+		AppModeRolloutCanary:  101,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected app mode canary range validation error")
+	}
+}
+
+func TestValidateSecurityAcceptsAppModeConfig(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:              map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		AppModeEnabled:            true,
+		AppModeConnectorsEnabled:  true,
+		AppModeSchedulerEnabled:   true,
+		AppModeRemediationEnabled: true,
+		AppModePremiumEnabled:     true,
+		AppModePremiumReports:     true,
+		AppModePremiumAutofix:     true,
+		AppModeRolloutEnabled:     true,
+		AppModeRolloutCanary:      20,
+		AppModeTenantAllowlist:    []string{"tenant-a"},
+		AppModeWorkspaceAllowlist: []string{"workspace-a"},
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected app mode config to be valid, got %v", err)
+	}
+}
+
+func TestStartupDiagnosticsIncludesAppModeSummary(t *testing.T) {
+	cfg := Config{
+		AppModeEnabled:            true,
+		AppModeConnectorsEnabled:  true,
+		AppModeRolloutEnabled:     true,
+		AppModeRolloutCanary:      5,
+		AppModeTenantAllowlist:    []string{"tenant-a", "tenant-b"},
+		AppModeWorkspaceAllowlist: []string{"workspace-a"},
+	}
+	diagnostics := StartupDiagnostics(cfg)
+	required := []string{
+		"app_mode.enabled=true",
+		"app_mode.connectors.enabled=true",
+		"app_mode.rollout.enabled=true",
+		"app_mode.rollout.canary_percent=5",
+		"app_mode.rollout.tenant_allowlist_count=2",
+		"app_mode.rollout.workspace_allowlist_count=1",
+	}
+	for _, item := range required {
+		found := false
+		for _, diagnostic := range diagnostics {
+			if diagnostic == item {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected diagnostic %q, got %+v", item, diagnostics)
+		}
+	}
+}
