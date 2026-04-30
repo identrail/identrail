@@ -92,6 +92,7 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 func TestMemoryStoreTenancyScopeIsolation(t *testing.T) {
 	store := NewMemoryStore()
 	tenantA := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	tenantAWorkspaceB := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-b"})
 	tenantB := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
 
 	if err := store.UpsertOrganization(tenantA, TenancyOrganization{
@@ -124,6 +125,12 @@ func TestMemoryStoreTenancyScopeIsolation(t *testing.T) {
 	}
 	if _, err := store.GetProject(tenantB, "workspace-a", "project-a"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected tenant-b project to be isolated, got %v", err)
+	}
+	if _, err := store.GetWorkspace(tenantAWorkspaceB, "workspace-a"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected cross-workspace lookup to be denied, got %v", err)
+	}
+	if _, err := store.GetProject(tenantAWorkspaceB, "workspace-a", "project-a"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected cross-workspace project lookup to be denied, got %v", err)
 	}
 }
 
