@@ -455,6 +455,10 @@ func isTenancyFKViolation(err error) bool {
 	if err == nil {
 		return false
 	}
+	var sqlStateErr interface{ SQLState() string }
+	if errors.As(err, &sqlStateErr) {
+		return sqlStateErr.SQLState() == "23503"
+	}
 	return strings.Contains(err.Error(), "violates foreign key constraint")
 }
 
