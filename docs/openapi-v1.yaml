@@ -10,6 +10,8 @@ servers:
 tags:
   - name: Health
   - name: Authorization
+  - name: Tenancy
+  - name: ProjectManagement
   - name: Findings
   - name: Scans
   - name: Explorer
@@ -169,6 +171,389 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/organizations/current:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Tenancy]
+      summary: Get current organization
+      operationId: getCurrentOrganization
+      responses:
+        "200":
+          description: Current organization record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organization:
+                    $ref: "#/components/schemas/Organization"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Tenancy]
+      summary: Upsert current organization
+      operationId: upsertCurrentOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationUpsertRequest"
+      responses:
+        "200":
+          description: Organization upserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organization:
+                    $ref: "#/components/schemas/Organization"
+        "400":
+          description: Invalid organization payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workspaces:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Tenancy]
+      summary: List workspaces for current tenant
+      operationId: listWorkspaces
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/sortBy"
+        - $ref: "#/components/parameters/sortOrder"
+      responses:
+        "200":
+          description: Workspace page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspacePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Tenancy]
+      summary: Create or update workspace
+      operationId: upsertWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceUpsertRequest"
+      responses:
+        "200":
+          description: Workspace upserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace:
+                    $ref: "#/components/schemas/Workspace"
+        "400":
+          description: Invalid workspace payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/workspaces/{workspace_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Tenancy]
+      summary: Get workspace
+      operationId: getWorkspace
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Workspace detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace:
+                    $ref: "#/components/schemas/Workspace"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Tenancy]
+      summary: Delete workspace
+      operationId: deleteWorkspace
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Workspace deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/members:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Tenancy]
+      summary: List workspace members
+      operationId: listWorkspaceMembers
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/limit"
+        - in: query
+          name: role
+          schema:
+            $ref: "#/components/schemas/WorkspaceMemberRole"
+        - in: query
+          name: status
+          schema:
+            $ref: "#/components/schemas/WorkspaceMemberStatus"
+      responses:
+        "200":
+          description: Workspace member page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMemberPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Tenancy]
+      summary: Create or update workspace member
+      operationId: upsertWorkspaceMember
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceMemberUpsertRequest"
+      responses:
+        "200":
+          description: Workspace member upserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  member:
+                    $ref: "#/components/schemas/WorkspaceMember"
+        "400":
+          description: Invalid member payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/members/{member_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Tenancy]
+      summary: Get workspace member
+      operationId: getWorkspaceMember
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: member_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Workspace member detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  member:
+                    $ref: "#/components/schemas/WorkspaceMember"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Tenancy]
+      summary: Delete workspace member
+      operationId: deleteWorkspaceMember
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: member_id
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Member deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: List workspace projects
+      operationId: listProjects
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/sortBy"
+        - $ref: "#/components/parameters/sortOrder"
+        - in: query
+          name: include_archived
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Project page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [ProjectManagement]
+      summary: Create or update workspace project
+      operationId: upsertProject
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpsertRequest"
+      responses:
+        "200":
+          description: Project upserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project:
+                    $ref: "#/components/schemas/Project"
+        "400":
+          description: Invalid project payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: Get workspace project
+      operationId: getProject
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Project detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project:
+                    $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [ProjectManagement]
+      summary: Delete workspace project
+      operationId: deleteProject
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Project deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/findings:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -737,6 +1122,137 @@ components:
       type: object
       properties:
         error:
+          type: string
+    Organization:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        display_name: { type: string }
+        slug: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OrganizationUpsertRequest:
+      type: object
+      required: [display_name, slug]
+      properties:
+        display_name: { type: string }
+        slug: { type: string }
+    Workspace:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        display_name: { type: string }
+        slug: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkspaceUpsertRequest:
+      type: object
+      required: [workspace_id, display_name, slug]
+      properties:
+        workspace_id: { type: string }
+        display_name: { type: string }
+        slug: { type: string }
+    WorkspaceMemberRole:
+      type: string
+      enum: [owner, admin, analyst, viewer]
+    WorkspaceMemberStatus:
+      type: string
+      enum: [invited, active, suspended, removed]
+    WorkspaceMember:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        member_id: { type: string }
+        user_id: { type: string }
+        email: { type: string }
+        role:
+          $ref: "#/components/schemas/WorkspaceMemberRole"
+        status:
+          $ref: "#/components/schemas/WorkspaceMemberStatus"
+        joined_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    WorkspaceMemberUpsertRequest:
+      type: object
+      required: [member_id, user_id, role, status]
+      properties:
+        member_id: { type: string }
+        user_id: { type: string }
+        email: { type: string }
+        role:
+          $ref: "#/components/schemas/WorkspaceMemberRole"
+        status:
+          $ref: "#/components/schemas/WorkspaceMemberStatus"
+    Project:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ProjectUpsertRequest:
+      type: object
+      required: [project_id, name, slug]
+      properties:
+        project_id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+    WorkspacePage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Workspace"
+        next_cursor:
+          type: string
+    WorkspaceMemberPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceMember"
+        next_cursor:
+          type: string
+    ProjectPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        next_cursor:
           type: string
     PolicyStage:
       type: string

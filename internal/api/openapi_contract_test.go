@@ -95,6 +95,31 @@ func TestOpenAPIV1SpecContainsPagingFilterSortParameters(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"/v1/organizations/current:",
+		"/v1/workspaces:",
+		"/v1/workspaces/{workspace_id}:",
+		"/v1/workspaces/{workspace_id}/members:",
+		"/v1/workspaces/{workspace_id}/members/{member_id}:",
+		"/v1/workspaces/{workspace_id}/projects:",
+		"/v1/workspaces/{workspace_id}/projects/{project_id}:",
+		"OrganizationUpsertRequest:",
+		"WorkspaceUpsertRequest:",
+		"WorkspaceMemberUpsertRequest:",
+		"ProjectUpsertRequest:",
+		"WorkspacePage:",
+		"WorkspaceMemberPage:",
+		"ProjectPage:",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+}
+
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
