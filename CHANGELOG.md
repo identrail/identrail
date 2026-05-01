@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added reusable connector lifecycle framework for app-mode providers:
+  - shared provider hook abstraction (`test`, `revoke`, `reactivate`) under `internal/connectors`
+  - normalized connector health model (`unknown|healthy|warning|error`) with provider alias mapping
+  - standardized lifecycle semantics for pending/active/degraded/disconnected transitions
+  - state-machine tests covering probe outcomes, revoke/reactivate behavior, and invalid transition guards
 - Standardized product-entry marketing CTAs to the auth-first app flow:
   - switched canonical marketing app-entry destination to `/app`
   - added explicit `signIn` route mapping to `/app/login` in `siteLinks`
