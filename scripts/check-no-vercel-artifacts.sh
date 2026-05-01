@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-staged_files="$(git diff --cached --name-only --diff-filter=ACMR || true)"
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
 if [[ -z "${staged_files}" ]]; then
   exit 0
 fi
