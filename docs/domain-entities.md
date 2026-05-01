@@ -61,3 +61,17 @@ This document defines the normalized multi-tenant app-mode entities introduced f
 - Validation and transition tests live in:
   - `internal/domain/appmode_test.go`
   - `internal/domain/json_tags_test.go`
+
+## Persistence Mapping
+
+- Tenancy core tables:
+  - `tenancy_organizations`
+  - `tenancy_workspaces`
+  - `tenancy_workspace_members`
+  - `tenancy_projects`
+- Connector and policy tables:
+  - `tenancy_connectors`
+  - `tenancy_connector_states`
+  - `tenancy_scan_policies`
+
+Referential integrity is enforced in migrations so connector/policy rows cannot outlive their workspace/project scope.

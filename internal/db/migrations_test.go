@@ -239,3 +239,31 @@ func TestTwelfthMigrationContainsTenancyCoreTables(t *testing.T) {
 		}
 	}
 }
+
+func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "000013_connectors_state_scan_policies.up.sql")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	required := []string{
+		"CREATE TABLE IF NOT EXISTS tenancy_connectors",
+		"CREATE TABLE IF NOT EXISTS tenancy_connector_states",
+		"CREATE TABLE IF NOT EXISTS tenancy_scan_policies",
+		"FOREIGN KEY (tenant_id, workspace_id, project_id)",
+		"REFERENCES tenancy_projects(tenant_id, workspace_id, project_id)",
+		"REFERENCES tenancy_connectors(tenant_id, workspace_id, project_id, connector_id)",
+		"CHECK (type IN ('github', 'aws', 'kubernetes'))",
+		"CHECK (trigger_mode IN ('manual', 'scheduled', 'event', 'hybrid'))",
+		"CHECK (max_concurrent_scans > 0)",
+		"idx_tenancy_connectors_scope_status",
+		"idx_tenancy_connector_states_scope_health",
+		"idx_tenancy_scan_policies_scope_mode_enabled",
+	}
+	for _, item := range required {
+		if !strings.Contains(text, item) {
+			t.Fatalf("expected connector/policy migration item %q", item)
+		}
+	}
+}
