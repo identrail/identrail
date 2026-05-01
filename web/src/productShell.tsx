@@ -66,6 +66,14 @@ type OIDCCallbackResult = {
 
 const PRODUCT_SESSION_STORAGE_KEY = 'identrail-product-session';
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
+
+type ProductSessionTokens = {
+  accessToken?: string;
+  refreshToken?: string;
+  idToken?: string;
+};
+
+let inMemoryTokens: ProductSessionTokens = {};
 const OIDC_REFRESH_SKEW_MS = 90 * 1000;
 const OIDC_MAX_PENDING_LOGIN_AGE_MS = 10 * 60 * 1000;
 
@@ -409,7 +417,7 @@ function readProductSession(): ProductSession | null {
     return null;
   }
   try {
-    const raw = window.localStorage.getItem(PRODUCT_SESSION_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(PRODUCT_SESSION_STORAGE_KEY);
     if (!raw) {
       return null;
     }
@@ -421,9 +429,9 @@ function readProductSession(): ProductSession | null {
     }
 
     const authMode: ProductSessionAuthMode = parsed.authMode === 'oidc' ? 'oidc' : 'manual';
-    const accessToken = normalizeValue(parsed.accessToken ?? '') || undefined;
-    const refreshToken = normalizeValue(parsed.refreshToken ?? '') || undefined;
-    const idToken = normalizeValue(parsed.idToken ?? '') || undefined;
+    const accessToken = normalizeValue(inMemoryTokens.accessToken ?? '') || undefined;
+    const refreshToken = normalizeValue(inMemoryTokens.refreshToken ?? '') || undefined;
+    const idToken = normalizeValue(inMemoryTokens.idToken ?? '') || undefined;
     const subject = normalizeValue(parsed.subject ?? '') || undefined;
     const expiresAtRaw = Number(parsed.expiresAt ?? 0);
     const roles = Array.isArray(parsed.roles)
@@ -449,18 +457,25 @@ function readProductSession(): ProductSession | null {
   }
 }
 
-function saveProductSession(session: ProductSession) {
+export function saveProductSession(session: ProductSession) {
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.setItem(PRODUCT_SESSION_STORAGE_KEY, JSON.stringify(session));
+  inMemoryTokens = {
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+    idToken: session.idToken
+  };
+  const { accessToken: _a, refreshToken: _r, idToken: _i, ...persistable } = session;
+  window.sessionStorage.setItem(PRODUCT_SESSION_STORAGE_KEY, JSON.stringify(persistable));
 }
 
 function clearProductSession() {
+  inMemoryTokens = {};
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.removeItem(PRODUCT_SESSION_STORAGE_KEY);
+  window.sessionStorage.removeItem(PRODUCT_SESSION_STORAGE_KEY);
 }
 
 function isOIDCSession(session: ProductSession): boolean {

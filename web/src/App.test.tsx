@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { saveProductSession } from './productShell';
 
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
 
@@ -18,7 +19,7 @@ function makeJWT(payload: Record<string, unknown>): string {
 
 describe('App', () => {
   beforeEach(() => {
-    window.localStorage.removeItem('identrail-product-session');
+    window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
@@ -164,13 +165,10 @@ describe('App', () => {
   });
 
   it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
-    window.localStorage.setItem(
-      'identrail-product-session',
-      JSON.stringify({
-        tenantID: 'tenant-a',
-        workspaceID: 'workspace-a'
-      })
-    );
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
     window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
@@ -179,16 +177,13 @@ describe('App', () => {
   });
 
   it('redirects expired oidc sessions to login with re-auth prompt', async () => {
-    window.localStorage.setItem(
-      'identrail-product-session',
-      JSON.stringify({
-        tenantID: 'tenant-a',
-        workspaceID: 'workspace-a',
-        authMode: 'oidc',
-        accessToken: 'access-token',
-        expiresAt: Date.now() - 60_000
-      })
-    );
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a',
+      authMode: 'oidc',
+      accessToken: 'access-token',
+      expiresAt: Date.now() - 60_000
+    });
     window.history.pushState({}, '', '/app/tenant-a/workspace-a');
     render(<App />);
 
@@ -249,33 +244,29 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
 
-    const stored = JSON.parse(window.localStorage.getItem('identrail-product-session') ?? '{}');
+    const stored = JSON.parse(window.sessionStorage.getItem('identrail-product-session') ?? '{}');
     expect(stored.authMode).toBe('oidc');
     expect(stored.tenantID).toBe('tenant-oidc');
     expect(stored.workspaceID).toBe('workspace-oidc');
-    expect(stored.refreshToken).toBe('refresh-1');
   });
 
   it('refreshes oidc sessions before expiry in route guard', async () => {
     vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
     vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
 
-    window.localStorage.setItem(
-      'identrail-product-session',
-      JSON.stringify({
-        tenantID: 'tenant-a',
-        workspaceID: 'workspace-a',
-        authMode: 'oidc',
-        accessToken: makeJWT({
-          sub: 'user-1',
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          exp: Math.floor(Date.now() / 1000) + 20
-        }),
-        refreshToken: 'refresh-token',
-        expiresAt: Date.now() + 20_000
-      })
-    );
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a',
+      authMode: 'oidc',
+      accessToken: makeJWT({
+        sub: 'user-1',
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        exp: Math.floor(Date.now() / 1000) + 20
+      }),
+      refreshToken: 'refresh-token',
+      expiresAt: Date.now() + 20_000
+    });
 
     const refreshedAccessToken = makeJWT({
       sub: 'user-1',
@@ -307,8 +298,9 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
     await waitFor(() => {
-      const session = JSON.parse(window.localStorage.getItem('identrail-product-session') ?? '{}');
-      expect(session.refreshToken).toBe('refresh-token-2');
+      const session = JSON.parse(window.sessionStorage.getItem('identrail-product-session') ?? '{}');
+      expect(session.tenantID).toBe('tenant-a');
+      expect(session.authMode).toBe('oidc');
     });
   });
 
@@ -317,18 +309,15 @@ describe('App', () => {
     vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
     vi.stubEnv('VITE_OIDC_POST_LOGOUT_REDIRECT_URI', 'https://app.identrail.com/app/login?signed_out=1');
 
-    window.localStorage.setItem(
-      'identrail-product-session',
-      JSON.stringify({
-        tenantID: 'tenant-a',
-        workspaceID: 'workspace-a',
-        authMode: 'oidc',
-        idToken: makeJWT({
-          sub: 'user-1',
-          exp: Math.floor(Date.now() / 1000) + 3600
-        })
-        })
-    );
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a',
+      authMode: 'oidc',
+      idToken: makeJWT({
+        sub: 'user-1',
+        exp: Math.floor(Date.now() / 1000) + 3600
+      })
+    });
 
     vi.stubGlobal(
       'fetch',
