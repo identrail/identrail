@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -139,6 +140,42 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	})
 
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})))
+
+	r.POST("/webhooks/github", func(c *gin.Context) {
+		if svc == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
+			return
+		}
+		payload, err := c.GetRawData()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
+			return
+		}
+		result, err := svc.HandleGitHubWebhook(
+			c.Request.Context(),
+			c.GetHeader("X-GitHub-Event"),
+			c.GetHeader("X-GitHub-Delivery"),
+			c.GetHeader("X-Hub-Signature-256"),
+			payload,
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrGitHubWebhookSignatureInvalid):
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid webhook signature"})
+			case errors.Is(err, ErrInvalidGitHubWebhookPayload):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
+			default:
+				if logger != nil {
+					logger.Error("handle github webhook", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process webhook"})
+			}
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{
+			"webhook": result,
+		})
+	})
 
 	var authzStore db.Store
 	if svc != nil {
@@ -1096,6 +1133,123 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		c.Status(http.StatusNoContent)
+	})
+
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/github/connect/start", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request GitHubConnectionStartRequest
+		if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		response, err := svc.StartGitHubConnection(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+				return
+			}
+			if errors.Is(err, ErrInvalidGitHubConnectionRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connection request"})
+				return
+			}
+			if logger != nil {
+				logger.Error("start github connection", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start github connection"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": response})
+	})
+
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/github/connect/complete", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request GitHubConnectionCompleteRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		if request.InstallationID == 0 {
+			parsed, err := parseGitHubInstallationID(c.GetHeader("X-GitHub-Installation-ID"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connection request"})
+				return
+			}
+			request.InstallationID = parsed
+		}
+		record, err := svc.CompleteGitHubConnection(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrGitHubConnectStateNotFound):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired connection state"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connection request"})
+			default:
+				if logger != nil {
+					logger.Error("complete github connection", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete github connection"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/github/connection", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetGitHubConnection(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"))
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("get github connection", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get github connection"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
+	})
+
+	v1.PUT("/workspaces/:workspace_id/projects/:project_id/github/repositories", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request GitHubConnectionRepositorySelectionRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.UpdateGitHubConnectionRepositories(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrGitHubConnectionNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "github connection not found"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github repository selection"})
+			default:
+				if logger != nil {
+					logger.Error("update github repositories", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update github repositories"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
 	})
 }
 

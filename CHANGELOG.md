@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added project-scoped GitHub onboarding and webhook trigger flow:
+  - new tenancy APIs to start/complete GitHub connect state, fetch connection status, and manage selected repositories
+  - enforced webhook signature validation (`X-Hub-Signature-256`) before accepting repository trigger events
+  - mapped verified GitHub webhook events to selected project repositories and queued scoped repo scans automatically
+  - documented new connection and webhook contracts in `docs/openapi-v1.yaml`
 - Added tenancy persistence migrations for connector and automation policy state:
   - new scoped tables for `tenancy_connectors`, `tenancy_connector_states`, and `tenancy_scan_policies`
   - enforced foreign-key integrity from connectors/policies to tenancy projects and connector-state to connector rows

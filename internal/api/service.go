@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
@@ -70,6 +71,9 @@ type Service struct {
 	ScanQueueMaxPending         int
 	RepoQueueMaxPending         int
 	RepoScannerFactory          RepoScannerFactory
+	githubConnectMu             sync.RWMutex
+	githubConnections           map[string]githubProjectConnection
+	githubConnectStates         map[string]githubConnectState
 }
 
 // CheckReadiness validates critical runtime dependencies for readiness checks.
@@ -263,6 +267,8 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 		RepoScanMaxFindingsLimit:    defaultRepoScanFindingsMax,
 		ScanQueueMaxPending:         defaultScanQueueMaxPending,
 		RepoQueueMaxPending:         defaultRepoQueueMaxPending,
+		githubConnections:           make(map[string]githubProjectConnection),
+		githubConnectStates:         make(map[string]githubConnectState),
 		RepoScannerFactory: func(historyLimit int, maxFindings int) RepoScanExecutor {
 			return repoexposure.NewScanner(
 				nil,

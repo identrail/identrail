@@ -75,6 +75,54 @@ paths:
             text/plain:
               schema:
                 type: string
+  /webhooks/github:
+    post:
+      tags: [RepositoryExposure]
+      summary: Receive GitHub webhook events for repository scan triggers
+      operationId: receiveGitHubWebhook
+      security: []
+      parameters:
+        - in: header
+          name: X-GitHub-Event
+          required: true
+          schema: { type: string }
+        - in: header
+          name: X-GitHub-Delivery
+          required: false
+          schema: { type: string }
+        - in: header
+          name: X-Hub-Signature-256
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "202":
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhook:
+                    $ref: "#/components/schemas/GitHubWebhookResult"
+        "400":
+          description: Invalid webhook payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/authz/policies/simulate:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -605,6 +653,166 @@ paths:
       responses:
         "204":
           description: Project deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Start GitHub project connection flow
+      operationId: startGitHubProjectConnection
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubConnectionStartRequest"
+      responses:
+        "200":
+          description: GitHub connection bootstrap generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/GitHubConnectionStartResponse"
+        "400":
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Complete GitHub project connection
+      operationId: completeGitHubProjectConnection
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubConnectionCompleteRequest"
+      responses:
+        "200":
+          description: GitHub connection active
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/GitHubConnectionStatus"
+        "400":
+          description: Invalid connection request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/github/connection:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: Get GitHub project connection status
+      operationId: getGitHubProjectConnection
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: GitHub connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/GitHubConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/github/repositories:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    put:
+      tags: [ProjectManagement]
+      summary: Update selected GitHub repositories for one project
+      operationId: updateGitHubProjectRepositories
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubConnectionRepositorySelectionRequest"
+      responses:
+        "200":
+          description: Updated GitHub connection
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/GitHubConnectionStatus"
+        "400":
+          description: Invalid repository selection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1350,6 +1558,109 @@ components:
           type: string
           format: date-time
           nullable: true
+    GitHubConnectionStartRequest:
+      type: object
+      properties:
+        app_slug:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+    GitHubConnectionStartResponse:
+      type: object
+      properties:
+        state:
+          type: string
+        connect_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    GitHubConnectionCompleteRequest:
+      type: object
+      required:
+        - state
+        - installation_id
+        - token_reference
+        - webhook_secret
+        - webhook_secret_reference
+      properties:
+        state:
+          type: string
+        installation_id:
+          type: integer
+          format: int64
+        account_login:
+          type: string
+        token_reference:
+          type: string
+        webhook_secret:
+          type: string
+          writeOnly: true
+        webhook_secret_reference:
+          type: string
+        selected_repositories:
+          type: array
+          items:
+            type: string
+    GitHubConnectionRepositorySelectionRequest:
+      type: object
+      required: [repositories]
+      properties:
+        repositories:
+          type: array
+          items:
+            type: string
+    GitHubConnectionStatus:
+      type: object
+      properties:
+        provider:
+          type: string
+        connected:
+          type: boolean
+        account_login:
+          type: string
+        installation_id:
+          type: integer
+          format: int64
+        token_reference:
+          type: string
+        webhook_secret_reference:
+          type: string
+        selected_repositories:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_webhook_event_type:
+          type: string
+        last_webhook_delivery_id:
+          type: string
+        last_webhook_event_at:
+          type: string
+          format: date-time
+          nullable: true
+    GitHubWebhookResult:
+      type: object
+      properties:
+        event_type:
+          type: string
+        repository:
+          type: string
+        matched_projects:
+          type: integer
+        queued_scans:
+          type: integer
+        skipped_scans:
+          type: integer
     WorkspacePage:
       type: object
       properties:

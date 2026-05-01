@@ -3,6 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -1013,6 +1016,7 @@ func TestRouterWriteAuthorization(t *testing.T) {
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	r := NewRouter(logger, metrics, svc, RouterOptions{
 		APIKeys:      []string{"read-key", "write-key"},
 		WriteAPIKeys: []string{"write-key"},
@@ -1048,6 +1052,7 @@ func TestRouterFindingTriageWorkflowEndpoints(t *testing.T) {
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	r := NewRouter(logger, metrics, svc, RouterOptions{
 		APIKeys:      []string{"read-key", "write-key"},
 		WriteAPIKeys: []string{"write-key"},
@@ -1754,6 +1759,10 @@ func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
 		{http.MethodPost, "/v1/workspaces/ws-1/projects"},
 		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1"},
 		{http.MethodDelete, "/v1/workspaces/ws-1/projects/p-1"},
+		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/github/connect/start"},
+		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/github/connect/complete"},
+		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/github/connection"},
+		{http.MethodPut, "/v1/workspaces/ws-1/projects/p-1/github/repositories"},
 	}
 
 	for _, rt := range routes {
@@ -1886,6 +1895,192 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	notFoundResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a", "")
 	if notFoundResp.Code != http.StatusNotFound {
 		t.Fatalf("expected workspace get 404 after delete, got %d", notFoundResp.Code)
+	}
+}
+
+func TestRouterGitHubConnectionAndWebhookFlow(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:            []string{"writer-key"},
+		WriteAPIKeys:       []string{"writer-key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+	})
+
+	doAPI := func(method string, path string, body string) *httptest.ResponseRecorder {
+		var requestBody *bytes.Buffer
+		if body == "" {
+			requestBody = bytes.NewBuffer(nil)
+		} else {
+			requestBody = bytes.NewBufferString(body)
+		}
+		req := httptest.NewRequest(method, path, requestBody)
+		req.Header.Set("X-API-Key", "writer-key")
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	if resp := doAPI(http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`); resp.Code != http.StatusOK {
+		t.Fatalf("seed organization failed %d body=%s", resp.Code, resp.Body.String())
+	}
+	if resp := doAPI(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`); resp.Code != http.StatusOK {
+		t.Fatalf("seed workspace failed %d body=%s", resp.Code, resp.Body.String())
+	}
+	if resp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1"}`); resp.Code != http.StatusOK {
+		t.Fatalf("seed project failed %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	startResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/start", `{}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("start github connection expected 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody struct {
+		Connection GitHubConnectionStartResponse `json:"connection"`
+	}
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if strings.TrimSpace(startBody.Connection.State) == "" || !strings.Contains(startBody.Connection.ConnectURL, "github.com/apps/") {
+		t.Fatalf("unexpected start response: %+v", startBody.Connection)
+	}
+
+	completePayload := struct {
+		State                  string   `json:"state"`
+		InstallationID         int64    `json:"installation_id"`
+		AccountLogin           string   `json:"account_login"`
+		TokenReference         string   `json:"token_reference"`
+		WebhookSecret          string   `json:"webhook_secret"`
+		WebhookSecretReference string   `json:"webhook_secret_reference"`
+		SelectedRepositories   []string `json:"selected_repositories"`
+	}{
+		State:                  startBody.Connection.State,
+		InstallationID:         123456,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://github/token/project-1",
+		WebhookSecret:          "super-secret-webhook-key",
+		WebhookSecretReference: "vault://github/webhook/project-1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}
+	completeJSON, _ := json.Marshal(completePayload)
+	completeResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete", string(completeJSON))
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("complete github connection expected 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+
+	reposResp := doAPI(http.MethodPut, "/v1/workspaces/workspace-a/projects/project-1/github/repositories", `{"repositories":["owner/repo","owner/repo-two"]}`)
+	if reposResp.Code != http.StatusOK {
+		t.Fatalf("update github repositories expected 200, got %d body=%s", reposResp.Code, reposResp.Body.String())
+	}
+
+	statusResp := doAPI(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/github/connection", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("get github connection expected 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if !statusBody.Connection.Connected || len(statusBody.Connection.SelectedRepositories) != 2 {
+		t.Fatalf("unexpected github connection status: %+v", statusBody.Connection)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":123456}}`)
+	webhookReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(webhookPayload))
+	webhookReq.Header.Set("X-GitHub-Event", "push")
+	webhookReq.Header.Set("X-GitHub-Delivery", "delivery-1")
+	webhookReq.Header.Set("X-Hub-Signature-256", githubWebhookSignature("super-secret-webhook-key", webhookPayload))
+	webhookResp := httptest.NewRecorder()
+	r.ServeHTTP(webhookResp, webhookReq)
+	if webhookResp.Code != http.StatusAccepted {
+		t.Fatalf("github webhook expected 202, got %d body=%s", webhookResp.Code, webhookResp.Body.String())
+	}
+	var webhookBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(webhookResp.Body.Bytes(), &webhookBody); err != nil {
+		t.Fatalf("decode webhook response: %v", err)
+	}
+	if webhookBody.Webhook.MatchedProjects != 1 || webhookBody.Webhook.QueuedScans != 1 {
+		t.Fatalf("unexpected webhook result: %+v", webhookBody.Webhook)
+	}
+
+	repoScansResp := doAPI(http.MethodGet, "/v1/repo-scans", "")
+	if repoScansResp.Code != http.StatusOK {
+		t.Fatalf("list repo scans expected 200, got %d body=%s", repoScansResp.Code, repoScansResp.Body.String())
+	}
+	var scansBody struct {
+		Items []db.RepoScanRecord `json:"items"`
+	}
+	if err := json.Unmarshal(repoScansResp.Body.Bytes(), &scansBody); err != nil {
+		t.Fatalf("decode repo scans response: %v", err)
+	}
+	if len(scansBody.Items) == 0 || scansBody.Items[0].Repository != "owner/repo" {
+		t.Fatalf("expected queued repo scan for owner/repo, got %+v", scansBody.Items)
+	}
+}
+
+func TestRouterGitHubWebhookRejectsInvalidSignature(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:            []string{"writer-key"},
+		WriteAPIKeys:       []string{"writer-key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+	})
+
+	doAPI := func(method string, path string, body string) *httptest.ResponseRecorder {
+		var requestBody *bytes.Buffer
+		if body == "" {
+			requestBody = bytes.NewBuffer(nil)
+		} else {
+			requestBody = bytes.NewBufferString(body)
+		}
+		req := httptest.NewRequest(method, path, requestBody)
+		req.Header.Set("X-API-Key", "writer-key")
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	_ = doAPI(http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`)
+	_ = doAPI(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`)
+	_ = doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1"}`)
+	startResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/start", `{}`)
+	var startBody struct {
+		Connection GitHubConnectionStartResponse `json:"connection"`
+	}
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	completeJSON := `{"state":"` + startBody.Connection.State + `","installation_id":42,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"right-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
+	if resp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete", completeJSON); resp.Code != http.StatusOK {
+		t.Fatalf("complete connection expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":42}}`)
+	webhookReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(webhookPayload))
+	webhookReq.Header.Set("X-GitHub-Event", "push")
+	webhookReq.Header.Set("X-Hub-Signature-256", githubWebhookSignature("wrong-secret", webhookPayload))
+	webhookResp := httptest.NewRecorder()
+	r.ServeHTTP(webhookResp, webhookReq)
+	if webhookResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected webhook 401 for invalid signature, got %d body=%s", webhookResp.Code, webhookResp.Body.String())
 	}
 }
 
@@ -2348,4 +2543,10 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 	if projectBadArchived.Code != http.StatusBadRequest {
 		t.Fatalf("expected project with bad archived_at 400, got %d body=%s", projectBadArchived.Code, projectBadArchived.Body.String())
 	}
+}
+
+func githubWebhookSignature(secret string, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
