@@ -146,7 +146,8 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
 			return
 		}
-		payload, err := c.GetRawData()
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		payload, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
 			return
