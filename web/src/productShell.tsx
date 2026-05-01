@@ -467,6 +467,7 @@ export function saveProductSession(session: ProductSession) {
     idToken: session.idToken
   };
   const { accessToken: _a, refreshToken: _r, idToken: _i, ...persistable } = session;
+  window.localStorage.removeItem(PRODUCT_SESSION_STORAGE_KEY);
   window.sessionStorage.setItem(PRODUCT_SESSION_STORAGE_KEY, JSON.stringify(persistable));
 }
 
