@@ -1719,11 +1719,33 @@ func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
 	metrics := telemetry.NewMetrics()
 	r := NewRouter(logger, metrics, nil, RouterOptions{})
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/current", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected tenancy route to return 503 without service, got %d", w.Code)
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/organizations/current"},
+		{http.MethodPut, "/v1/organizations/current"},
+		{http.MethodGet, "/v1/workspaces"},
+		{http.MethodPost, "/v1/workspaces"},
+		{http.MethodGet, "/v1/workspaces/ws-1"},
+		{http.MethodDelete, "/v1/workspaces/ws-1"},
+		{http.MethodGet, "/v1/workspaces/ws-1/members"},
+		{http.MethodPost, "/v1/workspaces/ws-1/members"},
+		{http.MethodGet, "/v1/workspaces/ws-1/members/m-1"},
+		{http.MethodDelete, "/v1/workspaces/ws-1/members/m-1"},
+		{http.MethodGet, "/v1/workspaces/ws-1/projects"},
+		{http.MethodPost, "/v1/workspaces/ws-1/projects"},
+		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1"},
+		{http.MethodDelete, "/v1/workspaces/ws-1/projects/p-1"},
+	}
+
+	for _, rt := range routes {
+		req := httptest.NewRequest(rt.method, rt.path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s %s: expected 503 without service, got %d", rt.method, rt.path, w.Code)
+		}
 	}
 }
 
@@ -1807,5 +1829,312 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	}
 	if len(projectsBody.Items) != 1 || projectsBody.Items[0].ProjectID != "project-1" {
 		t.Fatalf("unexpected projects payload: %+v", projectsBody.Items)
+	}
+
+	orgGetResp := doRequest(http.MethodGet, "/v1/organizations/current", "")
+	if orgGetResp.Code != http.StatusOK {
+		t.Fatalf("expected organization get 200, got %d body=%s", orgGetResp.Code, orgGetResp.Body.String())
+	}
+
+	workspaceGetResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a", "")
+	if workspaceGetResp.Code != http.StatusOK {
+		t.Fatalf("expected workspace get 200, got %d body=%s", workspaceGetResp.Code, workspaceGetResp.Body.String())
+	}
+
+	listWorkspacesResp := doRequest(http.MethodGet, "/v1/workspaces?sort_by=display_name&sort_order=desc", "")
+	if listWorkspacesResp.Code != http.StatusOK {
+		t.Fatalf("expected workspace list 200, got %d body=%s", listWorkspacesResp.Code, listWorkspacesResp.Body.String())
+	}
+
+	memberGetResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/members/member-1", "")
+	if memberGetResp.Code != http.StatusOK {
+		t.Fatalf("expected member get 200, got %d body=%s", memberGetResp.Code, memberGetResp.Body.String())
+	}
+
+	deleteProjectResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/projects/project-1", "")
+	if deleteProjectResp.Code != http.StatusNoContent {
+		t.Fatalf("expected project delete 204, got %d body=%s", deleteProjectResp.Code, deleteProjectResp.Body.String())
+	}
+
+	deleteMemberResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/members/member-1", "")
+	if deleteMemberResp.Code != http.StatusNoContent {
+		t.Fatalf("expected member delete 204, got %d body=%s", deleteMemberResp.Code, deleteMemberResp.Body.String())
+	}
+
+	deleteWorkspaceResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a", "")
+	if deleteWorkspaceResp.Code != http.StatusNoContent {
+		t.Fatalf("expected workspace delete 204, got %d body=%s", deleteWorkspaceResp.Code, deleteWorkspaceResp.Body.String())
+	}
+
+	notFoundResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a", "")
+	if notFoundResp.Code != http.StatusNotFound {
+		t.Fatalf("expected workspace get 404 after delete, got %d", notFoundResp.Code)
+	}
+}
+
+func TestSortWorkspaces(t *testing.T) {
+	now := time.Now()
+	items := []db.TenancyWorkspace{
+		{WorkspaceID: "ws-b", DisplayName: "Beta", Slug: "beta", CreatedAt: now},
+		{WorkspaceID: "ws-a", DisplayName: "Alpha", Slug: "alpha", CreatedAt: now.Add(-time.Hour)},
+		{WorkspaceID: "ws-c", DisplayName: "Charlie", Slug: "charlie", CreatedAt: now.Add(time.Hour)},
+	}
+
+	sortWorkspaces(items, "slug", false)
+	if items[0].Slug != "alpha" || items[1].Slug != "beta" || items[2].Slug != "charlie" {
+		t.Fatalf("expected ascending slug sort, got %v %v %v", items[0].Slug, items[1].Slug, items[2].Slug)
+	}
+
+	sortWorkspaces(items, "display_name", true)
+	if items[0].DisplayName != "Charlie" || items[2].DisplayName != "Alpha" {
+		t.Fatalf("expected descending display_name sort, got %v %v %v", items[0].DisplayName, items[1].DisplayName, items[2].DisplayName)
+	}
+
+	sortWorkspaces(items, "workspace_id", false)
+	if items[0].WorkspaceID != "ws-a" || items[2].WorkspaceID != "ws-c" {
+		t.Fatalf("expected ascending workspace_id sort, got %v %v %v", items[0].WorkspaceID, items[1].WorkspaceID, items[2].WorkspaceID)
+	}
+
+	sortWorkspaces(items, "created_at", false)
+	if !items[0].CreatedAt.Before(items[1].CreatedAt) {
+		t.Fatalf("expected ascending created_at sort")
+	}
+}
+
+func TestSortProjects(t *testing.T) {
+	now := time.Now()
+	items := []db.TenancyProject{
+		{ProjectID: "p-b", Name: "Bravo", Slug: "bravo", CreatedAt: now, UpdatedAt: now},
+		{ProjectID: "p-a", Name: "Alpha", Slug: "alpha", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(time.Hour)},
+		{ProjectID: "p-c", Name: "Charlie", Slug: "charlie", CreatedAt: now.Add(time.Hour), UpdatedAt: now.Add(-time.Hour)},
+	}
+
+	sortProjects(items, "name", false)
+	if items[0].Name != "Alpha" || items[1].Name != "Bravo" || items[2].Name != "Charlie" {
+		t.Fatalf("expected ascending name sort, got %v %v %v", items[0].Name, items[1].Name, items[2].Name)
+	}
+
+	sortProjects(items, "name", true)
+	if items[0].Name != "Charlie" || items[2].Name != "Alpha" {
+		t.Fatalf("expected descending name sort, got %v %v %v", items[0].Name, items[1].Name, items[2].Name)
+	}
+
+	sortProjects(items, "slug", false)
+	if items[0].Slug != "alpha" || items[2].Slug != "charlie" {
+		t.Fatalf("expected ascending slug sort, got %v %v %v", items[0].Slug, items[1].Slug, items[2].Slug)
+	}
+
+	sortProjects(items, "project_id", false)
+	if items[0].ProjectID != "p-a" || items[2].ProjectID != "p-c" {
+		t.Fatalf("expected ascending project_id sort, got %v %v %v", items[0].ProjectID, items[1].ProjectID, items[2].ProjectID)
+	}
+
+	sortProjects(items, "updated_at", false)
+	if !items[0].UpdatedAt.Before(items[1].UpdatedAt) {
+		t.Fatalf("expected ascending updated_at sort")
+	}
+
+	sortProjects(items, "created_at", false)
+	if !items[0].CreatedAt.Before(items[1].CreatedAt) {
+		t.Fatalf("expected ascending created_at sort (default)")
+	}
+}
+
+func TestSortWorkspaceMembers(t *testing.T) {
+	now := time.Now()
+	items := []db.TenancyWorkspaceMember{
+		{MemberID: "m-c", JoinedAt: now.Add(time.Hour)},
+		{MemberID: "m-a", JoinedAt: now.Add(-time.Hour)},
+		{MemberID: "m-b", JoinedAt: now},
+	}
+
+	sortWorkspaceMembers(items)
+	if items[0].MemberID != "m-a" || items[1].MemberID != "m-b" || items[2].MemberID != "m-c" {
+		t.Fatalf("expected members sorted by joined_at asc, got %v %v %v", items[0].MemberID, items[1].MemberID, items[2].MemberID)
+	}
+}
+
+func TestRouterTenancyInvalidRoleStatus(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:            []string{"key"},
+		WriteAPIKeys:       []string{"key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspaces/ws/members?role=invalid_role", nil)
+	req.Header.Set("X-API-Key", "key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid role, got %d", w.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/workspaces/ws/members?status=bogus", nil)
+	req.Header.Set("X-API-Key", "key")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid status, got %d", w.Code)
+	}
+}
+
+func TestRouterTenancyErrorPaths(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:            []string{"key"},
+		WriteAPIKeys:       []string{"key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+		RateLimitRPM:       10000,
+		RateLimitBurst:     10000,
+	})
+
+	doRequest := func(method string, path string, body string) *httptest.ResponseRecorder {
+		var requestBody *bytes.Buffer
+		if body == "" {
+			requestBody = bytes.NewBuffer(nil)
+		} else {
+			requestBody = bytes.NewBufferString(body)
+		}
+		req := httptest.NewRequest(method, path, requestBody)
+		req.Header.Set("X-API-Key", "key")
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	orgBadBody := doRequest(http.MethodPut, "/v1/organizations/current", `{invalid json`)
+	if orgBadBody.Code != http.StatusBadRequest {
+		t.Fatalf("expected org bad body 400, got %d", orgBadBody.Code)
+	}
+
+	wsBadBody := doRequest(http.MethodPost, "/v1/workspaces", `{invalid`)
+	if wsBadBody.Code != http.StatusBadRequest {
+		t.Fatalf("expected workspace bad body 400, got %d", wsBadBody.Code)
+	}
+
+	memberBadBody := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", `{invalid`)
+	if memberBadBody.Code != http.StatusBadRequest {
+		t.Fatalf("expected member bad body 400, got %d", memberBadBody.Code)
+	}
+
+	projectBadBody := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{invalid`)
+	if projectBadBody.Code != http.StatusBadRequest {
+		t.Fatalf("expected project bad body 400, got %d", projectBadBody.Code)
+	}
+
+	orgNotFound := doRequest(http.MethodGet, "/v1/organizations/current", "")
+	if orgNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected org not found 404, got %d", orgNotFound.Code)
+	}
+
+	wsNotFound := doRequest(http.MethodGet, "/v1/workspaces/nonexistent", "")
+	if wsNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected workspace not found 404, got %d", wsNotFound.Code)
+	}
+
+	wsDeleteNotFound := doRequest(http.MethodDelete, "/v1/workspaces/nonexistent", "")
+	if wsDeleteNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected workspace delete not found 404, got %d", wsDeleteNotFound.Code)
+	}
+
+	memberNotFound := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/members/nonexistent", "")
+	if memberNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected member not found 404, got %d", memberNotFound.Code)
+	}
+
+	memberDeleteNotFound := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/members/nonexistent", "")
+	if memberDeleteNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected member delete not found 404, got %d", memberDeleteNotFound.Code)
+	}
+
+	projectNotFound := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects/nonexistent", "")
+	if projectNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected project not found 404, got %d", projectNotFound.Code)
+	}
+
+	projectDeleteNotFound := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/projects/nonexistent", "")
+	if projectDeleteNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected project delete not found 404, got %d", projectDeleteNotFound.Code)
+	}
+
+	listWorkspacesResp := doRequest(http.MethodGet, "/v1/workspaces", "")
+	if listWorkspacesResp.Code != http.StatusOK {
+		t.Fatalf("expected workspace list 200, got %d", listWorkspacesResp.Code)
+	}
+
+	listMembersResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/members", "")
+	if listMembersResp.Code != http.StatusOK {
+		t.Fatalf("expected members list 200, got %d", listMembersResp.Code)
+	}
+
+	listProjectsResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects", "")
+	if listProjectsResp.Code != http.StatusOK {
+		t.Fatalf("expected projects list 200, got %d", listProjectsResp.Code)
+	}
+
+	badArchivedResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects?include_archived=notbool", "")
+	if badArchivedResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected bad include_archived 400, got %d", badArchivedResp.Code)
+	}
+
+	orgInvalidSlug := doRequest(http.MethodPut, "/v1/organizations/current", `{"display_name":"","slug":""}`)
+	if orgInvalidSlug.Code != http.StatusBadRequest {
+		t.Fatalf("expected org invalid data 400, got %d body=%s", orgInvalidSlug.Code, orgInvalidSlug.Body.String())
+	}
+
+	doRequest(http.MethodPut, "/v1/organizations/current", `{"display_name":"Org","slug":"org"}`)
+
+	wsInvalidSlug := doRequest(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"","slug":""}`)
+	if wsInvalidSlug.Code != http.StatusBadRequest {
+		t.Fatalf("expected workspace invalid data 400, got %d body=%s", wsInvalidSlug.Code, wsInvalidSlug.Body.String())
+	}
+
+	doRequest(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"WS","slug":"ws-a"}`)
+
+	memberInvalid := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", `{"member_id":"","user_id":"","email":"","role":"","status":""}`)
+	if memberInvalid.Code != http.StatusBadRequest {
+		t.Fatalf("expected member invalid data 400, got %d body=%s", memberInvalid.Code, memberInvalid.Body.String())
+	}
+
+	projectInvalid := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"","name":"","slug":""}`)
+	if projectInvalid.Code != http.StatusBadRequest {
+		t.Fatalf("expected project invalid data 400, got %d body=%s", projectInvalid.Code, projectInvalid.Body.String())
+	}
+
+	wsMismatch := doRequest(http.MethodPost, "/v1/workspaces", `{"workspace_id":"other-ws","display_name":"Other","slug":"other"}`)
+	if wsMismatch.Code != http.StatusNotFound {
+		t.Fatalf("expected workspace scope mismatch 404, got %d body=%s", wsMismatch.Code, wsMismatch.Body.String())
+	}
+
+	memberWsMismatch := doRequest(http.MethodPost, "/v1/workspaces/other-ws/members", `{"member_id":"m-1","user_id":"u-1","email":"a@b.com","role":"admin","status":"active"}`)
+	if memberWsMismatch.Code != http.StatusNotFound {
+		t.Fatalf("expected member workspace mismatch 404, got %d body=%s", memberWsMismatch.Code, memberWsMismatch.Body.String())
+	}
+
+	projectWsMismatch := doRequest(http.MethodPost, "/v1/workspaces/other-ws/projects", `{"project_id":"p-1","name":"P","slug":"p"}`)
+	if projectWsMismatch.Code != http.StatusNotFound {
+		t.Fatalf("expected project workspace mismatch 404, got %d body=%s", projectWsMismatch.Code, projectWsMismatch.Body.String())
+	}
+
+	projectWithArchived := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"p-arch","name":"Archived","slug":"arch","archived_at":"2025-01-01T00:00:00Z"}`)
+	if projectWithArchived.Code != http.StatusOK {
+		t.Fatalf("expected project with archived_at 200, got %d body=%s", projectWithArchived.Code, projectWithArchived.Body.String())
+	}
+
+	projectBadArchived := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"p-bad","name":"Bad","slug":"bad","archived_at":"not-a-date"}`)
+	if projectBadArchived.Code != http.StatusBadRequest {
+		t.Fatalf("expected project with bad archived_at 400, got %d body=%s", projectBadArchived.Code, projectBadArchived.Body.String())
 	}
 }
