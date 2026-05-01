@@ -1738,10 +1738,12 @@ func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodGet, "/v1/whoami"},
 		{http.MethodGet, "/v1/organizations/current"},
 		{http.MethodPut, "/v1/organizations/current"},
 		{http.MethodGet, "/v1/workspaces"},
 		{http.MethodPost, "/v1/workspaces"},
+		{http.MethodPost, "/v1/workspaces/active"},
 		{http.MethodGet, "/v1/workspaces/ws-1"},
 		{http.MethodDelete, "/v1/workspaces/ws-1"},
 		{http.MethodGet, "/v1/workspaces/ws-1/members"},
@@ -1884,6 +1886,200 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	notFoundResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a", "")
 	if notFoundResp.Code != http.StatusNotFound {
 		t.Fatalf("expected workspace get 404 after delete, got %d", notFoundResp.Code)
+	}
+}
+
+func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{
+		TenantID:    "tenant-a",
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, db.TenancyWorkspace{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("seed workspace-a: %v", err)
+	}
+	workspaceBCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-b"})
+	if err := store.UpsertWorkspace(workspaceBCtx, db.TenancyWorkspace{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-b",
+		DisplayName: "Workspace B",
+		Slug:        "workspace-b",
+	}); err != nil {
+		t.Fatalf("seed workspace-b: %v", err)
+	}
+
+	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "user-1",
+		Email:       "user1@example.com",
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed workspace-a member: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(workspaceBCtx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-b",
+		MemberID:    "member-b",
+		UserID:      "user-1",
+		Email:       "user1@example.com",
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed workspace-b member: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-outsider",
+		UserID:      "user-2",
+		Email:       "user2@example.com",
+		Role:        "viewer",
+		Status:      "removed",
+	}); err != nil {
+		t.Fatalf("seed outsider member: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{
+			tokens: map[string]VerifiedToken{
+				"user-1-token": {
+					Subject:     "user-1",
+					TenantID:    "tenant-a",
+					WorkspaceID: "workspace-a",
+					Roles:       []string{"analyst"},
+					Scopes:      []string{"identrail.read"},
+				},
+				"user-2-token": {
+					Subject:     "user-2",
+					TenantID:    "tenant-a",
+					WorkspaceID: "workspace-a",
+					Roles:       []string{"viewer"},
+					Scopes:      []string{"identrail.read"},
+				},
+			},
+		},
+	})
+
+	whoamiReq := httptest.NewRequest(http.MethodGet, "/v1/whoami", nil)
+	whoamiReq.Header.Set("Authorization", "Bearer user-1-token")
+	whoamiResp := httptest.NewRecorder()
+	r.ServeHTTP(whoamiResp, whoamiReq)
+	if whoamiResp.Code != http.StatusOK {
+		t.Fatalf("expected whoami 200, got %d body=%s", whoamiResp.Code, whoamiResp.Body.String())
+	}
+	var whoamiBody struct {
+		Principal struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		} `json:"principal"`
+		Roles  []string `json:"roles"`
+		Scopes []string `json:"scopes"`
+		Scope  struct {
+			TenantID    string `json:"tenant_id"`
+			WorkspaceID string `json:"workspace_id"`
+		} `json:"scope"`
+		ActiveWorkspace *WorkspaceContext  `json:"active_workspace"`
+		Workspaces      []WorkspaceContext `json:"workspaces"`
+	}
+	if err := json.Unmarshal(whoamiResp.Body.Bytes(), &whoamiBody); err != nil {
+		t.Fatalf("decode whoami response: %v", err)
+	}
+	if whoamiBody.Principal.Type != "subject" || whoamiBody.Principal.ID != "user-1" {
+		t.Fatalf("unexpected principal payload: %+v", whoamiBody.Principal)
+	}
+	if len(whoamiBody.Roles) != 1 || whoamiBody.Roles[0] != "analyst" {
+		t.Fatalf("unexpected roles payload: %+v", whoamiBody.Roles)
+	}
+	if len(whoamiBody.Scopes) != 1 || whoamiBody.Scopes[0] != "read" {
+		t.Fatalf("unexpected scopes payload: %+v", whoamiBody.Scopes)
+	}
+	if whoamiBody.Scope.TenantID != "tenant-a" || whoamiBody.Scope.WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected scope payload: %+v", whoamiBody.Scope)
+	}
+	if whoamiBody.ActiveWorkspace == nil || whoamiBody.ActiveWorkspace.Workspace.WorkspaceID != "workspace-a" {
+		t.Fatalf("expected active workspace-a, got %+v", whoamiBody.ActiveWorkspace)
+	}
+	if whoamiBody.ActiveWorkspace.Member == nil || whoamiBody.ActiveWorkspace.Member.Role != "admin" {
+		t.Fatalf("expected active workspace member role admin, got %+v", whoamiBody.ActiveWorkspace.Member)
+	}
+	if len(whoamiBody.Workspaces) != 2 {
+		t.Fatalf("expected two workspace contexts, got %d", len(whoamiBody.Workspaces))
+	}
+
+	switchReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":"workspace-b"}`))
+	switchReq.Header.Set("Authorization", "Bearer user-1-token")
+	switchReq.Header.Set("Content-Type", "application/json")
+	switchResp := httptest.NewRecorder()
+	r.ServeHTTP(switchResp, switchReq)
+	if switchResp.Code != http.StatusOK {
+		t.Fatalf("expected active switch 200, got %d body=%s", switchResp.Code, switchResp.Body.String())
+	}
+	var switchBody struct {
+		ActiveWorkspace WorkspaceContext `json:"active_workspace"`
+		Scope           struct {
+			TenantID    string `json:"tenant_id"`
+			WorkspaceID string `json:"workspace_id"`
+		} `json:"scope"`
+		ScopeHeaders map[string]string `json:"scope_headers"`
+	}
+	if err := json.Unmarshal(switchResp.Body.Bytes(), &switchBody); err != nil {
+		t.Fatalf("decode switch response: %v", err)
+	}
+	if switchBody.ActiveWorkspace.Workspace.WorkspaceID != "workspace-b" {
+		t.Fatalf("expected switched workspace-b, got %+v", switchBody.ActiveWorkspace.Workspace)
+	}
+	if switchBody.ActiveWorkspace.Member == nil || switchBody.ActiveWorkspace.Member.Role != "viewer" {
+		t.Fatalf("expected switched role viewer, got %+v", switchBody.ActiveWorkspace.Member)
+	}
+	if switchBody.Scope.WorkspaceID != "workspace-b" {
+		t.Fatalf("expected switched scope workspace-b, got %+v", switchBody.Scope)
+	}
+	if switchBody.ScopeHeaders[scopeHeaderWorkspaceID] != "workspace-b" {
+		t.Fatalf("expected workspace scope header workspace-b, got %+v", switchBody.ScopeHeaders)
+	}
+
+	switchBadBodyReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":""}`))
+	switchBadBodyReq.Header.Set("Authorization", "Bearer user-1-token")
+	switchBadBodyReq.Header.Set("Content-Type", "application/json")
+	switchBadBodyResp := httptest.NewRecorder()
+	r.ServeHTTP(switchBadBodyResp, switchBadBodyReq)
+	if switchBadBodyResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected active switch bad request 400, got %d body=%s", switchBadBodyResp.Code, switchBadBodyResp.Body.String())
+	}
+
+	switchMissingReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":"workspace-missing"}`))
+	switchMissingReq.Header.Set("Authorization", "Bearer user-1-token")
+	switchMissingReq.Header.Set("Content-Type", "application/json")
+	switchMissingResp := httptest.NewRecorder()
+	r.ServeHTTP(switchMissingResp, switchMissingReq)
+	if switchMissingResp.Code != http.StatusNotFound {
+		t.Fatalf("expected active switch missing workspace 404, got %d body=%s", switchMissingResp.Code, switchMissingResp.Body.String())
+	}
+
+	switchDeniedReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", bytes.NewBufferString(`{"workspace_id":"workspace-b"}`))
+	switchDeniedReq.Header.Set("Authorization", "Bearer user-2-token")
+	switchDeniedReq.Header.Set("Content-Type", "application/json")
+	switchDeniedResp := httptest.NewRecorder()
+	r.ServeHTTP(switchDeniedResp, switchDeniedReq)
+	if switchDeniedResp.Code != http.StatusForbidden {
+		t.Fatalf("expected active switch forbidden 403, got %d body=%s", switchDeniedResp.Code, switchDeniedResp.Body.String())
 	}
 }
 

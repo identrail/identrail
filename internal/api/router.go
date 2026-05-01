@@ -767,6 +767,92 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"workspace": record})
 	})
 
+	v1.GET("/whoami", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		subject := authContextString(c, "auth.subject")
+		contextSnapshot, err := svc.ResolveWhoAmIContext(c.Request.Context(), subject)
+		if err != nil {
+			if logger != nil {
+				logger.Error("resolve whoami context", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve workspace context"})
+			return
+		}
+		principalType := "anonymous"
+		principalID := ""
+		if normalizedSubject := strings.TrimSpace(subject); normalizedSubject != "" {
+			principalType = "subject"
+			principalID = normalizedSubject
+		} else if apiKey := authContextString(c, "auth.api_key"); apiKey != "" {
+			principalType = "api_key"
+			principalID = fingerprintAPIKeyWith(nil, apiKey)
+		}
+		roles := authContextStringSlice(c, "auth.roles")
+		scopes := authContextScopes(c)
+		c.JSON(http.StatusOK, gin.H{
+			"principal": gin.H{
+				"type": principalType,
+				"id":   principalID,
+			},
+			"roles":  roles,
+			"scopes": scopes,
+			"scope": gin.H{
+				"tenant_id":    contextSnapshot.Scope.TenantID,
+				"workspace_id": contextSnapshot.Scope.WorkspaceID,
+			},
+			"active_workspace": contextSnapshot.ActiveWorkspace,
+			"workspaces":       contextSnapshot.Workspaces,
+		})
+	})
+
+	v1.POST("/workspaces/active", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request struct {
+			WorkspaceID string `json:"workspace_id"`
+		}
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		activeWorkspace, err := svc.ResolveActiveWorkspace(c.Request.Context(), authContextString(c, "auth.subject"), request.WorkspaceID)
+		if err != nil {
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace request"})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if errors.Is(err, ErrWorkspaceAccessDenied) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "workspace access denied"})
+				return
+			}
+			if logger != nil {
+				logger.Error("resolve active workspace", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve active workspace"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"active_workspace": activeWorkspace,
+			"scope": gin.H{
+				"tenant_id":    activeWorkspace.Workspace.TenantID,
+				"workspace_id": activeWorkspace.Workspace.WorkspaceID,
+			},
+			"scope_headers": gin.H{
+				scopeHeaderTenantID:    activeWorkspace.Workspace.TenantID,
+				scopeHeaderWorkspaceID: activeWorkspace.Workspace.WorkspaceID,
+			},
+		})
+	})
+
 	v1.GET("/workspaces/:workspace_id", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)
@@ -1890,6 +1976,80 @@ func authContextString(c *gin.Context, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(text)
+}
+
+func authContextStringSlice(c *gin.Context, key string) []string {
+	if c == nil {
+		return nil
+	}
+	value, exists := c.Get(key)
+	if !exists {
+		return nil
+	}
+	switch typed := value.(type) {
+	case []string:
+		return normalizeStringList(typed)
+	case []any:
+		raw := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			raw = append(raw, text)
+		}
+		return normalizeStringList(raw)
+	default:
+		return nil
+	}
+}
+
+func authContextScopes(c *gin.Context) []string {
+	if c == nil {
+		return nil
+	}
+	value, exists := c.Get("auth.scope_set")
+	if !exists {
+		return nil
+	}
+	scopes, ok := value.(scopeSet)
+	if !ok {
+		return nil
+	}
+	values := make([]string, 0, len(scopes))
+	for scope := range scopes {
+		normalized := strings.TrimSpace(scope)
+		if normalized == "" {
+			continue
+		}
+		values = append(values, normalized)
+	}
+	sort.Strings(values)
+	return values
+}
+
+func normalizeStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		item := strings.TrimSpace(value)
+		if item == "" {
+			continue
+		}
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		normalized = append(normalized, item)
+	}
+	sort.Strings(normalized)
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func triageActorFromContext(c *gin.Context, fingerprinter *audit.Fingerprinter) string {

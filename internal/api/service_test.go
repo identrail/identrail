@@ -973,6 +973,118 @@ func TestServiceRunRepoScanLocked(t *testing.T) {
 	}
 }
 
+func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{
+		TenantID:    "tenant-a",
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, db.TenancyWorkspace{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("seed workspace-a: %v", err)
+	}
+	workspaceBCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-b"})
+	if err := store.UpsertWorkspace(workspaceBCtx, db.TenancyWorkspace{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-b",
+		DisplayName: "Workspace B",
+		Slug:        "workspace-b",
+	}); err != nil {
+		t.Fatalf("seed workspace-b: %v", err)
+	}
+	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "user-1",
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed workspace-a member: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(workspaceBCtx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-b",
+		MemberID:    "member-b",
+		UserID:      "user-1",
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed workspace-b member: %v", err)
+	}
+
+	contextSnapshot, err := svc.ResolveWhoAmIContext(scopeCtx, "user-1")
+	if err != nil {
+		t.Fatalf("resolve whoami context: %v", err)
+	}
+	if contextSnapshot.Scope.TenantID != "tenant-a" || contextSnapshot.Scope.WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected scope: %+v", contextSnapshot.Scope)
+	}
+	if contextSnapshot.ActiveWorkspace == nil || contextSnapshot.ActiveWorkspace.Workspace.WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected active workspace: %+v", contextSnapshot.ActiveWorkspace)
+	}
+	if contextSnapshot.ActiveWorkspace.Member == nil || contextSnapshot.ActiveWorkspace.Member.Role != "admin" {
+		t.Fatalf("unexpected active workspace member: %+v", contextSnapshot.ActiveWorkspace.Member)
+	}
+	if len(contextSnapshot.Workspaces) != 2 {
+		t.Fatalf("expected 2 workspace contexts, got %d", len(contextSnapshot.Workspaces))
+	}
+
+	switched, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-b")
+	if err != nil {
+		t.Fatalf("resolve active workspace: %v", err)
+	}
+	if switched.Workspace.WorkspaceID != "workspace-b" {
+		t.Fatalf("unexpected switched workspace: %+v", switched.Workspace)
+	}
+	if switched.Member == nil || switched.Member.Role != "viewer" {
+		t.Fatalf("unexpected switched member role: %+v", switched.Member)
+	}
+}
+
+func TestServiceResolveActiveWorkspaceGuards(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{
+		TenantID:    "tenant-a",
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+
+	if _, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", ""); !errors.Is(err, ErrInvalidTenancyRequest) {
+		t.Fatalf("expected invalid tenancy request, got %v", err)
+	}
+	if _, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-missing"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected workspace not found, got %v", err)
+	}
+	workspaceBCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-b"})
+	if err := store.UpsertWorkspace(workspaceBCtx, db.TenancyWorkspace{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-b",
+		DisplayName: "Workspace B",
+		Slug:        "workspace-b",
+	}); err != nil {
+		t.Fatalf("seed workspace-b: %v", err)
+	}
+	if _, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-b"); !errors.Is(err, ErrWorkspaceAccessDenied) {
+		t.Fatalf("expected workspace access denied, got %v", err)
+	}
+}
+
 func TestServiceListFindingsWrapperAndRepoScanDetailGuard(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 17, 15, 10, 0, 0, time.UTC)

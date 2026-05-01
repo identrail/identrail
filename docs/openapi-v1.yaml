@@ -277,6 +277,60 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/whoami:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Tenancy]
+      summary: Resolve caller identity and workspace context
+      operationId: getWhoAmIContext
+      responses:
+        "200":
+          description: Identity and workspace context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhoAmIResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/workspaces/active:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Tenancy]
+      summary: Validate and resolve one active workspace context
+      operationId: resolveActiveWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActiveWorkspaceSwitchRequest"
+      responses:
+        "200":
+          description: Active workspace resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveWorkspaceSwitchResponse"
+        "400":
+          description: Invalid workspace payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/workspaces/{workspace_id}:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1162,6 +1216,74 @@ components:
         workspace_id: { type: string }
         display_name: { type: string }
         slug: { type: string }
+    WhoAmIPrincipal:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [subject, api_key, anonymous]
+        id:
+          type: string
+    WorkspaceContext:
+      type: object
+      properties:
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        member:
+          $ref: "#/components/schemas/WorkspaceMember"
+        is_active:
+          type: boolean
+    WhoAmIResponse:
+      type: object
+      properties:
+        principal:
+          $ref: "#/components/schemas/WhoAmIPrincipal"
+        roles:
+          type: array
+          items:
+            type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        scope:
+          type: object
+          properties:
+            tenant_id:
+              type: string
+            workspace_id:
+              type: string
+        active_workspace:
+          $ref: "#/components/schemas/WorkspaceContext"
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceContext"
+    ActiveWorkspaceSwitchRequest:
+      type: object
+      required: [workspace_id]
+      properties:
+        workspace_id:
+          type: string
+    ActiveWorkspaceSwitchResponse:
+      type: object
+      properties:
+        active_workspace:
+          $ref: "#/components/schemas/WorkspaceContext"
+        scope:
+          type: object
+          properties:
+            tenant_id:
+              type: string
+            workspace_id:
+              type: string
+        scope_headers:
+          type: object
+          properties:
+            X-Identrail-Tenant-ID:
+              type: string
+            X-Identrail-Workspace-ID:
+              type: string
     WorkspaceMemberRole:
       type: string
       enum: [owner, admin, analyst, viewer]

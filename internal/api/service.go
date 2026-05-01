@@ -143,6 +143,20 @@ type ProjectUpsertRequest struct {
 	ArchivedAt  *string `json:"archived_at,omitempty"`
 }
 
+// WorkspaceContext captures one workspace plus caller membership context.
+type WorkspaceContext struct {
+	Workspace db.TenancyWorkspace        `json:"workspace"`
+	Member    *db.TenancyWorkspaceMember `json:"member,omitempty"`
+	IsActive  bool                       `json:"is_active"`
+}
+
+// WhoAmIContext captures identity-adjacent tenancy context for frontend bootstrapping.
+type WhoAmIContext struct {
+	Scope           db.Scope           `json:"scope"`
+	ActiveWorkspace *WorkspaceContext  `json:"active_workspace,omitempty"`
+	Workspaces      []WorkspaceContext `json:"workspaces"`
+}
+
 // FindingsFilter narrows findings list queries without changing API response schema.
 type FindingsFilter struct {
 	ScanID          string
@@ -227,6 +241,9 @@ var ErrRepoScanQueueFull = errors.New("repo scan queue is full")
 
 // ErrInvalidTenancyRequest indicates invalid tenancy write payload.
 var ErrInvalidTenancyRequest = errors.New("invalid tenancy request")
+
+// ErrWorkspaceAccessDenied indicates the caller cannot switch to target workspace.
+var ErrWorkspaceAccessDenied = errors.New("workspace access denied")
 
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
@@ -819,6 +836,90 @@ func (s *Service) GetProject(ctx context.Context, workspaceID string, projectID 
 func (s *Service) DeleteProject(ctx context.Context, workspaceID string, projectID string) error {
 	ctx = s.scopeContext(ctx)
 	return s.Store.DeleteProject(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(projectID))
+}
+
+// ResolveWhoAmIContext returns scoped workspace context and caller membership details.
+func (s *Service) ResolveWhoAmIContext(ctx context.Context, subject string) (WhoAmIContext, error) {
+	ctx = s.scopeContext(ctx)
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		return WhoAmIContext{}, err
+	}
+	workspaces, err := s.Store.ListWorkspaces(ctx, maxCursorFetchLimit)
+	if err != nil {
+		return WhoAmIContext{}, err
+	}
+	normalizedSubject := strings.TrimSpace(subject)
+	contexts := make([]WorkspaceContext, 0, len(workspaces))
+	var activeWorkspace *WorkspaceContext
+	for _, workspace := range workspaces {
+		workspaceScope := db.WithScope(ctx, db.Scope{
+			TenantID:    scope.TenantID,
+			WorkspaceID: workspace.WorkspaceID,
+		})
+		member, memberFound, err := s.lookupWorkspaceMemberBySubject(workspaceScope, workspace.WorkspaceID, normalizedSubject)
+		if err != nil {
+			return WhoAmIContext{}, err
+		}
+		workspaceContext := WorkspaceContext{
+			Workspace: workspace,
+			IsActive:  workspace.WorkspaceID == scope.WorkspaceID,
+		}
+		if memberFound {
+			workspaceContext.Member = &member
+		}
+		contexts = append(contexts, workspaceContext)
+		if workspaceContext.IsActive {
+			current := workspaceContext
+			activeWorkspace = &current
+		}
+	}
+	return WhoAmIContext{
+		Scope:           scope,
+		ActiveWorkspace: activeWorkspace,
+		Workspaces:      contexts,
+	}, nil
+}
+
+// ResolveActiveWorkspace validates access and returns the requested active workspace context.
+func (s *Service) ResolveActiveWorkspace(ctx context.Context, subject string, workspaceID string) (WorkspaceContext, error) {
+	ctx = s.scopeContext(ctx)
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		return WorkspaceContext{}, err
+	}
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return WorkspaceContext{}, ErrInvalidTenancyRequest
+	}
+	workspaceScope := db.WithScope(ctx, db.Scope{
+		TenantID:    scope.TenantID,
+		WorkspaceID: normalizedWorkspaceID,
+	})
+	workspace, err := s.Store.GetWorkspace(workspaceScope, normalizedWorkspaceID)
+	if err != nil {
+		return WorkspaceContext{}, err
+	}
+	contextItem := WorkspaceContext{
+		Workspace: workspace,
+		IsActive:  true,
+	}
+	normalizedSubject := strings.TrimSpace(subject)
+	if normalizedSubject == "" {
+		return contextItem, nil
+	}
+	member, memberFound, err := s.lookupWorkspaceMemberBySubject(workspaceScope, normalizedWorkspaceID, normalizedSubject)
+	if err != nil {
+		return WorkspaceContext{}, err
+	}
+	if !memberFound {
+		return WorkspaceContext{}, ErrWorkspaceAccessDenied
+	}
+	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
+		return WorkspaceContext{}, ErrWorkspaceAccessDenied
+	}
+	contextItem.Member = &member
+	return contextItem, nil
 }
 
 // ListFindingsFiltered returns findings with optional scan/type/severity filters.
@@ -1587,6 +1688,39 @@ func inferOwnershipSignal(identity domain.Identity) (domain.OwnershipSignal, boo
 		Source:     source,
 		Confidence: confidence,
 	}, true
+}
+
+func (s *Service) lookupWorkspaceMemberBySubject(
+	ctx context.Context,
+	workspaceID string,
+	subject string,
+) (db.TenancyWorkspaceMember, bool, error) {
+	normalizedSubject := strings.TrimSpace(subject)
+	if normalizedSubject == "" {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	members, err := s.ListWorkspaceMembers(ctx, workspaceID, "", "", maxCursorFetchLimit)
+	if err != nil {
+		return db.TenancyWorkspaceMember{}, false, err
+	}
+	var fallback db.TenancyWorkspaceMember
+	fallbackSet := false
+	for _, member := range members {
+		if strings.TrimSpace(member.UserID) != normalizedSubject {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(member.Status)) == "active" {
+			return member, true, nil
+		}
+		if !fallbackSet {
+			fallback = member
+			fallbackSet = true
+		}
+	}
+	if fallbackSet {
+		return fallback, true, nil
+	}
+	return db.TenancyWorkspaceMember{}, false, nil
 }
 
 func firstNonEmptyTag(tags map[string]string, keys ...string) string {
