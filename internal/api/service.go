@@ -695,7 +695,15 @@ func (s *Service) ListWorkspaceMembers(
 	limit int,
 ) ([]db.TenancyWorkspaceMember, error) {
 	ctx = s.scopeContext(ctx)
-	items, err := s.Store.ListWorkspaceMembers(ctx, strings.TrimSpace(workspaceID), limit)
+	loadLimit := limit
+	if loadLimit <= 0 {
+		loadLimit = 100
+	}
+	hasFilter := strings.TrimSpace(role) != "" || strings.TrimSpace(status) != ""
+	if hasFilter && loadLimit < 5000 {
+		loadLimit = 5000
+	}
+	items, err := s.Store.ListWorkspaceMembers(ctx, strings.TrimSpace(workspaceID), loadLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -710,6 +718,9 @@ func (s *Service) ListWorkspaceMembers(
 			continue
 		}
 		filtered = append(filtered, item)
+		if limit > 0 && len(filtered) >= limit {
+			break
+		}
 	}
 	return filtered, nil
 }
