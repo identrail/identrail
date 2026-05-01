@@ -41,6 +41,7 @@ web/build/
 web/coverage/
 web/coverage 2/
 web/coverage 3/
+.vercel/
 web/.vercel/
 site/.next/
 site/.vercel/
