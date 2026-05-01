@@ -26,8 +26,7 @@ CREATE TABLE IF NOT EXISTS tenancy_connectors (
     CHECK (secret_provider IS NULL OR LENGTH(TRIM(secret_provider)) > 0),
     CHECK (secret_ref_id IS NULL OR LENGTH(TRIM(secret_ref_id)) > 0),
     CHECK (
-        secret_provider IS NULL
-        OR (secret_ref_id IS NOT NULL AND LENGTH(TRIM(secret_ref_id)) > 0)
+        (secret_provider IS NULL) = (secret_ref_id IS NULL)
     )
 );
 
