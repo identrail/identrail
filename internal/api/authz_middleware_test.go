@@ -56,6 +56,19 @@ func TestPolicyRolesFromAuthLegacyKey(t *testing.T) {
 	}
 }
 
+func TestPolicyRolesFromAuthClaims(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("auth.roles", []string{"owner", "viewer", "ignored_role"})
+	roles := policyRolesFromAuth(c, nil, nil)
+	if len(roles) != 2 {
+		t.Fatalf("expected owner+viewer claim roles, got %+v", roles)
+	}
+	if roles[0] != "owner" || roles[1] != "viewer" {
+		t.Fatalf("unexpected claim role mapping %+v", roles)
+	}
+}
+
 func TestRequireCentralPolicyMiddlewareWriteDeniedForReadRole(t *testing.T) {
 	r := newPolicyTestRouter(newScopeSet([]string{scopeRead}), true, nil)
 	w := httptest.NewRecorder()
@@ -83,6 +96,60 @@ func TestRequireCentralPolicyMiddlewareBypassWhenAuthDisabled(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204 when auth is disabled, got %d", w.Code)
+	}
+}
+
+func TestRequireCentralPolicyMiddlewareTenancyRoleMatrix(t *testing.T) {
+	testCases := []struct {
+		name        string
+		role        string
+		readStatus  int
+		writeStatus int
+	}{
+		{
+			name:        "owner can read and write tenancy",
+			role:        "owner",
+			readStatus:  http.StatusNoContent,
+			writeStatus: http.StatusNoContent,
+		},
+		{
+			name:        "admin can read and write tenancy",
+			role:        "admin",
+			readStatus:  http.StatusNoContent,
+			writeStatus: http.StatusNoContent,
+		},
+		{
+			name:        "analyst can read but cannot write tenancy",
+			role:        "analyst",
+			readStatus:  http.StatusNoContent,
+			writeStatus: http.StatusForbidden,
+		},
+		{
+			name:        "viewer can read but cannot write tenancy",
+			role:        "viewer",
+			readStatus:  http.StatusNoContent,
+			writeStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newPolicyTenancyRoleRouter(tc.role)
+
+			readReq := httptest.NewRequest(http.MethodGet, "/v1/workspaces", nil)
+			readW := httptest.NewRecorder()
+			r.ServeHTTP(readW, readReq)
+			if readW.Code != tc.readStatus {
+				t.Fatalf("expected read status %d for role %q, got %d", tc.readStatus, tc.role, readW.Code)
+			}
+
+			writeReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces", nil)
+			writeW := httptest.NewRecorder()
+			r.ServeHTTP(writeW, writeReq)
+			if writeW.Code != tc.writeStatus {
+				t.Fatalf("expected write status %d for role %q, got %d", tc.writeStatus, tc.role, writeW.Code)
+			}
+		})
 	}
 }
 
@@ -783,6 +850,27 @@ func newPolicyTriageRouter(scopes scopeSet, setPrincipal bool, store db.Store) *
 	})
 	r.Use(requireCentralPolicyMiddleware(newCentralPolicyRuntimeResolver(store), nil, nil, store, telemetry.NewMetrics(), nil))
 	r.PATCH("/v1/findings/:finding_id/triage", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	return r
+}
+
+func newPolicyTenancyRoleRouter(role string) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(db.WithScope(c.Request.Context(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}))
+		c.Set("auth.subject", "subject-1")
+		c.Set("auth.roles", []string{role})
+		c.Set("auth.principal_type", "subject")
+		c.Set("auth.principal_id", "subject-1")
+		c.Next()
+	})
+	r.Use(requireCentralPolicyMiddleware(newCentralPolicyRuntimeResolver(nil), nil, nil, nil, telemetry.NewMetrics(), nil))
+	r.GET("/v1/workspaces", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	r.POST("/v1/workspaces", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
 	return r

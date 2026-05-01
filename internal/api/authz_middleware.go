@@ -62,6 +62,8 @@ func routePolicyKey(method string, fullPath string) string {
 func defaultRouteActionRoleGrants() map[string][]string {
 	readRoles := []string{scopeRead, scopeWrite, scopeAdmin}
 	writeRoles := []string{scopeWrite, scopeAdmin}
+	tenancyReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
+	tenancyWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	return map[string][]string{
 		policyActionFindingsRead:   readRoles,
 		policyActionFindingsTriage: writeRoles,
@@ -72,8 +74,8 @@ func defaultRouteActionRoleGrants() map[string][]string {
 		policyActionRepoScansRun:   writeRoles,
 		policyActionAuthzSimulate:  {scopeAdmin},
 		policyActionAuthzRollback:  {scopeAdmin},
-		policyActionTenancyRead:    readRoles,
-		policyActionTenancyWrite:   writeRoles,
+		policyActionTenancyRead:    tenancyReadRoles,
+		policyActionTenancyWrite:   tenancyWriteRoles,
 	}
 }
 
@@ -654,21 +656,29 @@ func policyRolesFromAuth(c *gin.Context, writeKeys []string, scopedKeys map[stri
 	if c == nil {
 		return nil
 	}
+	roles := map[string]struct{}{}
 	if scopeSetValue, exists := c.Get("auth.scope_set"); exists {
 		scopes, ok := scopeSetValue.(scopeSet)
-		if !ok {
-			return nil
+		if ok {
+			if scopes.has(scopeAdmin) {
+				roles[scopeAdmin] = struct{}{}
+			}
+			if scopes.has(scopeWrite) {
+				roles[scopeWrite] = struct{}{}
+			}
+			if scopes.has(scopeRead) {
+				roles[scopeRead] = struct{}{}
+			}
 		}
-		roles := map[string]struct{}{}
-		if scopes.has(scopeAdmin) {
-			roles[scopeAdmin] = struct{}{}
+	}
+	for _, rawRole := range authClaimRoles(c) {
+		normalized := strings.ToLower(strings.TrimSpace(rawRole))
+		switch normalized {
+		case "owner", "admin", "analyst", "viewer", scopeRead, scopeWrite:
+			roles[normalized] = struct{}{}
 		}
-		if scopes.has(scopeWrite) {
-			roles[scopeWrite] = struct{}{}
-		}
-		if scopes.has(scopeRead) {
-			roles[scopeRead] = struct{}{}
-		}
+	}
+	if len(roles) > 0 {
 		result := make([]string, 0, len(roles))
 		for role := range roles {
 			result = append(result, role)
@@ -685,9 +695,35 @@ func policyRolesFromAuth(c *gin.Context, writeKeys []string, scopedKeys map[stri
 	if len(scopedKeys) > 0 {
 		return nil
 	}
-	roles := []string{scopeRead}
+	legacyRoles := []string{scopeRead}
 	if keyInList(writeKeys, legacyKey) {
-		roles = append(roles, scopeWrite)
+		legacyRoles = append(legacyRoles, scopeWrite)
 	}
-	return roles
+	return legacyRoles
+}
+
+func authClaimRoles(c *gin.Context) []string {
+	if c == nil {
+		return nil
+	}
+	raw, exists := c.Get("auth.roles")
+	if !exists {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []string:
+		return typed
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			role, ok := item.(string)
+			if !ok {
+				continue
+			}
+			result = append(result, role)
+		}
+		return result
+	default:
+		return nil
+	}
 }

@@ -47,6 +47,22 @@ Write access is enforced by scope policy for both API keys and OIDC bearer token
 - API keys: scoped keys (`write`/`admin`) or legacy write-key config
 - OIDC: write scopes configured via `IDENTRAIL_OIDC_WRITE_SCOPES`
 
+## Tenancy RBAC Role Mapping
+
+For org/workspace/project actions, Identrail supports direct role mapping from OIDC `roles` claim values.
+
+Supported mapped roles:
+
+- `owner`
+- `admin`
+- `analyst`
+- `viewer`
+
+Tenancy action matrix:
+
+- `tenancy.read`: `owner`, `admin`, `analyst`, `viewer` (also compatible with `read`/`write`/`admin` scoped auth)
+- `tenancy.write`: `owner`, `admin` (also compatible with `write`/`admin` scoped auth)
+
 ## Operator Checks
 
 - verify claim names match your IdP token shape
