@@ -28,6 +28,10 @@ This page is the canonical runtime configuration surface for API and worker proc
 - `IDENTRAIL_DEFAULT_TENANT_ID`
 - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
 
+Notes:
+- `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
+- OIDC bearer auth enforces issuer/audience plus token validity (`exp`) via provider verification.
+
 ## Provider Collection
 
 AWS:

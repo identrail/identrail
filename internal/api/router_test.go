@@ -49,9 +49,13 @@ type recordingAuditSink struct {
 
 type fakeTokenVerifier struct {
 	tokens map[string]VerifiedToken
+	errs   map[string]error
 }
 
 func (v fakeTokenVerifier) VerifyToken(_ context.Context, rawToken string) (VerifiedToken, error) {
+	if err, ok := v.errs[rawToken]; ok {
+		return VerifiedToken{}, err
+	}
 	token, ok := v.tokens[rawToken]
 	if !ok {
 		return VerifiedToken{}, errors.New("invalid token")
@@ -1247,6 +1251,9 @@ func TestRouterOIDCOnlyAuthentication(t *testing.T) {
 					Scopes:      nil,
 				},
 			},
+			errs: map[string]error{
+				"expired-token": errors.New("oidc: token is expired"),
+			},
 		},
 	})
 
@@ -1271,6 +1278,14 @@ func TestRouterOIDCOnlyAuthentication(t *testing.T) {
 	r.ServeHTTP(noScopeW, noScopeReq)
 	if noScopeW.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for oidc token without read scope, got %d", noScopeW.Code)
+	}
+
+	expiredReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	expiredReq.Header.Set("Authorization", "Bearer expired-token")
+	expiredW := httptest.NewRecorder()
+	r.ServeHTTP(expiredW, expiredReq)
+	if expiredW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for expired oidc token, got %d", expiredW.Code)
 	}
 }
 

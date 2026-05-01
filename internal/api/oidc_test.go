@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -123,6 +124,22 @@ func TestOIDCTokenVerifierVerifyTokenErrors(t *testing.T) {
 	}
 	if _, err := claimsErr.VerifyToken(context.Background(), "token"); err == nil {
 		t.Fatal("expected claims decode error")
+	}
+}
+
+func TestOIDCTokenVerifierRejectsExpiredToken(t *testing.T) {
+	verifier := &OIDCTokenVerifier{
+		verifier: fakeRawTokenVerifier{
+			err: errors.New("oidc: token is expired"),
+		},
+	}
+
+	_, err := verifier.VerifyToken(context.Background(), "expired-token")
+	if err == nil {
+		t.Fatal("expected expired token verification error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "expired") {
+		t.Fatalf("expected expired-token error, got %v", err)
 	}
 }
 

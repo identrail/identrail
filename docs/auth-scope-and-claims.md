@@ -24,6 +24,22 @@ Issuer/audience controls:
 - `IDENTRAIL_OIDC_ISSUER_URL`
 - `IDENTRAIL_OIDC_AUDIENCE`
 
+### Keycloak Baseline
+
+For Keycloak-backed OIDC verification, set:
+
+- `IDENTRAIL_OIDC_ISSUER_URL=https://<keycloak-host>/realms/<realm>`
+- `IDENTRAIL_OIDC_AUDIENCE=<keycloak-client-id>`
+
+Token requirements for Identrail auth middleware:
+
+- `iss` must exactly match `IDENTRAIL_OIDC_ISSUER_URL`
+- `aud` must include `IDENTRAIL_OIDC_AUDIENCE`
+- `exp` must be valid (expired tokens are rejected)
+- tenant/workspace claims must exist using configured claim names
+
+If your Keycloak token does not already expose `tenant_id` and `workspace_id` as top-level string claims, add protocol mappers for them in the client.
+
 ## Write Authorization
 
 Write access is enforced by scope policy for both API keys and OIDC bearer tokens.
