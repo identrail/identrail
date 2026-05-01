@@ -59,7 +59,12 @@ function saveProductSession(session: ProductSession) {
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.setItem(PRODUCT_SESSION_STORAGE_KEY, JSON.stringify(session));
+  const persistedSession: Pick<ProductSession, 'tenantID' | 'workspaceID' | 'projectID'> = {
+    tenantID: session.tenantID,
+    workspaceID: session.workspaceID,
+    projectID: session.projectID
+  };
+  window.localStorage.setItem(PRODUCT_SESSION_STORAGE_KEY, JSON.stringify(persistedSession));
 }
 
 function clearProductSession() {
