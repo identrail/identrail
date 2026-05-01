@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Standardized product-entry marketing CTAs to the auth-first app flow:
+  - switched canonical marketing app-entry destination to `/app`
+  - added explicit `signIn` route mapping to `/app/login` in `siteLinks`
+  - updated marketing CTA labels to `Open App` for product-access intent
+  - added regression tests for CTA routing and route-guard `next` redirect behavior
 - Improved first-run onboarding flow:
   - added `make quickstart` with `scripts/quickstart.sh` to bootstrap local Docker, trigger a first scan, and guide findings retrieval
   - updated README quickstart to include first scan + findings flow (not only `/healthz`)

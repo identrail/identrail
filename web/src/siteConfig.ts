@@ -1,4 +1,6 @@
 export const siteLinks = {
+  app: '/app',
+  signIn: '/app/login',
   platform: '/product',
   useCases: '/solutions',
   solutions: '/solutions',
@@ -11,7 +13,7 @@ export const siteLinks = {
   discord: 'https://discord.gg/7jSUSnQC',
   starOnGithub: 'https://github.com/identrail/identrail',
   requestDemo: '/demo',
-  getStarted: 'https://github.com/identrail/identrail',
+  getStarted: '/app',
   watchDemo: '/demo',
   contribute: 'https://github.com/identrail/identrail/blob/dev/CONTRIBUTING.md',
   quickstartDocker: 'https://github.com/identrail/identrail/blob/dev/deploy/docker/README.md',

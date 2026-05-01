@@ -150,6 +150,8 @@ describe('App', () => {
         name: /Sign in to the Identrail app shell/i
       })
     ).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    expect(window.location.search).toContain('next=%2Fapp%2Fdefault%2Fdefault');
   });
 
   it('loads authenticated product shell placeholders after login', async () => {

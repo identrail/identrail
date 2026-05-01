@@ -133,7 +133,7 @@ export function MarketingHero() {
 
           <div className="mk-hero-cta mk-hero-cta-single">
             <SafeLink className="mk-btn mk-btn-primary" href={siteLinks.getStarted}>
-              Get Started
+              Open App
             </SafeLink>
           </div>
 

@@ -33,7 +33,7 @@ export function IntegrationsCtaSection() {
           <h3>Secure machine identity paths before they become incidents.</h3>
           <div>
             <SafeLink className="mk-btn mk-btn-primary" href={siteLinks.getStarted}>
-              Get Started (Open Source)
+              Open App
             </SafeLink>
             <SafeLink className="mk-btn mk-btn-secondary" href={siteLinks.requestDemo}>
               Request Demo

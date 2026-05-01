@@ -12,7 +12,7 @@ export function CtaBannerSection() {
         </p>
         <div className="cta-banner-actions">
           <SafeLink className="btn btn-ghost" href={siteLinks.getStarted}>
-            Get Started
+            Open App
           </SafeLink>
           <SafeLink className="btn btn-secondary" href={siteLinks.requestDemo}>
             Request a Demo

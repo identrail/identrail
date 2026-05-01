@@ -36,7 +36,7 @@ export function HeroSection() {
 
           <div className="hero-cta">
             <SafeLink className="btn btn-primary" href={siteLinks.getStarted}>
-              Get Started (Open Source)
+              Open App
             </SafeLink>
             <SafeLink className="btn btn-secondary" href={siteLinks.starOnGithub}>
               Star on GitHub

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
+import { siteLinks } from '../../siteConfig';
 import { SafeLink } from '../SafeLink';
 
 type NavLinkItem = {
@@ -84,6 +85,9 @@ export function Header({
             Book Demo
           </Link>
           <div className="idt-header-utility-group">
+            <Link to={siteLinks.signIn} className="idt-header-utility">
+              Sign in
+            </Link>
             <SafeLink href={githubRepo} className="idt-header-utility">
               GitHub
             </SafeLink>
