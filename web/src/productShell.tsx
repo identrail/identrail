@@ -370,7 +370,7 @@ export function ProductOverviewPage() {
       title="Overview"
       description={`Entry view for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'}.`}
       actionLabel="Open findings"
-      actionTo={`/${['app', scope?.tenantID ?? 'default', scope?.workspaceID ?? 'default', 'findings'].join('/')}`}
+      actionTo={`/app/${encodeURIComponent(scope?.tenantID ?? 'default')}/${encodeURIComponent(scope?.workspaceID ?? 'default')}/findings`}
     />
   );
 }
@@ -387,7 +387,7 @@ export function ProductProjectsPage() {
       title="Projects"
       description="Project-level onboarding and scan boundaries live here."
       actionLabel="View placeholder project"
-      actionTo={`/${['app', scope?.tenantID ?? 'default', scope?.workspaceID ?? 'default', 'projects', scope?.projectID ?? 'sample-project'].join('/')}`}
+      actionTo={`/app/${encodeURIComponent(scope?.tenantID ?? 'default')}/${encodeURIComponent(scope?.workspaceID ?? 'default')}/projects/${encodeURIComponent(scope?.projectID ?? 'sample-project')}`}
     />
   );
 }
