@@ -20,6 +20,12 @@ function parseAppRoutes(src) {
     if (route.includes('*') || route.includes(':')) {
       continue;
     }
+    if (!route.startsWith('/')) {
+      continue;
+    }
+    if (route === '/app' || route.startsWith('/app/')) {
+      continue;
+    }
     routes.add(route);
   }
   // Include static routes generated from mapped slug collections, e.g.
