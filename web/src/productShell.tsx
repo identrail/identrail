@@ -5,8 +5,6 @@ type ProductSession = {
   tenantID: string;
   workspaceID: string;
   projectID?: string;
-  apiKey?: string;
-  bearerToken?: string;
 };
 
 type ScopeRouteParams = {
@@ -46,9 +44,7 @@ function readProductSession(): ProductSession | null {
     return {
       tenantID,
       workspaceID,
-      projectID: normalizeValue(parsed.projectID ?? '') || undefined,
-      apiKey: normalizeValue(parsed.apiKey ?? '') || undefined,
-      bearerToken: normalizeValue(parsed.bearerToken ?? '') || undefined
+      projectID: normalizeValue(parsed.projectID ?? '') || undefined
     };
   } catch {
     return null;
@@ -59,12 +55,7 @@ function saveProductSession(session: ProductSession) {
   if (typeof window === 'undefined') {
     return;
   }
-  const persistedSession: Pick<ProductSession, 'tenantID' | 'workspaceID' | 'projectID'> = {
-    tenantID: session.tenantID,
-    workspaceID: session.workspaceID,
-    projectID: session.projectID
-  };
-  window.localStorage.setItem(PRODUCT_SESSION_STORAGE_KEY, JSON.stringify(persistedSession));
+  window.localStorage.setItem(PRODUCT_SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 
 function clearProductSession() {
@@ -187,8 +178,6 @@ export function ProductLoginPage() {
   const [tenantID, setTenantID] = useState(existing?.tenantID ?? 'default');
   const [workspaceID, setWorkspaceID] = useState(existing?.workspaceID ?? 'default');
   const [projectID, setProjectID] = useState(existing?.projectID ?? '');
-  const [apiKey, setApiKey] = useState(existing?.apiKey ?? '');
-  const [bearerToken, setBearerToken] = useState(existing?.bearerToken ?? '');
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -201,9 +190,7 @@ export function ProductLoginPage() {
     const session: ProductSession = {
       tenantID: normalizedTenantID,
       workspaceID: normalizedWorkspaceID,
-      projectID: normalizeValue(projectID) || undefined,
-      apiKey: normalizeValue(apiKey) || undefined,
-      bearerToken: normalizeValue(bearerToken) || undefined
+      projectID: normalizeValue(projectID) || undefined
     };
     saveProductSession(session);
 
@@ -234,14 +221,6 @@ export function ProductLoginPage() {
           <label>
             Project ID (optional)
             <input value={projectID} onChange={(event) => setProjectID(event.target.value)} />
-          </label>
-          <label>
-            API key (optional)
-            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
-          </label>
-          <label>
-            Bearer token (optional)
-            <input value={bearerToken} onChange={(event) => setBearerToken(event.target.value)} />
           </label>
           <button className="idt-btn idt-btn-primary" type="submit">
             Continue to app
