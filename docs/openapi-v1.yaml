@@ -1610,6 +1610,7 @@ components:
       properties:
         repositories:
           type: array
+          minItems: 1
           items:
             type: string
     GitHubConnectionStatus:
