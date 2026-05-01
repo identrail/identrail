@@ -1,5 +1,13 @@
 import { Component, FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import {
+  apiClient,
+  type RequestAuthContext,
+  type WhoAmIResponse,
+  type WorkspaceMemberRecord,
+  type WorkspaceMemberRole,
+  type WorkspaceMemberStatus
+} from './api/client';
 
 type ProductSessionAuthMode = 'manual' | 'oidc';
 
@@ -625,6 +633,54 @@ function buildScopedPath(scope: ProductSession, suffix = ''): string {
   return suffix ? `${base}/${suffix}` : base;
 }
 
+const MEMBER_ROLE_OPTIONS: WorkspaceMemberRole[] = ['owner', 'admin', 'analyst', 'viewer'];
+const MEMBER_STATUS_OPTIONS: WorkspaceMemberStatus[] = ['invited', 'active', 'suspended', 'removed'];
+
+function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
+  const session = readProductSession();
+  return {
+    tenantID: scope.tenantID,
+    workspaceID: scope.workspaceID,
+    bearerToken: session?.accessToken
+  };
+}
+
+function normalizeMemberID(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  return normalized || 'member';
+}
+
+function deriveMemberID(userID: string, email: string): string {
+  const userToken = normalizeMemberID(userID);
+  const emailToken = normalizeMemberID(email.split('@')[0] ?? '');
+  const token = userToken || emailToken;
+  return token ? `member-${token}`.slice(0, 72) : `member-${Date.now()}`;
+}
+
+function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse | null): boolean {
+  const fromSession = (readProductSession()?.roles ?? []).map((role) => role.toLowerCase());
+  if (fromSession.includes('owner') || fromSession.includes('admin')) {
+    return true;
+  }
+  if (fromSession.includes('viewer') || fromSession.includes('analyst')) {
+    return false;
+  }
+  if (!whoAmI) {
+    return false;
+  }
+  const activeRole =
+    whoAmI.active_workspace?.member?.role ??
+    whoAmI.workspaces.find((item) => item.workspace.workspace_id === scope.workspaceID)?.member?.role;
+  if (!activeRole) {
+    return false;
+  }
+  return activeRole === 'owner' || activeRole === 'admin';
+}
+
 function useScaffoldDataState(delayMS = 320) {
   const [loading, setLoading] = useState(true);
 
@@ -1132,8 +1188,542 @@ export function ProductOverviewPage() {
   );
 }
 
+type MemberDraftState = Record<
+  string,
+  {
+    role: WorkspaceMemberRole;
+    status: WorkspaceMemberStatus;
+  }
+>;
+
 export function ProductWorkspacesPage() {
-  return <ScopedShellPage title="Workspaces" description="Workspace lifecycle, membership, and scope boundaries will be managed from this route group." />;
+  const params = useParams<ScopeRouteParams>();
+  const navigate = useNavigate();
+  const scope = resolveScopeFromParams(params);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+
+  const [whoAmI, setWhoAmI] = useState<WhoAmIResponse | null>(null);
+  const [members, setMembers] = useState<WorkspaceMemberRecord[]>([]);
+  const [memberDrafts, setMemberDrafts] = useState<MemberDraftState>({});
+
+  const [workspaceTarget, setWorkspaceTarget] = useState('');
+  const [switching, setSwitching] = useState(false);
+
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | WorkspaceMemberRole>('all');
+  const [memberStatusFilter, setMemberStatusFilter] = useState<'all' | WorkspaceMemberStatus>('all');
+
+  const [inviting, setInviting] = useState(false);
+  const [inviteInput, setInviteInput] = useState({
+    userID: '',
+    email: '',
+    role: 'viewer' as WorkspaceMemberRole,
+    status: 'invited' as WorkspaceMemberStatus
+  });
+
+  const [savingMemberID, setSavingMemberID] = useState('');
+  const [removingMemberID, setRemovingMemberID] = useState('');
+
+  const refreshMembers = async (targetScope: ProductSession) => {
+    const auth = buildProductAuthContext(targetScope);
+    const response = await apiClient.listWorkspaceMembers(targetScope.workspaceID, {}, auth);
+    setMembers(response.items);
+    setMemberDrafts(
+      response.items.reduce<MemberDraftState>((acc, member) => {
+        acc[member.member_id] = { role: member.role, status: member.status };
+        return acc;
+      }, {})
+    );
+  };
+
+  useEffect(() => {
+    if (!scope) {
+      setLoading(false);
+      setError('Workspace route context is missing.');
+      return;
+    }
+
+    let mounted = true;
+    const run = async () => {
+      setLoading(true);
+      setError('');
+      setSuccessMessage('');
+      try {
+        const auth = buildProductAuthContext(scope);
+        const snapshot = await apiClient.getWhoAmI(auth);
+        if (!mounted) {
+          return;
+        }
+        setWhoAmI(snapshot);
+        setWorkspaceTarget(snapshot.scope.workspace_id || scope.workspaceID);
+        await refreshMembers(scope);
+      } catch (requestError) {
+        if (!mounted) {
+          return;
+        }
+        const message = requestError instanceof Error ? requestError.message : 'Failed to load workspace administration data.';
+        setError(message);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [scope?.tenantID, scope?.workspaceID]);
+
+  if (!scope) {
+    return <AppShellLoading message="Resolving workspace scope" />;
+  }
+
+  const canAdmin = hasWorkspaceAdminAccess(scope, whoAmI);
+  const roleCounts = members.reduce<Record<WorkspaceMemberRole, number>>(
+    (acc, member) => {
+      acc[member.role] += 1;
+      return acc;
+    },
+    { owner: 0, admin: 0, analyst: 0, viewer: 0 }
+  );
+
+  const activeCount = members.filter((member) => member.status === 'active').length;
+  const invitedCount = members.filter((member) => member.status === 'invited').length;
+  const filteredMembers = members.filter((member) => {
+    const search = normalizeValue(memberSearch).toLowerCase();
+    const matchesSearch =
+      search.length === 0 ||
+      member.user_id.toLowerCase().includes(search) ||
+      (member.email ?? '').toLowerCase().includes(search) ||
+      member.member_id.toLowerCase().includes(search);
+    const matchesRole = memberRoleFilter === 'all' || member.role === memberRoleFilter;
+    const matchesStatus = memberStatusFilter === 'all' || member.status === memberStatusFilter;
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+
+  const handleSwitchWorkspace = async () => {
+    if (!workspaceTarget || workspaceTarget === scope.workspaceID) {
+      return;
+    }
+    setSwitching(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.resolveActiveWorkspace(workspaceTarget, auth);
+      const switchedScope: ProductSession = {
+        ...scope,
+        tenantID: response.scope.tenant_id,
+        workspaceID: response.scope.workspace_id
+      };
+      const current = readProductSession();
+      if (current) {
+        saveProductSession({
+          ...current,
+          tenantID: switchedScope.tenantID,
+          workspaceID: switchedScope.workspaceID
+        });
+      }
+      navigate(buildScopedPath(switchedScope, 'workspaces'), { replace: true });
+    } catch (switchError) {
+      const message = switchError instanceof Error ? switchError.message : 'Failed to switch workspace.';
+      setError(message);
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const handleInviteMember = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canAdmin) {
+      return;
+    }
+    setInviting(true);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const userID = normalizeValue(inviteInput.userID);
+      const email = normalizeValue(inviteInput.email);
+      if (!userID) {
+        throw new Error('User ID is required.');
+      }
+      const auth = buildProductAuthContext(scope);
+      await apiClient.upsertWorkspaceMember(
+        scope.workspaceID,
+        {
+          member_id: deriveMemberID(userID, email),
+          user_id: userID,
+          email: email || undefined,
+          role: inviteInput.role,
+          status: inviteInput.status
+        },
+        auth
+      );
+      await refreshMembers(scope);
+      setInviteInput({
+        userID: '',
+        email: '',
+        role: 'viewer',
+        status: 'invited'
+      });
+      setSuccessMessage('Member invitation saved.');
+    } catch (inviteError) {
+      const message = inviteError instanceof Error ? inviteError.message : 'Failed to invite member.';
+      setError(message);
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleSaveMember = async (member: WorkspaceMemberRecord) => {
+    if (!canAdmin) {
+      return;
+    }
+    const draft = memberDrafts[member.member_id];
+    if (!draft) {
+      return;
+    }
+    setSavingMemberID(member.member_id);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const auth = buildProductAuthContext(scope);
+      await apiClient.upsertWorkspaceMember(
+        scope.workspaceID,
+        {
+          member_id: member.member_id,
+          user_id: member.user_id,
+          email: member.email,
+          role: draft.role,
+          status: draft.status
+        },
+        auth
+      );
+      await refreshMembers(scope);
+      setSuccessMessage(`Updated ${member.user_id}.`);
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Failed to update member.';
+      setError(message);
+    } finally {
+      setSavingMemberID('');
+    }
+  };
+
+  const handleRemoveMember = async (member: WorkspaceMemberRecord) => {
+    if (!canAdmin) {
+      return;
+    }
+    const shouldRemove = window.confirm(`Remove ${member.user_id} from workspace ${scope.workspaceID}?`);
+    if (!shouldRemove) {
+      return;
+    }
+    setRemovingMemberID(member.member_id);
+    setError('');
+    setSuccessMessage('');
+    try {
+      const auth = buildProductAuthContext(scope);
+      await apiClient.deleteWorkspaceMember(scope.workspaceID, member.member_id, auth);
+      await refreshMembers(scope);
+      setSuccessMessage(`Removed ${member.user_id} from workspace.`);
+    } catch (removeError) {
+      const message = removeError instanceof Error ? removeError.message : 'Failed to remove member.';
+      setError(message);
+    } finally {
+      setRemovingMemberID('');
+    }
+  };
+
+  if (loading) {
+    return <AppShellLoading message="Loading workspace administration" />;
+  }
+
+  const availableWorkspaces = whoAmI?.workspaces ?? [];
+
+  return (
+    <section className="idt-app-panel idt-workspace-admin">
+      <p className="idt-app-kicker">Workspace administration</p>
+      <h2>Members and roles</h2>
+      <p>Invite members, update roles instantly, and switch active workspace scope without leaving the app shell.</p>
+
+      {error ? (
+        <p role="alert" className="idt-app-alert idt-app-alert-error">
+          {error}
+        </p>
+      ) : null}
+      {successMessage ? (
+        <p role="status" className="idt-app-alert idt-app-alert-success">
+          {successMessage}
+        </p>
+      ) : null}
+      {!canAdmin ? (
+        <p className="idt-app-alert">
+          You currently have read-only tenancy access. Ask a workspace owner/admin to grant elevated role access.
+        </p>
+      ) : null}
+
+      <div className="idt-workspace-stats" aria-label="workspace membership summary">
+        <article>
+          <h3>{members.length}</h3>
+          <p>Total members</p>
+        </article>
+        <article>
+          <h3>{activeCount}</h3>
+          <p>Active</p>
+        </article>
+        <article>
+          <h3>{invitedCount}</h3>
+          <p>Invited</p>
+        </article>
+        <article>
+          <h3>{roleCounts.owner + roleCounts.admin}</h3>
+          <p>Privileged roles</p>
+        </article>
+      </div>
+
+      <div className="idt-workspace-admin-grid">
+        <article className="idt-app-empty-state">
+          <h3>Switch active workspace</h3>
+          <p>Change context to another workspace you can access.</p>
+          <div className="idt-workspace-switcher">
+            <label htmlFor="workspace-switch-select">Workspace</label>
+            <select
+              id="workspace-switch-select"
+              value={workspaceTarget}
+              onChange={(event) => setWorkspaceTarget(event.target.value)}
+            >
+              {[...availableWorkspaces]
+                .sort((a, b) => a.workspace.display_name.localeCompare(b.workspace.display_name))
+                .map((item) => (
+                  <option key={item.workspace.workspace_id} value={item.workspace.workspace_id}>
+                    {item.workspace.display_name} ({item.workspace.workspace_id})
+                  </option>
+                ))}
+            </select>
+            <button
+              type="button"
+              className="idt-btn idt-btn-ghost"
+              onClick={() => {
+                void handleSwitchWorkspace();
+              }}
+              disabled={switching || workspaceTarget === scope.workspaceID}
+            >
+              {switching ? 'Switching...' : 'Switch workspace'}
+            </button>
+          </div>
+        </article>
+
+        <article className="idt-app-empty-state">
+          <h3>Invite member</h3>
+          <form className="idt-app-form" onSubmit={handleInviteMember}>
+            <label>
+              User ID
+              <input
+                value={inviteInput.userID}
+                onChange={(event) => setInviteInput((current) => ({ ...current, userID: event.target.value }))}
+                placeholder="engineer@example.com"
+                disabled={!canAdmin || inviting}
+                required
+              />
+            </label>
+            <label>
+              Email (optional)
+              <input
+                type="email"
+                value={inviteInput.email}
+                onChange={(event) => setInviteInput((current) => ({ ...current, email: event.target.value }))}
+                placeholder="engineer@example.com"
+                disabled={!canAdmin || inviting}
+              />
+            </label>
+            <div className="idt-workspace-inline-fields">
+              <label>
+                Role
+                <select
+                  value={inviteInput.role}
+                  onChange={(event) =>
+                    setInviteInput((current) => ({ ...current, role: event.target.value as WorkspaceMemberRole }))
+                  }
+                  disabled={!canAdmin || inviting}
+                >
+                  {MEMBER_ROLE_OPTIONS.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Status
+                <select
+                  value={inviteInput.status}
+                  onChange={(event) =>
+                    setInviteInput((current) => ({ ...current, status: event.target.value as WorkspaceMemberStatus }))
+                  }
+                  disabled={!canAdmin || inviting}
+                >
+                  {MEMBER_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={!canAdmin || inviting}>
+              {inviting ? 'Saving...' : 'Invite member'}
+            </button>
+          </form>
+        </article>
+      </div>
+
+      <div className="idt-workspace-member-toolbar">
+        <label>
+          Search
+          <input
+            value={memberSearch}
+            onChange={(event) => setMemberSearch(event.target.value)}
+            placeholder="user id, email, or member id"
+          />
+        </label>
+        <label>
+          Role
+          <select
+            value={memberRoleFilter}
+            onChange={(event) => setMemberRoleFilter(event.target.value as 'all' | WorkspaceMemberRole)}
+          >
+            <option value="all">all</option>
+            {MEMBER_ROLE_OPTIONS.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Status
+          <select
+            value={memberStatusFilter}
+            onChange={(event) => setMemberStatusFilter(event.target.value as 'all' | WorkspaceMemberStatus)}
+          >
+            <option value="all">all</option>
+            {MEMBER_STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="idt-workspace-table-wrap">
+        <table className="idt-workspace-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Member ID</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Last updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredMembers.map((member) => {
+              const draft = memberDrafts[member.member_id] ?? { role: member.role, status: member.status };
+              const dirty = draft.role !== member.role || draft.status !== member.status;
+              return (
+                <tr key={member.member_id}>
+                  <td>
+                    <strong>{member.user_id}</strong>
+                    {member.email ? <span>{member.email}</span> : null}
+                  </td>
+                  <td>{member.member_id}</td>
+                  <td>
+                    <select
+                      value={draft.role}
+                      onChange={(event) =>
+                        setMemberDrafts((current) => ({
+                          ...current,
+                          [member.member_id]: {
+                            role: event.target.value as WorkspaceMemberRole,
+                            status: current[member.member_id]?.status ?? member.status
+                          }
+                        }))
+                      }
+                      disabled={!canAdmin}
+                    >
+                      {MEMBER_ROLE_OPTIONS.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={draft.status}
+                      onChange={(event) =>
+                        setMemberDrafts((current) => ({
+                          ...current,
+                          [member.member_id]: {
+                            role: current[member.member_id]?.role ?? member.role,
+                            status: event.target.value as WorkspaceMemberStatus
+                          }
+                        }))
+                      }
+                      disabled={!canAdmin}
+                    >
+                      {MEMBER_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>{new Date(member.updated_at).toLocaleString()}</td>
+                  <td>
+                    <div className="idt-workspace-actions">
+                      <button
+                        type="button"
+                        className="idt-btn idt-btn-ghost"
+                        onClick={() => {
+                          void handleSaveMember(member);
+                        }}
+                        disabled={!canAdmin || !dirty || savingMemberID === member.member_id}
+                      >
+                        {savingMemberID === member.member_id ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        type="button"
+                        className="idt-btn idt-btn-dark"
+                        onClick={() => {
+                          void handleRemoveMember(member);
+                        }}
+                        disabled={!canAdmin || removingMemberID === member.member_id}
+                      >
+                        {removingMemberID === member.member_id ? 'Removing...' : 'Remove'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {filteredMembers.length === 0 ? (
+        <AppShellEmptyState
+          title="No members match this filter"
+          body="Try adjusting role/status filters or invite a new workspace member."
+        />
+      ) : null}
+    </section>
+  );
 }
 
 export function ProductProjectsPage() {

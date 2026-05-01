@@ -57,6 +57,7 @@ Current sequence in `migrations/`:
 11. `000010_authz_policy_lifecycle_controls` - policy lifecycle primitives
 12. `000011_authz_policy_rollout_staged_controls` - staged rollout controls
 13. `000012_tenancy_core_entities` - organization/workspace/member/project tenancy core
+14. `000013_connectors_state_scan_policies` - connector instances, connector runtime state, and scan policy persistence with scoped foreign-key integrity
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

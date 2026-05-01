@@ -6,6 +6,11 @@
   - normalized connector health model (`unknown|healthy|warning|error`) with provider alias mapping
   - standardized lifecycle semantics for pending/active/degraded/disconnected transitions
   - state-machine tests covering probe outcomes, revoke/reactivate behavior, and invalid transition guards
+- Added tenancy persistence migrations for connector and automation policy state:
+  - new scoped tables for `tenancy_connectors`, `tenancy_connector_states`, and `tenancy_scan_policies`
+  - enforced foreign-key integrity from connectors/policies to tenancy projects and connector-state to connector rows
+  - added connector secret metadata reference fields (`secret_provider`, `secret_ref_id`, `secret_ref_version`) without storing raw secrets
+  - added scope-aware indexes for connector health/sync state and policy trigger scheduling queries
 - Standardized product-entry marketing CTAs to the auth-first app flow:
   - switched canonical marketing app-entry destination to `/app`
   - added explicit `signIn` route mapping to `/app/login` in `siteLinks`

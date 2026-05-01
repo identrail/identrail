@@ -65,3 +65,17 @@ This document defines the normalized multi-tenant app-mode entities introduced f
 - Connector lifecycle framework and provider hook contract:
   - `internal/connectors/lifecycle.go`
   - `docs/connector-lifecycle-framework.md`
+
+## Persistence Mapping
+
+- Tenancy core tables:
+  - `tenancy_organizations`
+  - `tenancy_workspaces`
+  - `tenancy_workspace_members`
+  - `tenancy_projects`
+- Connector and policy tables:
+  - `tenancy_connectors`
+  - `tenancy_connector_states`
+  - `tenancy_scan_policies`
+
+Referential integrity is enforced in migrations so connector/policy rows cannot outlive their workspace/project scope.
