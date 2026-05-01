@@ -670,13 +670,13 @@ function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse |
     return false;
   }
   if (!whoAmI) {
-    return true;
+    return false;
   }
   const activeRole =
     whoAmI.active_workspace?.member?.role ??
     whoAmI.workspaces.find((item) => item.workspace.workspace_id === scope.workspaceID)?.member?.role;
   if (!activeRole) {
-    return true;
+    return false;
   }
   return activeRole === 'owner' || activeRole === 'admin';
 }
