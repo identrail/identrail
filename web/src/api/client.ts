@@ -85,6 +85,51 @@ export type RequestAuthContext = {
   bearerToken?: string;
 };
 
+export type WorkspaceMemberRole = 'owner' | 'admin' | 'analyst' | 'viewer';
+export type WorkspaceMemberStatus = 'invited' | 'active' | 'suspended' | 'removed';
+
+export type WorkspaceRecord = {
+  tenant_id: string;
+  workspace_id: string;
+  display_name: string;
+  slug: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceMemberRecord = {
+  tenant_id: string;
+  workspace_id: string;
+  member_id: string;
+  user_id: string;
+  email?: string;
+  role: WorkspaceMemberRole;
+  status: WorkspaceMemberStatus;
+  joined_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceContextSnapshot = {
+  workspace: WorkspaceRecord;
+  member?: WorkspaceMemberRecord;
+  is_active: boolean;
+};
+
+export type WhoAmIResponse = {
+  principal: {
+    type: 'subject' | 'api_key' | 'anonymous';
+    id: string;
+  };
+  roles: string[];
+  scopes: string[];
+  scope: {
+    tenant_id: string;
+    workspace_id: string;
+  };
+  active_workspace?: WorkspaceContextSnapshot;
+  workspaces: WorkspaceContextSnapshot[];
+};
+
 export type FindingLifecycleStatus = 'open' | 'ack' | 'suppressed' | 'resolved';
 
 export type LeadCapturePayload = {
@@ -201,6 +246,9 @@ async function request<T>(path: string, auth?: RequestAuthContext, init: Request
     }
     throw new Error(message);
   }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return (await res.json()) as T;
 }
 
@@ -215,6 +263,63 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 }
 
 export const apiClient = {
+  getWhoAmI(auth?: RequestAuthContext) {
+    return request<WhoAmIResponse>('/v1/whoami', auth);
+  },
+  resolveActiveWorkspace(workspaceID: string, auth?: RequestAuthContext) {
+    return request<{
+      active_workspace: WorkspaceContextSnapshot;
+      scope: { tenant_id: string; workspace_id: string };
+      scope_headers: { 'X-Identrail-Tenant-ID': string; 'X-Identrail-Workspace-ID': string };
+    }>('/v1/workspaces/active', auth, {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: workspaceID })
+    });
+  },
+  listWorkspaceMembers(
+    workspaceID: string,
+    filters: {
+      role?: WorkspaceMemberRole;
+      status?: WorkspaceMemberStatus;
+      limit?: number;
+    } = {},
+    auth?: RequestAuthContext
+  ) {
+    const encodedWorkspaceID = encodeURIComponent(workspaceID);
+    return request<{ items: WorkspaceMemberRecord[] }>(
+      `/v1/workspaces/${encodedWorkspaceID}/members${buildQuery(filters)}`,
+      auth
+    );
+  },
+  upsertWorkspaceMember(
+    workspaceID: string,
+    payload: {
+      member_id: string;
+      user_id: string;
+      email?: string;
+      role: WorkspaceMemberRole;
+      status: WorkspaceMemberStatus;
+    },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ member: WorkspaceMemberRecord }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/members`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  deleteWorkspaceMember(workspaceID: string, memberID: string, auth?: RequestAuthContext) {
+    return request<void>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/members/${encodeURIComponent(memberID)}`,
+      auth,
+      {
+        method: 'DELETE'
+      }
+    );
+  },
   getFindingsSummary(auth?: RequestAuthContext) {
     return request<FindingsSummary>('/v1/findings/summary', auth);
   },

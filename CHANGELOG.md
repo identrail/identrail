@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added workspace administration UI in app shell:
+  - workspace switcher wired to `/v1/workspaces/active`
+  - member invite flow (`owner|admin|analyst|viewer` with invited/active lifecycle)
+  - inline role/status updates and member removal actions
+  - role-aware admin guardrails and workspace membership filters/search
+  - frontend/API tests covering member write/delete and workspace switching
 - Standardized product-entry marketing CTAs to the auth-first app flow:
   - switched canonical marketing app-entry destination to `/app`
   - added explicit `signIn` route mapping to `/app/login` in `siteLinks`
