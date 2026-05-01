@@ -296,13 +296,18 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 	}
 
 	installationID := envelope.Installation.ID
+	normalizedSignature := strings.TrimSpace(signature)
+
+	if !s.verifyGitHubWebhookSignatureForInstallation(installationID, payload, normalizedSignature) {
+		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
+	}
+
 	candidates := s.lookupGitHubConnectionsByRepository(repository, installationID)
 	if len(candidates) == 0 {
 		return GitHubWebhookResult{EventType: normalizedEventType, Repository: repository}, nil
 	}
 
 	validConnections := make([]githubProjectConnection, 0, len(candidates))
-	normalizedSignature := strings.TrimSpace(signature)
 	for _, candidate := range candidates {
 		if validateGitHubWebhookSignature(candidate.WebhookSecret, payload, normalizedSignature) {
 			validConnections = append(validConnections, candidate)
@@ -343,6 +348,21 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 	}
 
 	return result, nil
+}
+
+func (s *Service) verifyGitHubWebhookSignatureForInstallation(installationID int64, payload []byte, signature string) bool {
+	s.githubConnectMu.RLock()
+	defer s.githubConnectMu.RUnlock()
+
+	for _, connection := range s.githubConnections {
+		if connection.InstallationID != installationID {
+			continue
+		}
+		if validateGitHubWebhookSignature(connection.WebhookSecret, payload, signature) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) lookupGitHubConnectionsByRepository(repository string, installationID int64) []githubProjectConnection {
