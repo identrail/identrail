@@ -108,6 +108,42 @@ func TestServiceTestConnectionDegradesOnProbeError(t *testing.T) {
 	}
 }
 
+func TestServiceTestConnectionActiveToDegradedOnError(t *testing.T) {
+	driver := &fakeDriver{probeErr: errors.New("connection refused")}
+	svc := NewService(map[domain.ConnectorType]Driver{
+		domain.ConnectorTypeGitHub: driver,
+	})
+
+	mutation, err := svc.TestConnection(context.Background(), testConnector(domain.ConnectorStatusActive))
+	if err != nil {
+		t.Fatalf("TestConnection error: %v", err)
+	}
+	if mutation.FromStatus != domain.ConnectorStatusActive || mutation.ToStatus != domain.ConnectorStatusDegraded {
+		t.Fatalf("expected Active->Degraded, got %s->%s", mutation.FromStatus, mutation.ToStatus)
+	}
+	if mutation.Health != HealthStatusError {
+		t.Fatalf("expected error health, got %s", mutation.Health)
+	}
+}
+
+func TestServiceTestConnectionActiveToDegradedOnWarning(t *testing.T) {
+	driver := &fakeDriver{probeResult: ProbeResult{RawHealth: "degraded", Message: "high latency"}}
+	svc := NewService(map[domain.ConnectorType]Driver{
+		domain.ConnectorTypeGitHub: driver,
+	})
+
+	mutation, err := svc.TestConnection(context.Background(), testConnector(domain.ConnectorStatusActive))
+	if err != nil {
+		t.Fatalf("TestConnection error: %v", err)
+	}
+	if mutation.FromStatus != domain.ConnectorStatusActive || mutation.ToStatus != domain.ConnectorStatusDegraded {
+		t.Fatalf("expected Active->Degraded, got %s->%s", mutation.FromStatus, mutation.ToStatus)
+	}
+	if mutation.Health != HealthStatusWarning {
+		t.Fatalf("expected warning health, got %s", mutation.Health)
+	}
+}
+
 func TestServiceTestConnectionRejectsDisconnectedConnector(t *testing.T) {
 	driver := &fakeDriver{probeResult: ProbeResult{RawHealth: "healthy"}}
 	svc := NewService(map[domain.ConnectorType]Driver{

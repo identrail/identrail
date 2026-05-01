@@ -186,7 +186,12 @@ func statusFromHealth(current domain.ConnectorStatus, health HealthStatus) domai
 	switch health {
 	case HealthStatusHealthy:
 		return domain.ConnectorStatusActive
-	case HealthStatusWarning, HealthStatusError, HealthStatusUnknown:
+	case HealthStatusWarning, HealthStatusError:
+		if current == domain.ConnectorStatusPending || current == domain.ConnectorStatusActive {
+			return domain.ConnectorStatusDegraded
+		}
+		return current
+	case HealthStatusUnknown:
 		if current == domain.ConnectorStatusPending {
 			return domain.ConnectorStatusDegraded
 		}
