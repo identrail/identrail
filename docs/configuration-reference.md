@@ -119,6 +119,19 @@ Alerts:
 - `IDENTRAIL_ALERT_MAX_RETRIES`
 - `IDENTRAIL_ALERT_RETRY_BACKOFF`
 
+## Web App OIDC Session Lifecycle
+
+The web app supports OIDC login/callback/refresh/logout flows when these Vite env vars are set at build time:
+
+- `VITE_OIDC_ISSUER_URL`
+- `VITE_OIDC_CLIENT_ID`
+- `VITE_OIDC_SCOPE` (default: `openid profile email offline_access`)
+- `VITE_OIDC_REDIRECT_URI` (default: `${origin}/app/callback`)
+- `VITE_OIDC_POST_LOGOUT_REDIRECT_URI` (default: `${origin}/app/login?signed_out=1`)
+- `VITE_OIDC_TENANT_CLAIM` (default: `tenant_id`)
+- `VITE_OIDC_WORKSPACE_CLAIM` (default: `workspace_id`)
+- `VITE_OIDC_ROLES_CLAIM` (default: `roles`)
+
 ## Validation and Limits
 
 Security validation and bounds are enforced at startup in:

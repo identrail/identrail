@@ -12,8 +12,10 @@ import { apiClient } from './api/client';
 import { BLOG_POSTS, DOC_ENTRIES, HOME_FAQ_ITEMS } from './content/resources';
 import {
   ProductAppIndexRedirect,
+  ProductOIDCCallbackPage,
   ProductFindingsPage,
   ProductLoginPage,
+  ProductLogoutPage,
   ProductOverviewPage,
   ProductProjectDetailPage,
   ProductProjectsPage,
@@ -2969,6 +2971,8 @@ export function RoutedSite() {
       <main id="main-content">
         <Routes>
           <Route path="/app/login" element={<ProductLoginPage />} />
+          <Route path="/app/callback" element={<ProductOIDCCallbackPage />} />
+          <Route path="/app/logout" element={<ProductLogoutPage />} />
           <Route
             path="/app"
             element={

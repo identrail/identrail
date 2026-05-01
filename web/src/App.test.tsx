@@ -1,10 +1,34 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+
+const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
+
+function makeJWT(payload: Record<string, unknown>): string {
+  const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+  const body = btoa(JSON.stringify(payload))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+  return `${header}.${body}.signature`;
+}
 
 describe('App', () => {
   beforeEach(() => {
     window.localStorage.removeItem('identrail-product-session');
+    window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('renders homepage hero and conversion CTAs', () => {
@@ -152,5 +176,175 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Project detail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Project project-1 placeholder/i)).toBeInTheDocument();
+  });
+
+  it('redirects expired oidc sessions to login with re-auth prompt', async () => {
+    window.localStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'oidc',
+        accessToken: 'access-token',
+        expiresAt: Date.now() - 60_000
+      })
+    );
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Your session expired/i)).toBeInTheDocument();
+  });
+
+  it('completes oidc callback and restores authenticated workspace shell', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      OIDC_PENDING_LOGIN_STORAGE_KEY,
+      JSON.stringify({
+        state: 'state-1',
+        codeVerifier: 'verifier-1',
+        nextPath: '/app/tenant-oidc/workspace-oidc',
+        createdAt: Date.now()
+      })
+    );
+
+    const idToken = makeJWT({
+      sub: 'user-123',
+      tenant_id: 'tenant-oidc',
+      workspace_id: 'workspace-oidc',
+      roles: ['owner'],
+      exp: Math.floor(Date.now() / 1000) + 3600
+    });
+    const accessToken = makeJWT({
+      sub: 'user-123',
+      tenant_id: 'tenant-oidc',
+      workspace_id: 'workspace-oidc',
+      exp: Math.floor(Date.now() / 1000) + 3600
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://sso.example.com/auth',
+          token_endpoint: 'https://sso.example.com/token',
+          end_session_endpoint: 'https://sso.example.com/logout'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          access_token: accessToken,
+          refresh_token: 'refresh-1',
+          id_token: idToken,
+          expires_in: 3600
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/callback?code=code-1&state=state-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+
+    const stored = JSON.parse(window.localStorage.getItem('identrail-product-session') ?? '{}');
+    expect(stored.authMode).toBe('oidc');
+    expect(stored.tenantID).toBe('tenant-oidc');
+    expect(stored.workspaceID).toBe('workspace-oidc');
+    expect(stored.refreshToken).toBe('refresh-1');
+  });
+
+  it('refreshes oidc sessions before expiry in route guard', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+
+    window.localStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'oidc',
+        accessToken: makeJWT({
+          sub: 'user-1',
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          exp: Math.floor(Date.now() / 1000) + 20
+        }),
+        refreshToken: 'refresh-token',
+        expiresAt: Date.now() + 20_000
+      })
+    );
+
+    const refreshedAccessToken = makeJWT({
+      sub: 'user-1',
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      exp: Math.floor(Date.now() / 1000) + 3600
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://sso.example.com/auth',
+          token_endpoint: 'https://sso.example.com/token'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          access_token: refreshedAccessToken,
+          refresh_token: 'refresh-token-2',
+          expires_in: 3600
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    await waitFor(() => {
+      const session = JSON.parse(window.localStorage.getItem('identrail-product-session') ?? '{}');
+      expect(session.refreshToken).toBe('refresh-token-2');
+    });
+  });
+
+  it('returns to login after app logout when oidc end-session endpoint is unavailable', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    vi.stubEnv('VITE_OIDC_POST_LOGOUT_REDIRECT_URI', 'https://app.identrail.com/app/login?signed_out=1');
+
+    window.localStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'oidc',
+        idToken: makeJWT({
+          sub: 'user-1',
+          exp: Math.floor(Date.now() / 1000) + 3600
+        })
+        })
+    );
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://sso.example.com/auth',
+          token_endpoint: 'https://sso.example.com/token'
+        })
+      })
+    );
+
+    window.history.pushState({}, '', '/app/logout');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
   });
 });
