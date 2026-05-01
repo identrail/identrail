@@ -6,6 +6,9 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
 
 - Stack: Vite + React
 - Purpose: operator-facing app experience tied to API workflows
+- Product shell route group: `/app/*` for authenticated workflows
+  - Login gateway: `/app/login`
+  - Scoped shell paths: `/app/:tenantID/:workspaceID/*`
 - Typical runtime: containerized deployment (`deploy/docker/Dockerfile.web`, optional Helm `web.enabled`)
 - API URL input: `VITE_IDENTRAIL_API_URL`
 - Vercel (marketing/demo deploy): set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables (or set GitHub Actions variable `VITE_IDENTRAIL_API_URL` so the deploy workflow upserts it).

@@ -10,6 +10,18 @@ import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
 import { BLOG_POSTS, DOC_ENTRIES, HOME_FAQ_ITEMS } from './content/resources';
+import {
+  ProductAppIndexRedirect,
+  ProductFindingsPage,
+  ProductLoginPage,
+  ProductOverviewPage,
+  ProductProjectDetailPage,
+  ProductProjectsPage,
+  RequireProductAuth,
+  ProductSettingsPage,
+  ProductShellLayout,
+  ProductWorkspacesPage
+} from './productShell';
 
 type SeoConfig = {
   title: string;
@@ -2926,7 +2938,9 @@ function NotFoundPage() {
 
 export function RoutedSite() {
   useAnalytics();
+  const location = useLocation();
   const [theme, setTheme] = useState<ThemeMode>(resolveInitialTheme);
+  const isProductShellRoute = location.pathname.startsWith('/app');
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -2943,15 +2957,41 @@ export function RoutedSite() {
         Skip to content
       </a>
 
-      <Header
-        navLinks={NAV_LINKS}
-        githubRepo={GITHUB_REPO}
-        theme={theme}
-        onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-      />
+      {!isProductShellRoute ? (
+        <Header
+          navLinks={NAV_LINKS}
+          githubRepo={GITHUB_REPO}
+          theme={theme}
+          onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+        />
+      ) : null}
 
       <main id="main-content">
         <Routes>
+          <Route path="/app/login" element={<ProductLoginPage />} />
+          <Route
+            path="/app"
+            element={
+              <RequireProductAuth>
+                <ProductAppIndexRedirect />
+              </RequireProductAuth>
+            }
+          />
+          <Route
+            path="/app/:tenantID/:workspaceID"
+            element={
+              <RequireProductAuth>
+                <ProductShellLayout />
+              </RequireProductAuth>
+            }
+          >
+            <Route index element={<ProductOverviewPage />} />
+            <Route path="workspaces" element={<ProductWorkspacesPage />} />
+            <Route path="projects" element={<ProductProjectsPage />} />
+            <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
+            <Route path="findings" element={<ProductFindingsPage />} />
+            <Route path="settings" element={<ProductSettingsPage />} />
+          </Route>
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
@@ -2983,8 +3023,12 @@ export function RoutedSite() {
         </Routes>
       </main>
 
-      <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
-      <ExitIntentPopup />
+      {!isProductShellRoute ? (
+        <>
+          <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
+          <ExitIntentPopup />
+        </>
+      ) : null}
     </div>
   );
 }

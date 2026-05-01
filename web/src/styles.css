@@ -4132,3 +4132,142 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   border-color: rgba(39, 68, 118, 0.42);
   box-shadow: 0 0 0 2px rgba(74, 108, 165, 0.2);
 }
+
+.idt-app-shell-screen {
+  width: min(100% - 2rem, 760px);
+  margin: 4rem auto;
+}
+
+.idt-app-shell {
+  width: min(100% - 2rem, 1180px);
+  margin: 2rem auto 3rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.idt-app-shell-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(137, 168, 224, 0.28);
+  border-radius: 0.85rem;
+  background: linear-gradient(160deg, rgba(14, 23, 39, 0.9), rgba(12, 20, 33, 0.8));
+}
+
+.idt-app-shell-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.idt-app-shell-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.idt-app-shell-nav a {
+  color: #bfd2ee;
+  text-decoration: none;
+  font-weight: 600;
+  border: 1px solid rgba(130, 160, 214, 0.3);
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  background: rgba(14, 23, 36, 0.72);
+}
+
+.idt-app-shell-nav a.active {
+  color: #0f223f;
+  background: #d7e5ff;
+  border-color: #d7e5ff;
+}
+
+.idt-app-shell-main {
+  min-height: 360px;
+}
+
+.idt-app-panel {
+  border: 1px solid rgba(120, 151, 207, 0.28);
+  border-radius: 0.85rem;
+  padding: 1.25rem;
+  background: linear-gradient(165deg, rgba(12, 21, 35, 0.9), rgba(10, 17, 30, 0.78));
+}
+
+.idt-app-panel-error {
+  border-color: rgba(213, 125, 125, 0.42);
+}
+
+.idt-app-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #91add6;
+}
+
+.idt-app-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-app-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #d3e1f7;
+  font-size: 0.95rem;
+}
+
+.idt-app-form input {
+  border: 1px solid rgba(126, 157, 211, 0.35);
+  border-radius: 0.55rem;
+  background: rgba(9, 15, 26, 0.84);
+  color: #e4efff;
+  padding: 0.5rem 0.6rem;
+}
+
+.idt-app-empty-state {
+  border: 1px dashed rgba(130, 160, 214, 0.4);
+  border-radius: 0.7rem;
+  padding: 0.9rem;
+  margin-top: 0.9rem;
+  background: rgba(11, 18, 31, 0.72);
+}
+
+html[data-theme='light'] .idt-app-shell-header,
+html[data-theme='light'] .idt-app-panel {
+  background: linear-gradient(165deg, rgba(252, 254, 255, 0.98), rgba(243, 249, 255, 0.94));
+  border-color: rgba(35, 64, 111, 0.2);
+}
+
+html[data-theme='light'] .idt-app-shell-nav a {
+  color: #24406e;
+  background: rgba(239, 246, 255, 0.95);
+  border-color: rgba(35, 64, 111, 0.23);
+}
+
+html[data-theme='light'] .idt-app-shell-nav a.active {
+  color: #12284c;
+  background: #dbe8ff;
+  border-color: #dbe8ff;
+}
+
+html[data-theme='light'] .idt-app-kicker {
+  color: #5473a4;
+}
+
+html[data-theme='light'] .idt-app-form label {
+  color: #2b456c;
+}
+
+html[data-theme='light'] .idt-app-form input {
+  color: #1c355d;
+  background: #ffffff;
+  border-color: rgba(42, 71, 119, 0.32);
+}
+
+html[data-theme='light'] .idt-app-empty-state {
+  background: rgba(239, 246, 255, 0.93);
+  border-color: rgba(42, 71, 119, 0.32);
+}

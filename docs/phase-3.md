@@ -10,6 +10,10 @@ Create a thin React + TypeScript dashboard shell that can consume Identrail APIs
   - Vite + React + TypeScript setup
   - API client (`web/src/api/client.ts`)
   - app shell (`web/src/App.tsx`)
+- Authenticated product shell route boundary (`/app/*`):
+  - guarded login route (`/app/login`)
+  - tenancy-scoped route group (`/app/:tenantID/:workspaceID/*`)
+  - non-marketing layout shell with global error boundary and placeholder loading/empty states
 - Initial views consume:
   - `GET /v1/findings/summary`
   - `GET /v1/findings/trends`

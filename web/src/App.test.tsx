@@ -1,8 +1,12 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from './App';
 
 describe('App', () => {
+  beforeEach(() => {
+    window.localStorage.removeItem('identrail-product-session');
+  });
+
   it('renders homepage hero and conversion CTAs', () => {
     window.history.pushState({}, '', '/');
     render(<App />);
@@ -109,5 +113,44 @@ describe('App', () => {
         name: /Report security issues through a coordinated disclosure process/i
       })
     ).toBeInTheDocument();
+  });
+
+  it('guards product shell routes and redirects unauthenticated users to app login', () => {
+    window.history.pushState({}, '', '/app/default/default');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Sign in to the Identrail app shell/i
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('loads authenticated product shell placeholders after login', async () => {
+    window.history.pushState({}, '', '/app/login');
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Tenant ID/i), { target: { value: 'tenant-a' } });
+    fireEvent.change(screen.getByLabelText(/Workspace ID/i), { target: { value: 'workspace-a' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue to app/i }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+  });
+
+  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
+    window.localStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      })
+    );
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Project detail/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Project project-1 placeholder/i)).toBeInTheDocument();
   });
 });
