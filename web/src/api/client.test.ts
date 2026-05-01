@@ -143,4 +143,56 @@ describe('apiClient', () => {
     expect(options.method).toBe('PATCH');
     expect(options.body).toBe(JSON.stringify({ status: 'ack', assignee: 'platform', comment: 'acknowledged' }));
   });
+
+  it('posts workspace member invite/update payload and includes scoped headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ member: { member_id: 'member-user-a' } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.upsertWorkspaceMember(
+      'workspace-a',
+      {
+        member_id: 'member-user-a',
+        user_id: 'user-a',
+        email: 'user-a@example.com',
+        role: 'admin',
+        status: 'active'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace-a/members');
+    expect(options.method).toBe('POST');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace-a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
+  it('supports 204 no-content workspace member removal responses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      json: async () => ({})
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      apiClient.deleteWorkspaceMember('workspace-a', 'member-a', {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      })
+    ).resolves.toBeUndefined();
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace-a/members/member-a');
+    expect(options.method).toBe('DELETE');
+  });
 });
