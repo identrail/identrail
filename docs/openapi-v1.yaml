@@ -1591,6 +1591,7 @@ components:
         installation_id:
           type: integer
           format: int64
+          minimum: 1
         account_login:
           type: string
         token_reference:
