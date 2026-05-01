@@ -24,6 +24,7 @@ This document defines the normalized multi-tenant app-mode entities introduced f
   - Fields: `id`, `workspace_id`, `project_id`, `type`, `display_name`, `status`, `last_sync_at`, `created_at`, `updated_at`
   - Type enum: `github|aws|kubernetes`
   - Status enum: `pending|active|degraded|disconnected`
+  - Normalized health enum (framework): `unknown|healthy|warning|error`
   - Transition contract:
     - `pending -> active|degraded|disconnected`
     - `active -> degraded|disconnected`
@@ -61,6 +62,9 @@ This document defines the normalized multi-tenant app-mode entities introduced f
 - Validation and transition tests live in:
   - `internal/domain/appmode_test.go`
   - `internal/domain/json_tags_test.go`
+- Connector lifecycle framework and provider hook contract:
+  - `internal/connectors/lifecycle.go`
+  - `docs/connector-lifecycle-framework.md`
 
 ## Persistence Mapping
 
