@@ -137,17 +137,32 @@ jobs:
             }
 
             const octokit = github.getOctokit(token);
-            const liveResponse = await octokit.rest.repos.getBranchProtection({
-              owner,
-              repo,
-              branch
-            });
-            const liveNormalized = normalizeLive(liveResponse.data);
-            core.info(
-              `live policy: ${JSON.stringify(liveNormalized, null, 2)}`
-            );
 
-            const driftDetected =
+            let liveNormalized = null;
+            let branchUnprotected = false;
+            try {
+              const liveResponse = await octokit.rest.repos.getBranchProtection({
+                owner,
+                repo,
+                branch
+              });
+              liveNormalized = normalizeLive(liveResponse.data);
+            } catch (err) {
+              if (err.status === 404) {
+                branchUnprotected = true;
+                core.warning(`Branch '${branch}' has no protection rules configured.`);
+              } else {
+                throw err;
+              }
+            }
+
+            if (!branchUnprotected) {
+              core.info(
+                `live policy: ${JSON.stringify(liveNormalized, null, 2)}`
+              );
+            }
+
+            const driftDetected = branchUnprotected ||
               JSON.stringify(desiredNormalized) !== JSON.stringify(liveNormalized);
 
             if (!driftDetected) {
@@ -155,11 +170,17 @@ jobs:
               return;
             }
 
-            core.warning('Branch protection drift detected for dev.');
+            core.warning(
+              branchUnprotected
+                ? `Branch '${branch}' is unprotected. Protection rules must be applied.`
+                : 'Branch protection drift detected for dev.'
+            );
 
             if (mode !== 'apply') {
               core.setFailed(
-                'Branch protection drift detected. Re-run this workflow with mode=apply to reconcile.'
+                branchUnprotected
+                  ? 'Branch is unprotected. Re-run this workflow with mode=apply to apply protection.'
+                  : 'Branch protection drift detected. Re-run this workflow with mode=apply to reconcile.'
               );
               return;
             }
