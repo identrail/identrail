@@ -658,6 +658,20 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodPost, Path: "/v1/repo-scans", Action: policyActionRepoScansRun, ResourceType: "repo_scan"},
 		{Method: http.MethodPost, Path: "/v1/authz/policies/simulate", Action: policyActionAuthzSimulate, ResourceType: "authz_policy"},
 		{Method: http.MethodPost, Path: "/v1/authz/policies/rollback", Action: policyActionAuthzRollback, ResourceType: "authz_policy"},
+		{Method: http.MethodGet, Path: "/v1/organizations/current", Action: policyActionTenancyRead, ResourceType: "organization"},
+		{Method: http.MethodPut, Path: "/v1/organizations/current", Action: policyActionTenancyWrite, ResourceType: "organization"},
+		{Method: http.MethodGet, Path: "/v1/workspaces", Action: policyActionTenancyRead, ResourceType: "workspace"},
+		{Method: http.MethodPost, Path: "/v1/workspaces", Action: policyActionTenancyWrite, ResourceType: "workspace"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id", Action: policyActionTenancyRead, ResourceType: "workspace", ResourceIDParam: "workspace_id"},
+		{Method: http.MethodDelete, Path: "/v1/workspaces/:workspace_id", Action: policyActionTenancyWrite, ResourceType: "workspace", ResourceIDParam: "workspace_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/members", Action: policyActionTenancyRead, ResourceType: "workspace_member", ResourceIDParam: "workspace_id"},
+		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/members", Action: policyActionTenancyWrite, ResourceType: "workspace_member", ResourceIDParam: "workspace_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/members/:member_id", Action: policyActionTenancyRead, ResourceType: "workspace_member", ResourceIDParam: "member_id"},
+		{Method: http.MethodDelete, Path: "/v1/workspaces/:workspace_id/members/:member_id", Action: policyActionTenancyWrite, ResourceType: "workspace_member", ResourceIDParam: "member_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "workspace_id"},
+		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "workspace_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodDelete, Path: "/v1/workspaces/:workspace_id/projects/:project_id", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 	}
 }
 

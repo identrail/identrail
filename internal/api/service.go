@@ -112,6 +112,37 @@ type RepoScanRequest struct {
 	MaxFindings  int    `json:"max_findings"`
 }
 
+// OrganizationUpsertRequest captures one tenancy organization write payload.
+type OrganizationUpsertRequest struct {
+	DisplayName string `json:"display_name"`
+	Slug        string `json:"slug"`
+}
+
+// WorkspaceUpsertRequest captures one workspace write payload.
+type WorkspaceUpsertRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	DisplayName string `json:"display_name"`
+	Slug        string `json:"slug"`
+}
+
+// WorkspaceMemberUpsertRequest captures one workspace member write payload.
+type WorkspaceMemberUpsertRequest struct {
+	MemberID string `json:"member_id"`
+	UserID   string `json:"user_id"`
+	Email    string `json:"email,omitempty"`
+	Role     string `json:"role"`
+	Status   string `json:"status"`
+}
+
+// ProjectUpsertRequest captures one workspace project write payload.
+type ProjectUpsertRequest struct {
+	ProjectID   string  `json:"project_id"`
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Description string  `json:"description,omitempty"`
+	ArchivedAt  *string `json:"archived_at,omitempty"`
+}
+
 // FindingsFilter narrows findings list queries without changing API response schema.
 type FindingsFilter struct {
 	ScanID          string
@@ -193,6 +224,9 @@ var ErrInvalidFindingTriageRequest = errors.New("invalid finding triage request"
 
 // ErrRepoScanQueueFull is returned when queued repo scan requests exceed configured capacity.
 var ErrRepoScanQueueFull = errors.New("repo scan queue is full")
+
+// ErrInvalidTenancyRequest indicates invalid tenancy write payload.
+var ErrInvalidTenancyRequest = errors.New("invalid tenancy request")
 
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
@@ -579,6 +613,201 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 		return nil, err
 	}
 	return enrichFindings(findings), nil
+}
+
+// GetOrganization returns the current scoped organization record.
+func (s *Service) GetOrganization(ctx context.Context) (db.TenancyOrganization, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.GetOrganization(ctx)
+}
+
+// UpsertOrganization creates or updates the current scoped organization.
+func (s *Service) UpsertOrganization(ctx context.Context, request OrganizationUpsertRequest) (db.TenancyOrganization, error) {
+	ctx = s.scopeContext(ctx)
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		return db.TenancyOrganization{}, err
+	}
+	normalized, err := db.NormalizeTenancyOrganizationForWrite(db.TenancyOrganization{
+		TenantID:    scope.TenantID,
+		DisplayName: request.DisplayName,
+		Slug:        request.Slug,
+	})
+	if err != nil {
+		return db.TenancyOrganization{}, ErrInvalidTenancyRequest
+	}
+	if err := s.Store.UpsertOrganization(ctx, normalized); err != nil {
+		return db.TenancyOrganization{}, err
+	}
+	return s.Store.GetOrganization(ctx)
+}
+
+// ListWorkspaces returns tenant-scoped workspaces.
+func (s *Service) ListWorkspaces(ctx context.Context, limit int) ([]db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.ListWorkspaces(ctx, limit)
+}
+
+// UpsertWorkspace creates or updates one scoped workspace.
+func (s *Service) UpsertWorkspace(ctx context.Context, request WorkspaceUpsertRequest) (db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	normalizedWorkspaceID, err := db.ResolveScopedWorkspaceID(scope, request.WorkspaceID)
+	if err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	normalized, err := db.NormalizeTenancyWorkspaceForWrite(db.TenancyWorkspace{
+		TenantID:    scope.TenantID,
+		WorkspaceID: normalizedWorkspaceID,
+		DisplayName: request.DisplayName,
+		Slug:        request.Slug,
+	})
+	if err != nil {
+		return db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.Store.UpsertWorkspace(ctx, normalized); err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	return s.Store.GetWorkspace(ctx, normalized.WorkspaceID)
+}
+
+// GetWorkspace returns one workspace by id.
+func (s *Service) GetWorkspace(ctx context.Context, workspaceID string) (db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.GetWorkspace(ctx, strings.TrimSpace(workspaceID))
+}
+
+// DeleteWorkspace removes one workspace.
+func (s *Service) DeleteWorkspace(ctx context.Context, workspaceID string) error {
+	ctx = s.scopeContext(ctx)
+	return s.Store.DeleteWorkspace(ctx, strings.TrimSpace(workspaceID))
+}
+
+// ListWorkspaceMembers returns members for one scoped workspace with optional role/status filters.
+func (s *Service) ListWorkspaceMembers(
+	ctx context.Context,
+	workspaceID string,
+	role string,
+	status string,
+	limit int,
+) ([]db.TenancyWorkspaceMember, error) {
+	ctx = s.scopeContext(ctx)
+	items, err := s.Store.ListWorkspaceMembers(ctx, strings.TrimSpace(workspaceID), limit)
+	if err != nil {
+		return nil, err
+	}
+	normalizedRole := strings.ToLower(strings.TrimSpace(role))
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	filtered := make([]db.TenancyWorkspaceMember, 0, len(items))
+	for _, item := range items {
+		if normalizedRole != "" && strings.ToLower(strings.TrimSpace(item.Role)) != normalizedRole {
+			continue
+		}
+		if normalizedStatus != "" && strings.ToLower(strings.TrimSpace(item.Status)) != normalizedStatus {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, nil
+}
+
+// UpsertWorkspaceMember creates or updates one scoped workspace member.
+func (s *Service) UpsertWorkspaceMember(
+	ctx context.Context,
+	workspaceID string,
+	request WorkspaceMemberUpsertRequest,
+) (db.TenancyWorkspaceMember, error) {
+	ctx = s.scopeContext(ctx)
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		return db.TenancyWorkspaceMember{}, err
+	}
+	normalizedWorkspaceID, err := db.ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return db.TenancyWorkspaceMember{}, err
+	}
+	normalized, err := db.NormalizeTenancyWorkspaceMemberForWrite(db.TenancyWorkspaceMember{
+		TenantID:    scope.TenantID,
+		WorkspaceID: normalizedWorkspaceID,
+		MemberID:    request.MemberID,
+		UserID:      request.UserID,
+		Email:       request.Email,
+		Role:        request.Role,
+		Status:      request.Status,
+	})
+	if err != nil {
+		return db.TenancyWorkspaceMember{}, ErrInvalidTenancyRequest
+	}
+	if err := s.Store.UpsertWorkspaceMember(ctx, normalized); err != nil {
+		return db.TenancyWorkspaceMember{}, err
+	}
+	return s.Store.GetWorkspaceMember(ctx, normalized.WorkspaceID, normalized.MemberID)
+}
+
+// GetWorkspaceMember returns one scoped workspace member.
+func (s *Service) GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (db.TenancyWorkspaceMember, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.GetWorkspaceMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(memberID))
+}
+
+// DeleteWorkspaceMember removes one scoped workspace member.
+func (s *Service) DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error {
+	ctx = s.scopeContext(ctx)
+	return s.Store.DeleteWorkspaceMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(memberID))
+}
+
+// ListProjects returns projects for one scoped workspace.
+func (s *Service) ListProjects(ctx context.Context, workspaceID string, includeArchived bool, limit int) ([]db.TenancyProject, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.ListProjects(ctx, strings.TrimSpace(workspaceID), includeArchived, limit)
+}
+
+// UpsertProject creates or updates one scoped project.
+func (s *Service) UpsertProject(ctx context.Context, workspaceID string, request ProjectUpsertRequest) (db.TenancyProject, error) {
+	ctx = s.scopeContext(ctx)
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		return db.TenancyProject{}, err
+	}
+	normalizedWorkspaceID, err := db.ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return db.TenancyProject{}, err
+	}
+	archivedAt, err := parseTenancyArchivedAt(request.ArchivedAt)
+	if err != nil {
+		return db.TenancyProject{}, err
+	}
+	normalized, err := db.NormalizeTenancyProjectForWrite(db.TenancyProject{
+		TenantID:    scope.TenantID,
+		WorkspaceID: normalizedWorkspaceID,
+		ProjectID:   request.ProjectID,
+		Name:        request.Name,
+		Slug:        request.Slug,
+		Description: request.Description,
+		ArchivedAt:  archivedAt,
+	})
+	if err != nil {
+		return db.TenancyProject{}, ErrInvalidTenancyRequest
+	}
+	if err := s.Store.UpsertProject(ctx, normalized); err != nil {
+		return db.TenancyProject{}, err
+	}
+	return s.Store.GetProject(ctx, normalized.WorkspaceID, normalized.ProjectID)
+}
+
+// GetProject returns one scoped project by id.
+func (s *Service) GetProject(ctx context.Context, workspaceID string, projectID string) (db.TenancyProject, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.GetProject(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(projectID))
+}
+
+// DeleteProject removes one scoped project.
+func (s *Service) DeleteProject(ctx context.Context, workspaceID string, projectID string) error {
+	ctx = s.scopeContext(ctx)
+	return s.Store.DeleteProject(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(projectID))
 }
 
 // ListFindingsFiltered returns findings with optional scan/type/severity filters.
@@ -1208,6 +1437,22 @@ func parseSuppressionExpiry(raw string, now time.Time) (*time.Time, error) {
 	if !normalized.After(now) {
 		return nil, ErrInvalidFindingTriageRequest
 	}
+	return &normalized, nil
+}
+
+func parseTenancyArchivedAt(raw *string) (*time.Time, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	value := strings.TrimSpace(*raw)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, ErrInvalidTenancyRequest
+	}
+	normalized := parsed.UTC()
 	return &normalized, nil
 }
 

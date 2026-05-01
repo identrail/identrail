@@ -1713,3 +1713,99 @@ func TestRouterPaginationHelpers(t *testing.T) {
 		t.Fatalf("unexpected final page result page=%+v next=%q", page, next)
 	}
 }
+
+func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/current", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected tenancy route to return 503 without service, got %d", w.Code)
+	}
+}
+
+func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:            []string{"writer-key"},
+		WriteAPIKeys:       []string{"writer-key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+	})
+
+	doRequest := func(method string, path string, body string) *httptest.ResponseRecorder {
+		var requestBody *bytes.Buffer
+		if body == "" {
+			requestBody = bytes.NewBuffer(nil)
+		} else {
+			requestBody = bytes.NewBufferString(body)
+		}
+		req := httptest.NewRequest(method, path, requestBody)
+		req.Header.Set("X-API-Key", "writer-key")
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	orgResp := doRequest(http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`)
+	if orgResp.Code != http.StatusOK {
+		t.Fatalf("expected organization upsert 200, got %d body=%s", orgResp.Code, orgResp.Body.String())
+	}
+
+	workspaceResp := doRequest(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`)
+	if workspaceResp.Code != http.StatusOK {
+		t.Fatalf("expected workspace upsert 200, got %d body=%s", workspaceResp.Code, workspaceResp.Body.String())
+	}
+
+	memberResp := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", `{"member_id":"member-1","user_id":"user-1","email":"user1@example.com","role":"admin","status":"active"}`)
+	if memberResp.Code != http.StatusOK {
+		t.Fatalf("expected member upsert 200, got %d body=%s", memberResp.Code, memberResp.Body.String())
+	}
+
+	listMembersResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/members?role=admin&status=active", "")
+	if listMembersResp.Code != http.StatusOK {
+		t.Fatalf("expected member list 200, got %d body=%s", listMembersResp.Code, listMembersResp.Body.String())
+	}
+	var membersBody struct {
+		Items []db.TenancyWorkspaceMember `json:"items"`
+	}
+	if err := json.Unmarshal(listMembersResp.Body.Bytes(), &membersBody); err != nil {
+		t.Fatalf("decode members response: %v", err)
+	}
+	if len(membersBody.Items) != 1 || membersBody.Items[0].MemberID != "member-1" {
+		t.Fatalf("unexpected members payload: %+v", membersBody.Items)
+	}
+
+	projectResp := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1","description":"First project"}`)
+	if projectResp.Code != http.StatusOK {
+		t.Fatalf("expected project upsert 200, got %d body=%s", projectResp.Code, projectResp.Body.String())
+	}
+
+	projectDetailResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1", "")
+	if projectDetailResp.Code != http.StatusOK {
+		t.Fatalf("expected project get 200, got %d body=%s", projectDetailResp.Code, projectDetailResp.Body.String())
+	}
+
+	listProjectsResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects?include_archived=true", "")
+	if listProjectsResp.Code != http.StatusOK {
+		t.Fatalf("expected project list 200, got %d body=%s", listProjectsResp.Code, listProjectsResp.Body.String())
+	}
+	var projectsBody struct {
+		Items []db.TenancyProject `json:"items"`
+	}
+	if err := json.Unmarshal(listProjectsResp.Body.Bytes(), &projectsBody); err != nil {
+		t.Fatalf("decode projects response: %v", err)
+	}
+	if len(projectsBody.Items) != 1 || projectsBody.Items[0].ProjectID != "project-1" {
+		t.Fatalf("unexpected projects payload: %+v", projectsBody.Items)
+	}
+}

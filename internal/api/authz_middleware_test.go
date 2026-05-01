@@ -26,6 +26,14 @@ func TestRoutePolicyRegistryLookup(t *testing.T) {
 	if policy.Action != policyActionScansRun {
 		t.Fatalf("expected scans.run action, got %q", policy.Action)
 	}
+
+	tenancyPolicy, exists := registry.lookup(http.MethodGet, "/v1/organizations/current")
+	if !exists {
+		t.Fatal("expected policy for GET /v1/organizations/current")
+	}
+	if tenancyPolicy.Action != policyActionTenancyRead {
+		t.Fatalf("expected tenancy.read action, got %q", tenancyPolicy.Action)
+	}
 }
 
 func TestPolicyRolesFromScope(t *testing.T) {

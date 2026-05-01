@@ -32,7 +32,7 @@ const (
 	rateLimiterEntryTTL    = 15 * time.Minute
 	rateLimiterMaxEntries  = 10000
 	rateLimiterCleanupTick = 256
-	corsAllowMethods       = "GET,POST,PATCH,OPTIONS"
+	corsAllowMethods       = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
 	corsAllowHeaders       = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID"
 	corsMaxAgeSeconds      = "600"
 	scopeRead              = "read"
@@ -154,6 +154,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
+	registerTenancyRoutes(v1, logger, svc)
 
 	if svc == nil {
 		v1.GET("/findings", func(c *gin.Context) {
@@ -666,6 +667,356 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	return r
 }
 
+func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service) {
+	v1.GET("/organizations/current", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetOrganization(c.Request.Context())
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "organization not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("get organization", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get organization"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"organization": record})
+	})
+
+	v1.PUT("/organizations/current", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request OrganizationUpsertRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.UpsertOrganization(c.Request.Context(), request)
+		if err != nil {
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid organization request"})
+				return
+			}
+			if logger != nil {
+				logger.Error("upsert organization", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert organization"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"organization": record})
+	})
+
+	v1.GET("/workspaces", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		limit := parseLimit(c.Query("limit"), defaultScansLimit, maxListLimit)
+		offset := parseCursor(c.Query("cursor"))
+		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
+		items, err := svc.ListWorkspaces(c.Request.Context(), pageFetchLimit(offset, limit))
+		if err != nil {
+			if logger != nil {
+				logger.Error("list workspaces", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workspaces"})
+			return
+		}
+		sortWorkspaces(items, sortBy, sortDesc)
+		page, next := pageWithCursor(items, offset, limit)
+		response := gin.H{"items": page}
+		if next != "" {
+			response["next_cursor"] = next
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	v1.POST("/workspaces", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request WorkspaceUpsertRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.UpsertWorkspace(c.Request.Context(), request)
+		if err != nil {
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace request"})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "organization not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("upsert workspace", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert workspace"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"workspace": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetWorkspace(c.Request.Context(), c.Param("workspace_id"))
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("get workspace", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get workspace"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"workspace": record})
+	})
+
+	v1.DELETE("/workspaces/:workspace_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		if err := svc.DeleteWorkspace(c.Request.Context(), c.Param("workspace_id")); err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("delete workspace", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete workspace"})
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	v1.GET("/workspaces/:workspace_id/members", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
+		offset := parseCursor(c.Query("cursor"))
+		role := strings.ToLower(strings.TrimSpace(c.Query("role")))
+		status := strings.ToLower(strings.TrimSpace(c.Query("status")))
+		if role != "" && !isValidWorkspaceMemberRole(role) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace member role"})
+			return
+		}
+		if status != "" && !isValidWorkspaceMemberStatus(status) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace member status"})
+			return
+		}
+		items, err := svc.ListWorkspaceMembers(
+			c.Request.Context(),
+			c.Param("workspace_id"),
+			role,
+			status,
+			pageFetchLimit(offset, limit),
+		)
+		if err != nil {
+			if logger != nil {
+				logger.Error("list workspace members", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workspace members"})
+			return
+		}
+		sortWorkspaceMembers(items)
+		page, next := pageWithCursor(items, offset, limit)
+		response := gin.H{"items": page}
+		if next != "" {
+			response["next_cursor"] = next
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	v1.POST("/workspaces/:workspace_id/members", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request WorkspaceMemberUpsertRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.UpsertWorkspaceMember(c.Request.Context(), c.Param("workspace_id"), request)
+		if err != nil {
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace member request"})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("upsert workspace member", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert workspace member"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"member": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id/members/:member_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetWorkspaceMember(c.Request.Context(), c.Param("workspace_id"), c.Param("member_id"))
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace member not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("get workspace member", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get workspace member"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"member": record})
+	})
+
+	v1.DELETE("/workspaces/:workspace_id/members/:member_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		if err := svc.DeleteWorkspaceMember(c.Request.Context(), c.Param("workspace_id"), c.Param("member_id")); err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace member not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("delete workspace member", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete workspace member"})
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	v1.GET("/workspaces/:workspace_id/projects", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		limit := parseLimit(c.Query("limit"), defaultScansLimit, maxListLimit)
+		offset := parseCursor(c.Query("cursor"))
+		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
+		includeArchived, err := parseIncludeArchived(c.Query("include_archived"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid include_archived query parameter"})
+			return
+		}
+		items, err := svc.ListProjects(c.Request.Context(), c.Param("workspace_id"), includeArchived, pageFetchLimit(offset, limit))
+		if err != nil {
+			if logger != nil {
+				logger.Error("list projects", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list projects"})
+			return
+		}
+		sortProjects(items, sortBy, sortDesc)
+		page, next := pageWithCursor(items, offset, limit)
+		response := gin.H{"items": page}
+		if next != "" {
+			response["next_cursor"] = next
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	v1.POST("/workspaces/:workspace_id/projects", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request ProjectUpsertRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.UpsertProject(c.Request.Context(), c.Param("workspace_id"), request)
+		if err != nil {
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid project request"})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("upsert project", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert project"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"project": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id/projects/:project_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetProject(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"))
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("get project", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get project"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"project": record})
+	})
+
+	v1.DELETE("/workspaces/:workspace_id/projects/:project_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		if err := svc.DeleteProject(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id")); err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("delete project", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete project"})
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+}
+
+func tenancyServiceUnavailable(c *gin.Context) {
+	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
+}
+
 func configureTrustedProxies(r *gin.Engine, logger *zap.Logger, proxies []string) {
 	normalized := normalizeTrustedProxies(proxies)
 	var err error
@@ -737,6 +1088,18 @@ func parseSortParams(rawBy string, rawOrder string, fallbackBy string) (string, 
 		return by, false
 	}
 	return by, true
+}
+
+func parseIncludeArchived(raw string) (bool, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return false, nil
+	}
+	value, err := strconv.ParseBool(trimmed)
+	if err != nil {
+		return false, err
+	}
+	return value, nil
 }
 
 func isValidUUID(raw string) bool {
@@ -918,6 +1281,88 @@ func sortOwnershipSignals(items []domain.OwnershipSignal, sortBy string, desc bo
 		}
 		return cmp < 0
 	})
+}
+
+func sortWorkspaces(items []db.TenancyWorkspace, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch sortBy {
+		case "workspace_id":
+			cmp = compareString(left.WorkspaceID, right.WorkspaceID)
+		case "display_name":
+			cmp = compareString(left.DisplayName, right.DisplayName)
+		case "slug":
+			cmp = compareString(left.Slug, right.Slug)
+		default:
+			cmp = compareTime(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareString(left.WorkspaceID, right.WorkspaceID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func sortWorkspaceMembers(items []db.TenancyWorkspaceMember) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		cmp := compareTime(left.JoinedAt, right.JoinedAt)
+		if cmp == 0 {
+			cmp = compareString(left.MemberID, right.MemberID)
+		}
+		return cmp < 0
+	})
+}
+
+func sortProjects(items []db.TenancyProject, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch sortBy {
+		case "project_id":
+			cmp = compareString(left.ProjectID, right.ProjectID)
+		case "name":
+			cmp = compareString(left.Name, right.Name)
+		case "slug":
+			cmp = compareString(left.Slug, right.Slug)
+		case "updated_at":
+			cmp = compareTime(left.UpdatedAt, right.UpdatedAt)
+		default:
+			cmp = compareTime(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareString(left.ProjectID, right.ProjectID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func isValidWorkspaceMemberRole(role string) bool {
+	switch role {
+	case "owner", "admin", "analyst", "viewer":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidWorkspaceMemberStatus(status string) bool {
+	switch status {
+	case "invited", "active", "suspended", "removed":
+		return true
+	default:
+		return false
+	}
 }
 
 func compareTime(left time.Time, right time.Time) int {
