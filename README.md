@@ -100,7 +100,7 @@ See [Deployment Anywhere](./docs/deployment-anywhere.md) for exact commands.
 
 ## Project Status
 
-Status: **Active** (v1 line in active support).
+Status: **Very active** (v1 line in active support).
 
 Current focus:
 
