@@ -116,6 +116,42 @@ func TestRouterKubernetesConnectionReturnsPermissionDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRouterKubernetesConnectionPendingBeforeOnboarding(t *testing.T) {
+	r := newKubernetesConnectionTestRouter(t, func(contextName string) KubernetesConnectorPreflightRunner {
+		t.Fatalf("preflight should not run for read-only pending status request")
+		return nil
+	})
+
+	resp := doKubernetesConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/kubernetes/connection", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected pending connection 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Connection KubernetesConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Connection.Connected || body.Connection.Status != "pending" || body.Connection.HealthStatus != "unknown" {
+		t.Fatalf("expected pending unknown connection, got %+v", body.Connection)
+	}
+	if len(body.Connection.PermissionChecks) != 0 || len(body.Connection.Diagnostics) != 0 {
+		t.Fatalf("expected empty diagnostics for untouched connection, got %+v", body.Connection)
+	}
+}
+
+func TestRouterKubernetesConnectionRejectsMalformedBody(t *testing.T) {
+	r := newKubernetesConnectionTestRouter(t, func(contextName string) KubernetesConnectorPreflightRunner {
+		t.Fatalf("preflight should not run for malformed request body")
+		return nil
+	})
+
+	resp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/kubernetes/connection", `{`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected malformed body 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRouterKubernetesConnectionPreflightUnavailable(t *testing.T) {
 	r := newKubernetesConnectionTestRouter(t, nil)
 	resp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/kubernetes/connection", `{}`)
