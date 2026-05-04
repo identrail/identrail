@@ -3,11 +3,13 @@ package aws
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	api "github.com/Oluwatobi-Mustapha/identrail/internal/api"
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/aws/smithy-go"
@@ -33,13 +35,43 @@ func (f fakeSTSIdentityClient) GetCallerIdentity(ctx context.Context, params *st
 	return f.output, f.err
 }
 
-type fakeIAMListRolesClient struct {
-	output *iam.ListRolesOutput
-	err    error
+type fakeIAMValidationClient struct {
+	listRolesOutput                *iam.ListRolesOutput
+	listRolesErr                   error
+	listRolePoliciesOutput         *iam.ListRolePoliciesOutput
+	listRolePoliciesErr            error
+	getRolePolicyOutput            *iam.GetRolePolicyOutput
+	getRolePolicyErr               error
+	listAttachedRolePoliciesOutput *iam.ListAttachedRolePoliciesOutput
+	listAttachedRolePoliciesErr    error
+	getPolicyOutput                *iam.GetPolicyOutput
+	getPolicyErr                   error
+	getPolicyVersionOutput         *iam.GetPolicyVersionOutput
+	getPolicyVersionErr            error
 }
 
-func (f fakeIAMListRolesClient) ListRoles(ctx context.Context, params *iam.ListRolesInput, optFns ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
-	return f.output, f.err
+func (f fakeIAMValidationClient) ListRoles(ctx context.Context, params *iam.ListRolesInput, optFns ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
+	return f.listRolesOutput, f.listRolesErr
+}
+
+func (f fakeIAMValidationClient) ListRolePolicies(ctx context.Context, params *iam.ListRolePoliciesInput, optFns ...func(*iam.Options)) (*iam.ListRolePoliciesOutput, error) {
+	return f.listRolePoliciesOutput, f.listRolePoliciesErr
+}
+
+func (f fakeIAMValidationClient) GetRolePolicy(ctx context.Context, params *iam.GetRolePolicyInput, optFns ...func(*iam.Options)) (*iam.GetRolePolicyOutput, error) {
+	return f.getRolePolicyOutput, f.getRolePolicyErr
+}
+
+func (f fakeIAMValidationClient) ListAttachedRolePolicies(ctx context.Context, params *iam.ListAttachedRolePoliciesInput, optFns ...func(*iam.Options)) (*iam.ListAttachedRolePoliciesOutput, error) {
+	return f.listAttachedRolePoliciesOutput, f.listAttachedRolePoliciesErr
+}
+
+func (f fakeIAMValidationClient) GetPolicy(ctx context.Context, params *iam.GetPolicyInput, optFns ...func(*iam.Options)) (*iam.GetPolicyOutput, error) {
+	return f.getPolicyOutput, f.getPolicyErr
+}
+
+func (f fakeIAMValidationClient) GetPolicyVersion(ctx context.Context, params *iam.GetPolicyVersionInput, optFns ...func(*iam.Options)) (*iam.GetPolicyVersionOutput, error) {
+	return f.getPolicyVersionOutput, f.getPolicyVersionErr
 }
 
 func TestConnectionValidatorValidateAWSConnectionActive(t *testing.T) {
@@ -58,7 +90,19 @@ func TestConnectionValidatorValidateAWSConnectionActive(t *testing.T) {
 			Arn:     awsv2.String("arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/session"),
 			UserId:  awsv2.String("AROATEST:session"),
 		},
-	}, fakeIAMListRolesClient{output: &iam.ListRolesOutput{}})
+	}, fakeIAMValidationClient{
+		listRolesOutput: &iam.ListRolesOutput{Roles: []iamtypes.Role{{
+			RoleName: awsv2.String("AppRole"),
+		}}},
+		listRolePoliciesOutput: &iam.ListRolePoliciesOutput{PolicyNames: []string{"inline"}},
+		getRolePolicyOutput:    &iam.GetRolePolicyOutput{PolicyDocument: awsv2.String("{}")},
+		listAttachedRolePoliciesOutput: &iam.ListAttachedRolePoliciesOutput{AttachedPolicies: []iamtypes.AttachedPolicy{{
+			PolicyArn:  awsv2.String("arn:aws:iam::123456789012:policy/Managed"),
+			PolicyName: awsv2.String("Managed"),
+		}}},
+		getPolicyOutput:        &iam.GetPolicyOutput{Policy: &iamtypes.Policy{DefaultVersionId: awsv2.String("v1")}},
+		getPolicyVersionOutput: &iam.GetPolicyVersionOutput{PolicyVersion: &iamtypes.PolicyVersion{Document: awsv2.String("{}")}},
+	})
 
 	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{
 		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailReadOnly",
@@ -88,7 +132,7 @@ func TestConnectionValidatorValidateAWSConnectionActive(t *testing.T) {
 func TestConnectionValidatorValidateAWSConnectionTrustFailure(t *testing.T) {
 	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
 		err: &smithy.GenericAPIError{Code: "AccessDenied", Message: "denied"},
-	}, fakeSTSIdentityClient{}, fakeIAMListRolesClient{})
+	}, fakeSTSIdentityClient{}, fakeIAMValidationClient{})
 
 	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{
 		RoleARN: "arn:aws:iam::123456789012:role/BadTrust",
@@ -117,7 +161,7 @@ func TestConnectionValidatorValidateAWSConnectionIAMPermissionFailure(t *testing
 		Account: awsv2.String("123456789012"),
 		Arn:     awsv2.String("arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/session"),
 		UserId:  awsv2.String("AROATEST:session"),
-	}}, fakeIAMListRolesClient{err: errors.New("iam denied")})
+	}}, fakeIAMValidationClient{listRolesErr: errors.New("iam denied")})
 
 	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{
 		RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly",
@@ -125,11 +169,120 @@ func TestConnectionValidatorValidateAWSConnectionIAMPermissionFailure(t *testing
 	if err != nil {
 		t.Fatalf("validate connection: %v", err)
 	}
-	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "aws_iam_list_roles_failed" {
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "aws_iam_read_failed" {
 		t.Fatalf("expected iam diagnostic, got %+v", result.Diagnostics)
 	}
 	if len(result.PermissionChecks) != 2 || result.PermissionChecks[1].Passed {
 		t.Fatalf("expected failed iam check, got %+v", result.PermissionChecks)
+	}
+}
+
+func TestConnectionValidatorValidateAWSConnectionPolicyReadFailure(t *testing.T) {
+	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
+		output: &sts.AssumeRoleOutput{
+			Credentials: &ststypes.Credentials{
+				AccessKeyId:     awsv2.String("access"),
+				SecretAccessKey: awsv2.String("secret"),
+				SessionToken:    awsv2.String("token"),
+			},
+		},
+	}, fakeSTSIdentityClient{output: &sts.GetCallerIdentityOutput{
+		Account: awsv2.String("123456789012"),
+		Arn:     awsv2.String("arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/session"),
+		UserId:  awsv2.String("AROATEST:session"),
+	}}, fakeIAMValidationClient{
+		listRolesOutput: &iam.ListRolesOutput{Roles: []iamtypes.Role{{RoleName: awsv2.String("AppRole")}}},
+		listRolePoliciesErr: &smithy.GenericAPIError{
+			Code:    "AccessDenied",
+			Message: "denied",
+		},
+	})
+
+	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{
+		RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+	})
+	if err != nil {
+		t.Fatalf("validate connection: %v", err)
+	}
+	if len(result.PermissionChecks) != 2 || result.PermissionChecks[1].Passed {
+		t.Fatalf("expected policy-read check to fail, got %+v", result.PermissionChecks)
+	}
+	if result.PermissionChecks[1].Name != "iam:ReadRolePolicies" {
+		t.Fatalf("expected collector permission check, got %+v", result.PermissionChecks[1])
+	}
+}
+
+func TestValidateIAMReadPermissionsEdges(t *testing.T) {
+	tests := []struct {
+		name       string
+		client     fakeIAMValidationClient
+		wantPassed bool
+		wantMsg    string
+	}{
+		{
+			name:       "no sample roles",
+			client:     fakeIAMValidationClient{listRolesOutput: &iam.ListRolesOutput{}},
+			wantPassed: true,
+			wantMsg:    "no sample role",
+		},
+		{
+			name: "inline policy document denied",
+			client: fakeIAMValidationClient{
+				listRolesOutput:        &iam.ListRolesOutput{Roles: []iamtypes.Role{{RoleName: awsv2.String("AppRole")}}},
+				listRolePoliciesOutput: &iam.ListRolePoliciesOutput{PolicyNames: []string{"inline"}},
+				getRolePolicyErr:       errors.New("inline denied"),
+			},
+			wantPassed: false,
+			wantMsg:    "cannot read inline",
+		},
+		{
+			name: "attached policy listing denied",
+			client: fakeIAMValidationClient{
+				listRolesOutput:             &iam.ListRolesOutput{Roles: []iamtypes.Role{{RoleName: awsv2.String("AppRole")}}},
+				listRolePoliciesOutput:      &iam.ListRolePoliciesOutput{},
+				listAttachedRolePoliciesErr: errors.New("attached denied"),
+			},
+			wantPassed: false,
+			wantMsg:    "cannot list managed",
+		},
+		{
+			name: "managed policy metadata denied",
+			client: fakeIAMValidationClient{
+				listRolesOutput:        &iam.ListRolesOutput{Roles: []iamtypes.Role{{RoleName: awsv2.String("AppRole")}}},
+				listRolePoliciesOutput: &iam.ListRolePoliciesOutput{},
+				listAttachedRolePoliciesOutput: &iam.ListAttachedRolePoliciesOutput{AttachedPolicies: []iamtypes.AttachedPolicy{{
+					PolicyArn: awsv2.String("arn:aws:iam::123456789012:policy/Managed"),
+				}}},
+				getPolicyErr: errors.New("policy denied"),
+			},
+			wantPassed: false,
+			wantMsg:    "cannot read managed IAM policy metadata",
+		},
+		{
+			name: "managed policy version denied",
+			client: fakeIAMValidationClient{
+				listRolesOutput:        &iam.ListRolesOutput{Roles: []iamtypes.Role{{RoleName: awsv2.String("AppRole")}}},
+				listRolePoliciesOutput: &iam.ListRolePoliciesOutput{},
+				listAttachedRolePoliciesOutput: &iam.ListAttachedRolePoliciesOutput{AttachedPolicies: []iamtypes.AttachedPolicy{{
+					PolicyArn: awsv2.String("arn:aws:iam::123456789012:policy/Managed"),
+				}}},
+				getPolicyOutput:     &iam.GetPolicyOutput{Policy: &iamtypes.Policy{DefaultVersionId: awsv2.String("v1")}},
+				getPolicyVersionErr: errors.New("version denied"),
+			},
+			wantPassed: false,
+			wantMsg:    "cannot read managed IAM policy versions",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			check := validateIAMReadPermissions(context.Background(), tt.client)
+			if check.Passed != tt.wantPassed {
+				t.Fatalf("Passed = %v, want %v (%+v)", check.Passed, tt.wantPassed, check)
+			}
+			if !strings.Contains(check.Message, tt.wantMsg) {
+				t.Fatalf("Message = %q, want substring %q", check.Message, tt.wantMsg)
+			}
+		})
 	}
 }
 
@@ -164,13 +317,13 @@ func TestClassifyAWSError(t *testing.T) {
 	}
 }
 
-func testConnectionValidator(assume stsAssumeRoleAPI, identity stsIdentityAPI, iamClient iamListRolesAPI) *ConnectionValidator {
+func testConnectionValidator(assume stsAssumeRoleAPI, identity stsIdentityAPI, iamClient iamValidationAPI) *ConnectionValidator {
 	validator := NewConnectionValidator("", "")
 	validator.loadConfig = func(context.Context, string, string) (awsv2.Config, error) {
 		return awsv2.Config{}, nil
 	}
 	validator.newAssumeRoleClient = func(awsv2.Config) stsAssumeRoleAPI { return assume }
 	validator.newIdentityClient = func(awsv2.Config) stsIdentityAPI { return identity }
-	validator.newIAMClient = func(awsv2.Config) iamListRolesAPI { return iamClient }
+	validator.newIAMClient = func(awsv2.Config) iamValidationAPI { return iamClient }
 	return validator
 }

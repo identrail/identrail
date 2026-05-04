@@ -22,7 +22,7 @@ type ConnectionValidator struct {
 	loadConfig          func(context.Context, string, string) (awsv2.Config, error)
 	newAssumeRoleClient func(awsv2.Config) stsAssumeRoleAPI
 	newIdentityClient   func(awsv2.Config) stsIdentityAPI
-	newIAMClient        func(awsv2.Config) iamListRolesAPI
+	newIAMClient        func(awsv2.Config) iamValidationAPI
 }
 
 var _ api.AWSConnectorValidator = (*ConnectionValidator)(nil)
@@ -35,8 +35,13 @@ type stsIdentityAPI interface {
 	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
 }
 
-type iamListRolesAPI interface {
+type iamValidationAPI interface {
 	ListRoles(ctx context.Context, params *iam.ListRolesInput, optFns ...func(*iam.Options)) (*iam.ListRolesOutput, error)
+	ListRolePolicies(ctx context.Context, params *iam.ListRolePoliciesInput, optFns ...func(*iam.Options)) (*iam.ListRolePoliciesOutput, error)
+	GetRolePolicy(ctx context.Context, params *iam.GetRolePolicyInput, optFns ...func(*iam.Options)) (*iam.GetRolePolicyOutput, error)
+	ListAttachedRolePolicies(ctx context.Context, params *iam.ListAttachedRolePoliciesInput, optFns ...func(*iam.Options)) (*iam.ListAttachedRolePoliciesOutput, error)
+	GetPolicy(ctx context.Context, params *iam.GetPolicyInput, optFns ...func(*iam.Options)) (*iam.GetPolicyOutput, error)
+	GetPolicyVersion(ctx context.Context, params *iam.GetPolicyVersionInput, optFns ...func(*iam.Options)) (*iam.GetPolicyVersionOutput, error)
 }
 
 // NewConnectionValidator creates an AWS SDK-backed connector validator.
@@ -51,7 +56,7 @@ func NewConnectionValidator(region string, profile string) *ConnectionValidator 
 		newIdentityClient: func(cfg awsv2.Config) stsIdentityAPI {
 			return sts.NewFromConfig(cfg)
 		},
-		newIAMClient: func(cfg awsv2.Config) iamListRolesAPI {
+		newIAMClient: func(cfg awsv2.Config) iamValidationAPI {
 			return iam.NewFromConfig(cfg)
 		},
 	}
@@ -140,21 +145,14 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 	result.PrincipalARN = strings.TrimSpace(awsv2.ToString(identity.Arn))
 	result.UserID = strings.TrimSpace(awsv2.ToString(identity.UserId))
 
-	iamCheck := api.AWSConnectionPermissionCheck{
-		Name:    "iam:ListRoles",
-		Passed:  true,
-		Message: "IAM role listing permission is available.",
-	}
 	iamClient := v.newIAMClient
 	if iamClient == nil {
-		iamClient = func(cfg awsv2.Config) iamListRolesAPI { return iam.NewFromConfig(cfg) }
+		iamClient = func(cfg awsv2.Config) iamValidationAPI { return iam.NewFromConfig(cfg) }
 	}
-	if _, err := iamClient(assumedCfg).ListRoles(ctx, &iam.ListRolesInput{MaxItems: awsv2.Int32(1)}); err != nil {
-		iamCheck.Passed = false
-		iamCheck.Message = "The connector role cannot list IAM roles."
-		iamCheck.Remediation = "Attach the Identrail read-only collector policy so the role can call iam:ListRoles and the IAM policy read APIs required for recurring scans."
+	iamCheck := validateIAMReadPermissions(ctx, iamClient(assumedCfg))
+	if !iamCheck.Passed {
 		result.Diagnostics = append(result.Diagnostics, api.AWSConnectionDiagnostic{
-			Code:        classifyAWSError(err, "aws_iam_list_roles_failed"),
+			Code:        classifyAWSError(iamCheckError(iamCheck), "aws_iam_read_failed"),
 			Message:     "AWS IAM permission sanity check failed.",
 			Remediation: iamCheck.Remediation,
 		})
@@ -162,6 +160,99 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 	result.PermissionChecks = append(result.PermissionChecks, iamCheck)
 
 	return result, nil
+}
+
+func validateIAMReadPermissions(ctx context.Context, client iamValidationAPI) api.AWSConnectionPermissionCheck {
+	check := api.AWSConnectionPermissionCheck{
+		Name:    "iam:ReadRolePolicies",
+		Passed:  true,
+		Message: "IAM role and policy read permissions are available.",
+	}
+	roles, err := client.ListRoles(ctx, &iam.ListRolesInput{MaxItems: awsv2.Int32(1)})
+	if err != nil {
+		check.Passed = false
+		check.Message = "The connector role cannot list IAM roles."
+		check.Remediation = "Attach the Identrail read-only collector policy so the role can call iam:ListRoles and the IAM policy read APIs required for recurring scans."
+		return withIAMCheckError(check, err)
+	}
+	if roles == nil || len(roles.Roles) == 0 {
+		check.Message = "IAM role listing is available; no sample role exists for policy-read probing."
+		return check
+	}
+	roleName := strings.TrimSpace(awsv2.ToString(roles.Roles[0].RoleName))
+	if roleName == "" {
+		check.Message = "IAM role listing is available; the sample role had no role name for policy-read probing."
+		return check
+	}
+	inlinePolicies, err := client.ListRolePolicies(ctx, &iam.ListRolePoliciesInput{RoleName: awsv2.String(roleName), MaxItems: awsv2.Int32(1)})
+	if err != nil {
+		check.Passed = false
+		check.Message = "The connector role cannot list inline policies for IAM roles."
+		check.Remediation = "Allow iam:ListRolePolicies and iam:GetRolePolicy in the Identrail read-only collector policy."
+		return withIAMCheckError(check, err)
+	}
+	if inlinePolicies != nil && len(inlinePolicies.PolicyNames) > 0 {
+		policyName := strings.TrimSpace(inlinePolicies.PolicyNames[0])
+		if policyName != "" {
+			if _, err := client.GetRolePolicy(ctx, &iam.GetRolePolicyInput{RoleName: awsv2.String(roleName), PolicyName: awsv2.String(policyName)}); err != nil {
+				check.Passed = false
+				check.Message = "The connector role cannot read inline IAM role policy documents."
+				check.Remediation = "Allow iam:GetRolePolicy in the Identrail read-only collector policy."
+				return withIAMCheckError(check, err)
+			}
+		}
+	}
+	attachedPolicies, err := client.ListAttachedRolePolicies(ctx, &iam.ListAttachedRolePoliciesInput{RoleName: awsv2.String(roleName), MaxItems: awsv2.Int32(1)})
+	if err != nil {
+		check.Passed = false
+		check.Message = "The connector role cannot list managed policies attached to IAM roles."
+		check.Remediation = "Allow iam:ListAttachedRolePolicies, iam:GetPolicy, and iam:GetPolicyVersion in the Identrail read-only collector policy."
+		return withIAMCheckError(check, err)
+	}
+	if attachedPolicies != nil && len(attachedPolicies.AttachedPolicies) > 0 {
+		policyARN := strings.TrimSpace(awsv2.ToString(attachedPolicies.AttachedPolicies[0].PolicyArn))
+		if policyARN != "" {
+			policy, err := client.GetPolicy(ctx, &iam.GetPolicyInput{PolicyArn: awsv2.String(policyARN)})
+			if err != nil {
+				check.Passed = false
+				check.Message = "The connector role cannot read managed IAM policy metadata."
+				check.Remediation = "Allow iam:GetPolicy in the Identrail read-only collector policy."
+				return withIAMCheckError(check, err)
+			}
+			versionID := defaultPolicyVersionID(policy)
+			if versionID != "" {
+				if _, err := client.GetPolicyVersion(ctx, &iam.GetPolicyVersionInput{PolicyArn: awsv2.String(policyARN), VersionId: awsv2.String(versionID)}); err != nil {
+					check.Passed = false
+					check.Message = "The connector role cannot read managed IAM policy versions."
+					check.Remediation = "Allow iam:GetPolicyVersion in the Identrail read-only collector policy."
+					return withIAMCheckError(check, err)
+				}
+			}
+		}
+	}
+	return check
+}
+
+func defaultPolicyVersionID(output *iam.GetPolicyOutput) string {
+	if output == nil || output.Policy == nil {
+		return ""
+	}
+	return strings.TrimSpace(awsv2.ToString(output.Policy.DefaultVersionId))
+}
+
+func withIAMCheckError(check api.AWSConnectionPermissionCheck, err error) api.AWSConnectionPermissionCheck {
+	if err != nil {
+		check.Message = strings.TrimSpace(check.Message + " (" + err.Error() + ")")
+	}
+	return check
+}
+
+func iamCheckError(check api.AWSConnectionPermissionCheck) error {
+	message := strings.TrimSpace(check.Message)
+	if message == "" {
+		return nil
+	}
+	return errors.New(message)
 }
 
 func loadAWSConnectorConfig(ctx context.Context, region string, profile string) (awsv2.Config, error) {

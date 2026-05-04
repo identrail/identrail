@@ -2,13 +2,15 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/google/uuid"
 )
 
 var awsRoleARNPattern = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$`)
@@ -85,33 +87,13 @@ type AWSConnectionStatus struct {
 	PrincipalARN         string                         `json:"principal_arn,omitempty"`
 	UserID               string                         `json:"user_id,omitempty"`
 	Region               string                         `json:"region,omitempty"`
+	ExternalID           string                         `json:"-"`
 	PermissionChecks     []AWSConnectionPermissionCheck `json:"permission_checks"`
 	Diagnostics          []AWSConnectionDiagnostic      `json:"diagnostics"`
 	RemediationMessage   string                         `json:"remediation_message,omitempty"`
 	CreatedAt            *time.Time                     `json:"created_at,omitempty"`
 	UpdatedAt            *time.Time                     `json:"updated_at,omitempty"`
 	LastValidatedAt      *time.Time                     `json:"last_validated_at,omitempty"`
-}
-
-type awsProjectConnection struct {
-	TenantID             string
-	WorkspaceID          string
-	ProjectID            string
-	ConnectorID          string
-	DisplayName          string
-	Status               domain.ConnectorStatus
-	HealthStatus         string
-	RoleARN              string
-	ExternalIDConfigured bool
-	AccountID            string
-	PrincipalARN         string
-	UserID               string
-	Region               string
-	PermissionChecks     []AWSConnectionPermissionCheck
-	Diagnostics          []AWSConnectionDiagnostic
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	LastValidatedAt      time.Time
 }
 
 func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, projectID string, request AWSConnectionUpsertRequest) (AWSConnectionStatus, error) {
@@ -138,7 +120,6 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 	}
 
 	now := s.Now().UTC()
-	key := awsConnectionKey(scope.TenantID, project.WorkspaceID, project.ProjectID)
 	status := domain.ConnectorStatusActive
 	health := "healthy"
 	connected := true
@@ -148,57 +129,73 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		connected = false
 	}
 
-	s.awsConnectMu.Lock()
-	s.ensureAWSConnectionsState()
-	createdAt := now
-	if existing, exists := s.awsConnections[key]; exists {
-		createdAt = existing.CreatedAt
-	}
-	connection := awsProjectConnection{
-		TenantID:             scope.TenantID,
-		WorkspaceID:          project.WorkspaceID,
-		ProjectID:            project.ProjectID,
-		ConnectorID:          normalized.ConnectorID,
-		DisplayName:          normalized.DisplayName,
-		Status:               status,
-		HealthStatus:         health,
-		RoleARN:              normalized.RoleARN,
-		ExternalIDConfigured: normalized.ExternalID != "",
-		AccountID:            strings.TrimSpace(validation.AccountID),
-		PrincipalARN:         strings.TrimSpace(validation.PrincipalARN),
-		UserID:               strings.TrimSpace(validation.UserID),
-		Region:               firstNonEmptyAWSValue(strings.TrimSpace(validation.Region), normalized.Region),
-		PermissionChecks:     copyAWSPermissionChecks(validation.PermissionChecks),
-		Diagnostics:          copyAWSDiagnostics(validation.Diagnostics),
-		CreatedAt:            createdAt,
-		UpdatedAt:            now,
-		LastValidatedAt:      now,
-	}
-	if connected && len(connection.PermissionChecks) == 0 {
-		connection.PermissionChecks = []AWSConnectionPermissionCheck{{
+	checks := copyAWSPermissionChecks(validation.PermissionChecks)
+	if connected && len(checks) == 0 {
+		checks = []AWSConnectionPermissionCheck{{
 			Name:    "sts:AssumeRole",
 			Passed:  true,
 			Message: "Role assumption succeeded.",
 		}}
 	}
-	s.awsConnections[key] = connection
-	response := toAWSConnectionStatus(connection)
-	s.awsConnectMu.Unlock()
+	metadata := map[string]any{
+		"role_arn":               normalized.RoleARN,
+		"external_id":            normalized.ExternalID,
+		"external_id_configured": normalized.ExternalID != "",
+		"account_id":             strings.TrimSpace(validation.AccountID),
+		"principal_arn":          strings.TrimSpace(validation.PrincipalARN),
+		"user_id":                strings.TrimSpace(validation.UserID),
+		"region":                 firstNonEmptyAWSValue(strings.TrimSpace(validation.Region), normalized.Region),
+		"permission_checks":      checks,
+		"diagnostics":            copyAWSDiagnostics(validation.Diagnostics),
+		"last_validated_at":      now.Format(time.RFC3339Nano),
+	}
+	state := db.TenancyConnectorState{
+		TenantID:     scope.TenantID,
+		WorkspaceID:  project.WorkspaceID,
+		ProjectID:    project.ProjectID,
+		ConnectorID:  normalized.ConnectorID,
+		HealthStatus: health,
+		Metadata:     metadata,
+		ObservedAt:   now,
+		UpdatedAt:    now,
+	}
+	if !connected {
+		state.LastErrorCode = "aws_connector_validation_failed"
+		state.LastErrorMessage = firstAWSRemediation(copyAWSDiagnostics(validation.Diagnostics), checks)
+	}
+	connector := db.TenancyConnector{
+		TenantID:    scope.TenantID,
+		WorkspaceID: project.WorkspaceID,
+		ProjectID:   project.ProjectID,
+		ConnectorID: normalized.ConnectorID,
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: normalized.DisplayName,
+		Status:      status,
+		UpdatedAt:   now,
+	}
+	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
+		return AWSConnectionStatus{}, fmt.Errorf("persist aws connector: %w", err)
+	}
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
+	if err != nil {
+		return AWSConnectionStatus{}, fmt.Errorf("load persisted aws connector: %w", err)
+	}
+	response := awsConnectionStatusFromStored(stored)
 
 	return response, nil
 }
 
 func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, projectID string) (AWSConnectionStatus, error) {
-	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
 
-	key := awsConnectionKey(scope.TenantID, project.WorkspaceID, project.ProjectID)
-	s.awsConnectMu.RLock()
-	connection, exists := s.awsConnections[key]
-	s.awsConnectMu.RUnlock()
-	if !exists {
+	items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeAWS, 1)
+	if err != nil {
+		return AWSConnectionStatus{}, fmt.Errorf("list aws connectors: %w", err)
+	}
+	if len(items) == 0 {
 		return AWSConnectionStatus{
 			Provider:         "aws",
 			Connected:        false,
@@ -208,7 +205,7 @@ func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, proj
 			Diagnostics:      []AWSConnectionDiagnostic{},
 		}, nil
 	}
-	return toAWSConnectionStatus(connection), nil
+	return awsConnectionStatusFromStored(items[0]), nil
 }
 
 func normalizeAWSConnectionRequest(request AWSConnectionUpsertRequest) (AWSConnectionUpsertRequest, error) {
@@ -228,7 +225,7 @@ func normalizeAWSConnectionRequest(request AWSConnectionUpsertRequest) (AWSConne
 	}
 	normalized.ConnectorID = strings.TrimSpace(request.ConnectorID)
 	if normalized.ConnectorID == "" {
-		normalized.ConnectorID = "aws-" + uuid.NewString()
+		normalized.ConnectorID = "aws-" + accountIDFromRoleARN(normalized.RoleARN)
 	}
 	normalized.DisplayName = strings.TrimSpace(request.DisplayName)
 	if normalized.DisplayName == "" {
@@ -248,41 +245,37 @@ func normalizeAWSConnectionRequest(request AWSConnectionUpsertRequest) (AWSConne
 	return normalized, nil
 }
 
-func toAWSConnectionStatus(connection awsProjectConnection) AWSConnectionStatus {
-	createdAt := connection.CreatedAt
-	updatedAt := connection.UpdatedAt
-	validatedAt := connection.LastValidatedAt
+func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConnectionStatus {
+	metadata := stored.State.Metadata
+	createdAt := stored.Connector.CreatedAt
+	updatedAt := stored.Connector.UpdatedAt
+	validatedAt := awsMetadataTime(metadata, "last_validated_at")
+	if validatedAt == nil && !stored.State.ObservedAt.IsZero() {
+		observed := stored.State.ObservedAt
+		validatedAt = &observed
+	}
 	status := AWSConnectionStatus{
 		Provider:             "aws",
-		Connected:            connection.Status == domain.ConnectorStatusActive && connection.HealthStatus == "healthy",
-		ConnectorID:          connection.ConnectorID,
-		DisplayName:          connection.DisplayName,
-		Status:               connection.Status,
-		HealthStatus:         connection.HealthStatus,
-		RoleARN:              connection.RoleARN,
-		ExternalIDConfigured: connection.ExternalIDConfigured,
-		AccountID:            connection.AccountID,
-		PrincipalARN:         connection.PrincipalARN,
-		UserID:               connection.UserID,
-		Region:               connection.Region,
-		PermissionChecks:     copyAWSPermissionChecks(connection.PermissionChecks),
-		Diagnostics:          copyAWSDiagnostics(connection.Diagnostics),
+		Connected:            stored.Connector.Status == domain.ConnectorStatusActive && stored.State.HealthStatus == "healthy",
+		ConnectorID:          stored.Connector.ConnectorID,
+		DisplayName:          stored.Connector.DisplayName,
+		Status:               stored.Connector.Status,
+		HealthStatus:         firstNonEmptyAWSValue(stored.State.HealthStatus, "unknown"),
+		RoleARN:              awsMetadataString(metadata, "role_arn"),
+		ExternalID:           awsMetadataString(metadata, "external_id"),
+		ExternalIDConfigured: awsMetadataBool(metadata, "external_id_configured"),
+		AccountID:            awsMetadataString(metadata, "account_id"),
+		PrincipalARN:         awsMetadataString(metadata, "principal_arn"),
+		UserID:               awsMetadataString(metadata, "user_id"),
+		Region:               awsMetadataString(metadata, "region"),
+		PermissionChecks:     awsMetadataPermissionChecks(metadata, "permission_checks"),
+		Diagnostics:          awsMetadataDiagnostics(metadata, "diagnostics"),
 		CreatedAt:            &createdAt,
 		UpdatedAt:            &updatedAt,
-		LastValidatedAt:      &validatedAt,
+		LastValidatedAt:      validatedAt,
 	}
 	status.RemediationMessage = firstAWSRemediation(status.Diagnostics, status.PermissionChecks)
 	return status
-}
-
-func awsConnectionKey(tenantID string, workspaceID string, projectID string) string {
-	return strings.Join([]string{tenantID, workspaceID, projectID}, "\x00")
-}
-
-func (s *Service) ensureAWSConnectionsState() {
-	if s.awsConnections == nil {
-		s.awsConnections = make(map[string]awsProjectConnection)
-	}
 }
 
 func failedAWSChecks(checks []AWSConnectionPermissionCheck) []AWSConnectionPermissionCheck {
@@ -334,6 +327,79 @@ func firstNonEmptyAWSValue(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func awsMetadataString(metadata map[string]any, key string) string {
+	if metadata == nil {
+		return ""
+	}
+	raw, ok := metadata[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch value := raw.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	default:
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+}
+
+func awsMetadataBool(metadata map[string]any, key string) bool {
+	if metadata == nil {
+		return false
+	}
+	switch value := metadata[key].(type) {
+	case bool:
+		return value
+	case string:
+		return strings.EqualFold(strings.TrimSpace(value), "true")
+	default:
+		return false
+	}
+}
+
+func awsMetadataTime(metadata map[string]any, key string) *time.Time {
+	value := awsMetadataString(metadata, key)
+	if value == "" || value == "<nil>" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return nil
+	}
+	utc := parsed.UTC()
+	return &utc
+}
+
+func awsMetadataPermissionChecks(metadata map[string]any, key string) []AWSConnectionPermissionCheck {
+	if metadata == nil || metadata[key] == nil {
+		return []AWSConnectionPermissionCheck{}
+	}
+	var checks []AWSConnectionPermissionCheck
+	payload, err := json.Marshal(metadata[key])
+	if err != nil {
+		return []AWSConnectionPermissionCheck{}
+	}
+	if err := json.Unmarshal(payload, &checks); err != nil {
+		return []AWSConnectionPermissionCheck{}
+	}
+	return copyAWSPermissionChecks(checks)
+}
+
+func awsMetadataDiagnostics(metadata map[string]any, key string) []AWSConnectionDiagnostic {
+	if metadata == nil || metadata[key] == nil {
+		return []AWSConnectionDiagnostic{}
+	}
+	var diagnostics []AWSConnectionDiagnostic
+	payload, err := json.Marshal(metadata[key])
+	if err != nil {
+		return []AWSConnectionDiagnostic{}
+	}
+	if err := json.Unmarshal(payload, &diagnostics); err != nil {
+		return []AWSConnectionDiagnostic{}
+	}
+	return copyAWSDiagnostics(diagnostics)
 }
 
 func accountIDFromRoleARN(roleARN string) string {

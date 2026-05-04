@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 )
 
 // UpsertOrganization persists or updates one tenant organization record.
@@ -80,6 +81,12 @@ func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 	for key, project := range m.projects {
 		if project.TenantID == scope.TenantID {
 			delete(m.projects, key)
+		}
+	}
+	for key, connector := range m.connectors {
+		if connector.TenantID == scope.TenantID {
+			delete(m.connectors, key)
+			delete(m.connStates, key)
 		}
 	}
 	m.mu.Unlock()
@@ -208,6 +215,12 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 	for projectKey, project := range m.projects {
 		if project.TenantID == scope.TenantID && project.WorkspaceID == normalizedWorkspaceID {
 			delete(m.projects, projectKey)
+		}
+	}
+	for connectorKey, connector := range m.connectors {
+		if connector.TenantID == scope.TenantID && connector.WorkspaceID == normalizedWorkspaceID {
+			delete(m.connectors, connectorKey)
+			delete(m.connStates, connectorKey)
 		}
 	}
 	m.mu.Unlock()
@@ -465,6 +478,12 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 		return ErrNotFound
 	}
 	delete(m.projects, key)
+	for connectorKey, connector := range m.connectors {
+		if connector.TenantID == scope.TenantID && connector.WorkspaceID == resolvedWorkspaceID && connector.ProjectID == projectID {
+			delete(m.connectors, connectorKey)
+			delete(m.connStates, connectorKey)
+		}
+	}
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -488,6 +507,134 @@ func tenancyMemberKey(tenantID string, workspaceID string, memberID string) stri
 
 func tenancyProjectKey(tenantID string, workspaceID string, projectID string) string {
 	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID))
+}
+
+// UpsertTenancyConnector persists one connector and its latest state atomically.
+func (m *MemoryStore) UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	connector.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, connector.WorkspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	connector.WorkspaceID = resolvedWorkspaceID
+	state.TenantID = scope.TenantID
+	state.WorkspaceID = resolvedWorkspaceID
+	state.ProjectID = connector.ProjectID
+	state.ConnectorID = connector.ConnectorID
+	createdAtWasZero := connector.CreatedAt.IsZero()
+	normalizedConnector, err := NormalizeTenancyConnectorForWrite(connector)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	normalizedState, err := NormalizeTenancyConnectorStateForWrite(state)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	if _, exists := m.projects[tenancyProjectKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID)]; !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	key := tenancyConnectorKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID)
+	if existing, exists := m.connectors[key]; exists && createdAtWasZero {
+		normalizedConnector.CreatedAt = existing.CreatedAt
+	}
+	m.connectors[key] = normalizedConnector
+	m.connStates[key] = normalizedState
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.connector.upsert",
+		TenantID:     normalizedConnector.TenantID,
+		WorkspaceID:  normalizedConnector.WorkspaceID,
+		ResourceType: "tenancy_connector",
+		ResourceID:   normalizedConnector.ConnectorID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
+// GetTenancyConnector returns one connector and its latest state.
+func (m *MemoryStore) GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorWithState{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyConnectorWithState{}, err
+	}
+	key := tenancyConnectorKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
+	connector, exists := m.connectors[key]
+	if !exists {
+		return TenancyConnectorWithState{}, ErrNotFound
+	}
+	state := m.connStates[key]
+	state.Metadata = cloneMetadataMap(state.Metadata)
+	return TenancyConnectorWithState{Connector: connector, State: state}, nil
+}
+
+// ListTenancyConnectors returns scoped connectors ordered by most recent update.
+func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	normalizedProjectID := strings.TrimSpace(projectID)
+	normalizedType := domain.ConnectorType(strings.ToLower(strings.TrimSpace(string(connectorType))))
+	connectors := make([]TenancyConnectorWithState, 0, limit)
+	for key, connector := range m.connectors {
+		if connector.TenantID != scope.TenantID || connector.WorkspaceID != resolvedWorkspaceID {
+			continue
+		}
+		if normalizedProjectID != "" && connector.ProjectID != normalizedProjectID {
+			continue
+		}
+		if normalizedType != "" && connector.Type != normalizedType {
+			continue
+		}
+		state := m.connStates[key]
+		state.Metadata = cloneMetadataMap(state.Metadata)
+		connectors = append(connectors, TenancyConnectorWithState{Connector: connector, State: state})
+	}
+	sort.Slice(connectors, func(i, j int) bool {
+		return connectors[i].Connector.UpdatedAt.After(connectors[j].Connector.UpdatedAt)
+	})
+	if len(connectors) > limit {
+		connectors = connectors[:limit]
+	}
+	return connectors, nil
+}
+
+func tenancyConnectorKey(tenantID string, workspaceID string, projectID string, connectorID string) string {
+	return tenancyCompositeKey(
+		strings.TrimSpace(tenantID),
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+	)
 }
 
 func tenancyCompositeKey(parts ...string) string {

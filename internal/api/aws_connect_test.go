@@ -73,6 +73,46 @@ func TestRouterAWSConnectionOnboardingActive(t *testing.T) {
 	}
 }
 
+func TestAWSConnectionPersistsAcrossServiceInstances(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-west-2",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+				{Name: "iam:ReadRolePolicies", Passed: true, Message: "IAM role and policy read permissions are available."},
+			},
+		},
+	}
+	first := NewService(store, routerScanner{}, "aws")
+	first.AWSConnectorValidator = validator
+	if _, err := first.UpsertAWSConnection(ctx, "workspace-a", "project-1", AWSConnectionUpsertRequest{
+		DisplayName: "Production AWS",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		ExternalID:  "tenant-external-id",
+		Region:      "us-west-2",
+	}); err != nil {
+		t.Fatalf("upsert aws connection: %v", err)
+	}
+
+	second := NewService(store, routerScanner{}, "aws")
+	status, err := second.GetAWSConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get aws connection after service restart: %v", err)
+	}
+	if !status.Connected || status.ConnectorID != "aws-123456789012" {
+		t.Fatalf("expected persisted active connection, got %+v", status)
+	}
+	if status.RoleARN != "arn:aws:iam::123456789012:role/IdentrailReadOnly" || !status.ExternalIDConfigured || status.ExternalID != "tenant-external-id" {
+		t.Fatalf("expected persisted role metadata, got %+v", status)
+	}
+}
+
 func TestRouterAWSConnectionOnboardingReturnsTrustRemediation(t *testing.T) {
 	validator := &fakeAWSConnectorValidator{
 		result: AWSConnectionValidationResult{

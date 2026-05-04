@@ -63,13 +63,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws sdk collector: %w", iamErr)
 			}
-			scanner = app.Scanner{
-				Collector:            awsprovider.NewCollector(iamAPI),
-				Normalizer:           awsprovider.NewRoleNormalizer(),
-				PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
-				RelationshipResolver: awsprovider.NewRelationshipBuilder(),
-				RiskRuleSet:          awsprovider.NewRuleSet(),
-			}
+			scanner = newAWSScanner(iamAPI)
 		default:
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)
@@ -105,6 +99,14 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 
 	svc := api.NewService(store, scanner, cfg.Provider)
 	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
+	svc.AWSScannerFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.ScannerRunner, error) {
+		iamAPI, iamErr := awsprovider.NewSDKIAMAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan")
+		if iamErr != nil {
+			return nil, iamErr
+		}
+		scanner := newAWSScanner(iamAPI)
+		return scanner, nil
+	}
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,
 		WorkspaceID: cfg.DefaultWorkspaceID,
@@ -177,6 +179,16 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		svc.Alerter = alerter
 	}
 	return svc, store.Close, nil
+}
+
+func newAWSScanner(iamAPI awsprovider.IAMAPI) app.Scanner {
+	return app.Scanner{
+		Collector:            awsprovider.NewCollector(iamAPI),
+		Normalizer:           awsprovider.NewRoleNormalizer(),
+		PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
+		RelationshipResolver: awsprovider.NewRelationshipBuilder(),
+		RiskRuleSet:          awsprovider.NewRuleSet(),
+	}
 }
 
 // NewStore returns memory store by default, Postgres when database URL is provided.
