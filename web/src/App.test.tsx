@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { saveProductSession } from './productShell';
@@ -21,6 +21,7 @@ describe('App', () => {
   beforeEach(() => {
     window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
+    window.localStorage.removeItem('identrail-source-onboarding-v1');
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -176,6 +177,69 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Project detail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Project project-1 placeholder/i)).toBeInTheDocument();
+  });
+
+  it('guides a first-time user through source validation and connection', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect a source/i })).toBeInTheDocument();
+    expect(screen.getByText(/No sources connected yet/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /AWS IAM/i }));
+    fireEvent.change(screen.getByLabelText(/Connection name/i), { target: { value: 'AWS production' } });
+    fireEvent.change(screen.getByLabelText(/Owner/i), { target: { value: 'platform-security' } });
+    fireEvent.change(screen.getByLabelText(/AWS account ID/i), { target: { value: '123456789012' } });
+    fireEvent.change(screen.getByLabelText(/Read-only role ARN/i), {
+      target: { value: 'arn:aws:iam::123456789012:role/identrail-readonly' }
+    });
+    fireEvent.change(screen.getByLabelText(/External ID/i), { target: { value: 'workspace-559' } });
+    fireEvent.click(screen.getByRole('button', { name: /Validate setup/i }));
+
+    expect(await screen.findByText(/All read-only checks passed/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Connect source/i }));
+
+    expect(await screen.findByText(/AWS IAM connected/i)).toBeInTheDocument();
+    expect(screen.getByText(/AWS production/i)).toBeInTheDocument();
+    expect(screen.getByText(/123456789012 account/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Connect source/i })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Connect source/i }));
+    const sourceStore = JSON.parse(window.localStorage.getItem('identrail-source-onboarding-v1') ?? '{}');
+    expect(sourceStore['tenant-a:workspace-a:workspace']).toHaveLength(1);
+  });
+
+  it('ignores stale source validation when provider changes before completion', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect a source/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /AWS IAM/i }));
+    fireEvent.change(screen.getByLabelText(/Connection name/i), { target: { value: 'AWS production' } });
+    fireEvent.change(screen.getByLabelText(/Owner/i), { target: { value: 'platform-security' } });
+    fireEvent.change(screen.getByLabelText(/AWS account ID/i), { target: { value: '123456789012' } });
+    fireEvent.change(screen.getByLabelText(/Read-only role ARN/i), {
+      target: { value: 'arn:aws:iam::123456789012:role/identrail-readonly' }
+    });
+    fireEvent.change(screen.getByLabelText(/External ID/i), { target: { value: 'workspace-559' } });
+    fireEvent.click(screen.getByRole('button', { name: /Validate setup/i }));
+    fireEvent.click(screen.getByRole('button', { name: /GitHub/i }));
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+
+    expect(screen.queryByText(/All read-only checks passed/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Connect source/i })).toBeDisabled();
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {
