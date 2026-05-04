@@ -104,6 +104,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)
+	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,
 		WorkspaceID: cfg.DefaultWorkspaceID,

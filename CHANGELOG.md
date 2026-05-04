@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added project-scoped AWS connector onboarding:
+  - new API contract to validate and save one read-only AWS role connection per project
+  - validates `sts:AssumeRole`, ingests caller/account metadata, and checks IAM role listing access before marking a connector active
+  - returns degraded connector state with remediation diagnostics for trust-policy and IAM-permission failures
 - Added project-scoped GitHub onboarding and webhook trigger flow:
   - new tenancy APIs to start/complete GitHub connect state, fetch connection status, and manage selected repositories
   - enforced webhook signature validation (`X-Hub-Signature-256`) before accepting repository trigger events

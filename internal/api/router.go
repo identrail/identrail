@@ -1165,6 +1165,56 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"connection": response})
 	})
 
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/aws/connection", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request AWSConnectionUpsertRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.UpsertAWSConnection(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connection request"})
+			case errors.Is(err, ErrAWSConnectionValidatorUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws connection validator unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("upsert aws connection", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate aws connection"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/connection", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSConnection(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"))
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("get aws connection", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws connection"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
+	})
+
 	v1.POST("/workspaces/:workspace_id/projects/:project_id/github/connect/complete", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)
