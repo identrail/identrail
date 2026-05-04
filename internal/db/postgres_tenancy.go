@@ -3,10 +3,13 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 )
 
 // UpsertOrganization persists one scoped organization metadata row.
@@ -666,4 +669,277 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 		Outcome:      "success",
 	})
 	return nil
+}
+
+// UpsertTenancyConnector persists one connector and its latest state atomically.
+func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	connector.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, connector.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	connector.WorkspaceID = resolvedWorkspaceID
+	state.TenantID = scope.TenantID
+	state.WorkspaceID = resolvedWorkspaceID
+	state.ProjectID = connector.ProjectID
+	state.ConnectorID = connector.ConnectorID
+	normalizedConnector, err := NormalizeTenancyConnectorForWrite(connector)
+	if err != nil {
+		return err
+	}
+	normalizedState, err := NormalizeTenancyConnectorStateForWrite(state)
+	if err != nil {
+		return err
+	}
+	metadataPayload, err := json.Marshal(normalizedState.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal connector state metadata: %w", err)
+	}
+
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO tenancy_connectors (
+		     tenant_id, workspace_id, project_id, connector_id, type, display_name, status,
+		     secret_provider, secret_ref_id, secret_ref_version, secret_last_rotated_at,
+		     config_checksum, last_sync_at, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), $11, NULLIF($12, ''), $13, $14, $15)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id) DO UPDATE
+		 SET type = EXCLUDED.type,
+		     display_name = EXCLUDED.display_name,
+		     status = EXCLUDED.status,
+		     secret_provider = EXCLUDED.secret_provider,
+		     secret_ref_id = EXCLUDED.secret_ref_id,
+		     secret_ref_version = EXCLUDED.secret_ref_version,
+		     secret_last_rotated_at = EXCLUDED.secret_last_rotated_at,
+		     config_checksum = EXCLUDED.config_checksum,
+		     last_sync_at = EXCLUDED.last_sync_at,
+		     updated_at = EXCLUDED.updated_at`,
+		normalizedConnector.TenantID,
+		normalizedConnector.WorkspaceID,
+		normalizedConnector.ProjectID,
+		normalizedConnector.ConnectorID,
+		string(normalizedConnector.Type),
+		normalizedConnector.DisplayName,
+		string(normalizedConnector.Status),
+		normalizedConnector.SecretProvider,
+		normalizedConnector.SecretRefID,
+		normalizedConnector.SecretRefVersion,
+		normalizedConnector.SecretLastRotatedAt,
+		normalizedConnector.ConfigChecksum,
+		normalizedConnector.LastSyncAt,
+		normalizedConnector.CreatedAt,
+		normalizedConnector.UpdatedAt,
+	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("upsert tenancy connector: %w", err)
+	}
+	_, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO tenancy_connector_states (
+		     tenant_id, workspace_id, project_id, connector_id, health_status, sync_cursor,
+		     last_successful_sync_at, last_error_code, last_error_message, metadata, observed_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, NULLIF($8, ''), NULLIF($9, ''), $10::jsonb, $11, $12)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id) DO UPDATE
+		 SET health_status = EXCLUDED.health_status,
+		     sync_cursor = EXCLUDED.sync_cursor,
+		     last_successful_sync_at = EXCLUDED.last_successful_sync_at,
+		     last_error_code = EXCLUDED.last_error_code,
+		     last_error_message = EXCLUDED.last_error_message,
+		     metadata = EXCLUDED.metadata,
+		     observed_at = EXCLUDED.observed_at,
+		     updated_at = EXCLUDED.updated_at`,
+		normalizedState.TenantID,
+		normalizedState.WorkspaceID,
+		normalizedState.ProjectID,
+		normalizedState.ConnectorID,
+		normalizedState.HealthStatus,
+		normalizedState.SyncCursor,
+		normalizedState.LastSuccessfulSyncAt,
+		normalizedState.LastErrorCode,
+		normalizedState.LastErrorMessage,
+		metadataPayload,
+		normalizedState.ObservedAt,
+		normalizedState.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert tenancy connector state: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tenancy connector upsert: %w", err)
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.connector.upsert",
+		TenantID:     normalizedConnector.TenantID,
+		WorkspaceID:  normalizedConnector.WorkspaceID,
+		ResourceType: "tenancy_connector",
+		ResourceID:   normalizedConnector.ConnectorID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
+// GetTenancyConnector returns one connector and its latest state.
+func (p *PostgresStore) GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorWithState{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyConnectorWithState{}, err
+	}
+	rows, err := p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), "", 1)
+	if err != nil {
+		return TenancyConnectorWithState{}, err
+	}
+	if len(rows) == 0 {
+		return TenancyConnectorWithState{}, ErrNotFound
+	}
+	return rows[0], nil
+}
+
+// ListTenancyConnectors returns scoped connectors ordered by most recent update.
+func (p *PostgresStore) ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	return p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), "", string(connectorType), limit)
+}
+
+func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int) ([]TenancyConnectorWithState, error) {
+	query := `SELECT
+		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
+		     c.secret_provider, c.secret_ref_id, c.secret_ref_version, c.secret_last_rotated_at,
+		     c.config_checksum, c.last_sync_at, c.created_at, c.updated_at,
+		     COALESCE(s.health_status, 'unknown'), s.sync_cursor, s.last_successful_sync_at,
+		     s.last_error_code, s.last_error_message, COALESCE(s.metadata, '{}'::jsonb), s.observed_at, s.updated_at
+		 FROM tenancy_connectors c
+		 LEFT JOIN tenancy_connector_states s
+		   ON s.tenant_id = c.tenant_id
+		  AND s.workspace_id = c.workspace_id
+		  AND s.project_id = c.project_id
+		  AND s.connector_id = c.connector_id
+		 WHERE c.tenant_id = $1
+		   AND c.workspace_id = $2`
+	args := []any{tenantID, workspaceID}
+	nextArg := 3
+	if projectID != "" {
+		query += fmt.Sprintf(" AND c.project_id = $%d", nextArg)
+		args = append(args, projectID)
+		nextArg++
+	}
+	if connectorID != "" {
+		query += fmt.Sprintf(" AND c.connector_id = $%d", nextArg)
+		args = append(args, connectorID)
+		nextArg++
+	}
+	if trimmedType := strings.ToLower(strings.TrimSpace(connectorType)); trimmedType != "" {
+		query += fmt.Sprintf(" AND c.type = $%d", nextArg)
+		args = append(args, trimmedType)
+		nextArg++
+	}
+	query += fmt.Sprintf(" ORDER BY c.updated_at DESC LIMIT $%d", nextArg)
+	args = append(args, limit)
+
+	rows, err := p.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query tenancy connectors: %w", err)
+	}
+	defer rows.Close()
+	results := []TenancyConnectorWithState{}
+	for rows.Next() {
+		var item TenancyConnectorWithState
+		var metadata []byte
+		var secretProvider, secretRefID, secretRefVersion, configChecksum sql.NullString
+		var secretLastRotatedAt, lastSyncAt, lastSuccessfulSyncAt, observedAt, stateUpdatedAt sql.NullTime
+		var syncCursor, lastErrorCode, lastErrorMessage sql.NullString
+		if err := rows.Scan(
+			&item.Connector.TenantID,
+			&item.Connector.WorkspaceID,
+			&item.Connector.ProjectID,
+			&item.Connector.ConnectorID,
+			&item.Connector.Type,
+			&item.Connector.DisplayName,
+			&item.Connector.Status,
+			&secretProvider,
+			&secretRefID,
+			&secretRefVersion,
+			&secretLastRotatedAt,
+			&configChecksum,
+			&lastSyncAt,
+			&item.Connector.CreatedAt,
+			&item.Connector.UpdatedAt,
+			&item.State.HealthStatus,
+			&syncCursor,
+			&lastSuccessfulSyncAt,
+			&lastErrorCode,
+			&lastErrorMessage,
+			&metadata,
+			&observedAt,
+			&stateUpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan tenancy connector row: %w", err)
+		}
+		item.Connector.SecretProvider = secretProvider.String
+		item.Connector.SecretRefID = secretRefID.String
+		item.Connector.SecretRefVersion = secretRefVersion.String
+		item.Connector.ConfigChecksum = configChecksum.String
+		if secretLastRotatedAt.Valid {
+			value := secretLastRotatedAt.Time.UTC()
+			item.Connector.SecretLastRotatedAt = &value
+		}
+		if lastSyncAt.Valid {
+			value := lastSyncAt.Time.UTC()
+			item.Connector.LastSyncAt = &value
+		}
+		item.State.TenantID = item.Connector.TenantID
+		item.State.WorkspaceID = item.Connector.WorkspaceID
+		item.State.ProjectID = item.Connector.ProjectID
+		item.State.ConnectorID = item.Connector.ConnectorID
+		item.State.SyncCursor = syncCursor.String
+		item.State.LastErrorCode = lastErrorCode.String
+		item.State.LastErrorMessage = lastErrorMessage.String
+		if lastSuccessfulSyncAt.Valid {
+			value := lastSuccessfulSyncAt.Time.UTC()
+			item.State.LastSuccessfulSyncAt = &value
+		}
+		if observedAt.Valid {
+			item.State.ObservedAt = observedAt.Time.UTC()
+		}
+		if stateUpdatedAt.Valid {
+			item.State.UpdatedAt = stateUpdatedAt.Time.UTC()
+		}
+		if len(metadata) > 0 {
+			if err := json.Unmarshal(metadata, &item.State.Metadata); err != nil {
+				return nil, fmt.Errorf("decode connector state metadata: %w", err)
+			}
+		}
+		if item.State.Metadata == nil {
+			item.State.Metadata = map[string]any{}
+		}
+		results = append(results, item)
+	}
+	return results, rows.Err()
 }

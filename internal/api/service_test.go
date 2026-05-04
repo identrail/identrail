@@ -94,6 +94,69 @@ func TestServiceRunScanSuccess(t *testing.T) {
 	}
 }
 
+func TestServiceRunScanUsesPersistedAWSConnector(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		WorkspaceID: "default",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-123456789012",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, db.TenancyConnectorState{
+		WorkspaceID:  "default",
+		ProjectID:    "project-1",
+		ConnectorID:  "aws-123456789012",
+		HealthStatus: "healthy",
+		Metadata: map[string]any{
+			"role_arn":               "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+			"external_id":            "tenant-external-id",
+			"external_id_configured": true,
+			"region":                 "us-west-2",
+			"permission_checks": []AWSConnectionPermissionCheck{{
+				Name:    "sts:AssumeRole",
+				Passed:  true,
+				Message: "Role assumption succeeded.",
+			}},
+			"diagnostics":       []AWSConnectionDiagnostic{},
+			"last_validated_at": now.Format(time.RFC3339Nano),
+		},
+		ObservedAt: now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("seed aws connector: %v", err)
+	}
+
+	factoryCalled := false
+	svc := NewService(store, fakeScanner{err: errors.New("default scanner should not run")}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSScannerFactory = func(_ context.Context, connection AWSConnectionStatus) (ScannerRunner, error) {
+		factoryCalled = true
+		if connection.RoleARN != "arn:aws:iam::123456789012:role/IdentrailReadOnly" ||
+			connection.ExternalID != "tenant-external-id" ||
+			connection.Region != "us-west-2" {
+			t.Fatalf("factory received wrong connection: %+v", connection)
+		}
+		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
+	}
+
+	result, err := svc.RunScan(ctx)
+	if err != nil {
+		t.Fatalf("run scan failed: %v", err)
+	}
+	if !factoryCalled {
+		t.Fatal("expected scan to use persisted aws connector scanner factory")
+	}
+	if result.Scan.Status != "completed" || result.Assets != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
 func TestServiceRunScanFailure(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
@@ -112,6 +175,35 @@ func TestServiceRunScanFailure(t *testing.T) {
 	}
 	if len(scans) != 1 || scans[0].Status != "failed" {
 		t.Fatalf("expected failed scan record, got %+v", scans)
+	}
+}
+
+func seedDefaultProject(t *testing.T, store db.Store, ctx context.Context, projectID string) {
+	t.Helper()
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		t.Fatalf("resolve scope: %v", err)
+	}
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant " + scope.TenantID,
+		Slug:        scope.TenantID,
+	}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: scope.WorkspaceID,
+		DisplayName: "Workspace " + scope.WorkspaceID,
+		Slug:        scope.WorkspaceID,
+	}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: scope.WorkspaceID,
+		ProjectID:   projectID,
+		Name:        "Project " + projectID,
+		Slug:        projectID,
+	}); err != nil {
+		t.Fatalf("seed project: %v", err)
 	}
 }
 

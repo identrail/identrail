@@ -3,6 +3,8 @@ package db
 import (
 	"testing"
 	"time"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 )
 
 func TestNormalizeScanEventLevel(t *testing.T) {
@@ -30,6 +32,123 @@ func TestStoreCloseHelpers(t *testing.T) {
 	postgres := &PostgresStore{}
 	if err := postgres.Close(); err != nil {
 		t.Fatalf("nil postgres close failed: %v", err)
+	}
+}
+
+func TestNormalizeTenancyConnectorForWrite(t *testing.T) {
+	rotated := time.Date(2026, 5, 1, 12, 0, 0, 0, time.FixedZone("WAT", 60*60))
+	synced := time.Date(2026, 5, 2, 12, 0, 0, 0, time.FixedZone("WAT", 60*60))
+	normalized, err := NormalizeTenancyConnectorForWrite(TenancyConnector{
+		TenantID:            " tenant-a ",
+		WorkspaceID:         " workspace-a ",
+		ProjectID:           " project-1 ",
+		ConnectorID:         " aws-123456789012 ",
+		Type:                domain.ConnectorType(" AWS "),
+		DisplayName:         " Production AWS ",
+		Status:              domain.ConnectorStatus(" ACTIVE "),
+		SecretProvider:      " vault ",
+		SecretRefID:         " secret/aws ",
+		SecretRefVersion:    " v1 ",
+		SecretLastRotatedAt: &rotated,
+		ConfigChecksum:      " checksum ",
+		LastSyncAt:          &synced,
+	})
+	if err != nil {
+		t.Fatalf("normalize connector: %v", err)
+	}
+	if normalized.Type != domain.ConnectorTypeAWS || normalized.Status != domain.ConnectorStatusActive {
+		t.Fatalf("unexpected connector type/status: %+v", normalized)
+	}
+	if normalized.SecretLastRotatedAt == nil || normalized.SecretLastRotatedAt.Location() != time.UTC {
+		t.Fatalf("expected rotated time in UTC, got %+v", normalized.SecretLastRotatedAt)
+	}
+	if normalized.LastSyncAt == nil || normalized.LastSyncAt.Location() != time.UTC {
+		t.Fatalf("expected last sync in UTC, got %+v", normalized.LastSyncAt)
+	}
+
+	implicit, err := NormalizeTenancyConnectorForWrite(TenancyConnector{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-123456789012",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+	})
+	if err != nil {
+		t.Fatalf("normalize implicit connector: %v", err)
+	}
+	if implicit.Status != domain.ConnectorStatusPending || implicit.CreatedAt.IsZero() || implicit.UpdatedAt.IsZero() {
+		t.Fatalf("expected default lifecycle fields, got %+v", implicit)
+	}
+
+	invalids := []TenancyConnector{
+		{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", Type: domain.ConnectorTypeAWS, DisplayName: "AWS"},
+		{TenantID: "tenant-a", ProjectID: "project-1", ConnectorID: "aws", Type: domain.ConnectorTypeAWS, DisplayName: "AWS"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ConnectorID: "aws", Type: domain.ConnectorTypeAWS, DisplayName: "AWS"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", Type: domain.ConnectorTypeAWS, DisplayName: "AWS"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", Type: domain.ConnectorType("bad"), DisplayName: "AWS"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", Type: domain.ConnectorTypeAWS},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", Type: domain.ConnectorTypeAWS, DisplayName: "AWS", Status: domain.ConnectorStatus("bad")},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", Type: domain.ConnectorTypeAWS, DisplayName: "AWS", SecretProvider: "vault"},
+	}
+	for _, invalid := range invalids {
+		if _, err := NormalizeTenancyConnectorForWrite(invalid); err == nil {
+			t.Fatalf("expected invalid connector error for %+v", invalid)
+		}
+	}
+}
+
+func TestNormalizeTenancyConnectorStateForWrite(t *testing.T) {
+	synced := time.Date(2026, 5, 2, 12, 0, 0, 0, time.FixedZone("WAT", 60*60))
+	observed := time.Date(2026, 5, 3, 12, 0, 0, 0, time.FixedZone("WAT", 60*60))
+	normalized, err := NormalizeTenancyConnectorStateForWrite(TenancyConnectorState{
+		TenantID:             " tenant-a ",
+		WorkspaceID:          " workspace-a ",
+		ProjectID:            " project-1 ",
+		ConnectorID:          " aws-123456789012 ",
+		HealthStatus:         " HEALTHY ",
+		SyncCursor:           " cursor ",
+		LastSuccessfulSyncAt: &synced,
+		LastErrorCode:        " error-code ",
+		LastErrorMessage:     " error message ",
+		Metadata:             map[string]any{"role_arn": "arn"},
+		ObservedAt:           observed,
+	})
+	if err != nil {
+		t.Fatalf("normalize connector state: %v", err)
+	}
+	if normalized.HealthStatus != "healthy" || normalized.LastSuccessfulSyncAt == nil || normalized.LastSuccessfulSyncAt.Location() != time.UTC {
+		t.Fatalf("unexpected normalized state: %+v", normalized)
+	}
+	normalized.Metadata["role_arn"] = "changed"
+	if got := normalized.Metadata["role_arn"]; got != "changed" {
+		t.Fatalf("expected mutable copied metadata, got %v", got)
+	}
+
+	implicit, err := NormalizeTenancyConnectorStateForWrite(TenancyConnectorState{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-123456789012",
+	})
+	if err != nil {
+		t.Fatalf("normalize implicit state: %v", err)
+	}
+	if implicit.HealthStatus != "unknown" || implicit.Metadata == nil || implicit.ObservedAt.IsZero() {
+		t.Fatalf("expected default state fields, got %+v", implicit)
+	}
+
+	invalids := []TenancyConnectorState{
+		{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws"},
+		{TenantID: "tenant-a", ProjectID: "project-1", ConnectorID: "aws"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ConnectorID: "aws"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", HealthStatus: "bad"},
+	}
+	for _, invalid := range invalids {
+		if _, err := NormalizeTenancyConnectorStateForWrite(invalid); err == nil {
+			t.Fatalf("expected invalid connector state error for %+v", invalid)
+		}
 	}
 }
 
