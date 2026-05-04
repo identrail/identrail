@@ -193,6 +193,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
 	registerTenancyRoutes(v1, logger, svc)
+	registerKubernetesConnectionRoutes(v1, logger, svc)
 
 	if svc == nil {
 		v1.GET("/findings", func(c *gin.Context) {

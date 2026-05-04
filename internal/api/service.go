@@ -71,9 +71,12 @@ type Service struct {
 	ScanQueueMaxPending         int
 	RepoQueueMaxPending         int
 	RepoScannerFactory          RepoScannerFactory
+	KubernetesPreflightFactory  KubernetesConnectorPreflightFactory
 	githubConnectMu             sync.RWMutex
 	githubConnections           map[string]githubProjectConnection
 	githubConnectStates         map[string]githubConnectState
+	kubernetesConnectMu         sync.RWMutex
+	kubernetesConnections       map[string]kubernetesProjectConnection
 }
 
 // CheckReadiness validates critical runtime dependencies for readiness checks.
@@ -269,6 +272,7 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 		RepoQueueMaxPending:         defaultRepoQueueMaxPending,
 		githubConnections:           make(map[string]githubProjectConnection),
 		githubConnectStates:         make(map[string]githubConnectState),
+		kubernetesConnections:       make(map[string]kubernetesProjectConnection),
 		RepoScannerFactory: func(historyLimit int, maxFindings int) RepoScanExecutor {
 			return repoexposure.NewScanner(
 				nil,

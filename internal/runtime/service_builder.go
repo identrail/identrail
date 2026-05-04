@@ -104,6 +104,13 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)
+	svc.KubernetesPreflightFactory = func(contextName string) api.KubernetesConnectorPreflightRunner {
+		effectiveContext := strings.TrimSpace(contextName)
+		if effectiveContext == "" {
+			effectiveContext = cfg.KubeContext
+		}
+		return k8sprovider.NewKubectlPreflightDriver(cfg.KubectlPath, effectiveContext, nil)
+	}
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,
 		WorkspaceID: cfg.DefaultWorkspaceID,
