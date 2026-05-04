@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
@@ -605,5 +606,35 @@ func TestToGitHubConnectionStatus(t *testing.T) {
 	}
 	if status.SelectedRepositories == nil {
 		t.Fatal("expected non-nil SelectedRepositories")
+	}
+}
+
+func TestServiceGitHubConnectionStatusUsesServiceClockForRotation(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), routerScanner{}, "aws")
+	now := time.Date(2035, 1, 1, 12, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	envelope, err := svc.ConnectorSecretManager.Encrypt([]byte("webhook-secret"), githubWebhookSecretAAD(scope, "project-1"))
+	if err != nil {
+		t.Fatalf("encrypt webhook secret: %v", err)
+	}
+	conn := githubProjectConnection{
+		TenantID:               scope.TenantID,
+		WorkspaceID:            scope.WorkspaceID,
+		ProjectID:              "project-1",
+		AccountLogin:           "identrail",
+		InstallationID:         42,
+		TokenReference:         "vault://token",
+		WebhookSecretReference: "vault://secret",
+		WebhookSecretEnvelope:  envelope,
+		WebhookSecretRotatedAt: now.Add(-githubWebhookSecretRotationWindow - time.Minute),
+		CreatedAt:              now.Add(-time.Hour),
+		UpdatedAt:              now,
+	}
+
+	status := svc.toGitHubConnectionStatus(conn)
+	if !status.WebhookSecretRotationRequired {
+		t.Fatal("expected rotation to be required using service clock")
 	}
 }

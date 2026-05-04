@@ -536,14 +536,18 @@ func normalizeGitHubRepository(repository string) string {
 }
 
 func toGitHubConnectionStatus(connection githubProjectConnection) GitHubConnectionStatus {
-	return gitHubConnectionStatus(connection, nil)
+	return gitHubConnectionStatus(connection, nil, time.Now().UTC())
 }
 
 func (s *Service) toGitHubConnectionStatus(connection githubProjectConnection) GitHubConnectionStatus {
-	return gitHubConnectionStatus(connection, s.connectorSecretManager())
+	now := time.Now().UTC()
+	if s != nil && s.Now != nil {
+		now = s.Now().UTC()
+	}
+	return gitHubConnectionStatus(connection, s.connectorSecretManager(), now)
 }
 
-func gitHubConnectionStatus(connection githubProjectConnection, manager *secretstore.Manager) GitHubConnectionStatus {
+func gitHubConnectionStatus(connection githubProjectConnection, manager *secretstore.Manager, now time.Time) GitHubConnectionStatus {
 	createdAt := connection.CreatedAt
 	updatedAt := connection.UpdatedAt
 	rotatedAt := connection.WebhookSecretRotatedAt
@@ -565,7 +569,7 @@ func gitHubConnectionStatus(connection githubProjectConnection, manager *secrets
 		WebhookSecretAlgorithm:        connection.WebhookSecretEnvelope.Algorithm,
 		WebhookSecretRotatedAt:        rotatedAtPtr,
 		WebhookSecretRotationDueAt:    rotationDueAtPtr,
-		WebhookSecretRotationRequired: connectorSecretRotationRequired(manager, connection.WebhookSecretEnvelope, rotatedAt),
+		WebhookSecretRotationRequired: connectorSecretRotationRequired(manager, connection.WebhookSecretEnvelope, rotatedAt, now),
 		SelectedRepositories:          append([]string(nil), connection.SelectedRepositories...),
 		CreatedAt:                     &createdAt,
 		UpdatedAt:                     &updatedAt,
@@ -579,7 +583,7 @@ func gitHubConnectionStatus(connection githubProjectConnection, manager *secrets
 	return status
 }
 
-func connectorSecretRotationRequired(manager *secretstore.Manager, envelope secretstore.Envelope, rotatedAt time.Time) bool {
+func connectorSecretRotationRequired(manager *secretstore.Manager, envelope secretstore.Envelope, rotatedAt time.Time, now time.Time) bool {
 	if strings.TrimSpace(envelope.KeyVersion) == "" || strings.TrimSpace(envelope.Algorithm) == "" {
 		return true
 	}
@@ -589,7 +593,7 @@ func connectorSecretRotationRequired(manager *secretstore.Manager, envelope secr
 	if rotatedAt.IsZero() {
 		return true
 	}
-	return time.Now().UTC().After(rotatedAt.Add(githubWebhookSecretRotationWindow))
+	return now.UTC().After(rotatedAt.Add(githubWebhookSecretRotationWindow))
 }
 
 func (s *Service) encryptGitHubWebhookSecret(scope db.Scope, projectID string, secret string) (secretstore.Envelope, error) {
