@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 )
 
 const (
@@ -254,6 +256,15 @@ func ValidateSecurity(cfg Config) error {
 			return err
 		}
 	}
+	if strings.TrimSpace(cfg.ConnectorSecretKeys) != "" {
+		materials, err := secretstore.ParseKeySet(cfg.ConnectorSecretKeys)
+		if err != nil {
+			return fmt.Errorf("invalid IDENTRAIL_CONNECTOR_SECRET_KEYS: %w", err)
+		}
+		if _, err := secretstore.NewManager(materials); err != nil {
+			return fmt.Errorf("invalid IDENTRAIL_CONNECTOR_SECRET_KEYS: %w", err)
+		}
+	}
 
 	if strings.TrimSpace(cfg.AlertWebhookURL) != "" {
 		severity := strings.ToLower(strings.TrimSpace(cfg.AlertMinSeverity))
@@ -474,6 +485,9 @@ func SecurityWarnings(cfg Config) []string {
 	}
 	if strings.TrimSpace(cfg.AuditFingerprintSecret) == "" {
 		warnings = append(warnings, "audit fingerprinting uses legacy unkeyed hash; set IDENTRAIL_AUDIT_FINGERPRINT_SECRET for HMAC-SHA256 pseudonymization")
+	}
+	if strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
+		warnings = append(warnings, "connector secrets use an ephemeral in-memory encryption key; set IDENTRAIL_CONNECTOR_SECRET_KEYS before persisting connector credentials")
 	}
 	if strings.TrimSpace(cfg.AlertWebhookURL) != "" && strings.TrimSpace(cfg.AlertHMACSecret) == "" {
 		warnings = append(warnings, "alert webhook signing is disabled; set IDENTRAIL_ALERT_HMAC_SECRET to enable request signature verification")

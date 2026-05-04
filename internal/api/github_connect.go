@@ -16,13 +16,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 	"github.com/google/uuid"
 )
 
 const (
-	defaultGitHubAppSlug  = "identrail"
-	githubConnectStateTTL = 15 * time.Minute
+	defaultGitHubAppSlug              = "identrail"
+	githubConnectStateTTL             = 15 * time.Minute
+	githubWebhookSecretRotationWindow = 90 * 24 * time.Hour
 )
 
 var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
@@ -41,6 +44,9 @@ var ErrGitHubWebhookSignatureInvalid = errors.New("github webhook signature inva
 
 // ErrInvalidGitHubWebhookPayload indicates an invalid webhook payload.
 var ErrInvalidGitHubWebhookPayload = errors.New("invalid github webhook payload")
+
+// ErrGitHubConnectorSecretUnavailable indicates connector secret crypto failed.
+var ErrGitHubConnectorSecretUnavailable = errors.New("github connector secret unavailable")
 
 // GitHubConnectionStartRequest captures one project-scoped connection bootstrap request.
 type GitHubConnectionStartRequest struct {
@@ -71,20 +77,31 @@ type GitHubConnectionRepositorySelectionRequest struct {
 	Repositories []string `json:"repositories"`
 }
 
+// GitHubConnectionSecretRotationRequest captures one webhook secret rotation.
+type GitHubConnectionSecretRotationRequest struct {
+	WebhookSecret          string `json:"webhook_secret"`
+	WebhookSecretReference string `json:"webhook_secret_reference"`
+}
+
 // GitHubConnectionStatus describes current GitHub integration state for one project.
 type GitHubConnectionStatus struct {
-	Provider               string     `json:"provider"`
-	Connected              bool       `json:"connected"`
-	AccountLogin           string     `json:"account_login,omitempty"`
-	InstallationID         int64      `json:"installation_id,omitempty"`
-	TokenReference         string     `json:"token_reference,omitempty"`
-	WebhookSecretReference string     `json:"webhook_secret_reference,omitempty"`
-	SelectedRepositories   []string   `json:"selected_repositories"`
-	CreatedAt              *time.Time `json:"created_at,omitempty"`
-	UpdatedAt              *time.Time `json:"updated_at,omitempty"`
-	LastWebhookEventType   string     `json:"last_webhook_event_type,omitempty"`
-	LastWebhookDeliveryID  string     `json:"last_webhook_delivery_id,omitempty"`
-	LastWebhookEventAt     *time.Time `json:"last_webhook_event_at,omitempty"`
+	Provider                      string     `json:"provider"`
+	Connected                     bool       `json:"connected"`
+	AccountLogin                  string     `json:"account_login,omitempty"`
+	InstallationID                int64      `json:"installation_id,omitempty"`
+	TokenReference                string     `json:"token_reference,omitempty"`
+	WebhookSecretReference        string     `json:"webhook_secret_reference,omitempty"`
+	WebhookSecretKeyVersion       string     `json:"webhook_secret_key_version,omitempty"`
+	WebhookSecretAlgorithm        string     `json:"webhook_secret_algorithm,omitempty"`
+	WebhookSecretRotatedAt        *time.Time `json:"webhook_secret_rotated_at,omitempty"`
+	WebhookSecretRotationDueAt    *time.Time `json:"webhook_secret_rotation_due_at,omitempty"`
+	WebhookSecretRotationRequired bool       `json:"webhook_secret_rotation_required"`
+	SelectedRepositories          []string   `json:"selected_repositories"`
+	CreatedAt                     *time.Time `json:"created_at,omitempty"`
+	UpdatedAt                     *time.Time `json:"updated_at,omitempty"`
+	LastWebhookEventType          string     `json:"last_webhook_event_type,omitempty"`
+	LastWebhookDeliveryID         string     `json:"last_webhook_delivery_id,omitempty"`
+	LastWebhookEventAt            *time.Time `json:"last_webhook_event_at,omitempty"`
 }
 
 // GitHubWebhookResult summarizes how one webhook event was processed.
@@ -111,7 +128,8 @@ type githubProjectConnection struct {
 	InstallationID         int64
 	TokenReference         string
 	WebhookSecretReference string
-	WebhookSecret          string
+	WebhookSecretEnvelope  secretstore.Envelope
+	WebhookSecretRotatedAt time.Time
 	SelectedRepositories   []string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
@@ -192,6 +210,10 @@ func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID stri
 
 	now := s.Now().UTC()
 	key := githubConnectionKey(scope.TenantID, project.WorkspaceID, project.ProjectID)
+	envelope, err := s.encryptGitHubWebhookSecret(scope, project.ProjectID, normalizedSecret)
+	if err != nil {
+		return GitHubConnectionStatus{}, ErrGitHubConnectorSecretUnavailable
+	}
 
 	s.githubConnectMu.Lock()
 	s.ensureGitHubConnectionState()
@@ -221,14 +243,16 @@ func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID stri
 		InstallationID:         request.InstallationID,
 		TokenReference:         normalizedTokenRef,
 		WebhookSecretReference: normalizedSecretRef,
-		WebhookSecret:          normalizedSecret,
+		WebhookSecretEnvelope:  envelope,
+		WebhookSecretRotatedAt: now,
 		SelectedRepositories:   repositories,
 		CreatedAt:              createdAt,
 		UpdatedAt:              now,
 	}
-	status := toGitHubConnectionStatus(s.githubConnections[key])
+	status := s.toGitHubConnectionStatus(s.githubConnections[key])
 	s.githubConnectMu.Unlock()
 
+	auditGitHubConnectorAction(ctx, "connector.github.connection.complete", scope, project.ProjectID, "success")
 	return status, nil
 }
 
@@ -245,7 +269,7 @@ func (s *Service) GetGitHubConnection(ctx context.Context, workspaceID string, p
 	if !exists {
 		return GitHubConnectionStatus{Provider: "github_app", Connected: false, SelectedRepositories: []string{}}, nil
 	}
-	return toGitHubConnectionStatus(connection), nil
+	return s.toGitHubConnectionStatus(connection), nil
 }
 
 func (s *Service) UpdateGitHubConnectionRepositories(ctx context.Context, workspaceID string, projectID string, request GitHubConnectionRepositorySelectionRequest) (GitHubConnectionStatus, error) {
@@ -274,9 +298,47 @@ func (s *Service) UpdateGitHubConnectionRepositories(ctx context.Context, worksp
 	connection.SelectedRepositories = repositories
 	connection.UpdatedAt = now
 	s.githubConnections[key] = connection
-	status := toGitHubConnectionStatus(connection)
+	status := s.toGitHubConnectionStatus(connection)
 	s.githubConnectMu.Unlock()
 
+	auditGitHubConnectorAction(ctx, "connector.github.repositories.update", scope, project.ProjectID, "success")
+	return status, nil
+}
+
+func (s *Service) RotateGitHubConnectionSecret(ctx context.Context, workspaceID string, projectID string, request GitHubConnectionSecretRotationRequest) (GitHubConnectionStatus, error) {
+	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	if err != nil {
+		return GitHubConnectionStatus{}, err
+	}
+
+	normalizedSecretRef := strings.TrimSpace(request.WebhookSecretReference)
+	normalizedSecret := strings.TrimSpace(request.WebhookSecret)
+	if normalizedSecretRef == "" || normalizedSecret == "" {
+		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
+
+	envelope, err := s.encryptGitHubWebhookSecret(scope, project.ProjectID, normalizedSecret)
+	if err != nil {
+		return GitHubConnectionStatus{}, ErrGitHubConnectorSecretUnavailable
+	}
+
+	key := githubConnectionKey(scope.TenantID, project.WorkspaceID, project.ProjectID)
+	now := s.Now().UTC()
+	s.githubConnectMu.Lock()
+	connection, exists := s.githubConnections[key]
+	if !exists {
+		s.githubConnectMu.Unlock()
+		return GitHubConnectionStatus{}, ErrGitHubConnectionNotFound
+	}
+	connection.WebhookSecretReference = normalizedSecretRef
+	connection.WebhookSecretEnvelope = envelope
+	connection.WebhookSecretRotatedAt = now
+	connection.UpdatedAt = now
+	s.githubConnections[key] = connection
+	status := s.toGitHubConnectionStatus(connection)
+	s.githubConnectMu.Unlock()
+
+	auditGitHubConnectorAction(ctx, "connector.github.webhook_secret.rotate", scope, project.ProjectID, "success")
 	return status, nil
 }
 
@@ -309,7 +371,7 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 
 	validConnections := make([]githubProjectConnection, 0, len(candidates))
 	for _, candidate := range candidates {
-		if validateGitHubWebhookSignature(candidate.WebhookSecret, payload, normalizedSignature) {
+		if s.validateGitHubWebhookSignatureForConnection(candidate, payload, normalizedSignature) {
 			validConnections = append(validConnections, candidate)
 		}
 	}
@@ -358,7 +420,7 @@ func (s *Service) verifyGitHubWebhookSignatureForInstallation(installationID int
 		if connection.InstallationID != installationID {
 			continue
 		}
-		if validateGitHubWebhookSignature(connection.WebhookSecret, payload, signature) {
+		if s.validateGitHubWebhookSignatureForConnection(connection, payload, signature) {
 			return true
 		}
 	}
@@ -474,26 +536,114 @@ func normalizeGitHubRepository(repository string) string {
 }
 
 func toGitHubConnectionStatus(connection githubProjectConnection) GitHubConnectionStatus {
+	return gitHubConnectionStatus(connection, nil)
+}
+
+func (s *Service) toGitHubConnectionStatus(connection githubProjectConnection) GitHubConnectionStatus {
+	return gitHubConnectionStatus(connection, s.connectorSecretManager())
+}
+
+func gitHubConnectionStatus(connection githubProjectConnection, manager *secretstore.Manager) GitHubConnectionStatus {
 	createdAt := connection.CreatedAt
 	updatedAt := connection.UpdatedAt
+	rotatedAt := connection.WebhookSecretRotatedAt
+	var rotatedAtPtr *time.Time
+	var rotationDueAtPtr *time.Time
+	if !rotatedAt.IsZero() {
+		rotatedAtPtr = &rotatedAt
+		rotationDueAt := rotatedAt.Add(githubWebhookSecretRotationWindow)
+		rotationDueAtPtr = &rotationDueAt
+	}
 	status := GitHubConnectionStatus{
-		Provider:               "github_app",
-		Connected:              true,
-		AccountLogin:           connection.AccountLogin,
-		InstallationID:         connection.InstallationID,
-		TokenReference:         connection.TokenReference,
-		WebhookSecretReference: connection.WebhookSecretReference,
-		SelectedRepositories:   append([]string(nil), connection.SelectedRepositories...),
-		CreatedAt:              &createdAt,
-		UpdatedAt:              &updatedAt,
-		LastWebhookEventType:   connection.LastWebhookEventType,
-		LastWebhookDeliveryID:  connection.LastWebhookDeliveryID,
-		LastWebhookEventAt:     connection.LastWebhookEventAt,
+		Provider:                      "github_app",
+		Connected:                     true,
+		AccountLogin:                  connection.AccountLogin,
+		InstallationID:                connection.InstallationID,
+		TokenReference:                connection.TokenReference,
+		WebhookSecretReference:        connection.WebhookSecretReference,
+		WebhookSecretKeyVersion:       connection.WebhookSecretEnvelope.KeyVersion,
+		WebhookSecretAlgorithm:        connection.WebhookSecretEnvelope.Algorithm,
+		WebhookSecretRotatedAt:        rotatedAtPtr,
+		WebhookSecretRotationDueAt:    rotationDueAtPtr,
+		WebhookSecretRotationRequired: connectorSecretRotationRequired(manager, connection.WebhookSecretEnvelope, rotatedAt),
+		SelectedRepositories:          append([]string(nil), connection.SelectedRepositories...),
+		CreatedAt:                     &createdAt,
+		UpdatedAt:                     &updatedAt,
+		LastWebhookEventType:          connection.LastWebhookEventType,
+		LastWebhookDeliveryID:         connection.LastWebhookDeliveryID,
+		LastWebhookEventAt:            connection.LastWebhookEventAt,
 	}
 	if status.SelectedRepositories == nil {
 		status.SelectedRepositories = []string{}
 	}
 	return status
+}
+
+func connectorSecretRotationRequired(manager *secretstore.Manager, envelope secretstore.Envelope, rotatedAt time.Time) bool {
+	if strings.TrimSpace(envelope.KeyVersion) == "" || strings.TrimSpace(envelope.Algorithm) == "" {
+		return true
+	}
+	if manager != nil && manager.NeedsRotation(envelope) {
+		return true
+	}
+	if rotatedAt.IsZero() {
+		return true
+	}
+	return time.Now().UTC().After(rotatedAt.Add(githubWebhookSecretRotationWindow))
+}
+
+func (s *Service) encryptGitHubWebhookSecret(scope db.Scope, projectID string, secret string) (secretstore.Envelope, error) {
+	manager := s.connectorSecretManager()
+	return manager.Encrypt([]byte(secret), githubWebhookSecretAAD(scope, projectID))
+}
+
+func (s *Service) decryptGitHubWebhookSecret(connection githubProjectConnection) (string, error) {
+	manager := s.connectorSecretManager()
+	plaintext, err := manager.Decrypt(connection.WebhookSecretEnvelope, githubWebhookSecretAAD(
+		db.Scope{TenantID: connection.TenantID, WorkspaceID: connection.WorkspaceID},
+		connection.ProjectID,
+	))
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+func (s *Service) validateGitHubWebhookSignatureForConnection(connection githubProjectConnection, payload []byte, signature string) bool {
+	secret, err := s.decryptGitHubWebhookSecret(connection)
+	if err != nil {
+		return false
+	}
+	return validateGitHubWebhookSignature(secret, payload, signature)
+}
+
+func (s *Service) connectorSecretManager() *secretstore.Manager {
+	if s != nil && s.ConnectorSecretManager != nil {
+		return s.ConnectorSecretManager
+	}
+	return secretstore.NewEphemeralManager()
+}
+
+func githubWebhookSecretAAD(scope db.Scope, projectID string) []byte {
+	parts := []string{
+		"github",
+		"webhook_secret",
+		strings.ToLower(strings.TrimSpace(scope.TenantID)),
+		strings.ToLower(strings.TrimSpace(scope.WorkspaceID)),
+		strings.ToLower(strings.TrimSpace(projectID)),
+	}
+	return []byte(strings.Join(parts, "\x00"))
+}
+
+func auditGitHubConnectorAction(ctx context.Context, action string, scope db.Scope, projectID string, outcome string) {
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       action,
+		TenantID:     scope.TenantID,
+		WorkspaceID:  scope.WorkspaceID,
+		ResourceType: "github_connector",
+		ResourceID:   strings.TrimSpace(projectID),
+		Outcome:      outcome,
+	})
 }
 
 func validateGitHubWebhookSignature(secret string, payload []byte, signature string) bool {

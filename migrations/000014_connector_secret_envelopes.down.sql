@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_tenancy_connector_secret_envelopes_rotation;
+DROP TABLE IF EXISTS tenancy_connector_secret_envelopes;

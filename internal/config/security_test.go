@@ -99,6 +99,17 @@ func TestValidateSecuritySuccess(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsInvalidConnectorSecretKeys(t *testing.T) {
+	cfg := Config{
+		APIKeys:             []string{"reader", "writer"},
+		WriteAPIKeys:        []string{"writer"},
+		ConnectorSecretKeys: "v1:not-base64",
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected invalid connector secret keys error")
+	}
+}
+
 func TestValidateSecurityRejectsInvalidAWSSource(t *testing.T) {
 	cfg := Config{
 		Provider:  "aws",

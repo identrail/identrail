@@ -817,6 +817,49 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/github/secret/rotate:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Rotate the GitHub webhook secret for one project
+      operationId: rotateGitHubProjectWebhookSecret
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubConnectionSecretRotationRequest"
+      responses:
+        "200":
+          description: Rotated GitHub connection secret
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/GitHubConnectionStatus"
+        "400":
+          description: Invalid secret rotation request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/findings:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1614,6 +1657,17 @@ components:
           minItems: 1
           items:
             type: string
+    GitHubConnectionSecretRotationRequest:
+      type: object
+      required:
+        - webhook_secret
+        - webhook_secret_reference
+      properties:
+        webhook_secret:
+          type: string
+          writeOnly: true
+        webhook_secret_reference:
+          type: string
     GitHubConnectionStatus:
       type: object
       properties:
@@ -1630,6 +1684,20 @@ components:
           type: string
         webhook_secret_reference:
           type: string
+        webhook_secret_key_version:
+          type: string
+        webhook_secret_algorithm:
+          type: string
+        webhook_secret_rotated_at:
+          type: string
+          format: date-time
+          nullable: true
+        webhook_secret_rotation_due_at:
+          type: string
+          format: date-time
+          nullable: true
+        webhook_secret_rotation_required:
+          type: boolean
         selected_repositories:
           type: array
           items:

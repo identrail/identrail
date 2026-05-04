@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
@@ -81,6 +82,124 @@ func TestValidateGitHubWebhookSignature(t *testing.T) {
 	}
 	if validateGitHubWebhookSignature("my-secret", payload, "noequalssign") {
 		t.Fatal("signature without = separator should fail")
+	}
+}
+
+func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:            []string{"writer-key"},
+		WriteAPIKeys:       []string{"writer-key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+		AuditSink:          sink,
+	})
+
+	doAPI := func(method string, path string, body string) *httptest.ResponseRecorder {
+		var requestBody *bytes.Buffer
+		if body == "" {
+			requestBody = bytes.NewBuffer(nil)
+		} else {
+			requestBody = bytes.NewBufferString(body)
+		}
+		req := httptest.NewRequest(method, path, requestBody)
+		req.Header.Set("X-API-Key", "writer-key")
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	_ = doAPI(http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`)
+	_ = doAPI(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`)
+	_ = doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1"}`)
+
+	startResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/start", `{}`)
+	var startBody struct {
+		Connection GitHubConnectionStartResponse `json:"connection"`
+	}
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+
+	secret := "very-secret-webhook-value"
+	completeJSON := `{"state":"` + startBody.Connection.State + `","installation_id":77,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"` + secret + `","webhook_secret_reference":"vault://secret/v1","selected_repositories":["owner/repo"]}`
+	completeResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete", completeJSON)
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("complete connection expected 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+	var completeBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(completeResp.Body.Bytes(), &completeBody); err != nil {
+		t.Fatalf("decode complete response: %v", err)
+	}
+	if completeBody.Connection.WebhookSecretKeyVersion == "" || completeBody.Connection.WebhookSecretAlgorithm != "AES-256-GCM" {
+		t.Fatalf("expected encrypted secret metadata, got %+v", completeBody.Connection)
+	}
+	if strings.Contains(completeResp.Body.String(), secret) {
+		t.Fatalf("response exposed webhook secret: %s", completeResp.Body.String())
+	}
+
+	key := githubConnectionKey("tenant-a", "workspace-a", "project-1")
+	svc.githubConnectMu.RLock()
+	connection := svc.githubConnections[key]
+	svc.githubConnectMu.RUnlock()
+	if len(connection.WebhookSecretEnvelope.Ciphertext) == 0 {
+		t.Fatal("expected encrypted webhook secret ciphertext")
+	}
+	if strings.Contains(string(connection.WebhookSecretEnvelope.Ciphertext), secret) {
+		t.Fatal("ciphertext should not contain plaintext secret")
+	}
+
+	newSecret := "rotated-webhook-value"
+	rotateResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/secret/rotate", `{"webhook_secret":"`+newSecret+`","webhook_secret_reference":"vault://secret/v2"}`)
+	if rotateResp.Code != http.StatusOK {
+		t.Fatalf("rotate secret expected 200, got %d body=%s", rotateResp.Code, rotateResp.Body.String())
+	}
+	if strings.Contains(rotateResp.Body.String(), newSecret) {
+		t.Fatalf("rotation response exposed webhook secret: %s", rotateResp.Body.String())
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	if _, err := svc.HandleGitHubWebhook(
+		httptest.NewRequest(http.MethodPost, "/webhooks/github", nil).Context(),
+		"installation",
+		"delivery-old",
+		githubWebhookSignature(secret, webhookPayload),
+		webhookPayload,
+	); err == nil {
+		t.Fatal("old webhook secret should fail after rotation")
+	}
+	result, err := svc.HandleGitHubWebhook(
+		httptest.NewRequest(http.MethodPost, "/webhooks/github", nil).Context(),
+		"installation",
+		"delivery-new",
+		githubWebhookSignature(newSecret, webhookPayload),
+		webhookPayload,
+	)
+	if err != nil {
+		t.Fatalf("new webhook secret should pass: %v", err)
+	}
+	if result.MatchedProjects != 1 {
+		t.Fatalf("expected rotated secret to match one project, got %+v", result)
+	}
+
+	auditPayload, err := json.Marshal(sink.events)
+	if err != nil {
+		t.Fatalf("marshal audit events: %v", err)
+	}
+	if strings.Contains(string(auditPayload), secret) || strings.Contains(string(auditPayload), newSecret) {
+		t.Fatalf("audit events exposed webhook secret: %s", string(auditPayload))
+	}
+	if !strings.Contains(string(auditPayload), "connector.github.webhook_secret.rotate") {
+		t.Fatalf("expected rotation audit event, got %s", string(auditPayload))
 	}
 }
 

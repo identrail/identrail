@@ -92,6 +92,7 @@ type Config struct {
 	AuditForwardRetryBackoff   time.Duration
 	AuditForwardHMACSecret     string
 	AuditFingerprintSecret     string
+	ConnectorSecretKeys        string
 	AlertWebhookURL            string
 	AlertMinSeverity           string
 	AlertTimeout               time.Duration
@@ -182,6 +183,7 @@ func Load() Config {
 		AuditForwardRetryBackoff:   parseDuration(getEnv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", "1s"), 1*time.Second),
 		AuditForwardHMACSecret:     getEnv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", ""),
 		AuditFingerprintSecret:     getEnv("IDENTRAIL_AUDIT_FINGERPRINT_SECRET", ""),
+		ConnectorSecretKeys:        getEnv("IDENTRAIL_CONNECTOR_SECRET_KEYS", ""),
 		AlertWebhookURL:            getEnv("IDENTRAIL_ALERT_WEBHOOK_URL", ""),
 		AlertMinSeverity:           strings.ToLower(getEnv("IDENTRAIL_ALERT_MIN_SEVERITY", "high")),
 		AlertTimeout:               parseDuration(getEnv("IDENTRAIL_ALERT_TIMEOUT", "5s"), 5*time.Second),

@@ -409,3 +409,9 @@ This file tracks major decisions in simple terms.
 - Decision: Add `scripts/v1_release_qualify.sh` and document RC/GA tagging flow.
 - Why: Standardize V1 release decisions with repeatable checks instead of ad-hoc manual steps.
 - Tradeoff: Release pipeline is stricter and may block tagging when local tooling is incomplete.
+
+## ADR-069: Encrypt Connector Secrets with Versioned Envelopes
+- Date: 2026-05-04
+- Decision: Store connector credential material in AES-256-GCM envelopes with explicit key versions and rotation metadata.
+- Why: Connector onboarding needs confidential credential handling, operable key rotation, and auditability without exposing raw secrets.
+- Tradeoff: Operators must maintain `IDENTRAIL_CONNECTOR_SECRET_KEYS` for durable deployments; local runs without it use only ephemeral in-memory connector encryption.

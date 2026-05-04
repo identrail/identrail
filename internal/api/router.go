@@ -1252,6 +1252,36 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		}
 		c.JSON(http.StatusOK, gin.H{"connection": record})
 	})
+
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/github/secret/rotate", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request GitHubConnectionSecretRotationRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.RotateGitHubConnectionSecret(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrGitHubConnectionNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "github connection not found"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github secret rotation request"})
+			default:
+				if logger != nil {
+					logger.Error("rotate github webhook secret", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate github webhook secret"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
+	})
 }
 
 func tenancyServiceUnavailable(c *gin.Context) {

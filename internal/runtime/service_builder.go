@@ -13,6 +13,7 @@ import (
 	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
 	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 )
 
 // BuildScanService constructs store + scanner + API service from runtime config.
@@ -104,6 +105,19 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)
+	if strings.TrimSpace(cfg.ConnectorSecretKeys) != "" {
+		materials, parseErr := secretstore.ParseKeySet(cfg.ConnectorSecretKeys)
+		if parseErr != nil {
+			_ = store.Close()
+			return nil, nil, fmt.Errorf("parse connector secret keys: %w", parseErr)
+		}
+		manager, managerErr := secretstore.NewManager(materials)
+		if managerErr != nil {
+			_ = store.Close()
+			return nil, nil, fmt.Errorf("initialize connector secret manager: %w", managerErr)
+		}
+		svc.ConnectorSecretManager = manager
+	}
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,
 		WorkspaceID: cfg.DefaultWorkspaceID,

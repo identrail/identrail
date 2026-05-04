@@ -29,6 +29,16 @@ Provider-specific drivers implement:
 
 The framework consumes hook results and applies a shared state machine.
 
+## Connector Secret Envelopes
+
+Connector credential material must be stored as an encrypted envelope, never as plaintext in database rows, audit records, logs, or status responses.
+
+- Envelope algorithm: AES-256-GCM.
+- Key versioning: `IDENTRAIL_CONNECTOR_SECRET_KEYS` accepts ordered keysets in `version:base64-32-byte-key` form. The active encryption key is the last entry; older entries are decrypt-only during rotation.
+- Rotation metadata: connector secret status includes key version, algorithm, last rotation time, due time, and whether rotation is required.
+- Rotation path: GitHub App webhook secrets can be rotated through `POST /v1/workspaces/{workspace_id}/projects/{project_id}/github/secret/rotate`.
+- Audit: connection completion, repository selection changes, and webhook secret rotation emit action audit events without credential values.
+
 ## Lifecycle Semantics
 
 - `TestConnection`
