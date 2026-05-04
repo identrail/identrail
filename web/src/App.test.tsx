@@ -39,7 +39,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'Identify risky machine trust paths before they become incidents.'
+        name: 'The control room for every machine identity path.'
       })
     ).toBeInTheDocument();
 
