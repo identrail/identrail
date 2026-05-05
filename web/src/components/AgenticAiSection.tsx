@@ -2,9 +2,9 @@ import { siteLinks } from '../siteConfig';
 import { SafeLink } from './SafeLink';
 
 const controls = [
-  'Map AI agent identities, tool tokens, and delegated trust paths',
-  'Detect privilege escalation routes from agent to infrastructure',
-  'Apply policy guardrails before agent authorization changes reach production'
+  'Define candidate controls for agent identities, tool tokens, and delegated trust paths',
+  'Model potential privilege-escalation routes from agent to infrastructure',
+  'Plan policy guardrails before future agent authorization changes reach production'
 ];
 
 export function AgenticAiSection() {
@@ -13,13 +13,13 @@ export function AgenticAiSection() {
       <div className="agentic-section">
         <div>
           <p className="eyebrow">Built for Modern Workloads</p>
-          <h2 id="agentic-title">Identrail for Agentic AI Security</h2>
+          <h2 id="agentic-title">Agentic AI Security Roadmap</h2>
           <p>
-            Bring governance and least-privilege controls to AI agent identities across model
+            This section describes roadmap direction for agent identity governance across model
             providers, orchestration layers, and runtime infrastructure.
           </p>
           <SafeLink className="btn btn-primary" href={siteLinks.agenticAi}>
-            Explore Agentic AI Security
+            Explore Roadmap Notes
           </SafeLink>
         </div>
         <ul>

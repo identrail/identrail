@@ -96,7 +96,7 @@ export const useCases: UseCaseCard[] = [
   { id: '02', title: 'Cloud Trust Path Analysis', body: 'See exactly who can assume what across AWS accounts and Kubernetes clusters with end-to-end trust path mapping.', href: '/features/trust-graph' },
   { id: '03', title: 'Repository Exposure Monitoring', body: 'Continuously scan source repositories and CI artifacts to catch leaked credentials and machine identity exposure risks.', href: '/features/git-scanner' },
   { id: '04', title: 'Centralized Authorization', body: 'Define authorization intent once and propagate safely across services, cloud resources, and platform control points.', href: '/solutions/platform-engineering' },
-  { id: '05', title: 'Agentic AI Identity Governance', body: 'Control AI agent access to models, tools, secrets, and infrastructure with visibility into every delegated action path.', href: '/security' },
+  { id: '05', title: 'Agentic AI Identity Governance (Roadmap)', body: 'Define future controls for AI agent access to models, tools, secrets, and infrastructure with delegated-path visibility goals.', href: '/security' },
   { id: '06', title: 'Compliance Evidence Automation', body: 'Generate machine identity access evidence for audits with continuously updated entitlement and policy snapshots.', href: '/docs' }
 ];
 
