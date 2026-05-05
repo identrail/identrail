@@ -261,7 +261,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
-		items, err := svc.ListFindingsFiltered(c.Request.Context(), pageFetchLimit(offset, limit), FindingsFilter{
+		items, err := svc.ListFindingsFiltered(c.Request.Context(), maxCursorFetchLimit, FindingsFilter{
 			ScanID:          strings.TrimSpace(c.Query("scan_id")),
 			Severity:        strings.TrimSpace(c.Query("severity")),
 			Type:            strings.TrimSpace(c.Query("type")),
@@ -408,7 +408,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			strings.TrimSpace(c.Query("provider")),
 			strings.TrimSpace(c.Query("type")),
 			strings.TrimSpace(c.Query("name_prefix")),
-			pageFetchLimit(offset, limit),
+			maxCursorFetchLimit,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -438,7 +438,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			strings.TrimSpace(c.Query("type")),
 			strings.TrimSpace(c.Query("from_node_id")),
 			strings.TrimSpace(c.Query("to_node_id")),
-			pageFetchLimit(offset, limit),
+			maxCursorFetchLimit,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -464,7 +464,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "confidence")
 		items, err := svc.ListOwnershipSignals(
 			c.Request.Context(),
-			pageFetchLimit(offset, limit),
+			maxCursorFetchLimit,
 			OwnershipFilter{ScanID: strings.TrimSpace(c.Query("scan_id"))},
 		)
 		if err != nil {
@@ -489,7 +489,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultScansLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "started_at")
-		items, err := svc.ListScans(c.Request.Context(), pageFetchLimit(offset, limit))
+		items, err := svc.ListScans(c.Request.Context(), maxCursorFetchLimit)
 		if err != nil {
 			logger.Error("list scans", telemetry.ZapError(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list scans"})
@@ -536,7 +536,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("scan_id")),
 			strings.TrimSpace(c.Query("level")),
-			pageFetchLimit(offset, limit),
+			maxCursorFetchLimit,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -560,7 +560,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultScansLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "started_at")
-		items, err := svc.ListRepoScans(c.Request.Context(), pageFetchLimit(offset, limit))
+		items, err := svc.ListRepoScans(c.Request.Context(), maxCursorFetchLimit)
 		if err != nil {
 			logger.Error("list repo scans", telemetry.ZapError(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list repo scans"})
@@ -605,7 +605,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		}
 		items, err := svc.ListRepoFindings(
 			c.Request.Context(),
-			pageFetchLimit(offset, limit),
+			maxCursorFetchLimit,
 			db.RepoFindingFilter{
 				RepoScanID: repoScanID,
 				Severity:   strings.TrimSpace(c.Query("severity")),
