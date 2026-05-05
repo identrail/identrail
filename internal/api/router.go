@@ -33,6 +33,7 @@ const (
 	rateLimiterEntryTTL    = 15 * time.Minute
 	rateLimiterMaxEntries  = 10000
 	rateLimiterCleanupTick = 256
+	defaultJSONBodyLimit   = int64(1 << 20)
 	corsAllowMethods       = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
 	corsAllowHeaders       = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID"
 	corsMaxAgeSeconds      = "600"
@@ -146,7 +147,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, defaultJSONBodyLimit)
 		payload, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
@@ -184,6 +185,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
+	v1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
@@ -1820,6 +1822,35 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) g
 			WorkspaceID: workspaceID,
 		})
 		c.Request = c.Request.WithContext(scopedCtx)
+		c.Next()
+	}
+}
+
+func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
+	if limit <= 0 {
+		limit = defaultJSONBodyLimit
+	}
+	return func(c *gin.Context) {
+		if c.Request == nil || c.Request.Body == nil {
+			c.Next()
+			return
+		}
+		switch c.Request.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+		default:
+			c.Next()
+			return
+		}
+		contentType := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Type")))
+		if !strings.HasPrefix(contentType, "application/json") {
+			c.Next()
+			return
+		}
+		if c.Request.ContentLength > limit {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()
 	}
 }

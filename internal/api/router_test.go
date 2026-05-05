@@ -1422,6 +1422,29 @@ func TestRouterRateLimitExceeded(t *testing.T) {
 	}
 }
 
+func TestRouterRejectsOversizedJSONRequestBody(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "writer-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized request to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestIPRateLimiterEvictsExpiredEntries(t *testing.T) {
 	now := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 	limiter := newIPRateLimiterWithClock(
