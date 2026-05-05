@@ -20,6 +20,10 @@ Portable deployment profiles:
 
 - Confirm `IDENTRAIL_DATABASE_URL` points to target environment.
 - Confirm `IDENTRAIL_ALLOW_MEMORY_STORE=false`; only disposable local runs should opt into in-memory persistence.
+- Confirm production collectors use live sources:
+  - `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`
+  - AWS: `IDENTRAIL_AWS_SOURCE=sdk`
+  - Kubernetes: `IDENTRAIL_K8S_SOURCE=kubectl`
 - Confirm migrations path is correct (`IDENTRAIL_MIGRATIONS_DIR`).
 - Confirm shared API/worker config keeps `IDENTRAIL_RUN_MIGRATIONS=false`.
 - Confirm lock backend for deployment shape:

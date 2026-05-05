@@ -52,6 +52,8 @@ Kubernetes connector onboarding uses the same kubectl path and context to run a 
 Cross-provider:
 - `IDENTRAIL_REQUIRE_LIVE_SOURCES`
 
+Production deployment templates set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true` with `IDENTRAIL_AWS_SOURCE=sdk` and `IDENTRAIL_K8S_SOURCE=kubectl`. Keep fixture sources for local smoke tests only, and set `IDENTRAIL_REQUIRE_LIVE_SOURCES=false` when using them intentionally.
+
 ## Queue, Worker, and Locking
 
 - `IDENTRAIL_SCAN_INTERVAL`
