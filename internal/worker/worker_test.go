@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
+	"github.com/identrail/identrail/internal/config"
 )
 
 func TestRunWithCancelledContext(t *testing.T) {

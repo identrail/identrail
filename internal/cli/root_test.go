@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 func TestExecuteScanAndFindingsTable(t *testing.T) {
