@@ -3,12 +3,12 @@ package config
 import (
 	"fmt"
 	"net/netip"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/urlpolicy"
 )
 
 const (
@@ -569,22 +569,7 @@ func findPlaceholderAPIKey(keys []string, writeKeys []string, scoped map[string]
 }
 
 func validateForwardURL(raw string) error {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return fmt.Errorf("parse audit forward url: %w", err)
-	}
-	host := strings.ToLower(parsed.Hostname())
-	switch strings.ToLower(parsed.Scheme) {
-	case "https":
-		return nil
-	case "http":
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-			return nil
-		}
-		return fmt.Errorf("insecure audit forward url scheme http is only allowed for localhost")
-	default:
-		return fmt.Errorf("unsupported audit forward url scheme %q", parsed.Scheme)
-	}
+	return urlpolicy.ValidateAuditForwardURL(raw)
 }
 
 func configRepoTargetAllowed(target string, allowlist []string) bool {
