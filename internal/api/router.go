@@ -184,9 +184,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
+	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
-	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
@@ -2136,9 +2136,7 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 		sink = audit.NopAuditSink{}
 	}
 	return func(c *gin.Context) {
-		actor := triageActorFromContext(c, fingerprinter)
 		ctx := audit.WithSink(c.Request.Context(), sink)
-		ctx = audit.WithActor(ctx, actor)
 
 		// Prefer upstream request IDs when present, otherwise generate a new ID.
 		if headerID := strings.TrimSpace(c.GetHeader("X-Request-Id")); headerID != "" {
@@ -2150,6 +2148,11 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 
 		start := time.Now()
 		c.Next()
+		actor := triageActorFromContext(c, fingerprinter)
+		if actor != "" {
+			ctx = audit.WithActor(c.Request.Context(), actor)
+			c.Request = c.Request.WithContext(ctx)
+		}
 		event := audit.AuditEvent{
 			Timestamp:  time.Now().UTC(),
 			Kind:       "api_request",
@@ -2189,6 +2192,16 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 			zap.Int64("duration_ms", event.DurationMS),
 			zap.String("user_agent", event.UserAgent),
 		)
+		if event.Status == http.StatusUnauthorized || event.Status == http.StatusForbidden {
+			logger.Warn(
+				"security-sensitive request denied",
+				zap.String("method", event.Method),
+				zap.String("path", event.Path),
+				zap.Int("status", event.Status),
+				zap.String("actor", event.Actor),
+				zap.String("correlation_id", event.CorrelationID),
+			)
+		}
 		if err := sink.Write(c.Request.Context(), event); err != nil {
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
 		}
