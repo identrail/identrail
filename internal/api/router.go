@@ -21,6 +21,10 @@ import (
 	"github.com/identrail/identrail/internal/telemetry"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -97,6 +101,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	r := gin.New()
 	configureTrustedProxies(r, logger, opts.TrustedProxies)
 	r.Use(gin.Recovery())
+	r.Use(tracingMiddleware())
 	r.Use(securityHeadersMiddleware())
 	r.Use(corsMiddleware(opts.CORSAllowedOrigins))
 
@@ -2071,6 +2076,32 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "no-referrer")
 		c.Header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		c.Next()
+	}
+}
+
+func tracingMiddleware() gin.HandlerFunc {
+	tracer := otel.Tracer("identrail/api")
+	return func(c *gin.Context) {
+		ctx := otel.GetTextMapPropagator().Extract(c.Request.Context(), propagation.HeaderCarrier(c.Request.Header))
+		ctx, span := tracer.Start(ctx, c.Request.Method+" "+c.Request.URL.Path)
+		c.Request = c.Request.WithContext(ctx)
+		defer func() {
+			status := c.Writer.Status()
+			route := c.FullPath()
+			if route == "" {
+				route = c.Request.URL.Path
+			}
+			span.SetAttributes(
+				attribute.String("http.method", c.Request.Method),
+				attribute.String("http.route", route),
+				attribute.Int("http.status_code", status),
+			)
+			if status >= http.StatusInternalServerError {
+				span.SetStatus(codes.Error, http.StatusText(status))
+			}
+			span.End()
+		}()
 		c.Next()
 	}
 }
