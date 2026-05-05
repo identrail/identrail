@@ -7,7 +7,7 @@ api:
   replicaCount: 1
   image:
     repository: identrail/api
-    tag: latest
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   podSecurityContext:
     runAsNonRoot: true
@@ -20,13 +20,19 @@ api:
   service:
     type: ClusterIP
     port: 8080
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 worker:
   replicaCount: 1
   image:
     repository: identrail/worker
-    tag: latest
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   podSecurityContext:
     runAsNonRoot: true
@@ -36,7 +42,13 @@ worker:
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 migrations:
   enabled: true
@@ -48,12 +60,18 @@ web:
   replicaCount: 1
   image:
     repository: identrail/web
-    tag: latest
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 8080
-  resources: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 ingress:
   enabled: false
