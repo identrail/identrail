@@ -384,7 +384,7 @@ func TestPostgresStoreFindingQueryHelpers(t *testing.T) {
 	trendRows := sqlmock.NewRows([]string{"id", "started_at", "severity", "count"}).
 		AddRow("scan-1", now, "critical", 1).
 		AddRow("scan-2", now.Add(time.Minute), nil, 0)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT s.id, s.started_at, f.severity, COUNT(*)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT s.id, s.started_at, f.severity, COUNT(f.finding_id)
 		 FROM scans s
 		 LEFT JOIN findings f
 		   ON f.scan_id = s.id

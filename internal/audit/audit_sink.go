@@ -247,6 +247,7 @@ type AsyncAuditSink struct {
 	closeCh   chan struct{}
 
 	mu       sync.Mutex
+	closed   bool
 	writeErr error
 	closeErr error
 }
@@ -267,7 +268,7 @@ func NewAsyncAuditSink(sink AuditSink, buffer int) *AsyncAuditSink {
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		for event := range a.events {
+		writeEvent := func(event AuditEvent) {
 			if err := a.sink.Write(context.Background(), event); err != nil {
 				a.mu.Lock()
 				if a.writeErr == nil {
@@ -276,15 +277,30 @@ func NewAsyncAuditSink(sink AuditSink, buffer int) *AsyncAuditSink {
 				a.mu.Unlock()
 			}
 		}
+		for {
+			select {
+			case event := <-a.events:
+				writeEvent(event)
+			case <-a.closeCh:
+				for {
+					select {
+					case event := <-a.events:
+						writeEvent(event)
+					default:
+						return
+					}
+				}
+			}
+		}
 	}()
 	return a
 }
 
 func (a *AsyncAuditSink) Write(ctx context.Context, event AuditEvent) error {
-	select {
-	case <-a.closeCh:
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
 		return fmt.Errorf("async audit sink closed")
-	default:
 	}
 	select {
 	case a.events <- event:
@@ -298,8 +314,10 @@ func (a *AsyncAuditSink) Write(ctx context.Context, event AuditEvent) error {
 
 func (a *AsyncAuditSink) Close() error {
 	a.closeOnce.Do(func() {
+		a.mu.Lock()
+		a.closed = true
+		a.mu.Unlock()
 		close(a.closeCh)
-		close(a.events)
 		a.wg.Wait()
 		a.closeErr = a.sink.Close()
 	})

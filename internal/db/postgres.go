@@ -888,7 +888,7 @@ func (p *PostgresStore) ListFindingsPage(ctx context.Context, query FindingsPage
 		   ON ts.finding_id = f.finding_id
 		  AND ts.tenant_id = s.tenant_id
 		  AND ts.workspace_id = s.workspace_id
-		 WHERE ($1 = '' OR f.scan_id = $1::uuid)
+		 WHERE ($1 = '' OR f.scan_id::text = $1)
 		   AND ($2 = '' OR LOWER(f.severity) = $2)
 		   AND ($3 = '' OR LOWER(f.type) = $3)
 		   AND ($4 = '' OR LOWER(COALESCE(ts.status, 'open')) = $4)
@@ -1084,7 +1084,7 @@ func (p *PostgresStore) ListFindingTrendCounts(ctx context.Context, scanIDs []st
 	}
 	rows, err := p.queryContext(
 		ctx,
-		fmt.Sprintf(`SELECT s.id, s.started_at, f.severity, COUNT(*)
+		fmt.Sprintf(`SELECT s.id, s.started_at, f.severity, COUNT(f.finding_id)
 		 FROM scans s
 		 LEFT JOIN findings f
 		   ON f.scan_id = s.id

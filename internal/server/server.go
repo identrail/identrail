@@ -171,7 +171,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	}()
 	defer func() {
 		if bootstrap.AuditClose != nil {
-			_ = bootstrap.AuditClose()
+			if err := bootstrap.AuditClose(); err != nil {
+				bootstrap.Logger.Error("close audit sink", telemetry.ZapError(err))
+			}
 		}
 	}()
 	defer func() {
