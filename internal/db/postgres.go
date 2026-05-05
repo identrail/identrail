@@ -224,9 +224,34 @@ func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string
 	if err != nil {
 		return ScanRecord{}, err
 	}
-	row := p.queryRowContext(
-		ctx,
-		`WITH next_scan AS (
+	return p.claimNextQueuedScan(ctx, provider, &scope)
+}
+
+// ClaimNextQueuedScanAnyScope atomically claims one queued scan across all scopes.
+func (p *PostgresStore) ClaimNextQueuedScanAnyScope(ctx context.Context, provider string) (ScanRecord, error) {
+	return p.claimNextQueuedScan(ctx, provider, nil)
+}
+
+func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string, scope *Scope) (ScanRecord, error) {
+	query := `WITH next_scan AS (
+			SELECT id
+			FROM scans
+			WHERE provider = $1
+			  AND status = 'queued'
+			ORDER BY started_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		)
+		UPDATE scans AS s
+		SET status = 'running',
+		    finished_at = NULL,
+		    error_message = NULL
+		FROM next_scan
+		WHERE s.id = next_scan.id
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`
+	args := []any{strings.TrimSpace(provider)}
+	if scope != nil {
+		query = `WITH next_scan AS (
 			SELECT id
 			FROM scans
 			WHERE tenant_id = $1
@@ -243,10 +268,13 @@ func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string
 		    error_message = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`,
-		scope.TenantID,
-		scope.WorkspaceID,
-		strings.TrimSpace(provider),
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`
+		args = []any{scope.TenantID, scope.WorkspaceID, strings.TrimSpace(provider)}
+	}
+	row := p.queryRowContext(
+		ctx,
+		query,
+		args...,
 	)
 	var record ScanRecord
 	var finishedAt sql.NullTime
@@ -1768,9 +1796,47 @@ func (p *PostgresStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRe
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	row := p.queryRowContext(
-		ctx,
-		`WITH next_repo_scan AS (
+	return p.claimNextQueuedRepoScan(ctx, &scope)
+}
+
+// ClaimNextQueuedRepoScanAnyScope atomically claims one queued repository scan across all scopes.
+func (p *PostgresStore) ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (RepoScanRecord, error) {
+	return p.claimNextQueuedRepoScan(ctx, nil)
+}
+
+func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scope) (RepoScanRecord, error) {
+	query := `WITH next_repo_scan AS (
+			SELECT id
+			FROM repo_scans
+			WHERE status = 'queued'
+			ORDER BY started_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		)
+		UPDATE repo_scans AS r
+		SET status = 'running',
+		    finished_at = NULL,
+		    error_message = NULL
+		FROM next_repo_scan
+		WHERE r.id = next_repo_scan.id
+		RETURNING
+			r.id,
+			r.tenant_id,
+			r.workspace_id,
+			r.repository,
+			r.status,
+			r.started_at,
+			r.finished_at,
+			r.commits_scanned,
+			r.files_scanned,
+			r.finding_count,
+			r.truncated,
+			COALESCE(r.error_message, ''),
+			r.history_limit,
+			r.max_findings_limit`
+	args := []any{}
+	if scope != nil {
+		query = `WITH next_repo_scan AS (
 			SELECT id
 			FROM repo_scans
 			WHERE tenant_id = $1
@@ -1800,9 +1866,13 @@ func (p *PostgresStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRe
 			r.truncated,
 			COALESCE(r.error_message, ''),
 			r.history_limit,
-			r.max_findings_limit`,
-		scope.TenantID,
-		scope.WorkspaceID,
+			r.max_findings_limit`
+		args = []any{scope.TenantID, scope.WorkspaceID}
+	}
+	row := p.queryRowContext(
+		ctx,
+		query,
+		args...,
 	)
 	record, err := scanRepoScanRecord(row)
 	if err != nil {

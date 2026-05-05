@@ -328,16 +328,20 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 		}
 		defer release(context.Background())
 	}
-	record, err := s.Store.ClaimNextQueuedScan(ctx, s.Provider)
+	record, err := s.Store.ClaimNextQueuedScanAnyScope(ctx, s.Provider)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return false, nil
 		}
 		return false, fmt.Errorf("claim queued scan: %w", err)
 	}
-	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
-	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "queued scan started", map[string]any{"provider": record.Provider})
-	_, runErr := s.runScanWithRecord(ctx, record)
+	recordScopeCtx := db.WithScope(ctx, db.Scope{
+		TenantID:    record.TenantID,
+		WorkspaceID: record.WorkspaceID,
+	})
+	s.appendScanLifecycleEvent(recordScopeCtx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
+	s.appendScanEvent(recordScopeCtx, record.ID, db.ScanEventLevelInfo, "queued scan started", map[string]any{"provider": record.Provider})
+	_, runErr := s.runScanWithRecord(recordScopeCtx, record)
 	if runErr != nil {
 		return true, runErr
 	}
@@ -539,13 +543,17 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 // ProcessNextQueuedRepoScan claims and executes one queued repository scan. It returns false when no job is available.
 func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	ctx = s.scopeContext(ctx)
-	record, err := s.Store.ClaimNextQueuedRepoScan(ctx)
+	record, err := s.Store.ClaimNextQueuedRepoScanAnyScope(ctx)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return false, nil
 		}
 		return false, fmt.Errorf("claim queued repo scan: %w", err)
 	}
+	recordScopeCtx := db.WithScope(ctx, db.Scope{
+		TenantID:    record.TenantID,
+		WorkspaceID: record.WorkspaceID,
+	})
 	requeue := false
 	if s.Locker != nil {
 		release, ok := s.Locker.TryAcquire(ctx, s.lockKey("repo-scan:"+strings.ToLower(record.Repository)))
@@ -556,14 +564,14 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		}
 	}
 	if requeue {
-		if requeueErr := s.Store.RequeueRepoScan(ctx, record.ID); requeueErr != nil && !errors.Is(requeueErr, db.ErrNotFound) {
+		if requeueErr := s.Store.RequeueRepoScan(recordScopeCtx, record.ID); requeueErr != nil && !errors.Is(requeueErr, db.ErrNotFound) {
 			return false, fmt.Errorf("requeue repo scan: %w", requeueErr)
 		}
 		// A queued item was handled (requeued) even if this target is currently locked.
 		// Returning true lets the worker keep draining other queued targets in the same tick.
 		return true, nil
 	}
-	_, runErr := s.runRepoScanWithRecord(ctx, record, record.HistoryLimit, record.MaxFindings)
+	_, runErr := s.runRepoScanWithRecord(recordScopeCtx, record, record.HistoryLimit, record.MaxFindings)
 	if runErr != nil {
 		return true, runErr
 	}

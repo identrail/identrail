@@ -1000,6 +1000,7 @@ type Store interface {
 	CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error)
 	CreateQueuedScan(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error)
 	ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error)
+	ClaimNextQueuedScanAnyScope(ctx context.Context, provider string) (ScanRecord, error)
 	CountQueuedScans(ctx context.Context, provider string) (int, error)
 	GetScan(ctx context.Context, scanID string) (ScanRecord, error)
 	CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error
@@ -1053,6 +1054,7 @@ type Store interface {
 	CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error)
 	CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error)
+	ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (RepoScanRecord, error)
 	CountQueuedRepoScans(ctx context.Context) (int, error)
 	CountPendingRepoScansByRepository(ctx context.Context, repository string) (int, error)
 	RequeueRepoScan(ctx context.Context, repoScanID string) error

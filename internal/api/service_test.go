@@ -1273,6 +1273,38 @@ func TestServiceEnqueueScanQueueFull(t *testing.T) {
 	}
 }
 
+func TestServiceProcessQueuedScanAcrossScopes(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 10, 15, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{result: app.ScanResult{
+		Assets:   1,
+		Findings: []domain.Finding{{ID: "f-cross-scope", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now}},
+	}}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	tenantScopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	record, err := svc.EnqueueScan(tenantScopeCtx)
+	if err != nil {
+		t.Fatalf("enqueue scoped scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process queued scan from default scope context: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scoped scan to be processed")
+	}
+
+	scan, err := store.GetScan(tenantScopeCtx, record.ID)
+	if err != nil {
+		t.Fatalf("get scoped scan: %v", err)
+	}
+	if scan.Status != "completed" {
+		t.Fatalf("expected completed scan status, got %q", scan.Status)
+	}
+}
+
 func TestServiceQueuedScanBurstProcessing(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 20, 8, 15, 0, 0, time.UTC)
@@ -1378,6 +1410,49 @@ func TestServiceEnqueueRepoScanGuards(t *testing.T) {
 	}
 	if _, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/another"}); !errors.Is(err, ErrRepoScanQueueFull) {
 		t.Fatalf("expected repo queue full error, got %v", err)
+	}
+}
+
+func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: historyLimit,
+				FilesScanned:   3,
+				Findings: []domain.Finding{
+					{ID: "rf-cross-scope", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, CreatedAt: time.Now().UTC()},
+				},
+			},
+		}
+	}
+	tenantScopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	record, err := svc.EnqueueRepoScan(tenantScopeCtx, RepoScanRequest{
+		Repository:   "owner/repo",
+		HistoryLimit: 10,
+		MaxFindings:  20,
+	})
+	if err != nil {
+		t.Fatalf("enqueue scoped repo scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process scoped repo scan from default scope context: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scoped repo scan to be processed")
+	}
+
+	stored, err := svc.GetRepoScan(tenantScopeCtx, record.ID)
+	if err != nil {
+		t.Fatalf("get scoped repo scan: %v", err)
+	}
+	if stored.Status != "completed" {
+		t.Fatalf("expected completed repo scan status, got %q", stored.Status)
 	}
 }
 

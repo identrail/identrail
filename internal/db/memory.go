@@ -113,12 +113,24 @@ func (m *MemoryStore) ClaimNextQueuedScan(ctx context.Context, provider string) 
 	if err != nil {
 		return ScanRecord{}, err
 	}
+	return m.claimNextQueuedScanLocked(&scope, provider)
+}
+
+// ClaimNextQueuedScanAnyScope moves one queued scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedScanAnyScope(_ context.Context, provider string) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedScanLocked(nil, provider)
+}
+
+func (m *MemoryStore) claimNextQueuedScanLocked(scope *Scope, provider string) (ScanRecord, error) {
 	normalizedProvider := strings.TrimSpace(provider)
 	found := false
 	var bestRecord ScanRecord
 	for _, scanID := range m.scanIDs {
 		record := m.scans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {
@@ -1193,11 +1205,23 @@ func (m *MemoryStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanReco
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
+	return m.claimNextQueuedRepoScanLocked(&scope)
+}
+
+// ClaimNextQueuedRepoScanAnyScope moves one queued repository scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedRepoScanAnyScope(_ context.Context) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedRepoScanLocked(nil)
+}
+
+func (m *MemoryStore) claimNextQueuedRepoScanLocked(scope *Scope) (RepoScanRecord, error) {
 	var claimed RepoScanRecord
 	found := false
 	for _, scanID := range m.repoScanIDs {
 		record := m.repoScans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {
