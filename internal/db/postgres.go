@@ -1955,6 +1955,98 @@ func (p *PostgresStore) CreateQueuedRepoScan(ctx context.Context, repository str
 	return p.createRepoScanWithStatus(ctx, repository, "queued", historyLimit, maxFindings, queuedAt)
 }
 
+// CreateQueuedRepoScanWithinLimit inserts one queued repository scan only when the target is idle and queue capacity remains.
+func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return RepoScanRecord{}, fmt.Errorf("begin queued repo scan transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	normalizedRepository := strings.TrimSpace(repository)
+	queueLockKey := fmt.Sprintf("repo-queue:%s:%s", scope.TenantID, scope.WorkspaceID)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, queueLockKey); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("lock repo scan queue capacity: %w", err)
+	}
+	repositoryLockKey := fmt.Sprintf("repo-target:%s:%s:%s", scope.TenantID, scope.WorkspaceID, strings.ToLower(normalizedRepository))
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, repositoryLockKey); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("lock repo scan target: %w", err)
+	}
+
+	var pendingForTarget int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM repo_scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND LOWER(repository) = LOWER($3)
+		   AND status IN ('queued', 'running')`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedRepository,
+	).Scan(&pendingForTarget); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("count pending repo scans: %w", err)
+	}
+	if pendingForTarget > 0 {
+		return RepoScanRecord{}, ErrPendingRepoScanExists
+	}
+
+	var queued int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM repo_scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'queued'`,
+		scope.TenantID,
+		scope.WorkspaceID,
+	).Scan(&queued); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("count queued repo scans: %w", err)
+	}
+	if queued >= maxPending {
+		return RepoScanRecord{}, ErrQueueLimitReached
+	}
+
+	record := RepoScanRecord{
+		ID:           uuid.NewString(),
+		TenantID:     scope.TenantID,
+		WorkspaceID:  scope.WorkspaceID,
+		Repository:   normalizedRepository,
+		Status:       "queued",
+		StartedAt:    queuedAt.UTC(),
+		HistoryLimit: historyLimit,
+		MaxFindings:  maxFindings,
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8)`,
+		record.ID,
+		record.TenantID,
+		record.WorkspaceID,
+		record.Repository,
+		record.Status,
+		record.StartedAt,
+		record.HistoryLimit,
+		record.MaxFindings,
+	); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("insert queued repo scan: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("commit queued repo scan transaction: %w", err)
+	}
+	return record, nil
+}
+
 // ClaimNextQueuedRepoScan atomically claims one queued repository scan.
 func (p *PostgresStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error) {
 	scope, err := RequireScope(ctx)

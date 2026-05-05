@@ -1645,7 +1645,6 @@ func TestServiceEnqueueRepoScanGuards(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
@@ -1686,7 +1685,9 @@ func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
 	}
 	if stored.Status != "succeeded" {
 		t.Fatalf("expected succeeded repo scan status, got %q", stored.Status)
-=======
+	}
+}
+
 func TestServiceEnqueueRepoScanConcurrentDeduplicatesTarget(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
@@ -1733,7 +1734,6 @@ func TestServiceEnqueueRepoScanConcurrentDeduplicatesTarget(t *testing.T) {
 	}
 	if inProgressCount != workers-1 {
 		t.Fatalf("expected %d in-progress responses, got %d", workers-1, inProgressCount)
->>>>>>> 1e70c6b (serialize repo queue checks during enqueue)
 	}
 }
 
