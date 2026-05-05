@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { saveProductSession } from './productShell';
@@ -403,6 +403,146 @@ describe('App', () => {
       expect(screen.queryByText(/Account project-1-org/i)).not.toBeInTheDocument();
     });
     expect(screen.getByText(/Account project-2-org/i)).toBeInTheDocument();
+  });
+
+  it('ignores stale connector submit responses after project navigation', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+
+    let staleAWSResponseParsed = false;
+    const staleAWSSubmit = deferred<Response>();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockImplementationOnce(() => staleAWSSubmit.promise)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /AWS/i }));
+    fireEvent.change(screen.getByLabelText('Role ARN'), {
+      target: { value: 'arn:aws:iam::123456789012:role/IdentrailReadOnly' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Validate and save AWS/i }));
+
+    await act(async () => {
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-2');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-2/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Refresh status/i })).not.toBeDisabled();
+    });
+    expect(screen.getByRole('button', { name: /Validate and save AWS/i })).not.toBeDisabled();
+
+    await act(async () => {
+      staleAWSSubmit.resolve({
+        ok: true,
+        json: async () => {
+          staleAWSResponseParsed = true;
+          return {
+            connection: {
+              provider: 'aws',
+              connected: true,
+              status: 'active',
+              health_status: 'healthy',
+              role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+              external_id_configured: false,
+              permission_checks: [],
+              diagnostics: []
+            }
+          };
+        }
+      } as Response);
+      await staleAWSSubmit.promise;
+    });
+
+    await waitFor(() => {
+      expect(staleAWSResponseParsed).toBe(true);
+    });
+
+    expect(screen.queryByText(/AWS connector is active\./i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Validate and save AWS/i })).not.toBeDisabled();
   });
 
   it('validates and saves an AWS source from the connect-source wizard', async () => {

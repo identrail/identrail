@@ -2218,9 +2218,16 @@ export function ProductProjectDetailPage() {
     context: ''
   });
 
+  const nextRequestSequence = () => {
+    const nextSequence = refreshSequenceRef.current + 1;
+    refreshSequenceRef.current = nextSequence;
+    return nextSequence;
+  };
+
+  const isStaleRequestSequence = (sequence: number) => refreshSequenceRef.current !== sequence;
+
   const refreshConnections = async (quiet = false) => {
-    const refreshSequence = refreshSequenceRef.current + 1;
-    refreshSequenceRef.current = refreshSequence;
+    const refreshSequence = nextRequestSequence();
 
     if (!scope || !projectID) {
       setConnections({});
@@ -2244,7 +2251,7 @@ export function ProductProjectDetailPage() {
       apiClient.getKubernetesProjectConnection(scope.workspaceID, projectID, auth)
     ]);
 
-    if (refreshSequenceRef.current !== refreshSequence) {
+    if (isStaleRequestSequence(refreshSequence)) {
       return;
     }
 
@@ -2279,6 +2286,7 @@ export function ProductProjectDetailPage() {
   useEffect(() => {
     setConnections({});
     setSourceErrors({});
+    setSubmitting('');
     setSuccessMessage('');
     setGitHubStart(null);
     void refreshConnections(false);
@@ -2306,6 +2314,7 @@ export function ProductProjectDetailPage() {
     setSubmitting('github');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, github: undefined }));
+    const requestSequence = refreshSequenceRef.current;
     try {
       const auth = buildProductAuthContext(scope);
       const redirectURI =
@@ -2320,6 +2329,9 @@ export function ProductProjectDetailPage() {
         },
         auth
       );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       setGitHubStart(response.connection);
       setGitHubComplete((current) => ({
         ...current,
@@ -2330,10 +2342,15 @@ export function ProductProjectDetailPage() {
       }));
       setSuccessMessage('GitHub installation link generated.');
     } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Unable to start GitHub connection.';
       setSourceErrors((current) => ({ ...current, github: message }));
     } finally {
-      setSubmitting('');
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
     }
   };
 
@@ -2342,6 +2359,7 @@ export function ProductProjectDetailPage() {
     setSubmitting('github');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, github: undefined }));
+    const requestSequence = refreshSequenceRef.current;
     try {
       const state = normalizeValue(githubComplete.state || githubStart?.state || '');
       const installationID = Number.parseInt(githubComplete.installationID, 10);
@@ -2383,14 +2401,22 @@ export function ProductProjectDetailPage() {
         },
         auth
       );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       setConnections((current) => ({ ...current, github: response.connection }));
       setGitHubStart(null);
       setSuccessMessage('GitHub connection saved and ready for repository events.');
     } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Unable to complete GitHub connection.';
       setSourceErrors((current) => ({ ...current, github: message }));
     } finally {
-      setSubmitting('');
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
     }
   };
 
@@ -2399,6 +2425,7 @@ export function ProductProjectDetailPage() {
     setSubmitting('aws');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, aws: undefined }));
+    const requestSequence = refreshSequenceRef.current;
     try {
       const roleARN = normalizeValue(awsForm.roleARN);
       if (!AWS_ROLE_ARN_PATTERN.test(roleARN)) {
@@ -2417,15 +2444,23 @@ export function ProductProjectDetailPage() {
         },
         auth
       );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       setConnections((current) => ({ ...current, aws: response.connection }));
       setSuccessMessage(
         response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
       );
     } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Unable to validate AWS connection.';
       setSourceErrors((current) => ({ ...current, aws: message }));
     } finally {
-      setSubmitting('');
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
     }
   };
 
@@ -2434,6 +2469,7 @@ export function ProductProjectDetailPage() {
     setSubmitting('kubernetes');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, kubernetes: undefined }));
+    const requestSequence = refreshSequenceRef.current;
     try {
       const auth = buildProductAuthContext(scope);
       const response = await apiClient.upsertKubernetesProjectConnection(
@@ -2445,6 +2481,9 @@ export function ProductProjectDetailPage() {
         },
         auth
       );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       setConnections((current) => ({ ...current, kubernetes: response.connection }));
       setSuccessMessage(
         response.connection.connected
@@ -2452,10 +2491,15 @@ export function ProductProjectDetailPage() {
           : 'Kubernetes preflight completed with diagnostics to resolve.'
       );
     } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Unable to validate Kubernetes connection.';
       setSourceErrors((current) => ({ ...current, kubernetes: message }));
     } finally {
-      setSubmitting('');
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
     }
   };
 
