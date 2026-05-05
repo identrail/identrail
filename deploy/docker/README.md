@@ -27,3 +27,13 @@ Manual setup:
 
 - API health: `curl http://localhost:8080/healthz`
 - Web UI: `http://localhost:8081`
+
+## Image Digest Updates
+
+Supporting service images are pinned by digest so local Compose and CI use the
+same reviewed image. When rotating Postgres:
+
+1. Resolve the new `postgres:16-alpine` manifest digest from the registry.
+2. Update both `deploy/docker/docker-compose.yml` and `.github/workflows/ci.yml`.
+3. Run `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env config`.
+4. Run the Postgres-backed integration test flow before merging.
