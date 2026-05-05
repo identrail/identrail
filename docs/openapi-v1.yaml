@@ -1520,12 +1520,12 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
+      bearerFormat: JWT
     GitHubWebhookSignature:
       type: apiKey
       in: header
       name: X-Hub-Signature-256
       description: GitHub HMAC SHA-256 signature of the raw webhook request body.
-      bearerFormat: JWT
   parameters:
     scopeTenantID:
       in: header
