@@ -108,6 +108,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.RepoScanRunsTotal,
 		metrics.RepoScanFailureTotal,
 		metrics.RepoScanDurationMS,
+		metrics.APIDeniedRequestsTotal,
 		metrics.AuthzPolicyShadowEvaluationsTotal,
 		metrics.AuthzPolicyShadowDivergencesTotal,
 		metrics.AuthzPolicyShadowEvaluationErrorsTotal,
@@ -194,6 +195,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
+	v1.Use(apiDenialMetricsMiddleware(metrics))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
@@ -2076,6 +2078,25 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 		}
 
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	}
+}
+
+func apiDenialMetricsMiddleware(metrics *telemetry.Metrics) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+		if metrics == nil || metrics.APIDeniedRequestsTotal == nil {
+			return
+		}
+		switch c.Writer.Status() {
+		case http.StatusUnauthorized:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("unauthorized", "auth").Inc()
+		case http.StatusForbidden:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("forbidden", "authz").Inc()
+		case http.StatusTooManyRequests:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("rate_limited", "rate_limit").Inc()
+		case http.StatusBadRequest:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("validation_denied", "validation").Inc()
+		}
 	}
 }
 
