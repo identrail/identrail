@@ -16,16 +16,11 @@ spec:
       labels:
         app: identrail-api
     spec:
-      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: api
-          image: ghcr.io/identrail/identrail-api:v1.0.0
+          image: ghcr.io/oluwatobi-mustapha/identrail-api:v0.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -62,9 +57,6 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
             capabilities:
               drop:
                 - ALL
