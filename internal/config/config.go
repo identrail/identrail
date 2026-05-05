@@ -123,6 +123,7 @@ type Config struct {
 	LockNamespace               string
 	DefaultTenantID             string
 	DefaultWorkspaceID          string
+	RequireExplicitScope        bool
 	OIDCIssuerURL               string
 	OIDCAudience                string
 	OIDCWriteScopes             []string
@@ -216,6 +217,7 @@ func Load() Config {
 		LockNamespace:               getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),
 		DefaultTenantID:             getEnv("IDENTRAIL_DEFAULT_TENANT_ID", defaultTenantID),
 		DefaultWorkspaceID:          getEnv("IDENTRAIL_DEFAULT_WORKSPACE_ID", defaultWorkspaceID),
+		RequireExplicitScope:        parseBool(getEnv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "false"), false),
 		OIDCIssuerURL:               getEnv("IDENTRAIL_OIDC_ISSUER_URL", ""),
 		OIDCAudience:                getEnv("IDENTRAIL_OIDC_AUDIENCE", ""),
 		OIDCWriteScopes:             parseCommaSeparated(getEnv("IDENTRAIL_OIDC_WRITE_SCOPES", defaultOIDCWriteScopes)),

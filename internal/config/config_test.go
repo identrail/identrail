@@ -71,6 +71,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "")
+	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "")
 	t.Setenv("IDENTRAIL_OIDC_TENANT_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_GROUPS_CLAIM", "")
@@ -266,6 +267,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DefaultWorkspaceID != defaultWorkspaceID {
 		t.Fatalf("expected default workspace id %q, got %q", defaultWorkspaceID, cfg.DefaultWorkspaceID)
 	}
+	if cfg.RequireExplicitScope {
+		t.Fatal("expected explicit scope requirement false by default")
+	}
 	if cfg.OIDCIssuerURL != "" {
 		t.Fatalf("expected empty oidc issuer by default, got %q", cfg.OIDCIssuerURL)
 	}
@@ -354,6 +358,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "prod-identrail")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "tenant-prod")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "workspace-blue")
+	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "true")
 	t.Setenv("IDENTRAIL_OIDC_ISSUER_URL", "https://iam.example.com/realms/identrail")
 	t.Setenv("IDENTRAIL_OIDC_AUDIENCE", "identrail-api")
 	t.Setenv("IDENTRAIL_OIDC_WRITE_SCOPES", "identrail.write,identrail.admin")
@@ -551,6 +556,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.DefaultWorkspaceID != "workspace-blue" {
 		t.Fatalf("unexpected default workspace id: %q", cfg.DefaultWorkspaceID)
+	}
+	if !cfg.RequireExplicitScope {
+		t.Fatal("expected explicit scope requirement true")
 	}
 	if cfg.OIDCIssuerURL != "https://iam.example.com/realms/identrail" {
 		t.Fatalf("unexpected oidc issuer url: %q", cfg.OIDCIssuerURL)

@@ -489,6 +489,9 @@ func SecurityWarnings(cfg Config) []string {
 	if strings.TrimSpace(cfg.AuditFingerprintSecret) == "" {
 		warnings = append(warnings, "audit fingerprinting uses legacy unkeyed hash; set IDENTRAIL_AUDIT_FINGERPRINT_SECRET for HMAC-SHA256 pseudonymization")
 	}
+	if !cfg.RequireExplicitScope {
+		warnings = append(warnings, "tenant/workspace scope may fall back to defaults; set IDENTRAIL_REQUIRE_EXPLICIT_SCOPE=true in production")
+	}
 	if strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
 		warnings = append(warnings, "connector secrets use an ephemeral in-memory encryption key; set IDENTRAIL_CONNECTOR_SECRET_KEYS before persisting connector credentials")
 	}

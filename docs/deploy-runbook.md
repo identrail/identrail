@@ -36,6 +36,8 @@ Portable deployment profiles:
 - Confirm default request scope values for non-claim/non-header contexts:
   - `IDENTRAIL_DEFAULT_TENANT_ID`
   - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
+- Confirm production APIs reject fallback scope:
+  - `IDENTRAIL_REQUIRE_EXPLICIT_SCOPE=true`
 - Confirm durable connector secret storage:
   - `IDENTRAIL_CONNECTOR_SECRET_KEYS`
   - `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true`

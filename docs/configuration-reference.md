@@ -28,6 +28,7 @@ This page is the canonical runtime configuration surface for API and worker proc
 - `IDENTRAIL_OIDC_ROLES_CLAIM`
 - `IDENTRAIL_DEFAULT_TENANT_ID`
 - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
+- `IDENTRAIL_REQUIRE_EXPLICIT_SCOPE` (default: `false`; set `true` in production to require tenant/workspace claims or headers instead of default fallback)
 
 Notes:
 - `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
