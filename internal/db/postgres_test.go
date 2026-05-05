@@ -1659,6 +1659,67 @@ func TestPostgresStoreWrapperScopeErrors(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreClaimNextQueuedScanAnyScopeBypassesScopeInjection(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	store.SetScopeRLSEnforcement(true)
+
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"}).
+		AddRow("scan-1", "tenant-a", "workspace-a", "aws", "running", now, nil, 0, 0, "")
+	mock.ExpectQuery("WITH next_scan AS").
+		WithArgs("aws").
+		WillReturnRows(rows)
+
+	record, err := store.ClaimNextQueuedScanAnyScope(context.Background(), "aws")
+	if err != nil {
+		t.Fatalf("claim any-scope scan: %v", err)
+	}
+	if record.ID != "scan-1" || record.Status != "running" {
+		t.Fatalf("unexpected claimed scan: %+v", record)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreClaimNextQueuedRepoScanAnyScopeBypassesScopeInjection(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	store.SetScopeRLSEnforcement(true)
+
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{
+		"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at",
+		"commits_scanned", "files_scanned", "finding_count", "truncated", "coalesce", "history_limit", "max_findings_limit",
+	}).AddRow("repo-scan-1", "tenant-a", "workspace-a", "owner/repo", "running", now, nil, 0, 0, 0, false, "", 500, 200)
+	mock.ExpectQuery("WITH next_repo_scan AS").
+		WillReturnRows(rows)
+
+	record, err := store.ClaimNextQueuedRepoScanAnyScope(context.Background())
+	if err != nil {
+		t.Fatalf("claim any-scope repo scan: %v", err)
+	}
+	if record.ID != "repo-scan-1" || record.Status != "running" {
+		t.Fatalf("unexpected claimed repo scan: %+v", record)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestErrorsIsNoRows(t *testing.T) {
 	if !errorsIsNoRows(sql.ErrNoRows) {
 		t.Fatal("expected true for sql.ErrNoRows")

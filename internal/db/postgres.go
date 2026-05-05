@@ -182,6 +182,10 @@ func (p *PostgresStore) queryRowContext(ctx context.Context, query string, args 
 	return p.db.QueryRowContext(ctx, scopedQuery, scopedArgs...)
 }
 
+func (p *PostgresStore) queryRowContextAnyScope(ctx context.Context, query string, args ...any) rowScanner {
+	return p.db.QueryRowContext(ctx, query, args...)
+}
+
 func (p *PostgresStore) beginTx(ctx context.Context) (*sql.Tx, error) {
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -271,11 +275,10 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID, strings.TrimSpace(provider)}
 	}
-	row := p.queryRowContext(
-		ctx,
-		query,
-		args...,
-	)
+	row := p.queryRowContext(ctx, query, args...)
+	if scope == nil {
+		row = p.queryRowContextAnyScope(ctx, query, args...)
+	}
 	var record ScanRecord
 	var finishedAt sql.NullTime
 	if err := row.Scan(
@@ -1869,11 +1872,10 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.max_findings_limit`
 		args = []any{scope.TenantID, scope.WorkspaceID}
 	}
-	row := p.queryRowContext(
-		ctx,
-		query,
-		args...,
-	)
+	row := p.queryRowContext(ctx, query, args...)
+	if scope == nil {
+		row = p.queryRowContextAnyScope(ctx, query, args...)
+	}
 	record, err := scanRepoScanRecord(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
