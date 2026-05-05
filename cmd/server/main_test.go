@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
+	"github.com/identrail/identrail/internal/config"
 )
 
 func TestRunCallsServerRuntime(t *testing.T) {
