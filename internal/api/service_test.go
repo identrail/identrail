@@ -336,6 +336,14 @@ func TestServiceListFindingsFiltered(t *testing.T) {
 	if len(scanOnly) != 1 || scanOnly[0].ID != "f1" {
 		t.Fatalf("unexpected findings for scan/type: %+v", scanOnly)
 	}
+
+	limited, err := svc.ListFindingsFiltered(defaultScopeContext(), 1, FindingsFilter{SortBy: "created_at", SortDesc: true})
+	if err != nil {
+		t.Fatalf("list findings with limit: %v", err)
+	}
+	if len(limited) != 1 || limited[0].ID != "f3" {
+		t.Fatalf("expected service to enforce limit and keep newest first, got %+v", limited)
+	}
 }
 
 func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testing.T) {

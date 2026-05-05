@@ -1009,6 +1009,9 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 	if err != nil {
 		return nil, err
 	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
 	return enrichFindings(items), nil
 }
 
