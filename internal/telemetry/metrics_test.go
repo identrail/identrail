@@ -13,6 +13,9 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	}
 
 	m.ScanRunsTotal.Add(1)
+	m.ScanEnqueueTotal.Add(1)
+	m.ScanEnqueueFailureTotal.Add(1)
+	m.ScanEnqueueDurationMS.Observe(25)
 	m.ScanSuccessTotal.Add(1)
 	m.ScanFailureTotal.Add(1)
 	m.ScanPartialTotal.Add(1)
@@ -31,6 +34,12 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 
 	if got := testutil.ToFloat64(m.ScanRunsTotal); got != 1 {
 		t.Fatalf("expected scan runs 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.ScanEnqueueTotal); got != 1 {
+		t.Fatalf("expected scan enqueues 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.ScanEnqueueFailureTotal); got != 1 {
+		t.Fatalf("expected scan enqueue failures 1, got %v", got)
 	}
 	if got := testutil.ToFloat64(m.ScanSuccessTotal); got != 1 {
 		t.Fatalf("expected scan success 1, got %v", got)

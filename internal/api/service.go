@@ -17,6 +17,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 )
 
 const (
@@ -65,6 +66,7 @@ type Service struct {
 	Alerter        FindingAlerter
 	OnAlertError   func(error)
 	ReadinessCheck func(context.Context) error
+	Metrics        *telemetry.Metrics
 	// Repo scan controls are intentionally separate from cloud identity scan flow.
 	RepoScanEnabled             bool
 	RepoScanDefaultHistoryLimit int
@@ -366,8 +368,18 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 
 func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (RunScanResult, error) {
 	ctx = s.scopeContext(ctx)
+	scanStarted := time.Now()
+	if s.Metrics != nil {
+		s.Metrics.ScanRunsTotal.Inc()
+		s.Metrics.ScanInFlight.Inc()
+		defer s.Metrics.ScanInFlight.Dec()
+		defer func() {
+			s.Metrics.ScanDurationMS.Observe(float64(time.Since(scanStarted).Milliseconds()))
+		}()
+	}
 	scanner, err := s.scannerForScan(ctx, record)
 	if err != nil {
+		s.recordScanExecutionFailure()
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while preparing provider connector", map[string]any{"error": err.Error()})
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
@@ -375,6 +387,7 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}
 	result, err := scanner.Run(ctx)
 	if err != nil {
+		s.recordScanExecutionFailure()
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed during collection/analysis", map[string]any{"error": err.Error()})
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
@@ -382,6 +395,9 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}
 	result.Findings = enrichFindings(result.Findings)
 	if len(result.SourceErrors) > 0 {
+		if s.Metrics != nil {
+			s.Metrics.ScanPartialTotal.Inc()
+		}
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, "scan completed with partial source errors", map[string]any{
 			"source_error_count": len(result.SourceErrors),
 			"source_errors":      truncateSourceErrors(result.SourceErrors, maxSourceErrorsInEvent),
@@ -395,6 +411,7 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 		Permissions:   result.Permissions,
 		Relationships: result.Relationships,
 	}); err != nil {
+		s.recordScanExecutionFailure()
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting artifacts", map[string]any{"error": err.Error()})
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
@@ -403,6 +420,7 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "artifacts persisted", map[string]any{"raw_assets": len(result.RawAssets), "identities": len(result.Bundle.Identities)})
 
 	if err := s.Store.UpsertFindings(ctx, record.ID, result.Findings); err != nil {
+		s.recordScanExecutionFailure()
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting findings", map[string]any{"error": err.Error()})
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
@@ -411,6 +429,7 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "findings persisted", map[string]any{"findings": len(result.Findings)})
 
 	if err := s.Store.CompleteScan(ctx, record.ID, "completed", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
+		s.recordScanExecutionFailure()
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
 		return RunScanResult{}, fmt.Errorf("complete scan record: %w", err)
@@ -421,6 +440,10 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	record.FinishedAt = &finished
 	record.AssetCount = result.Assets
 	record.FindingCount = len(result.Findings)
+	if s.Metrics != nil {
+		s.Metrics.ScanSuccessTotal.Inc()
+		s.Metrics.FindingsGenerated.Add(float64(len(result.Findings)))
+	}
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleSucceeded, map[string]any{
 		"assets":             result.Assets,
 		"findings":           len(result.Findings),
@@ -443,6 +466,12 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 		FindingCount:     len(result.Findings),
 		PartialSourceRun: len(result.SourceErrors) > 0,
 	}, nil
+}
+
+func (s *Service) recordScanExecutionFailure() {
+	if s.Metrics != nil {
+		s.Metrics.ScanFailureTotal.Inc()
+	}
 }
 
 func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (ScannerRunner, error) {
