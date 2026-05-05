@@ -25,6 +25,10 @@ func (r *RelationshipResolver) ResolveRelationships(ctx context.Context, bundle 
 	timestamp := r.now().UTC()
 	relationships := []domain.Relationship{}
 	seen := map[string]struct{}{}
+	identityIDs := make(map[string]struct{}, len(bundle.Identities))
+	for _, identity := range bundle.Identities {
+		identityIDs[identity.ID] = struct{}{}
+	}
 
 	for _, workload := range bundle.Workloads {
 		if err := ctx.Err(); err != nil {
@@ -32,6 +36,9 @@ func (r *RelationshipResolver) ResolveRelationships(ctx context.Context, bundle 
 		}
 		identityID := workload.RawRef
 		if identityID == "" {
+			continue
+		}
+		if _, exists := identityIDs[identityID]; !exists {
 			continue
 		}
 		rel := domain.Relationship{
