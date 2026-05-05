@@ -13,6 +13,9 @@ Fastest local onboarding:
 
 1. `make quickstart`
 
+The quickstart creates `deploy/docker/.env` with `0600` permissions, rotates template
+secrets automatically, and prints follow-up commands without exposing raw API keys.
+
 Manual setup:
 
 1. `cp deploy/docker/.env.example deploy/docker/.env`
