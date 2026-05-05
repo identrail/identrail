@@ -138,6 +138,59 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecCoversRegisteredV1RouteMethods(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	router := readRouterSource(t)
+	registered := registeredV1OpenAPIMethods(t, router)
+
+	for path, methods := range registered {
+		for method := range methods {
+			methodToken := "\n    " + strings.ToLower(method) + ":"
+			block := pathBlock(t, spec, path)
+			if !strings.Contains(block, methodToken) {
+				t.Fatalf("openapi path %q missing registered method %s", path, method)
+			}
+		}
+	}
+}
+
+func TestOpenAPIV1SpecPathParameterNamesMatchRegisteredRoutes(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	router := readRouterSource(t)
+	registered := registeredV1OpenAPIMethods(t, router)
+
+	matches := v1RoutePattern.FindAllStringSubmatch(router, -1)
+	for _, match := range matches {
+		method := strings.TrimSpace(match[1])
+		route := strings.TrimSpace(match[2])
+		if route == "" || !strings.HasPrefix(route, "/") {
+			continue
+		}
+
+		openapiPath := "/v1" + pathVarPattern.ReplaceAllString(route, `{$1}`)
+		methods, ok := registered[openapiPath]
+		if !ok || !methods[method] {
+			continue
+		}
+
+		pathVars := pathVarPattern.FindAllStringSubmatch(route, -1)
+		if len(pathVars) == 0 {
+			continue
+		}
+
+		block := pathBlock(t, spec, openapiPath)
+		for _, variable := range pathVars {
+			name := strings.TrimSpace(variable[1])
+			if name == "" {
+				continue
+			}
+			if !strings.Contains(block, "name: "+name) {
+				t.Fatalf("openapi path %q missing path parameter name %q", openapiPath, name)
+			}
+		}
+	}
+}
+
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
@@ -186,6 +239,29 @@ func registeredV1OpenAPIPaths(t *testing.T, routerSource string) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+func registeredV1OpenAPIMethods(t *testing.T, routerSource string) map[string]map[string]bool {
+	t.Helper()
+	matches := v1RoutePattern.FindAllStringSubmatch(routerSource, -1)
+	if len(matches) == 0 {
+		t.Fatal("no /v1 routes found in router source")
+	}
+
+	result := map[string]map[string]bool{}
+	for _, match := range matches {
+		method := strings.TrimSpace(match[1])
+		route := strings.TrimSpace(match[2])
+		if route == "" || !strings.HasPrefix(route, "/") {
+			continue
+		}
+		path := "/v1" + pathVarPattern.ReplaceAllString(route, `{$1}`)
+		if _, ok := result[path]; !ok {
+			result[path] = map[string]bool{}
+		}
+		result[path][method] = true
+	}
+	return result
 }
 
 func pathBlock(t *testing.T, spec string, path string) string {
