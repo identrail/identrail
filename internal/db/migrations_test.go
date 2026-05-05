@@ -413,4 +413,7 @@ func TestFifteenthMigrationEnforcesRLSForTenancyAndConnectorTables(t *testing.T)
 			t.Fatalf("expected tenancy/connector RLS migration item %q", item)
 		}
 	}
+	if !strings.Contains(text, "CREATE POLICY tenancy_workspaces_scope_isolation ON tenancy_workspaces\nUSING (identrail_rls_tenant_matches(tenant_id))\nWITH CHECK (identrail_rls_tenant_matches(tenant_id));") {
+		t.Fatal("expected tenancy_workspaces policy to remain tenant-scoped for tenant-level workspace discovery")
+	}
 }
