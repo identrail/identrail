@@ -208,6 +208,11 @@ func TestValidateCloneURL(t *testing.T) {
 		{name: "git scp form", target: "git@github.com:owner/repo.git"},
 		{name: "insecure http", target: "http://github.com/owner/repo.git", expectErr: true},
 		{name: "unsupported file scheme", target: "file:///tmp/repo.git", expectErr: true},
+		{name: "credentials in https url", target: "https://token@example.com/owner/repo.git", expectErr: true},
+		{name: "loopback ip host", target: "https://127.0.0.1/owner/repo.git", expectErr: true},
+		{name: "private ip host", target: "https://10.0.0.8/owner/repo.git", expectErr: true},
+		{name: "localhost host", target: "ssh://git@localhost/owner/repo.git", expectErr: true},
+		{name: "scp localhost host", target: "git@localhost:owner/repo.git", expectErr: true},
 	}
 
 	for _, tc := range tests {

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -27,6 +28,7 @@ const (
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+var gitSCPTargetPattern = regexp.MustCompile(`^[^@\s]+@([^:\s]+):.+$`)
 
 // CommandRunner executes git commands. It is injectable for deterministic tests.
 type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -458,6 +460,9 @@ func validateCloneURL(cloneURL string) error {
 		return fmt.Errorf("insecure repository url scheme http is not allowed; use https or ssh")
 	}
 	if !strings.Contains(lower, "://") {
+		if matches := gitSCPTargetPattern.FindStringSubmatch(trimmed); len(matches) == 2 {
+			return validateRepositoryHost(matches[1])
+		}
 		return nil
 	}
 
@@ -466,11 +471,41 @@ func validateCloneURL(cloneURL string) error {
 		return fmt.Errorf("parse repository target: %w", err)
 	}
 	switch strings.ToLower(parsed.Scheme) {
-	case "https", "ssh":
-		return nil
+	case "https":
+		if parsed.User != nil {
+			return fmt.Errorf("repository target must not include credentials in URL userinfo")
+		}
+		return validateRepositoryHost(parsed.Hostname())
+	case "ssh":
+		if parsed.User != nil {
+			if _, hasPassword := parsed.User.Password(); hasPassword {
+				return fmt.Errorf("repository target must not include credentials in URL userinfo")
+			}
+			if strings.TrimSpace(parsed.User.Username()) == "" {
+				return fmt.Errorf("repository target must not include credentials in URL userinfo")
+			}
+		}
+		return validateRepositoryHost(parsed.Hostname())
 	default:
 		return fmt.Errorf("unsupported repository url scheme %q", parsed.Scheme)
 	}
+}
+
+func validateRepositoryHost(host string) error {
+	normalizedHost := strings.TrimSpace(host)
+	if normalizedHost == "" {
+		return fmt.Errorf("repository target host is required")
+	}
+	lowerHost := strings.ToLower(normalizedHost)
+	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
+		return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+	}
+	if ip := net.ParseIP(normalizedHost); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+		}
+	}
+	return nil
 }
 
 func redactMatch(line string, value string) string {
