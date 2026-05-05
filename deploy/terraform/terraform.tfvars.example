@@ -27,6 +27,25 @@ chart_values = {
       pullPolicy = "IfNotPresent"
     }
   }
+  web = {
+    enabled = true
+    image = {
+      repository = "ghcr.io/example/identrail-web"
+      tag        = "v1.0.0"
+      pullPolicy = "IfNotPresent"
+    }
+    viteEnv = {
+      VITE_IDENTRAIL_API_URL                 = "https://api.example.com"
+      VITE_OIDC_ISSUER_URL                   = "https://sso.example.com/realms/identrail"
+      VITE_OIDC_CLIENT_ID                    = "identrail-web"
+      VITE_OIDC_SCOPE                        = "openid profile email offline_access"
+      VITE_OIDC_REDIRECT_URI                 = "https://app.example.com/app/callback"
+      VITE_OIDC_POST_LOGOUT_REDIRECT_URI     = "https://app.example.com/app/login?signed_out=1"
+      VITE_OIDC_TENANT_CLAIM                 = "tenant_id"
+      VITE_OIDC_WORKSPACE_CLAIM              = "workspace_id"
+      VITE_OIDC_ROLES_CLAIM                  = "roles"
+    }
+  }
   config = {
     IDENTRAIL_PROVIDER                         = "aws"
     IDENTRAIL_ALLOW_MEMORY_STORE               = "false"

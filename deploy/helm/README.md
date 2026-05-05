@@ -26,7 +26,7 @@ This chart is the Kubernetes deployment baseline for Identrail.
 - API and worker deployments force `IDENTRAIL_RUN_MIGRATIONS=false` to avoid DDL races.
 - Disable hook jobs only if migrations are handled externally: set `migrations.enabled=false`.
 - Values default to `IDENTRAIL_AWS_SOURCE=sdk` and enforce `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`.
-- `IDENTRAIL_K8S_SOURCE` defaults to `fixture` to avoid requiring a `kubectl` binary in the default backend image. For Kubernetes provider deployments, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
-- Enable web deployment by setting `web.enabled=true`.
+- `IDENTRAIL_K8S_SOURCE` defaults to `kubectl` for production profiles. Use an image that includes `kubectl` before switching `IDENTRAIL_PROVIDER=kubernetes`.
+- Enable web deployment by setting `web.enabled=true` and set public Vite build/runtime config under `web.viteEnv`. These values are exposed to browsers, so do not put secrets there.
 - Enable ingress by setting `ingress.enabled=true`.
 - `IDENTRAIL_AUDIT_LOG_FILE` is empty by default. If you enable it, mount a writable path for the container user.

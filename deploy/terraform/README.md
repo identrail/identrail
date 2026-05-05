@@ -13,6 +13,8 @@ This Terraform baseline deploys Identrail on Kubernetes through the Helm chart.
 1. Copy example variables:
    - `cp deploy/terraform/terraform.tfvars.example deploy/terraform/terraform.tfvars`
 2. Edit secrets and image tags in `terraform.tfvars`.
+   - Set web `viteEnv` values for the public dashboard API URL and OIDC metadata when `web.enabled=true`.
+   - Do not put secrets in `viteEnv`; Vite exposes these values to the browser bundle.
 3. Deploy:
    - `cd deploy/terraform`
    - `terraform init`
