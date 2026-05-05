@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,8 +30,12 @@ func TestMigrationCompatibilityWithExistingRows(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	migrationsDir := filepath.Clean(filepath.Join("..", "..", "migrations"))
-	if err := store.ApplyMigrations(context.Background(), migrationsDir); err != nil {
-		t.Fatalf("apply migrations: %v", err)
+	preConstraintsDir := t.TempDir()
+	if err := copyUpMigrationsThrough(migrationsDir, preConstraintsDir, "000014"); err != nil {
+		t.Fatalf("prepare pre-constraint migrations: %v", err)
+	}
+	if err := store.ApplyMigrations(context.Background(), preConstraintsDir); err != nil {
+		t.Fatalf("apply pre-constraint migrations: %v", err)
 	}
 
 	sqlDB, err := sql.Open("pgx", databaseURL)
@@ -70,6 +75,10 @@ func TestMigrationCompatibilityWithExistingRows(t *testing.T) {
 		t.Fatalf("insert legacy finding row: %v", err)
 	}
 
+	if err := store.ApplyMigrations(context.Background(), migrationsDir); err != nil {
+		t.Fatalf("apply guardrail migrations: %v", err)
+	}
+
 	svc := api.NewService(store, integrationScanner{}, provider)
 
 	scans, err := svc.ListScans(context.Background(), 20)
@@ -104,4 +113,40 @@ func TestMigrationCompatibilityWithExistingRows(t *testing.T) {
 	if len(exports.OCSF) == 0 || len(exports.ASFF) == 0 {
 		t.Fatalf("expected populated exports for legacy finding, got %+v", exports)
 	}
+}
+
+func copyUpMigrationsThrough(srcDir string, dstDir string, maxVersion string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".up.sql") {
+			continue
+		}
+		version := migrationVersionPrefix(name)
+		if version == "" || version > maxVersion {
+			continue
+		}
+		contents, err := os.ReadFile(filepath.Join(srcDir, name))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dstDir, name), contents, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrationVersionPrefix(name string) string {
+	underscore := strings.IndexByte(name, '_')
+	if underscore <= 0 {
+		return ""
+	}
+	return name[:underscore]
 }
