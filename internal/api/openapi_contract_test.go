@@ -179,12 +179,14 @@ func TestOpenAPIV1SpecPathParameterNamesMatchRegisteredRoutes(t *testing.T) {
 		}
 
 		block := pathBlock(t, spec, openapiPath)
+		pathLevelEntries := parameterEntries(pathLevelBlock(t, block))
+		methodEntries := parameterEntries(methodBlock(t, block, strings.ToLower(method)))
 		for _, variable := range pathVars {
 			name := strings.TrimSpace(variable[1])
 			if name == "" {
 				continue
 			}
-			if !strings.Contains(block, "name: "+name) {
+			if !parameterDeclaredAsPath(pathLevelEntries, name) && !parameterDeclaredAsPath(methodEntries, name) {
 				t.Fatalf("openapi path %q missing path parameter name %q", openapiPath, name)
 			}
 		}
@@ -290,4 +292,106 @@ func pathBlock(t *testing.T, spec string, path string) string {
 	}
 
 	return spec[start:end]
+}
+
+func pathLevelBlock(t *testing.T, block string) string {
+	t.Helper()
+
+	methodStart := len(block)
+	for _, method := range []string{"get", "post", "put", "patch", "delete", "options", "head"} {
+		if idx := strings.Index(block, "\n    "+method+":"); idx >= 0 && idx < methodStart {
+			methodStart = idx
+		}
+	}
+	return block[:methodStart]
+}
+
+func methodBlock(t *testing.T, block string, method string) string {
+	t.Helper()
+
+	start := strings.Index(block, "\n    "+method+":")
+	if start < 0 {
+		t.Fatalf("openapi method block not found for %q", method)
+	}
+	start++
+
+	end := len(block)
+	for _, candidate := range []string{"get", "post", "put", "patch", "delete", "options", "head"} {
+		if candidate == method {
+			continue
+		}
+		if idx := strings.Index(block[start+1:], "\n    "+candidate+":"); idx >= 0 {
+			candidateEnd := start + 1 + idx
+			if candidateEnd < end {
+				end = candidateEnd
+			}
+		}
+	}
+
+	return block[start:end]
+}
+
+func parameterEntries(block string) []string {
+	lines := strings.Split(block, "\n")
+	entries := []string{}
+	var current []string
+	parametersIndent := -1
+	entryIndent := -1
+
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		entries = append(entries, strings.Join(current, "\n"))
+		current = nil
+		entryIndent = -1
+	}
+
+	inParameters := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "parameters:" {
+			flush()
+			inParameters = true
+			parametersIndent = leadingSpaces(line)
+			continue
+		}
+		if !inParameters {
+			continue
+		}
+		lineIndent := leadingSpaces(line)
+		if strings.HasPrefix(trimmed, "- ") && lineIndent > parametersIndent {
+			flush()
+			current = []string{line}
+			entryIndent = lineIndent
+			continue
+		}
+		if current != nil {
+			if trimmed == "" || lineIndent > entryIndent {
+				current = append(current, line)
+				continue
+			}
+			flush()
+		}
+		if trimmed != "" && lineIndent <= parametersIndent {
+			inParameters = false
+			parametersIndent = -1
+		}
+	}
+	flush()
+
+	return entries
+}
+
+func parameterDeclaredAsPath(entries []string, name string) bool {
+	for _, entry := range entries {
+		if strings.Contains(entry, "name: "+name) && strings.Contains(entry, "in: path") {
+			return true
+		}
+	}
+	return false
+}
+
+func leadingSpaces(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
 }
