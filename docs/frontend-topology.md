@@ -19,6 +19,7 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
 - This value should be the public HTTPS base URL of the Identrail API service (not the website URL).
 - Typical value shape: `https://api.<your-domain>`
 - If the API is served from the same domain via reverse proxy, use that public API base path.
+- The default Vercel CSP allows `https://api.identrail.io`; update `connect-src` when using a custom API host.
 
 ### Where to configure it
 
