@@ -1187,7 +1187,7 @@ func (s *Service) ListScans(ctx context.Context, limit int) ([]db.ScanRecord, er
 // GetFindingsSummary returns grouped counts by severity and type.
 func (s *Service) GetFindingsSummary(ctx context.Context, limit int) (FindingsSummary, error) {
 	ctx = s.scopeContext(ctx)
-	items, err := s.Store.ListFindings(ctx, limit)
+	items, err := s.Store.ListFindingsAll(ctx)
 	if err != nil {
 		return FindingsSummary{}, err
 	}

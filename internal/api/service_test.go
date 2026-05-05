@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"testing"
 	"time"
@@ -302,6 +303,37 @@ func TestServiceGetFindingsSummary(t *testing.T) {
 	}
 	if summary.ByType["ownerless_identity"] != 2 {
 		t.Fatalf("unexpected type summary: %+v", summary.ByType)
+	}
+}
+
+func TestServiceGetFindingsSummaryIgnoresListLimitForTotals(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scan, _ := store.CreateScan(defaultScopeContext(), "aws", now)
+
+	findings := make([]domain.Finding, 0, 120)
+	for i := 0; i < 120; i++ {
+		findings = append(findings, domain.Finding{
+			ID:        fmt.Sprintf("finding-%03d", i),
+			Type:      domain.FindingOwnerless,
+			Severity:  domain.SeverityHigh,
+			CreatedAt: now.Add(time.Duration(i) * time.Second),
+		})
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scan.ID, findings); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	summary, err := svc.GetFindingsSummary(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("get summary: %v", err)
+	}
+	if summary.Total != 120 {
+		t.Fatalf("expected total 120, got %d", summary.Total)
+	}
+	if summary.BySeverity["high"] != 120 {
+		t.Fatalf("unexpected severity summary: %+v", summary.BySeverity)
 	}
 }
 

@@ -460,6 +460,11 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	return result, nil
 }
 
+// ListFindingsAll returns all findings for current scope ordered by recency.
+func (m *MemoryStore) ListFindingsAll(ctx context.Context) ([]domain.Finding, error) {
+	return m.ListFindings(ctx, 0)
+}
+
 // ListFindingsByScan returns latest findings first for one scan.
 func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error) {
 	m.mu.RLock()

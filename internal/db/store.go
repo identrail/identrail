@@ -1013,6 +1013,7 @@ type Store interface {
 	ListFindingTriageEvents(ctx context.Context, findingID string, limit int) ([]FindingTriageEvent, error)
 	ListScans(ctx context.Context, limit int) ([]ScanRecord, error)
 	ListFindings(ctx context.Context, limit int) ([]domain.Finding, error)
+	ListFindingsAll(ctx context.Context) ([]domain.Finding, error)
 	ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
 	GetAuthzEntityAttributes(ctx context.Context, entityKind string, entityType string, entityID string) (AuthzEntityAttributes, error)

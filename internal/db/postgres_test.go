@@ -177,6 +177,18 @@ func TestPostgresStoreListScansAndFindings(t *testing.T) {
 		t.Fatalf("unexpected findings: %+v", findings)
 	}
 
+	allFindingsRows := sqlmock.NewRows([]string{"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).
+		AddRow("scan-1", "f1", "ownerless_identity", "medium", "Ownerless", "summary", []byte("[\"x\"]"), []byte("{\"a\":1}"), "fix", now)
+	mock.ExpectQuery("SELECT f.scan_id, f.finding_id, f.type").WithArgs("default", "default").WillReturnRows(allFindingsRows)
+
+	allFindings, err := store.ListFindingsAll(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("list all findings failed: %v", err)
+	}
+	if len(allFindings) != 1 || allFindings[0].ID != "f1" {
+		t.Fatalf("unexpected all findings: %+v", allFindings)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

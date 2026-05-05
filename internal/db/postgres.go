@@ -804,6 +804,30 @@ func (p *PostgresStore) ListFindings(ctx context.Context, limit int) ([]domain.F
 	return findingsFromSQLRows(rows)
 }
 
+// ListFindingsAll returns all findings for current scope ordered by recency.
+func (p *PostgresStore) ListFindingsAll(ctx context.Context) ([]domain.Finding, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`SELECT f.scan_id, f.finding_id, f.type, f.severity, f.title, f.human_summary, f.path, f.evidence, COALESCE(f.remediation, ''), f.created_at
+		 FROM findings f
+		 JOIN scans s ON s.id = f.scan_id
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2
+		 ORDER BY f.created_at DESC`,
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query all findings: %w", err)
+	}
+	defer rows.Close()
+	return findingsFromSQLRows(rows)
+}
+
 // ListFindingsByScan returns latest findings first for one scan id.
 func (p *PostgresStore) ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error) {
 	if limit <= 0 {

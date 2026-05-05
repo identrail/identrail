@@ -64,6 +64,13 @@ func TestMemoryStoreScanLifecycleAndFindings(t *testing.T) {
 	if len(storedFindings) != 1 || storedFindings[0].ScanID != scan.ID {
 		t.Fatalf("unexpected findings: %+v", storedFindings)
 	}
+	allFindings, err := store.ListFindingsAll(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("list all findings failed: %v", err)
+	}
+	if len(allFindings) != 1 || allFindings[0].ScanID != scan.ID {
+		t.Fatalf("unexpected all findings: %+v", allFindings)
+	}
 }
 
 func TestMemoryStoreErrorsForUnknownScan(t *testing.T) {
