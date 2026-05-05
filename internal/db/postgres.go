@@ -218,6 +218,53 @@ func (p *PostgresStore) CreateQueuedScan(ctx context.Context, provider string, q
 	return p.createScanWithStatus(ctx, provider, "queued", queuedAt)
 }
 
+// CreateQueuedScanWithinLimit inserts one queued scan request only when pending capacity remains.
+func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	row := p.queryRowContext(
+		ctx,
+		`WITH queued_count AS (
+			SELECT COUNT(*) AS total
+			FROM scans
+			WHERE tenant_id = $1
+			  AND workspace_id = $2
+			  AND provider = $3
+			  AND status = 'queued'
+		),
+		inserted AS (
+			INSERT INTO scans (
+				id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
+			)
+			SELECT $4, $1, $2, $3, 'queued', $5, NULL, 0, 0, NULL
+			FROM queued_count
+			WHERE total < $6
+			RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		)
+		SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		FROM inserted`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		strings.TrimSpace(provider),
+		uuid.NewString(),
+		queuedAt.UTC(),
+		maxPending,
+	)
+	record, err := scanScanRecord(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ScanRecord{}, ErrQueueLimitReached
+		}
+		return ScanRecord{}, fmt.Errorf("create queued scan with limit: %w", err)
+	}
+	return record, nil
+}
+
 // ClaimNextQueuedScan atomically claims one queued scan for execution.
 func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)
