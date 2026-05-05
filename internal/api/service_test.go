@@ -392,6 +392,28 @@ func TestServiceGetFinding(t *testing.T) {
 	}
 }
 
+func TestServiceGetFindingReturnsNewestMatchingFindingWithoutScanID(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scanA, _ := store.CreateScan(defaultScopeContext(), "aws", now)
+	scanB, _ := store.CreateScan(defaultScopeContext(), "aws", now.Add(1*time.Minute))
+	_ = store.UpsertFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityLow, Title: "older", CreatedAt: now},
+	})
+	_ = store.UpsertFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, Title: "newer", CreatedAt: now.Add(2 * time.Minute)},
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	found, err := svc.GetFinding(defaultScopeContext(), "finding-1", "")
+	if err != nil {
+		t.Fatalf("get latest finding without scan id: %v", err)
+	}
+	if found.ScanID != scanB.ID || found.Title != "newer" {
+		t.Fatalf("expected newest matching finding, got %+v", found)
+	}
+}
+
 func TestServiceFindingTriageLifecycleAndHistory(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 22, 9, 0, 0, 0, time.UTC)

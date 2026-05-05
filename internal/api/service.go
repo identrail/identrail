@@ -1021,6 +1021,8 @@ func (s *Service) GetFinding(ctx context.Context, findingID string, scanID strin
 	filtered, err := s.ListFindingsFiltered(ctx, 1, FindingsFilter{
 		FindingID: strings.TrimSpace(findingID),
 		ScanID:    strings.TrimSpace(scanID),
+		SortBy:    "created_at",
+		SortDesc:  true,
 	})
 	if err != nil {
 		return domain.Finding{}, err
