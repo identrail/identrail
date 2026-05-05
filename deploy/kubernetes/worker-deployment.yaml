@@ -20,7 +20,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: worker
-          image: ghcr.io/oluwatobi-mustapha/identrail-worker:latest
+          image: ghcr.io/identrail/identrail-worker:v1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:

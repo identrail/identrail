@@ -18,7 +18,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: migrations
-          image: ghcr.io/oluwatobi-mustapha/identrail-api:latest
+          image: ghcr.io/identrail/identrail-api:v1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
