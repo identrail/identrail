@@ -69,19 +69,27 @@ func parsePolicyDocument(raw string) (iamPolicyDocument, error) {
 	return doc, nil
 }
 
-func normalizedStatement(effect string, actions, resources []string) map[string]any {
+func normalizedStatement(effect string, actions, resources []string) (map[string]any, bool) {
+	canonical, ok := canonicalEffect(effect)
+	if !ok {
+		return nil, false
+	}
 	return map[string]any{
-		"effect":    canonicalEffect(effect),
+		"effect":    canonical,
 		"actions":   dedupeStrings(actions),
 		"resources": dedupeStrings(resources),
-	}
+	}, true
 }
 
-func canonicalEffect(effect string) string {
-	if strings.EqualFold(effect, "deny") {
-		return "Deny"
+func canonicalEffect(effect string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(effect)) {
+	case "allow":
+		return "Allow", true
+	case "deny":
+		return "Deny", true
+	default:
+		return "", false
 	}
-	return "Allow"
 }
 
 func dedupeStrings(items []string) []string {

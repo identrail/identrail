@@ -109,3 +109,67 @@ func TestRoleNormalizerInvalidPermissionPolicyDocument(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRoleNormalizerSkipsPermissionStatementsWithInvalidEffect(t *testing.T) {
+	role := IAMRole{
+		ARN:  "arn:aws:iam::1:role/demo",
+		Name: "demo",
+		PermissionPolicies: []IAMPermissionPolicy{{
+			Name: "mixed",
+			Document: `{
+				"Version":"2012-10-17",
+				"Statement":[
+					{"Effect":"Alow","Action":"s3:GetObject","Resource":"*"},
+					{"Effect":"Allow","Action":"s3:ListBucket","Resource":"*"}
+				]
+			}`,
+		}},
+	}
+	payload, _ := json.Marshal(role)
+
+	normalizer := NewRoleNormalizer()
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{{Kind: "iam_role", Payload: payload, SourceID: role.ARN}})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(bundle.Policies) != 1 {
+		t.Fatalf("expected one normalized permission policy, got %d", len(bundle.Policies))
+	}
+	statements, ok := bundle.Policies[0].Normalized[statementsKey].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected normalized statements slice, got %T", bundle.Policies[0].Normalized[statementsKey])
+	}
+	if len(statements) != 1 {
+		t.Fatalf("expected invalid-effect statements to be skipped, got %d statements", len(statements))
+	}
+	if got := statements[0]["effect"]; got != "Allow" {
+		t.Fatalf("expected surviving statement effect Allow, got %#v", got)
+	}
+}
+
+func TestRoleNormalizerSkipsPermissionPolicyWhenNoValidEffectsRemain(t *testing.T) {
+	role := IAMRole{
+		ARN:  "arn:aws:iam::1:role/demo",
+		Name: "demo",
+		PermissionPolicies: []IAMPermissionPolicy{{
+			Name: "invalid-only",
+			Document: `{
+				"Version":"2012-10-17",
+				"Statement":[
+					{"Effect":"","Action":"s3:GetObject","Resource":"*"},
+					{"Effect":"Alow","Action":"s3:ListBucket","Resource":"*"}
+				]
+			}`,
+		}},
+	}
+	payload, _ := json.Marshal(role)
+
+	normalizer := NewRoleNormalizer()
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{{Kind: "iam_role", Payload: payload, SourceID: role.ARN}})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(bundle.Policies) != 0 {
+		t.Fatalf("expected no normalized policies when no valid effects exist, got %d", len(bundle.Policies))
+	}
+}
