@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
