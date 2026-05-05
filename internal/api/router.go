@@ -184,12 +184,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
-	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
-	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
+	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
+	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
-	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
 	registerTenancyRoutes(v1, logger, svc)
@@ -1909,7 +1909,7 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string) gin.HandlerFunc {
+func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
 	oidcWriteScopeSet := newScopeSet(oidcWriteScopes)
 
 	scopedAllowed := map[string]scopeSet{}
@@ -1942,11 +1942,13 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 			if scopes, ok := scopedKeyLookup(scopedAllowed, candidate); ok {
 				c.Set("auth.api_key", candidate)
 				c.Set("auth.scope_set", scopes)
+				setAuditActorOnRequestContext(c, fingerprinter)
 				c.Next()
 				return
 			}
 			if keyInList(legacyAllowed, candidate) {
 				c.Set("auth.api_key", candidate)
+				setAuditActorOnRequestContext(c, fingerprinter)
 				c.Next()
 				return
 			}
@@ -1964,6 +1966,7 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 				c.Set("auth.tenant_id", token.TenantID)
 				c.Set("auth.workspace_id", token.WorkspaceID)
 				c.Set("auth.scope_set", scopeSetFromOIDCToken(token, oidcWriteScopeSet))
+				setAuditActorOnRequestContext(c, fingerprinter)
 				c.Next()
 				return
 			}
@@ -2136,9 +2139,7 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 		sink = audit.NopAuditSink{}
 	}
 	return func(c *gin.Context) {
-		actor := triageActorFromContext(c, fingerprinter)
 		ctx := audit.WithSink(c.Request.Context(), sink)
-		ctx = audit.WithActor(ctx, actor)
 
 		// Prefer upstream request IDs when present, otherwise generate a new ID.
 		if headerID := strings.TrimSpace(c.GetHeader("X-Request-Id")); headerID != "" {
@@ -2150,6 +2151,7 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 
 		start := time.Now()
 		c.Next()
+		actor := triageActorFromContext(c, fingerprinter)
 		event := audit.AuditEvent{
 			Timestamp:  time.Now().UTC(),
 			Kind:       "api_request",
@@ -2193,6 +2195,17 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
 		}
 	}
+}
+
+func setAuditActorOnRequestContext(c *gin.Context, fingerprinter *audit.Fingerprinter) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	actor := triageActorFromContext(c, fingerprinter)
+	if actor == "unknown" {
+		return
+	}
+	c.Request = c.Request.WithContext(audit.WithActor(c.Request.Context(), actor))
 }
 
 func readAPIKey(c *gin.Context) string {

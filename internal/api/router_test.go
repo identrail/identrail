@@ -1422,6 +1422,32 @@ func TestRouterRateLimitExceeded(t *testing.T) {
 	}
 }
 
+func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys:        []string{"secret-key"},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	first.RemoteAddr = "127.0.0.1:23456"
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected first unauthorized request 401, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	second.RemoteAddr = "127.0.0.1:23456"
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second unauthorized request 429, got %d", w2.Code)
+	}
+}
+
 func TestIPRateLimiterEvictsExpiredEntries(t *testing.T) {
 	now := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 	limiter := newIPRateLimiterWithClock(
@@ -1580,6 +1606,44 @@ func TestRouterWritesAuditSink(t *testing.T) {
 	}
 	if event.Authz.PolicySetID != defaultCentralPolicySetID {
 		t.Fatalf("expected policy set %q, got %q", defaultCentralPolicySetID, event.Authz.PolicySetID)
+	}
+}
+
+func TestRouterWritesAuditSinkForUnauthorizedRequest(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink: sink,
+		APIKeys:   []string{"secret-key"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	req.RemoteAddr = "127.0.0.1:45678"
+	req.Header.Set("User-Agent", "router-test-unauthorized")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized request status 401, got %d", w.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) == 0 {
+		t.Fatal("expected sink to capture unauthorized event")
+	}
+	event := sink.events[len(sink.events)-1]
+	if event.Status != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized status in audit event, got %d", event.Status)
+	}
+	if event.APIKeyID != "" {
+		t.Fatalf("expected empty api key fingerprint for missing key, got %q", event.APIKeyID)
+	}
+	if event.Actor != "unknown" {
+		t.Fatalf("expected unknown actor for missing credentials, got %q", event.Actor)
+	}
+	if event.Authz != nil {
+		t.Fatalf("expected no authz decision for unauthorized request, got %+v", event.Authz)
 	}
 }
 
