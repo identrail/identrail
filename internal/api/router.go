@@ -2231,16 +2231,31 @@ func (l *ipRateLimiter) evictOldestLocked() {
 func rateLimitMiddleware(rpm int, burst int) gin.HandlerFunc {
 	limiter := newIPRateLimiter(rpm, burst)
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		if ip == "" {
-			ip = "unknown"
-		}
-		if !limiter.allow(ip) {
+		if !limiter.allow(rateLimitKey(c)) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
 		c.Next()
 	}
+}
+
+func rateLimitKey(c *gin.Context) string {
+	ip := "unknown"
+	if c != nil {
+		if clientIP := strings.TrimSpace(c.ClientIP()); clientIP != "" {
+			ip = clientIP
+		}
+	}
+	if c == nil {
+		return ip + "|anon"
+	}
+	if apiKey := readAPIKey(c); apiKey != "" {
+		return ip + "|api:" + audit.FingerprintAPIKey(apiKey)
+	}
+	if bearer := readBearerToken(c); bearer != "" {
+		return ip + "|bearer:" + audit.FingerprintIdentifier(bearer)
+	}
+	return ip + "|anon"
 }
 
 func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {

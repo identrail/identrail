@@ -1608,6 +1608,15 @@ func TestRouterRateLimitAppliesBeforeUnauthorizedAuthChecks(t *testing.T) {
 	if w2.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected second unauthorized request to return 429, got %d", w2.Code)
 	}
+
+	authorized := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	authorized.RemoteAddr = "127.0.0.1:23456"
+	authorized.Header.Set("X-API-Key", "expected-key")
+	w3 := httptest.NewRecorder()
+	r.ServeHTTP(w3, authorized)
+	if w3.Code != http.StatusOK {
+		t.Fatalf("expected authorized request to use a separate rate limit bucket, got %d", w3.Code)
+	}
 }
 
 func TestIPRateLimiterEvictsExpiredEntries(t *testing.T) {
