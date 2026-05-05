@@ -830,9 +830,6 @@ func (p *PostgresStore) ListTenancyConnectors(ctx context.Context, workspaceID s
 
 // ListAllTenancyConnectorsByType returns connectors across scopes for internal runtime matching.
 func (p *PostgresStore) ListAllTenancyConnectorsByType(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
-	if limit <= 0 {
-		limit = 100
-	}
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
 		     c.secret_provider, c.secret_ref_id, c.secret_ref_version, c.secret_last_rotated_at,
@@ -846,9 +843,13 @@ func (p *PostgresStore) ListAllTenancyConnectorsByType(ctx context.Context, conn
 		  AND s.project_id = c.project_id
 		  AND s.connector_id = c.connector_id
 		 WHERE c.type = $1
-		 ORDER BY c.updated_at DESC
-		 LIMIT $2`
-	rows, err := p.queryContext(ctx, query, strings.ToLower(strings.TrimSpace(string(connectorType))), limit)
+		 ORDER BY c.updated_at DESC`
+	args := []any{strings.ToLower(strings.TrimSpace(string(connectorType)))}
+	if limit > 0 {
+		query += ` LIMIT $2`
+		args = append(args, limit)
+	}
+	rows, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query all tenancy connectors: %w", err)
 	}

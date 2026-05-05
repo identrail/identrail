@@ -633,11 +633,8 @@ func (m *MemoryStore) ListAllTenancyConnectorsByType(_ context.Context, connecto
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if limit <= 0 {
-		limit = 100
-	}
 	normalizedType := domain.ConnectorType(strings.ToLower(strings.TrimSpace(string(connectorType))))
-	connectors := make([]TenancyConnectorWithState, 0, limit)
+	connectors := make([]TenancyConnectorWithState, 0, len(m.connectors))
 	for key, connector := range m.connectors {
 		if normalizedType != "" && connector.Type != normalizedType {
 			continue
@@ -649,7 +646,7 @@ func (m *MemoryStore) ListAllTenancyConnectorsByType(_ context.Context, connecto
 	sort.Slice(connectors, func(i, j int) bool {
 		return connectors[i].Connector.UpdatedAt.After(connectors[j].Connector.UpdatedAt)
 	})
-	if len(connectors) > limit {
+	if limit > 0 && len(connectors) > limit {
 		connectors = connectors[:limit]
 	}
 	return connectors, nil

@@ -316,6 +316,14 @@ func TestMemoryStoreListAllTenancyConnectorsByType(t *testing.T) {
 	if connectors[0].Connector.ConnectorID != "github-b" || connectors[1].Connector.ConnectorID != "github-a" {
 		t.Fatalf("expected connectors ordered by recency, got %+v", connectors)
 	}
+
+	unlimited, err := store.ListAllTenancyConnectorsByType(context.Background(), domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		t.Fatalf("list all github connectors without limit: %v", err)
+	}
+	if len(unlimited) != 2 {
+		t.Fatalf("expected unlimited query to return both github connectors, got %+v", unlimited)
+	}
 }
 
 func TestMemoryStoreProjectReadsCloneArchivedPointer(t *testing.T) {

@@ -692,7 +692,7 @@ func (s *Service) loadGitHubConnection(ctx context.Context, workspaceID string, 
 }
 
 func (s *Service) listAllGitHubConnections(ctx context.Context) ([]githubProjectConnection, error) {
-	items, err := s.Store.ListAllTenancyConnectorsByType(ctx, domain.ConnectorTypeGitHub, 500)
+	items, err := s.Store.ListAllTenancyConnectorsByType(ctx, domain.ConnectorTypeGitHub, 0)
 	if err != nil {
 		return nil, err
 	}
