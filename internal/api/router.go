@@ -261,12 +261,16 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
-		items, err := svc.ListFindingsFiltered(c.Request.Context(), pageFetchLimit(offset, limit), FindingsFilter{
+		items, err := svc.ListFindingsFiltered(c.Request.Context(), limit, FindingsFilter{
+			FindingID:       strings.TrimSpace(c.Query("finding_id")),
 			ScanID:          strings.TrimSpace(c.Query("scan_id")),
 			Severity:        strings.TrimSpace(c.Query("severity")),
 			Type:            strings.TrimSpace(c.Query("type")),
 			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
 			Assignee:        strings.TrimSpace(c.Query("assignee")),
+			SortBy:          sortBy,
+			SortDesc:        sortDesc,
+			Offset:          offset,
 		})
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -277,8 +281,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list findings"})
 			return
 		}
-		sortFindings(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
+		page := items
+		next := ""
+		if len(page) > limit {
+			page = page[:limit]
+			next = strconv.Itoa(offset + limit)
+		}
 		response := gin.H{"items": page}
 		if next != "" {
 			response["next_cursor"] = next

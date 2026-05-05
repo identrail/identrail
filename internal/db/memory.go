@@ -460,6 +460,61 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	return result, nil
 }
 
+// ListFindingsFiltered returns findings after applying persistence-level filters and stable ordering.
+func (m *MemoryStore) ListFindingsFiltered(ctx context.Context, filter FindingListFilter) ([]domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalized := NormalizeFindingListFilter(filter)
+	if normalized.ScanID != "" {
+		scan, exists := m.scans[normalized.ScanID]
+		if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+			return nil, ErrNotFound
+		}
+	}
+	now := normalized.Now
+	result := make([]domain.Finding, 0, len(m.findings))
+	for _, finding := range m.findings {
+		scan, exists := m.scans[finding.ScanID]
+		if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+			continue
+		}
+		if normalized.ScanID != "" && finding.ScanID != normalized.ScanID {
+			continue
+		}
+		if normalized.FindingID != "" && finding.ID != normalized.FindingID {
+			continue
+		}
+		if normalized.Severity != "" && strings.ToLower(string(finding.Severity)) != normalized.Severity {
+			continue
+		}
+		if normalized.Type != "" && strings.ToLower(string(finding.Type)) != normalized.Type {
+			continue
+		}
+		finding.Triage = m.findingTriageForScopeLocked(scope, finding.ID, now)
+		if normalized.LifecycleStatus != "" && strings.ToLower(string(finding.Triage.Status)) != normalized.LifecycleStatus {
+			continue
+		}
+		if normalized.Assignee != "" && strings.ToLower(strings.TrimSpace(finding.Triage.Assignee)) != normalized.Assignee {
+			continue
+		}
+		result = append(result, finding)
+	}
+	sortFilteredFindings(result, normalized.SortBy, normalized.SortDesc)
+	if normalized.Offset >= len(result) {
+		return []domain.Finding{}, nil
+	}
+	end := normalized.Offset + normalized.Limit + 1
+	if end > len(result) {
+		end = len(result)
+	}
+	return append([]domain.Finding(nil), result[normalized.Offset:end]...), nil
+}
+
 // ListFindingsByScan returns latest findings first for one scan.
 func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error) {
 	m.mu.RLock()
@@ -488,6 +543,101 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+func (m *MemoryStore) findingTriageForScopeLocked(scope Scope, findingID string, now time.Time) domain.FindingTriage {
+	triage := domain.DefaultFindingTriage()
+	state, exists := m.triageStates[findingScopeKey(scope, strings.TrimSpace(findingID))]
+	if !exists {
+		return triage
+	}
+	updatedAt := state.UpdatedAt.UTC()
+	triage = domain.FindingTriage{
+		Status:               state.Status,
+		Assignee:             state.Assignee,
+		SuppressionExpiresAt: state.SuppressionExpiresAt,
+		UpdatedAt:            &updatedAt,
+		UpdatedBy:            state.UpdatedBy,
+	}
+	return NormalizeFindingTriage(triage, now)
+}
+
+func sortFilteredFindings(items []domain.Finding, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch sortBy {
+		case "severity":
+			cmp = compareFindingInts(findingSeverityOrder(left.Severity), findingSeverityOrder(right.Severity))
+		case "type":
+			cmp = compareFindingStrings(string(left.Type), string(right.Type))
+		case "title":
+			cmp = compareFindingStrings(left.Title, right.Title)
+		default:
+			cmp = compareFindingTimes(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareFindingStrings(left.ScanID, right.ScanID)
+		}
+		if cmp == 0 {
+			cmp = compareFindingStrings(left.ID, right.ID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func findingSeverityOrder(severity domain.FindingSeverity) int {
+	switch severity {
+	case domain.SeverityCritical:
+		return 5
+	case domain.SeverityHigh:
+		return 4
+	case domain.SeverityMedium:
+		return 3
+	case domain.SeverityLow:
+		return 2
+	case domain.SeverityInfo:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareFindingStrings(left string, right string) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareFindingInts(left int, right int) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareFindingTimes(left time.Time, right time.Time) int {
+	switch {
+	case left.Before(right):
+		return -1
+	case left.After(right):
+		return 1
+	default:
+		return 0
+	}
 }
 
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.

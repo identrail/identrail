@@ -995,6 +995,76 @@ type RepoFindingFilter struct {
 	Type       string
 }
 
+// FindingListFilter controls filtered finding list queries.
+type FindingListFilter struct {
+	ScanID          string
+	FindingID       string
+	Severity        string
+	Type            string
+	LifecycleStatus string
+	Assignee        string
+	SortBy          string
+	SortDesc        bool
+	Limit           int
+	Offset          int
+	Now             time.Time
+}
+
+// NormalizeFindingListFilter trims inputs and applies stable defaults.
+func NormalizeFindingListFilter(filter FindingListFilter) FindingListFilter {
+	normalized := FindingListFilter{
+		ScanID:          strings.TrimSpace(filter.ScanID),
+		FindingID:       strings.TrimSpace(filter.FindingID),
+		Severity:        strings.ToLower(strings.TrimSpace(filter.Severity)),
+		Type:            strings.ToLower(strings.TrimSpace(filter.Type)),
+		LifecycleStatus: strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),
+		Assignee:        strings.ToLower(strings.TrimSpace(filter.Assignee)),
+		SortDesc:        filter.SortDesc,
+		Limit:           filter.Limit,
+		Offset:          filter.Offset,
+		Now:             filter.Now.UTC(),
+	}
+	switch strings.ToLower(strings.TrimSpace(filter.SortBy)) {
+	case "severity", "type", "title":
+		normalized.SortBy = strings.ToLower(strings.TrimSpace(filter.SortBy))
+	default:
+		normalized.SortBy = "created_at"
+	}
+	if normalized.Limit <= 0 {
+		normalized.Limit = 100
+	}
+	if normalized.Offset < 0 {
+		normalized.Offset = 0
+	}
+	if normalized.Now.IsZero() {
+		normalized.Now = time.Now().UTC()
+	}
+	return normalized
+}
+
+// NormalizeFindingTriage returns a stable, API-shaped finding triage state.
+func NormalizeFindingTriage(triage domain.FindingTriage, now time.Time) domain.FindingTriage {
+	normalized := triage
+	if normalized.Status == "" {
+		normalized.Status = domain.FindingLifecycleOpen
+	}
+	switch normalized.Status {
+	case domain.FindingLifecycleOpen, domain.FindingLifecycleAck, domain.FindingLifecycleSuppressed, domain.FindingLifecycleResolved:
+	default:
+		normalized.Status = domain.FindingLifecycleOpen
+	}
+	if normalized.Status == domain.FindingLifecycleSuppressed &&
+		normalized.SuppressionExpiresAt != nil &&
+		!normalized.SuppressionExpiresAt.After(now) {
+		normalized.Status = domain.FindingLifecycleOpen
+		normalized.SuppressionExpiresAt = nil
+	}
+	if normalized.Status != domain.FindingLifecycleSuppressed {
+		normalized.SuppressionExpiresAt = nil
+	}
+	return normalized
+}
+
 // Store defines persistence operations required by API and scheduler orchestration.
 type Store interface {
 	CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error)
@@ -1013,6 +1083,7 @@ type Store interface {
 	ListFindingTriageEvents(ctx context.Context, findingID string, limit int) ([]FindingTriageEvent, error)
 	ListScans(ctx context.Context, limit int) ([]ScanRecord, error)
 	ListFindings(ctx context.Context, limit int) ([]domain.Finding, error)
+	ListFindingsFiltered(ctx context.Context, filter FindingListFilter) ([]domain.Finding, error)
 	ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
 	GetAuthzEntityAttributes(ctx context.Context, entityKind string, entityType string, entityID string) (AuthzEntityAttributes, error)

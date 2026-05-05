@@ -182,6 +182,45 @@ func TestPostgresStoreListScansAndFindings(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreListFindingsFiltered(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{
+		"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at",
+		"triage_status", "assignee", "suppression_expires_at", "updated_at", "updated_by",
+	}).AddRow(
+		"scan-1", "finding-1", "ownerless_identity", "critical", "Ownerless", "summary", []byte("[\"a\"]"), []byte("{\"x\":1}"), "fix", now,
+		"ack", "secops", nil, now, "subject:user-1",
+	)
+	mock.ExpectQuery("SELECT\\s+f\\.scan_id,").
+		WithArgs("default", "default", "critical", sqlmock.AnyArg(), 0, 11).
+		WillReturnRows(rows)
+
+	items, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		Severity: "critical",
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("list filtered findings failed: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "finding-1" {
+		t.Fatalf("unexpected filtered findings: %+v", items)
+	}
+	if items[0].Triage.Status != domain.FindingLifecycleAck || items[0].Triage.Assignee != "secops" {
+		t.Fatalf("unexpected triage payload: %+v", items[0].Triage)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreGetScanAndFindingsByScan(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

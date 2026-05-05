@@ -173,11 +173,15 @@ type WhoAmIContext struct {
 
 // FindingsFilter narrows findings list queries without changing API response schema.
 type FindingsFilter struct {
+	FindingID       string
 	ScanID          string
 	Severity        string
 	Type            string
 	LifecycleStatus string
 	Assignee        string
+	SortBy          string
+	SortDesc        bool
+	Offset          int
 }
 
 // FindingTriageRequest captures one triage mutation request for a finding.
@@ -989,59 +993,23 @@ func (s *Service) ResolveActiveWorkspace(ctx context.Context, subject string, wo
 // ListFindingsFiltered returns findings with optional scan/type/severity filters.
 func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter FindingsFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
-	loadLimit := limit
-	if loadLimit <= 0 {
-		loadLimit = 100
-	}
-	if loadLimit < 5000 {
-		loadLimit = 5000
-	}
-
-	var source []domain.Finding
-	var err error
-	if strings.TrimSpace(filter.ScanID) != "" {
-		source, err = s.Store.ListFindingsByScan(ctx, strings.TrimSpace(filter.ScanID), loadLimit)
-	} else {
-		source, err = s.Store.ListFindings(ctx, loadLimit)
-	}
+	items, err := s.Store.ListFindingsFiltered(ctx, db.FindingListFilter{
+		ScanID:          filter.ScanID,
+		FindingID:       filter.FindingID,
+		Severity:        filter.Severity,
+		Type:            filter.Type,
+		LifecycleStatus: filter.LifecycleStatus,
+		Assignee:        filter.Assignee,
+		SortBy:          filter.SortBy,
+		SortDesc:        filter.SortDesc,
+		Limit:           limit,
+		Offset:          filter.Offset,
+		Now:             s.Now().UTC(),
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	severity := strings.ToLower(strings.TrimSpace(filter.Severity))
-	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
-	lifecycleStatus := strings.ToLower(strings.TrimSpace(filter.LifecycleStatus))
-	assignee := strings.ToLower(strings.TrimSpace(filter.Assignee))
-	result := make([]domain.Finding, 0, len(source))
-	for _, item := range source {
-		if severity != "" && strings.ToLower(string(item.Severity)) != severity {
-			continue
-		}
-		if findingType != "" && strings.ToLower(string(item.Type)) != findingType {
-			continue
-		}
-		result = append(result, item)
-	}
-	enriched := enrichFindings(result)
-	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
-	if err != nil {
-		return nil, err
-	}
-
-	filtered := make([]domain.Finding, 0, len(withTriage))
-	for _, item := range withTriage {
-		if lifecycleStatus != "" && strings.ToLower(string(item.Triage.Status)) != lifecycleStatus {
-			continue
-		}
-		if assignee != "" && strings.ToLower(strings.TrimSpace(item.Triage.Assignee)) != assignee {
-			continue
-		}
-		filtered = append(filtered, item)
-		if limit > 0 && len(filtered) >= limit {
-			break
-		}
-	}
-	return filtered, nil
+	return enrichFindings(items), nil
 }
 
 // GetFinding returns one finding by id, optionally scoped to one scan.
@@ -1050,7 +1018,10 @@ func (s *Service) GetFinding(ctx context.Context, findingID string, scanID strin
 	if id == "" {
 		return domain.Finding{}, db.ErrNotFound
 	}
-	filtered, err := s.ListFindingsFiltered(ctx, 5000, FindingsFilter{ScanID: strings.TrimSpace(scanID)})
+	filtered, err := s.ListFindingsFiltered(ctx, 1, FindingsFilter{
+		FindingID: strings.TrimSpace(findingID),
+		ScanID:    strings.TrimSpace(scanID),
+	})
 	if err != nil {
 		return domain.Finding{}, err
 	}
