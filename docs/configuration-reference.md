@@ -115,6 +115,9 @@ Audit:
 - `IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES`
 - `IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF`
 - `IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET`
+- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
+  - Optional HMAC-SHA256 secret used to pseudonymize audit subject/resource identifiers.
+  - If unset, audit fingerprinting falls back to a legacy unkeyed hash intended only for local or transitional setups.
 
 Alerts:
 - `IDENTRAIL_ALERT_WEBHOOK_URL`
