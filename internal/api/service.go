@@ -81,6 +81,7 @@ type Service struct {
 	KubernetesPreflightFactory  KubernetesConnectorPreflightFactory
 	AWSConnectorValidator       AWSConnectorValidator
 	AWSScannerFactory           AWSScannerFactory
+	repoQueueMu                 sync.Mutex
 	githubConnectMu             sync.RWMutex
 	githubConnections           map[string]githubProjectConnection
 	githubConnectStates         map[string]githubConnectState
@@ -517,6 +518,8 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	if err != nil {
 		return db.RepoScanRecord{}, err
 	}
+	s.repoQueueMu.Lock()
+	defer s.repoQueueMu.Unlock()
 	pendingForTarget, err := s.Store.CountPendingRepoScansByRepository(ctx, target)
 	if err != nil {
 		return db.RepoScanRecord{}, fmt.Errorf("count pending repo scans for target: %w", err)
