@@ -646,7 +646,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusTooManyRequests, gin.H{"error": "scan queue is full"})
 				return
 			}
-			logger.Error("enqueue scan", telemetry.ZapError(err))
+			logger.Error("enqueue scan", requestErrorLogFields(c, opts.AuditFingerprinter, "enqueue_scan", telemetry.ZapError(err))...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue scan"})
 			return
 		}
@@ -693,7 +693,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusTooManyRequests, gin.H{"error": "repo scan queue is full"})
 				return
 			}
-			logger.Error("enqueue repo scan", telemetry.ZapError(err))
+			logger.Error("enqueue repo scan", requestErrorLogFields(c, opts.AuditFingerprinter, "enqueue_repo_scan", telemetry.ZapError(err))...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue repo scan"})
 			return
 		}
@@ -2193,6 +2193,31 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
 		}
 	}
+}
+
+func requestErrorLogFields(c *gin.Context, fingerprinter *audit.Fingerprinter, operation string, fields ...zap.Field) []zap.Field {
+	base := []zap.Field{
+		zap.String("component", "api"),
+		zap.String("operation", operation),
+	}
+	if c == nil {
+		return append(base, fields...)
+	}
+	scope := db.ScopeFromContext(c.Request.Context())
+	requestID := ""
+	if id, ok := audit.CorrelationIDFromContext(c.Request.Context()); ok {
+		requestID = id
+	}
+	base = append(base,
+		zap.String("request_id", requestID),
+		zap.String("method", c.Request.Method),
+		zap.String("path", c.Request.URL.Path),
+		zap.String("route", c.FullPath()),
+		zap.String("tenant_id", scope.TenantID),
+		zap.String("workspace_id", scope.WorkspaceID),
+		zap.String("actor", triageActorFromContext(c, fingerprinter)),
+	)
+	return append(base, fields...)
 }
 
 func readAPIKey(c *gin.Context) string {
