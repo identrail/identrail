@@ -11,6 +11,8 @@ Identrail exposes logs, metrics, and tracing hooks from day one.
 
 Scrape `GET /metrics`.
 
+Production deployments should protect or isolate this endpoint. Set `IDENTRAIL_METRICS_API_KEY` and configure Prometheus to send the value as either `Authorization: Bearer <key>` or `X-Metrics-Key: <key>`. If the key is empty, `/metrics` remains unauthenticated for local development or network-isolated deployments only.
+
 Core scan metrics:
 - `identrail_scan_runs_total`
 - `identrail_scan_success_total`

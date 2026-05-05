@@ -81,6 +81,7 @@ type Config struct {
 	APIKeyScopes               map[string][]string
 	RateLimitRPM               int
 	RateLimitBurst             int
+	MetricsAPIKey              string
 	RunMigrations              bool
 	RunMigrationsOnly          bool
 	MigrationsDir              string
@@ -172,6 +173,7 @@ func Load() Config {
 		APIKeyScopes:               parseKeyScopes(getEnv("IDENTRAIL_API_KEY_SCOPES", "")),
 		RateLimitRPM:               parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
 		RateLimitBurst:             parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
+		MetricsAPIKey:              strings.TrimSpace(getEnv("IDENTRAIL_METRICS_API_KEY", "")),
 		RunMigrations:              parseBool(getEnv("IDENTRAIL_RUN_MIGRATIONS", "true"), true),
 		RunMigrationsOnly:          parseBool(getEnv("IDENTRAIL_RUN_MIGRATIONS_ONLY", "false"), false),
 		MigrationsDir:              getEnv("IDENTRAIL_MIGRATIONS_DIR", "migrations"),

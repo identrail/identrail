@@ -58,6 +58,7 @@ type RouterOptions struct {
 	CORSAllowedOrigins []string
 	DefaultTenantID    string
 	DefaultWorkspaceID string
+	MetricsAPIKey      string
 }
 
 // VerifiedToken contains normalized claims extracted from a validated OIDC token.
@@ -139,7 +140,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 	})
 
-	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})))
+	r.GET("/metrics", metricsAuthMiddleware(opts.MetricsAPIKey), gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})))
 
 	r.POST("/webhooks/github", func(c *gin.Context) {
 		if svc == nil {
@@ -1906,6 +1907,25 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 		c.Header("Referrer-Policy", "no-referrer")
 		c.Header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 		c.Next()
+	}
+}
+
+func metricsAuthMiddleware(requiredKey string) gin.HandlerFunc {
+	normalized := strings.TrimSpace(requiredKey)
+	return func(c *gin.Context) {
+		if normalized == "" {
+			c.Next()
+			return
+		}
+		candidate := strings.TrimSpace(c.GetHeader("X-Metrics-Key"))
+		if candidate == "" {
+			candidate = readBearerToken(c)
+		}
+		if secureKeyEquals(normalized, candidate) {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 	}
 }
 

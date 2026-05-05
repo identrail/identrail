@@ -129,6 +129,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		OIDCWriteScopes:    cfg.OIDCWriteScopes,
 		RateLimitRPM:       cfg.RateLimitRPM,
 		RateLimitBurst:     cfg.RateLimitBurst,
+		MetricsAPIKey:      cfg.MetricsAPIKey,
 		AuditSink:          auditSink,
 		AuditFingerprinter: auditFingerprinter,
 		TrustedProxies:     cfg.TrustedProxies,

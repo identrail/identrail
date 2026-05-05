@@ -127,6 +127,7 @@ secret:
   data:
     IDENTRAIL_API_KEYS: ""
     IDENTRAIL_WRITE_API_KEYS: ""
+    IDENTRAIL_METRICS_API_KEY: ""
     IDENTRAIL_DATABASE_URL: "postgres://identrail:replace-password@postgres:5432/identrail?sslmode=require"
     IDENTRAIL_API_KEY_SCOPES: ""
     IDENTRAIL_ALERT_WEBHOOK_URL: ""
