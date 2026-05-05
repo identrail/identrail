@@ -227,40 +227,56 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 	if maxPending <= 0 {
 		maxPending = 1
 	}
-	row := p.queryRowContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("begin queued scan transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	normalizedProvider := strings.TrimSpace(provider)
+	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+		return ScanRecord{}, fmt.Errorf("lock queued scan capacity: %w", err)
+	}
+
+	var queued int
+	if err := tx.QueryRowContext(
 		ctx,
-		`WITH queued_count AS (
-			SELECT COUNT(*) AS total
-			FROM scans
-			WHERE tenant_id = $1
-			  AND workspace_id = $2
-			  AND provider = $3
-			  AND status = 'queued'
-		),
-		inserted AS (
-			INSERT INTO scans (
-				id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
-			)
-			SELECT $4, $1, $2, $3, 'queued', $5, NULL, 0, 0, NULL
-			FROM queued_count
-			WHERE total < $6
-			RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
-		)
-		SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
-		FROM inserted`,
+		`SELECT COUNT(*)
+		FROM scans
+		WHERE tenant_id = $1
+		  AND workspace_id = $2
+		  AND provider = $3
+		  AND status = 'queued'`,
 		scope.TenantID,
 		scope.WorkspaceID,
-		strings.TrimSpace(provider),
+		normalizedProvider,
+	).Scan(&queued); err != nil {
+		return ScanRecord{}, fmt.Errorf("count queued scans: %w", err)
+	}
+	if queued >= maxPending {
+		return ScanRecord{}, ErrQueueLimitReached
+	}
+
+	row := tx.QueryRowContext(
+		ctx,
+		`INSERT INTO scans (
+			id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
+		)
+		VALUES ($1, $2, $3, $4, 'queued', $5, NULL, 0, 0, NULL)
+		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')`,
 		uuid.NewString(),
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedProvider,
 		queuedAt.UTC(),
-		maxPending,
 	)
 	record, err := scanScanRecord(row)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ScanRecord{}, ErrQueueLimitReached
-		}
-		return ScanRecord{}, fmt.Errorf("create queued scan with limit: %w", err)
+		return ScanRecord{}, fmt.Errorf("insert queued scan: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ScanRecord{}, fmt.Errorf("commit queued scan transaction: %w", err)
 	}
 	return record, nil
 }

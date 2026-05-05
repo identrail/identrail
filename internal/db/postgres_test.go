@@ -697,11 +697,19 @@ func TestPostgresStoreCreateQueuedScanWithinLimit(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
 
+	mock.ExpectBegin()
+	mock.ExpectExec("SELECT pg_advisory_xact_lock").
+		WithArgs("scan-queue:default:default:aws").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\)").
+		WithArgs("default", "default", "aws").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	successRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"}).
 		AddRow("scan-1", "default", "default", "aws", "queued", now, nil, 0, 0, "")
-	mock.ExpectQuery("WITH queued_count AS").
-		WithArgs("default", "default", "aws", sqlmock.AnyArg(), sqlmock.AnyArg(), 1).
+	mock.ExpectQuery("INSERT INTO scans").
+		WithArgs(sqlmock.AnyArg(), "default", "default", "aws", sqlmock.AnyArg()).
 		WillReturnRows(successRows)
+	mock.ExpectCommit()
 
 	queued, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now, 1)
 	if err != nil {
@@ -711,10 +719,14 @@ func TestPostgresStoreCreateQueuedScanWithinLimit(t *testing.T) {
 		t.Fatalf("unexpected queued scan result %+v", queued)
 	}
 
-	emptyRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"})
-	mock.ExpectQuery("WITH queued_count AS").
-		WithArgs("default", "default", "aws", sqlmock.AnyArg(), sqlmock.AnyArg(), 1).
-		WillReturnRows(emptyRows)
+	mock.ExpectBegin()
+	mock.ExpectExec("SELECT pg_advisory_xact_lock").
+		WithArgs("scan-queue:default:default:aws").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\)").
+		WithArgs("default", "default", "aws").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectRollback()
 
 	if _, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
 		t.Fatalf("expected ErrQueueLimitReached, got %v", err)
