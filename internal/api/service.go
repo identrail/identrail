@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -599,6 +600,9 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 	if target == "" {
 		return "", 0, 0, ErrInvalidRepoScanRequest
 	}
+	if repoTargetContainsURLCredentials(target) {
+		return "", 0, 0, ErrInvalidRepoScanRequest
+	}
 	if repoexposure.IsLocalRepositoryTarget(target) {
 		return "", 0, 0, ErrRepoTargetNotAllowed
 	}
@@ -614,6 +618,22 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 		return "", 0, 0, ErrInvalidRepoScanRequest
 	}
 	return target, historyLimit, maxFindings, nil
+}
+
+func repoTargetContainsURLCredentials(target string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(target))
+	if err != nil || parsed == nil || parsed.User == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
+	case "http", "https":
+		return true
+	case "ssh":
+		_, hasPassword := parsed.User.Password()
+		return hasPassword
+	default:
+		return false
+	}
 }
 
 func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RunRepoScanResult, error) {
