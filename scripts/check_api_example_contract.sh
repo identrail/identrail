@@ -67,7 +67,7 @@ awk '
 	' "${openapi_file}"
 } | sort -u >"${contract_query_file}"
 
-git grep -nI -E '(curl|(^|[`( ])(GET|POST|PUT|PATCH|DELETE)[[:space:]]+/|https?://[^ ]+/(v1/|healthz|readyz|metrics|webhooks/github))' -- "${search_roots[@]}" \
+git grep -nI -E '(curl|(^|[`( ])(GET|POST|PUT|PATCH|DELETE)[[:space:]]+/|(^|[`( ])/(v1/|healthz|readyz|metrics|webhooks/github)|https?://[^ ]+/(v1/|healthz|readyz|metrics|webhooks/github))' -- "${search_roots[@]}" ":(exclude)${openapi_file}" \
 	>"${tmp_dir}/raw-examples.txt" || true
 
 normalize_path() {
@@ -75,11 +75,19 @@ normalize_path() {
 	local token=""
 	local replacement=""
 	path="${path%%[\?#]*}"
+	while [[ "${path}" =~ \$\{encodeURIComponent\(([A-Za-z0-9_]+)\)\} ]]; do
+		token="${BASH_REMATCH[1]}"
+		replacement="{${token}}"
+		path="${path/${BASH_REMATCH[0]}/${replacement}}"
+	done
 	while [[ "${path}" =~ \$\{([A-Za-z0-9_]+)\} ]]; do
 		token="${BASH_REMATCH[1],,}"
 		replacement="{${token}}"
 		path="${path/${BASH_REMATCH[0]}/${replacement}}"
 	done
+	if [[ "${path}" == *'${'* ]]; then
+		path="${path%%\$\{*}"
+	fi
 	while [[ "${path}" =~ :([A-Za-z0-9_]+) ]]; do
 		token="${BASH_REMATCH[1]}"
 		replacement="{${token}}"
@@ -87,6 +95,17 @@ normalize_path() {
 	done
 	while [[ "${path}" == *[\`\)\],.\"] ]]; do
 		path="${path::-1}"
+	done
+	if [[ "${path}" != "/" ]]; then
+		path="${path%/}"
+	fi
+	printf '%s\n' "${path}"
+}
+
+path_shape() {
+	local path="$1"
+	while [[ "${path}" =~ \{[^}]+\} ]]; do
+		path="${path/${BASH_REMATCH[0]}/{}"
 	done
 	printf '%s\n' "${path}"
 }
@@ -137,17 +156,26 @@ while IFS= read -r raw_line; do
 	fi
 
 	remaining="${text}"
-	while [[ "${remaining}" =~ (GET|POST|PUT|PATCH|DELETE)[[:space:]]+(\/[A-Za-z0-9_\/:{}?=&.-]+) ]]; do
+	while [[ "${remaining}" =~ (GET|POST|PUT|PATCH|DELETE)[[:space:]]+(\/[A-Za-z0-9_\/:{}?=&.$()!-]+) ]]; do
 		emit_example "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${source}"
 		remaining="${remaining#*"${BASH_REMATCH[0]}"}"
+	done
+
+	remaining="${text}"
+	while [[ "${remaining}" =~ (\/(v1\/[A-Za-z0-9_\/:{}?=&.$()!-]+|healthz|readyz|metrics|webhooks/github[A-Za-z0-9_\/:{}?=&.$()!-]*)) ]]; do
+		emit_example "PATH" "${BASH_REMATCH[1]}" "${source}"
+		remaining="${remaining#*"${BASH_REMATCH[1]}"}"
 	done
 done <"${tmp_dir}/raw-examples.txt"
 
 sort -u "${examples_file}" -o "${examples_file}"
 
 declare -A valid_ops=()
+declare -A valid_paths=()
 while IFS=$'\t' read -r method path; do
-	valid_ops["${method} ${path}"]=1
+	shape="$(path_shape "${path}")"
+	valid_ops["${method} ${shape}"]=1
+	valid_paths["${shape}"]=1
 done <"${contract_ops_file}"
 
 declare -A valid_query_params=()
@@ -160,7 +188,14 @@ while IFS=$'\t' read -r method path query source; do
 	if [[ "${query}" == "-" ]]; then
 		query=""
 	fi
-	if [[ -z "${valid_ops["${method} ${path}"]+x}" ]]; then
+	shape="$(path_shape "${path}")"
+	if [[ "${method}" == "PATH" ]]; then
+		if [[ -z "${valid_paths["${shape}"]+x}" ]]; then
+			echo "Unknown API example: ${path} (${source})"
+			fail=1
+			continue
+		fi
+	elif [[ -z "${valid_ops["${method} ${shape}"]+x}" ]]; then
 		echo "Unknown API example: ${method} ${path} (${source})"
 		fail=1
 		continue
