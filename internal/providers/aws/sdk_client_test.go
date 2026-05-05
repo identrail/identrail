@@ -161,6 +161,27 @@ func TestSDKIAMAPICollectPermissionPoliciesError(t *testing.T) {
 	}
 }
 
+func TestNewSDKIAMAPIFromAssumeRoleConstructsAdapter(t *testing.T) {
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	api, err := NewSDKIAMAPIFromAssumeRole(
+		context.Background(),
+		"us-west-2",
+		"",
+		"arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		"external-id",
+		"scan-session",
+	)
+	if err != nil {
+		t.Fatalf("construct assumed role api: %v", err)
+	}
+	if api == nil {
+		t.Fatal("expected assumed-role IAM API")
+	}
+	if _, err := NewSDKIAMAPIFromAssumeRole(context.Background(), "us-west-2", "", "", "", ""); err == nil {
+		t.Fatal("expected empty role arn error")
+	}
+}
+
 func TestDedupePermissionPolicies(t *testing.T) {
 	deduped := dedupePermissionPolicies([]IAMPermissionPolicy{
 		{Name: "a", Document: "{}"},

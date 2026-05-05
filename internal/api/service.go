@@ -50,6 +50,9 @@ type RepoScanExecutor interface {
 // RepoScannerFactory creates a repository scanner with bounded scan parameters.
 type RepoScannerFactory func(historyLimit int, maxFindings int) RepoScanExecutor
 
+// AWSScannerFactory creates a scanner bound to one persisted AWS connector.
+type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
+
 // Service orchestrates scan execution and persistence.
 type Service struct {
 	Store          db.Store
@@ -73,9 +76,14 @@ type Service struct {
 	RepoQueueMaxPending         int
 	RepoScannerFactory          RepoScannerFactory
 	ConnectorSecretManager      *secretstore.Manager
+	KubernetesPreflightFactory  KubernetesConnectorPreflightFactory
+	AWSConnectorValidator       AWSConnectorValidator
+	AWSScannerFactory           AWSScannerFactory
 	githubConnectMu             sync.RWMutex
 	githubConnections           map[string]githubProjectConnection
 	githubConnectStates         map[string]githubConnectState
+	kubernetesConnectMu         sync.RWMutex
+	kubernetesConnections       map[string]kubernetesProjectConnection
 }
 
 // CheckReadiness validates critical runtime dependencies for readiness checks.
@@ -272,6 +280,7 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 		ConnectorSecretManager:      secretstore.NewEphemeralManager(),
 		githubConnections:           make(map[string]githubProjectConnection),
 		githubConnectStates:         make(map[string]githubConnectState),
+		kubernetesConnections:       make(map[string]kubernetesProjectConnection),
 		RepoScannerFactory: func(historyLimit int, maxFindings int) RepoScanExecutor {
 			return repoexposure.NewScanner(
 				nil,
@@ -357,7 +366,14 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 
 func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (RunScanResult, error) {
 	ctx = s.scopeContext(ctx)
-	result, err := s.Scanner.Run(ctx)
+	scanner, err := s.scannerForScan(ctx, record)
+	if err != nil {
+		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while preparing provider connector", map[string]any{"error": err.Error()})
+		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
+		return RunScanResult{}, err
+	}
+	result, err := scanner.Run(ctx)
 	if err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed during collection/analysis", map[string]any{"error": err.Error()})
@@ -427,6 +443,45 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 		FindingCount:     len(result.Findings),
 		PartialSourceRun: len(result.SourceErrors) > 0,
 	}, nil
+}
+
+func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (ScannerRunner, error) {
+	provider := strings.ToLower(strings.TrimSpace(record.Provider))
+	if provider == "" {
+		provider = strings.ToLower(strings.TrimSpace(s.Provider))
+	}
+	if provider != "aws" || s.AWSScannerFactory == nil {
+		return s.Scanner, nil
+	}
+	connection, ok, err := s.activeAWSConnectionForScan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return s.Scanner, nil
+	}
+	scanner, err := s.AWSScannerFactory(ctx, connection)
+	if err != nil {
+		return nil, fmt.Errorf("initialize aws connector scanner: %w", err)
+	}
+	if scanner == nil {
+		return nil, errors.New("aws connector scanner factory returned nil scanner")
+	}
+	return scanner, nil
+}
+
+func (s *Service) activeAWSConnectionForScan(ctx context.Context) (AWSConnectionStatus, bool, error) {
+	items, err := s.Store.ListTenancyConnectors(ctx, "", "", domain.ConnectorTypeAWS, 25)
+	if err != nil {
+		return AWSConnectionStatus{}, false, fmt.Errorf("list aws connectors: %w", err)
+	}
+	for _, item := range items {
+		status := awsConnectionStatusFromStored(item)
+		if status.Connected {
+			return status, true, nil
+		}
+	}
+	return AWSConnectionStatus{}, false, nil
 }
 
 // ListFindings returns persisted findings.

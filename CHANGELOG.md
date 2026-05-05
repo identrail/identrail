@@ -5,6 +5,14 @@
   - encrypted GitHub webhook secrets with versioned AES-256-GCM envelopes instead of retaining plaintext service state
   - added a webhook-secret rotation endpoint with audit events and status metadata for key version, algorithm, and rotation due date
   - documented `IDENTRAIL_CONNECTOR_SECRET_KEYS` and added database envelope schema for durable connector secret storage
+- Added project-scoped Kubernetes onboarding preflight:
+  - new project connection API to validate kubectl context, cluster identity, and scanner-critical RBAC read access
+  - runtime wiring for live kubectl preflight checks before marking Kubernetes connectors active or degraded
+  - documented connection status, permission diagnostics, and remediation fields in `docs/openapi-v1.yaml`
+- Added project-scoped AWS connector onboarding:
+  - new API contract to validate and save one read-only AWS role connection per project
+  - validates `sts:AssumeRole`, ingests caller/account metadata, and checks IAM role listing access before marking a connector active
+  - returns degraded connector state with remediation diagnostics for trust-policy and IAM-permission failures
 - Added project-scoped GitHub onboarding and webhook trigger flow:
   - new tenancy APIs to start/complete GitHub connect state, fetch connection status, and manage selected repositories
   - enforced webhook signature validation (`X-Hub-Signature-256`) before accepting repository trigger events

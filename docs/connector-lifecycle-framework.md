@@ -39,6 +39,18 @@ Connector credential material must be stored as an encrypted envelope, never as 
 - Rotation path: GitHub App webhook secrets can be rotated through `POST /v1/workspaces/{workspace_id}/projects/{project_id}/github/secret/rotate`.
 - Audit: connection completion, repository selection changes, and webhook secret rotation emit action audit events without credential values.
 
+## Kubernetes Onboarding Preflight
+
+Kubernetes connectors use the kubectl-backed preflight driver in `internal/providers/kubernetes`.
+
+The driver validates:
+
+- cluster identity metadata from `kubectl config current-context`, `kubectl config view --minify -o json`, and `kubectl version -o json`
+- read access for `serviceaccounts`, `rolebindings`, `clusterrolebindings`, `roles`, `clusterroles`, and `pods`
+- actionable RBAC diagnostics when any required permission is missing
+
+Healthy preflight moves a pending Kubernetes connector to `active`. Missing RBAC permissions produce `error` health and a degraded connector state with remediation text that tells operators which read permission to grant. Metadata-only failures produce `warning` health so automation can distinguish incomplete cluster identity evidence from unsafe scan permissions.
+
 ## Lifecycle Semantics
 
 - `TestConnection`

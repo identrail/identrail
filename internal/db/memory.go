@@ -38,6 +38,8 @@ type MemoryStore struct {
 	workspaces    map[string]TenancyWorkspace
 	members       map[string]TenancyWorkspaceMember
 	projects      map[string]TenancyProject
+	connectors    map[string]TenancyConnector
+	connStates    map[string]TenancyConnectorState
 	identities    map[string]domain.Identity
 	policies      map[string]domain.Policy
 	relationships map[string]domain.Relationship
@@ -69,6 +71,8 @@ func NewMemoryStore() *MemoryStore {
 		workspaces:    map[string]TenancyWorkspace{},
 		members:       map[string]TenancyWorkspaceMember{},
 		projects:      map[string]TenancyProject{},
+		connectors:    map[string]TenancyConnector{},
+		connStates:    map[string]TenancyConnectorState{},
 		identities:    map[string]domain.Identity{},
 		policies:      map[string]domain.Policy{},
 		relationships: map[string]domain.Relationship{},

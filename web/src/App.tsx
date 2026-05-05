@@ -3,6 +3,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } 
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
+import { CommandCenterSection } from './components/home/CommandCenterSection';
 import { ProblemFramingSection } from './components/home/ProblemFramingSection';
 import { RiskInsightSection } from './components/home/RiskInsightSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
@@ -970,10 +971,9 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
                 <g key={edge.id} className={edgeClass}>
                   <path className="idt-demo-edge-base" d={path} stroke={`url(#idt-demo-edge-base-gradient-${variant})`} />
                   <path
-                    className="idt-demo-edge-flow"
+                    className={`idt-demo-edge-flow idt-demo-edge-delay-${index}`}
                     d={path}
                     stroke={`url(#idt-demo-edge-flow-gradient-${variant})`}
-                    style={{ animationDelay: `${index * 0.35}s` }}
                   />
                   <circle className="idt-demo-edge-end" cx={toNode.x} cy={toNode.y} r={isConnected ? 0.72 : 0.56} />
                 </g>
@@ -984,9 +984,8 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
             <button
               key={node.id}
               type="button"
-              className={`idt-demo-node idt-demo-node-${node.type.toLowerCase()} ${selected.id === node.id ? 'is-active' : ''}`}
+              className={`idt-demo-node idt-demo-node-${node.type.toLowerCase()} idt-demo-node-${node.id} ${selected.id === node.id ? 'is-active' : ''}`}
               onClick={() => setSelectedId(node.id)}
-              style={{ left: `${node.x}%`, top: `${node.y}%` }}
             >
               <small>{node.type}</small>
               <span>{node.title}</span>
@@ -1353,9 +1352,9 @@ function FaqPage() {
 
 function HomePage() {
   const seo: SeoConfig = {
-    title: 'Machine Identity Security | AWS IAM Trust Path Analysis | Identrail',
+    title: 'Machine Identity Trust Graph | AWS IAM, Kubernetes, OIDC | Identrail',
     description:
-      'Identrail delivers machine identity security with AWS IAM trust path analysis, Kubernetes service account risk detection, OIDC security visibility, and cloud identity blast radius reduction.',
+      'Identrail is the trust graph for machine identity security across AWS IAM, Kubernetes, GitHub/OIDC, and repository exposure signals with read-only evidence and safe remediation.',
     path: '/',
     keywords:
       'machine identity security, AWS IAM trust path analysis, Kubernetes service account risk, OIDC security, cloud identity blast radius reduction, GitHub trust path risk',
@@ -1368,10 +1367,11 @@ function HomePage() {
       <section className="idt-hero">
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
-            <p className="idt-eyebrow">Machine identity security</p>
-            <h1>Identify risky machine trust paths before they become incidents.</h1>
+            <p className="idt-eyebrow">Machine identity trust graph</p>
+            <h1>The control room for every machine identity path.</h1>
             <p className="idt-lead">
-              Trace how AWS IAM roles, Kubernetes service accounts, and GitHub/OIDC identities reach sensitive resources. Start read-only, inspect evidence, then roll out safer access with confidence.
+              Identrail maps how AWS IAM roles, Kubernetes service accounts, GitHub workflows, and OIDC claims reach
+              sensitive resources, then turns the evidence into safe, owner-ready remediation.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
@@ -1381,6 +1381,20 @@ function HomePage() {
                 Book Demo
               </Link>
             </div>
+            <dl className="idt-hero-metrics" aria-label="Product assurances">
+              <div>
+                <dt>Collection</dt>
+                <dd>Read-only by default</dd>
+              </div>
+              <div>
+                <dt>Coverage</dt>
+                <dd>AWS, K8s, GitHub, OIDC</dd>
+              </div>
+              <div>
+                <dt>Output</dt>
+                <dd>Evidence and first fix</dd>
+              </div>
+            </dl>
             <ul className="idt-hero-trust-cues" aria-label="Evaluation trust cues">
               <li>Open-core under Apache-2.0</li>
               <li>Read-only onboarding model</li>
@@ -1395,6 +1409,8 @@ function HomePage() {
       <TrustProofStrip />
 
       <ProblemFramingSection />
+
+      <CommandCenterSection />
 
       <section className="idt-section idt-section-tight idt-shell">
         <LeadCaptureForm

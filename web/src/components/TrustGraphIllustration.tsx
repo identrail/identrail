@@ -61,8 +61,7 @@ export function TrustGraphIllustration({ className, label }: TrustGraphIllustrat
       {nodes.map((node) => (
         <span
           key={node.id}
-          className={`trust-node ${node.tone}`}
-          style={{ left: `${node.x}%`, top: `${node.y}%` }}
+          className={`trust-node ${node.tone} trust-node-${node.id}`}
         >
           <span>{node.label}</span>
         </span>

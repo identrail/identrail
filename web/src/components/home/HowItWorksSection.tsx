@@ -1,21 +1,25 @@
 const WORKFLOW_STEPS = [
   {
-    title: '1. Discover trust relationships',
+    stage: 'Discover',
+    title: 'Build the trust graph',
     description: 'Collect AWS IAM, Kubernetes, GitHub, and OIDC identity metadata in read-only mode.',
     output: 'Output: identity graph snapshot with source evidence links'
   },
   {
-    title: '2. Prioritize reachable risk paths',
+    stage: 'Prioritize',
+    title: 'Rank reachable risk paths',
     description: 'Score findings by severity, privilege depth, and production blast-radius potential.',
     output: 'Output: ranked findings queue with owner-ready context'
   },
   {
-    title: '3. Simulate policy hardening',
+    stage: 'Simulate',
+    title: 'Preview hardening safely',
     description: 'Preview trust-policy changes and estimate affected workloads before enforcement.',
     output: 'Output: remediation plan with expected impact summary'
   },
   {
-    title: '4. Roll out with safety controls',
+    stage: 'Operate',
+    title: 'Roll out with controls',
     description: 'Deploy in stages with rollback options and track resolution outcomes.',
     output: 'Output: audit-ready remediation timeline and status history'
   }
@@ -31,8 +35,11 @@ export function HowItWorksSection() {
       </div>
 
       <ol className="idt-steps idt-workflow-track">
-        {WORKFLOW_STEPS.map((step) => (
+        {WORKFLOW_STEPS.map((step, index) => (
           <li key={step.title}>
+            <span className="idt-workflow-stage">
+              {String(index + 1).padStart(2, '0')} / {step.stage}
+            </span>
             <h3>{step.title}</h3>
             <p>{step.description}</p>
             <p className="idt-workflow-output">{step.output}</p>

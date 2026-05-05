@@ -193,6 +193,37 @@ func TestBuildScanServiceKubernetesKubectlMode(t *testing.T) {
 	}
 }
 
+func TestBuildScanServiceWiresKubernetesPreflightFactory(t *testing.T) {
+	cfg := config.Config{
+		Provider: "kubernetes",
+		KubernetesFixturePath: []string{
+			repoFixturePathForProvider(t, "kubernetes", "service_account_payments.json"),
+			repoFixturePathForProvider(t, "kubernetes", "role_binding_cluster_admin.json"),
+			repoFixturePathForProvider(t, "kubernetes", "pod_payments.json"),
+		},
+		KubectlPath: "/path/does/not/exist/kubectl",
+		KubeContext: "prod-default",
+	}
+
+	svc, closeFn, err := BuildScanService(cfg)
+	if err != nil {
+		t.Fatalf("build service failed: %v", err)
+	}
+	defer func() { _ = closeFn() }()
+	if svc.KubernetesPreflightFactory == nil {
+		t.Fatal("expected kubernetes preflight factory to be wired")
+	}
+
+	defaultResult := svc.KubernetesPreflightFactory("").Preflight(context.Background())
+	if defaultResult.Cluster.Context != "prod-default" {
+		t.Fatalf("expected default kube context to reach preflight driver, got %q", defaultResult.Cluster.Context)
+	}
+	requestedResult := svc.KubernetesPreflightFactory("prod-request").Preflight(context.Background())
+	if requestedResult.Cluster.Context != "prod-request" {
+		t.Fatalf("expected request kube context to override default, got %q", requestedResult.Cluster.Context)
+	}
+}
+
 func TestNewStoreMemoryAndInvalidPostgres(t *testing.T) {
 	store, err := NewStore("")
 	if err != nil {

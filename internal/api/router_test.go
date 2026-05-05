@@ -1759,6 +1759,8 @@ func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
 		{http.MethodPost, "/v1/workspaces/ws-1/projects"},
 		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1"},
 		{http.MethodDelete, "/v1/workspaces/ws-1/projects/p-1"},
+		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/aws/connection"},
+		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/aws/connection"},
 		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/github/connect/start"},
 		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/github/connect/complete"},
 		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/github/connection"},

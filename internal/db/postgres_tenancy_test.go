@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 )
 
 func TestPostgresStoreUpsertAndGetOrganizationScoped(t *testing.T) {
@@ -54,6 +55,137 @@ func TestPostgresStoreUpsertAndGetOrganizationScoped(t *testing.T) {
 		t.Fatalf("unexpected organization: %+v", organization)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreUpsertAndGetTenancyConnector(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Now().UTC()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO tenancy_connectors").
+		WithArgs(
+			"tenant-a",
+			"workspace-a",
+			"project-1",
+			"aws-123456789012",
+			"aws",
+			"Production AWS",
+			"active",
+			"",
+			"",
+			"",
+			nil,
+			"",
+			nil,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO tenancy_connector_states").
+		WithArgs(
+			"tenant-a",
+			"workspace-a",
+			"project-1",
+			"aws-123456789012",
+			"healthy",
+			"",
+			nil,
+			"",
+			"",
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-123456789012",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "aws-123456789012",
+		HealthStatus: "healthy",
+		Metadata: map[string]any{
+			"role_arn": "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		},
+	}); err != nil {
+		t.Fatalf("upsert connector: %v", err)
+	}
+
+	rows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
+		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
+		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
+	}).AddRow(
+		"tenant-a", "workspace-a", "project-1", "aws-123456789012", "aws", "Production AWS", "active",
+		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
+		[]byte(`{"role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly"}`),
+		now, now,
+	)
+	mock.ExpectQuery(`(?s)SELECT.*FROM tenancy_connectors.*c\.connector_id = \$4.*LIMIT \$5`).
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-123456789012", 1).
+		WillReturnRows(rows)
+
+	connector, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-123456789012")
+	if err != nil {
+		t.Fatalf("get connector: %v", err)
+	}
+	if connector.Connector.Type != domain.ConnectorTypeAWS || connector.State.HealthStatus != "healthy" {
+		t.Fatalf("unexpected connector: %+v", connector)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListTenancyConnectors(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
+		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
+		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
+	}).AddRow(
+		"tenant-a", "workspace-a", "project-1", "aws-123456789012", "aws", "Production AWS", "active",
+		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
+		[]byte(`{"region":"us-west-2"}`), now, now,
+	)
+	mock.ExpectQuery(`(?s)SELECT.*FROM tenancy_connectors.*c\.type = \$3.*LIMIT \$4`).
+		WithArgs("tenant-a", "workspace-a", "aws", 10).
+		WillReturnRows(rows)
+
+	connectors, err := store.ListTenancyConnectors(ctx, "workspace-a", "", domain.ConnectorTypeAWS, 10)
+	if err != nil {
+		t.Fatalf("list connectors: %v", err)
+	}
+	if len(connectors) != 1 || connectors[0].Connector.ConnectorID != "aws-123456789012" {
+		t.Fatalf("unexpected connectors: %+v", connectors)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
