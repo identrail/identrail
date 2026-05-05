@@ -30,7 +30,7 @@ jobs:
           fail-on-low: 'false'
 
       - name: Sync trust labels
-        uses: actions/github-script@v9
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
         env:
           TRUST_LEVEL: ${{ steps.egg.outputs.trust-level }}
         with:
