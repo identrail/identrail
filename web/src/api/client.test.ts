@@ -195,4 +195,42 @@ describe('apiClient', () => {
     expect(url).toContain('/v1/workspaces/workspace-a/members/member-a');
     expect(options.method).toBe('DELETE');
   });
+
+  it('posts project source connector payloads with scoped headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ connection: { provider: 'aws', connected: true } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.upsertAWSProjectConnection(
+      'workspace/a',
+      'project 1',
+      {
+        role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+        external_id: 'external-prod',
+        region: 'us-east-1'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace%2Fa/projects/project%201/aws/connection');
+    expect(options.method).toBe('POST');
+    expect(options.body).toBe(
+      JSON.stringify({
+        role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+        external_id: 'external-prod',
+        region: 'us-east-1'
+      })
+    );
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
 });
