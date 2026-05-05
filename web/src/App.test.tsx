@@ -47,6 +47,7 @@ describe('App', () => {
     window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
     vi.unstubAllEnvs();
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -202,6 +203,37 @@ describe('App', () => {
 
     const selectProjectLink = await screen.findByRole('link', { name: /Select project/i });
     expect(selectProjectLink).toHaveAttribute('href', '/app/tenant-a/workspace-a/projects');
+  });
+
+  it('rejects persisted manual workspace sessions in production builds', async () => {
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    window.sessionStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'manual'
+      })
+    );
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
+  });
+
+  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Project detail/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Project project-1 placeholder/i)).toBeInTheDocument();
   });
 
   it('lists workspace projects and links them to concrete source onboarding routes', async () => {
