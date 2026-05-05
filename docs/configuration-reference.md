@@ -33,6 +33,7 @@ This page is the canonical runtime configuration surface for API and worker proc
 Notes:
 - `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
 - OIDC bearer auth enforces issuer/audience plus token validity (`exp`) via provider verification.
+- Use either scoped API keys (`IDENTRAIL_API_KEY_SCOPES`) or legacy key lists (`IDENTRAIL_API_KEYS` plus `IDENTRAIL_WRITE_API_KEYS`). Scoped keys take precedence when both are set; overlap should be limited to planned migrations.
 
 ## Provider Collection
 
