@@ -1267,6 +1267,10 @@ paths:
                     $ref: "#/components/schemas/ScanRecord"
         "409":
           description: Scan already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: Scan queue is full
   /v1/scans/{scan_id}/diff:
