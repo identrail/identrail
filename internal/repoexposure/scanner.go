@@ -28,7 +28,7 @@ const (
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
-var gitSCPTargetPattern = regexp.MustCompile(`^[^@\s]+@([^:\s]+):.+$`)
+var gitSCPTargetPattern = regexp.MustCompile(`^(?:[^@\s]+@)?([^:/\s]+):.+$`)
 
 // CommandRunner executes git commands. It is injectable for deterministic tests.
 type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -496,11 +496,11 @@ func validateRepositoryHost(host string) error {
 	if normalizedHost == "" {
 		return fmt.Errorf("repository target host is required")
 	}
-	lowerHost := strings.ToLower(normalizedHost)
+	lowerHost := strings.TrimSuffix(strings.ToLower(normalizedHost), ".")
 	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
 		return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 	}
-	if ip := net.ParseIP(normalizedHost); ip != nil {
+	if ip := net.ParseIP(lowerHost); ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
 			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 		}
