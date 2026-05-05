@@ -80,6 +80,7 @@ type Config struct {
 	APIKeys                     []string
 	WriteAPIKeys                []string
 	APIKeyScopes                map[string][]string
+	apiKeyScopesError           string
 	RateLimitRPM                int
 	RateLimitBurst              int
 	RunMigrations               bool
@@ -148,6 +149,7 @@ type Config struct {
 func Load() Config {
 	requireLiveSourcesRaw := getEnv("IDENTRAIL_REQUIRE_LIVE_SOURCES", "false")
 	requireLiveSources, requireLiveSourcesInvalid := parseBoolWithValidity(requireLiveSourcesRaw, false)
+	apiKeyScopes, apiKeyScopesError := parseKeyScopes(getEnv("IDENTRAIL_API_KEY_SCOPES", ""))
 
 	return Config{
 		HTTPAddr:                    getEnv("IDENTRAIL_HTTP_ADDR", defaultHTTPAddr),
@@ -173,7 +175,8 @@ func Load() Config {
 		WorkerRunNow:                parseBool(getEnv("IDENTRAIL_WORKER_RUN_NOW", "true"), true),
 		APIKeys:                     parseCommaSeparated(getEnv("IDENTRAIL_API_KEYS", "")),
 		WriteAPIKeys:                parseCommaSeparated(getEnv("IDENTRAIL_WRITE_API_KEYS", "")),
-		APIKeyScopes:                parseKeyScopes(getEnv("IDENTRAIL_API_KEY_SCOPES", "")),
+		APIKeyScopes:                apiKeyScopes,
+		apiKeyScopesError:           apiKeyScopesError,
 		RateLimitRPM:                parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
 		RateLimitBurst:              parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
 		RunMigrations:               parseBool(getEnv("IDENTRAIL_RUN_MIGRATIONS", "true"), true),
@@ -301,26 +304,29 @@ func parseIntAllowZero(value string, fallback int) int {
 	return parsed
 }
 
-func parseKeyScopes(value string) map[string][]string {
+func parseKeyScopes(value string) (map[string][]string, string) {
 	result := map[string][]string{}
-	for _, entry := range strings.Split(value, ";") {
+	for index, entry := range strings.Split(value, ";") {
 		trimmed := strings.TrimSpace(entry)
 		if trimmed == "" {
 			continue
 		}
 		parts := strings.SplitN(trimmed, ":", 2)
 		if len(parts) != 2 {
-			continue
+			return result, "entry " + strconv.Itoa(index+1) + " must use key:scope1,scope2 format"
 		}
 		key := strings.TrimSpace(parts[0])
 		if key == "" {
-			continue
+			return result, "entry " + strconv.Itoa(index+1) + " has an empty key"
 		}
 		scopes := parseCommaSeparated(parts[1])
 		if len(scopes) == 0 {
-			continue
+			return result, "entry " + strconv.Itoa(index+1) + " has no scopes"
+		}
+		if _, exists := result[key]; exists {
+			return result, "entry " + strconv.Itoa(index+1) + " duplicates a key"
 		}
 		result[key] = scopes
 	}
-	return result
+	return result, ""
 }

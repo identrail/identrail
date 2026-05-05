@@ -18,7 +18,7 @@ This page is the canonical runtime configuration surface for API and worker proc
 
 - `IDENTRAIL_API_KEYS`
 - `IDENTRAIL_WRITE_API_KEYS`
-- `IDENTRAIL_API_KEY_SCOPES` (takes precedence over legacy key lists)
+- `IDENTRAIL_API_KEY_SCOPES` (takes precedence over legacy key lists; semicolon-separated `key:scope1,scope2` entries)
 - `IDENTRAIL_OIDC_ISSUER_URL`
 - `IDENTRAIL_OIDC_AUDIENCE`
 - `IDENTRAIL_OIDC_WRITE_SCOPES`
@@ -34,6 +34,7 @@ Notes:
 - `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
 - OIDC bearer auth enforces issuer/audience plus token validity (`exp`) via provider verification.
 - Use either scoped API keys (`IDENTRAIL_API_KEY_SCOPES`) or legacy key lists (`IDENTRAIL_API_KEYS` plus `IDENTRAIL_WRITE_API_KEYS`). Scoped keys take precedence when both are set; overlap should be limited to planned migrations.
+- Malformed `IDENTRAIL_API_KEY_SCOPES` entries are startup errors. Do not include bare keys, empty keys, empty scope lists, or duplicate key entries.
 
 ## Provider Collection
 

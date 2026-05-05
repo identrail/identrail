@@ -238,6 +238,15 @@ func TestValidateSecurityRejectsInvalidScopedKeyScope(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsMalformedAPIKeyScopesEnv(t *testing.T) {
+	cfg := Config{
+		apiKeyScopesError: "entry 1 must use key:scope1,scope2 format",
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_API_KEY_SCOPES") {
+		t.Fatalf("expected malformed api key scopes error, got %v", err)
+	}
+}
+
 func TestValidateSecurityRejectsInvalidDefaultTenantID(t *testing.T) {
 	cfg := Config{
 		APIKeys:         []string{"reader", "writer"},

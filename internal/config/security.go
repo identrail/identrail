@@ -184,6 +184,9 @@ func ValidateSecurity(cfg Config) error {
 		}
 	}
 
+	if cfg.apiKeyScopesError != "" {
+		return fmt.Errorf("invalid IDENTRAIL_API_KEY_SCOPES: %s", cfg.apiKeyScopesError)
+	}
 	if len(cfg.APIKeyScopes) > 0 {
 		for key, scopes := range cfg.APIKeyScopes {
 			trimmedKey := strings.TrimSpace(key)
