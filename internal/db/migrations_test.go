@@ -368,14 +368,49 @@ func TestFifteenthMigrationContainsTenancyConnectorRLSGuardrails(t *testing.T) {
 	required := []string{
 		"CREATE OR REPLACE FUNCTION identrail_rls_tenant_matches",
 		"ALTER TABLE tenancy_organizations ENABLE ROW LEVEL SECURITY",
-		"CREATE POLICY tenancy_organizations_scope_isolation",
+		"ALTER TABLE tenancy_workspaces ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_workspace_members ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_projects ENABLE ROW LEVEL SECURITY",
 		"ALTER TABLE tenancy_connectors ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_connector_states ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_scan_policies ENABLE ROW LEVEL SECURITY",
+		"CREATE POLICY tenancy_organizations_scope_isolation",
 		"CREATE POLICY tenancy_connector_states_scope_isolation",
+		"CREATE POLICY tenancy_scan_policies_scope_isolation",
 		"CREATE POLICY tenancy_connector_secret_envelopes_scope_isolation",
 	}
 	for _, item := range required {
 		if !strings.Contains(text, item) {
 			t.Fatalf("expected tenancy rls migration item %q", item)
+		}
+	}
+}
+
+func TestFifteenthMigrationEnforcesRLSForTenancyAndConnectorTables(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "000015_tenancy_connector_rls_scope_enforcement.up.sql")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	required := []string{
+		"CREATE OR REPLACE FUNCTION identrail_rls_tenant_matches",
+		"ALTER TABLE tenancy_organizations ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_workspaces ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_workspace_members ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_projects ENABLE ROW LEVEL SECURITY",
+		"CREATE POLICY tenancy_organizations_scope_isolation",
+		"ALTER TABLE tenancy_connectors ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_connector_states ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_scan_policies ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE tenancy_connector_secret_envelopes ENABLE ROW LEVEL SECURITY",
+		"CREATE POLICY tenancy_connector_states_scope_isolation",
+		"CREATE POLICY tenancy_scan_policies_scope_isolation",
+		"CREATE POLICY tenancy_connector_secret_envelopes_scope_isolation",
+	}
+	for _, item := range required {
+		if !strings.Contains(text, item) {
+			t.Fatalf("expected tenancy/connector RLS migration item %q", item)
 		}
 	}
 }

@@ -588,6 +588,9 @@ func SecurityWarnings(cfg Config) []string {
 	if len(cfg.APIKeyScopes) > 0 && len(cfg.APIKeyScopeBindings) == 0 {
 		warnings = append(warnings, "scoped API keys are not tenant/workspace bound; set IDENTRAIL_API_KEY_SCOPE_BINDINGS to enforce scope isolation")
 	}
+	if !cfg.PostgresRLSEnforced {
+		warnings = append(warnings, "postgres row-level scope enforcement is disabled; set IDENTRAIL_POSTGRES_RLS_ENFORCED=true for deployment environments")
+	}
 	if strings.TrimSpace(cfg.AuditLogFile) == "" {
 		warnings = append(warnings, "audit file sink is disabled; configure IDENTRAIL_AUDIT_LOG_FILE for durable local audit records")
 	}

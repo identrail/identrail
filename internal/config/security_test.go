@@ -770,6 +770,25 @@ func TestSecurityWarningsShortAPIKey(t *testing.T) {
 	}
 }
 
+func TestSecurityWarningsPostgresRLSEnforcementDisabled(t *testing.T) {
+	cfg := Config{
+		APIKeys:             []string{"reader-key-12345678901234567890"},
+		WriteAPIKeys:        []string{"reader-key-12345678901234567890"},
+		PostgresRLSEnforced: false,
+	}
+	warnings := SecurityWarnings(cfg)
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "row-level scope enforcement is disabled") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected postgres rls warning, got %+v", warnings)
+	}
+}
+
 func TestValidateSecurityAppModeRolloutRequiresToggle(t *testing.T) {
 	cfg := Config{
 		APIKeys:              []string{"reader"},
