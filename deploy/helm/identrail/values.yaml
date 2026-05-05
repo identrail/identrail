@@ -6,7 +6,7 @@ imagePullSecrets: []
 api:
   replicaCount: 1
   image:
-    repository: identrail/api
+    repository: ghcr.io/identrail/identrail-api
     tag: latest
     pullPolicy: IfNotPresent
   podSecurityContext:
@@ -25,7 +25,7 @@ api:
 worker:
   replicaCount: 1
   image:
-    repository: identrail/worker
+    repository: ghcr.io/identrail/identrail-worker
     tag: latest
     pullPolicy: IfNotPresent
   podSecurityContext:
@@ -47,7 +47,7 @@ web:
   enabled: false
   replicaCount: 1
   image:
-    repository: identrail/web
+    repository: ghcr.io/identrail/identrail-web
     tag: latest
     pullPolicy: IfNotPresent
   service:
