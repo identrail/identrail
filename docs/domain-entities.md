@@ -76,6 +76,9 @@ This document defines the normalized multi-tenant app-mode entities introduced f
 - Connector and policy tables:
   - `tenancy_connectors`
   - `tenancy_connector_states`
+  - `tenancy_connector_secret_envelopes`
   - `tenancy_scan_policies`
+
+Connector credential material is stored only in encrypted envelope rows (`tenancy_connector_secret_envelopes`), never as plaintext in connector state records.
 
 Referential integrity is enforced in migrations so connector/policy rows cannot outlive their workspace/project scope.
