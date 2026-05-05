@@ -47,7 +47,7 @@ describe('App', () => {
     expect(screen.getAllByRole('link', { name: 'Book Demo' }).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('tab', { name: 'Graph' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { level: 2, name: /From connector setup to board-ready risk evidence/i })).toBeInTheDocument();
   });
 
   it('renders pricing page routes and key elements', () => {
