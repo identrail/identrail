@@ -22,6 +22,7 @@ Edit `deploy/docker/.env` and set at minimum:
   - `IDENTRAIL_API_KEY_SCOPES=<reader-key>:read;<writer-key>:read,write;<admin-key>:read,write,admin`
 - `IDENTRAIL_AUDIT_LOG_FILE=/tmp/identrail-audit.jsonl`
 - `IDENTRAIL_CONNECTOR_SECRET_KEYS=v1:<base64-32-byte-key>` and `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true` for durable connector credential storage
+- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET=<strong-secret>` for keyed audit pseudonymization
 
 Optional hardening:
 - `IDENTRAIL_AUDIT_FORWARD_URL=https://audit.example.com/events`

@@ -54,6 +54,8 @@ Portable deployment profiles:
   - `IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES`
   - `IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF`
   - optional `IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET`
+- Confirm audit pseudonymization uses a keyed fingerprint:
+  - `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
 - If worker repo scans are enabled, confirm:
   - `IDENTRAIL_WORKER_REPO_SCAN_ENABLED=true`
   - `IDENTRAIL_WORKER_REPO_SCAN_TARGETS` has intended repositories
