@@ -150,6 +150,113 @@ func TestMemoryStoreScanDetails(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListFindingsFiltered(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+
+	scanA, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+
+	if err := store.UpsertFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: "finding-a", ScanID: scanA.ID, Type: domain.FindingRiskyTrustPolicy, Severity: domain.SeverityLow, Title: "Zulu", CreatedAt: now.Add(1 * time.Minute)},
+		{ID: "finding-b", ScanID: scanA.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityCritical, Title: "Alpha", CreatedAt: now.Add(2 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert findings scan A: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: "finding-c", ScanID: scanB.ID, Type: domain.FindingSecretExposure, Severity: domain.SeverityCritical, Title: "Bravo", CreatedAt: now.Add(3 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert findings scan B: %v", err)
+	}
+
+	if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
+		FindingID: "finding-b",
+		Status:    domain.FindingLifecycleAck,
+		Assignee:  "secops",
+		UpdatedAt: now.Add(4 * time.Minute),
+		UpdatedBy: "subject:user-1",
+	}); err != nil {
+		t.Fatalf("upsert triage state: %v", err)
+	}
+
+	items, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		Severity:        "critical",
+		LifecycleStatus: "ack",
+		Assignee:        "secops",
+		SortBy:          "title",
+		Limit:           10,
+		Now:             now.Add(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("list filtered findings: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "finding-b" {
+		t.Fatalf("unexpected filtered findings: %+v", items)
+	}
+
+	paged, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		SortBy:   "created_at",
+		SortDesc: true,
+		Offset:   1,
+		Limit:    1,
+		Now:      now.Add(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("list paged findings: %v", err)
+	}
+	if len(paged) != 2 || paged[0].ID != "finding-b" {
+		t.Fatalf("expected offset page to start with finding-b, got %+v", paged)
+	}
+
+	if _, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		ScanID: "missing-scan",
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing scan error, got %v", err)
+	}
+}
+
+func TestFindingSortHelpers(t *testing.T) {
+	items := []domain.Finding{
+		{ID: "b", ScanID: "scan-2", Title: "Bravo", Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: time.Date(2026, 3, 16, 12, 2, 0, 0, time.UTC)},
+		{ID: "a", ScanID: "scan-1", Title: "Alpha", Type: domain.FindingSecretExposure, Severity: domain.SeverityCritical, CreatedAt: time.Date(2026, 3, 16, 12, 1, 0, 0, time.UTC)},
+		{ID: "c", ScanID: "scan-3", Title: "Charlie", Type: domain.FindingRiskyTrustPolicy, Severity: domain.SeverityMedium, CreatedAt: time.Date(2026, 3, 16, 12, 3, 0, 0, time.UTC)},
+	}
+
+	sortFilteredFindings(items, "severity", true)
+	if items[0].ID != "a" {
+		t.Fatalf("expected critical finding first, got %+v", items)
+	}
+
+	sortFilteredFindings(items, "type", false)
+	if items[0].ID != "b" {
+		t.Fatalf("expected ownerless finding first by type, got %+v", items)
+	}
+
+	sortFilteredFindings(items, "title", false)
+	if items[0].ID != "a" {
+		t.Fatalf("expected alpha title first, got %+v", items)
+	}
+
+	if got := compareFindingInts(1, 2); got >= 0 {
+		t.Fatalf("expected compareFindingInts to order 1 before 2, got %d", got)
+	}
+	if got := compareFindingStrings("a", "b"); got >= 0 {
+		t.Fatalf("expected compareFindingStrings to order a before b, got %d", got)
+	}
+	if got := compareFindingTimes(items[0].CreatedAt, items[1].CreatedAt); got >= 0 {
+		t.Fatalf("expected compareFindingTimes to order earlier timestamp first, got %d", got)
+	}
+	if got := findingSeverityOrder(domain.SeverityInfo); got != 1 {
+		t.Fatalf("expected info severity order 1, got %d", got)
+	}
+}
+
 func TestMemoryStoreIdentityAndRelationshipFilters(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

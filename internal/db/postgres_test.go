@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,6 +219,76 @@ func TestPostgresStoreListFindingsFiltered(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListFindingsFilteredByScanAndLifecycle(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM scans
+			WHERE id = $1
+			  AND tenant_id = $2
+			  AND workspace_id = $3
+		)`)).
+		WithArgs("scan-1", "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	rows := sqlmock.NewRows([]string{
+		"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at",
+		"triage_status", "assignee", "suppression_expires_at", "updated_at", "updated_by",
+	}).AddRow(
+		"scan-1", "finding-2", "secret_exposure", "high", "Secret", "summary", []byte("null"), []byte("null"), "", now,
+		"suppressed", "secops", now.Add(-time.Minute), now, "subject:user-2",
+	)
+	mock.ExpectQuery("SELECT\\s+f\\.scan_id,").
+		WithArgs("default", "default", "scan-1", sqlmock.AnyArg(), "open", "secops", 0, 2).
+		WillReturnRows(rows)
+
+	items, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		ScanID:          "scan-1",
+		LifecycleStatus: "open",
+		Assignee:        "secops",
+		Limit:           1,
+		Now:             now,
+	})
+	if err != nil {
+		t.Fatalf("list filtered findings by scan failed: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "finding-2" {
+		t.Fatalf("unexpected filtered findings: %+v", items)
+	}
+	if items[0].Triage.Status != domain.FindingLifecycleOpen {
+		t.Fatalf("expected expired suppression to normalize to open, got %+v", items[0].Triage)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestFindingOrderClause(t *testing.T) {
+	tests := []struct {
+		sortBy string
+		desc   bool
+		want   string
+	}{
+		{sortBy: "created_at", desc: false, want: "f.created_at ASC, f.scan_id ASC, f.finding_id ASC"},
+		{sortBy: "severity", desc: true, want: "END DESC, f.scan_id DESC, f.finding_id DESC"},
+		{sortBy: "type", desc: false, want: "LOWER(f.type) ASC, f.scan_id ASC, f.finding_id ASC"},
+		{sortBy: "title", desc: true, want: "LOWER(f.title) DESC, f.scan_id DESC, f.finding_id DESC"},
+	}
+	for _, tc := range tests {
+		if got := findingOrderClause(tc.sortBy, tc.desc); !strings.Contains(got, tc.want) {
+			t.Fatalf("findingOrderClause(%q, %t) = %q, want substring %q", tc.sortBy, tc.desc, got, tc.want)
+		}
 	}
 }
 
