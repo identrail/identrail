@@ -1,4 +1,4 @@
-import { Component, FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   apiClient,
@@ -1226,10 +1226,15 @@ export function ProductWorkspacesPage() {
 
   const [savingMemberID, setSavingMemberID] = useState('');
   const [removingMemberID, setRemovingMemberID] = useState('');
+  const membersRequestRef = useRef(0);
 
   const refreshMembers = async (targetScope: ProductSession) => {
+    const requestID = ++membersRequestRef.current;
     const auth = buildProductAuthContext(targetScope);
     const response = await apiClient.listWorkspaceMembers(targetScope.workspaceID, {}, auth);
+    if (requestID !== membersRequestRef.current) {
+      return;
+    }
     setMembers(response.items);
     setMemberDrafts(
       response.items.reduce<MemberDraftState>((acc, member) => {
@@ -1238,6 +1243,12 @@ export function ProductWorkspacesPage() {
       }, {})
     );
   };
+
+  useEffect(() => {
+    return () => {
+      membersRequestRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (!scope) {

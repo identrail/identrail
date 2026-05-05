@@ -461,6 +461,210 @@ describe('App', () => {
     });
   });
 
+  it('ignores stale workspace member responses after scope changes', async () => {
+    saveProductSession({
+      tenantID: 'default',
+      workspaceID: 'default'
+    });
+
+    let resolveInitialMembers: ((value: { ok: boolean; json: () => Promise<{ items: unknown[] }> }) => void) | undefined;
+    const initialMembersResponse = new Promise<{ ok: boolean; json: () => Promise<{ items: unknown[] }> }>((resolve) => {
+      resolveInitialMembers = resolve;
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'default' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              display_name: 'Default',
+              slug: 'default',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                display_name: 'Default',
+                slug: 'default',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                member_id: 'member-owner-user',
+                user_id: 'owner-user',
+                email: 'owner@example.com',
+                role: 'owner',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            },
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                display_name: 'Payments',
+                slug: 'payments',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                member_id: 'member-payments-user',
+                user_id: 'payments-user',
+                email: 'payments@example.com',
+                role: 'admin',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: false
+            }
+          ]
+        })
+      })
+      .mockImplementationOnce(() => initialMembersResponse)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'payments-user' },
+          roles: ['admin'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'payments' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              display_name: 'Payments',
+              slug: 'payments',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-payments-user',
+              user_id: 'payments-user',
+              email: 'payments@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                display_name: 'Payments',
+                slug: 'payments',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                member_id: 'member-payments-user',
+                user_id: 'payments-user',
+                email: 'payments@example.com',
+                role: 'admin',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-payments-user',
+              user_id: 'payments-user',
+              email: 'payments@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            }
+          ]
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/default/default/workspaces');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    window.history.pushState({}, '', '/app/default/payments/workspaces');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(await screen.findByText('payments-user')).toBeInTheDocument();
+
+    resolveInitialMembers?.({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            tenant_id: 'default',
+            workspace_id: 'default',
+            member_id: 'member-owner-user',
+            user_id: 'owner-user',
+            email: 'owner@example.com',
+            role: 'owner',
+            status: 'active',
+            joined_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z'
+          }
+        ]
+      })
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('payments-user')).toBeInTheDocument();
+      expect(screen.queryByText('owner-user')).not.toBeInTheDocument();
+    });
+  });
+
   it('redirects expired oidc sessions to login with re-auth prompt', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
