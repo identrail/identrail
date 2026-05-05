@@ -96,7 +96,7 @@ func TestPostgresIntegrationMigrationRoundTripAuthzRolloutAndConnectorSecrets(t 
 		t.Fatalf("re-apply up migrations: %v", err)
 	}
 
-	suffix := time.Now().UTC().Format("20060102150405")
+	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	tenantID := "tenant-rt-" + suffix
 	workspaceID := "workspace-rt-" + suffix
 	projectID := "project-rt-" + suffix
