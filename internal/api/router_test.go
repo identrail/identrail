@@ -1619,6 +1619,34 @@ func TestRouterRateLimitAppliesBeforeUnauthorizedAuthChecks(t *testing.T) {
 	}
 }
 
+func TestRouterRateLimitDoesNotTrustPresentedCredentialValue(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys:        []string{"expected-key"},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	first.RemoteAddr = "127.0.0.1:34567"
+	first.Header.Set("X-API-Key", "bogus-one")
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected first invalid API key request to return 401, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	second.RemoteAddr = "127.0.0.1:34567"
+	second.Header.Set("X-API-Key", "bogus-two")
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second invalid API key request to return 429 despite a rotated key, got %d", w2.Code)
+	}
+}
+
 func TestIPRateLimiterEvictsExpiredEntries(t *testing.T) {
 	now := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 	limiter := newIPRateLimiterWithClock(

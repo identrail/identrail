@@ -2250,10 +2250,10 @@ func rateLimitKey(c *gin.Context) string {
 		return ip + "|anon"
 	}
 	if apiKey := readAPIKey(c); apiKey != "" {
-		return ip + "|api:" + audit.FingerprintAPIKey(apiKey)
+		return ip + "|api"
 	}
 	if bearer := readBearerToken(c); bearer != "" {
-		return ip + "|bearer:" + audit.FingerprintIdentifier(bearer)
+		return ip + "|bearer"
 	}
 	return ip + "|anon"
 }
