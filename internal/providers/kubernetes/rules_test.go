@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"slices"
 	"strings"
@@ -159,6 +160,53 @@ func TestRuleSetDeterministicEvidenceOrdering(t *testing.T) {
 	}
 	if !reflect.DeepEqual(overA.Evidence, overB.Evidence) {
 		t.Fatalf("expected deterministic evidence ordering, got A=%+v B=%+v", overA.Evidence, overB.Evidence)
+	}
+}
+
+func TestRuleSetDeterministicAcrossShuffledRelationshipInput(t *testing.T) {
+	now := time.Date(2026, 3, 16, 12, 30, 0, 0, time.UTC)
+	identity := domain.Identity{
+		ID:        serviceAccountID("apps", "demo"),
+		Provider:  domain.ProviderKubernetes,
+		Type:      domain.IdentityTypeServiceAccount,
+		Name:      "apps/demo",
+		ARN:       serviceAccountID("apps", "demo"),
+		OwnerHint: "team-a",
+	}
+	bundle := providers.NormalizedBundle{Identities: []domain.Identity{identity}}
+
+	relationshipA := domain.Relationship{Type: domain.RelationshipCanAccess, FromNodeID: identity.ID, ToNodeID: accessNodeID("*", "*")}
+	relationshipB := domain.Relationship{Type: domain.RelationshipCanAccess, FromNodeID: identity.ID, ToNodeID: accessNodeID("create", "clusterrolebindings")}
+	relationshipC := domain.Relationship{Type: domain.RelationshipBoundTo, FromNodeID: workloadID("apps", "demo-0"), ToNodeID: identity.ID}
+	orders := [][]domain.Relationship{
+		{relationshipA, relationshipB, relationshipC},
+		{relationshipC, relationshipA, relationshipB},
+		{relationshipB, relationshipC, relationshipA},
+	}
+
+	rules := NewRuleSet()
+	rules.now = func() time.Time { return now }
+	var baseline []string
+	for idx, relationships := range orders {
+		findings, err := rules.Evaluate(context.Background(), bundle, relationships)
+		if err != nil {
+			t.Fatalf("evaluate shuffled relationships %d failed: %v", idx, err)
+		}
+		signature := make([]string, 0, len(findings))
+		for _, finding := range findings {
+			payload, err := json.Marshal(finding.Evidence)
+			if err != nil {
+				t.Fatalf("marshal evidence for finding %s: %v", finding.ID, err)
+			}
+			signature = append(signature, finding.ID+"|"+string(finding.Type)+"|"+string(finding.Severity)+"|"+string(payload))
+		}
+		if idx == 0 {
+			baseline = signature
+			continue
+		}
+		if !reflect.DeepEqual(baseline, signature) {
+			t.Fatalf("expected deterministic findings for shuffled relationship input, baseline=%+v got=%+v", baseline, signature)
+		}
 	}
 }
 
