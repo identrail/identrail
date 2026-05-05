@@ -90,4 +90,6 @@ Use this where Kubernetes is not required.
 - For multi-instance API/worker deployments, use `IDENTRAIL_LOCK_BACKEND=postgres` (or `auto` with database mode).
 - For live AWS/Kubernetes scans, use least-privilege templates in `deploy/policies/`.
 - Use PostgreSQL in non-local deployments.
+- Configure recurring Postgres backups and run restore drills before treating an
+  environment as production-ready.
 - Set HTTPS endpoints for alert/audit forwarding in production.

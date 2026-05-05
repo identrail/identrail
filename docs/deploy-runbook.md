@@ -85,12 +85,34 @@ Portable deployment profiles:
 
 ## 3) Rollback Sequence
 
+Before any migration or rollback, capture a fresh Postgres backup or managed database
+snapshot for the target environment and record where the artifact can be restored from.
+
 1. Stop worker to avoid new writes during rollback.
 2. Roll back API to previous image.
 3. If schema rollback is required, apply matching down migration manually.
 4. Re-run health checks and one scan smoke test.
 
-## 4) Key Rotation
+## 4) Postgres Backup and Restore
+
+1. Configure recurring managed Postgres backups or scheduled `pg_dump` jobs for every
+   non-local environment.
+2. Before deploys that include migrations, run an explicit backup:
+   - `pg_dump --format=custom --file identrail-$(date +%Y%m%d%H%M%S).dump "$IDENTRAIL_DATABASE_URL"`
+3. Store backup artifacts in encrypted storage with access limited to operators who can
+   restore production data.
+4. Test restore drills on a non-production database at least once per release cycle:
+   - `createdb identrail_restore_test`
+   - `pg_restore --clean --if-exists --dbname identrail_restore_test identrail-<timestamp>.dump`
+5. After restore, verify:
+   - migrations table is present and at the expected version
+   - `GET /healthz` succeeds against the restored database
+   - one read-only findings query returns expected data
+6. Document recovery objectives for each environment:
+   - RPO: maximum acceptable data loss window
+   - RTO: maximum acceptable time to restore service
+
+## 5) Key Rotation
 
 1. Add new keys/scoped keys to environment.
 2. Deploy services.
@@ -98,14 +120,14 @@ Portable deployment profiles:
 4. Remove old keys.
 5. Deploy again.
 
-## 5) Alert Webhook Verification
+## 6) Alert Webhook Verification
 
 1. Trigger a scan that emits `high` or `critical` finding.
 2. Confirm webhook receiver gets payload.
 3. Confirm `X-Identrail-Signature` validation if secret is configured.
 4. If receiver is temporarily failing, confirm retries are visible in receiver logs.
 
-## 6) Incident Clues
+## 7) Incident Clues
 
 - For API activity trace: check audit log sink (`IDENTRAIL_AUDIT_LOG_FILE`).
 - For scan lifecycle: check `/v1/scans/:scan_id/events`.
