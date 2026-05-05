@@ -22,13 +22,13 @@ variable "create_namespace" {
 variable "create_kubernetes_secret" {
   description = "Create runtime secret from secret_data."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "secret_name" {
   description = "Existing secret name to use when not creating one."
   type        = string
-  default     = ""
+  default     = "identrail-secrets"
   validation {
     condition     = var.create_kubernetes_secret || length(trimspace(var.secret_name)) > 0
     error_message = "secret_name must be set when create_kubernetes_secret=false."
