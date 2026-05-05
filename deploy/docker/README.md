@@ -19,6 +19,8 @@ Manual setup:
 2. Edit keys and secrets in `deploy/docker/.env`
    - set `IDENTRAIL_POSTGRES_PASSWORD` to a strong value
    - local dashboard CORS is enabled by default via `IDENTRAIL_CORS_ALLOWED_ORIGINS=http://localhost:8081`
+   - for production split-origin use, replace local CORS with the exact HTTPS dashboard origin and set `VITE_IDENTRAIL_API_URL` to the public HTTPS API URL
+   - set `IDENTRAIL_TRUSTED_PROXIES` only when a known reverse proxy or ingress is allowed to supply forwarded client IP headers
    - for live k8s collection: set `IDENTRAIL_K8S_SOURCE=kubectl`
    - optional context override: `IDENTRAIL_KUBE_CONTEXT`
 3. `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build`

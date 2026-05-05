@@ -48,6 +48,10 @@ Portable deployment profiles:
   - `IDENTRAIL_OIDC_ROLES_CLAIM`
 - Confirm Postgres RLS enforcement mode for scoped read paths:
   - `IDENTRAIL_POSTGRES_RLS_ENFORCED`
+- Confirm browser and ingress network settings:
+  - `IDENTRAIL_CORS_ALLOWED_ORIGINS` contains exact HTTPS dashboard origins for split-origin web/API deployments.
+  - `IDENTRAIL_TRUSTED_PROXIES` contains only ingress/reverse-proxy CIDRs that are allowed to set forwarded client IP headers.
+  - `VITE_IDENTRAIL_API_URL` points to the public HTTPS API URL used by browsers.
 - Confirm alert config:
   - `IDENTRAIL_ALERT_WEBHOOK_URL`
   - `IDENTRAIL_ALERT_MIN_SEVERITY`

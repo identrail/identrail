@@ -149,6 +149,11 @@ These `VITE_` values are public browser configuration. Set them through Docker b
 - `VITE_OIDC_WORKSPACE_CLAIM`
 - `VITE_OIDC_ROLES_CLAIM`
 
+Networking notes:
+- `IDENTRAIL_CORS_ALLOWED_ORIGINS` must list browser origins, not API origins. Use exact HTTPS origins in production.
+- `IDENTRAIL_TRUSTED_PROXIES` should contain only ingress/reverse-proxy IPs or CIDRs. It controls whether forwarded client IP headers are trusted.
+- `VITE_IDENTRAIL_API_URL` must be the public browser-reachable API base URL; production builds reject non-local HTTP URLs.
+
 ## Web App OIDC Session Lifecycle
 
 The web app supports OIDC login/callback/refresh/logout flows when these Vite env vars are set at build time:

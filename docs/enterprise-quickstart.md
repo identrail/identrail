@@ -27,6 +27,8 @@ Do not also provision `IDENTRAIL_API_KEYS`/`IDENTRAIL_WRITE_API_KEYS` for this q
 Optional hardening:
 - `IDENTRAIL_AUDIT_FORWARD_URL=https://audit.example.com/events`
 - `IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET=<strong-secret>`
+- For split-origin browser deployments, set `IDENTRAIL_CORS_ALLOWED_ORIGINS=https://app.example.com` and `VITE_IDENTRAIL_API_URL=https://api.example.com`.
+- If the API is behind ingress or a reverse proxy, set `IDENTRAIL_TRUSTED_PROXIES` only to that proxy layer's CIDRs/IPs.
 
 ## 2. Start the Stack
 

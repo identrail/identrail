@@ -92,3 +92,6 @@ Use this where Kubernetes is not required.
 - For live AWS/Kubernetes scans, use least-privilege templates in `deploy/policies/`.
 - Use PostgreSQL in non-local deployments.
 - Set HTTPS endpoints for alert/audit forwarding in production.
+- For split-origin web/API deployments, set `IDENTRAIL_CORS_ALLOWED_ORIGINS` to the exact public dashboard origin, for example `https://app.example.com`. Do not use `*` with browser credentials or production API keys.
+- When the API sits behind ingress or a reverse proxy, set `IDENTRAIL_TRUSTED_PROXIES` to only the proxy CIDRs/IPs that are allowed to supply forwarded client IP headers. Leave it empty for direct exposure.
+- Set `VITE_IDENTRAIL_API_URL` to the public HTTPS API URL that browsers can reach; localhost and private service DNS names only work for local development.
