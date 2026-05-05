@@ -6,14 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
-	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/api"
+	"github.com/identrail/identrail/internal/app"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/db"
+	awsprovider "github.com/identrail/identrail/internal/providers/aws"
+	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
+	"github.com/identrail/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 // BuildScanService constructs store + scanner + API service from runtime config.
