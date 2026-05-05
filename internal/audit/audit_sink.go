@@ -24,7 +24,14 @@ import (
 // HTTP fields populated. Control-plane action audit records use Kind=action and
 // populate Action/Resource/Scope fields.
 type AuditEvent struct {
-	Timestamp time.Time `json:"timestamp"`
+	SchemaVersion string    `json:"schema_version"`
+	EventID       string    `json:"event_id"`
+	Timestamp     time.Time `json:"timestamp"`
+
+	// Service/component/category provide stable routing fields for collectors.
+	Service   string `json:"service,omitempty"`
+	Component string `json:"component,omitempty"`
+	Category  string `json:"category,omitempty"`
 
 	// Kind distinguishes API request envelopes from action-level control-plane events.
 	// Examples: "api_request", "action".
@@ -113,6 +120,7 @@ func NewFileAuditSink(path string) (*FileAuditSink, error) {
 }
 
 func (s *FileAuditSink) Write(_ context.Context, event AuditEvent) error {
+	event = NormalizeEvent(context.Background(), event)
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal audit event: %w", err)
@@ -173,6 +181,7 @@ func NewHTTPAuditSink(endpoint string, timeout time.Duration, hmacSecret string,
 }
 
 func (s *HTTPAuditSink) Write(ctx context.Context, event AuditEvent) error {
+	event = NormalizeEvent(ctx, event)
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal audit event: %w", err)

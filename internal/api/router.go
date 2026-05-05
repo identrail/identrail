@@ -2153,6 +2153,8 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 		event := audit.AuditEvent{
 			Timestamp:  time.Now().UTC(),
 			Kind:       "api_request",
+			Component:  "api",
+			Category:   "request",
 			Method:     c.Request.Method,
 			Path:       c.Request.URL.Path,
 			Status:     c.Writer.Status(),
@@ -2189,7 +2191,7 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 			zap.Int64("duration_ms", event.DurationMS),
 			zap.String("user_agent", event.UserAgent),
 		)
-		if err := sink.Write(c.Request.Context(), event); err != nil {
+		if err := sink.Write(c.Request.Context(), audit.NormalizeEvent(c.Request.Context(), event)); err != nil {
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
 		}
 	}

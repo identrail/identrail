@@ -12,6 +12,11 @@ type sinkContextKey struct{}
 type correlationContextKey struct{}
 type actorContextKey struct{}
 
+const (
+	AuditSchemaVersion = "audit.identrail.io/v1"
+	defaultServiceName = "identrail"
+)
+
 // WithSink stores an audit sink on the context. Callers should treat sink write
 // errors as non-fatal to business logic.
 func WithSink(ctx context.Context, sink AuditSink) context.Context {
@@ -105,6 +110,8 @@ func WriteAction(ctx context.Context, event AuditEvent) {
 	}
 	updatedCtx, correlationID := EnsureCorrelationID(ctx)
 	event.Kind = "action"
+	event.Category = firstNonEmpty(event.Category, "action")
+	event.Component = firstNonEmpty(event.Component, "api")
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
@@ -116,5 +123,52 @@ func WriteAction(ctx context.Context, event AuditEvent) {
 			event.Actor = actor
 		}
 	}
-	_ = sink.Write(updatedCtx, event)
+	_ = sink.Write(updatedCtx, NormalizeEvent(updatedCtx, event))
+}
+
+// NormalizeEvent applies the stable audit event envelope shared by all sinks.
+func NormalizeEvent(ctx context.Context, event AuditEvent) AuditEvent {
+	if event.SchemaVersion == "" {
+		event.SchemaVersion = AuditSchemaVersion
+	}
+	if event.EventID == "" {
+		event.EventID = newEventID()
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
+	if event.Service == "" {
+		event.Service = defaultServiceName
+	}
+	if event.Category == "" {
+		event.Category = event.Kind
+	}
+	if event.CorrelationID == "" {
+		if _, correlationID := EnsureCorrelationID(ctx); correlationID != "" {
+			event.CorrelationID = correlationID
+		}
+	}
+	if event.Actor == "" {
+		if actor, ok := ActorFromContext(ctx); ok {
+			event.Actor = actor
+		}
+	}
+	return event
+}
+
+func newEventID() string {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return hex.EncodeToString([]byte(time.Now().UTC().Format(time.RFC3339Nano)))
+	}
+	return hex.EncodeToString(buf[:])
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

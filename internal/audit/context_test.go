@@ -197,6 +197,15 @@ func TestWriteActionWithSink(t *testing.T) {
 	if ev.Kind != "action" {
 		t.Fatalf("expected kind=action, got %q", ev.Kind)
 	}
+	if ev.SchemaVersion != AuditSchemaVersion {
+		t.Fatalf("expected schema version %q, got %q", AuditSchemaVersion, ev.SchemaVersion)
+	}
+	if ev.EventID == "" {
+		t.Fatal("expected event id")
+	}
+	if ev.Service != "identrail" || ev.Component != "api" || ev.Category != "action" {
+		t.Fatalf("expected normalized service/component/category, got %q/%q/%q", ev.Service, ev.Component, ev.Category)
+	}
 	if ev.CorrelationID != "corr-001" {
 		t.Fatalf("expected correlation_id=corr-001, got %q", ev.CorrelationID)
 	}
