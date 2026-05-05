@@ -53,7 +53,7 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 		}
 		var header fixtureHeader
 		if err := json.Unmarshal(payload, &header); err != nil {
-			return nil, fmt.Errorf("decode fixture %s: %w", path, err)
+			continue
 		}
 		kind := normalizeKind(header.Kind)
 		if kind == "" {
@@ -63,7 +63,7 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 		if kind == "k8s_role" {
 			var role RBACRole
 			if err := json.Unmarshal(payload, &role); err != nil {
-				return nil, fmt.Errorf("decode role fixture %s: %w", path, err)
+				continue
 			}
 			sourceID = roleSourceID(role.Kind, role.Metadata.Namespace, role.Metadata.Name)
 		}
@@ -80,6 +80,9 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 			Payload:   payload,
 			Collected: collectedAt,
 		})
+	}
+	if len(assets) == 0 {
+		return nil, fmt.Errorf("no valid fixture assets found")
 	}
 	return assets, nil
 }
