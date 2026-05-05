@@ -342,13 +342,15 @@ func parseKeyScopeBindings(value string) map[string]db.Scope {
 		if len(scopeParts) != 2 {
 			continue
 		}
-		scope := db.Scope{
-			TenantID:    strings.TrimSpace(scopeParts[0]),
-			WorkspaceID: strings.TrimSpace(scopeParts[1]),
-		}.Normalize()
-		if scope.TenantID == "" || scope.WorkspaceID == "" {
+		tenantID := strings.TrimSpace(scopeParts[0])
+		workspaceID := strings.TrimSpace(scopeParts[1])
+		if tenantID == "" || workspaceID == "" {
 			continue
 		}
+		scope := db.Scope{
+			TenantID:    tenantID,
+			WorkspaceID: workspaceID,
+		}.Normalize()
 		result[key] = scope
 	}
 	return result

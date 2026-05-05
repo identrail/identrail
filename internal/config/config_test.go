@@ -742,7 +742,7 @@ func TestParseKeyScopes(t *testing.T) {
 }
 
 func TestParseKeyScopeBindings(t *testing.T) {
-	bindings := parseKeyScopeBindings("key1:tenant-a/workspace-a;key2:tenant-b/workspace-b;invalid;:missing")
+	bindings := parseKeyScopeBindings("key1:tenant-a/workspace-a;key2:tenant-b/workspace-b;empty-tenant:/workspace-c;empty-workspace:tenant-d/;invalid;:missing")
 	if len(bindings) != 2 {
 		t.Fatalf("expected 2 key scope bindings, got %d", len(bindings))
 	}
@@ -751,5 +751,11 @@ func TestParseKeyScopeBindings(t *testing.T) {
 	}
 	if bindings["key2"] != (db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}) {
 		t.Fatalf("unexpected key2 binding: %+v", bindings["key2"])
+	}
+	if _, exists := bindings["empty-tenant"]; exists {
+		t.Fatalf("expected malformed empty-tenant binding to be rejected: %+v", bindings)
+	}
+	if _, exists := bindings["empty-workspace"]; exists {
+		t.Fatalf("expected malformed empty-workspace binding to be rejected: %+v", bindings)
 	}
 }
