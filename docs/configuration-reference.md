@@ -73,7 +73,7 @@ Production deployment templates set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true` with `
 
 ## App-Mode Feature Flags
 
-All app-mode feature flags are disabled by default and must be explicitly enabled.
+App-mode feature flags are supported runtime configuration for API and worker processes. They are disabled by default and must be explicitly enabled; dependent feature flags fail validation unless their parent flag is enabled.
 
 - `IDENTRAIL_APP_MODE_ENABLED` (default: `false`)
 - `IDENTRAIL_APP_MODE_CONNECTORS_ENABLED` (default: `false`)
