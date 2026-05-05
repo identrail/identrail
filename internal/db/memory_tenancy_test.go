@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 )
 
 func TestMemoryStoreTenancyCRUD(t *testing.T) {
@@ -75,8 +77,44 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 		t.Fatalf("unexpected projects: %+v", projects)
 	}
 
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-123456789012",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "aws-123456789012",
+		HealthStatus: "healthy",
+		Metadata: map[string]any{
+			"role_arn": "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		},
+	}); err != nil {
+		t.Fatalf("upsert connector: %v", err)
+	}
+	connector, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-123456789012")
+	if err != nil {
+		t.Fatalf("get connector: %v", err)
+	}
+	if connector.Connector.Status != domain.ConnectorStatusActive || connector.State.HealthStatus != "healthy" {
+		t.Fatalf("unexpected connector: %+v", connector)
+	}
+	connectors, err := store.ListTenancyConnectors(ctx, "workspace-a", "", domain.ConnectorTypeAWS, 10)
+	if err != nil {
+		t.Fatalf("list connectors: %v", err)
+	}
+	if len(connectors) != 1 || connectors[0].Connector.ConnectorID != "aws-123456789012" {
+		t.Fatalf("unexpected connectors: %+v", connectors)
+	}
+
 	if err := store.DeleteProject(ctx, "workspace-a", "project-1"); err != nil {
 		t.Fatalf("delete project: %v", err)
+	}
+	if _, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-123456789012"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected project delete to cascade connector, got %v", err)
 	}
 	if err := store.DeleteWorkspaceMember(ctx, "workspace-a", "member-1"); err != nil {
 		t.Fatalf("delete workspace member: %v", err)

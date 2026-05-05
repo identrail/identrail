@@ -64,13 +64,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws sdk collector: %w", iamErr)
 			}
-			scanner = app.Scanner{
-				Collector:            awsprovider.NewCollector(iamAPI),
-				Normalizer:           awsprovider.NewRoleNormalizer(),
-				PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
-				RelationshipResolver: awsprovider.NewRelationshipBuilder(),
-				RiskRuleSet:          awsprovider.NewRuleSet(),
-			}
+			scanner = newAWSScanner(iamAPI)
 		default:
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)
@@ -190,6 +184,16 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		svc.Alerter = alerter
 	}
 	return svc, store.Close, nil
+}
+
+func newAWSScanner(iamAPI awsprovider.IAMAPI) app.Scanner {
+	return app.Scanner{
+		Collector:            awsprovider.NewCollector(iamAPI),
+		Normalizer:           awsprovider.NewRoleNormalizer(),
+		PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
+		RelationshipResolver: awsprovider.NewRelationshipBuilder(),
+		RiskRuleSet:          awsprovider.NewRuleSet(),
+	}
 }
 
 // NewStore returns memory store by default, Postgres when database URL is provided.

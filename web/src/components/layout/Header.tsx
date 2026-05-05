@@ -77,7 +77,7 @@ export function Header({
           ))}
         </nav>
 
-        <div className="idt-header-actions">
+        <div className={`idt-header-actions ${menuOpen ? 'is-open' : ''}`}>
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
             Start Free Risk Scan
           </Link>

@@ -4,27 +4,47 @@ export function ProblemFramingSection() {
       <div className="idt-problem-frame-grid">
         <div>
           <p className="idt-eyebrow">Why teams miss machine identity risk</p>
-          <h2 id="problem-frame-title">Trust data is fragmented across cloud, cluster, and CI systems.</h2>
+          <h2 id="problem-frame-title">Cloud, cluster, and CI evidence rarely arrives as one story.</h2>
           <p>
-            IAM policies, Kubernetes RBAC, and OIDC workflow identities are usually reviewed in separate tools. Attack paths are not.
-            That gap is where overprivileged machine access survives into production.
+            IAM policies, Kubernetes RBAC, repository exposure, and OIDC workflow identities are reviewed in separate
+            tools. Attack paths are not. Identrail closes that gap by turning each signal into a connected trust path
+            with source evidence.
           </p>
         </div>
 
-        <div className="idt-problem-signals" role="list" aria-label="Fragmentation signals">
-          <article role="listitem">
-            <h3>AWS IAM in one console</h3>
-            <p>Role assumptions and cross-account trust are reviewed without Kubernetes or CI context.</p>
-          </article>
-          <article role="listitem">
-            <h3>Kubernetes RBAC in another</h3>
-            <p>Service account privilege drift is visible, but downstream cloud reachability remains opaque.</p>
-          </article>
-          <article role="listitem">
-            <h3>CI/OIDC evidence in logs</h3>
-            <p>Workflow identity misuse is discovered late because chain-level visibility is missing during review.</p>
-          </article>
+        <div className="idt-problem-map" aria-label="Identity signals converge into the Identrail trust graph">
+          <div className="idt-problem-map-source">
+            <span>AWS IAM</span>
+            <small>roles, policies, assumptions</small>
+          </div>
+          <div className="idt-problem-map-source">
+            <span>Kubernetes</span>
+            <small>service accounts, RBAC, namespaces</small>
+          </div>
+          <div className="idt-problem-map-source">
+            <span>GitHub/OIDC</span>
+            <small>workflow identity, claims, exposure</small>
+          </div>
+          <div className="idt-problem-map-core">
+            <span>Identrail trust graph</span>
+            <small>path evidence, blast radius, first safe fix</small>
+          </div>
         </div>
+      </div>
+
+      <div className="idt-problem-signals" role="list" aria-label="Fragmentation signals">
+        <article role="listitem">
+          <h3>Before: isolated alerts</h3>
+          <p>Each system can look acceptable on its own while the combined path is risky.</p>
+        </article>
+        <article role="listitem">
+          <h3>During: evidence stitching</h3>
+          <p>Read-only collection normalizes source evidence into a single chain from identity to resource.</p>
+        </article>
+        <article role="listitem">
+          <h3>After: safe remediation</h3>
+          <p>Owners receive the policy context, affected workload view, and first action to reduce blast radius.</p>
+        </article>
       </div>
     </section>
   );

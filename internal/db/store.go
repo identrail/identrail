@@ -335,6 +335,47 @@ type TenancyProject struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
+// TenancyConnector stores one project-scoped source connector record.
+type TenancyConnector struct {
+	TenantID            string                 `json:"tenant_id"`
+	WorkspaceID         string                 `json:"workspace_id"`
+	ProjectID           string                 `json:"project_id"`
+	ConnectorID         string                 `json:"connector_id"`
+	Type                domain.ConnectorType   `json:"type"`
+	DisplayName         string                 `json:"display_name"`
+	Status              domain.ConnectorStatus `json:"status"`
+	SecretProvider      string                 `json:"secret_provider,omitempty"`
+	SecretRefID         string                 `json:"secret_ref_id,omitempty"`
+	SecretRefVersion    string                 `json:"secret_ref_version,omitempty"`
+	SecretLastRotatedAt *time.Time             `json:"secret_last_rotated_at,omitempty"`
+	ConfigChecksum      string                 `json:"config_checksum,omitempty"`
+	LastSyncAt          *time.Time             `json:"last_sync_at,omitempty"`
+	CreatedAt           time.Time              `json:"created_at"`
+	UpdatedAt           time.Time              `json:"updated_at"`
+}
+
+// TenancyConnectorState stores observed health and provider metadata for a connector.
+type TenancyConnectorState struct {
+	TenantID             string         `json:"tenant_id"`
+	WorkspaceID          string         `json:"workspace_id"`
+	ProjectID            string         `json:"project_id"`
+	ConnectorID          string         `json:"connector_id"`
+	HealthStatus         string         `json:"health_status"`
+	SyncCursor           string         `json:"sync_cursor,omitempty"`
+	LastSuccessfulSyncAt *time.Time     `json:"last_successful_sync_at,omitempty"`
+	LastErrorCode        string         `json:"last_error_code,omitempty"`
+	LastErrorMessage     string         `json:"last_error_message,omitempty"`
+	Metadata             map[string]any `json:"metadata"`
+	ObservedAt           time.Time      `json:"observed_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
+}
+
+// TenancyConnectorWithState returns a connector with its latest persisted state.
+type TenancyConnectorWithState struct {
+	Connector TenancyConnector      `json:"connector"`
+	State     TenancyConnectorState `json:"state"`
+}
+
 // NormalizeScanEventLevel validates and normalizes event levels.
 func NormalizeScanEventLevel(level string) (string, error) {
 	switch level {
@@ -761,6 +802,136 @@ func NormalizeTenancyProjectForWrite(project TenancyProject) (TenancyProject, er
 	return normalized, nil
 }
 
+// NormalizeTenancyConnectorForWrite validates and canonicalizes source connector metadata.
+func NormalizeTenancyConnectorForWrite(connector TenancyConnector) (TenancyConnector, error) {
+	normalized := connector
+	normalized.TenantID = strings.TrimSpace(connector.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyConnector{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(connector.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return TenancyConnector{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.ProjectID = strings.TrimSpace(connector.ProjectID)
+	if normalized.ProjectID == "" {
+		return TenancyConnector{}, fmt.Errorf("project id is required")
+	}
+	normalized.ConnectorID = strings.TrimSpace(connector.ConnectorID)
+	if normalized.ConnectorID == "" {
+		return TenancyConnector{}, fmt.Errorf("connector id is required")
+	}
+	normalized.Type = domain.ConnectorType(strings.ToLower(strings.TrimSpace(string(connector.Type))))
+	switch normalized.Type {
+	case domain.ConnectorTypeGitHub, domain.ConnectorTypeAWS, domain.ConnectorTypeKubernetes:
+	default:
+		return TenancyConnector{}, fmt.Errorf("invalid connector type")
+	}
+	normalized.DisplayName = strings.TrimSpace(connector.DisplayName)
+	if normalized.DisplayName == "" {
+		return TenancyConnector{}, fmt.Errorf("connector display name is required")
+	}
+	normalized.Status = domain.ConnectorStatus(strings.ToLower(strings.TrimSpace(string(connector.Status))))
+	if normalized.Status == "" {
+		normalized.Status = domain.ConnectorStatusPending
+	}
+	switch normalized.Status {
+	case domain.ConnectorStatusPending, domain.ConnectorStatusActive, domain.ConnectorStatusDegraded, domain.ConnectorStatusDisconnected:
+	default:
+		return TenancyConnector{}, fmt.Errorf("invalid connector status")
+	}
+	normalized.SecretProvider = strings.TrimSpace(connector.SecretProvider)
+	normalized.SecretRefID = strings.TrimSpace(connector.SecretRefID)
+	normalized.SecretRefVersion = strings.TrimSpace(connector.SecretRefVersion)
+	if (normalized.SecretProvider == "") != (normalized.SecretRefID == "") {
+		return TenancyConnector{}, fmt.Errorf("secret provider and secret ref id must be set together")
+	}
+	if normalized.SecretLastRotatedAt != nil {
+		rotated := normalized.SecretLastRotatedAt.UTC()
+		normalized.SecretLastRotatedAt = &rotated
+	}
+	normalized.ConfigChecksum = strings.TrimSpace(connector.ConfigChecksum)
+	if normalized.LastSyncAt != nil {
+		synced := normalized.LastSyncAt.UTC()
+		normalized.LastSyncAt = &synced
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeTenancyConnectorStateForWrite validates and canonicalizes connector health state.
+func NormalizeTenancyConnectorStateForWrite(state TenancyConnectorState) (TenancyConnectorState, error) {
+	normalized := state
+	normalized.TenantID = strings.TrimSpace(state.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyConnectorState{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(state.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return TenancyConnectorState{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.ProjectID = strings.TrimSpace(state.ProjectID)
+	if normalized.ProjectID == "" {
+		return TenancyConnectorState{}, fmt.Errorf("project id is required")
+	}
+	normalized.ConnectorID = strings.TrimSpace(state.ConnectorID)
+	if normalized.ConnectorID == "" {
+		return TenancyConnectorState{}, fmt.Errorf("connector id is required")
+	}
+	normalized.HealthStatus = strings.ToLower(strings.TrimSpace(state.HealthStatus))
+	if normalized.HealthStatus == "" {
+		normalized.HealthStatus = "unknown"
+	}
+	switch normalized.HealthStatus {
+	case "unknown", "healthy", "warning", "error":
+	default:
+		return TenancyConnectorState{}, fmt.Errorf("invalid connector health status")
+	}
+	normalized.SyncCursor = strings.TrimSpace(state.SyncCursor)
+	if normalized.LastSuccessfulSyncAt != nil {
+		synced := normalized.LastSuccessfulSyncAt.UTC()
+		normalized.LastSuccessfulSyncAt = &synced
+	}
+	normalized.LastErrorCode = strings.TrimSpace(state.LastErrorCode)
+	normalized.LastErrorMessage = strings.TrimSpace(state.LastErrorMessage)
+	if normalized.Metadata == nil {
+		normalized.Metadata = map[string]any{}
+	} else {
+		normalized.Metadata = cloneMetadataMap(normalized.Metadata)
+	}
+	if normalized.ObservedAt.IsZero() {
+		normalized.ObservedAt = time.Now().UTC()
+	} else {
+		normalized.ObservedAt = normalized.ObservedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.ObservedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+func cloneMetadataMap(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	return cloned
+}
+
 // NormalizeAuthzPolicyEventForWrite validates and canonicalizes one immutable policy event.
 func NormalizeAuthzPolicyEventForWrite(event AuthzPolicyEvent) (AuthzPolicyEvent, error) {
 	normalized := event
@@ -872,6 +1043,9 @@ type Store interface {
 	GetProject(ctx context.Context, workspaceID string, projectID string) (TenancyProject, error)
 	ListProjects(ctx context.Context, workspaceID string, includeArchived bool, limit int) ([]TenancyProject, error)
 	DeleteProject(ctx context.Context, workspaceID string, projectID string) error
+	UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error
+	GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error)
+	ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error
