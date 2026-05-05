@@ -182,6 +182,32 @@ func TestPostgresStoreListScansAndFindings(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreListScansDefaultsNonPositiveLimitToOneHundred(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "error_message"}).
+		AddRow("scan-1", "default", "default", "aws", "completed", now, now, 1, 1, "")
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, provider, status").WithArgs("default", "default", 100).WillReturnRows(rows)
+
+	scans, err := store.ListScans(defaultScopeContext(), 0)
+	if err != nil {
+		t.Fatalf("list scans default limit: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Fatalf("expected one scan, got %d", len(scans))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreGetScanAndFindingsByScan(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -657,7 +683,7 @@ func TestPostgresStoreScanQueueLifecycle(t *testing.T) {
 		 FROM scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
-		   AND provider = $3
+		   AND ($3 = '' OR provider = $3)
 		   AND status = 'queued'`)).
 		WithArgs("default", "default", "aws").
 		WillReturnRows(countRows)
@@ -697,6 +723,37 @@ func TestPostgresStoreRequiresScopeContext(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	if _, err := store.ListScans(context.Background(), 10); !errors.Is(err, ErrScopeRequired) {
 		t.Fatalf("expected ErrScopeRequired, got %v", err)
+	}
+}
+
+func TestPostgresStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	countRows := sqlmock.NewRows([]string{"count"}).AddRow(2)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND ($3 = '' OR provider = $3)
+		   AND status = 'queued'`)).
+		WithArgs("default", "default", "").
+		WillReturnRows(countRows)
+
+	count, err := store.CountQueuedScans(defaultScopeContext(), "")
+	if err != nil {
+		t.Fatalf("count queued scans wildcard: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected wildcard queued count 2, got %d", count)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
 
