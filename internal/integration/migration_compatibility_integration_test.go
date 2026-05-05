@@ -46,7 +46,7 @@ func TestMigrationCompatibilityWithExistingRows(t *testing.T) {
 	if _, err := sqlDB.ExecContext(
 		context.Background(),
 		`INSERT INTO scans (id, provider, status, started_at, finished_at, asset_count, finding_count, error_message)
-		 VALUES ($1, $2, 'completed', $3, $4, 0, 1, NULL)`,
+		 VALUES ($1, $2, 'succeeded', $3, $4, 0, 1, NULL)`,
 		scanID,
 		provider,
 		now.Add(-1*time.Minute),

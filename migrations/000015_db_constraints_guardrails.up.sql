@@ -3,6 +3,10 @@ ALTER TABLE scans
     DROP CONSTRAINT IF EXISTS scans_asset_count_non_negative,
     DROP CONSTRAINT IF EXISTS scans_finding_count_non_negative;
 
+UPDATE scans
+SET status = 'completed'
+WHERE status = 'succeeded';
+
 ALTER TABLE scans
     ADD CONSTRAINT scans_status_valid
         CHECK (status IN ('queued', 'running', 'completed', 'failed')) NOT VALID,
@@ -20,6 +24,10 @@ ALTER TABLE repo_scans
     DROP CONSTRAINT IF EXISTS repo_scans_commits_scanned_non_negative,
     DROP CONSTRAINT IF EXISTS repo_scans_files_scanned_non_negative,
     DROP CONSTRAINT IF EXISTS repo_scans_finding_count_non_negative;
+
+UPDATE repo_scans
+SET status = 'completed'
+WHERE status = 'succeeded';
 
 ALTER TABLE repo_scans
     ADD CONSTRAINT repo_scans_status_valid
