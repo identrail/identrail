@@ -66,6 +66,7 @@ services:
       dockerfile: deploy/docker/Dockerfile.web
       args:
         VITE_IDENTRAIL_API_URL: "${VITE_IDENTRAIL_API_URL:-http://localhost:8080}"
+        NGINX_CONF: default.local.conf
     image: identrail/web:local
     container_name: identrail-web
     restart: unless-stopped
