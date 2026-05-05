@@ -123,6 +123,8 @@ config:
 
 secret:
   create: false
+  # Production should prefer existingSecret/external secret management.
+  # Helm-created secrets can be stored in Helm release history.
   existingSecret: identrail-secrets
   data:
     IDENTRAIL_API_KEYS: ""
