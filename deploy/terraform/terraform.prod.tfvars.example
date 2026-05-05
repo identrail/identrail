@@ -1,0 +1,48 @@
+namespace    = "identrail"
+release_name = "identrail"
+
+create_namespace         = true
+create_kubernetes_secret = false
+secret_name              = "identrail-secrets"
+
+chart_values = {
+  api = {
+    replicaCount = 2
+    image = {
+      repository = "ghcr.io/identrail/identrail-api"
+      tag        = "v1.0.0"
+      pullPolicy = "IfNotPresent"
+    }
+    resources = {
+      requests = { cpu = "100m", memory = "128Mi" }
+      limits   = { cpu = "500m", memory = "512Mi" }
+    }
+  }
+  worker = {
+    image = {
+      repository = "ghcr.io/identrail/identrail-worker"
+      tag        = "v1.0.0"
+      pullPolicy = "IfNotPresent"
+    }
+    resources = {
+      requests = { cpu = "100m", memory = "128Mi" }
+      limits   = { cpu = "500m", memory = "512Mi" }
+    }
+  }
+  web = {
+    enabled = true
+    image = {
+      repository = "ghcr.io/identrail/identrail-web"
+      tag        = "v1.0.0"
+      pullPolicy = "IfNotPresent"
+    }
+  }
+  config = {
+    IDENTRAIL_PROVIDER               = "aws"
+    IDENTRAIL_AWS_SOURCE             = "sdk"
+    IDENTRAIL_LOCK_BACKEND           = "postgres"
+    IDENTRAIL_LOCK_NAMESPACE         = "identrail-prod"
+    IDENTRAIL_CORS_ALLOWED_ORIGINS   = "https://app.example.com"
+    IDENTRAIL_POSTGRES_RLS_ENFORCED  = "true"
+  }
+}
