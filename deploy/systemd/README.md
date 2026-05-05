@@ -14,8 +14,14 @@ Use this for VM or bare-metal Linux hosts.
    - `migrations/` to `/opt/identrail/migrations`
    - `testdata/` to `/opt/identrail/testdata`
 4. Install units:
+   - `cp deploy/systemd/identrail-migrations.service /etc/systemd/system/`
    - `cp deploy/systemd/identrail-api.service /etc/systemd/system/`
    - `cp deploy/systemd/identrail-worker.service /etc/systemd/system/`
 5. Start services:
    - `systemctl daemon-reload`
+   - `systemctl start identrail-migrations`
    - `systemctl enable --now identrail-api identrail-worker`
+
+Run `identrail-migrations` once before starting or upgrading the API and worker units. Keep
+`IDENTRAIL_RUN_MIGRATIONS=false` in the shared environment file so long-running services do
+not race each other on schema changes.
