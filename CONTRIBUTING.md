@@ -43,7 +43,7 @@ Prerequisites:
 
 Recommended first steps:
 ```bash
-git clone https://github.com/Oluwatobi-Mustapha/identrail.git
+git clone https://github.com/identrail/identrail.git
 cd identrail
 go mod download
 npm ci --prefix web
@@ -51,7 +51,7 @@ npm ci --prefix web
 
 ## Development Workflow
 
-1. Create a branch from `main`.
+1. Create a branch from `dev`.
 2. Keep each PR focused on one logical change.
 3. Add or update tests for behavior changes.
 4. Update docs and `CHANGELOG.md` when user-facing or operator-facing behavior changes.
