@@ -240,6 +240,24 @@ func TestTwelfthMigrationContainsTenancyCoreTables(t *testing.T) {
 	}
 }
 
+func TestFifteenthMigrationContainsFindingLookupIndexes(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "000015_findings_lookup_indexes.up.sql")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	required := []string{
+		"idx_findings_finding_id_created_at",
+		"idx_repo_findings_finding_id_created_at",
+	}
+	for _, item := range required {
+		if !strings.Contains(text, item) {
+			t.Fatalf("expected finding lookup migration item %q", item)
+		}
+	}
+}
+
 func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000013_connectors_state_scan_policies.up.sql")
 	content, err := os.ReadFile(path)

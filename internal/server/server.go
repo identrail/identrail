@@ -85,7 +85,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 			_ = logger.Sync()
 			return Bootstrap{}, fmt.Errorf("initialize audit forward sink: %w", sinkErr)
 		}
-		auditSinks = append(auditSinks, forwardSink)
+		auditSinks = append(auditSinks, audit.NewAsyncAuditSink(forwardSink, 256))
 	}
 	auditSink := audit.AuditSink(audit.NopAuditSink{})
 	if len(auditSinks) == 1 {

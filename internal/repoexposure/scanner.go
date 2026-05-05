@@ -124,28 +124,20 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 	seen := map[string]struct{}{}
 	truncated := false
 
-	for _, commit := range commits {
-		if err := ctx.Err(); err != nil {
-			return ScanResult{}, err
-		}
-		patch, patchErr := s.git(ctx, location, "show", "--no-color", "--unified=0", "--format=", commit)
-		if patchErr != nil {
-			return ScanResult{}, fmt.Errorf("scan commit %s: %w", commit, patchErr)
-		}
-		for _, added := range parseAddedLines(patch) {
-			secretFindings := detectSecretFindings(location.Display, commit, added.Path, added.Line, added.Text, started)
-			for _, finding := range secretFindings {
-				if _, exists := seen[finding.ID]; exists {
-					continue
-				}
-				seen[finding.ID] = struct{}{}
-				findings = append(findings, finding)
-				if len(findings) >= s.maxFindings {
-					truncated = true
-					break
-				}
+	historyPatch, patchErr := s.git(ctx, location, "log", "--all", "--max-count", strconv.Itoa(s.historyLimit), "--no-color", "--unified=0", "--format=commit:%H", "-p")
+	if patchErr != nil {
+		return ScanResult{}, fmt.Errorf("scan commit history: %w", patchErr)
+	}
+	for _, added := range parseHistoryAddedLines(historyPatch) {
+		secretFindings := detectSecretFindings(location.Display, added.Commit, added.Path, added.Line, added.Text, started)
+		for _, finding := range secretFindings {
+			if _, exists := seen[finding.ID]; exists {
+				continue
 			}
-			if truncated {
+			seen[finding.ID] = struct{}{}
+			findings = append(findings, finding)
+			if len(findings) >= s.maxFindings {
+				truncated = true
 				break
 			}
 		}
@@ -294,16 +286,22 @@ func (s *Scanner) git(ctx context.Context, repo repositoryLocation, args ...stri
 }
 
 type addedLine struct {
-	Path string
-	Line int
-	Text string
+	Commit string
+	Path   string
+	Line   int
+	Text   string
 }
 
 func parseAddedLines(patch []byte) []addedLine {
+	return parseHistoryAddedLines(patch)
+}
+
+func parseHistoryAddedLines(patch []byte) []addedLine {
 	scanner := bufio.NewScanner(strings.NewReader(string(patch)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	lines := []addedLine{}
 
+	currentCommit := ""
 	currentPath := ""
 	currentLine := 0
 	inHunk := false
@@ -311,6 +309,11 @@ func parseAddedLines(patch []byte) []addedLine {
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		case strings.HasPrefix(line, "commit:"):
+			currentCommit = strings.TrimSpace(strings.TrimPrefix(line, "commit:"))
+			currentPath = ""
+			currentLine = 0
+			inHunk = false
 		case strings.HasPrefix(line, "diff --git "):
 			currentPath = parseDiffPath(line)
 			currentLine = 0
@@ -338,9 +341,10 @@ func parseAddedLines(patch []byte) []addedLine {
 				}
 				if currentPath != "" && currentLine > 0 {
 					lines = append(lines, addedLine{
-						Path: currentPath,
-						Line: currentLine,
-						Text: strings.TrimSpace(strings.TrimPrefix(line, "+")),
+						Commit: currentCommit,
+						Path:   currentPath,
+						Line:   currentLine,
+						Text:   strings.TrimSpace(strings.TrimPrefix(line, "+")),
 					})
 				}
 				currentLine++

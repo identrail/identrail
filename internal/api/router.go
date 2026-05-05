@@ -261,7 +261,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
-		items, err := svc.ListFindingsFiltered(c.Request.Context(), pageFetchLimit(offset, limit), FindingsFilter{
+		page, err := svc.ListFindingsPage(c.Request.Context(), offset, limit, sortBy, sortDesc, FindingsFilter{
 			ScanID:          strings.TrimSpace(c.Query("scan_id")),
 			Severity:        strings.TrimSpace(c.Query("severity")),
 			Type:            strings.TrimSpace(c.Query("type")),
@@ -277,11 +277,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list findings"})
 			return
 		}
-		sortFindings(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
+		response := gin.H{"items": page.Items}
+		if page.NextCursor != "" {
+			response["next_cursor"] = page.NextCursor
 		}
 		c.JSON(http.StatusOK, response)
 	})

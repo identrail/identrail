@@ -180,6 +180,12 @@ type FindingsFilter struct {
 	Assignee        string
 }
 
+// FindingsPage captures one paginated findings response.
+type FindingsPage struct {
+	Items      []domain.Finding
+	NextCursor string
+}
+
 // FindingTriageRequest captures one triage mutation request for a finding.
 type FindingTriageRequest struct {
 	Status               *string `json:"status,omitempty"`
@@ -321,13 +327,6 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 // ProcessNextQueuedScan claims and executes one queued scan. It returns false when no job is available.
 func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 	ctx = s.scopeContext(ctx)
-	if s.Locker != nil {
-		release, ok := s.Locker.TryAcquire(ctx, s.lockKey("scan:"+s.Provider))
-		if !ok {
-			return false, nil
-		}
-		defer release(context.Background())
-	}
 	record, err := s.Store.ClaimNextQueuedScan(ctx, s.Provider)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
@@ -993,73 +992,84 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 	if loadLimit <= 0 {
 		loadLimit = 100
 	}
-	if loadLimit < 5000 {
-		loadLimit = 5000
-	}
-
-	var source []domain.Finding
-	var err error
-	if strings.TrimSpace(filter.ScanID) != "" {
-		source, err = s.Store.ListFindingsByScan(ctx, strings.TrimSpace(filter.ScanID), loadLimit)
-	} else {
-		source, err = s.Store.ListFindings(ctx, loadLimit)
-	}
+	source, err := s.Store.ListFindingsPage(ctx, db.FindingsPageQuery{
+		ScanID:          strings.TrimSpace(filter.ScanID),
+		Severity:        strings.TrimSpace(filter.Severity),
+		Type:            strings.TrimSpace(filter.Type),
+		LifecycleStatus: strings.TrimSpace(filter.LifecycleStatus),
+		Assignee:        strings.TrimSpace(filter.Assignee),
+		SortBy:          "created_at",
+		Desc:            true,
+		Limit:           loadLimit,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	severity := strings.ToLower(strings.TrimSpace(filter.Severity))
-	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
-	lifecycleStatus := strings.ToLower(strings.TrimSpace(filter.LifecycleStatus))
-	assignee := strings.ToLower(strings.TrimSpace(filter.Assignee))
-	result := make([]domain.Finding, 0, len(source))
-	for _, item := range source {
-		if severity != "" && strings.ToLower(string(item.Severity)) != severity {
-			continue
-		}
-		if findingType != "" && strings.ToLower(string(item.Type)) != findingType {
-			continue
-		}
-		result = append(result, item)
-	}
-	enriched := enrichFindings(result)
+	enriched := enrichFindings(source)
 	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
 	if err != nil {
 		return nil, err
 	}
+	return withTriage, nil
+}
 
-	filtered := make([]domain.Finding, 0, len(withTriage))
-	for _, item := range withTriage {
-		if lifecycleStatus != "" && strings.ToLower(string(item.Triage.Status)) != lifecycleStatus {
-			continue
-		}
-		if assignee != "" && strings.ToLower(strings.TrimSpace(item.Triage.Assignee)) != assignee {
-			continue
-		}
-		filtered = append(filtered, item)
-		if limit > 0 && len(filtered) >= limit {
-			break
-		}
+// ListFindingsPage returns one findings page using store-backed pagination.
+func (s *Service) ListFindingsPage(ctx context.Context, offset int, limit int, sortBy string, sortDesc bool, filter FindingsFilter) (FindingsPage, error) {
+	ctx = s.scopeContext(ctx)
+	if limit <= 0 {
+		limit = 100
 	}
-	return filtered, nil
+	if offset < 0 {
+		offset = 0
+	}
+	items, err := s.Store.ListFindingsPage(ctx, db.FindingsPageQuery{
+		ScanID:          strings.TrimSpace(filter.ScanID),
+		Severity:        strings.TrimSpace(filter.Severity),
+		Type:            strings.TrimSpace(filter.Type),
+		LifecycleStatus: strings.TrimSpace(filter.LifecycleStatus),
+		Assignee:        strings.TrimSpace(filter.Assignee),
+		SortBy:          sortBy,
+		Desc:            sortDesc,
+		Offset:          offset,
+		Limit:           limit + 1,
+	})
+	if err != nil {
+		return FindingsPage{}, err
+	}
+	enriched := enrichFindings(items)
+	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
+	if err != nil {
+		return FindingsPage{}, err
+	}
+	page := FindingsPage{Items: withTriage}
+	if len(page.Items) > limit {
+		page.Items = page.Items[:limit]
+		page.NextCursor = fmt.Sprintf("%d", offset+limit)
+	}
+	return page, nil
 }
 
 // GetFinding returns one finding by id, optionally scoped to one scan.
 func (s *Service) GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error) {
+	ctx = s.scopeContext(ctx)
 	id := strings.TrimSpace(findingID)
 	if id == "" {
 		return domain.Finding{}, db.ErrNotFound
 	}
-	filtered, err := s.ListFindingsFiltered(ctx, 5000, FindingsFilter{ScanID: strings.TrimSpace(scanID)})
+	item, err := s.Store.GetFinding(ctx, id, strings.TrimSpace(scanID))
 	if err != nil {
 		return domain.Finding{}, err
 	}
-	for _, item := range filtered {
-		if item.ID == id {
-			return item, nil
-		}
+	enriched := enrichFindings([]domain.Finding{item})
+	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
+	if err != nil {
+		return domain.Finding{}, err
 	}
-	return domain.Finding{}, db.ErrNotFound
+	if len(withTriage) == 0 {
+		return domain.Finding{}, db.ErrNotFound
+	}
+	return withTriage[0], nil
 }
 
 // TriageFinding applies one workflow mutation and records audit history.
@@ -1284,33 +1294,31 @@ func (s *Service) GetFindingsTrendFiltered(ctx context.Context, points int, seve
 	}
 	// Return oldest->newest for chart consumers.
 	sort.Slice(scans, func(i, j int) bool { return scans[i].StartedAt.Before(scans[j].StartedAt) })
+	scanIDs := make([]string, 0, len(scans))
+	index := make(map[string]*TrendPoint, len(scans))
 	result := make([]TrendPoint, 0, len(scans))
-	normalizedSeverity := strings.ToLower(strings.TrimSpace(severity))
-	normalizedType := strings.ToLower(strings.TrimSpace(findingType))
 	for _, scan := range scans {
-		findings, err := s.Store.ListFindingsByScan(ctx, scan.ID, 5000)
-		if err != nil {
-			if errors.Is(err, db.ErrNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		point := TrendPoint{
+		scanIDs = append(scanIDs, scan.ID)
+		result = append(result, TrendPoint{
 			ScanID:     scan.ID,
 			StartedAt:  scan.StartedAt,
 			BySeverity: map[string]int{},
+		})
+		index[scan.ID] = &result[len(result)-1]
+	}
+	counts, err := s.Store.ListFindingTrendCounts(ctx, scanIDs, severity, findingType)
+	if err != nil {
+		return nil, err
+	}
+	for _, count := range counts {
+		point := index[count.ScanID]
+		if point == nil {
+			continue
 		}
-		for _, finding := range findings {
-			if normalizedSeverity != "" && strings.ToLower(string(finding.Severity)) != normalizedSeverity {
-				continue
-			}
-			if normalizedType != "" && strings.ToLower(string(finding.Type)) != normalizedType {
-				continue
-			}
-			point.BySeverity[string(finding.Severity)]++
-			point.Total++
+		if strings.TrimSpace(count.Severity) != "" {
+			point.BySeverity[count.Severity] += count.TotalCount
 		}
-		result = append(result, point)
+		point.Total += count.TotalCount
 	}
 	return result, nil
 }
@@ -1370,7 +1378,7 @@ func (s *Service) GetScanDiffAgainst(ctx context.Context, scanID string, previou
 		return ScanDiff{}, err
 	}
 
-	currentFindings, err := s.Store.ListFindingsByScan(ctx, scanID, 5000)
+	currentMetas, err := s.Store.ListFindingMetasByScan(ctx, scanID)
 	if err != nil {
 		return ScanDiff{}, err
 	}
@@ -1406,48 +1414,114 @@ func (s *Service) GetScanDiffAgainst(ctx context.Context, scanID string, previou
 	}
 
 	diff := ScanDiff{ScanID: scanID, PreviousScanID: normalizedPreviousScanID}
-	currentByID := map[string]domain.Finding{}
-	for _, finding := range currentFindings {
+	currentByID := map[string]db.FindingMeta{}
+	for _, finding := range currentMetas {
 		currentByID[finding.ID] = finding
 	}
 	if normalizedPreviousScanID == "" {
-		diff.Added = currentFindings
-		diff.AddedCount = len(currentFindings)
+		diff.AddedCount = len(currentMetas)
+		addedIDs := limitFindingIDsByMeta(currentMetas, limit)
+		diff.Added, err = s.findingsForDiffIDs(ctx, scanID, addedIDs)
+		if err != nil {
+			return ScanDiff{}, err
+		}
 		diff.applyLimit(limit)
 		return diff, nil
 	}
 
-	previousFindings, err := s.Store.ListFindingsByScan(ctx, normalizedPreviousScanID, 5000)
+	previousMetas, err := s.Store.ListFindingMetasByScan(ctx, normalizedPreviousScanID)
 	if err != nil {
 		return ScanDiff{}, err
 	}
-	previousByID := map[string]domain.Finding{}
-	for _, finding := range previousFindings {
+	previousByID := map[string]db.FindingMeta{}
+	for _, finding := range previousMetas {
 		previousByID[finding.ID] = finding
 	}
 
+	added := make([]db.FindingMeta, 0)
+	persisting := make([]db.FindingMeta, 0)
+	resolved := make([]db.FindingMeta, 0)
 	for id, finding := range currentByID {
 		if _, exists := previousByID[id]; exists {
-			diff.Persisting = append(diff.Persisting, finding)
+			persisting = append(persisting, finding)
 			continue
 		}
-		diff.Added = append(diff.Added, finding)
+		added = append(added, finding)
 	}
 	for id, finding := range previousByID {
 		if _, exists := currentByID[id]; exists {
 			continue
 		}
-		diff.Resolved = append(diff.Resolved, finding)
+		resolved = append(resolved, finding)
 	}
-
-	sort.Slice(diff.Added, func(i, j int) bool { return diff.Added[i].CreatedAt.After(diff.Added[j].CreatedAt) })
-	sort.Slice(diff.Resolved, func(i, j int) bool { return diff.Resolved[i].CreatedAt.After(diff.Resolved[j].CreatedAt) })
-	sort.Slice(diff.Persisting, func(i, j int) bool { return diff.Persisting[i].CreatedAt.After(diff.Persisting[j].CreatedAt) })
-	diff.AddedCount = len(diff.Added)
-	diff.ResolvedCount = len(diff.Resolved)
-	diff.PersistingCount = len(diff.Persisting)
+	sortFindingMetas(added)
+	sortFindingMetas(resolved)
+	sortFindingMetas(persisting)
+	diff.AddedCount = len(added)
+	diff.ResolvedCount = len(resolved)
+	diff.PersistingCount = len(persisting)
+	diff.Added, err = s.findingsForDiffIDs(ctx, scanID, limitFindingIDsByMeta(added, limit))
+	if err != nil {
+		return ScanDiff{}, err
+	}
+	diff.Resolved, err = s.findingsForDiffIDs(ctx, normalizedPreviousScanID, limitFindingIDsByMeta(resolved, limit))
+	if err != nil {
+		return ScanDiff{}, err
+	}
+	diff.Persisting, err = s.findingsForDiffIDs(ctx, scanID, limitFindingIDsByMeta(persisting, limit))
+	if err != nil {
+		return ScanDiff{}, err
+	}
 	diff.applyLimit(limit)
 	return diff, nil
+}
+
+func sortFindingMetas(items []db.FindingMeta) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+}
+
+func limitFindingIDsByMeta(items []db.FindingMeta, limit int) []string {
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	return ids
+}
+
+func (s *Service) findingsForDiffIDs(ctx context.Context, scanID string, findingIDs []string) ([]domain.Finding, error) {
+	if len(findingIDs) == 0 {
+		return []domain.Finding{}, nil
+	}
+	items, err := s.Store.ListFindingsByScanAndIDs(s.scopeContext(ctx), scanID, findingIDs)
+	if err != nil {
+		return nil, err
+	}
+	enriched := enrichFindings(items)
+	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]domain.Finding, len(withTriage))
+	for _, item := range withTriage {
+		byID[item.ID] = item
+	}
+	ordered := make([]domain.Finding, 0, len(findingIDs))
+	for _, findingID := range findingIDs {
+		item, exists := byID[findingID]
+		if !exists {
+			continue
+		}
+		ordered = append(ordered, item)
+	}
+	return ordered, nil
 }
 
 func (s *Service) appendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) {
