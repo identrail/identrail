@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/scheduler"
 )
 
 func TestBuildScanServiceMemoryStore(t *testing.T) {
