@@ -1448,6 +1448,43 @@ func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
 	}
 }
 
+func TestRouterRateLimitExceededIsAudited(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink:      sink,
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	first.RemoteAddr = "127.0.0.1:34567"
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected first request 200, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	second.RemoteAddr = "127.0.0.1:34567"
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request 429, got %d", w2.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) < 2 {
+		t.Fatalf("expected both requests to be audited, got %d events", len(sink.events))
+	}
+	last := sink.events[len(sink.events)-1]
+	if last.Path != "/v1/scans" || last.Status != http.StatusTooManyRequests {
+		t.Fatalf("expected throttled request audit event, got %+v", last)
+	}
+}
+
 func TestIPRateLimiterEvictsExpiredEntries(t *testing.T) {
 	now := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 	limiter := newIPRateLimiterWithClock(
