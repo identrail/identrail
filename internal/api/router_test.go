@@ -160,6 +160,51 @@ func TestRouterReadyzWithDependencyFailure(t *testing.T) {
 	assertServiceStatusBody(t, w.Body.Bytes(), "not_ready")
 }
 
+func TestRouterMetricsRequiresAuthentication(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys: []string{"metrics-key"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected metrics endpoint to require auth, got %d", w.Code)
+	}
+}
+
+func TestRouterMetricsRequiresWriteOrAdminScope(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {scopeRead},
+			"writer-key": {scopeWrite},
+		},
+	})
+
+	readReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	readReq.Header.Set("X-API-Key", "reader-key")
+	readW := httptest.NewRecorder()
+	r.ServeHTTP(readW, readReq)
+	if readW.Code != http.StatusForbidden {
+		t.Fatalf("expected read-only scoped key denied on metrics endpoint, got %d", readW.Code)
+	}
+
+	writeReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	writeReq.Header.Set("X-API-Key", "writer-key")
+	writeW := httptest.NewRecorder()
+	r.ServeHTTP(writeW, writeReq)
+	if writeW.Code != http.StatusOK {
+		t.Fatalf("expected write scoped key allowed on metrics endpoint, got %d", writeW.Code)
+	}
+	if strings.TrimSpace(writeW.Body.String()) == "" {
+		t.Fatal("expected metrics response body")
+	}
+}
+
 func TestRouterCORSDisabledByDefault(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
