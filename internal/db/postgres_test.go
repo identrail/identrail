@@ -737,7 +737,7 @@ func TestPostgresStoreCreateQueuedScanIfNoPending(t *testing.T) {
 
 	successRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"}).
 		AddRow("scan-1", "default", "default", "aws", "queued", now, nil, 0, 0, "")
-	mock.ExpectQuery("WITH pending AS").
+	mock.ExpectQuery("WITH scope_lock AS").
 		WithArgs("default", "default", "aws", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(successRows)
 
@@ -750,7 +750,7 @@ func TestPostgresStoreCreateQueuedScanIfNoPending(t *testing.T) {
 	}
 
 	emptyRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"})
-	mock.ExpectQuery("WITH pending AS").
+	mock.ExpectQuery("WITH scope_lock AS").
 		WithArgs("default", "default", "aws", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(emptyRows)
 

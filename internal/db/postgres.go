@@ -273,7 +273,10 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 	}
 	row := p.queryRowContext(
 		ctx,
-		`WITH pending AS (
+		`WITH scope_lock AS (
+			SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2), hashtext($3))
+		),
+		pending AS (
 			SELECT COUNT(*) AS total
 			FROM scans
 			WHERE tenant_id = $1
@@ -286,7 +289,7 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 				id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
 			)
 			SELECT $4, $1, $2, $3, 'queued', $5, NULL, 0, 0, NULL
-			FROM pending
+			FROM pending, scope_lock
 			WHERE total = 0
 			RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
 		)
