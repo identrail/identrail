@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 const (
