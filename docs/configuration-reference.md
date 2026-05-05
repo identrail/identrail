@@ -110,6 +110,8 @@ All app-mode feature flags are disabled by default and must be explicitly enable
 
 Audit:
 - `IDENTRAIL_AUDIT_LOG_FILE`
+- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
+  - Enables keyed HMAC-SHA256 pseudonymization for audit identifiers and API-key fingerprints.
 - `IDENTRAIL_AUDIT_FORWARD_URL`
 - `IDENTRAIL_AUDIT_FORWARD_TIMEOUT`
 - `IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES`
