@@ -1,4 +1,4 @@
-import { Component, FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   apiClient,
@@ -6,6 +6,7 @@ import {
   type GitHubConnectionStartResponse,
   type GitHubConnectionStatus,
   type KubernetesConnectionStatus,
+  type ProjectRecord,
   type RequestAuthContext,
   type WhoAmIResponse,
   type WorkspaceMemberRecord,
@@ -654,6 +655,14 @@ function buildScopedPath(scope: ProductSession, suffix = ''): string {
   return suffix ? `${base}/${suffix}` : base;
 }
 
+function buildProjectsPath(scope: ProductSession): string {
+  return buildScopedPath(scope, 'projects');
+}
+
+function buildProjectPath(scope: ProductSession, projectID: string): string {
+  return `${buildProjectsPath(scope)}/${encodeURIComponent(projectID)}`;
+}
+
 const MEMBER_ROLE_OPTIONS: WorkspaceMemberRole[] = ['owner', 'admin', 'analyst', 'viewer'];
 const MEMBER_STATUS_OPTIONS: WorkspaceMemberStatus[] = ['invited', 'active', 'suspended', 'removed'];
 const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
@@ -710,6 +719,18 @@ function deriveMemberID(userID: string, email: string): string {
   const emailToken = normalizeMemberID(email.split('@')[0] ?? '');
   const token = userToken || emailToken;
   return token ? `member-${token}`.slice(0, 72) : `member-${Date.now()}`;
+}
+
+function normalizeProjectToken(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function deriveProjectToken(value: string, fallback = 'project'): string {
+  return normalizeProjectToken(value) || fallback;
 }
 
 function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse | null): boolean {
@@ -1312,9 +1333,9 @@ export function ProductOverviewPage() {
   return (
     <ScopedShellPage
       title="Overview"
-      description={`Entry view for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'}.`}
-      actionLabel="Connect source"
-      actionTo={`/app/${encodeURIComponent(scope?.tenantID ?? 'default')}/${encodeURIComponent(scope?.workspaceID ?? 'default')}/projects/${encodeURIComponent(scope?.projectID ?? 'sample-project')}`}
+      description={`Choose a project for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'} before connecting source telemetry.`}
+      actionLabel="Select project"
+      actionTo={scope ? buildProjectsPath(scope) : undefined}
     />
   );
 }
@@ -1859,14 +1880,302 @@ export function ProductWorkspacesPage() {
 
 export function ProductProjectsPage() {
   const params = useParams<ScopeRouteParams>();
+  const navigate = useNavigate();
   const scope = resolveScopeFromParams(params);
+
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [draftName, setDraftName] = useState('');
+  const [draftProjectID, setDraftProjectID] = useState('');
+  const [draftSlug, setDraftSlug] = useState('');
+  const [draftDescription, setDraftDescription] = useState('');
+  const [projectIDEdited, setProjectIDEdited] = useState(false);
+  const [slugEdited, setSlugEdited] = useState(false);
+
+  useEffect(() => {
+    if (!scope) {
+      setProjects([]);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+
+    const loadProjects = async () => {
+      setLoading(true);
+      setError('');
+      setProjects([]);
+      try {
+        const auth = buildProductAuthContext(scope);
+        const response = await apiClient.listProjects(
+          scope.workspaceID,
+          {
+            limit: 50,
+            sort_by: 'updated_at',
+            sort_order: 'desc',
+            include_archived: true
+          },
+          auth
+        );
+        if (!active) {
+          return;
+        }
+        setProjects(response.items);
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace projects.');
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadProjects();
+
+    return () => {
+      active = false;
+    };
+  }, [scope?.tenantID, scope?.workspaceID]);
+
+  const activeProjectCount = useMemo(
+    () => projects.filter((project) => !normalizeValue(project.archived_at ?? '')).length,
+    [projects]
+  );
+  const archivedProjectCount = projects.length - activeProjectCount;
+  const latestProject = projects[0];
+
+  if (!scope) {
+    return <AppShellLoading message="Resolving workspace scope" />;
+  }
+
+  if (loading) {
+    return <AppShellLoading message="Loading projects" />;
+  }
+
+  const handleNameChange = (value: string) => {
+    setDraftName(value);
+    const token = deriveProjectToken(value);
+    if (!projectIDEdited) {
+      setDraftProjectID(token);
+    }
+    if (!slugEdited) {
+      setDraftSlug(token);
+    }
+  };
+
+  const handleCreateProject = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const name = normalizeValue(draftName);
+    const projectID = normalizeValue(draftProjectID) || deriveProjectToken(name);
+    const slug = normalizeValue(draftSlug) || deriveProjectToken(name);
+    const description = normalizeValue(draftDescription);
+
+    if (!name) {
+      setError('Project name is required.');
+      return;
+    }
+    if (!projectID) {
+      setError('Project ID is required.');
+      return;
+    }
+    if (!slug) {
+      setError('Project slug is required.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.upsertProject(
+        scope.workspaceID,
+        {
+          project_id: projectID,
+          name,
+          slug,
+          description: description || undefined
+        },
+        auth
+      );
+      setProjects((current) => {
+        const remaining = current.filter((project) => project.project_id !== response.project.project_id);
+        return [response.project, ...remaining];
+      });
+      setDraftName('');
+      setDraftProjectID('');
+      setDraftSlug('');
+      setDraftDescription('');
+      setProjectIDEdited(false);
+      setSlugEdited(false);
+      navigate(buildProjectPath(scope, response.project.project_id));
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save project.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <ScopedShellPage
-      title="Projects"
-      description="Project-level onboarding and scan boundaries live here."
-      actionLabel="Connect source"
-      actionTo={`/app/${encodeURIComponent(scope?.tenantID ?? 'default')}/${encodeURIComponent(scope?.workspaceID ?? 'default')}/projects/${encodeURIComponent(scope?.projectID ?? 'sample-project')}`}
-    />
+    <section className="idt-app-panel idt-projects-page">
+      <div className="idt-projects-header">
+        <div>
+          <p className="idt-app-kicker">Project registry</p>
+          <h2>Choose a project before connecting source data</h2>
+          <p>Projects set the workspace boundary for GitHub, AWS, and Kubernetes onboarding.</p>
+        </div>
+        <div className="idt-inline-actions">
+          <Link className="idt-btn idt-btn-ghost" to={buildScopedPath(scope)}>
+            Back to overview
+          </Link>
+        </div>
+      </div>
+
+      <div className="idt-projects-summary">
+        <article>
+          <span>{projects.length}</span>
+          <p>Total projects</p>
+        </article>
+        <article>
+          <span>{activeProjectCount}</span>
+          <p>Active boundaries</p>
+        </article>
+        <article>
+          <span>{latestProject ? formatConnectionTime(latestProject.updated_at) : 'No activity yet'}</span>
+          <p>Latest update</p>
+        </article>
+      </div>
+
+      {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
+
+      <div className="idt-projects-grid">
+        <article className="idt-projects-list">
+          <div className="idt-projects-section-header">
+            <div>
+              <h3>Workspace projects</h3>
+              <p>
+                {archivedProjectCount > 0
+                  ? `${activeProjectCount} active, ${archivedProjectCount} archived.`
+                  : 'Select an existing project to continue source onboarding.'}
+              </p>
+            </div>
+          </div>
+
+          {projects.length === 0 ? (
+            <AppShellEmptyState
+              title="No projects yet"
+              body="Create the first project for this workspace, then continue into source onboarding."
+            />
+          ) : (
+            <div className="idt-project-card-list">
+              {projects.map((project) => {
+                const archived = Boolean(normalizeValue(project.archived_at ?? ''));
+                return (
+                  <article key={project.project_id} className="idt-project-card">
+                    <div className="idt-project-card-header">
+                      <div>
+                        <h4>{project.name}</h4>
+                        <p>{project.description || 'No description yet. Use this project to scope connector onboarding and scan ownership.'}</p>
+                      </div>
+                      <span
+                        className={`idt-source-status-pill ${archived ? 'is-warning' : 'is-success'}`}
+                      >
+                        {archived ? 'Archived' : 'Active'}
+                      </span>
+                    </div>
+
+                    <dl className="idt-project-card-meta">
+                      <div>
+                        <dt>Project ID</dt>
+                        <dd>{project.project_id}</dd>
+                      </div>
+                      <div>
+                        <dt>Slug</dt>
+                        <dd>{project.slug}</dd>
+                      </div>
+                      <div>
+                        <dt>Updated</dt>
+                        <dd>{formatConnectionTime(project.updated_at)}</dd>
+                      </div>
+                    </dl>
+
+                    <div className="idt-inline-actions">
+                      <Link className="idt-btn idt-btn-primary" to={buildProjectPath(scope, project.project_id)}>
+                        Manage sources
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </article>
+
+        <article className="idt-project-composer">
+          <div className="idt-projects-section-header">
+            <div>
+              <h3>Create project</h3>
+              <p>Set the canonical project ID and route-safe slug once, then continue into connector setup.</p>
+            </div>
+          </div>
+
+          <form className="idt-app-form" onSubmit={handleCreateProject}>
+            <label>
+              Project name
+              <input
+                value={draftName}
+                onChange={(event) => handleNameChange(event.target.value)}
+                placeholder="Production platform"
+                required
+              />
+            </label>
+            <div className="idt-project-inline-fields">
+              <label>
+                Project ID
+                <input
+                  value={draftProjectID}
+                  onChange={(event) => {
+                    setProjectIDEdited(true);
+                    setDraftProjectID(normalizeProjectToken(event.target.value));
+                  }}
+                  placeholder="production-platform"
+                  required
+                />
+              </label>
+              <label>
+                Slug
+                <input
+                  value={draftSlug}
+                  onChange={(event) => {
+                    setSlugEdited(true);
+                    setDraftSlug(normalizeProjectToken(event.target.value));
+                  }}
+                  placeholder="production-platform"
+                  required
+                />
+              </label>
+            </div>
+            <label>
+              Description
+              <textarea
+                value={draftDescription}
+                onChange={(event) => setDraftDescription(event.target.value)}
+                placeholder="Identity boundary for the production control plane and its delivery repositories."
+              />
+            </label>
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={saving}>
+              {saving ? 'Creating project...' : 'Create project and continue'}
+            </button>
+          </form>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -1874,6 +2183,7 @@ export function ProductProjectDetailPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const projectID = normalizeValue(params.projectID ?? '');
+  const refreshSequenceRef = useRef(0);
 
   const [connections, setConnections] = useState<SourceConnectionMap>({});
   const [sourceErrors, setSourceErrors] = useState<Partial<Record<SourceProvider, string>>>({});
@@ -1909,8 +2219,14 @@ export function ProductProjectDetailPage() {
   });
 
   const refreshConnections = async (quiet = false) => {
+    const refreshSequence = refreshSequenceRef.current + 1;
+    refreshSequenceRef.current = refreshSequence;
+
     if (!scope || !projectID) {
+      setConnections({});
+      setSourceErrors({});
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -1927,6 +2243,10 @@ export function ProductProjectDetailPage() {
       apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth),
       apiClient.getKubernetesProjectConnection(scope.workspaceID, projectID, auth)
     ]);
+
+    if (refreshSequenceRef.current !== refreshSequence) {
+      return;
+    }
 
     const nextConnections: SourceConnectionMap = {};
     const nextErrors: Partial<Record<SourceProvider, string>> = {};
@@ -1950,14 +2270,22 @@ export function ProductProjectDetailPage() {
       nextErrors[provider] = result.reason instanceof Error ? result.reason.message : `Unable to load ${SOURCE_PROFILES[provider].name} status.`;
     });
 
-    setConnections((current) => ({ ...current, ...nextConnections }));
+    setConnections(nextConnections);
     setSourceErrors(nextErrors);
     setLoading(false);
     setRefreshing(false);
   };
 
   useEffect(() => {
+    setConnections({});
+    setSourceErrors({});
+    setSuccessMessage('');
+    setGitHubStart(null);
     void refreshConnections(false);
+
+    return () => {
+      refreshSequenceRef.current += 1;
+    };
   }, [scope?.tenantID, scope?.workspaceID, projectID]);
 
   if (!scope || !projectID) {
@@ -1982,9 +2310,7 @@ export function ProductProjectDetailPage() {
       const auth = buildProductAuthContext(scope);
       const redirectURI =
         normalizeValue(githubStartForm.redirectURI) ||
-        (typeof window !== 'undefined'
-          ? `${window.location.origin}${buildScopedPath(scope, `projects/${projectID}`)}`
-          : undefined);
+        (typeof window !== 'undefined' ? `${window.location.origin}${buildProjectPath(scope, projectID)}` : undefined);
       const response = await apiClient.startGitHubProjectConnection(
         scope.workspaceID,
         projectID,

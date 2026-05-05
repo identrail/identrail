@@ -17,6 +17,16 @@ function makeJWT(payload: Record<string, unknown>): string {
   return `${header}.${body}.signature`;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('App', () => {
   beforeEach(() => {
     window.sessionStorage.removeItem('identrail-product-session');
@@ -166,6 +176,54 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
   });
 
+  it('routes overview onboarding into the real project selection flow', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    render(<App />);
+
+    const selectProjectLink = await screen.findByRole('link', { name: /Select project/i });
+    expect(selectProjectLink).toHaveAttribute('href', '/app/tenant-a/workspace-a/projects');
+  });
+
+  it('lists workspace projects and links them to concrete source onboarding routes', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            tenant_id: 'tenant-a',
+            workspace_id: 'workspace-a',
+            project_id: 'project-1',
+            name: 'Production platform',
+            slug: 'production-platform',
+            description: 'Primary production boundary',
+            created_at: '2026-05-04T10:00:00Z',
+            updated_at: '2026-05-05T10:00:00Z'
+          }
+        ]
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project before connecting source data/i })).toBeInTheDocument();
+    expect(screen.getByText('Production platform')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Manage sources/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects/project-1'
+    );
+  });
+
   it('renders tenancy-scoped connect-source wizard inside app shell', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
@@ -219,6 +277,132 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /Generate install link/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /AWS/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Kubernetes/i })).toBeInTheDocument();
+  });
+
+  it('ignores stale project refresh responses after route changes', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+
+    const project1GitHub = deferred<Response>();
+    const project1AWS = deferred<Response>();
+    const project1Kubernetes = deferred<Response>();
+    const project2GitHub = deferred<Response>();
+    const project2AWS = deferred<Response>();
+    const project2Kubernetes = deferred<Response>();
+
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => project1GitHub.promise)
+      .mockImplementationOnce(() => project1AWS.promise)
+      .mockImplementationOnce(() => project1Kubernetes.promise)
+      .mockImplementationOnce(() => project2GitHub.promise)
+      .mockImplementationOnce(() => project2AWS.promise)
+      .mockImplementationOnce(() => project2Kubernetes.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-2');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    project2GitHub.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'github_app',
+          connected: true,
+          account_login: 'project-2-org',
+          installation_id: 22,
+          token_reference: 'github-app-installation:22',
+          webhook_secret_reference: 'github-webhook:project-2:22',
+          webhook_secret_rotation_required: false,
+          selected_repositories: ['identrail/project-2'],
+          updated_at: '2026-05-05T10:05:00Z'
+        }
+      })
+    } as Response);
+    project2AWS.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'aws',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          external_id_configured: false,
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+    project2Kubernetes.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'kubernetes',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-2/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Account project-2-org/i)).toBeInTheDocument();
+
+    project1GitHub.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'github_app',
+          connected: true,
+          account_login: 'project-1-org',
+          installation_id: 11,
+          token_reference: 'github-app-installation:11',
+          webhook_secret_reference: 'github-webhook:project-1:11',
+          webhook_secret_rotation_required: false,
+          selected_repositories: ['identrail/project-1'],
+          updated_at: '2026-05-05T09:55:00Z'
+        }
+      })
+    } as Response);
+    project1AWS.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'aws',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          external_id_configured: false,
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+    project1Kubernetes.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'kubernetes',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Account project-1-org/i)).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(/Account project-2-org/i)).toBeInTheDocument();
   });
 
   it('validates and saves an AWS source from the connect-source wizard', async () => {

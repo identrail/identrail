@@ -115,6 +115,26 @@ export type WorkspaceContextSnapshot = {
   is_active: boolean;
 };
 
+export type ProjectRecord = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  archived_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectUpsertRequest = {
+  project_id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  archived_at?: string | null;
+};
+
 export type WhoAmIResponse = {
   principal: {
     type: 'subject' | 'api_key' | 'anonymous';
@@ -381,7 +401,7 @@ async function request<T>(path: string, auth?: RequestAuthContext, init: Request
   return (await res.json()) as T;
 }
 
-function buildQuery(params: Record<string, string | number | undefined>): string {
+function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === '') return;
@@ -418,6 +438,38 @@ export const apiClient = {
     return request<{ items: WorkspaceMemberRecord[] }>(
       `/v1/workspaces/${encodedWorkspaceID}/members${buildQuery(filters)}`,
       auth
+    );
+  },
+  listProjects(
+    workspaceID: string,
+    filters: {
+      limit?: number;
+      cursor?: string;
+      sort_by?: string;
+      sort_order?: 'asc' | 'desc';
+      include_archived?: boolean;
+    } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ items: ProjectRecord[]; next_cursor?: string }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects${buildQuery(filters)}`,
+      auth
+    );
+  },
+  getProject(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ project: ProjectRecord }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}`,
+      auth
+    );
+  },
+  upsertProject(workspaceID: string, payload: ProjectUpsertRequest, auth?: RequestAuthContext) {
+    return request<{ project: ProjectRecord }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
     );
   },
   upsertWorkspaceMember(
