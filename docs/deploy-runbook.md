@@ -32,6 +32,9 @@ Portable deployment profiles:
 - Confirm default request scope values for non-claim/non-header contexts:
   - `IDENTRAIL_DEFAULT_TENANT_ID`
   - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
+- Confirm durable connector secret storage:
+  - `IDENTRAIL_CONNECTOR_SECRET_KEYS`
+  - `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true`
 - Confirm OIDC claim mapping when OIDC is enabled:
   - `IDENTRAIL_OIDC_TENANT_CLAIM`
   - `IDENTRAIL_OIDC_WORKSPACE_CLAIM`

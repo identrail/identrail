@@ -42,6 +42,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", "")
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", "")
 	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS", "")
+	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", "")
 	t.Setenv("IDENTRAIL_ALERT_WEBHOOK_URL", "")
 	t.Setenv("IDENTRAIL_ALERT_MIN_SEVERITY", "")
 	t.Setenv("IDENTRAIL_ALERT_TIMEOUT", "")
@@ -177,6 +178,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.ConnectorSecretKeys != "" {
 		t.Fatalf("expected empty connector secret keys, got %q", cfg.ConnectorSecretKeys)
+	}
+	if cfg.ConnectorSecretKeysRequired {
+		t.Fatal("expected connector secret keys required false by default")
 	}
 	if cfg.AlertWebhookURL != "" {
 		t.Fatalf("expected empty alert webhook url, got %q", cfg.AlertWebhookURL)
@@ -321,6 +325,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", "2s")
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", "audit-secret")
 	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS", "v1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", "true")
 	t.Setenv("IDENTRAIL_ALERT_WEBHOOK_URL", "https://alerts.example.com/hooks/identrail")
 	t.Setenv("IDENTRAIL_ALERT_MIN_SEVERITY", "critical")
 	t.Setenv("IDENTRAIL_ALERT_TIMEOUT", "12s")
@@ -459,6 +464,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.ConnectorSecretKeys != "v1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=" {
 		t.Fatalf("unexpected connector secret keys: %q", cfg.ConnectorSecretKeys)
+	}
+	if !cfg.ConnectorSecretKeysRequired {
+		t.Fatal("expected connector secret keys required true")
 	}
 	if cfg.AlertWebhookURL != "https://alerts.example.com/hooks/identrail" {
 		t.Fatalf("unexpected alert webhook url: %q", cfg.AlertWebhookURL)

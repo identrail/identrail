@@ -256,6 +256,9 @@ func ValidateSecurity(cfg Config) error {
 			return err
 		}
 	}
+	if strings.TrimSpace(cfg.ConnectorSecretKeys) == "" && cfg.ConnectorSecretKeysRequired {
+		return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS is required when IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true")
+	}
 	if strings.TrimSpace(cfg.ConnectorSecretKeys) != "" {
 		materials, err := secretstore.ParseKeySet(cfg.ConnectorSecretKeys)
 		if err != nil {

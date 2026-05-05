@@ -110,6 +110,17 @@ func TestValidateSecurityRejectsInvalidConnectorSecretKeys(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRequiresConnectorSecretKeysWhenEnabled(t *testing.T) {
+	cfg := Config{
+		APIKeys:                     []string{"reader", "writer"},
+		WriteAPIKeys:                []string{"writer"},
+		ConnectorSecretKeysRequired: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_CONNECTOR_SECRET_KEYS") {
+		t.Fatalf("expected missing connector secret keys error, got %v", err)
+	}
+}
+
 func TestValidateSecurityRejectsInvalidAWSSource(t *testing.T) {
 	cfg := Config{
 		Provider:  "aws",
