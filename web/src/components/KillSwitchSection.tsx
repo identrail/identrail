@@ -18,11 +18,11 @@ export function KillSwitchSection() {
     <section className="section reveal-on-scroll" aria-labelledby="kill-switch-title">
       <div className={`section-card kill-switch-shell ${revoked ? 'is-revoked' : ''}`}>
         <div className="kill-switch-copy">
-          <p className="eyebrow eyebrow-dark">Policy Simulation + Emergency Control</p>
-          <h2 id="kill-switch-title">Instant Revocation &amp; Kill Switch</h2>
+          <p className="eyebrow eyebrow-dark">Policy Simulation + Response Planning</p>
+          <h2 id="kill-switch-title">Revocation Impact Simulation</h2>
           <p>
-            One-click kill switch for any machine identity — open-source and self-hosted.
-            Immediately sever risky trust edges and generate an audit trail for response teams.
+            Simulate revocation impact for risky machine identity paths in open-source, self-hosted environments.
+            Use the preview to plan safe operator-driven response steps and audit follow-through.
           </p>
           <button
             type="button"
@@ -30,10 +30,10 @@ export function KillSwitchSection() {
             aria-pressed={revoked}
             onClick={() => setRevoked((value) => !value)}
           >
-            REVOKE ALL ACCESS
+            SIMULATE REVOKE IMPACT
           </button>
           <p className="kill-switch-note">
-            Hover or click to simulate immediate revocation across AWS and Kubernetes trust paths.
+            Hover or click to simulate revocation impact across AWS and Kubernetes trust paths.
           </p>
         </div>
 
