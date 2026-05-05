@@ -521,6 +521,15 @@ func TestRouterGitHubWebhookEdgeCases(t *testing.T) {
 		t.Fatalf("expected 400 for missing event type, got %d", noEventResp.Code)
 	}
 
+	emptyRepoPayload := []byte(`{"repository":{"full_name":""},"installation":{"id":1}}`)
+	emptyRepoReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(emptyRepoPayload))
+	emptyRepoReq.Header.Set("X-GitHub-Event", "push")
+	emptyRepoResp := httptest.NewRecorder()
+	r.ServeHTTP(emptyRepoResp, emptyRepoReq)
+	if emptyRepoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unsigned payload with empty repository, got %d body=%s", emptyRepoResp.Code, emptyRepoResp.Body.String())
+	}
+
 	badJSONReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString("not-json"))
 	badJSONReq.Header.Set("X-GitHub-Event", "push")
 	badJSONReq.Header.Set("X-Hub-Signature-256", "sha256=abc")
