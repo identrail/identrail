@@ -261,8 +261,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListFindingsFiltered(c.Request.Context(), pageFetchLimit(offset, limit), FindingsFilter{
-			ScanID:          strings.TrimSpace(c.Query("scan_id")),
+			ScanID:          scanID,
 			Severity:        strings.TrimSpace(c.Query("severity")),
 			Type:            strings.TrimSpace(c.Query("type")),
 			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
@@ -298,10 +302,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	})
 
 	v1.GET("/findings/:finding_id", func(c *gin.Context) {
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		item, err := svc.GetFinding(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -317,10 +325,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.GET("/findings/:finding_id/history", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultEventsLimit, maxListLimit)
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListFindingTriageHistory(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			limit,
 		)
 		if err != nil {
@@ -336,10 +348,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	})
 
 	v1.GET("/findings/:finding_id/exports", func(c *gin.Context) {
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		exports, err := svc.GetFindingExports(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -375,10 +391,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		item, err := svc.TriageFinding(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			request,
 			triageActorFromContext(c, opts.AuditFingerprinter),
 		)
@@ -402,9 +422,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "name")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListIdentities(
 			c.Request.Context(),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("provider")),
 			strings.TrimSpace(c.Query("type")),
 			strings.TrimSpace(c.Query("name_prefix")),
@@ -432,9 +456,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "discovered_at")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListRelationships(
 			c.Request.Context(),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("type")),
 			strings.TrimSpace(c.Query("from_node_id")),
 			strings.TrimSpace(c.Query("to_node_id")),
@@ -462,10 +490,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "confidence")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListOwnershipSignals(
 			c.Request.Context(),
 			pageFetchLimit(offset, limit),
-			OwnershipFilter{ScanID: strings.TrimSpace(c.Query("scan_id"))},
+			OwnershipFilter{ScanID: scanID},
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -506,9 +538,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.GET("/scans/:scan_id/diff", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
+		scanID, ok := requiredUUIDParam(c, c.Param("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		diff, err := svc.GetScanDiffAgainst(
 			c.Request.Context(),
-			strings.TrimSpace(c.Param("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("previous_scan_id")),
 			limit,
 		)
@@ -532,9 +568,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultEventsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
+		scanID, ok := requiredUUIDParam(c, c.Param("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListScanEventsFiltered(
 			c.Request.Context(),
-			strings.TrimSpace(c.Param("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("level")),
 			pageFetchLimit(offset, limit),
 		)
@@ -1430,6 +1470,27 @@ func isValidUUID(raw string) bool {
 	}
 	_, err := uuid.Parse(strings.TrimSpace(raw))
 	return err == nil
+}
+
+func optionalUUIDParam(c *gin.Context, raw string, field string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", true
+	}
+	if !isValidUUID(trimmed) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid " + field})
+		return "", false
+	}
+	return trimmed, true
+}
+
+func requiredUUIDParam(c *gin.Context, raw string, field string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if !isValidUUID(trimmed) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid " + field})
+		return "", false
+	}
+	return trimmed, true
 }
 
 func sortFindings(items []domain.Finding, sortBy string, desc bool) {

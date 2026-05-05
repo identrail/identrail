@@ -1632,36 +1632,37 @@ func TestRouterScanDiffAndEventsNotFound(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
 	r := NewRouter(logger, metrics, svc, RouterOptions{})
+	missingScanID := "11111111-1111-1111-1111-111111111111"
 
-	diffReq := httptest.NewRequest(http.MethodGet, "/v1/scans/missing/diff", nil)
+	diffReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+missingScanID+"/diff", nil)
 	diffW := httptest.NewRecorder()
 	r.ServeHTTP(diffW, diffReq)
 	if diffW.Code != http.StatusNotFound {
 		t.Fatalf("expected diff 404 for missing scan, got %d", diffW.Code)
 	}
 
-	eventsReq := httptest.NewRequest(http.MethodGet, "/v1/scans/missing/events", nil)
+	eventsReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+missingScanID+"/events", nil)
 	eventsW := httptest.NewRecorder()
 	r.ServeHTTP(eventsW, eventsReq)
 	if eventsW.Code != http.StatusNotFound {
 		t.Fatalf("expected events 404 for missing scan, got %d", eventsW.Code)
 	}
 
-	identitiesReq := httptest.NewRequest(http.MethodGet, "/v1/identities?scan_id=missing", nil)
+	identitiesReq := httptest.NewRequest(http.MethodGet, "/v1/identities?scan_id="+missingScanID, nil)
 	identitiesW := httptest.NewRecorder()
 	r.ServeHTTP(identitiesW, identitiesReq)
 	if identitiesW.Code != http.StatusNotFound {
 		t.Fatalf("expected identities 404 for missing scan, got %d", identitiesW.Code)
 	}
 
-	relationshipsReq := httptest.NewRequest(http.MethodGet, "/v1/relationships?scan_id=missing", nil)
+	relationshipsReq := httptest.NewRequest(http.MethodGet, "/v1/relationships?scan_id="+missingScanID, nil)
 	relationshipsW := httptest.NewRecorder()
 	r.ServeHTTP(relationshipsW, relationshipsReq)
 	if relationshipsW.Code != http.StatusNotFound {
 		t.Fatalf("expected relationships 404 for missing scan, got %d", relationshipsW.Code)
 	}
 
-	findingsReq := httptest.NewRequest(http.MethodGet, "/v1/findings?scan_id=missing", nil)
+	findingsReq := httptest.NewRequest(http.MethodGet, "/v1/findings?scan_id="+missingScanID, nil)
 	findingsW := httptest.NewRecorder()
 	r.ServeHTTP(findingsW, findingsReq)
 	if findingsW.Code != http.StatusNotFound {
@@ -1688,6 +1689,41 @@ func TestRouterScanDiffAndEventsNotFound(t *testing.T) {
 	r.ServeHTTP(invalidBaselineW, invalidBaselineReq)
 	if invalidBaselineW.Code != http.StatusBadRequest {
 		t.Fatalf("expected diff 400 for invalid baseline scan, got %d", invalidBaselineW.Code)
+	}
+}
+
+func TestRouterRejectsInvalidScanUUIDInputs(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	cases := []string{
+		"/v1/scans/not-a-uuid/diff",
+		"/v1/scans/not-a-uuid/events",
+		"/v1/findings?scan_id=not-a-uuid",
+		"/v1/findings/f1?scan_id=not-a-uuid",
+		"/v1/findings/f1/history?scan_id=not-a-uuid",
+		"/v1/findings/f1/exports?scan_id=not-a-uuid",
+		"/v1/identities?scan_id=not-a-uuid",
+		"/v1/relationships?scan_id=not-a-uuid",
+		"/v1/ownership/signals?scan_id=not-a-uuid",
+	}
+	for _, path := range cases {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for invalid scan_id on %s, got %d", path, w.Code)
+		}
+	}
+
+	triageReq := httptest.NewRequest(http.MethodPatch, "/v1/findings/f1/triage?scan_id=not-a-uuid", bytes.NewBufferString(`{"status":"ack"}`))
+	triageW := httptest.NewRecorder()
+	r.ServeHTTP(triageW, triageReq)
+	if triageW.Code != http.StatusBadRequest {
+		t.Fatalf("expected triage 400 for invalid scan_id, got %d", triageW.Code)
 	}
 }
 
