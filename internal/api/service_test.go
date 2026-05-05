@@ -51,6 +51,50 @@ func (f *fakeRepoExecutor) ScanRepository(_ context.Context, target string) (rep
 	return f.result, nil
 }
 
+type completionContextStore struct {
+	*db.MemoryStore
+	lastScanCompletionCtxErr     error
+	lastRepoScanCompletionCtxErr error
+}
+
+func (s *completionContextStore) CompleteScan(
+	ctx context.Context,
+	scanID string,
+	status string,
+	finishedAt time.Time,
+	assetCount int,
+	findingCount int,
+	errorMessage string,
+) error {
+	s.lastScanCompletionCtxErr = ctx.Err()
+	return s.MemoryStore.CompleteScan(ctx, scanID, status, finishedAt, assetCount, findingCount, errorMessage)
+}
+
+func (s *completionContextStore) CompleteRepoScan(
+	ctx context.Context,
+	repoScanID string,
+	status string,
+	finishedAt time.Time,
+	commitsScanned int,
+	filesScanned int,
+	findingCount int,
+	truncated bool,
+	errorMessage string,
+) error {
+	s.lastRepoScanCompletionCtxErr = ctx.Err()
+	return s.MemoryStore.CompleteRepoScan(
+		ctx,
+		repoScanID,
+		status,
+		finishedAt,
+		commitsScanned,
+		filesScanned,
+		findingCount,
+		truncated,
+		errorMessage,
+	)
+}
+
 func TestServiceCheckReadiness(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
 	if err := svc.CheckReadiness(context.Background()); err != nil {
@@ -172,6 +216,28 @@ func TestServiceRunScanFailure(t *testing.T) {
 	scans, listErr := store.ListScans(defaultScopeContext(), 1)
 	if listErr != nil {
 		t.Fatalf("list scans failed: %v", listErr)
+	}
+	if len(scans) != 1 || scans[0].Status != "failed" {
+		t.Fatalf("expected failed scan record, got %+v", scans)
+	}
+}
+
+func TestServiceRunScanFailureUsesFreshContextForTerminalWrite(t *testing.T) {
+	store := &completionContextStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{err: context.Canceled}, "aws")
+
+	canceledCtx, cancel := context.WithCancel(defaultScopeContext())
+	cancel()
+
+	if _, err := svc.RunScan(canceledCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if store.lastScanCompletionCtxErr != nil {
+		t.Fatalf("expected terminal scan completion to use non-canceled context, got %v", store.lastScanCompletionCtxErr)
+	}
+	scans, err := store.ListScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
 	}
 	if len(scans) != 1 || scans[0].Status != "failed" {
 		t.Fatalf("expected failed scan record, got %+v", scans)
@@ -1213,6 +1279,32 @@ func TestServiceRunRepoScanPersistedScannerError(t *testing.T) {
 		Repository: "owner/repo",
 	}); err == nil {
 		t.Fatal("expected scanner error")
+	}
+	repoScans, err := svc.ListRepoScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(repoScans) != 1 || repoScans[0].Status != "failed" {
+		t.Fatalf("expected failed repo scan record, got %+v", repoScans)
+	}
+}
+
+func TestServiceRunRepoScanPersistedFailureUsesFreshContextForTerminalWrite(t *testing.T) {
+	store := &completionContextStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return &fakeRepoExecutor{err: context.Canceled}
+	}
+
+	canceledCtx, cancel := context.WithCancel(defaultScopeContext())
+	cancel()
+
+	if _, err := svc.RunRepoScanPersisted(canceledCtx, RepoScanRequest{Repository: "owner/repo"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if store.lastRepoScanCompletionCtxErr != nil {
+		t.Fatalf("expected terminal repo completion to use non-canceled context, got %v", store.lastRepoScanCompletionCtxErr)
 	}
 	repoScans, err := svc.ListRepoScans(defaultScopeContext(), 10)
 	if err != nil {

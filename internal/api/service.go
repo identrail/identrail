@@ -27,6 +27,7 @@ const (
 	defaultScanQueueMaxPending  = 25
 	defaultRepoQueueMaxPending  = 100
 	maxSourceErrorsInEvent      = 25
+	terminalWriteTimeout        = 5 * time.Second
 )
 
 const (
@@ -370,14 +371,14 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	if err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while preparing provider connector", map[string]any{"error": err.Error()})
-		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
+		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
 		return RunScanResult{}, err
 	}
 	result, err := scanner.Run(ctx)
 	if err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed during collection/analysis", map[string]any{"error": err.Error()})
-		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
+		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
 		return RunScanResult{}, err
 	}
 	result.Findings = enrichFindings(result.Findings)
@@ -397,7 +398,7 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}); err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting artifacts", map[string]any{"error": err.Error()})
-		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
+		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
 		return RunScanResult{}, fmt.Errorf("persist artifacts: %w", err)
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "artifacts persisted", map[string]any{"raw_assets": len(result.RawAssets), "identities": len(result.Bundle.Identities)})
@@ -405,12 +406,12 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	if err := s.Store.UpsertFindings(ctx, record.ID, result.Findings); err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting findings", map[string]any{"error": err.Error()})
-		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
+		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
 		return RunScanResult{}, fmt.Errorf("persist findings: %w", err)
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "findings persisted", map[string]any{"findings": len(result.Findings)})
 
-	if err := s.Store.CompleteScan(ctx, record.ID, "completed", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
+	if err := s.completeScanTerminal(ctx, record.ID, "completed", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
 		return RunScanResult{}, fmt.Errorf("complete scan record: %w", err)
@@ -624,12 +625,12 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	normalizedHistory, err := sanitizeRepoScanLimit(historyLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
 	if err != nil {
-		_ = s.Store.CompleteRepoScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, ErrInvalidRepoScanRequest.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, ErrInvalidRepoScanRequest.Error())
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
 	normalizedMaxFindings, err := sanitizeRepoScanLimit(maxFindings, s.RepoScanDefaultMaxFindings, s.RepoScanMaxFindingsLimit)
 	if err != nil {
-		_ = s.Store.CompleteRepoScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, ErrInvalidRepoScanRequest.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, ErrInvalidRepoScanRequest.Error())
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
 	if s.RepoScannerFactory == nil {
@@ -637,15 +638,15 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	result, err := s.RepoScannerFactory(normalizedHistory, normalizedMaxFindings).ScanRepository(ctx, target)
 	if err != nil {
-		_ = s.Store.CompleteRepoScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, err.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, err.Error())
 		return RunRepoScanResult{}, err
 	}
 	result.Findings = enrichFindings(result.Findings)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
-		_ = s.Store.CompleteRepoScan(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, err.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, err.Error())
 		return RunRepoScanResult{}, fmt.Errorf("persist repo findings: %w", err)
 	}
-	if err := s.Store.CompleteRepoScan(
+	if err := s.completeRepoScanTerminal(
 		ctx,
 		record.ID,
 		"completed",
@@ -1811,4 +1812,49 @@ func (s *Service) lockKey(key string) string {
 
 func (s *Service) scopeContext(ctx context.Context) context.Context {
 	return db.WithDefaultScope(ctx, s.DefaultScope)
+}
+
+func (s *Service) terminalWriteContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	scoped := db.WithScope(context.Background(), db.ScopeFromContext(s.scopeContext(ctx)))
+	return context.WithTimeout(scoped, terminalWriteTimeout)
+}
+
+func (s *Service) completeScanTerminal(
+	ctx context.Context,
+	scanID string,
+	status string,
+	finishedAt time.Time,
+	assetCount int,
+	findingCount int,
+	errorMessage string,
+) error {
+	writeCtx, cancel := s.terminalWriteContext(ctx)
+	defer cancel()
+	return s.Store.CompleteScan(writeCtx, scanID, status, finishedAt, assetCount, findingCount, errorMessage)
+}
+
+func (s *Service) completeRepoScanTerminal(
+	ctx context.Context,
+	repoScanID string,
+	status string,
+	finishedAt time.Time,
+	commitsScanned int,
+	filesScanned int,
+	findingCount int,
+	truncated bool,
+	errorMessage string,
+) error {
+	writeCtx, cancel := s.terminalWriteContext(ctx)
+	defer cancel()
+	return s.Store.CompleteRepoScan(
+		writeCtx,
+		repoScanID,
+		status,
+		finishedAt,
+		commitsScanned,
+		filesScanned,
+		findingCount,
+		truncated,
+		errorMessage,
+	)
 }
