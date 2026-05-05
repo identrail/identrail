@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 // PermissionResolver expands normalized role-binding statements into permission tuples.
