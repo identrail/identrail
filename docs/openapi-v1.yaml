@@ -650,6 +650,7 @@ paths:
           name: project_id
           required: true
           schema: { type: string }
+        - $ref: "#/components/parameters/githubInstallationID"
       responses:
         "204":
           description: Project deleted
@@ -871,6 +872,7 @@ paths:
           name: project_id
           required: true
           schema: { type: string }
+        - $ref: "#/components/parameters/githubInstallationID"
       requestBody:
         required: true
         content:
@@ -1564,6 +1566,15 @@ components:
         type: string
         enum: [asc, desc]
       description: Sort direction.
+    githubInstallationID:
+      in: header
+      name: X-GitHub-Installation-ID
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      description: Optional installation ID fallback when the completion request body omits `installation_id`.
   responses:
     Unauthorized:
       description: Unauthorized
@@ -1956,7 +1967,6 @@ components:
       type: object
       required:
         - state
-        - installation_id
         - token_reference
         - webhook_secret
         - webhook_secret_reference
@@ -1967,6 +1977,7 @@ components:
           type: integer
           format: int64
           minimum: 1
+          description: GitHub App installation ID. May be supplied via the `X-GitHub-Installation-ID` header instead of the JSON body.
         account_login:
           type: string
         token_reference:
