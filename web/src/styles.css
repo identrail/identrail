@@ -5618,30 +5618,30 @@ html[data-theme='light'] .idt-tour-report {
     width: fit-content;
   }
 
-  .idt-table-wrap {
+  .idt-home-compare {
     overflow: visible;
     border: 0;
     background: transparent;
   }
 
-  .idt-compare-table {
+  .idt-home-compare .idt-compare-table {
     min-width: 0;
     display: block;
   }
 
-  .idt-compare-table thead {
+  .idt-home-compare .idt-compare-table thead {
     display: none;
   }
 
-  .idt-compare-table tbody,
-  .idt-compare-table tr,
-  .idt-compare-table th,
-  .idt-compare-table td {
+  .idt-home-compare .idt-compare-table tbody,
+  .idt-home-compare .idt-compare-table tr,
+  .idt-home-compare .idt-compare-table th,
+  .idt-home-compare .idt-compare-table td {
     display: block;
     width: 100%;
   }
 
-  .idt-compare-table tr {
+  .idt-home-compare .idt-compare-table tr {
     border: 1px solid rgba(229, 236, 222, 0.16);
     border-radius: 8px;
     background: rgba(8, 12, 13, 0.72);
@@ -5649,21 +5649,21 @@ html[data-theme='light'] .idt-tour-report {
     overflow: hidden;
   }
 
-  .idt-compare-table th,
-  .idt-compare-table td {
+  .idt-home-compare .idt-compare-table th,
+  .idt-home-compare .idt-compare-table td {
     border-bottom: 1px solid rgba(169, 184, 211, 0.16);
     padding: 0.8rem;
   }
 
-  .idt-compare-table td:nth-of-type(1)::before {
+  .idt-home-compare .idt-compare-table td:nth-of-type(1)::before {
     content: 'Identrail';
   }
 
-  .idt-compare-table td:nth-of-type(2)::before {
+  .idt-home-compare .idt-compare-table td:nth-of-type(2)::before {
     content: 'Typical alternative';
   }
 
-  .idt-compare-table td::before {
+  .idt-home-compare .idt-compare-table td::before {
     display: block;
     margin-bottom: 0.35rem;
     color: var(--idt-premium-copper);

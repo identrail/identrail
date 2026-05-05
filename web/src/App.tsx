@@ -1443,7 +1443,7 @@ function HomePage() {
           title="Why teams choose Identrail over closed black-box workflows"
           body="Compare on explainability, rollout safety, and day-two operability."
         />
-        <div className="idt-table-wrap">
+        <div className="idt-table-wrap idt-home-compare">
           <table className="idt-compare-table">
             <thead>
               <tr>
@@ -1465,7 +1465,7 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="idt-section idt-shell idt-final-cta" id="start">
+      <section className="idt-section idt-shell idt-final-cta" id="risk-scan-form">
         <SectionTitle
           eyebrow="Ready to evaluate"
           title="Map your first production trust path in minutes"
