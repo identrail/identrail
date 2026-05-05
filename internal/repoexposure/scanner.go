@@ -21,10 +21,9 @@ import (
 )
 
 const (
-	defaultHistoryLimit  = 500
-	defaultMaxFindings   = 200
-	maxFileSizeBytes     = 1 << 20
-	defaultGitCmdTimeout = 2 * time.Minute
+	defaultHistoryLimit = 500
+	defaultMaxFindings  = 200
+	maxFileSizeBytes    = 1 << 20
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
@@ -519,18 +518,6 @@ func severityRank(severity domain.FindingSeverity) int {
 }
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	runCtx, cancel := ensureCommandTimeoutContext(ctx, defaultGitCmdTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(runCtx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
-}
-
-func ensureCommandTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if _, hasDeadline := ctx.Deadline(); hasDeadline || timeout <= 0 {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, timeout)
 }

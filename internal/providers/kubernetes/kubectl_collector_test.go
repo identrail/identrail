@@ -88,34 +88,6 @@ func TestKubectlCollectorUsesDefaults(t *testing.T) {
 	}
 }
 
-func TestEnsureCommandTimeoutContextAddsDeadlineWhenMissing(t *testing.T) {
-	ctx, cancel := ensureCommandTimeoutContext(context.Background(), 250*time.Millisecond)
-	defer cancel()
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		t.Fatal("expected context deadline to be added")
-	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 || remaining > 500*time.Millisecond {
-		t.Fatalf("unexpected command timeout window: %v", remaining)
-	}
-}
-
-func TestEnsureCommandTimeoutContextKeepsExistingDeadline(t *testing.T) {
-	parent, parentCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer parentCancel()
-	parentDeadline, _ := parent.Deadline()
-	ctx, cancel := ensureCommandTimeoutContext(parent, 250*time.Millisecond)
-	defer cancel()
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		t.Fatal("expected existing parent deadline to be preserved")
-	}
-	if !deadline.Equal(parentDeadline) {
-		t.Fatalf("expected parent deadline %v, got %v", parentDeadline, deadline)
-	}
-}
-
 func TestKubectlCollectorCommandError(t *testing.T) {
 	exec := &fakeCommandExec{
 		errs: map[string]error{

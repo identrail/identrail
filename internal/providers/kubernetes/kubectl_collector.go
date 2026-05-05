@@ -20,7 +20,6 @@ const (
 	defaultKubectlRetryBaseDelay   = 250 * time.Millisecond
 	defaultKubectlRetryMaxDelay    = 2 * time.Second
 	defaultKubectlRetryJitterRatio = 0.20
-	defaultKubectlCmdTimeout       = 2 * time.Minute
 )
 
 // CommandRunner executes external commands. It is injectable for deterministic tests.
@@ -366,20 +365,8 @@ func (c *KubectlCollector) list(ctx context.Context, resource string, allNamespa
 }
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	runCtx, cancel := ensureCommandTimeoutContext(ctx, defaultKubectlCmdTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(runCtx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
-}
-
-func ensureCommandTimeoutContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if _, hasDeadline := ctx.Deadline(); hasDeadline || timeout <= 0 {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, timeout)
 }
 
 func defaultKubectlSleeper(ctx context.Context, delay time.Duration) error {
