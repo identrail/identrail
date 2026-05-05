@@ -2182,12 +2182,16 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 		}
 		logger.Info(
 			"api request",
-			zap.String("method", event.Method),
-			zap.String("path", event.Path),
-			zap.Int("status", event.Status),
-			zap.String("client_ip", event.ClientIP),
-			zap.Int64("duration_ms", event.DurationMS),
-			zap.String("user_agent", event.UserAgent),
+			telemetry.StandardLogFields("api", "api_request",
+				zap.String("request_id", event.CorrelationID),
+				zap.String("method", event.Method),
+				zap.String("path", event.Path),
+				zap.Int("status", event.Status),
+				zap.String("client_ip", event.ClientIP),
+				zap.Int64("duration_ms", event.DurationMS),
+				zap.String("user_agent", event.UserAgent),
+				zap.String("actor", event.Actor),
+			)...,
 		)
 		if err := sink.Write(c.Request.Context(), event); err != nil {
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))

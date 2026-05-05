@@ -1525,6 +1525,15 @@ func TestRouterEmitsAuditLog(t *testing.T) {
 	if got := last.ContextMap()["method"]; got != "GET" {
 		t.Fatalf("expected method GET, got %v", got)
 	}
+	if got := last.ContextMap()["component"]; got != "api" {
+		t.Fatalf("expected component api, got %v", got)
+	}
+	if got := last.ContextMap()["operation"]; got != "api_request" {
+		t.Fatalf("expected operation api_request, got %v", got)
+	}
+	if got := last.ContextMap()["request_id"]; got == "" {
+		t.Fatal("expected request_id in audit log entry")
+	}
 }
 
 func TestRouterWritesAuditSink(t *testing.T) {
