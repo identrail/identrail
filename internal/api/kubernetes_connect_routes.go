@@ -5,9 +5,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 

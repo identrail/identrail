@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
+	"github.com/identrail/identrail/internal/audit"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/telemetry"
 )
 
 const (
