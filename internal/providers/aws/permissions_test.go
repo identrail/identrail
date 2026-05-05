@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 func TestPolicyPermissionResolverExpandsTuples(t *testing.T) {
