@@ -14,6 +14,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/findings/standards"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/repoallowlist"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
@@ -1686,30 +1687,7 @@ func truncateSourceErrors(errors []providers.SourceError, max int) []providers.S
 }
 
 func repoTargetAllowed(target string, allowlist []string) bool {
-	if len(allowlist) == 0 {
-		return false
-	}
-	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
-	if normalizedTarget == "" {
-		return false
-	}
-	for _, item := range allowlist {
-		pattern := strings.ToLower(strings.TrimSpace(item))
-		if pattern == "" {
-			continue
-		}
-		if strings.HasSuffix(pattern, "*") {
-			prefix := strings.TrimSuffix(pattern, "*")
-			if strings.HasPrefix(normalizedTarget, prefix) {
-				return true
-			}
-			continue
-		}
-		if normalizedTarget == pattern {
-			return true
-		}
-	}
-	return false
+	return repoallowlist.TargetAllowed(target, allowlist, false)
 }
 
 func inferOwnershipSignal(identity domain.Identity) (domain.OwnershipSignal, bool) {
