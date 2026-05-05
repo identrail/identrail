@@ -184,12 +184,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
-	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
+	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditSink, opts.AuditFingerprinter, logger))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
-	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
 	registerTenancyRoutes(v1, logger, svc)
@@ -1909,8 +1909,11 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string) gin.HandlerFunc {
+func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string, sink audit.AuditSink, fingerprinter *audit.Fingerprinter, logger *zap.Logger) gin.HandlerFunc {
 	oidcWriteScopeSet := newScopeSet(oidcWriteScopes)
+	if sink == nil {
+		sink = audit.NopAuditSink{}
+	}
 
 	scopedAllowed := map[string]scopeSet{}
 	for key, scopes := range scopedKeys {
@@ -1967,11 +1970,37 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 				c.Next()
 				return
 			}
+			recordAuthenticationFailure(c, sink, fingerprinter, logger)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 
+		recordAuthenticationFailure(c, sink, fingerprinter, logger)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	}
+}
+
+func recordAuthenticationFailure(c *gin.Context, sink audit.AuditSink, fingerprinter *audit.Fingerprinter, logger *zap.Logger) {
+	if c == nil || sink == nil {
+		return
+	}
+	event := audit.AuditEvent{
+		Timestamp: time.Now().UTC(),
+		Kind:      "api_auth_failure",
+		Method:    c.Request.Method,
+		Path:      c.Request.URL.Path,
+		Status:    http.StatusUnauthorized,
+		ClientIP:  c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+		Actor:     "unknown",
+		Outcome:   "denied",
+		Error:     "unauthorized",
+	}
+	if apiKey := readAPIKey(c); apiKey != "" {
+		event.APIKeyID = fingerprintAPIKeyWith(fingerprinter, apiKey)
+	}
+	if err := sink.Write(c.Request.Context(), event); err != nil && logger != nil {
+		logger.Warn("auth failure audit sink write failed", telemetry.ZapError(err))
 	}
 }
 
