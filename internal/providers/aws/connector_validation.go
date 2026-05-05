@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	api "github.com/Oluwatobi-Mustapha/identrail/internal/api"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/stringutil"
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -292,10 +293,5 @@ func classifyAWSError(err error, fallback string) string {
 }
 
 func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
+	return stringutil.FirstNonEmpty(values...)
 }
