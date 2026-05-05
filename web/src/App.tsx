@@ -5,7 +5,6 @@ import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { CommandCenterSection } from './components/home/CommandCenterSection';
 import { ProblemFramingSection } from './components/home/ProblemFramingSection';
-import { RiskInsightSection } from './components/home/RiskInsightSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
@@ -108,6 +107,33 @@ const DIFFERENTIATION_ROWS = [
     area: 'Developer and platform fit',
     identrail: 'Built for security + platform collaboration with inspectable outputs',
     closed: 'Security-only workflows can be harder for platform teams to operationalize'
+  }
+] as const;
+
+const PRODUCT_TOUR_STEPS = [
+  {
+    step: '01',
+    title: 'Connect read-only signals',
+    detail: 'Add AWS IAM, Kubernetes, GitHub, and OIDC sources without granting write access.',
+    proof: 'Least-privilege connector scope'
+  },
+  {
+    step: '02',
+    title: 'Rank reachable risk paths',
+    detail: 'See which identities can reach production resources and why the path matters.',
+    proof: 'Blast-radius queue'
+  },
+  {
+    step: '03',
+    title: 'Simulate the first safe fix',
+    detail: 'Preview trust-policy and RBAC changes before enforcement to avoid workload breakage.',
+    proof: 'Policy simulation'
+  },
+  {
+    step: '04',
+    title: 'Export the evidence packet',
+    detail: 'Package source evidence, owner notes, timeline, and residual risk for review.',
+    proof: 'Audit-ready report'
   }
 ] as const;
 
@@ -687,64 +713,6 @@ function ModalShell({
   );
 }
 
-function ExitIntentPopup() {
-  const [open, setOpen] = useState(false);
-  const dismissedRef = useRef(false);
-
-  useEffect(() => {
-    const storageKey = 'identrail-exit-modal-dismissed';
-    dismissedRef.current = localStorage.getItem(storageKey) === 'yes';
-
-    if (dismissedRef.current) {
-      return;
-    }
-
-    const onMouseOut = (event: MouseEvent) => {
-      if (event.clientY <= 8 && !dismissedRef.current) {
-        setOpen(true);
-      }
-    };
-
-    const timer = window.setTimeout(() => {
-      if (!dismissedRef.current) {
-        setOpen(true);
-      }
-    }, 45000);
-
-    document.addEventListener('mouseout', onMouseOut);
-
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener('mouseout', onMouseOut);
-    };
-  }, []);
-
-  const close = () => {
-    dismissedRef.current = true;
-    localStorage.setItem('identrail-exit-modal-dismissed', 'yes');
-    setOpen(false);
-  };
-
-  if (!open) return null;
-
-  return (
-    <ModalShell titleId="exit-modal-title" onClose={close}>
-      <button className="idt-modal-close" type="button" onClick={close} aria-label="Close">
-        x
-      </button>
-      <h3 id="exit-modal-title">Before you leave: run a free machine identity risk scan</h3>
-      <p>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</p>
-      <LeadCaptureForm
-        compact
-        variant="short"
-        title="Start Free Risk Scan"
-        caption="No spam. One actionable plan for cloud identity blast radius reduction."
-        ctaLabel="Start Free Risk Scan"
-      />
-    </ModalShell>
-  );
-}
-
 function CalendlyEmbed() {
   return (
     <section className="idt-calendly">
@@ -1278,6 +1246,57 @@ function DeploymentPathBanner() {
   );
 }
 
+function ProductTourSection() {
+  return (
+    <section className="idt-section idt-shell idt-product-tour" aria-labelledby="product-tour-title">
+      <div className="idt-product-tour-copy">
+        <p className="idt-eyebrow">Product tour</p>
+        <h2 id="product-tour-title">From connector setup to board-ready risk evidence.</h2>
+        <p>
+          A tighter product story: connect safely, find reachable risk, simulate remediation, and export proof without
+          repeating the same trust-graph promise section after section.
+        </p>
+      </div>
+
+      <div className="idt-product-tour-shell" aria-label="Identrail product workflow preview">
+        <div className="idt-tour-rail">
+          {PRODUCT_TOUR_STEPS.map((item) => (
+            <article key={item.step} className="idt-tour-step">
+              <span>{item.step}</span>
+              <div>
+                <h3>{item.title}</h3>
+                <p>{item.detail}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="idt-tour-screen">
+          <div className="idt-tour-screen-head">
+            <div>
+              <p>Live trust path investigation</p>
+              <h3>Reachable Risk Paths</h3>
+            </div>
+            <span>4 evidence artifacts</span>
+          </div>
+          <div className="idt-tour-finding-grid">
+            {PRODUCT_TOUR_STEPS.map((item) => (
+              <article key={item.proof}>
+                <small>{item.proof}</small>
+                <strong>{item.title}</strong>
+              </article>
+            ))}
+          </div>
+          <div className="idt-tour-report">
+            <p>Export packet</p>
+            <strong>Source evidence, policy diff, affected workloads, owner timeline, residual risk</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function HomeFaqSection() {
   const groups = [
     {
@@ -1412,28 +1431,7 @@ function HomePage() {
 
       <CommandCenterSection />
 
-      <section className="idt-section idt-section-tight idt-shell">
-        <LeadCaptureForm
-          id="risk-scan-form"
-          variant="short"
-          title="Start a read-only risk scan in under one minute"
-          caption="No production writes. You receive a prioritized trust-path report and a practical first-remediation sequence."
-          ctaLabel="Start Free Risk Scan"
-        />
-      </section>
-
-      <RiskInsightSection />
-
-      <section className="idt-section idt-shell idt-section-demo">
-        <div className="idt-card idt-proof-demo-card">
-          <h3>Interactive trust graph explorer</h3>
-          <p>
-            Explore source identity, broker, workload, privilege, and target resource states. Select a node to inspect risk evidence
-            and first remediation actions.
-          </p>
-          <TrustGraphDemo />
-        </div>
-      </section>
+      <ProductTourSection />
 
       <HowItWorksSection />
 
@@ -1466,8 +1464,6 @@ function HomePage() {
           </table>
         </div>
       </section>
-
-      <HomeFaqSection />
 
       <section className="idt-section idt-shell idt-final-cta" id="start">
         <SectionTitle
@@ -2505,8 +2501,8 @@ function DocsPage() {
     <>
       <section className="idt-page-hero idt-shell">
         <p className="idt-eyebrow">Docs</p>
-        <h1>Beautiful docs experience with deep operator workflows</h1>
-        <p>Mintlify-style navigation, fast search, and practical runbooks linked to the source repository.</p>
+        <h1>Deploy, connect, and operate Identrail in production</h1>
+        <p>Fast search, practical runbooks, and source-linked operator docs for production rollouts.</p>
         <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-primary">
           Open Full GitHub Docs
         </SafeLink>
@@ -3046,7 +3042,6 @@ export function RoutedSite() {
       {!isProductShellRoute ? (
         <>
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
-          <ExitIntentPopup />
         </>
       ) : null}
     </div>
