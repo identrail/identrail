@@ -22,6 +22,9 @@ var ErrNotFound = errors.New("record not found")
 // ErrScopeRequired indicates tenant/workspace scope must be provided in context.
 var ErrScopeRequired = errors.New("scope is required")
 
+// ErrQueueLimitReached indicates enqueue was rejected because pending capacity is full.
+var ErrQueueLimitReached = errors.New("queue limit reached")
+
 var authzOwnerTeamPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var tenancySlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -999,6 +1002,7 @@ type RepoFindingFilter struct {
 type Store interface {
 	CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error)
 	CreateQueuedScan(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error)
+	CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error)
 	ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error)
 	CountQueuedScans(ctx context.Context, provider string) (int, error)
 	GetScan(ctx context.Context, scanID string) (ScanRecord, error)

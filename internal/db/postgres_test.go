@@ -687,6 +687,44 @@ func TestPostgresStoreScanQueueLifecycle(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreCreateQueuedScanWithinLimit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+
+	successRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"}).
+		AddRow("scan-1", "default", "default", "aws", "queued", now, nil, 0, 0, "")
+	mock.ExpectQuery("WITH queued_count AS").
+		WithArgs("default", "default", "aws", sqlmock.AnyArg(), sqlmock.AnyArg(), 1).
+		WillReturnRows(successRows)
+
+	queued, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now, 1)
+	if err != nil {
+		t.Fatalf("create queued scan with limit failed: %v", err)
+	}
+	if queued.ID != "scan-1" || queued.Status != "queued" {
+		t.Fatalf("unexpected queued scan result %+v", queued)
+	}
+
+	emptyRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"})
+	mock.ExpectQuery("WITH queued_count AS").
+		WithArgs("default", "default", "aws", sqlmock.AnyArg(), sqlmock.AnyArg(), 1).
+		WillReturnRows(emptyRows)
+
+	if _, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
+		t.Fatalf("expected ErrQueueLimitReached, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreRequiresScopeContext(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {
