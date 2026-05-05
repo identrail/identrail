@@ -24,6 +24,18 @@ This Terraform baseline deploys Identrail on Kubernetes through the Helm chart.
 - Kubernetes provider auth from kubeconfig or in-cluster identity.
 - Helm provider uses the same Kubernetes context.
 
+## Dependency Updates
+
+Terraform providers are selected through bounded constraints in `versions.tf`
+and locked in `.terraform.lock.hcl` for reproducible fresh clones and CI runs.
+
+When rotating Terraform, Helm, or Kubernetes provider versions:
+
+1. Update the version constraints in `versions.tf` and matching module constraints.
+2. Run `terraform init -upgrade -backend=false` from `deploy/terraform`.
+3. Review and commit the resulting `.terraform.lock.hcl` change.
+4. Run `terraform fmt -check -recursive deploy/terraform` and `terraform validate`.
+
 ## Notes
 
 - This module assumes a Kubernetes cluster already exists.
