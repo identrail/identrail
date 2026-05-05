@@ -409,7 +409,6 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 
 	installationID := envelope.Installation.ID
 	normalizedSignature := strings.TrimSpace(signature)
-	s.hydrateGitHubConnections(ctx)
 
 	if !s.verifyGitHubWebhookSignatureForInstallation(installationID, payload, normalizedSignature) {
 		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
@@ -566,7 +565,7 @@ func (s *Service) hydrateGitHubConnections(ctx context.Context) {
 	if s == nil || s.Store == nil {
 		return
 	}
-	items, err := s.Store.ListTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeGitHub, 2000)
+	items, err := s.Store.ListTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeGitHub, 0)
 	if err != nil {
 		return
 	}

@@ -830,9 +830,6 @@ func (p *PostgresStore) ListTenancyConnectors(ctx context.Context, workspaceID s
 
 // ListTenancyConnectorsUnscoped returns connectors across all scopes for internal webhook dispatch.
 func (p *PostgresStore) ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
-	if limit <= 0 {
-		limit = 100
-	}
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
 		     c.secret_provider, c.secret_ref_id, c.secret_ref_version, c.secret_last_rotated_at,
@@ -852,8 +849,11 @@ func (p *PostgresStore) ListTenancyConnectorsUnscoped(ctx context.Context, conne
 		args = append(args, trimmedType)
 		nextArg++
 	}
-	query += fmt.Sprintf(" ORDER BY c.updated_at DESC LIMIT $%d", nextArg)
-	args = append(args, limit)
+	query += " ORDER BY c.updated_at DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", nextArg)
+		args = append(args, limit)
+	}
 
 	// Intentionally bypass scoped wrappers to allow webhook lookup across tenant/workspace boundaries.
 	rows, err := p.db.QueryContext(ctx, query, args...)
