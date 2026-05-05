@@ -6,13 +6,7 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-)
-
-const (
-	defaultOIDCTenantClaim    = "tenant_id"
-	defaultOIDCWorkspaceClaim = "workspace_id"
-	defaultOIDCGroupsClaim    = "groups"
-	defaultOIDCRolesClaim     = "roles"
+	"github.com/identrail/identrail/internal/config"
 )
 
 // OIDCTokenVerifier validates OIDC bearer tokens using issuer discovery and JWKS verification.
@@ -66,19 +60,19 @@ func NewOIDCTokenVerifier(
 	}
 	tenantClaimName := strings.TrimSpace(tenantClaim)
 	if tenantClaimName == "" {
-		tenantClaimName = defaultOIDCTenantClaim
+		tenantClaimName = config.OIDCDefaultTenantClaim
 	}
 	workspaceClaimName := strings.TrimSpace(workspaceClaim)
 	if workspaceClaimName == "" {
-		workspaceClaimName = defaultOIDCWorkspaceClaim
+		workspaceClaimName = config.OIDCDefaultWorkspaceClaim
 	}
 	groupsClaimName := strings.TrimSpace(groupsClaim)
 	if groupsClaimName == "" {
-		groupsClaimName = defaultOIDCGroupsClaim
+		groupsClaimName = config.OIDCDefaultGroupsClaim
 	}
 	rolesClaimName := strings.TrimSpace(rolesClaim)
 	if rolesClaimName == "" {
-		rolesClaimName = defaultOIDCRolesClaim
+		rolesClaimName = config.OIDCDefaultRolesClaim
 	}
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {

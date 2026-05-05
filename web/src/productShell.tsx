@@ -106,6 +106,11 @@ type ProductSessionTokens = {
 let inMemoryTokens: ProductSessionTokens = {};
 const OIDC_REFRESH_SKEW_MS = 90 * 1000;
 const OIDC_MAX_PENDING_LOGIN_AGE_MS = 10 * 60 * 1000;
+const OIDC_DEFAULT_CLAIMS = {
+  tenant: 'tenant_id',
+  workspace: 'workspace_id',
+  roles: 'roles'
+} as const;
 
 function normalizeValue(value: string): string {
   return value.trim();
@@ -137,9 +142,9 @@ function readOIDCConfig(): OIDCConfig | null {
     scope: normalizeValue(import.meta.env.VITE_OIDC_SCOPE ?? '') || 'openid profile email offline_access',
     redirectURI,
     postLogoutRedirectURI,
-    tenantClaim: normalizeClaimName(import.meta.env.VITE_OIDC_TENANT_CLAIM ?? '', 'tenant_id'),
-    workspaceClaim: normalizeClaimName(import.meta.env.VITE_OIDC_WORKSPACE_CLAIM ?? '', 'workspace_id'),
-    rolesClaim: normalizeClaimName(import.meta.env.VITE_OIDC_ROLES_CLAIM ?? '', 'roles')
+    tenantClaim: normalizeClaimName(import.meta.env.VITE_OIDC_TENANT_CLAIM ?? '', OIDC_DEFAULT_CLAIMS.tenant),
+    workspaceClaim: normalizeClaimName(import.meta.env.VITE_OIDC_WORKSPACE_CLAIM ?? '', OIDC_DEFAULT_CLAIMS.workspace),
+    rolesClaim: normalizeClaimName(import.meta.env.VITE_OIDC_ROLES_CLAIM ?? '', OIDC_DEFAULT_CLAIMS.roles)
   };
 }
 
@@ -301,10 +306,14 @@ function claimStringArray(claims: OIDCClaims, key: string): string[] {
 }
 
 function resolveSessionScopeFromClaims(claims: OIDCClaims, config: OIDCConfig): { tenantID: string; workspaceID: string } {
-  const tenantID = claimString(claims, config.tenantClaim) || claimString(claims, 'tenant_id') || claimString(claims, 'tenant') || 'default';
+  const tenantID =
+    claimString(claims, config.tenantClaim) ||
+    claimString(claims, OIDC_DEFAULT_CLAIMS.tenant) ||
+    claimString(claims, 'tenant') ||
+    'default';
   const workspaceID =
     claimString(claims, config.workspaceClaim) ||
-    claimString(claims, 'workspace_id') ||
+    claimString(claims, OIDC_DEFAULT_CLAIMS.workspace) ||
     claimString(claims, 'workspace') ||
     'default';
 

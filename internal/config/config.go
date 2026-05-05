@@ -41,10 +41,10 @@ const (
 	defaultTenantID                    = "default"
 	defaultWorkspaceID                 = "default"
 	defaultOIDCWriteScopes             = "identrail.write,identrail.admin,write,admin"
-	defaultOIDCTenantClaim             = "tenant_id"
-	defaultOIDCWorkspaceClaim          = "workspace_id"
-	defaultOIDCGroupsClaim             = "groups"
-	defaultOIDCRolesClaim              = "roles"
+	defaultOIDCTenantClaim             = OIDCDefaultTenantClaim
+	defaultOIDCWorkspaceClaim          = OIDCDefaultWorkspaceClaim
+	defaultOIDCGroupsClaim             = OIDCDefaultGroupsClaim
+	defaultOIDCRolesClaim              = OIDCDefaultRolesClaim
 	defaultAppModeEnabled              = false
 	defaultAppModeConnectorsEnabled    = false
 	defaultAppModeSchedulerEnabled     = false
@@ -54,6 +54,13 @@ const (
 	defaultAppModePremiumAutofix       = false
 	defaultAppModeRolloutEnabled       = false
 	defaultAppModeRolloutCanaryPercent = 0
+)
+
+const (
+	OIDCDefaultTenantClaim    = "tenant_id"
+	OIDCDefaultWorkspaceClaim = "workspace_id"
+	OIDCDefaultGroupsClaim    = "groups"
+	OIDCDefaultRolesClaim     = "roles"
 )
 
 // Config centralizes process-level configuration. It keeps module wiring simple
