@@ -132,6 +132,7 @@ func TestAuthzPolicyLifecycleActivateShadowEnforceRollbackIntegration(t *testing
 		t.Fatalf("activate rollout: %v", err)
 	}
 	assertLifecycleScanStatus(t, router, "write-key", http.StatusAccepted)
+	processLifecycleQueuedScan(t, svc, ctx)
 
 	if err := store.UpsertAuthzPolicyRollout(ctx, db.AuthzPolicyRollout{
 		PolicySetID:       defaultCentralPolicySetID,
@@ -145,6 +146,7 @@ func TestAuthzPolicyLifecycleActivateShadowEnforceRollbackIntegration(t *testing
 		t.Fatalf("shadow rollout: %v", err)
 	}
 	assertLifecycleScanStatus(t, router, "write-key", http.StatusAccepted)
+	processLifecycleQueuedScan(t, svc, ctx)
 	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowEvaluationsTotal); got != 1 {
 		t.Fatalf("expected one shadow evaluation, got %v", got)
 	}
@@ -276,6 +278,17 @@ func assertLifecycleScanStatus(t *testing.T, router http.Handler, apiKey string,
 	router.ServeHTTP(w, req)
 	if w.Code != expected {
 		t.Fatalf("expected status %d, got %d body=%s", expected, w.Code, w.Body.String())
+	}
+}
+
+func processLifecycleQueuedScan(t *testing.T, svc *Service, ctx context.Context) {
+	t.Helper()
+	processed, err := svc.ProcessNextQueuedScan(ctx)
+	if err != nil {
+		t.Fatalf("process queued lifecycle scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued lifecycle scan to be processed")
 	}
 }
 

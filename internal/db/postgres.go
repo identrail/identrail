@@ -265,6 +265,49 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 	return record, nil
 }
 
+// CreateQueuedScanIfNoPending inserts one queued scan only when no queued/running scan exists.
+func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`WITH pending AS (
+			SELECT COUNT(*) AS total
+			FROM scans
+			WHERE tenant_id = $1
+			  AND workspace_id = $2
+			  AND provider = $3
+			  AND status IN ('queued', 'running')
+		),
+		inserted AS (
+			INSERT INTO scans (
+				id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
+			)
+			SELECT $4, $1, $2, $3, 'queued', $5, NULL, 0, 0, NULL
+			FROM pending
+			WHERE total = 0
+			RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		)
+		SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		FROM inserted`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		strings.TrimSpace(provider),
+		uuid.NewString(),
+		queuedAt.UTC(),
+	)
+	record, err := scanScanRecord(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ScanRecord{}, ErrPendingScanExists
+		}
+		return ScanRecord{}, fmt.Errorf("create queued scan without pending duplicate: %w", err)
+	}
+	return record, nil
+}
+
 // ClaimNextQueuedScan atomically claims one queued scan for execution.
 func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)

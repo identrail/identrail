@@ -1264,26 +1264,24 @@ func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	}
 }
 
-func TestServiceEnqueueScanQueueFull(t *testing.T) {
+func TestServiceEnqueueScanRejectsDuplicatePendingScan(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
-	svc.ScanQueueMaxPending = 1
 	if _, err := svc.EnqueueScan(defaultScopeContext()); err != nil {
 		t.Fatalf("enqueue first scan: %v", err)
 	}
-	if _, err := svc.EnqueueScan(defaultScopeContext()); !errors.Is(err, ErrScanQueueFull) {
-		t.Fatalf("expected scan queue full error, got %v", err)
+	if _, err := svc.EnqueueScan(defaultScopeContext()); !errors.Is(err, ErrScanInProgress) {
+		t.Fatalf("expected scan in progress error, got %v", err)
 	}
 }
 
-func TestServiceEnqueueScanConcurrentRespectsQueueLimit(t *testing.T) {
+func TestServiceEnqueueScanConcurrentRespectsDuplicateGuard(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
-	svc.ScanQueueMaxPending = 1
 
 	const workers = 12
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	var successCount int32
-	var queueFullCount int32
+	var inProgressCount int32
 	var unexpectedErrCount int32
 
 	for i := 0; i < workers; i++ {
@@ -1295,8 +1293,8 @@ func TestServiceEnqueueScanConcurrentRespectsQueueLimit(t *testing.T) {
 			switch {
 			case err == nil:
 				atomic.AddInt32(&successCount, 1)
-			case errors.Is(err, ErrScanQueueFull):
-				atomic.AddInt32(&queueFullCount, 1)
+			case errors.Is(err, ErrScanInProgress):
+				atomic.AddInt32(&inProgressCount, 1)
 			default:
 				atomic.AddInt32(&unexpectedErrCount, 1)
 			}
@@ -1312,8 +1310,8 @@ func TestServiceEnqueueScanConcurrentRespectsQueueLimit(t *testing.T) {
 	if successCount != 1 {
 		t.Fatalf("expected exactly one successful enqueue, got %d", successCount)
 	}
-	if queueFullCount != workers-1 {
-		t.Fatalf("expected %d queue-full responses, got %d", workers-1, queueFullCount)
+	if inProgressCount != workers-1 {
+		t.Fatalf("expected %d duplicate-guard responses, got %d", workers-1, inProgressCount)
 	}
 }
 
@@ -1325,27 +1323,26 @@ func TestServiceQueuedScanBurstProcessing(t *testing.T) {
 		Findings: []domain.Finding{{ID: "f-burst", Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now}},
 	}}, "aws")
 	svc.Now = func() time.Time { return now }
-	svc.ScanQueueMaxPending = 100
 
 	const queued = 40
 	for i := 0; i < queued; i++ {
 		if _, err := svc.EnqueueScan(defaultScopeContext()); err != nil {
 			t.Fatalf("enqueue burst scan %d: %v", i, err)
 		}
-	}
-	processedCount := 0
-	for {
 		processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
 		if err != nil {
 			t.Fatalf("process burst queue: %v", err)
 		}
 		if !processed {
-			break
+			t.Fatalf("expected queued burst scan %d to be processed", i)
 		}
-		processedCount++
 	}
-	if processedCount != queued {
-		t.Fatalf("expected %d processed scans, got %d", queued, processedCount)
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process drained queue: %v", err)
+	}
+	if processed {
+		t.Fatal("expected no queued scan after sequential burst processing")
 	}
 	scans, err := store.ListScans(defaultScopeContext(), 1000)
 	if err != nil {
