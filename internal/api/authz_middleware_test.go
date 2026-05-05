@@ -231,6 +231,34 @@ func TestRoutePolicyRegistryCoversAllV1Routes(t *testing.T) {
 	}
 }
 
+func TestRequireCentralPolicyMiddlewareDeniesWhenRoutePolicyMissing(t *testing.T) {
+	runtime := resolvedCentralPolicyRuntime{
+		Engine:      newCentralPolicyEngine(nil),
+		Registry:    routePolicyRegistry{},
+		Source:      "persisted_active_version",
+		PolicySetID: defaultCentralPolicySetID,
+		Version:     1,
+		RolloutMode: db.AuthzPolicyRolloutModeDisabled,
+		Rollout: db.AuthzPolicyRollout{
+			PolicySetID: defaultCentralPolicySetID,
+			Mode:        db.AuthzPolicyRolloutModeDisabled,
+		},
+	}
+	router := newPolicyTestRouterWithResolver(
+		newScopeSet([]string{scopeWrite}),
+		true,
+		staticPolicyRuntimeResolver{runtime: runtime},
+		telemetry.NewMetrics(),
+	)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when route policy is missing, got %d", w.Code)
+	}
+}
+
 func TestRequireCentralPolicyMiddlewareABACTriageAllowsWhenTrustedAttributesMatch(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := policyTestScopeContext()

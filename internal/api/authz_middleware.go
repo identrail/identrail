@@ -255,7 +255,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 		}
 		policy, exists := runtimePolicy.Registry.lookup(c.Request.Method, fullPath)
 		if !exists {
-			c.Next()
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
 
