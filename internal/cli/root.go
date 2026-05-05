@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
-	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
+	"github.com/identrail/identrail/internal/app"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/domain"
+	awsprovider "github.com/identrail/identrail/internal/providers/aws"
+	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
+	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/spf13/cobra"
 )
 
