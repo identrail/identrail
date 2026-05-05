@@ -271,42 +271,60 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 	if err != nil {
 		return ScanRecord{}, err
 	}
-	row := p.queryRowContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("begin queued scan transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	normalizedProvider := strings.TrimSpace(provider)
+	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+		return ScanRecord{}, fmt.Errorf("lock scan queue: %w", err)
+	}
+
+	var pending int
+	if err := tx.QueryRowContext(
 		ctx,
-		`WITH scope_lock AS (
-			SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2), hashtext($3))
-		),
-		pending AS (
-			SELECT COUNT(*) AS total
-			FROM scans
-			WHERE tenant_id = $1
-			  AND workspace_id = $2
-			  AND provider = $3
-			  AND status IN ('queued', 'running')
-		),
-		inserted AS (
-			INSERT INTO scans (
-				id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
-			)
-			SELECT $4, $1, $2, $3, 'queued', $5, NULL, 0, 0, NULL
-			FROM pending, scope_lock
-			WHERE total = 0
-			RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
-		)
-		SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
-		FROM inserted`,
+		`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND provider = $3
+		   AND status IN ('queued', 'running')`,
 		scope.TenantID,
 		scope.WorkspaceID,
-		strings.TrimSpace(provider),
-		uuid.NewString(),
-		queuedAt.UTC(),
-	)
-	record, err := scanScanRecord(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ScanRecord{}, ErrPendingScanExists
-		}
-		return ScanRecord{}, fmt.Errorf("create queued scan without pending duplicate: %w", err)
+		normalizedProvider,
+	).Scan(&pending); err != nil {
+		return ScanRecord{}, fmt.Errorf("count pending scans: %w", err)
+	}
+	if pending > 0 {
+		return ScanRecord{}, ErrPendingScanExists
+	}
+
+	record := ScanRecord{
+		ID:          uuid.NewString(),
+		TenantID:    scope.TenantID,
+		WorkspaceID: scope.WorkspaceID,
+		Provider:    normalizedProvider,
+		Status:      "queued",
+		StartedAt:   queuedAt.UTC(),
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO scans (id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, 0, NULL)`,
+		record.ID,
+		record.TenantID,
+		record.WorkspaceID,
+		record.Provider,
+		record.Status,
+		record.StartedAt,
+	); err != nil {
+		return ScanRecord{}, fmt.Errorf("insert queued scan: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ScanRecord{}, fmt.Errorf("commit queued scan transaction: %w", err)
 	}
 	return record, nil
 }
