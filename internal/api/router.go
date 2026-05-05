@@ -96,8 +96,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.ScanDurationMS,
 		metrics.FindingsGenerated,
 		metrics.RepoScanRunsTotal,
+		metrics.RepoScanEnqueueTotal,
+		metrics.RepoScanEnqueueFailureTotal,
+		metrics.RepoScanEnqueueDurationMS,
+		metrics.RepoScanSuccessTotal,
 		metrics.RepoScanFailureTotal,
+		metrics.RepoScanTruncatedTotal,
 		metrics.RepoScanDurationMS,
+		metrics.RepoFindingsGenerated,
 		metrics.AuthzPolicyShadowEvaluationsTotal,
 		metrics.AuthzPolicyShadowDivergencesTotal,
 		metrics.AuthzPolicyShadowEvaluationErrorsTotal,
@@ -181,6 +187,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	var authzStore db.Store
 	if svc != nil {
 		authzStore = svc.Store
+		svc.Metrics = metrics
 	}
 
 	v1 := r.Group("/v1")
@@ -658,21 +665,21 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.POST("/repo-scans", func(c *gin.Context) {
 		start := time.Now()
-		metrics.RepoScanRunsTotal.Inc()
+		metrics.RepoScanEnqueueTotal.Inc()
 		defer func() {
-			metrics.RepoScanDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+			metrics.RepoScanEnqueueDurationMS.Observe(float64(time.Since(start).Milliseconds()))
 		}()
 
 		var request RepoScanRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
-			metrics.RepoScanFailureTotal.Inc()
+			metrics.RepoScanEnqueueFailureTotal.Inc()
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 
 		record, err := svc.EnqueueRepoScan(c.Request.Context(), request)
 		if err != nil {
-			metrics.RepoScanFailureTotal.Inc()
+			metrics.RepoScanEnqueueFailureTotal.Inc()
 			if errors.Is(err, ErrInvalidRepoScanRequest) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo scan request"})
 				return
