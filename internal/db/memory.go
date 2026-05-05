@@ -504,6 +504,8 @@ func (m *MemoryStore) GetFinding(ctx context.Context, findingID string, scanID s
 		return domain.Finding{}, ErrNotFound
 	}
 	scanFilter := strings.TrimSpace(scanID)
+	var latest domain.Finding
+	found := false
 	for _, scanKey := range m.scanIDs {
 		record := m.scans[scanKey]
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
@@ -517,7 +519,16 @@ func (m *MemoryStore) GetFinding(ctx context.Context, findingID string, scanID s
 		if !exists {
 			continue
 		}
-		return finding, nil
+		if scanFilter != "" {
+			return finding, nil
+		}
+		if !found || finding.CreatedAt.After(latest.CreatedAt) {
+			latest = finding
+			found = true
+		}
+	}
+	if found {
+		return latest, nil
 	}
 	return domain.Finding{}, ErrNotFound
 }

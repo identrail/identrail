@@ -174,6 +174,37 @@ func TestMemoryStoreGetFinding(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreGetFindingWithoutScanIDReturnsLatestMatch(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scanA, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(1 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert scan A findings: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityCritical, CreatedAt: now.Add(6 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert scan B findings: %v", err)
+	}
+
+	item, err := store.GetFinding(defaultScopeContext(), "finding-1", "")
+	if err != nil {
+		t.Fatalf("get finding without scan id: %v", err)
+	}
+	if item.ScanID != scanB.ID || item.Severity != domain.SeverityCritical {
+		t.Fatalf("expected latest scan finding, got %+v", item)
+	}
+}
+
 func TestMemoryStoreIdentityAndRelationshipFilters(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
