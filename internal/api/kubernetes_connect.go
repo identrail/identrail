@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -75,6 +77,17 @@ type kubernetesProjectConnection struct {
 	LastValidatedAt  time.Time
 }
 
+type persistedKubernetesConnectorState struct {
+	Context          string                                        `json:"context,omitempty"`
+	Cluster          string                                        `json:"cluster,omitempty"`
+	Server           string                                        `json:"server,omitempty"`
+	GitVersion       string                                        `json:"git_version,omitempty"`
+	Platform         string                                        `json:"platform,omitempty"`
+	PermissionChecks []k8sprovider.KubernetesPermissionCheckResult `json:"permission_checks,omitempty"`
+	Diagnostics      []k8sprovider.KubernetesPreflightDiagnostic   `json:"diagnostics,omitempty"`
+	LastValidatedAt  *time.Time                                    `json:"last_validated_at,omitempty"`
+}
+
 // UpsertKubernetesConnection runs preflight and records the project Kubernetes connector state.
 func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID string, projectID string, request KubernetesConnectionUpsertRequest) (KubernetesConnectionStatus, error) {
 	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
@@ -84,6 +97,15 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 	normalized, err := normalizeKubernetesConnectionRequest(project, request)
 	if err != nil {
 		return KubernetesConnectionStatus{}, err
+	}
+	if strings.TrimSpace(request.ConnectorID) == "" {
+		existing, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeKubernetes, 1)
+		if err != nil {
+			return KubernetesConnectionStatus{}, fmt.Errorf("list kubernetes connectors: %w", err)
+		}
+		if len(existing) > 0 {
+			normalized.ConnectorID = existing[0].Connector.ConnectorID
+		}
 	}
 	if s.KubernetesPreflightFactory == nil {
 		return KubernetesConnectionStatus{}, ErrKubernetesPreflightUnavailable
@@ -105,14 +127,6 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 		status = domain.ConnectorStatusActive
 		connected = true
 	}
-
-	s.kubernetesConnectMu.Lock()
-	s.ensureKubernetesConnectionsState()
-	key := kubernetesConnectionKey(scope.TenantID, project.WorkspaceID, project.ProjectID)
-	createdAt := now
-	if existing, exists := s.kubernetesConnections[key]; exists {
-		createdAt = existing.CreatedAt
-	}
 	connection := kubernetesProjectConnection{
 		TenantID:         scope.TenantID,
 		WorkspaceID:      project.WorkspaceID,
@@ -128,30 +142,71 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 		Platform:         strings.TrimSpace(result.Cluster.Platform),
 		PermissionChecks: copyKubernetesPermissionChecks(result.Checks),
 		Diagnostics:      copyKubernetesDiagnostics(result.Diagnostics),
-		CreatedAt:        createdAt,
 		UpdatedAt:        now,
 		LastValidatedAt:  validatedAt,
 	}
-	s.kubernetesConnections[key] = connection
-	response := toKubernetesConnectionStatus(connection)
-	response.Connected = connected
-	s.kubernetesConnectMu.Unlock()
-
+	metadata, err := persistedKubernetesConnectorState{
+		Context:          connection.Context,
+		Cluster:          connection.Cluster,
+		Server:           connection.Server,
+		GitVersion:       connection.GitVersion,
+		Platform:         connection.Platform,
+		PermissionChecks: copyKubernetesPermissionChecks(connection.PermissionChecks),
+		Diagnostics:      copyKubernetesDiagnostics(connection.Diagnostics),
+		LastValidatedAt:  &validatedAt,
+	}.toMap()
+	if err != nil {
+		return KubernetesConnectionStatus{}, fmt.Errorf("encode kubernetes connector metadata: %w", err)
+	}
+	state := db.TenancyConnectorState{
+		TenantID:     scope.TenantID,
+		WorkspaceID:  project.WorkspaceID,
+		ProjectID:    project.ProjectID,
+		ConnectorID:  normalized.ConnectorID,
+		HealthStatus: connection.HealthStatus,
+		Metadata:     metadata,
+		ObservedAt:   validatedAt,
+		UpdatedAt:    now,
+	}
+	if !connected {
+		state.LastErrorCode = "kubernetes_connector_validation_failed"
+		state.LastErrorMessage = firstKubernetesRemediation(connection.Diagnostics, connection.PermissionChecks)
+	}
+	connector := db.TenancyConnector{
+		TenantID:    scope.TenantID,
+		WorkspaceID: project.WorkspaceID,
+		ProjectID:   project.ProjectID,
+		ConnectorID: normalized.ConnectorID,
+		Type:        domain.ConnectorTypeKubernetes,
+		DisplayName: normalized.DisplayName,
+		Status:      status,
+		UpdatedAt:   now,
+	}
+	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
+		return KubernetesConnectionStatus{}, fmt.Errorf("persist kubernetes connector: %w", err)
+	}
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
+	if err != nil {
+		return KubernetesConnectionStatus{}, fmt.Errorf("load persisted kubernetes connector: %w", err)
+	}
+	response, err := kubernetesConnectionStatusFromStored(stored)
+	if err != nil {
+		return KubernetesConnectionStatus{}, err
+	}
 	return response, nil
 }
 
 // GetKubernetesConnection returns one project Kubernetes connector state.
 func (s *Service) GetKubernetesConnection(ctx context.Context, workspaceID string, projectID string) (KubernetesConnectionStatus, error) {
-	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
 		return KubernetesConnectionStatus{}, err
 	}
-
-	key := kubernetesConnectionKey(scope.TenantID, project.WorkspaceID, project.ProjectID)
-	s.kubernetesConnectMu.RLock()
-	connection, exists := s.kubernetesConnections[key]
-	s.kubernetesConnectMu.RUnlock()
-	if !exists {
+	items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeKubernetes, 1)
+	if err != nil {
+		return KubernetesConnectionStatus{}, fmt.Errorf("list kubernetes connectors: %w", err)
+	}
+	if len(items) == 0 {
 		return KubernetesConnectionStatus{
 			Provider:         "kubernetes",
 			Connected:        false,
@@ -161,7 +216,7 @@ func (s *Service) GetKubernetesConnection(ctx context.Context, workspaceID strin
 			Diagnostics:      []k8sprovider.KubernetesPreflightDiagnostic{},
 		}, nil
 	}
-	return toKubernetesConnectionStatus(connection), nil
+	return kubernetesConnectionStatusFromStored(items[0])
 }
 
 func normalizeKubernetesConnectionRequest(project db.TenancyProject, request KubernetesConnectionUpsertRequest) (KubernetesConnectionUpsertRequest, error) {
@@ -214,14 +269,73 @@ func toKubernetesConnectionStatus(connection kubernetesProjectConnection) Kubern
 	}
 }
 
-func kubernetesConnectionKey(tenantID string, workspaceID string, projectID string) string {
-	return strings.Join([]string{strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID)}, "\x00")
+func kubernetesConnectionStatusFromStored(stored db.TenancyConnectorWithState) (KubernetesConnectionStatus, error) {
+	connection, err := kubernetesConnectionFromStored(stored)
+	if err != nil {
+		return KubernetesConnectionStatus{}, err
+	}
+	return toKubernetesConnectionStatus(connection), nil
 }
 
-func (s *Service) ensureKubernetesConnectionsState() {
-	if s.kubernetesConnections == nil {
-		s.kubernetesConnections = make(map[string]kubernetesProjectConnection)
+func kubernetesConnectionFromStored(stored db.TenancyConnectorWithState) (kubernetesProjectConnection, error) {
+	metadata, err := decodePersistedKubernetesConnectorState(stored.State.Metadata)
+	if err != nil {
+		return kubernetesProjectConnection{}, fmt.Errorf("decode kubernetes connector metadata: %w", err)
 	}
+	connection := kubernetesProjectConnection{
+		TenantID:         stored.Connector.TenantID,
+		WorkspaceID:      stored.Connector.WorkspaceID,
+		ProjectID:        stored.Connector.ProjectID,
+		ConnectorID:      stored.Connector.ConnectorID,
+		DisplayName:      stored.Connector.DisplayName,
+		Status:           stored.Connector.Status,
+		HealthStatus:     stored.State.HealthStatus,
+		Context:          metadata.Context,
+		Cluster:          metadata.Cluster,
+		Server:           metadata.Server,
+		GitVersion:       metadata.GitVersion,
+		Platform:         metadata.Platform,
+		PermissionChecks: copyKubernetesPermissionChecks(metadata.PermissionChecks),
+		Diagnostics:      copyKubernetesDiagnostics(metadata.Diagnostics),
+		CreatedAt:        stored.Connector.CreatedAt,
+		UpdatedAt:        stored.Connector.UpdatedAt,
+	}
+	if metadata.LastValidatedAt != nil {
+		connection.LastValidatedAt = metadata.LastValidatedAt.UTC()
+	} else if !stored.State.ObservedAt.IsZero() {
+		connection.LastValidatedAt = stored.State.ObservedAt.UTC()
+	}
+	return connection, nil
+}
+
+func (state persistedKubernetesConnectorState) toMap() (map[string]any, error) {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return nil, err
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(payload, &metadata); err != nil {
+		return nil, err
+	}
+	return metadata, nil
+}
+
+func decodePersistedKubernetesConnectorState(metadata map[string]any) (persistedKubernetesConnectorState, error) {
+	payload, err := json.Marshal(metadata)
+	if err != nil {
+		return persistedKubernetesConnectorState{}, err
+	}
+	var state persistedKubernetesConnectorState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		return persistedKubernetesConnectorState{}, err
+	}
+	if state.PermissionChecks == nil {
+		state.PermissionChecks = []k8sprovider.KubernetesPermissionCheckResult{}
+	}
+	if state.Diagnostics == nil {
+		state.Diagnostics = []k8sprovider.KubernetesPreflightDiagnostic{}
+	}
+	return state, nil
 }
 
 func copyKubernetesPermissionChecks(checks []k8sprovider.KubernetesPermissionCheckResult) []k8sprovider.KubernetesPermissionCheckResult {

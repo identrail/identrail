@@ -116,6 +116,50 @@ func TestRouterKubernetesConnectionReturnsPermissionDiagnostics(t *testing.T) {
 	}
 }
 
+func TestKubernetesConnectionPersistsAcrossServiceInstances(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+
+	first := NewService(store, routerScanner{}, "kubernetes")
+	first.KubernetesPreflightFactory = func(contextName string) KubernetesConnectorPreflightRunner {
+		return fakeKubernetesPreflightRunner{result: k8sprovider.KubernetesPreflightResult{
+			Health: connectors.HealthStatusHealthy,
+			Cluster: k8sprovider.KubernetesClusterIdentity{
+				Context:    contextName,
+				Cluster:    "prod-cluster",
+				Server:     "https://kubernetes.example",
+				GitVersion: "v1.30.4",
+				Platform:   "linux/amd64",
+			},
+			Checks: []k8sprovider.KubernetesPermissionCheckResult{{
+				KubernetesPermissionCheck: k8sprovider.KubernetesPermissionCheck{Verb: "list", Resource: "serviceaccounts", Scope: "cluster"},
+				Allowed:                   true,
+			}},
+			ObservedAt: time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC),
+		}}
+	}
+	if _, err := first.UpsertKubernetesConnection(ctx, "workspace-a", "project-1", KubernetesConnectionUpsertRequest{
+		ConnectorID: "kubernetes-prod",
+		DisplayName: "Production Cluster",
+		Context:     "prod",
+	}); err != nil {
+		t.Fatalf("upsert kubernetes connection: %v", err)
+	}
+
+	second := NewService(store, routerScanner{}, "kubernetes")
+	status, err := second.GetKubernetesConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get kubernetes connection after service restart: %v", err)
+	}
+	if !status.Connected || status.ConnectorID != "kubernetes-prod" {
+		t.Fatalf("expected persisted kubernetes connection, got %+v", status)
+	}
+	if status.Context != "prod" || status.Cluster != "prod-cluster" || status.Server != "https://kubernetes.example" {
+		t.Fatalf("expected persisted kubernetes metadata, got %+v", status)
+	}
+}
+
 func TestRouterKubernetesConnectionPendingBeforeOnboarding(t *testing.T) {
 	r := newKubernetesConnectionTestRouter(t, func(contextName string) KubernetesConnectorPreflightRunner {
 		t.Fatalf("preflight should not run for read-only pending status request")

@@ -191,6 +191,41 @@ func TestPostgresStoreListTenancyConnectors(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreListAllTenancyConnectorsByType(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
+		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
+		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
+	}).AddRow(
+		"tenant-a", "workspace-a", "project-1", "github-app", "github", "GitHub App", "active",
+		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
+		[]byte(`{"account_login":"identrail"}`), now, now,
+	)
+	mock.ExpectQuery(`(?s)SELECT.*FROM tenancy_connectors c.*WHERE c\.type = \$1.*LIMIT \$2`).
+		WithArgs("github", 10).
+		WillReturnRows(rows)
+
+	connectors, err := store.ListAllTenancyConnectorsByType(context.Background(), domain.ConnectorTypeGitHub, 10)
+	if err != nil {
+		t.Fatalf("list all github connectors: %v", err)
+	}
+	if len(connectors) != 1 || connectors[0].Connector.ConnectorID != "github-app" {
+		t.Fatalf("unexpected connectors: %+v", connectors)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreWorkspaceScopeIsolation(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

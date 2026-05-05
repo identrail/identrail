@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -148,10 +150,11 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 		t.Fatalf("response exposed webhook secret: %s", completeResp.Body.String())
 	}
 
-	key := githubConnectionKey("tenant-a", "workspace-a", "project-1")
-	svc.githubConnectMu.RLock()
-	connection := svc.githubConnections[key]
-	svc.githubConnectMu.RUnlock()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	connection, err := svc.loadGitHubConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("load persisted github connection: %v", err)
+	}
 	if len(connection.WebhookSecretEnvelope.Ciphertext) == 0 {
 		t.Fatal("expected encrypted webhook secret ciphertext")
 	}
@@ -272,6 +275,65 @@ func TestRouterGitHubWebhookNonScanEvent(t *testing.T) {
 	}
 	if webhookBody.Webhook.MatchedProjects != 1 {
 		t.Fatalf("expected 1 matched project, got %d", webhookBody.Webhook.MatchedProjects)
+	}
+}
+
+func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager := secretstore.NewEphemeralManager()
+
+	first := NewService(store, routerScanner{}, "aws")
+	first.ConnectorSecretManager = manager
+	first.RepoScanAllowedTargets = []string{"owner/*"}
+	start, err := first.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := first.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "restart-secret",
+		WebhookSecretReference: "vault://secret",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	second := NewService(store, routerScanner{}, "aws")
+	second.ConnectorSecretManager = manager
+	second.RepoScanAllowedTargets = []string{"owner/*"}
+	status, err := second.GetGitHubConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get github connection after service restart: %v", err)
+	}
+	if !status.Connected || status.InstallationID != 77 || status.AccountLogin != "identrail" {
+		t.Fatalf("expected persisted github connection, got %+v", status)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	result, err := second.HandleGitHubWebhook(
+		context.Background(),
+		"push",
+		"delivery-restart",
+		githubWebhookSignature("restart-secret", webhookPayload),
+		webhookPayload,
+	)
+	if err != nil {
+		t.Fatalf("handle github webhook after service restart: %v", err)
+	}
+	if result.MatchedProjects != 1 || result.QueuedScans != 1 {
+		t.Fatalf("expected persisted webhook match to queue one scan, got %+v", result)
+	}
+	queued, err := store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		t.Fatalf("count queued repo scans: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("expected one queued repo scan, got %d", queued)
 	}
 }
 
@@ -583,10 +645,9 @@ func TestRouterGitHubConnectCompleteErrorPaths(t *testing.T) {
 	}
 }
 
-func TestGitHubConnectionKey(t *testing.T) {
-	key := githubConnectionKey("Tenant", "Workspace", "Project")
-	if key != "tenant::workspace::project" {
-		t.Fatalf("expected lowercase key, got %q", key)
+func TestFirstNonEmptyGitHubValue(t *testing.T) {
+	if got := firstNonEmptyGitHubValue("", "  ", "value", "other"); got != "value" {
+		t.Fatalf("expected first non-empty value, got %q", got)
 	}
 }
 

@@ -828,6 +828,34 @@ func (p *PostgresStore) ListTenancyConnectors(ctx context.Context, workspaceID s
 	return p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), "", string(connectorType), limit)
 }
 
+// ListAllTenancyConnectorsByType returns connectors across scopes for internal runtime matching.
+func (p *PostgresStore) ListAllTenancyConnectorsByType(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `SELECT
+		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
+		     c.secret_provider, c.secret_ref_id, c.secret_ref_version, c.secret_last_rotated_at,
+		     c.config_checksum, c.last_sync_at, c.created_at, c.updated_at,
+		     COALESCE(s.health_status, 'unknown'), s.sync_cursor, s.last_successful_sync_at,
+		     s.last_error_code, s.last_error_message, COALESCE(s.metadata, '{}'::jsonb), s.observed_at, s.updated_at
+		 FROM tenancy_connectors c
+		 LEFT JOIN tenancy_connector_states s
+		   ON s.tenant_id = c.tenant_id
+		  AND s.workspace_id = c.workspace_id
+		  AND s.project_id = c.project_id
+		  AND s.connector_id = c.connector_id
+		 WHERE c.type = $1
+		 ORDER BY c.updated_at DESC
+		 LIMIT $2`
+	rows, err := p.queryContext(ctx, query, strings.ToLower(strings.TrimSpace(string(connectorType))), limit)
+	if err != nil {
+		return nil, fmt.Errorf("query all tenancy connectors: %w", err)
+	}
+	defer rows.Close()
+	return scanTenancyConnectorRows(rows)
+}
+
 func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int) ([]TenancyConnectorWithState, error) {
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
@@ -868,6 +896,10 @@ func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID s
 		return nil, fmt.Errorf("query tenancy connectors: %w", err)
 	}
 	defer rows.Close()
+	return scanTenancyConnectorRows(rows)
+}
+
+func scanTenancyConnectorRows(rows *sql.Rows) ([]TenancyConnectorWithState, error) {
 	results := []TenancyConnectorWithState{}
 	for rows.Next() {
 		var item TenancyConnectorWithState

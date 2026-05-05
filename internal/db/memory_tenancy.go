@@ -628,6 +628,33 @@ func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID str
 	return connectors, nil
 }
 
+// ListAllTenancyConnectorsByType returns connectors across scopes for internal runtime matching.
+func (m *MemoryStore) ListAllTenancyConnectorsByType(_ context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	normalizedType := domain.ConnectorType(strings.ToLower(strings.TrimSpace(string(connectorType))))
+	connectors := make([]TenancyConnectorWithState, 0, limit)
+	for key, connector := range m.connectors {
+		if normalizedType != "" && connector.Type != normalizedType {
+			continue
+		}
+		state := m.connStates[key]
+		state.Metadata = cloneMetadataMap(state.Metadata)
+		connectors = append(connectors, TenancyConnectorWithState{Connector: connector, State: state})
+	}
+	sort.Slice(connectors, func(i, j int) bool {
+		return connectors[i].Connector.UpdatedAt.After(connectors[j].Connector.UpdatedAt)
+	})
+	if len(connectors) > limit {
+		connectors = connectors[:limit]
+	}
+	return connectors, nil
+}
+
 func tenancyConnectorKey(tenantID string, workspaceID string, projectID string, connectorID string) string {
 	return tenancyCompositeKey(
 		strings.TrimSpace(tenantID),
