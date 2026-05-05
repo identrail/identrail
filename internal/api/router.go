@@ -2084,7 +2084,11 @@ func tracingMiddleware() gin.HandlerFunc {
 	tracer := otel.Tracer("identrail/api")
 	return func(c *gin.Context) {
 		ctx := otel.GetTextMapPropagator().Extract(c.Request.Context(), propagation.HeaderCarrier(c.Request.Header))
-		ctx, span := tracer.Start(ctx, c.Request.Method+" "+c.Request.URL.Path)
+		spanName := c.Request.Method
+		if route := c.FullPath(); route != "" {
+			spanName = c.Request.Method + " " + route
+		}
+		ctx, span := tracer.Start(ctx, spanName)
 		c.Request = c.Request.WithContext(ctx)
 		defer func() {
 			status := c.Writer.Status()
