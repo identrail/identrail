@@ -15,6 +15,9 @@ Identrail release automation is defined in:
 - Keep the versioned `VITE_IDENTRAIL_API_URL` value in `deploy/docker/release-web.env`.
   This public HTTPS API base URL is baked into release web images.
 - For manual runs with `publish_images=false`, image configuration is not required.
+- Manual image backfills for historical tags that predate `deploy/docker/release-web.env`
+  use the legacy release URL recorded by the workflow and attach that source in
+  `release-web-build.txt`.
 
 ## What the Pipeline Publishes
 

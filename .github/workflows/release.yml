@@ -174,16 +174,23 @@ jobs:
           tag="${{ needs.prepare.outputs.tag }}"
           publish_latest="${{ needs.prepare.outputs.publish_latest }}"
           release_web_env="deploy/docker/release-web.env"
+          web_api_url_source="${release_web_env}"
 
           if [ ! -f "${release_web_env}" ]; then
-            echo "Missing ${release_web_env}; release web image configuration must be versioned with the tag." >&2
-            exit 1
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+              echo "Missing ${release_web_env} on ${tag}; using legacy release web API URL for manual backfill." >&2
+              web_api_url="https://api.identrail.io"
+              web_api_url_source="legacy-workflow-default"
+            else
+              echo "Missing ${release_web_env}; release web image configuration must be versioned with the tag." >&2
+              exit 1
+            fi
+          else
+            web_api_url="$(
+              awk -F= '$1 == "VITE_IDENTRAIL_API_URL" {print substr($0, index($0, "=") + 1)}' "${release_web_env}" \
+                | tail -n1
+            )"
           fi
-
-          web_api_url="$(
-            awk -F= '$1 == "VITE_IDENTRAIL_API_URL" {print substr($0, index($0, "=") + 1)}' "${release_web_env}" \
-              | tail -n1
-          )"
 
           if [ -z "${web_api_url}" ]; then
             echo "${release_web_env} must define VITE_IDENTRAIL_API_URL." >&2
@@ -196,7 +203,10 @@ jobs:
           fi
 
           mkdir -p dist
-          printf 'VITE_IDENTRAIL_API_URL=%s\n' "${web_api_url}" > dist/release-web-build.txt
+          {
+            printf 'VITE_IDENTRAIL_API_URL=%s\n' "${web_api_url}"
+            printf 'VITE_IDENTRAIL_API_URL_SOURCE=%s\n' "${web_api_url_source}"
+          } > dist/release-web-build.txt
 
           build_and_push() {
             local name="$1"
