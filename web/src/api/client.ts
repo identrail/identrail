@@ -115,6 +115,11 @@ export type WorkspaceContextSnapshot = {
   is_active: boolean;
 };
 
+type WorkspaceMemberPage = {
+  items: WorkspaceMemberRecord[];
+  next_cursor?: string;
+};
+
 export type WhoAmIResponse = {
   principal: {
     type: 'subject' | 'api_key' | 'anonymous';
@@ -286,10 +291,26 @@ export const apiClient = {
     auth?: RequestAuthContext
   ) {
     const encodedWorkspaceID = encodeURIComponent(workspaceID);
-    return request<{ items: WorkspaceMemberRecord[] }>(
-      `/v1/workspaces/${encodedWorkspaceID}/members${buildQuery(filters)}`,
-      auth
-    );
+    const loadAllPages = async () => {
+      const items: WorkspaceMemberRecord[] = [];
+      let nextCursor: string | undefined;
+
+      do {
+        const page = await request<WorkspaceMemberPage>(
+          `/v1/workspaces/${encodedWorkspaceID}/members${buildQuery({
+            ...filters,
+            cursor: nextCursor
+          })}`,
+          auth
+        );
+        items.push(...page.items);
+        nextCursor = trimOrUndefined(page.next_cursor);
+      } while (nextCursor);
+
+      return { items };
+    };
+
+    return loadAllPages();
   },
   upsertWorkspaceMember(
     workspaceID: string,
