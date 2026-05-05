@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -201,6 +203,84 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	}
 	if !strings.Contains(string(auditPayload), "connector.github.webhook_secret.rotate") {
 		t.Fatalf("expected rotation audit event, got %s", string(auditPayload))
+	}
+}
+
+func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
+	store := db.NewMemoryStore()
+	manager := secretstore.NewEphemeralManager()
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	svcA := NewService(store, routerScanner{}, "aws")
+	svcA.ConnectorSecretManager = manager
+	start, err := svcA.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	_, err = svcA.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	})
+	if err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	svcB := NewService(store, routerScanner{}, "aws")
+	svcB.ConnectorSecretManager = manager
+	connection, err := svcB.GetGitHubConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get github connection: %v", err)
+	}
+	if !connection.Connected {
+		t.Fatalf("expected persisted connection to be connected, got %+v", connection)
+	}
+	if connection.InstallationID != 77 {
+		t.Fatalf("expected installation id 77, got %+v", connection)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookResult, err := svcB.HandleGitHubWebhook(
+		ctx,
+		"installation",
+		"delivery-persisted",
+		githubWebhookSignature("persisted-secret", webhookPayload),
+		webhookPayload,
+	)
+	if err != nil {
+		t.Fatalf("handle github webhook from persisted connection: %v", err)
+	}
+	if webhookResult.MatchedProjects != 1 {
+		t.Fatalf("expected matched persisted project, got %+v", webhookResult)
 	}
 }
 
