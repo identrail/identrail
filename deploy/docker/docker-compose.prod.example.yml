@@ -1,0 +1,23 @@
+# Production-oriented override for deploy/docker/docker-compose.yml.
+# Copy or adapt this file instead of using the local quickstart defaults directly.
+services:
+  postgres:
+    ports: []
+
+  api:
+    environment:
+      IDENTRAIL_DATABASE_URL: "${IDENTRAIL_DATABASE_URL:?set a TLS-enabled production Postgres URL}"
+      IDENTRAIL_RUN_MIGRATIONS: "false"
+      IDENTRAIL_CORS_ALLOWED_ORIGINS: "${IDENTRAIL_CORS_ALLOWED_ORIGINS:?set the public web origin}"
+    ports: []
+
+  worker:
+    environment:
+      IDENTRAIL_DATABASE_URL: "${IDENTRAIL_DATABASE_URL:?set a TLS-enabled production Postgres URL}"
+      IDENTRAIL_RUN_MIGRATIONS: "false"
+
+  web:
+    build:
+      args:
+        VITE_IDENTRAIL_API_URL: "${VITE_IDENTRAIL_API_URL:?set the public HTTPS API URL}"
+    ports: []

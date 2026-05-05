@@ -25,6 +25,10 @@ Manual setup:
 3. `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build`
 
 ## Verify
+## Production notes
+
+The default Compose file is a local quickstart profile. Do not reuse its `sslmode=disable` database URLs or localhost web API URL for production. For single-host production-like deployments, adapt `docker-compose.prod.example.yml` with a TLS-enabled Postgres URL, a public HTTPS API URL, and a reverse proxy that owns external ports and TLS.
+
 
 - API health: `curl http://localhost:8080/healthz`
 - Web UI: `http://localhost:8081`
