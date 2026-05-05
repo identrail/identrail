@@ -64,6 +64,9 @@ func TestApplyMigrations(t *testing.T) {
 	}
 	defer db.Close()
 
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			filename TEXT NOT NULL,
@@ -78,6 +81,9 @@ func TestApplyMigrations(t *testing.T) {
 		WithArgs("0001", "0001_init.up.sql").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := ApplyMigrations(context.Background(), db, dir); err != nil {
 		t.Fatalf("apply migrations failed: %v", err)
@@ -100,6 +106,9 @@ func TestApplyMigrationsSkipsRecordedVersion(t *testing.T) {
 	}
 	defer db.Close()
 
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			filename TEXT NOT NULL,
@@ -110,6 +119,9 @@ func TestApplyMigrationsSkipsRecordedVersion(t *testing.T) {
 		WithArgs("0001").
 		WillReturnRows(sqlmock.NewRows([]string{"applied_at"}).AddRow("2026-05-05T00:00:00Z"))
 	mock.ExpectRollback()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := ApplyMigrations(context.Background(), db, dir); err != nil {
 		t.Fatalf("apply migrations failed: %v", err)
@@ -132,6 +144,9 @@ func TestApplyMigrationsRollsBackFailedMigration(t *testing.T) {
 	}
 	defer db.Close()
 
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			filename TEXT NOT NULL,
@@ -143,6 +158,9 @@ func TestApplyMigrationsRollsBackFailedMigration(t *testing.T) {
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(query)).WillReturnError(sql.ErrTxDone)
 	mock.ExpectRollback()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = ApplyMigrations(context.Background(), db, dir)
 	if err == nil {
@@ -170,6 +188,9 @@ func TestApplyDownMigrations(t *testing.T) {
 	}
 	defer db.Close()
 
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			filename TEXT NOT NULL,
@@ -188,6 +209,9 @@ func TestApplyDownMigrations(t *testing.T) {
 		WithArgs("0001").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := ApplyDownMigrations(context.Background(), db, dir); err != nil {
 		t.Fatalf("apply down migrations failed: %v", err)
@@ -232,6 +256,9 @@ func TestNewPostgresStoreWithDBApplyMigrations(t *testing.T) {
 	defer db.Close()
 
 	store := NewPostgresStoreWithDB(db)
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			filename TEXT NOT NULL,
@@ -246,6 +273,9 @@ func TestNewPostgresStoreWithDBApplyMigrations(t *testing.T) {
 		WithArgs("0001", "0001_init.up.sql").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := store.ApplyMigrations(context.Background(), dir); err != nil {
 		t.Fatalf("apply migrations failed: %v", err)
@@ -269,6 +299,9 @@ func TestNewPostgresStoreWithDBApplyDownMigrations(t *testing.T) {
 	defer db.Close()
 
 	store := NewPostgresStoreWithDB(db)
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			filename TEXT NOT NULL,
@@ -280,6 +313,9 @@ func TestNewPostgresStoreWithDBApplyDownMigrations(t *testing.T) {
 		WithArgs("0001").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
+		WithArgs(migrationLockNamespace, migrationLockKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := store.ApplyDownMigrations(context.Background(), dir); err != nil {
 		t.Fatalf("apply down migrations failed: %v", err)

@@ -12,6 +12,11 @@ import (
 
 const migrationLedgerTable = "schema_migrations"
 
+const (
+	migrationLockNamespace = 98321
+	migrationLockKey       = 1
+)
+
 // ApplyMigrations runs all *.up.sql files in lexical order.
 func (p *PostgresStore) ApplyMigrations(ctx context.Context, dir string) error {
 	if p == nil || p.db == nil {
@@ -53,6 +58,10 @@ func ApplyDownMigrations(ctx context.Context, db *sql.DB, dir string) error {
 }
 
 func applyMigrationFiles(ctx context.Context, db *sql.DB, files []string, recordApplied bool) error {
+	if err := acquireMigrationLock(ctx, db); err != nil {
+		return err
+	}
+	defer releaseMigrationLock(ctx, db)
 	if err := ensureMigrationLedger(ctx, db); err != nil {
 		return err
 	}
@@ -108,6 +117,20 @@ func applyMigrationFiles(ctx context.Context, db *sql.DB, files []string, record
 		}
 	}
 	return nil
+}
+
+func acquireMigrationLock(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `SELECT pg_advisory_lock($1, $2)`, migrationLockNamespace, migrationLockKey); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	return nil
+}
+
+func releaseMigrationLock(ctx context.Context, db *sql.DB) {
+	if db == nil {
+		return
+	}
+	_, _ = db.ExecContext(ctx, `SELECT pg_advisory_unlock($1, $2)`, migrationLockNamespace, migrationLockKey)
 }
 
 func migrationFiles(dir string) ([]string, error) {
