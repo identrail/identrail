@@ -35,7 +35,7 @@ fmt-check: ## Check formatting without modifying files
 			exit 1; \
 		fi; \
 	fi
-	@terraform fmt -check -recursive deploy/terraform >/dev/null 2>&1 || true
+	terraform fmt -check -recursive deploy/terraform
 
 vet: ## Run go vet
 	go vet ./...
