@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/findings/standards"
@@ -17,6 +18,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 )
 
 const (
@@ -65,6 +67,7 @@ type Service struct {
 	Alerter        FindingAlerter
 	OnAlertError   func(error)
 	ReadinessCheck func(context.Context) error
+	Metrics        *telemetry.Metrics
 	// Repo scan controls are intentionally separate from cloud identity scan flow.
 	RepoScanEnabled             bool
 	RepoScanDefaultHistoryLimit int
@@ -470,6 +473,18 @@ func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (Sca
 	return scanner, nil
 }
 
+func (s *Service) recordServiceAuthzDenial(ctx context.Context, action string, resourceType string, resourceID string) {
+	if s.Metrics != nil {
+		s.Metrics.ServiceAuthzDenialsTotal.WithLabelValues(action, resourceType).Inc()
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Outcome:      "denied",
+	})
+}
+
 func (s *Service) activeAWSConnectionForScan(ctx context.Context) (AWSConnectionStatus, bool, error) {
 	items, err := s.Store.ListTenancyConnectors(ctx, "", "", domain.ConnectorTypeAWS, 25)
 	if err != nil {
@@ -507,7 +522,7 @@ func (s *Service) RunRepoScan(ctx context.Context, request RepoScanRequest) (rep
 // EnqueueRepoScan stores one queued repository scan request for asynchronous worker execution.
 func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) (db.RepoScanRecord, error) {
 	ctx = s.scopeContext(ctx)
-	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(request)
+	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
 	if err != nil {
 		return db.RepoScanRecord{}, err
 	}
@@ -573,7 +588,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 // RunRepoScanPersisted runs one repository scan and persists repo scan metadata + findings.
 func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequest) (RunRepoScanResult, error) {
 	ctx = s.scopeContext(ctx)
-	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(request)
+	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
 	if err != nil {
 		return RunRepoScanResult{}, err
 	}
@@ -591,7 +606,7 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 	return s.runRepoScanWithRecord(ctx, record, historyLimit, maxFindings)
 }
 
-func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int, int, error) {
+func (s *Service) validateRepoScanRequest(ctx context.Context, request RepoScanRequest) (string, int, int, error) {
 	if !s.RepoScanEnabled {
 		return "", 0, 0, ErrRepoScanDisabled
 	}
@@ -600,9 +615,11 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 		return "", 0, 0, ErrInvalidRepoScanRequest
 	}
 	if repoexposure.IsLocalRepositoryTarget(target) {
+		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
 		return "", 0, 0, ErrRepoTargetNotAllowed
 	}
 	if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
+		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
 		return "", 0, 0, ErrRepoTargetNotAllowed
 	}
 	historyLimit, err := sanitizeRepoScanLimit(request.HistoryLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
@@ -977,9 +994,11 @@ func (s *Service) ResolveActiveWorkspace(ctx context.Context, subject string, wo
 		return WorkspaceContext{}, err
 	}
 	if !memberFound {
+		s.recordServiceAuthzDenial(ctx, "workspaces.active.switch", "workspace", normalizedWorkspaceID)
 		return WorkspaceContext{}, ErrWorkspaceAccessDenied
 	}
 	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
+		s.recordServiceAuthzDenial(ctx, "workspaces.active.switch", "workspace", normalizedWorkspaceID)
 		return WorkspaceContext{}, ErrWorkspaceAccessDenied
 	}
 	contextItem.Member = &member

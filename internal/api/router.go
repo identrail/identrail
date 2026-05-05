@@ -98,6 +98,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.RepoScanRunsTotal,
 		metrics.RepoScanFailureTotal,
 		metrics.RepoScanDurationMS,
+		metrics.ServiceAuthzDenialsTotal,
 		metrics.AuthzPolicyShadowEvaluationsTotal,
 		metrics.AuthzPolicyShadowDivergencesTotal,
 		metrics.AuthzPolicyShadowEvaluationErrorsTotal,
@@ -181,6 +182,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	var authzStore db.Store
 	if svc != nil {
 		authzStore = svc.Store
+		svc.Metrics = metrics
 	}
 
 	v1 := r.Group("/v1")

@@ -22,6 +22,7 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	m.RepoScanRunsTotal.Add(1)
 	m.RepoScanFailureTotal.Add(1)
 	m.RepoScanDurationMS.Observe(300)
+	m.ServiceAuthzDenialsTotal.WithLabelValues("repo_scans.run", "repo_scan_target").Add(1)
 	m.AuthzPolicyShadowEvaluationsTotal.Add(2)
 	m.AuthzPolicyShadowDivergencesTotal.Add(1)
 	m.AuthzPolicyShadowEvaluationErrorsTotal.Add(1)
@@ -49,6 +50,9 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(m.RepoScanFailureTotal); got != 1 {
 		t.Fatalf("expected repo scan failures 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.ServiceAuthzDenialsTotal.WithLabelValues("repo_scans.run", "repo_scan_target")); got != 1 {
+		t.Fatalf("expected service authz denials 1, got %v", got)
 	}
 	if got := testutil.ToFloat64(m.AuthzPolicyShadowEvaluationsTotal); got != 2 {
 		t.Fatalf("expected shadow evaluations 2, got %v", got)
