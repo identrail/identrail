@@ -969,15 +969,15 @@ func TestSecureKeyHelpers(t *testing.T) {
 	if !keyInList([]string{"reader", "writer"}, "writer") {
 		t.Fatal("expected exact key to be found")
 	}
-	scoped := map[string]scopeSet{
-		"reader": newScopeSet([]string{"read"}),
-		"writer": newScopeSet([]string{"read", "write"}),
+	scoped := map[string]scopedAPIKeyAuthConfig{
+		"reader": {Scopes: newScopeSet([]string{"read"})},
+		"writer": {Scopes: newScopeSet([]string{"read", "write"})},
 	}
 	if _, ok := scopedKeyLookup(scoped, "missing"); ok {
 		t.Fatal("expected missing scoped key to not resolve")
 	}
-	if scopes, ok := scopedKeyLookup(scoped, "writer"); !ok || !scopes.has("write") {
-		t.Fatalf("expected writer scopes to resolve, got ok=%t scopes=%+v", ok, scopes)
+	if config, ok := scopedKeyLookup(scoped, "writer"); !ok || !config.Scopes.has("write") {
+		t.Fatalf("expected writer scopes to resolve, got ok=%t config=%+v", ok, config)
 	}
 }
 
@@ -1400,6 +1400,90 @@ func TestRequestScopeMiddlewarePrefersOIDCTenantWorkspaceClaims(t *testing.T) {
 	}
 }
 
+func TestRequestScopeMiddlewareRejectsUnboundAPIKeyHeaderOverrides(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("auth.api_key", "reader-key")
+		c.Next()
+	})
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
+	r.GET("/scope", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	req.Header.Set(scopeHeaderTenantID, "tenant-a")
+	req.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected unbound api key scope override rejected with 403, got %d", w.Code)
+	}
+}
+
+func TestRequestScopeMiddlewareUsesAPIKeyScopeBindings(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("auth.api_key", "reader-key")
+		c.Set(authAPIKeyTenantID, "tenant-a")
+		c.Set(authAPIKeyWorkspaceID, "workspace-a")
+		c.Next()
+	})
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
+	r.GET("/scope", func(c *gin.Context) {
+		scope := db.ScopeFromContext(c.Request.Context())
+		c.JSON(http.StatusOK, map[string]string{
+			"tenant_id":    scope.TenantID,
+			"workspace_id": scope.WorkspaceID,
+		})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	req.Header.Set(scopeHeaderTenantID, "tenant-a")
+	req.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected bound api key scope to pass, got %d", w.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["tenant_id"] != "tenant-a" || body["workspace_id"] != "workspace-a" {
+		t.Fatalf("expected bound scope values, got %+v", body)
+	}
+}
+
+func TestRequestScopeMiddlewareRejectsAPIKeyHeaderScopeMismatch(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("auth.api_key", "reader-key")
+		c.Set(authAPIKeyTenantID, "tenant-a")
+		c.Set(authAPIKeyWorkspaceID, "workspace-a")
+		c.Next()
+	})
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
+	r.GET("/scope", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	req.Header.Set(scopeHeaderTenantID, "tenant-b")
+	req.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected mismatched api key scope override rejected with 403, got %d", w.Code)
+	}
+}
+
 func TestRouterRateLimitExceeded(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
@@ -1533,7 +1617,7 @@ func TestRouterWritesAuditSink(t *testing.T) {
 	sink := &recordingAuditSink{}
 	r := NewRouter(logger, metrics, nil, RouterOptions{
 		AuditSink:    sink,
-		APIKeyScopes: map[string][]string{"reader-key": {"read"}},
+		APIKeyScopes: map[string][]string{"reader-key": {"read", "tenant:tenant-a", "workspace:workspace-a"}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/scans/scan-1/events", nil)
@@ -1590,7 +1674,7 @@ func TestRouterWritesAuditSinkForDeniedAuthzDecision(t *testing.T) {
 	r := NewRouter(logger, metrics, nil, RouterOptions{
 		AuditSink: sink,
 		APIKeyScopes: map[string][]string{
-			"read-key": {scopeRead},
+			"read-key": {scopeRead, "tenant:tenant-a", "workspace:workspace-a"},
 		},
 	})
 

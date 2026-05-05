@@ -34,6 +34,11 @@ var allowedKeyScopes = map[string]struct{}{
 	"admin": {},
 }
 
+const (
+	apiKeyScopeTenantPrefix    = "tenant:"
+	apiKeyScopeWorkspacePrefix = "workspace:"
+)
+
 var allowedAlertSeverities = map[string]struct{}{
 	"info":     {},
 	"low":      {},
@@ -191,9 +196,39 @@ func ValidateSecurity(cfg Config) error {
 				return fmt.Errorf("scoped api key cannot be empty")
 			}
 			validScopeCount := 0
+			tenantBinding := ""
+			workspaceBinding := ""
 			for _, scope := range scopes {
 				normalizedScope := strings.ToLower(strings.TrimSpace(scope))
 				if normalizedScope == "" {
+					continue
+				}
+				if strings.HasPrefix(normalizedScope, apiKeyScopeTenantPrefix) {
+					tenantID := strings.TrimSpace(scope[len(apiKeyScopeTenantPrefix):])
+					if tenantID == "" {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					if err := validateScopeIdentifier("IDENTRAIL_API_KEY_SCOPES tenant binding", tenantID); err != nil {
+						return err
+					}
+					if tenantBinding != "" && tenantBinding != tenantID {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					tenantBinding = tenantID
+					continue
+				}
+				if strings.HasPrefix(normalizedScope, apiKeyScopeWorkspacePrefix) {
+					workspaceID := strings.TrimSpace(scope[len(apiKeyScopeWorkspacePrefix):])
+					if workspaceID == "" {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					if err := validateScopeIdentifier("IDENTRAIL_API_KEY_SCOPES workspace binding", workspaceID); err != nil {
+						return err
+					}
+					if workspaceBinding != "" && workspaceBinding != workspaceID {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					workspaceBinding = workspaceID
 					continue
 				}
 				if _, ok := allowedKeyScopes[normalizedScope]; !ok {

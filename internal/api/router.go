@@ -39,8 +39,12 @@ const (
 	scopeRead              = "read"
 	scopeWrite             = "write"
 	scopeAdmin             = "admin"
+	apiKeyScopeTenant      = "tenant:"
+	apiKeyScopeWorkspace   = "workspace:"
 	scopeHeaderTenantID    = "X-Identrail-Tenant-ID"
 	scopeHeaderWorkspaceID = "X-Identrail-Workspace-ID"
+	authAPIKeyTenantID     = "auth.api_key_tenant_id"
+	authAPIKeyWorkspaceID  = "auth.api_key_workspace_id"
 )
 
 // RouterOptions controls API middleware behavior.
@@ -58,6 +62,12 @@ type RouterOptions struct {
 	CORSAllowedOrigins []string
 	DefaultTenantID    string
 	DefaultWorkspaceID string
+}
+
+type scopedAPIKeyAuthConfig struct {
+	Scopes      scopeSet
+	TenantID    string
+	WorkspaceID string
 }
 
 // VerifiedToken contains normalized claims extracted from a validated OIDC token.
@@ -1802,18 +1812,44 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) g
 	}.Normalize()
 	return func(c *gin.Context) {
 		tenantID := authContextString(c, "auth.tenant_id")
-		if tenantID == "" {
-			tenantID = strings.TrimSpace(c.GetHeader(scopeHeaderTenantID))
-		}
-		if tenantID == "" {
-			tenantID = defaultScope.TenantID
-		}
 		workspaceID := authContextString(c, "auth.workspace_id")
-		if workspaceID == "" {
-			workspaceID = strings.TrimSpace(c.GetHeader(scopeHeaderWorkspaceID))
-		}
-		if workspaceID == "" {
-			workspaceID = defaultScope.WorkspaceID
+		tenantHeader := strings.TrimSpace(c.GetHeader(scopeHeaderTenantID))
+		workspaceHeader := strings.TrimSpace(c.GetHeader(scopeHeaderWorkspaceID))
+
+		if tenantID == "" && workspaceID == "" && authContextString(c, "auth.api_key") != "" {
+			boundTenantID := authContextString(c, authAPIKeyTenantID)
+			boundWorkspaceID := authContextString(c, authAPIKeyWorkspaceID)
+			if tenantHeader != "" && (boundTenantID == "" || tenantHeader != boundTenantID) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			if workspaceHeader != "" && (boundWorkspaceID == "" || workspaceHeader != boundWorkspaceID) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			if boundTenantID != "" {
+				tenantID = boundTenantID
+			} else {
+				tenantID = defaultScope.TenantID
+			}
+			if boundWorkspaceID != "" {
+				workspaceID = boundWorkspaceID
+			} else {
+				workspaceID = defaultScope.WorkspaceID
+			}
+		} else {
+			if tenantID == "" {
+				tenantID = tenantHeader
+			}
+			if tenantID == "" {
+				tenantID = defaultScope.TenantID
+			}
+			if workspaceID == "" {
+				workspaceID = workspaceHeader
+			}
+			if workspaceID == "" {
+				workspaceID = defaultScope.WorkspaceID
+			}
 		}
 		scopedCtx := db.WithScope(c.Request.Context(), db.Scope{
 			TenantID:    tenantID,
@@ -1912,13 +1948,13 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string) gin.HandlerFunc {
 	oidcWriteScopeSet := newScopeSet(oidcWriteScopes)
 
-	scopedAllowed := map[string]scopeSet{}
+	scopedAllowed := map[string]scopedAPIKeyAuthConfig{}
 	for key, scopes := range scopedKeys {
 		trimmed := strings.TrimSpace(key)
 		if trimmed == "" {
 			continue
 		}
-		scopedAllowed[trimmed] = newScopeSet(scopes)
+		scopedAllowed[trimmed] = parseScopedAPIKeyAuthConfig(scopes)
 	}
 
 	// Scoped keys are the source of truth when configured.
@@ -1939,9 +1975,15 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 
 	return func(c *gin.Context) {
 		if candidate := readAPIKey(c); candidate != "" {
-			if scopes, ok := scopedKeyLookup(scopedAllowed, candidate); ok {
+			if config, ok := scopedKeyLookup(scopedAllowed, candidate); ok {
 				c.Set("auth.api_key", candidate)
-				c.Set("auth.scope_set", scopes)
+				c.Set("auth.scope_set", config.Scopes)
+				if config.TenantID != "" {
+					c.Set(authAPIKeyTenantID, config.TenantID)
+				}
+				if config.WorkspaceID != "" {
+					c.Set(authAPIKeyWorkspaceID, config.WorkspaceID)
+				}
 				c.Next()
 				return
 			}
@@ -1984,13 +2026,33 @@ func keyInList(keys []string, candidate string) bool {
 	return false
 }
 
-func scopedKeyLookup(scoped map[string]scopeSet, candidate string) (scopeSet, bool) {
-	for key, scopes := range scoped {
-		if secureKeyEquals(key, candidate) {
-			return scopes, true
+func parseScopedAPIKeyAuthConfig(scopes []string) scopedAPIKeyAuthConfig {
+	config := scopedAPIKeyAuthConfig{Scopes: scopeSet{}}
+	for _, rawScope := range scopes {
+		trimmed := strings.TrimSpace(rawScope)
+		if trimmed == "" {
+			continue
+		}
+		normalized := strings.ToLower(trimmed)
+		switch {
+		case strings.HasPrefix(normalized, apiKeyScopeTenant):
+			config.TenantID = strings.TrimSpace(trimmed[len(apiKeyScopeTenant):])
+		case strings.HasPrefix(normalized, apiKeyScopeWorkspace):
+			config.WorkspaceID = strings.TrimSpace(trimmed[len(apiKeyScopeWorkspace):])
+		default:
+			config.Scopes[normalized] = struct{}{}
 		}
 	}
-	return scopeSet{}, false
+	return config
+}
+
+func scopedKeyLookup(scoped map[string]scopedAPIKeyAuthConfig, candidate string) (scopedAPIKeyAuthConfig, bool) {
+	for key, config := range scoped {
+		if secureKeyEquals(key, candidate) {
+			return config, true
+		}
+	}
+	return scopedAPIKeyAuthConfig{}, false
 }
 
 func secureKeyEquals(expected string, candidate string) bool {
