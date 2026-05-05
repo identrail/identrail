@@ -114,6 +114,16 @@ function requestIP(req: HandlerRequest): string {
 
 function checkRateLimit(ip: string, now: number, maxPerMinute: number): boolean {
   const threshold = now - RATE_WINDOW_MS;
+  for (const [bucketIP, bucket] of leadRequestBuckets.entries()) {
+    const fresh = bucket.filter((ts) => ts >= threshold);
+    if (fresh.length == 0) {
+      leadRequestBuckets.delete(bucketIP);
+      continue;
+    }
+    if (fresh.length != bucket.length) {
+      leadRequestBuckets.set(bucketIP, fresh);
+    }
+  }
   const entries = leadRequestBuckets.get(ip) ?? [];
   const recent = entries.filter((ts) => ts >= threshold);
   if (recent.length >= maxPerMinute) {
@@ -135,7 +145,7 @@ function parseWebhookURL(rawWebhook: string): URL | null {
 
 function isLocalHost(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
-  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === '[::1]';
 }
 
 function hasValidWebhookURL(webhookURL: URL): boolean {
