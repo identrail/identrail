@@ -657,6 +657,160 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: Get Kubernetes project connection status
+      operationId: getKubernetesProjectConnection
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Kubernetes connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/KubernetesConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [ProjectManagement]
+      summary: Validate and save Kubernetes project connection
+      operationId: upsertKubernetesProjectConnection
+      description: Runs non-mutating kubectl preflight checks for cluster identity and scanner-critical RBAC read access before marking a connector active.
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KubernetesConnectionUpsertRequest"
+      responses:
+        "200":
+          description: Kubernetes preflight result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/KubernetesConnectionStatus"
+        "400":
+          description: Invalid Kubernetes connection request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Kubernetes preflight unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS project connection status
+      operationId: getAWSProjectConnection
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/AWSConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [ProjectManagement]
+      summary: Validate and save AWS project connection
+      operationId: upsertAWSProjectConnection
+      description: Assumes the supplied read-only AWS role, checks scanner-critical IAM read permission, and returns diagnosable connector state.
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSConnectionUpsertRequest"
+      responses:
+        "200":
+          description: AWS connection validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/AWSConnectionStatus"
+        "400":
+          description: Invalid AWS connection request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: AWS connection validator unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1555,6 +1709,184 @@ components:
         slug: { type: string }
         description: { type: string }
         archived_at:
+          type: string
+          format: date-time
+          nullable: true
+    KubernetesConnectionUpsertRequest:
+      type: object
+      properties:
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        context:
+          type: string
+    KubernetesPermissionCheck:
+      type: object
+      properties:
+        verb:
+          type: string
+        resource:
+          type: string
+        scope:
+          type: string
+        allowed:
+          type: boolean
+        diagnostic:
+          type: string
+        remediation:
+          type: string
+    KubernetesPreflightDiagnostic:
+      type: object
+      properties:
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [warning, error]
+        message:
+          type: string
+        remediation:
+          type: string
+    KubernetesConnectionStatus:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [kubernetes]
+        connected:
+          type: boolean
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, degraded, disconnected]
+        health_status:
+          type: string
+          enum: [unknown, healthy, warning, error]
+        context:
+          type: string
+        cluster:
+          type: string
+        server:
+          type: string
+        git_version:
+          type: string
+        platform:
+          type: string
+        permission_checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/KubernetesPermissionCheck"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/KubernetesPreflightDiagnostic"
+        remediation_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_validated_at:
+          type: string
+          format: date-time
+          nullable: true
+    AWSConnectionUpsertRequest:
+      type: object
+      required: [role_arn]
+      properties:
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        role_arn:
+          type: string
+          example: arn:aws:iam::123456789012:role/IdentrailReadOnly
+        external_id:
+          type: string
+          writeOnly: true
+        region:
+          type: string
+          default: us-east-1
+        session_name:
+          type: string
+          default: identrail-connector-validation
+    AWSConnectionDiagnostic:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        remediation:
+          type: string
+    AWSConnectionPermissionCheck:
+      type: object
+      properties:
+        name:
+          type: string
+        passed:
+          type: boolean
+        message:
+          type: string
+        remediation:
+          type: string
+    AWSConnectionStatus:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [aws]
+        connected:
+          type: boolean
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, degraded, disconnected]
+        health_status:
+          type: string
+          enum: [unknown, healthy, warning, error]
+        role_arn:
+          type: string
+        external_id_configured:
+          type: boolean
+        account_id:
+          type: string
+        principal_arn:
+          type: string
+        user_id:
+          type: string
+        region:
+          type: string
+        permission_checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectionPermissionCheck"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectionDiagnostic"
+        remediation_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_validated_at:
           type: string
           format: date-time
           nullable: true

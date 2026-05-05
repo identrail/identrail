@@ -209,15 +209,8 @@ export function HeroProductReveal() {
               <g key={`${scene.id}-${edge.from}-${edge.to}`}>
                 <path className={`idt-hero-arrow-base ${edge.emphasis === 'high' ? 'is-high' : ''}`} d={path} />
                 <path
-                  className={`idt-hero-arrow-flow ${edge.emphasis === 'high' ? 'is-high' : ''}`}
+                  className={`idt-hero-arrow-flow idt-hero-edge-delay-${edgeIndex} ${edge.emphasis === 'high' ? 'is-high' : ''}`}
                   d={path}
-                  style={
-                    reducedMotion
-                      ? undefined
-                      : ({
-                          animationDelay: `${edgeIndex * 0.42}s`
-                        } as const)
-                  }
                   filter={`url(#idt-edge-glow-${scene.id})`}
                 />
                 <circle
@@ -234,8 +227,7 @@ export function HeroProductReveal() {
         {scene.nodes.map((node) => (
           <div
             key={`${scene.id}-${node.id}`}
-            className={`idt-node idt-node-${node.tone}`}
-            style={{ left: `${node.x}%`, top: `${node.y}%` }}
+            className={`idt-node idt-node-${node.tone} idt-node-${scene.id}-${node.id}`}
           >
             {node.label}
           </div>

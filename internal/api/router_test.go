@@ -1737,7 +1737,7 @@ func TestRouterPaginationHelpers(t *testing.T) {
 func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
-	r := NewRouter(logger, metrics, nil, RouterOptions{})
+	r := NewRouter(logger, metrics, nil, RouterOptions{RateLimitRPM: 1000, RateLimitBurst: 1000})
 
 	routes := []struct {
 		method string
@@ -1759,6 +1759,8 @@ func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
 		{http.MethodPost, "/v1/workspaces/ws-1/projects"},
 		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1"},
 		{http.MethodDelete, "/v1/workspaces/ws-1/projects/p-1"},
+		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/aws/connection"},
+		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/aws/connection"},
 		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/github/connect/start"},
 		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/github/connect/complete"},
 		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/github/connection"},

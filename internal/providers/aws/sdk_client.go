@@ -8,8 +8,10 @@ import (
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 const maxAWSPolicyPages = 100
@@ -39,6 +41,38 @@ func NewSDKIAMAPI(region string, profile string) (IAMAPI, error) {
 // NewSDKIAMAPIWithContext constructs an IAMAPI backed by the AWS SDK credential chain
 // using the caller-provided context for config loading.
 func NewSDKIAMAPIWithContext(ctx context.Context, region string, profile string) (IAMAPI, error) {
+	cfg, err := loadSDKConfig(ctx, region, profile)
+	if err != nil {
+		return nil, err
+	}
+	return &SDKIAMAPI{client: iam.NewFromConfig(cfg)}, nil
+}
+
+// NewSDKIAMAPIFromAssumeRole constructs an IAMAPI that assumes an onboarded connector role.
+func NewSDKIAMAPIFromAssumeRole(ctx context.Context, region string, profile string, roleARN string, externalID string, sessionName string) (IAMAPI, error) {
+	cfg, err := loadSDKConfig(ctx, region, profile)
+	if err != nil {
+		return nil, err
+	}
+	trimmedRoleARN := strings.TrimSpace(roleARN)
+	if trimmedRoleARN == "" {
+		return nil, fmt.Errorf("aws connector role arn is required")
+	}
+	options := []func(*stscreds.AssumeRoleOptions){
+		func(options *stscreds.AssumeRoleOptions) {
+			options.RoleSessionName = firstNonEmptySDKString(strings.TrimSpace(sessionName), "identrail-recurring-scan")
+		},
+	}
+	if trimmedExternalID := strings.TrimSpace(externalID); trimmedExternalID != "" {
+		options = append(options, func(options *stscreds.AssumeRoleOptions) {
+			options.ExternalID = &trimmedExternalID
+		})
+	}
+	cfg.Credentials = awsv2.NewCredentialsCache(stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), trimmedRoleARN, options...))
+	return &SDKIAMAPI{client: iam.NewFromConfig(cfg)}, nil
+}
+
+func loadSDKConfig(ctx context.Context, region string, profile string) (awsv2.Config, error) {
 	loadOptions := []func(*awscfg.LoadOptions) error{
 		awscfg.WithRegion(strings.TrimSpace(region)),
 	}
@@ -47,14 +81,23 @@ func NewSDKIAMAPIWithContext(ctx context.Context, region string, profile string)
 	}
 	cfg, err := awscfg.LoadDefaultConfig(ctx, loadOptions...)
 	if err != nil {
-		return nil, fmt.Errorf("load aws config: %w", err)
+		return awsv2.Config{}, fmt.Errorf("load aws config: %w", err)
 	}
-	return &SDKIAMAPI{client: iam.NewFromConfig(cfg)}, nil
+	return cfg, nil
 }
 
 // NewSDKIAMAPIFromClient creates an IAMAPI from a provided IAM SDK client.
 func NewSDKIAMAPIFromClient(client IAMSDKClient) IAMAPI {
 	return &SDKIAMAPI{client: client}
+}
+
+func firstNonEmptySDKString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // ListRoles returns one page of roles enriched with inline and managed policy documents.

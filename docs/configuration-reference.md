@@ -46,6 +46,8 @@ Kubernetes:
 - `IDENTRAIL_KUBECTL_PATH`
 - `IDENTRAIL_KUBE_CONTEXT`
 
+Kubernetes connector onboarding uses the same kubectl path and context to run a non-mutating preflight before activation. The runtime identity must be able to list `serviceaccounts`, `rolebindings`, `clusterrolebindings`, `roles`, `clusterroles`, and `pods`; missing permissions are reported as connector health diagnostics instead of starting unsafe automation.
+
 Cross-provider:
 - `IDENTRAIL_REQUIRE_LIVE_SOURCES`
 
