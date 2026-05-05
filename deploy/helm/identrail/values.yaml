@@ -116,6 +116,26 @@ serviceAccount:
   annotations: {}
   name: ""
 
+networkPolicy:
+  enabled: false
+
+podDisruptionBudget:
+  api:
+    enabled: false
+    minAvailable: 1
+
+autoscaling:
+  api:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  web:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
 config:
   IDENTRAIL_SERVICE_NAME: identrail
   IDENTRAIL_LOG_LEVEL: info

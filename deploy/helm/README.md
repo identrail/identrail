@@ -33,5 +33,6 @@ This chart is the Kubernetes deployment baseline for Identrail.
 - `IDENTRAIL_K8S_SOURCE` defaults to `fixture` to avoid requiring a `kubectl` binary in the default backend image. For Kubernetes provider deployments, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
 - Enable web deployment by setting `web.enabled=true`.
 - Enable ingress by setting `ingress.enabled=true`.
+- Optional production controls are available through `networkPolicy.enabled`, `podDisruptionBudget.api.enabled`, and `autoscaling.*.enabled`; tune them for the target cluster before enabling.
 - `IDENTRAIL_AUDIT_LOG_FILE` is empty by default. If you enable it, mount a writable path for the container user.
 - `IDENTRAIL_CONNECTOR_SECRET_KEYS` should be set for durable connector credential storage. If omitted, connector secret envelopes use an ephemeral in-memory key suitable only for local/test runs.
