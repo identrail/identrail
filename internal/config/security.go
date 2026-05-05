@@ -208,6 +208,31 @@ func ValidateSecurity(cfg Config) error {
 			}
 		}
 	}
+	if len(cfg.APIKeyScopeBindings) > 0 {
+		if len(cfg.APIKeyScopes) == 0 {
+			return fmt.Errorf("IDENTRAIL_API_KEY_SCOPE_BINDINGS requires IDENTRAIL_API_KEY_SCOPES")
+		}
+		for key, scope := range cfg.APIKeyScopeBindings {
+			trimmedKey := strings.TrimSpace(key)
+			if trimmedKey == "" {
+				return fmt.Errorf("IDENTRAIL_API_KEY_SCOPE_BINDINGS includes an empty key")
+			}
+			if _, ok := cfg.APIKeyScopes[trimmedKey]; !ok {
+				return fmt.Errorf("IDENTRAIL_API_KEY_SCOPE_BINDINGS includes a key not present in IDENTRAIL_API_KEY_SCOPES")
+			}
+			if err := validateScopeIdentifier("IDENTRAIL_API_KEY_SCOPE_BINDINGS tenant", scope.TenantID); err != nil {
+				return err
+			}
+			if err := validateScopeIdentifier("IDENTRAIL_API_KEY_SCOPE_BINDINGS workspace", scope.WorkspaceID); err != nil {
+				return err
+			}
+		}
+		for key := range cfg.APIKeyScopes {
+			if _, ok := cfg.APIKeyScopeBindings[strings.TrimSpace(key)]; !ok {
+				return fmt.Errorf("IDENTRAIL_API_KEY_SCOPES keys must also be configured in IDENTRAIL_API_KEY_SCOPE_BINDINGS")
+			}
+		}
+	}
 
 	if len(cfg.APIKeyScopes) == 0 && len(cfg.WriteAPIKeys) > 0 {
 		allowed := map[string]struct{}{}
@@ -476,6 +501,9 @@ func SecurityWarnings(cfg Config) []string {
 	}
 	if strings.TrimSpace(cfg.OIDCIssuerURL) != "" && (len(cfg.APIKeys) > 0 || len(cfg.APIKeyScopes) > 0) {
 		warnings = append(warnings, "both API key auth and OIDC are enabled; verify expected precedence in clients and automation")
+	}
+	if len(cfg.APIKeyScopes) > 0 && len(cfg.APIKeyScopeBindings) == 0 {
+		warnings = append(warnings, "scoped API keys are not tenant/workspace bound; set IDENTRAIL_API_KEY_SCOPE_BINDINGS to enforce scope isolation")
 	}
 	if strings.TrimSpace(cfg.AuditLogFile) == "" {
 		warnings = append(warnings, "audit file sink is disabled; configure IDENTRAIL_AUDIT_LOG_FILE for durable local audit records")

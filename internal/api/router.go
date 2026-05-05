@@ -45,19 +45,20 @@ const (
 
 // RouterOptions controls API middleware behavior.
 type RouterOptions struct {
-	APIKeys            []string
-	WriteAPIKeys       []string
-	APIKeyScopes       map[string][]string
-	OIDCTokenVerifier  TokenVerifier
-	OIDCWriteScopes    []string
-	RateLimitRPM       int
-	RateLimitBurst     int
-	AuditSink          audit.AuditSink
-	AuditFingerprinter *audit.Fingerprinter
-	TrustedProxies     []string
-	CORSAllowedOrigins []string
-	DefaultTenantID    string
-	DefaultWorkspaceID string
+	APIKeys             []string
+	WriteAPIKeys        []string
+	APIKeyScopes        map[string][]string
+	APIKeyScopeBindings map[string]db.Scope
+	OIDCTokenVerifier   TokenVerifier
+	OIDCWriteScopes     []string
+	RateLimitRPM        int
+	RateLimitBurst      int
+	AuditSink           audit.AuditSink
+	AuditFingerprinter  *audit.Fingerprinter
+	TrustedProxies      []string
+	CORSAllowedOrigins  []string
+	DefaultTenantID     string
+	DefaultWorkspaceID  string
 }
 
 // VerifiedToken contains normalized claims extracted from a validated OIDC token.
@@ -184,7 +185,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
-	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.APIKeyScopeBindings, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
@@ -1909,7 +1910,7 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string) gin.HandlerFunc {
+func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, scopedKeyBindings map[string]db.Scope, tokenVerifier TokenVerifier, oidcWriteScopes []string) gin.HandlerFunc {
 	oidcWriteScopeSet := newScopeSet(oidcWriteScopes)
 
 	scopedAllowed := map[string]scopeSet{}
@@ -1919,6 +1920,18 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 			continue
 		}
 		scopedAllowed[trimmed] = newScopeSet(scopes)
+	}
+	normalizedScopedBindings := map[string]db.Scope{}
+	for key, scope := range scopedKeyBindings {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		normalized := scope.Normalize()
+		if normalized.TenantID == "" || normalized.WorkspaceID == "" {
+			continue
+		}
+		normalizedScopedBindings[trimmed] = normalized
 	}
 
 	// Scoped keys are the source of truth when configured.
@@ -1940,6 +1953,11 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 	return func(c *gin.Context) {
 		if candidate := readAPIKey(c); candidate != "" {
 			if scopes, ok := scopedKeyLookup(scopedAllowed, candidate); ok {
+				binding, hasBinding := scopedKeyBindingLookup(normalizedScopedBindings, candidate)
+				if len(normalizedScopedBindings) > 0 && (!hasBinding || !applyScopedKeyBinding(c, binding)) {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+					return
+				}
 				c.Set("auth.api_key", candidate)
 				c.Set("auth.scope_set", scopes)
 				c.Next()
@@ -1982,6 +2000,33 @@ func keyInList(keys []string, candidate string) bool {
 		}
 	}
 	return false
+}
+
+func scopedKeyBindingLookup(bindings map[string]db.Scope, candidate string) (db.Scope, bool) {
+	for key, binding := range bindings {
+		if secureKeyEquals(key, candidate) {
+			return binding, true
+		}
+	}
+	return db.Scope{}, false
+}
+
+func applyScopedKeyBinding(c *gin.Context, binding db.Scope) bool {
+	normalized := binding.Normalize()
+	if normalized.TenantID == "" || normalized.WorkspaceID == "" {
+		return false
+	}
+	tenantIDHeader := strings.TrimSpace(c.GetHeader(scopeHeaderTenantID))
+	if tenantIDHeader != "" && tenantIDHeader != normalized.TenantID {
+		return false
+	}
+	workspaceIDHeader := strings.TrimSpace(c.GetHeader(scopeHeaderWorkspaceID))
+	if workspaceIDHeader != "" && workspaceIDHeader != normalized.WorkspaceID {
+		return false
+	}
+	c.Set("auth.tenant_id", normalized.TenantID)
+	c.Set("auth.workspace_id", normalized.WorkspaceID)
+	return true
 }
 
 func scopedKeyLookup(scoped map[string]scopeSet, candidate string) (scopeSet, bool) {

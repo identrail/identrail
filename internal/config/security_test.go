@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 )
 
 func TestValidateSecurityRejectsNoAPIKeys(t *testing.T) {
@@ -255,6 +257,76 @@ func TestValidateSecurityRejectsScopedKeyWithoutValidScope(t *testing.T) {
 	}
 	if err := ValidateSecurity(cfg); err == nil {
 		t.Fatal("expected empty scope error")
+	}
+}
+
+func TestValidateSecurityRejectsScopeBindingsWithoutScopedKeys(t *testing.T) {
+	cfg := Config{
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected scoped key bindings to require scoped keys")
+	}
+}
+
+func TestValidateSecurityRejectsScopeBindingsForUnknownKey(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"writer-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected unknown scope binding key to be rejected")
+	}
+}
+
+func TestValidateSecurityRejectsScopedKeysWithoutBindingsWhenBindingsEnabled(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+			"writer-key": {"write"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected scoped keys without bindings to be rejected")
+	}
+}
+
+func TestValidateSecurityRejectsInvalidScopeBindingTenantID(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "bad tenant", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected invalid scope binding tenant id to be rejected")
+	}
+}
+
+func TestValidateSecurityAcceptsScopeBindings(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+			"writer-key": {"read", "write"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+			"writer-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected valid scope bindings, got %v", err)
 	}
 }
 

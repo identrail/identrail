@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 )
 
 const (
@@ -79,6 +81,7 @@ type Config struct {
 	APIKeys                    []string
 	WriteAPIKeys               []string
 	APIKeyScopes               map[string][]string
+	APIKeyScopeBindings        map[string]db.Scope
 	RateLimitRPM               int
 	RateLimitBurst             int
 	RunMigrations              bool
@@ -170,6 +173,7 @@ func Load() Config {
 		APIKeys:                    parseCommaSeparated(getEnv("IDENTRAIL_API_KEYS", "")),
 		WriteAPIKeys:               parseCommaSeparated(getEnv("IDENTRAIL_WRITE_API_KEYS", "")),
 		APIKeyScopes:               parseKeyScopes(getEnv("IDENTRAIL_API_KEY_SCOPES", "")),
+		APIKeyScopeBindings:        parseKeyScopeBindings(getEnv("IDENTRAIL_API_KEY_SCOPE_BINDINGS", "")),
 		RateLimitRPM:               parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
 		RateLimitBurst:             parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
 		RunMigrations:              parseBool(getEnv("IDENTRAIL_RUN_MIGRATIONS", "true"), true),
@@ -315,6 +319,37 @@ func parseKeyScopes(value string) map[string][]string {
 			continue
 		}
 		result[key] = scopes
+	}
+	return result
+}
+
+func parseKeyScopeBindings(value string) map[string]db.Scope {
+	result := map[string]db.Scope{}
+	for _, entry := range strings.Split(value, ";") {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+		scopeParts := strings.SplitN(strings.TrimSpace(parts[1]), "/", 2)
+		if len(scopeParts) != 2 {
+			continue
+		}
+		scope := db.Scope{
+			TenantID:    strings.TrimSpace(scopeParts[0]),
+			WorkspaceID: strings.TrimSpace(scopeParts[1]),
+		}.Normalize()
+		if scope.TenantID == "" || scope.WorkspaceID == "" {
+			continue
+		}
+		result[key] = scope
 	}
 	return result
 }

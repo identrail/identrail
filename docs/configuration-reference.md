@@ -18,6 +18,7 @@ This page is the canonical runtime configuration surface for API and worker proc
 - `IDENTRAIL_API_KEYS`
 - `IDENTRAIL_WRITE_API_KEYS`
 - `IDENTRAIL_API_KEY_SCOPES` (takes precedence over legacy key lists)
+- `IDENTRAIL_API_KEY_SCOPE_BINDINGS` (optional tenant/workspace binding for scoped keys, format: `<api-key>:<tenant-id>/<workspace-id>;...`)
 - `IDENTRAIL_OIDC_ISSUER_URL`
 - `IDENTRAIL_OIDC_AUDIENCE`
 - `IDENTRAIL_OIDC_WRITE_SCOPES`
