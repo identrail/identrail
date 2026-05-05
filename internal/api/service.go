@@ -27,7 +27,6 @@ const (
 	defaultScanQueueMaxPending  = 25
 	defaultRepoQueueMaxPending  = 100
 	maxSourceErrorsInEvent      = 25
-	terminalWriteTimeout        = 5 * time.Second
 )
 
 const (
@@ -1814,9 +1813,8 @@ func (s *Service) scopeContext(ctx context.Context) context.Context {
 	return db.WithDefaultScope(ctx, s.DefaultScope)
 }
 
-func (s *Service) terminalWriteContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	scoped := db.WithScope(context.Background(), db.ScopeFromContext(s.scopeContext(ctx)))
-	return context.WithTimeout(scoped, terminalWriteTimeout)
+func (s *Service) terminalWriteContext(ctx context.Context) context.Context {
+	return db.WithScope(context.Background(), db.ScopeFromContext(s.scopeContext(ctx)))
 }
 
 func (s *Service) completeScanTerminal(
@@ -1828,9 +1826,15 @@ func (s *Service) completeScanTerminal(
 	findingCount int,
 	errorMessage string,
 ) error {
-	writeCtx, cancel := s.terminalWriteContext(ctx)
-	defer cancel()
-	return s.Store.CompleteScan(writeCtx, scanID, status, finishedAt, assetCount, findingCount, errorMessage)
+	writeCtx := ctx
+	if shouldRetryTerminalWrite(ctx.Err()) {
+		writeCtx = s.terminalWriteContext(ctx)
+	}
+	err := s.Store.CompleteScan(writeCtx, scanID, status, finishedAt, assetCount, findingCount, errorMessage)
+	if !shouldRetryTerminalWrite(err) {
+		return err
+	}
+	return s.Store.CompleteScan(s.terminalWriteContext(ctx), scanID, status, finishedAt, assetCount, findingCount, errorMessage)
 }
 
 func (s *Service) completeRepoScanTerminal(
@@ -1844,9 +1848,11 @@ func (s *Service) completeRepoScanTerminal(
 	truncated bool,
 	errorMessage string,
 ) error {
-	writeCtx, cancel := s.terminalWriteContext(ctx)
-	defer cancel()
-	return s.Store.CompleteRepoScan(
+	writeCtx := ctx
+	if shouldRetryTerminalWrite(ctx.Err()) {
+		writeCtx = s.terminalWriteContext(ctx)
+	}
+	err := s.Store.CompleteRepoScan(
 		writeCtx,
 		repoScanID,
 		status,
@@ -1857,4 +1863,22 @@ func (s *Service) completeRepoScanTerminal(
 		truncated,
 		errorMessage,
 	)
+	if !shouldRetryTerminalWrite(err) {
+		return err
+	}
+	return s.Store.CompleteRepoScan(
+		s.terminalWriteContext(ctx),
+		repoScanID,
+		status,
+		finishedAt,
+		commitsScanned,
+		filesScanned,
+		findingCount,
+		truncated,
+		errorMessage,
+	)
+}
+
+func shouldRetryTerminalWrite(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
