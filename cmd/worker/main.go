@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/worker"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/worker"
 )
 
 var workerRun = worker.Run

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/runtime"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/api"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/runtime"
+	"github.com/identrail/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/telemetry"
 )
 
 const (
