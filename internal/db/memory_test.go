@@ -150,6 +150,30 @@ func TestMemoryStoreScanDetails(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreGetFinding(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scan, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+	item, err := store.GetFinding(defaultScopeContext(), "finding-1", scan.ID)
+	if err != nil {
+		t.Fatalf("get finding: %v", err)
+	}
+	if item.ID != "finding-1" || item.ScanID != scan.ID {
+		t.Fatalf("unexpected finding %+v", item)
+	}
+	if _, err := store.GetFinding(defaultScopeContext(), "missing", scan.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found for missing finding, got %v", err)
+	}
+}
+
 func TestMemoryStoreIdentityAndRelationshipFilters(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
