@@ -27,6 +27,7 @@ chart_values = {
   }
   config = {
     IDENTRAIL_PROVIDER = "aws"
+    IDENTRAIL_ALLOW_MEMORY_STORE = "false"
     IDENTRAIL_AWS_SOURCE = "sdk"
     IDENTRAIL_K8S_SOURCE = "kubectl"
     IDENTRAIL_LOCK_BACKEND = "postgres"

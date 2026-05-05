@@ -19,6 +19,7 @@ Portable deployment profiles:
 ## 1) Pre-Deploy Checklist
 
 - Confirm `IDENTRAIL_DATABASE_URL` points to target environment.
+- Confirm `IDENTRAIL_ALLOW_MEMORY_STORE=false`; only disposable local runs should opt into in-memory persistence.
 - Confirm migrations path is correct (`IDENTRAIL_MIGRATIONS_DIR`).
 - Confirm shared API/worker config keeps `IDENTRAIL_RUN_MIGRATIONS=false`.
 - Confirm lock backend for deployment shape:

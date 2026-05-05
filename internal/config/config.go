@@ -63,6 +63,7 @@ type Config struct {
 	TrustedProxies             []string
 	CORSAllowedOrigins         []string
 	DatabaseURL                string
+	AllowMemoryStore           bool
 	AWSSource                  string
 	AWSRegion                  string
 	AWSProfile                 string
@@ -154,6 +155,7 @@ func Load() Config {
 		TrustedProxies:             parseCommaSeparated(getEnv("IDENTRAIL_TRUSTED_PROXIES", "")),
 		CORSAllowedOrigins:         parseCommaSeparated(getEnv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "")),
 		DatabaseURL:                getEnv("IDENTRAIL_DATABASE_URL", ""),
+		AllowMemoryStore:           parseBool(getEnv("IDENTRAIL_ALLOW_MEMORY_STORE", "false"), false),
 		AWSSource:                  strings.ToLower(getEnv("IDENTRAIL_AWS_SOURCE", defaultAWSSource)),
 		AWSRegion:                  getEnv("IDENTRAIL_AWS_REGION", defaultAWSRegion),
 		AWSProfile:                 getEnv("IDENTRAIL_AWS_PROFILE", ""),

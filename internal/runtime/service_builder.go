@@ -27,6 +27,9 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	var store db.Store
 	var pgStore *db.PostgresStore
 	if cfg.DatabaseURL == "" {
+		if !cfg.AllowMemoryStore {
+			return nil, nil, fmt.Errorf("IDENTRAIL_DATABASE_URL is required unless IDENTRAIL_ALLOW_MEMORY_STORE=true")
+		}
 		store = db.NewMemoryStore()
 	} else {
 		var pgErr error

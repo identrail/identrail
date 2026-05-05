@@ -14,6 +14,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_TRUSTED_PROXIES", "")
 	t.Setenv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "")
+	t.Setenv("IDENTRAIL_ALLOW_MEMORY_STORE", "")
 	t.Setenv("IDENTRAIL_AWS_SOURCE", "")
 	t.Setenv("IDENTRAIL_AWS_REGION", "")
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "")
@@ -95,6 +96,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.DatabaseURL != "" {
 		t.Fatalf("expected empty database url, got %q", cfg.DatabaseURL)
+	}
+	if cfg.AllowMemoryStore {
+		t.Fatal("expected memory store opt-in to be false by default")
 	}
 	if cfg.AWSSource != defaultAWSSource {
 		t.Fatalf("expected default aws source %q, got %q", defaultAWSSource, cfg.AWSSource)
@@ -289,6 +293,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_TRUSTED_PROXIES", "10.0.0.0/8,127.0.0.1")
 	t.Setenv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "https://app.identrail.io,https://console.identrail.io")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "postgres://example")
+	t.Setenv("IDENTRAIL_ALLOW_MEMORY_STORE", "true")
 	t.Setenv("IDENTRAIL_AWS_SOURCE", "sdk")
 	t.Setenv("IDENTRAIL_AWS_REGION", "eu-west-1")
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "engineering")
@@ -373,6 +378,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.DatabaseURL != "postgres://example" {
 		t.Fatalf("unexpected database url: %q", cfg.DatabaseURL)
+	}
+	if !cfg.AllowMemoryStore {
+		t.Fatal("expected memory store opt-in true")
 	}
 	if cfg.AWSSource != "sdk" {
 		t.Fatalf("unexpected aws source: %q", cfg.AWSSource)
