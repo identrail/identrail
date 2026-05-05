@@ -138,6 +138,50 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsRepresentativeErrorResponses(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	requiredResponses := []string{
+		"BadRequest:",
+		"Conflict:",
+		"Forbidden:",
+		"InternalServerError:",
+		"ServiceUnavailable:",
+		"TooManyRequests:",
+	}
+	for _, item := range requiredResponses {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing response component %q", item)
+		}
+	}
+
+	cases := []struct {
+		path     string
+		method   string
+		required []string
+	}{
+		{path: "/v1/findings", method: "get", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/scans", method: "post", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"429":`, `#/components/responses/TooManyRequests`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/scans/{scan_id}/diff", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/scans/{scan_id}/events", method: "get", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/identities", method: "get", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/relationships", method: "get", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/ownership/signals", method: "get", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/repo-scans", method: "post", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"403":`, `#/components/responses/Forbidden`, `"409":`, `#/components/responses/Conflict`, `"429":`, `#/components/responses/TooManyRequests`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
+		{path: "/v1/repo-scans/{repo_scan_id}", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/repo-findings", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/workspaces/{workspace_id}/projects", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"500":`, `#/components/responses/InternalServerError`}},
+	}
+
+	for _, tc := range cases {
+		block := operationBlock(t, spec, tc.path, tc.method)
+		for _, item := range tc.required {
+			if !strings.Contains(block, item) {
+				t.Fatalf("openapi operation %s %s missing %q", strings.ToUpper(tc.method), tc.path, item)
+			}
+		}
+	}
+}
+
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
@@ -214,4 +258,37 @@ func pathBlock(t *testing.T, spec string, path string) string {
 	}
 
 	return spec[start:end]
+}
+
+func operationBlock(t *testing.T, spec string, path string, method string) string {
+	t.Helper()
+	pathContent := pathBlock(t, spec, path)
+	marker := "\n    " + strings.ToLower(strings.TrimSpace(method)) + ":"
+	start := strings.Index(pathContent, marker)
+	if start >= 0 {
+		start++
+	} else {
+		prefix := "    " + strings.ToLower(strings.TrimSpace(method)) + ":"
+		if strings.HasPrefix(pathContent, prefix) {
+			start = 0
+		} else {
+			t.Fatalf("openapi operation block not found for %s %q", method, path)
+		}
+	}
+
+	end := len(pathContent)
+	nextMethods := []string{"\n    get:", "\n    post:", "\n    put:", "\n    patch:", "\n    delete:", "\n    options:", "\n    head:"}
+	for _, nextMethod := range nextMethods {
+		if nextMethod == marker {
+			continue
+		}
+		if idx := strings.Index(pathContent[start+1:], nextMethod); idx >= 0 {
+			candidate := start + 1 + idx
+			if candidate < end {
+				end = candidate
+			}
+		}
+	}
+
+	return pathContent[start:end]
 }
