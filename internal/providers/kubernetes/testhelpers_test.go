@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 func loadRawFixture(t *testing.T, kind string, fileName string, sourceID string) providers.RawAsset {
