@@ -117,6 +117,7 @@ type Config struct {
 	WorkerAPIJobQueueEnabled   bool
 	WorkerAPIJobQueueInterval  time.Duration
 	WorkerAPIJobQueueBatchSize int
+	WorkerHeartbeatPath        string
 	LockBackend                string
 	LockNamespace              string
 	DefaultTenantID            string
@@ -208,6 +209,7 @@ func Load() Config {
 		WorkerAPIJobQueueEnabled:   parseBool(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", "true"), defaultWorkerAPIJobQueueEnabled),
 		WorkerAPIJobQueueInterval:  parseDuration(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", defaultWorkerAPIJobQueueInterval.String()), defaultWorkerAPIJobQueueInterval),
 		WorkerAPIJobQueueBatchSize: parseInt(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "5"), defaultWorkerAPIJobQueueBatchSize),
+		WorkerHeartbeatPath:        strings.TrimSpace(getEnv("IDENTRAIL_WORKER_HEARTBEAT_PATH", "")),
 		LockBackend:                strings.ToLower(getEnv("IDENTRAIL_LOCK_BACKEND", defaultLockBackend)),
 		LockNamespace:              getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),
 		DefaultTenantID:            getEnv("IDENTRAIL_DEFAULT_TENANT_ID", defaultTenantID),

@@ -27,6 +27,7 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 - `IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED` (default `true`)
 - `IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL` (default `2s`)
 - `IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE` (default `5`)
+- `IDENTRAIL_WORKER_HEARTBEAT_PATH` (optional path for a timestamp heartbeat file)
 
 ## Behavior
 
@@ -37,5 +38,6 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 - Optional repo scan scheduler is additive and disabled by default
 - API `POST /v1/scans` and `POST /v1/repo-scans` enqueue work; worker queue runner executes queued jobs asynchronously
 - Queue runner applies bounded batch processing per tick (`IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE`)
+- Heartbeat files are written at worker startup and before each configured runner tick when `IDENTRAIL_WORKER_HEARTBEAT_PATH` is set. Supervisors can alert when the file timestamp stops advancing.
 - Repo scans use per-target lock key (`repo-scan:<target>`) to avoid overlap between API and worker triggers
 - In database mode, `IDENTRAIL_LOCK_BACKEND=auto` uses PostgreSQL advisory locks for multi-instance safety

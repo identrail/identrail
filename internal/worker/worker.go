@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
@@ -57,8 +58,15 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	svc.OnAlertError = func(alertErr error) {
 		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
 	}
+	writeHeartbeat := func() {
+		if err := writeWorkerHeartbeat(cfg.WorkerHeartbeatPath); err != nil {
+			logger.Warn("worker heartbeat write failed", telemetry.ZapError(err))
+		}
+	}
+	writeHeartbeat()
 
 	cloudTrigger := func(runCtx context.Context) error {
+		writeHeartbeat()
 		result, runErr := svc.RunScan(runCtx)
 		if runErr != nil {
 			if errors.Is(runErr, api.ErrScanInProgress) {
@@ -72,6 +80,7 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		return nil
 	}
 	repoTrigger := func(runCtx context.Context) error {
+		writeHeartbeat()
 		failures := 0
 		for _, target := range cfg.WorkerRepoScanTargets {
 			repoRun, runErr := svc.RunRepoScanPersisted(runCtx, api.RepoScanRequest{
@@ -104,6 +113,7 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		queueBatchSize = 1
 	}
 	apiQueueTrigger := func(runCtx context.Context) error {
+		writeHeartbeat()
 		return processAPIQueueBatch(
 			runCtx,
 			queueBatchSize,
@@ -215,6 +225,14 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	case runErr := <-errCh:
 		return runErr
 	}
+}
+
+func writeWorkerHeartbeat(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	payload := []byte(time.Now().UTC().Format(time.RFC3339Nano) + "\n")
+	return os.WriteFile(path, payload, 0o600)
 }
 
 func processAPIQueueBatch(

@@ -116,8 +116,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	r.GET("/readyz", func(c *gin.Context) {
 		if svc == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":  "not_ready",
-				"service": "identrail",
+				"status":     "not_ready",
+				"service":    "identrail",
+				"dependency": "scan_service",
 			})
 			return
 		}
@@ -128,14 +129,17 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				logger.Warn("readiness check failed", telemetry.ZapError(err))
 			}
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":  "not_ready",
-				"service": "identrail",
+				"status":     "not_ready",
+				"service":    "identrail",
+				"dependency": "runtime",
+				"error":      err.Error(),
 			})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "ready",
-			"service": "identrail",
+			"status":     "ready",
+			"service":    "identrail",
+			"dependency": "runtime",
 		})
 	})
 
