@@ -17,6 +17,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 )
 
 const (
@@ -65,6 +66,7 @@ type Service struct {
 	Alerter        FindingAlerter
 	OnAlertError   func(error)
 	ReadinessCheck func(context.Context) error
+	Metrics        *telemetry.Metrics
 	// Repo scan controls are intentionally separate from cloud identity scan flow.
 	RepoScanEnabled             bool
 	RepoScanDefaultHistoryLimit int
@@ -302,6 +304,7 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	if err != nil {
 		return db.ScanRecord{}, fmt.Errorf("count queued scans: %w", err)
 	}
+	s.recordQueueDepth("scan", queuedCount)
 	if queuedCount >= maxPending {
 		return db.ScanRecord{}, ErrScanQueueFull
 	}
@@ -310,6 +313,7 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
 	}
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{"provider": s.Provider})
+	s.recordQueueDepth("scan", queuedCount+1)
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan queued for worker execution", map[string]any{
 		"provider":    s.Provider,
 		"queue_depth": queuedCount + 1,
@@ -331,16 +335,21 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 	record, err := s.Store.ClaimNextQueuedScan(ctx, s.Provider)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
+			s.recordQueueDepth("scan", 0)
 			return false, nil
 		}
+		s.recordWorkerJob("scan", "failure")
 		return false, fmt.Errorf("claim queued scan: %w", err)
 	}
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "queued scan started", map[string]any{"provider": record.Provider})
 	_, runErr := s.runScanWithRecord(ctx, record)
 	if runErr != nil {
+		s.recordWorkerJob("scan", "failure")
+		s.recordWorkerDeadLetter("scan")
 		return true, runErr
 	}
+	s.recordWorkerJob("scan", "success")
 	return true, nil
 }
 
@@ -484,6 +493,30 @@ func (s *Service) activeAWSConnectionForScan(ctx context.Context) (AWSConnection
 	return AWSConnectionStatus{}, false, nil
 }
 
+func (s *Service) recordQueueDepth(queue string, depth int) {
+	if s.Metrics != nil {
+		s.Metrics.QueueDepth.WithLabelValues(queue).Set(float64(depth))
+	}
+}
+
+func (s *Service) recordWorkerJob(queue string, outcome string) {
+	if s.Metrics != nil {
+		s.Metrics.WorkerJobsTotal.WithLabelValues(queue, outcome).Inc()
+	}
+}
+
+func (s *Service) recordWorkerRequeue(queue string) {
+	if s.Metrics != nil {
+		s.Metrics.WorkerRequeuesTotal.WithLabelValues(queue).Inc()
+	}
+}
+
+func (s *Service) recordWorkerDeadLetter(runner string) {
+	if s.Metrics != nil {
+		s.Metrics.WorkerDeadLettersTotal.WithLabelValues(runner).Inc()
+	}
+}
+
 // ListFindings returns persisted findings.
 func (s *Service) ListFindings(ctx context.Context, limit int) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
@@ -526,6 +559,7 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	if err != nil {
 		return db.RepoScanRecord{}, fmt.Errorf("count queued repo scans: %w", err)
 	}
+	s.recordQueueDepth("repo_scan", queuedCount)
 	if queuedCount >= maxPending {
 		return db.RepoScanRecord{}, ErrRepoScanQueueFull
 	}
@@ -533,6 +567,7 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	if err != nil {
 		return db.RepoScanRecord{}, fmt.Errorf("enqueue repo scan: %w", err)
 	}
+	s.recordQueueDepth("repo_scan", queuedCount+1)
 	return record, nil
 }
 
@@ -542,8 +577,10 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	record, err := s.Store.ClaimNextQueuedRepoScan(ctx)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
+			s.recordQueueDepth("repo_scan", 0)
 			return false, nil
 		}
+		s.recordWorkerJob("repo_scan", "failure")
 		return false, fmt.Errorf("claim queued repo scan: %w", err)
 	}
 	requeue := false
@@ -557,16 +594,22 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	}
 	if requeue {
 		if requeueErr := s.Store.RequeueRepoScan(ctx, record.ID); requeueErr != nil && !errors.Is(requeueErr, db.ErrNotFound) {
+			s.recordWorkerJob("repo_scan", "failure")
 			return false, fmt.Errorf("requeue repo scan: %w", requeueErr)
 		}
+		s.recordWorkerJob("repo_scan", "requeued")
+		s.recordWorkerRequeue("repo_scan")
 		// A queued item was handled (requeued) even if this target is currently locked.
 		// Returning true lets the worker keep draining other queued targets in the same tick.
 		return true, nil
 	}
 	_, runErr := s.runRepoScanWithRecord(ctx, record, record.HistoryLimit, record.MaxFindings)
 	if runErr != nil {
+		s.recordWorkerJob("repo_scan", "failure")
+		s.recordWorkerDeadLetter("repo_scan")
 		return true, runErr
 	}
+	s.recordWorkerJob("repo_scan", "success")
 	return true, nil
 }
 

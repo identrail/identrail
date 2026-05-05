@@ -14,6 +14,11 @@ type Metrics struct {
 	RepoScanRunsTotal                      prometheus.Counter
 	RepoScanFailureTotal                   prometheus.Counter
 	RepoScanDurationMS                     prometheus.Histogram
+	QueueDepth                             *prometheus.GaugeVec
+	WorkerJobsTotal                        *prometheus.CounterVec
+	WorkerRequeuesTotal                    *prometheus.CounterVec
+	WorkerDeadLettersTotal                 *prometheus.CounterVec
+	WorkerRetriesTotal                     *prometheus.CounterVec
 	AuthzPolicyShadowEvaluationsTotal      prometheus.Counter
 	AuthzPolicyShadowDivergencesTotal      prometheus.Counter
 	AuthzPolicyShadowEvaluationErrorsTotal prometheus.Counter
@@ -87,6 +92,36 @@ func NewMetrics() *Metrics {
 			Help:      "Duration of repository exposure scans in milliseconds.",
 			Buckets:   []float64{100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000},
 		}),
+		QueueDepth: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "identrail",
+			Subsystem: "queue",
+			Name:      "depth",
+			Help:      "Current queued job depth by bounded queue name.",
+		}, []string{"queue"}),
+		WorkerJobsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "jobs_total",
+			Help:      "Total worker queue jobs processed by bounded queue name and outcome.",
+		}, []string{"queue", "outcome"}),
+		WorkerRequeuesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "requeues_total",
+			Help:      "Total queued jobs requeued by bounded queue name.",
+		}, []string{"queue"}),
+		WorkerDeadLettersTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "dead_letters_total",
+			Help:      "Total worker jobs or scheduled triggers that exhausted retries by bounded runner name.",
+		}, []string{"runner"}),
+		WorkerRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "retries_total",
+			Help:      "Total worker retryable failures by bounded runner name.",
+		}, []string{"runner"}),
 		AuthzPolicyShadowEvaluationsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
 			Subsystem: "authz_policy_rollout",
