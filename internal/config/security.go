@@ -75,6 +75,9 @@ var oidcClaimNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._:-]{0,127}$
 
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
+	if len(cfg.parseErrors) > 0 {
+		return fmt.Errorf("invalid environment configuration: %s", strings.Join(cfg.parseErrors, "; "))
+	}
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if provider == "" {
 		provider = defaultProvider

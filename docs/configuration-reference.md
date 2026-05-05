@@ -2,6 +2,8 @@
 
 This page is the canonical runtime configuration surface for API and worker processes.
 
+Boolean values must parse as Go booleans (`true`, `false`, `1`, `0`, `t`, `f`) and duration values must be positive Go durations such as `5s`, `15m`, or `1h`. Invalid boolean or duration values are startup errors.
+
 ## Core Runtime
 
 - `IDENTRAIL_SERVICE_NAME` (default: `identrail`)
