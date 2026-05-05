@@ -22,6 +22,13 @@ var ErrNotFound = errors.New("record not found")
 // ErrScopeRequired indicates tenant/workspace scope must be provided in context.
 var ErrScopeRequired = errors.New("scope is required")
 
+// FindingSummaryCounts captures aggregate finding counters for one scoped workspace.
+type FindingSummaryCounts struct {
+	Total      int
+	BySeverity map[string]int
+	ByType     map[string]int
+}
+
 var authzOwnerTeamPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var tenancySlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -1051,6 +1058,7 @@ type Store interface {
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error
 	ListScanEvents(ctx context.Context, scanID string, limit int) ([]ScanEvent, error)
+	SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error)
 	CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error)
 	CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error)

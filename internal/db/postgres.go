@@ -828,6 +828,86 @@ func (p *PostgresStore) ListFindingsAll(ctx context.Context) ([]domain.Finding, 
 	return findingsFromSQLRows(rows)
 }
 
+// SummarizeFindings returns aggregate counters for current scope.
+func (p *PostgresStore) SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return FindingSummaryCounts{}, err
+	}
+	summary := FindingSummaryCounts{
+		BySeverity: map[string]int{},
+		ByType:     map[string]int{},
+	}
+	if err := p.queryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM findings f
+		 JOIN scans s ON s.id = f.scan_id
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2`,
+		scope.TenantID,
+		scope.WorkspaceID,
+	).Scan(&summary.Total); err != nil {
+		return FindingSummaryCounts{}, fmt.Errorf("count findings summary total: %w", err)
+	}
+
+	severityRows, err := p.queryContext(
+		ctx,
+		`SELECT f.severity, COUNT(*)
+		 FROM findings f
+		 JOIN scans s ON s.id = f.scan_id
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2
+		 GROUP BY f.severity`,
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return FindingSummaryCounts{}, fmt.Errorf("query findings summary by severity: %w", err)
+	}
+	defer severityRows.Close()
+	for severityRows.Next() {
+		var severity string
+		var count int
+		if err := severityRows.Scan(&severity, &count); err != nil {
+			return FindingSummaryCounts{}, fmt.Errorf("scan findings summary by severity: %w", err)
+		}
+		summary.BySeverity[severity] = count
+	}
+	if err := severityRows.Err(); err != nil {
+		return FindingSummaryCounts{}, fmt.Errorf("iterate findings summary by severity: %w", err)
+	}
+
+	typeRows, err := p.queryContext(
+		ctx,
+		`SELECT f.type, COUNT(*)
+		 FROM findings f
+		 JOIN scans s ON s.id = f.scan_id
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2
+		 GROUP BY f.type`,
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return FindingSummaryCounts{}, fmt.Errorf("query findings summary by type: %w", err)
+	}
+	defer typeRows.Close()
+	for typeRows.Next() {
+		var findingType string
+		var count int
+		if err := typeRows.Scan(&findingType, &count); err != nil {
+			return FindingSummaryCounts{}, fmt.Errorf("scan findings summary by type: %w", err)
+		}
+		summary.ByType[findingType] = count
+	}
+	if err := typeRows.Err(); err != nil {
+		return FindingSummaryCounts{}, fmt.Errorf("iterate findings summary by type: %w", err)
+	}
+
+	return summary, nil
+}
+
 // ListFindingsByScan returns latest findings first for one scan id.
 func (p *PostgresStore) ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error) {
 	if limit <= 0 {

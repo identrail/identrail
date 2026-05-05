@@ -189,6 +189,47 @@ func TestPostgresStoreListScansAndFindings(t *testing.T) {
 		t.Fatalf("unexpected all findings: %+v", allFindings)
 	}
 
+	totalRows := sqlmock.NewRows([]string{"count"}).AddRow(3)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM findings f
+		 JOIN scans s ON s.id = f.scan_id
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2`)).
+		WithArgs("default", "default").
+		WillReturnRows(totalRows)
+
+	severityRows := sqlmock.NewRows([]string{"severity", "count"}).
+		AddRow("critical", 1).
+		AddRow("high", 2)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT f.severity, COUNT(*)
+		 FROM findings f
+		 JOIN scans s ON s.id = f.scan_id
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2
+		 GROUP BY f.severity`)).
+		WithArgs("default", "default").
+		WillReturnRows(severityRows)
+
+	typeRows := sqlmock.NewRows([]string{"type", "count"}).
+		AddRow("escalation_path", 1).
+		AddRow("ownerless_identity", 2)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT f.type, COUNT(*)
+		 FROM findings f
+		 JOIN scans s ON s.id = f.scan_id
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2
+		 GROUP BY f.type`)).
+		WithArgs("default", "default").
+		WillReturnRows(typeRows)
+
+	summary, err := store.SummarizeFindings(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("summarize findings failed: %v", err)
+	}
+	if summary.Total != 3 || summary.BySeverity["high"] != 2 || summary.ByType["ownerless_identity"] != 2 {
+		t.Fatalf("unexpected findings summary: %+v", summary)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

@@ -1187,20 +1187,15 @@ func (s *Service) ListScans(ctx context.Context, limit int) ([]db.ScanRecord, er
 // GetFindingsSummary returns grouped counts by severity and type.
 func (s *Service) GetFindingsSummary(ctx context.Context, limit int) (FindingsSummary, error) {
 	ctx = s.scopeContext(ctx)
-	items, err := s.Store.ListFindingsAll(ctx)
+	counts, err := s.Store.SummarizeFindings(ctx)
 	if err != nil {
 		return FindingsSummary{}, err
 	}
-	summary := FindingsSummary{
-		Total:      len(items),
-		BySeverity: map[string]int{},
-		ByType:     map[string]int{},
-	}
-	for _, item := range items {
-		summary.BySeverity[string(item.Severity)]++
-		summary.ByType[string(item.Type)]++
-	}
-	return summary, nil
+	return FindingsSummary{
+		Total:      counts.Total,
+		BySeverity: counts.BySeverity,
+		ByType:     counts.ByType,
+	}, nil
 }
 
 // ListScanEvents returns recent scan events for one scan id.

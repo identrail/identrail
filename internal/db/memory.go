@@ -465,6 +465,31 @@ func (m *MemoryStore) ListFindingsAll(ctx context.Context) ([]domain.Finding, er
 	return m.ListFindings(ctx, 0)
 }
 
+// SummarizeFindings returns aggregate counters for current scope without materializing router-facing copies.
+func (m *MemoryStore) SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return FindingSummaryCounts{}, err
+	}
+	summary := FindingSummaryCounts{
+		BySeverity: map[string]int{},
+		ByType:     map[string]int{},
+	}
+	for _, finding := range m.findings {
+		record, exists := m.scans[finding.ScanID]
+		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		summary.Total++
+		summary.BySeverity[string(finding.Severity)]++
+		summary.ByType[string(finding.Type)]++
+	}
+	return summary, nil
+}
+
 // ListFindingsByScan returns latest findings first for one scan.
 func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error) {
 	m.mu.RLock()
