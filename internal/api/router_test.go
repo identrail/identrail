@@ -1400,6 +1400,43 @@ func TestRequestScopeMiddlewarePrefersOIDCTenantWorkspaceClaims(t *testing.T) {
 	}
 }
 
+func TestRequestScopeMiddlewareIgnoresScopeHeadersForAPIKeyAuth(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("auth.api_key", "reader-key")
+		c.Next()
+	})
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
+	r.GET("/scope", func(c *gin.Context) {
+		scope := db.ScopeFromContext(c.Request.Context())
+		c.JSON(http.StatusOK, map[string]string{
+			"tenant_id":    scope.TenantID,
+			"workspace_id": scope.WorkspaceID,
+		})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	req.Header.Set("X-Identrail-Tenant-ID", "header-tenant")
+	req.Header.Set("X-Identrail-Workspace-ID", "header-workspace")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["tenant_id"] != "default-tenant" {
+		t.Fatalf("expected default tenant for api key auth, got %q", body["tenant_id"])
+	}
+	if body["workspace_id"] != "default-workspace" {
+		t.Fatalf("expected default workspace for api key auth, got %q", body["workspace_id"])
+	}
+}
+
 func TestRouterRateLimitExceeded(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

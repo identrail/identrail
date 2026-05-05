@@ -1801,15 +1801,16 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) g
 		WorkspaceID: defaultWorkspaceID,
 	}.Normalize()
 	return func(c *gin.Context) {
+		apiKeyAuth := authContextString(c, "auth.api_key") != ""
 		tenantID := authContextString(c, "auth.tenant_id")
-		if tenantID == "" {
+		if tenantID == "" && !apiKeyAuth {
 			tenantID = strings.TrimSpace(c.GetHeader(scopeHeaderTenantID))
 		}
 		if tenantID == "" {
 			tenantID = defaultScope.TenantID
 		}
 		workspaceID := authContextString(c, "auth.workspace_id")
-		if workspaceID == "" {
+		if workspaceID == "" && !apiKeyAuth {
 			workspaceID = strings.TrimSpace(c.GetHeader(scopeHeaderWorkspaceID))
 		}
 		if workspaceID == "" {
