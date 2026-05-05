@@ -1841,11 +1841,6 @@ func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		contentType := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Type")))
-		if !strings.HasPrefix(contentType, "application/json") {
-			c.Next()
-			return
-		}
 		if c.Request.ContentLength > limit {
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
 			return
