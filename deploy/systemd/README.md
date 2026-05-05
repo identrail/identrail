@@ -19,3 +19,7 @@ Use this for VM or bare-metal Linux hosts.
 5. Start services:
    - `systemctl daemon-reload`
    - `systemctl enable --now identrail-api identrail-worker`
+
+The example binds the API to `127.0.0.1:8080` so a reverse proxy or load balancer owns
+public TLS and ingress controls. If you bind directly to a public interface, configure
+host firewall rules, TLS termination, and trusted proxy settings before exposing the unit.
