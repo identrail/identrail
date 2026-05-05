@@ -138,6 +138,33 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsErrorEnvelopeStatusesForKeyRoutes(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	checks := []struct {
+		path   string
+		method string
+		status string
+	}{
+		{path: "/v1/findings", method: "get", status: "401"},
+		{path: "/v1/findings", method: "get", status: "404"},
+		{path: "/v1/repo-scans", method: "post", status: "400"},
+		{path: "/v1/repo-scans", method: "post", status: "403"},
+		{path: "/v1/repo-scans", method: "post", status: "409"},
+		{path: "/v1/repo-scans", method: "post", status: "429"},
+		{path: "/v1/repo-scans", method: "post", status: "503"},
+		{path: "/v1/repo-scans/{repo_scan_id}", method: "get", status: "400"},
+		{path: "/v1/repo-scans/{repo_scan_id}", method: "get", status: "404"},
+	}
+	for _, check := range checks {
+		block := statusBlock(t, spec, check.path, check.method, check.status)
+		if !strings.Contains(block, `#/components/schemas/ErrorResponse`) &&
+			!strings.Contains(block, `#/components/responses/Unauthorized`) &&
+			!strings.Contains(block, `#/components/responses/NotFound`) {
+			t.Fatalf("openapi %s %s status %s should reference ErrorResponse envelope", strings.ToUpper(check.method), check.path, check.status)
+		}
+	}
+}
+
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
@@ -214,4 +241,53 @@ func pathBlock(t *testing.T, spec string, path string) string {
 	}
 
 	return spec[start:end]
+}
+
+func methodBlock(t *testing.T, spec string, path string, method string) string {
+	t.Helper()
+	block := pathBlock(t, spec, path)
+	startToken := "\n    " + strings.ToLower(strings.TrimSpace(method)) + ":"
+	start := strings.Index(block, startToken)
+	if start == -1 {
+		t.Fatalf("openapi method block not found for %s %s", strings.ToUpper(method), path)
+	}
+	start++
+	end := len(block)
+	nextMethodPatterns := []string{
+		"\n    get:",
+		"\n    post:",
+		"\n    put:",
+		"\n    patch:",
+		"\n    delete:",
+		"\n    options:",
+		"\n    head:",
+	}
+	for _, pattern := range nextMethodPatterns {
+		if strings.HasPrefix(pattern, startToken) {
+			continue
+		}
+		if idx := strings.Index(block[start+1:], pattern); idx >= 0 {
+			candidate := start + 1 + idx
+			if candidate < end {
+				end = candidate
+			}
+		}
+	}
+	return block[start:end]
+}
+
+func statusBlock(t *testing.T, spec string, path string, method string, status string) string {
+	t.Helper()
+	block := methodBlock(t, spec, path, method)
+	startToken := "\n        \"" + strings.TrimSpace(status) + "\":"
+	start := strings.Index(block, startToken)
+	if start == -1 {
+		t.Fatalf("openapi status block not found for %s %s %s", strings.ToUpper(method), path, status)
+	}
+	start++
+	end := len(block)
+	if idx := strings.Index(block[start+1:], "\n        \""); idx >= 0 {
+		end = start + 1 + idx
+	}
+	return block[start:end]
 }
