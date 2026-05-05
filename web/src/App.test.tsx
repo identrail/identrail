@@ -535,6 +535,112 @@ describe('App', () => {
     expect(stored.workspaceID).toBe('workspace-oidc');
   });
 
+  it('redirects to login with state_mismatch reason when oidc callback state is invalid', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      OIDC_PENDING_LOGIN_STORAGE_KEY,
+      JSON.stringify({
+        state: 'expected-state',
+        codeVerifier: 'verifier-1',
+        nextPath: '/app/tenant-oidc/workspace-oidc',
+        createdAt: Date.now()
+      })
+    );
+
+    window.history.pushState({}, '', '/app/callback?code=code-1&state=wrong-state');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    expect(window.location.search).toContain('reason=state_mismatch');
+    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
+  });
+
+  it('redirects to login with callback_error reason when oidc token exchange fails', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      OIDC_PENDING_LOGIN_STORAGE_KEY,
+      JSON.stringify({
+        state: 'state-1',
+        codeVerifier: 'verifier-1',
+        nextPath: '/app/tenant-oidc/workspace-oidc',
+        createdAt: Date.now()
+      })
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://sso.example.com/auth',
+          token_endpoint: 'https://sso.example.com/token'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: 'invalid_grant',
+          error_description: 'authorization code expired'
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/callback?code=code-1&state=state-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    expect(window.location.search).toContain('reason=callback_error');
+    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
+  });
+
+  it('redirects to login with callback_error reason when oidc token response misses access_token', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      OIDC_PENDING_LOGIN_STORAGE_KEY,
+      JSON.stringify({
+        state: 'state-2',
+        codeVerifier: 'verifier-2',
+        nextPath: '/app/tenant-oidc/workspace-oidc',
+        createdAt: Date.now()
+      })
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://sso.example.com/auth',
+          token_endpoint: 'https://sso.example.com/token'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          refresh_token: 'refresh-1',
+          expires_in: 3600
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/callback?code=code-2&state=state-2');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    expect(window.location.search).toContain('reason=callback_error');
+    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
+  });
+
   it('refreshes oidc sessions before expiry in route guard', async () => {
     vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
     vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
