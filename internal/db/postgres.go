@@ -2503,8 +2503,19 @@ func executeBulkInsert(ctx context.Context, tx *sql.Tx, prefix string, suffix st
 			end = len(values)
 		}
 		chunk := values[start:end]
+		argsCap := 0
+		maxInt := int(^uint(0) >> 1)
+		for _, row := range chunk {
+			if len(row) == 0 {
+				return errors.New("bulk insert rows must contain at least one value")
+			}
+			if argsCap > maxInt-len(row) {
+				return errors.New("bulk insert argument capacity overflow")
+			}
+			argsCap += len(row)
+		}
 		valueParts := make([]string, 0, len(chunk))
-		args := make([]any, 0, len(chunk)*len(chunk[0]))
+		args := make([]any, 0, argsCap)
 		placeholder := 1
 		for _, row := range chunk {
 			rowPlaceholders := make([]string, 0, len(row))
