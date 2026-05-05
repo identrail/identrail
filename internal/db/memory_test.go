@@ -157,6 +157,52 @@ func TestMemoryStoreScanDetails(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreSummarizeFindingsRespectsScope(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+
+	defaultCtx := defaultScopeContext()
+	otherCtx := WithScope(defaultCtx, Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	defaultScan, err := store.CreateScan(defaultCtx, "aws", now)
+	if err != nil {
+		t.Fatalf("create default scan: %v", err)
+	}
+	otherScan, err := store.CreateScan(otherCtx, "aws", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create other scan: %v", err)
+	}
+
+	if err := store.UpsertFindings(defaultCtx, defaultScan.ID, []domain.Finding{
+		{ID: "default-1", ScanID: defaultScan.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(time.Second)},
+		{ID: "default-2", ScanID: defaultScan.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityMedium, CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert default findings: %v", err)
+	}
+	if err := store.UpsertFindings(otherCtx, otherScan.ID, []domain.Finding{
+		{ID: "other-1", ScanID: otherScan.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityCritical, CreatedAt: now.Add(3 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert other findings: %v", err)
+	}
+
+	summary, err := store.SummarizeFindings(defaultCtx)
+	if err != nil {
+		t.Fatalf("summarize default findings: %v", err)
+	}
+	if summary.Total != 2 {
+		t.Fatalf("expected summary total 2, got %d", summary.Total)
+	}
+	if summary.BySeverity["high"] != 1 || summary.BySeverity["medium"] != 1 {
+		t.Fatalf("unexpected severity counts: %+v", summary.BySeverity)
+	}
+	if summary.ByType["ownerless_identity"] != 1 || summary.ByType["escalation_path"] != 1 {
+		t.Fatalf("unexpected type counts: %+v", summary.ByType)
+	}
+	if _, exists := summary.BySeverity["critical"]; exists {
+		t.Fatalf("expected other-scope severity to be excluded, got %+v", summary.BySeverity)
+	}
+}
+
 func TestMemoryStoreIdentityAndRelationshipFilters(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
