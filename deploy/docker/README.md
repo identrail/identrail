@@ -27,3 +27,5 @@ Manual setup:
 
 - API health: `curl http://localhost:8080/healthz`
 - Web UI: `http://localhost:8081`
+
+Ports bind to `127.0.0.1` by default. For non-local access, put the API and web service behind a TLS reverse proxy or explicitly override the Compose port bindings on a protected host.
