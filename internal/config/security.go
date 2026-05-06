@@ -8,12 +8,9 @@ import (
 	"strings"
 	"time"
 
-<<<<<<< fix/issue-726-repo-allowlist-policy
-	"github.com/Oluwatobi-Mustapha/identrail/internal/repoallowlist"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
-=======
+
 	"github.com/identrail/identrail/internal/secretstore"
->>>>>>> dev
+
 )
 
 const (
