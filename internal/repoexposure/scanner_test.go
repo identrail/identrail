@@ -3,6 +3,7 @@ package repoexposure
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -198,6 +199,25 @@ func TestPrepareRepositoryRejectsInsecureHTTPRepositoryURL(t *testing.T) {
 }
 
 func TestValidateCloneURL(t *testing.T) {
+	originalLookup := repositoryHostLookupIPs
+	repositoryHostLookupIPs = func(_ context.Context, host string) ([]net.IP, error) {
+		switch host {
+		case "github.com":
+			return []net.IP{net.ParseIP("140.82.112.3")}, nil
+		case "example.com":
+			return []net.IP{net.ParseIP("93.184.216.34")}, nil
+		case "127.0.0.1.nip.io":
+			return []net.IP{net.ParseIP("127.0.0.1")}, nil
+		case "10.0.0.8.nip.io":
+			return []net.IP{net.ParseIP("10.0.0.8")}, nil
+		default:
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+	}
+	t.Cleanup(func() {
+		repositoryHostLookupIPs = originalLookup
+	})
+
 	tests := []struct {
 		name      string
 		target    string
@@ -208,6 +228,26 @@ func TestValidateCloneURL(t *testing.T) {
 		{name: "git scp form", target: "git@github.com:owner/repo.git"},
 		{name: "insecure http", target: "http://github.com/owner/repo.git", expectErr: true},
 		{name: "unsupported file scheme", target: "file:///tmp/repo.git", expectErr: true},
+		{name: "credentials in https url", target: "https://token@example.com/owner/repo.git", expectErr: true},
+		{name: "credentials in ssh url", target: "ssh://git:password@example.com/owner/repo.git", expectErr: true},
+		{name: "loopback ip host", target: "https://127.0.0.1/owner/repo.git", expectErr: true},
+		{name: "private ip host", target: "https://10.0.0.8/owner/repo.git", expectErr: true},
+		{name: "shared address ip host", target: "https://100.64.0.1/owner/repo.git", expectErr: true},
+		{name: "link-local ip host", target: "https://169.254.169.254/owner/repo.git", expectErr: true},
+		{name: "multicast ip host", target: "https://224.0.0.1/owner/repo.git", expectErr: true},
+		{name: "unspecified ip host", target: "https://0.0.0.0/owner/repo.git", expectErr: true},
+		{name: "localhost host", target: "ssh://git@localhost/owner/repo.git", expectErr: true},
+		{name: "scp localhost host", target: "git@localhost:owner/repo.git", expectErr: true},
+		{name: "scp host without user", target: "10.0.0.8:owner/repo.git", expectErr: true},
+		{name: "localhost fqdn host", target: "ssh://git@localhost./owner/repo.git", expectErr: true},
+		{name: "scp bracketed ipv6 loopback host", target: "git@[::1]:owner/repo.git", expectErr: true},
+		{name: "scoped ipv6 link-local host", target: "ssh://git@[fe80::1%25lo]/owner/repo.git", expectErr: true},
+		{name: "decimal loopback host", target: "ssh://git@2130706433/owner/repo.git", expectErr: true},
+		{name: "hex loopback host", target: "ssh://git@0x7f000001/owner/repo.git", expectErr: true},
+		{name: "octal dotted loopback host", target: "ssh://git@0177.0.0.1/owner/repo.git", expectErr: true},
+		{name: "short dotted loopback host", target: "ssh://git@127.1/owner/repo.git", expectErr: true},
+		{name: "hostname resolving to loopback", target: "https://127.0.0.1.nip.io/owner/repo.git", expectErr: true},
+		{name: "hostname resolving to private ip", target: "https://10.0.0.8.nip.io/owner/repo.git", expectErr: true},
 	}
 
 	for _, tc := range tests {
