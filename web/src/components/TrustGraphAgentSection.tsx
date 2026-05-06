@@ -26,10 +26,10 @@ export function TrustGraphAgentSection() {
             Plan machine identity remediation with guided trust-path analysis.
             Review least-privilege change suggestions and simulated pull-request policy diffs before operator approval.
           </p>
-          <div className="agent-steps" aria-hidden="true">
-            <span>Analyze graph</span>
-            <span>Review fix</span>
-            <span>Approve plan</span>
+          <div className="agent-steps">
+            <h3>Analyze graph</h3>
+            <h3>Review fix</h3>
+            <h3>Approve plan</h3>
           </div>
           <SafeLink className="btn btn-primary" href={siteLinks.agentRelease}>
             Star the repo to follow future agent workflow releases
