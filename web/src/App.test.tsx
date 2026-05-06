@@ -1111,6 +1111,24 @@ describe('App', () => {
     expect(await screen.findByText(/Your session expired/i)).toBeInTheDocument();
   });
 
+  it('redirects persisted oidc sessions without tokens back to login after reload', async () => {
+    window.sessionStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'oidc',
+        expiresAt: Date.now() + 60_000
+      })
+    );
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Your session expired/i)).toBeInTheDocument();
+  });
+
   it('completes oidc callback and restores authenticated workspace shell', async () => {
     vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
     vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
