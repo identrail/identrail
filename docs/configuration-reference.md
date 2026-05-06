@@ -31,6 +31,8 @@ This page is the canonical runtime configuration surface for API and worker proc
 Notes:
 - `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
 - OIDC bearer auth enforces issuer/audience plus token validity (`exp`) via provider verification.
+- `IDENTRAIL_API_KEY_SCOPES` supports optional tenant/workspace binding metadata per key: `tenant:<tenant-id>` and `workspace:<workspace-id>`.
+- API key callers can send `X-Identrail-Tenant-ID` and `X-Identrail-Workspace-ID` only when those headers match the key binding metadata.
 
 ## Provider Collection
 
