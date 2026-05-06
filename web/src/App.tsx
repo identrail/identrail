@@ -6,6 +6,8 @@ import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { CommandCenterSection } from './components/home/CommandCenterSection';
 import { ProblemFramingSection } from './components/home/ProblemFramingSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
+import { KillSwitchSection } from './components/KillSwitchSection';
+import { TrustGraphAgentSection } from './components/TrustGraphAgentSection';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
@@ -1663,6 +1665,10 @@ function HomePage() {
       <CommandCenterSection />
 
       <ProductTourSection />
+
+      <KillSwitchSection />
+
+      <TrustGraphAgentSection />
 
       <HowItWorksSection />
 

@@ -15,47 +15,45 @@ export function KillSwitchSection() {
   const logs = useMemo(() => [...baseLog, ...baseLog], []);
 
   return (
-    <section className="section reveal-on-scroll" aria-labelledby="kill-switch-title">
-      <div className={`section-card kill-switch-shell ${revoked ? 'is-revoked' : ''}`}>
-        <div className="kill-switch-copy">
-          <p className="eyebrow eyebrow-dark">Policy Simulation + Response Planning</p>
+    <section className="idt-section idt-shell" aria-labelledby="kill-switch-title">
+      <div className="idt-card-grid two-col">
+        <article className={`idt-card ${revoked ? 'idt-card' : ''}`}>
+          <p className="idt-eyebrow">Policy Simulation + Response Planning</p>
           <h2 id="kill-switch-title">Revocation Impact Simulation</h2>
           <p>
             Simulate revocation impact for risky machine identity paths in open-source, self-hosted environments.
             Use the preview to plan safe operator-driven response steps and audit follow-through.
           </p>
-          <button
-            type="button"
-            className="kill-switch-button"
-            aria-pressed={revoked}
-            onClick={() => setRevoked((value) => !value)}
-          >
-            SIMULATE REVOKE IMPACT
-          </button>
-          <p className="kill-switch-note">
+          <div className="idt-inline-actions">
+            <button
+              type="button"
+              className="idt-btn idt-btn-dark"
+              aria-pressed={revoked}
+              onClick={() => setRevoked((value) => !value)}
+            >
+              SIMULATE REVOKE IMPACT
+            </button>
+          </div>
+          <p>
             Hover or click to simulate revocation impact across AWS and Kubernetes trust paths.
           </p>
-        </div>
+        </article>
 
-        <div className="kill-switch-visuals">
-          <div className="kill-switch-graph" role="img" aria-label="Revocation graph simulation">
+        <article className="idt-card" aria-label="Live revocation log">
+          <p className="idt-eyebrow">Trust simulation log</p>
+          <div className="idt-command-list">
             {trustNodes.map((node) => (
-              <span key={node} className="kill-node">
-                {node}
-              </span>
+              <p key={node}>Node: {node}</p>
             ))}
           </div>
-
-          <div className="kill-switch-log" aria-label="Live revocation log">
-            <p>Live audit stream</p>
-            <div className="kill-switch-log-track">
-              {logs.map((line, index) => (
-                <span key={`${line}-${index}`}>{line}</span>
-              ))}
-            </div>
+          <p className="idt-card-subtle">Live audit stream</p>
+          <div className="idt-command-list">
+            {logs.map((line, index) => (
+              <p key={`${line}-${index}`}>{line}</p>
+            ))}
           </div>
+        </article>
         </div>
-      </div>
     </section>
   );
 }
