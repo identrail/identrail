@@ -53,7 +53,8 @@ web:
   service:
     type: ClusterIP
     port: 8080
-  # Vite exposes these values to browser bundles. Do not put secrets here.
+  # Vite exposes these values to browser bundles and images should be built with them.
+  # Updating these values on an existing prebuilt image does not change bundle output.
   viteEnv:
     VITE_IDENTRAIL_API_URL: "https://api.example.com"
     VITE_OIDC_ISSUER_URL: ""

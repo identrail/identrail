@@ -27,8 +27,10 @@ This chart is the Kubernetes deployment baseline for Identrail.
 - Disable hook jobs only if migrations are handled externally: set `migrations.enabled=false`.
 - Values default to `IDENTRAIL_AWS_SOURCE=sdk` and enforce `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`.
 - `IDENTRAIL_K8S_SOURCE` defaults to `kubectl` for production profiles. Use an image that includes `kubectl` before switching `IDENTRAIL_PROVIDER=kubernetes`.
-- Enable web deployment by setting `web.enabled=true` and set public Vite build/runtime config under `web.viteEnv`. These values are exposed to browsers, so do not put secrets there.
+- Enable web deployment by setting `web.enabled=true` and set public Vite config under `web.viteEnv`.
+  - `web.viteEnv` values are used when the web image is built (for example via `deploy/docker/Dockerfile.web`).
+  - Updating these values on a Helm release does not rebuild a prebuilt `identrail/web` image; for split-origin deployments, use an image built with the desired `VITE_*` values and reference it via `web.image.repository`/`web.image.tag`.
 - Enable ingress by setting `ingress.enabled=true`.
-- For split-origin web/API deployments, set `config.IDENTRAIL_CORS_ALLOWED_ORIGINS` to the exact public dashboard origin and `web.viteEnv.VITE_IDENTRAIL_API_URL` to the public HTTPS API URL.
+- For split-origin web/API deployments, set `config.IDENTRAIL_CORS_ALLOWED_ORIGINS` to the exact public dashboard origin and configure the web image build-time `VITE_IDENTRAIL_API_URL` to the public HTTPS API URL.
 - If ingress or a reverse proxy terminates traffic before the API pod, set `config.IDENTRAIL_TRUSTED_PROXIES` to the ingress/proxy CIDRs only.
 - `IDENTRAIL_AUDIT_LOG_FILE` is empty by default. If you enable it, mount a writable path for the container user.
