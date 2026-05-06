@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -138,6 +139,45 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsRouteAuthorizationMetadata(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	for _, route := range defaultBuiltInRoutePolicyDefinitions() {
+		path := pathVarPattern.ReplaceAllString(route.Path, `{$1}`)
+		lines := []string{
+			fmt.Sprintf("  - method: %s", route.Method),
+			fmt.Sprintf("    path: %s", path),
+			fmt.Sprintf("    action: %s", route.Action),
+			fmt.Sprintf("    resource_type: %s", route.ResourceType),
+		}
+		if route.ResourceIDParam != "" {
+			lines = append(lines, fmt.Sprintf("    resource_id_param: %s", route.ResourceIDParam))
+		}
+		if !strings.Contains(spec, strings.Join(lines, "\n")) {
+			t.Fatalf("openapi authz metadata missing route authorization entry for %s %s", route.Method, path)
+		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsActionRoleGrants(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	grants := defaultRouteActionRoleGrants()
+	actions := make([]string, 0, len(grants))
+	for action := range grants {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+
+	for _, action := range actions {
+		lines := []string{fmt.Sprintf("  %s:", action)}
+		for _, role := range uniqueStrings(grants[action]) {
+			lines = append(lines, fmt.Sprintf("    - %s", role))
+		}
+		if !strings.Contains(spec, strings.Join(lines, "\n")) {
+			t.Fatalf("openapi authz metadata missing role grants for action %q", action)
+		}
+	}
+}
+
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
@@ -214,4 +254,17 @@ func pathBlock(t *testing.T, spec string, path string) string {
 	}
 
 	return spec[start:end]
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
