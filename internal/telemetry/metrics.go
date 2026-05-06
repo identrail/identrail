@@ -25,6 +25,18 @@ type Metrics struct {
 
 // NewMetrics initializes a dedicated registry-safe instrument set.
 func NewMetrics() *Metrics {
+	apiDeniedRequestsTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "identrail",
+		Subsystem: "api",
+		Name:      "denied_requests_total",
+		Help:      "Total API requests denied by bounded denial kind and source.",
+	}, []string{"kind", "source"})
+
+	apiDeniedRequestsTotal.WithLabelValues("unauthorized", "auth")
+	apiDeniedRequestsTotal.WithLabelValues("forbidden", "authz")
+	apiDeniedRequestsTotal.WithLabelValues("rate_limited", "rate_limit")
+	apiDeniedRequestsTotal.WithLabelValues("validation_denied", "validation")
+
 	return &Metrics{
 		ScanRunsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
@@ -88,12 +100,7 @@ func NewMetrics() *Metrics {
 			Help:      "Duration of repository exposure scans in milliseconds.",
 			Buckets:   []float64{100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000},
 		}),
-		APIDeniedRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "identrail",
-			Subsystem: "api",
-			Name:      "denied_requests_total",
-			Help:      "Total API requests denied by bounded denial kind and source.",
-		}, []string{"kind", "source"}),
+		APIDeniedRequestsTotal: apiDeniedRequestsTotal,
 		AuthzPolicyShadowEvaluationsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
 			Subsystem: "authz_policy_rollout",
