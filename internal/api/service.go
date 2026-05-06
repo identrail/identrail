@@ -18,6 +18,7 @@ import (
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/textutil"
 )
 
 const (
@@ -1808,13 +1809,11 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 }
 
 func firstNonEmptyTag(tags map[string]string, keys ...string) string {
+	values := make([]string, 0, len(keys))
 	for _, key := range keys {
-		value := strings.TrimSpace(tags[key])
-		if value != "" {
-			return value
-		}
+		values = append(values, tags[key])
 	}
-	return ""
+	return textutil.FirstNonEmptyTrimmed(values...)
 }
 
 func (s *Service) lockKey(key string) string {
