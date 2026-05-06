@@ -8722,3 +8722,511 @@ html[data-theme='light'] .idt-page-hero-visual .idt-blog-hero-featured h3 {
     min-height: 300px;
   }
 }
+
+/* Homepage first-impression security hero. */
+html[data-theme='light'] .idt-hero,
+.idt-hero {
+  background: #ffffff;
+  overflow: hidden;
+}
+
+html[data-theme='light'] .idt-hero::before,
+.idt-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 48.4%;
+  z-index: -2;
+  opacity: 1;
+  clip-path: polygon(11% 0, 100% 0, 100% 100%, 0 100%, 0 38%);
+  background:
+    radial-gradient(circle at 58% 30%, rgba(116, 43, 220, 0.3), transparent 19rem),
+    radial-gradient(circle at 76% 76%, rgba(18, 185, 129, 0.16), transparent 18rem),
+    radial-gradient(circle at 24% 66%, rgba(245, 158, 11, 0.13), transparent 16rem),
+    linear-gradient(145deg, #070a11 0%, #0b0f19 46%, #03050a 100%);
+  box-shadow: -28px 0 80px rgba(15, 23, 42, 0.12);
+}
+
+html[data-theme='light'] .idt-hero::after,
+.idt-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 48.4%;
+  z-index: -1;
+  clip-path: polygon(11% 0, 100% 0, 100% 100%, 0 100%, 0 38%);
+  background:
+    radial-gradient(circle at 22% 22%, rgba(255, 255, 255, 0.95) 0 1px, transparent 2px),
+    radial-gradient(circle at 62% 18%, rgba(196, 181, 253, 0.75) 0 1px, transparent 2px),
+    radial-gradient(circle at 76% 54%, rgba(250, 204, 21, 0.65) 0 1px, transparent 2px),
+    radial-gradient(circle at 38% 82%, rgba(52, 211, 153, 0.68) 0 1px, transparent 2px),
+    linear-gradient(112deg, transparent 16%, rgba(255, 255, 255, 0.13) 16.15%, transparent 16.4% 62%, rgba(255, 255, 255, 0.07) 62.2%, transparent 62.45%);
+  background-size: 126px 126px, 154px 154px, 188px 188px, 216px 216px, 100% 100%;
+  mix-blend-mode: screen;
+  opacity: 0.84;
+  animation: idtHeroDiamondDrift 18s linear infinite;
+}
+
+.idt-hero-grid {
+  position: relative;
+  z-index: 1;
+}
+
+.idt-hero-product-stage {
+  overflow: visible;
+}
+
+.idt-hero-backdrop-panel {
+  display: none;
+  inset: -36px -15vw -8px -44px;
+  z-index: 0;
+  border: 0;
+  border-radius: 0;
+  clip-path: polygon(15% 0, 100% 0, 100% 100%, 0 100%, 0 34%);
+  background:
+    radial-gradient(circle at 38% 32%, rgba(255, 255, 255, 0.1), transparent 13rem),
+    radial-gradient(circle at 62% 64%, rgba(109, 55, 221, 0.28), transparent 14rem),
+    linear-gradient(125deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.01));
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.idt-hero-security-signal {
+  position: absolute;
+  z-index: 1;
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow:
+    0 0 18px rgba(255, 255, 255, 0.72),
+    0 0 38px rgba(116, 43, 220, 0.4);
+  transform: rotate(45deg);
+  animation: idtHeroSignalPulse 4.8s ease-in-out infinite;
+}
+
+.idt-hero-security-signal.is-one {
+  top: 5.4rem;
+  left: 13rem;
+}
+
+.idt-hero-security-signal.is-two {
+  right: 12%;
+  top: 9.5rem;
+  animation-delay: 1.2s;
+}
+
+.idt-hero-security-signal.is-three {
+  right: 26%;
+  bottom: 7rem;
+  animation-delay: 2.3s;
+}
+
+.idt-provider-mark {
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  place-items: center;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 9px 22px rgba(15, 23, 42, 0.12);
+}
+
+.idt-provider-mark svg {
+  width: 1.35rem;
+  height: 1.35rem;
+  overflow: visible;
+}
+
+.idt-provider-mark svg path,
+.idt-provider-mark svg circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.idt-provider-mark.is-aws {
+  color: #ff9900;
+  background: #121824;
+}
+
+.idt-provider-mark.is-aws svg path:nth-child(-n + 2) {
+  fill: #ffffff;
+  stroke: none;
+}
+
+.idt-provider-mark.is-aws svg path:nth-child(n + 3) {
+  fill: none;
+  stroke: #ff9900;
+  stroke-width: 2.3;
+}
+
+.idt-provider-mark.is-kubernetes {
+  color: #326ce5;
+  background: #eff6ff;
+}
+
+.idt-provider-mark.is-kubernetes svg circle:first-child {
+  fill: #326ce5;
+  stroke: #326ce5;
+}
+
+.idt-provider-mark.is-kubernetes svg path,
+.idt-provider-mark.is-kubernetes svg circle:last-child {
+  stroke: #ffffff;
+}
+
+.idt-admin-avatar {
+  width: 52px;
+  height: 52px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #dbe4ef;
+  box-shadow:
+    0 8px 24px rgba(15, 23, 42, 0.18),
+    0 0 0 4px rgba(18, 185, 129, 0.18);
+}
+
+.idt-hero-admin-window {
+  right: -210px;
+  width: 760px;
+  background: rgba(255, 255, 255, 0.97);
+}
+
+.idt-admin-main {
+  background: #ffffff;
+}
+
+.idt-window-bar {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.idt-admin-profile-row p {
+  color: #647083;
+  font-weight: 700;
+}
+
+.idt-admin-profile-row strong {
+  line-height: 1.25;
+}
+
+.idt-field-with-mark {
+  display: flex;
+  min-width: 0;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.idt-field-with-mark .idt-provider-mark {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.idt-field-with-mark .idt-provider-mark svg {
+  width: 1.08rem;
+  height: 1.08rem;
+}
+
+.idt-login-provider-lockup {
+  display: inline-flex;
+  gap: 0.58rem;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  padding: 0.36rem 0.72rem 0.36rem 0.36rem;
+  background: #f8fafc;
+  color: #111827;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.idt-login-provider-lockup .idt-provider-mark {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+}
+
+.idt-path-input {
+  min-width: 0;
+}
+
+.idt-path-input strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #3f4653;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idt-mini-path li {
+  border-color: rgba(50, 108, 229, 0.13);
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+}
+
+.idt-admin-activity span {
+  background: #fff2cf;
+  color: #915f00;
+}
+
+html[data-theme='light'] .idt-trust-strip,
+.idt-trust-strip {
+  min-height: 154px;
+  display: grid;
+  align-content: center;
+  gap: 1.1rem;
+  max-width: 100%;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.idt-trust-strip > p {
+  max-width: calc(100vw - 2rem);
+  margin: 0 auto;
+  color: #6d37dd;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.idt-logo-cloud {
+  mask-image: linear-gradient(90deg, transparent 0, #000 8%, #000 92%, transparent 100%);
+}
+
+.idt-logo-cloud-track {
+  width: max-content;
+  animation: idtLogoMarquee 34s linear infinite;
+}
+
+.idt-logo-cloud:hover .idt-logo-cloud-track {
+  animation-play-state: paused;
+}
+
+.idt-logo-cloud-track .idt-connector-logo {
+  display: inline-flex;
+  min-width: max-content;
+  gap: 0.72rem;
+  align-items: center;
+  color: #1d2433;
+  filter: none;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.idt-logo-cloud-track .idt-connector-logo strong {
+  color: rgba(21, 25, 34, 0.66);
+  font-family: var(--idt-font);
+  font-size: clamp(1.05rem, 1.6vw, 1.42rem);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.idt-logo-cloud-track .idt-connector-icon {
+  display: inline-grid;
+  width: clamp(2.3rem, 3.5vw, 3.1rem);
+  height: clamp(2.3rem, 3.5vw, 3.1rem);
+  flex: none;
+  place-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+  filter: none;
+  font-size: 0;
+  letter-spacing: 0;
+}
+
+.idt-logo-cloud-track .idt-connector-icon svg {
+  width: 72%;
+  height: 72%;
+  overflow: visible;
+}
+
+.idt-connector-icon svg path,
+.idt-connector-icon svg circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.idt-connector-logo.is-aws .idt-connector-icon {
+  color: #232f3e;
+}
+
+.idt-connector-logo.is-aws .idt-connector-icon svg path:nth-child(n + 3) {
+  fill: none;
+  stroke: #ff9900;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.idt-connector-logo.is-kubernetes .idt-connector-icon {
+  color: #326ce5;
+  background: #eef5ff;
+}
+
+.idt-connector-logo.is-kubernetes .idt-connector-icon svg path,
+.idt-connector-logo.is-kubernetes .idt-connector-icon svg circle:last-child {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.idt-connector-logo.is-github .idt-connector-icon {
+  color: #111827;
+}
+
+.idt-connector-logo.is-openid .idt-connector-icon {
+  color: #f78c1f;
+}
+
+.idt-connector-logo.is-terraform .idt-connector-icon {
+  color: #7b42bc;
+}
+
+.idt-connector-logo.is-docker .idt-connector-icon {
+  color: #1d63ed;
+}
+
+.idt-connector-logo.is-postgresql .idt-connector-icon {
+  color: #336791;
+}
+
+@keyframes idtHeroDiamondDrift {
+  from {
+    background-position: 0 0, 0 0, 0 0, 0 0, 0 0;
+  }
+
+  to {
+    background-position: 126px 84px, -154px 88px, 188px -92px, -216px -110px, 0 0;
+  }
+}
+
+@keyframes idtHeroSignalPulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: rotate(45deg) scale(0.72);
+  }
+
+  50% {
+    opacity: 1;
+    transform: rotate(45deg) scale(1.22);
+  }
+}
+
+@keyframes idtLogoMarquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 1180px) {
+  html[data-theme='light'] .idt-hero::before,
+  .idt-hero::before,
+  html[data-theme='light'] .idt-hero::after,
+  .idt-hero::after {
+    inset: 48% 0 0;
+    clip-path: polygon(0 7%, 100% 0, 100% 100%, 0 100%);
+  }
+
+  .idt-hero-backdrop-panel {
+    inset: -10px -4vw 0;
+    clip-path: polygon(0 8%, 100% 0, 100% 100%, 0 100%);
+  }
+}
+
+@media (max-width: 720px) {
+  .idt-hero-grid {
+    width: min(100% - 1.25rem, var(--idt-shell));
+    max-width: calc(100vw - 1.25rem);
+    overflow: hidden;
+  }
+
+  .idt-hero-copy {
+    width: min(100%, 31ch);
+    max-width: 31ch;
+  }
+
+  .idt-hero-copy h1 {
+    width: 100%;
+    max-width: 8.7ch;
+    font-size: clamp(3rem, 14vw, 3.7rem);
+    overflow-wrap: break-word;
+  }
+
+  .idt-lead-emphasis,
+  .idt-lead-body {
+    width: 100%;
+    max-width: 31ch;
+  }
+
+  .idt-hero .idt-inline-actions {
+    width: 100%;
+  }
+
+  .idt-hero .idt-inline-actions .idt-btn {
+    width: 100%;
+  }
+
+  .idt-hero-product-stage {
+    overflow: hidden;
+  }
+
+  html[data-theme='light'] .idt-hero::before,
+  .idt-hero::before,
+  html[data-theme='light'] .idt-hero::after,
+  .idt-hero::after {
+    inset: 56% 0 0;
+  }
+
+  .idt-hero-security-signal {
+    display: none;
+  }
+
+  .idt-path-input strong {
+    font-size: 0.7rem;
+  }
+
+  .idt-trust-strip {
+    min-height: 132px;
+  }
+
+  .idt-trust-strip > p {
+    max-width: 29ch;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    line-height: 1.45;
+  }
+
+  .idt-logo-cloud-track {
+    gap: 2.4rem;
+  }
+
+  .idt-logo-cloud-track .idt-connector-logo {
+    gap: 0.55rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-hero::after,
+  .idt-hero-security-signal,
+  .idt-logo-cloud-track {
+    animation: none;
+  }
+}
