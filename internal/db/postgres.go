@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db/sqlcdb"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/db/sqlcdb"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 

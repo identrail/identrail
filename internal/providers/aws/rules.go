@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 const defaultStaleAfter = 90 * 24 * time.Hour
