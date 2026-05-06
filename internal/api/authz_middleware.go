@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/stringutil"
 	"github.com/identrail/identrail/internal/telemetry"
 )
 
