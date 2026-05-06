@@ -247,6 +247,22 @@ func TestValidateSecurityRejectsMalformedAPIKeyScopesEnv(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsInvalidBooleanEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "sometimes")
+	cfg := Load()
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_WORKER_RUN_NOW") {
+		t.Fatalf("expected invalid boolean env error, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidDurationEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "soon")
+	cfg := Load()
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_SCAN_INTERVAL") {
+		t.Fatalf("expected invalid duration env error, got %v", err)
+	}
+}
+
 func TestValidateSecurityRejectsInvalidDefaultTenantID(t *testing.T) {
 	cfg := Config{
 		APIKeys:         []string{"reader", "writer"},
