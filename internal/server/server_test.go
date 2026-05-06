@@ -14,6 +14,7 @@ import (
 
 func TestNewBootstrap(t *testing.T) {
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:     ":0",
 		LogLevel:     "info",
 		Provider:     "aws",
@@ -32,6 +33,7 @@ func TestNewBootstrap(t *testing.T) {
 
 func TestNewBootstrapWithAuditFile(t *testing.T) {
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:     ":0",
 		LogLevel:     "info",
 		Provider:     "aws",
@@ -54,6 +56,7 @@ func TestNewBootstrapWithAuditFile(t *testing.T) {
 
 func TestNewBootstrapAuditFileError(t *testing.T) {
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:     ":0",
 		LogLevel:     "info",
 		Provider:     "aws",
@@ -72,6 +75,7 @@ func TestNewBootstrapWithAuditForwardSink(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Config{
+		AllowMemoryStore:       true,
 		HTTPAddr:               ":0",
 		LogLevel:               "info",
 		Provider:               "aws",
@@ -109,6 +113,7 @@ func TestNewBootstrapInvalidAuditForwardConfig(t *testing.T) {
 
 func TestNewBootstrapInvalidSecurityConfig(t *testing.T) {
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:     ":0",
 		LogLevel:     "info",
 		Provider:     "aws",
@@ -137,6 +142,7 @@ func TestRunCancelledContext(t *testing.T) {
 	cancel()
 
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:     ":0",
 		LogLevel:     "info",
 		Provider:     "aws",
@@ -155,6 +161,7 @@ func TestRunSignalRequested(t *testing.T) {
 	defer cancel()
 
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:     ":0",
 		LogLevel:     "info",
 		Provider:     "aws",
@@ -172,6 +179,7 @@ func TestRunSignalRequested(t *testing.T) {
 
 func TestRunServerListenError(t *testing.T) {
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:     "invalid-listen-address",
 		LogLevel:     "info",
 		Provider:     "aws",
@@ -187,6 +195,7 @@ func TestRunServerListenError(t *testing.T) {
 
 func TestRunMigrationsOnlyExitsBeforeListen(t *testing.T) {
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:          "invalid-listen-address",
 		LogLevel:          "info",
 		Provider:          "aws",
@@ -210,6 +219,7 @@ func TestNewBootstrapWithMultipleAuditSinks(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Config{
+		AllowMemoryStore:       true,
 		HTTPAddr:               ":0",
 		LogLevel:               "info",
 		Provider:               "aws",
@@ -235,6 +245,7 @@ func TestNewBootstrapWithMultipleAuditSinks(t *testing.T) {
 
 func TestNewBootstrapInvalidOIDCVerifierConfig(t *testing.T) {
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		HTTPAddr:      ":0",
 		LogLevel:      "info",
 		Provider:      "aws",

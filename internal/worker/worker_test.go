@@ -16,6 +16,7 @@ func TestRunWithCancelledContext(t *testing.T) {
 	cancel()
 
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		LogLevel:       "info",
 		ServiceName:    "identrail-test",
 		Provider:       "aws",
@@ -37,6 +38,7 @@ func TestRunFailsWhenStartupScanCannotReadFixtures(t *testing.T) {
 	defer cancel()
 
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		LogLevel:       "info",
 		ServiceName:    "identrail-test",
 		Provider:       "aws",
@@ -101,6 +103,7 @@ func TestRunWithCancelledContextAndRepoWorkerEnabled(t *testing.T) {
 	cancel()
 
 	cfg := config.Config{
+		AllowMemoryStore: true,
 		LogLevel:               "info",
 		ServiceName:            "identrail-test",
 		Provider:               "aws",
