@@ -12,7 +12,7 @@ const TRUST_LOGOS = [
 export function TrustProofStrip() {
   return (
     <section className="idt-trust-strip" aria-label="Identity ecosystem signals">
-      <div className="idt-logo-cloud" aria-hidden="true">
+      <div className="idt-logo-cloud">
         <div className="idt-logo-cloud-track">
           {[...TRUST_LOGOS, ...TRUST_LOGOS].map((name, index) => (
             <span key={`${name}-${index}`}>{name}</span>
