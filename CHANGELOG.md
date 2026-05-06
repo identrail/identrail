@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Polished the public website header navigation and brand treatment:
+  - renamed the primary navigation to Product, Docs, Company, Pricing, and Blog
+  - removed dropdown chevrons from plain navigation links
+  - tightened the IDENTRAIL wordmark and applied Geist typography to the header controls
+- Added a project connect-source wizard in the authenticated web app:
+  - guided GitHub, AWS, and Kubernetes source onboarding from the project detail route
+  - wired live connection status, validation, retry, and remediation feedback to existing project-scoped connector APIs
+  - added UI and API-client regression coverage for first-source onboarding
 - Hardened connector secret storage and rotation:
   - encrypted GitHub webhook secrets with versioned AES-256-GCM envelopes instead of retaining plaintext service state
   - added a webhook-secret rotation endpoint with audit events and status metadata for key version, algorithm, and rotation due date
@@ -49,7 +57,7 @@
   - reduced collision risk in large multi-account datasets
   - added deterministic ID regression tests for hash format and stability
 - Refreshed vulnerability-sensitive Go runtime/dependency baseline:
-  - raised project Go version baseline to `1.25.8`
+  - raised project Go version baseline to `1.25.9`
   - upgraded `github.com/quic-go/quic-go` to `v0.57.0` and `qpack` to `v0.6.0`
   - validated compatibility with full test and vet suites
 - Hardened repository exposure scanner clone target validation:
