@@ -636,13 +636,19 @@ func (e repoScanRequestValidationError) Is(target error) bool {
 
 func repoTargetContainsURLCredentials(target string) bool {
 	parsed, err := url.Parse(target)
-	if err != nil {
+	if err != nil || parsed == nil || parsed.Scheme == "" {
 		return false
 	}
-	if parsed.Scheme == "" {
+	if parsed.User == nil {
 		return false
 	}
-	return parsed.User != nil
+	if strings.EqualFold(parsed.Scheme, "ssh") {
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			return true
+		}
+		return strings.TrimSpace(parsed.User.Username()) == ""
+	}
+	return true
 }
 
 func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RunRepoScanResult, error) {

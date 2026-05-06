@@ -1526,6 +1526,27 @@ func TestServiceRunRepoScanRejectsCredentialBearingRepositoryURL(t *testing.T) {
 	}
 }
 
+func TestServiceRepoTargetContainsURLCredentials(t *testing.T) {
+	testCases := []struct {
+		target   string
+		expected bool
+	}{
+		{target: "https://token@example.com/org/repo.git", expected: true},
+		{target: "ssh://git@example.com/owner/repo.git", expected: false},
+		{target: "ssh://git:password@example.com/owner/repo.git", expected: true},
+		{target: "git@github.com:owner/repo.git", expected: false},
+		{target: "ssh://@example.com/owner/repo.git", expected: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.target, func(t *testing.T) {
+			if got, want := repoTargetContainsURLCredentials(tc.target), tc.expected; got != want {
+				t.Fatalf("expected %v for %q, got %v", want, tc.target, got)
+			}
+		})
+	}
+}
+
 func TestSanitizeRepoScanLimit(t *testing.T) {
 	got, err := sanitizeRepoScanLimit(0, 100, 500)
 	if err != nil || got != 100 {
