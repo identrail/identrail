@@ -29,7 +29,7 @@
 
 Notes:
 - Default manifest profile is production-oriented and fails fast on fixture collectors (`IDENTRAIL_REQUIRE_LIVE_SOURCES=true`).
-- Replace `IDENTRAIL_DEFAULT_TENANT_ID` and `IDENTRAIL_DEFAULT_WORKSPACE_ID` before production use, or configure OIDC tenant/workspace claims so requests do not rely on fallback scope.
+- Replace `IDENTRAIL_DEFAULT_TENANT_ID` and `IDENTRAIL_DEFAULT_WORKSPACE_ID` before production use. OIDC claims apply only to API request scoping; workers and background jobs still rely on fallback defaults and must not run with placeholder values.
 - The production manifest profile enables `IDENTRAIL_POSTGRES_RLS_ENFORCED=true`; confirm migrations and scoped policies before rollout.
 - Keep `IDENTRAIL_AWS_SOURCE=sdk` for production AWS runs.
 - For Kubernetes provider runs, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
