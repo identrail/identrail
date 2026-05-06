@@ -1521,7 +1521,7 @@ func TestServiceRunRepoScanRejectsCredentialBearingRepositoryURL(t *testing.T) {
 	_, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{
 		Repository: "https://token@example.com/org/repo.git",
 	})
-	if err == nil || err.Error() != "repository target must not include credentials in URL userinfo" {
+	if err == nil || !errors.Is(err, ErrInvalidRepoScanRequest) || err.Error() != "repository target must not include credentials in URL userinfo" {
 		t.Fatalf("expected invalid repo scan request for credential-bearing url, got %v", err)
 	}
 }
