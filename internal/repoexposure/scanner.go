@@ -583,7 +583,7 @@ func validateRepositoryHost(host string) error {
 
 	resolvedIPs, err := repositoryHostLookupIPs(ctx, lowerHost)
 	if err != nil {
-		return nil
+		return fmt.Errorf("repository target host %q could not be resolved: %w", normalizedHost, err)
 	}
 	for _, resolvedIP := range resolvedIPs {
 		if isBlockedRepositoryIP(resolvedIP) {
