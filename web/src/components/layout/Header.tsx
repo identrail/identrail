@@ -106,12 +106,11 @@ export function Header({
               </svg>
               Star
             </span>
-            <span
-              className={`idt-github-star-count ${starCount === null ? 'is-loading' : ''}`}
-              aria-label={starCount === null ? 'Loading GitHub star count' : `${formatGitHubStars(starCount)} GitHub stars`}
-            >
-              {starCount === null ? '...' : formatGitHubStars(starCount)}
-            </span>
+            {starCount !== null ? (
+              <span className="idt-github-star-count" aria-label={`${formatGitHubStars(starCount)} GitHub stars`}>
+                {formatGitHubStars(starCount)}
+              </span>
+            ) : null}
           </SafeLink>
           <Link to={siteLinks.signIn} className="idt-header-utility">
             Login
