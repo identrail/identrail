@@ -31,5 +31,6 @@ Notes:
 - Default manifest profile is production-oriented and fails fast on fixture collectors (`IDENTRAIL_REQUIRE_LIVE_SOURCES=true`).
 - Keep `IDENTRAIL_AWS_SOURCE=sdk` for production AWS runs.
 - For Kubernetes provider runs, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
+- Raw manifests include the repo-scan controls (`IDENTRAIL_REPO_SCAN_*`, worker repo-scan targets) and OIDC controls (`IDENTRAIL_OIDC_*`) used by the runtime. Keep them in sync with Helm values when enabling those features.
 - For ingress or split-origin web/API deployments, set `IDENTRAIL_CORS_ALLOWED_ORIGINS` to the exact public dashboard origin and `IDENTRAIL_TRUSTED_PROXIES` to only the ingress/proxy CIDRs.
 - For upgrade-safe deployment at scale, prefer Helm (`deploy/helm/identrail`).
