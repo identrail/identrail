@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -27,6 +28,20 @@ const (
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+var repositorySharedAddressRange = mustParseCIDR("100.64.0.0/10")
+var repositoryHostLookupIPs = func(ctx context.Context, host string) ([]net.IP, error) {
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	ips := make([]net.IP, 0, len(addrs))
+	for _, addr := range addrs {
+		if addr.IP != nil {
+			ips = append(ips, addr.IP)
+		}
+	}
+	return ips, nil
+}
 
 // CommandRunner executes git commands. It is injectable for deterministic tests.
 type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -458,6 +473,9 @@ func validateCloneURL(cloneURL string) error {
 		return fmt.Errorf("insecure repository url scheme http is not allowed; use https or ssh")
 	}
 	if !strings.Contains(lower, "://") {
+		if host, ok := parseGitSCPTargetHost(trimmed); ok {
+			return validateRepositoryHost(host)
+		}
 		return nil
 	}
 
@@ -466,11 +484,186 @@ func validateCloneURL(cloneURL string) error {
 		return fmt.Errorf("parse repository target: %w", err)
 	}
 	switch strings.ToLower(parsed.Scheme) {
-	case "https", "ssh":
-		return nil
+	case "https":
+		if parsed.User != nil {
+			return fmt.Errorf("repository target must not include credentials in URL userinfo")
+		}
+		return validateRepositoryHost(parsed.Hostname())
+	case "ssh":
+		if parsed.User != nil {
+			if _, hasPassword := parsed.User.Password(); hasPassword {
+				return fmt.Errorf("repository target must not include credentials in URL userinfo")
+			}
+			if strings.TrimSpace(parsed.User.Username()) == "" {
+				return fmt.Errorf("repository target must not include credentials in URL userinfo")
+			}
+		}
+		return validateRepositoryHost(parsed.Hostname())
 	default:
 		return fmt.Errorf("unsupported repository url scheme %q", parsed.Scheme)
 	}
+}
+
+func parseGitSCPTargetHost(target string) (string, bool) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" || strings.ContainsAny(trimmed, " \t\r\n") {
+		return "", false
+	}
+
+	bracketDepth := 0
+	separator := -1
+	for i, r := range trimmed {
+		switch r {
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth == 0 {
+				return "", false
+			}
+			bracketDepth--
+		case ':':
+			if bracketDepth == 0 {
+				separator = i
+				break
+			}
+		}
+		if separator != -1 {
+			break
+		}
+	}
+	if bracketDepth != 0 || separator <= 0 || separator >= len(trimmed)-1 {
+		return "", false
+	}
+
+	hostPart := strings.TrimSpace(trimmed[:separator])
+	if at := strings.LastIndex(hostPart, "@"); at != -1 {
+		hostPart = strings.TrimSpace(hostPart[at+1:])
+	}
+	if hostPart == "" {
+		return "", false
+	}
+	if strings.HasPrefix(hostPart, "[") {
+		if !strings.HasSuffix(hostPart, "]") || len(hostPart) <= 2 {
+			return "", false
+		}
+		return hostPart[1 : len(hostPart)-1], true
+	}
+	if strings.ContainsAny(hostPart, "/[]") {
+		return "", false
+	}
+	return hostPart, true
+}
+
+func validateRepositoryHost(host string) error {
+	normalizedHost := strings.TrimSpace(host)
+	if normalizedHost == "" {
+		return fmt.Errorf("repository target host is required")
+	}
+	lowerHost := strings.TrimSuffix(strings.ToLower(normalizedHost), ".")
+	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
+		return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+	}
+	ipCandidate := lowerHost
+	if zoneIndex := strings.Index(ipCandidate, "%"); zoneIndex != -1 {
+		ipCandidate = ipCandidate[:zoneIndex]
+	}
+	ip := net.ParseIP(ipCandidate)
+	if ip == nil {
+		ip = parseLegacyIPv4Host(ipCandidate)
+	}
+	if ip != nil {
+		if isBlockedRepositoryIP(ip) {
+			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+		}
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	resolvedIPs, err := repositoryHostLookupIPs(ctx, lowerHost)
+	if err != nil {
+		return fmt.Errorf("repository target host %q could not be resolved: %w", normalizedHost, err)
+	}
+	for _, resolvedIP := range resolvedIPs {
+		if isBlockedRepositoryIP(resolvedIP) {
+			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+		}
+	}
+	return nil
+}
+
+func isBlockedRepositoryIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified() ||
+		repositorySharedAddressRange.Contains(ip)
+}
+
+func parseLegacyIPv4Host(host string) net.IP {
+	parts := strings.Split(host, ".")
+	if len(parts) == 0 || len(parts) > 4 {
+		return nil
+	}
+
+	values := make([]uint64, len(parts))
+	for i, part := range parts {
+		if part == "" {
+			return nil
+		}
+		value, err := strconv.ParseUint(part, 0, 32)
+		if err != nil {
+			return nil
+		}
+		values[i] = value
+	}
+
+	var combined uint64
+	switch len(values) {
+	case 1:
+		if values[0] > 0xffffffff {
+			return nil
+		}
+		combined = values[0]
+	case 2:
+		if values[0] > 0xff || values[1] > 0xffffff {
+			return nil
+		}
+		combined = values[0]<<24 | values[1]
+	case 3:
+		if values[0] > 0xff || values[1] > 0xff || values[2] > 0xffff {
+			return nil
+		}
+		combined = values[0]<<24 | values[1]<<16 | values[2]
+	case 4:
+		for _, value := range values {
+			if value > 0xff {
+				return nil
+			}
+		}
+		combined = values[0]<<24 | values[1]<<16 | values[2]<<8 | values[3]
+	}
+
+	return net.IPv4(
+		byte(combined>>24),
+		byte(combined>>16),
+		byte(combined>>8),
+		byte(combined),
+	).To4()
+}
+
+func mustParseCIDR(raw string) *net.IPNet {
+	_, network, err := net.ParseCIDR(raw)
+	if err != nil {
+		panic(err)
+	}
+	return network
 }
 
 func redactMatch(line string, value string) string {
