@@ -34,10 +34,10 @@ export function HeroProductReveal() {
               </div>
             </div>
             <div className="idt-admin-field-grid">
-              <label>
+              <div>
                 Source identity
                 <span>GitHub Actions OIDC</span>
-              </label>
+              </div>
               <label>
                 Privilege boundary
                 <span>AWS role assumption</span>
