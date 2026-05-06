@@ -3,11 +3,11 @@ import { useMemo, useState } from 'react';
 const trustNodes = ['EKS SA', 'OIDC', 'IAM Role', 'KMS', 'S3', 'Build Token'] as const;
 
 const baseLog = [
-  'Revoked access to arn:aws:iam::prod:role/ci-runner at 12:31 UTC',
-  'Revoked access to arn:aws:iam::prod:role/eks-default at 12:31 UTC',
-  'Revoked access to arn:aws:iam::shared:role/oidc-federation at 12:31 UTC',
-  'Revoked access to arn:aws:iam::data:role/s3-replication at 12:31 UTC',
-  'Revoked access to arn:aws:iam::prod:role/secrets-reader at 12:31 UTC'
+  'Simulation: Would revoke access to arn:aws:iam::prod:role/ci-runner at 12:31 UTC',
+  'Simulation: Would revoke access to arn:aws:iam::prod:role/eks-default at 12:31 UTC',
+  'Simulation: Would revoke access to arn:aws:iam::shared:role/oidc-federation at 12:31 UTC',
+  'Simulation: Would revoke access to arn:aws:iam::data:role/s3-replication at 12:31 UTC',
+  'Simulation: Would revoke access to arn:aws:iam::prod:role/secrets-reader at 12:31 UTC'
 ] as const;
 
 export function KillSwitchSection() {
