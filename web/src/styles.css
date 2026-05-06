@@ -7580,7 +7580,7 @@ html[data-theme='light'] .idt-trust-strip,
   }
 }
 
-@media (max-width: 1180px) {
+@media (min-width: 1081px) and (max-width: 1180px) {
   .idt-header-row {
     width: min(100% - 2rem, var(--idt-shell));
     grid-template-columns: auto 1fr auto;
@@ -7707,12 +7707,13 @@ html[data-theme='light'] .idt-trust-strip,
 
   .idt-hero-product-stage {
     min-height: 520px;
+    overflow-x: hidden;
   }
 
   .idt-hero-admin-window {
     top: 52px;
-    right: -300px;
-    width: 620px;
+    right: -240px;
+    width: min(620px, calc(100% + 240px));
     opacity: 0.74;
   }
 
