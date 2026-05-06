@@ -53,6 +53,17 @@ web:
   service:
     type: ClusterIP
     port: 8080
+  # Vite exposes these values to browser bundles. Do not put secrets here.
+  viteEnv:
+    VITE_IDENTRAIL_API_URL: "https://api.example.com"
+    VITE_OIDC_ISSUER_URL: ""
+    VITE_OIDC_CLIENT_ID: ""
+    VITE_OIDC_SCOPE: "openid profile email offline_access"
+    VITE_OIDC_REDIRECT_URI: ""
+    VITE_OIDC_POST_LOGOUT_REDIRECT_URI: ""
+    VITE_OIDC_TENANT_CLAIM: "tenant_id"
+    VITE_OIDC_WORKSPACE_CLAIM: "workspace_id"
+    VITE_OIDC_ROLES_CLAIM: "roles"
   resources: {}
 
 ingress:
