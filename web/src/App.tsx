@@ -503,6 +503,256 @@ function SectionTitle({
   );
 }
 
+type PageHeroVariant = 'product' | 'pricing' | 'docs' | 'blog' | 'about' | 'enterprise';
+
+function PageHero({
+  eyebrow,
+  title,
+  body,
+  actions,
+  visual,
+  variant
+}: {
+  eyebrow: string;
+  title: string;
+  body?: ReactNode;
+  actions?: ReactNode;
+  visual: ReactNode;
+  variant: PageHeroVariant;
+}) {
+  return (
+    <section className={`idt-page-hero idt-page-hero-rich idt-shell is-${variant}`}>
+      <div className="idt-page-hero-copy">
+        <p className="idt-eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        {body ? <p>{body}</p> : null}
+        {actions ? <div className="idt-inline-actions">{actions}</div> : null}
+      </div>
+      <div className="idt-page-hero-visual" aria-hidden="true">
+        {visual}
+      </div>
+    </section>
+  );
+}
+
+function ProductHeroVisual() {
+  return (
+    <div className="idt-product-hero-visual">
+      <div className="idt-product-hero-window">
+        <div className="idt-visual-window-bar">
+          <span />
+          <span />
+          <span />
+          <strong>Trust graph</strong>
+        </div>
+        <div className="idt-product-hero-body">
+          <div className="idt-product-hero-sidebar">
+            <span className="is-active">Paths</span>
+            <span>Evidence</span>
+            <span>Fixes</span>
+          </div>
+          <div className="idt-product-hero-graph">
+            <svg viewBox="0 0 440 290" aria-hidden="true" focusable="false">
+              <path className="is-muted" d="M58 74 C150 30 196 102 256 82 S350 48 396 94" />
+              <path className="is-risk" d="M84 94 C172 124 224 148 244 198 S304 246 366 226" />
+              <path className="is-safe" d="M78 200 C150 164 194 230 268 190" />
+            </svg>
+            <div className="idt-graph-pill is-github">
+              <strong>GitHub OIDC</strong>
+              <span>Verified</span>
+            </div>
+            <div className="idt-graph-pill is-aws">
+              <strong>AWS Role</strong>
+              <span>High risk</span>
+            </div>
+            <div className="idt-graph-pill is-k8s">
+              <strong>K8s service account</strong>
+              <span>Namespace bridge</span>
+            </div>
+            <div className="idt-graph-pill is-data">
+              <strong>Billing datastore</strong>
+              <span>Critical target</span>
+            </div>
+            <aside className="idt-product-evidence-card">
+              <span>Evidence packet</span>
+              <strong>OIDC wildcard can reach production data</strong>
+              <p>JWT claims, trust policy, API call proof</p>
+            </aside>
+          </div>
+        </div>
+      </div>
+      <div className="idt-product-hero-queue">
+        <span>Live queue</span>
+        <strong>37 risky paths</strong>
+        <p>12 have owner-ready fixes</p>
+      </div>
+    </div>
+  );
+}
+
+function PricingHeroVisual() {
+  const plans = [
+    ['OSS', '$0', 'Self-hosted'],
+    ['Pro', '$59', 'Hosted trial'],
+    ['Enterprise', '$50k+', 'Private tenancy']
+  ] as const;
+
+  return (
+    <div className="idt-pricing-hero-visual">
+      <div className="idt-pricing-hero-toggle">
+        <span>Monthly</span>
+        <strong>Annual - save 25%</strong>
+      </div>
+      <div className="idt-pricing-hero-plans">
+        {plans.map(([name, price, note]) => (
+          <div key={name} className={name === 'Pro' ? 'is-featured' : ''}>
+            <span>{name}</span>
+            <strong>{price}</strong>
+            <p>{note}</p>
+          </div>
+        ))}
+      </div>
+      <div className="idt-pricing-hero-matrix">
+        <span>Capability</span>
+        <span>OSS</span>
+        <span>Pro</span>
+        <span>Ent</span>
+        <strong>Trust graph</strong>
+        <b>Yes</b>
+        <b>Yes</b>
+        <b>Yes</b>
+        <strong>SSO / SCIM</strong>
+        <b>-</b>
+        <b>SSO</b>
+        <b>Full</b>
+        <strong>Support SLA</strong>
+        <b>-</b>
+        <b>Biz</b>
+        <b>24/7</b>
+      </div>
+      <div className="idt-pricing-hero-procurement">
+        <strong>Procurement ready</strong>
+        <span>SOC 2 roadmap</span>
+        <span>Security review</span>
+        <span>Data residency</span>
+      </div>
+    </div>
+  );
+}
+
+function DocsHeroVisual() {
+  return (
+    <div className="idt-docs-hero-visual">
+      <div className="idt-docs-search-preview">
+        <span>Search docs topics</span>
+        <strong>kubernetes connector hardening</strong>
+      </div>
+      <div className="idt-docs-preview-shell">
+        <nav>
+          <span className="is-active">Quickstart</span>
+          <span>Connectors</span>
+          <span>Architecture</span>
+          <span>Operations</span>
+        </nav>
+        <article>
+          <p>Runbook</p>
+          <h3>Deploy read-only source collection</h3>
+          <ul>
+            <li>Validate connector scope</li>
+            <li>Import trust-path evidence</li>
+            <li>Review first risk queue</li>
+          </ul>
+          <code>identrail scan --source kubernetes --read-only</code>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+function BlogHeroVisual() {
+  const [featured, ...secondary] = BLOG_POSTS.slice(0, 3);
+
+  return (
+    <div className="idt-blog-hero-visual">
+      {featured ? (
+        <article className="idt-blog-hero-featured">
+          <span>{featured.category}</span>
+          <h3>{featured.title}</h3>
+          <p>{featured.readTime}</p>
+        </article>
+      ) : null}
+      <div className="idt-blog-hero-stack">
+        {secondary.map((post) => (
+          <article key={post.slug}>
+            <span>{post.category}</span>
+            <strong>{post.title}</strong>
+            <p>{post.readTime}</p>
+          </article>
+        ))}
+      </div>
+      <div className="idt-blog-hero-radar">
+        <span>Editorial focus</span>
+        <strong>Attack paths</strong>
+        <strong>Open core</strong>
+        <strong>Cloud identity</strong>
+      </div>
+    </div>
+  );
+}
+
+function AboutHeroVisual() {
+  return (
+    <div className="idt-about-hero-visual">
+      <div className="idt-about-orbit">
+        <span className="is-core">Identrail</span>
+        <span className="is-one">Open core</span>
+        <span className="is-two">Evidence</span>
+        <span className="is-three">Operators</span>
+      </div>
+      <ol className="idt-about-timeline">
+        <li>
+          <span>01</span>
+          <strong>Make risk visible</strong>
+        </li>
+        <li>
+          <span>02</span>
+          <strong>Keep control transparent</strong>
+        </li>
+        <li>
+          <span>03</span>
+          <strong>Help teams ship safer fixes</strong>
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+function EnterpriseHeroVisual() {
+  return (
+    <div className="idt-enterprise-hero-visual">
+      <div className="idt-enterprise-form-preview">
+        <span>Enterprise intake</span>
+        <label>
+          Environment scope
+          <strong>Multi-cloud, 12 clusters, 340 repos</strong>
+        </label>
+        <label>
+          Buying motion
+          <strong>Security review + private tenancy</strong>
+        </label>
+        <span className="idt-enterprise-form-action">Generate rollout blueprint</span>
+      </div>
+      <div className="idt-enterprise-blueprint">
+        <span>Deployment blueprint</span>
+        <p>Private tenancy</p>
+        <p>SAML + SCIM</p>
+        <p>Regional data boundary</p>
+        <p>Named TAM + SLA</p>
+      </div>
+    </div>
+  );
+}
+
 function LeadCaptureForm({
   id,
   title,
@@ -1680,13 +1930,23 @@ function ProductPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Product</p>
-        <h1>One platform for machine identity visibility, detection, and control</h1>
-        <p>
-          Identrail unifies IAM graph discovery, repository exposure scanning, and rollout-safe authorization workflows into one operator-grade platform.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Product"
+        title="One platform for machine identity visibility, detection, and control"
+        body="Identrail unifies IAM graph discovery, repository exposure scanning, and rollout-safe authorization workflows into one operator-grade platform."
+        variant="product"
+        visual={<ProductHeroVisual />}
+        actions={
+          <>
+            <Link to="/demo" className="idt-btn idt-btn-primary">
+              Explore Product Demo
+            </Link>
+            <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
+              Start Free Risk Scan
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-product-capabilities">
@@ -2034,11 +2294,23 @@ function PricingPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Pricing</p>
-        <h1>Pricing aligned to how teams adopt machine identity security</h1>
-        <p>Start with open source, move to hosted Pro for speed, then scale to enterprise controls when needed.</p>
-      </section>
+      <PageHero
+        eyebrow="Pricing"
+        title="Pricing aligned to how teams adopt machine identity security"
+        body="Start with open source, move to hosted Pro for speed, then scale to enterprise controls when needed."
+        variant="pricing"
+        visual={<PricingHeroVisual />}
+        actions={
+          <>
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+              Start Free Risk Scan
+            </Link>
+            <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
+              Talk to Enterprise
+            </button>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-pricing-toggle" role="group" aria-label="Pricing cadence">
@@ -2480,14 +2752,18 @@ function DocsPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Docs</p>
-        <h1>Deploy, connect, and operate Identrail in production</h1>
-        <p>Fast search, practical runbooks, and source-linked operator docs for production rollouts.</p>
-        <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-primary">
-          Open Full GitHub Docs
-        </SafeLink>
-      </section>
+      <PageHero
+        eyebrow="Docs"
+        title="Deploy, connect, and operate Identrail in production"
+        body="Fast search, practical runbooks, and source-linked operator docs for production rollouts."
+        variant="docs"
+        visual={<DocsHeroVisual />}
+        actions={
+          <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-primary">
+            Open Full GitHub Docs
+          </SafeLink>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid three-col">
@@ -2558,11 +2834,18 @@ function BlogPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Blog & Resources</p>
-        <h1>Actionable content for security and platform teams operating machine identities</h1>
-        <p>Educational deep dives, implementation playbooks, and strategic guidance for enterprise buyers.</p>
-      </section>
+      <PageHero
+        eyebrow="Blog & Resources"
+        title="Actionable content for security and platform teams operating machine identities"
+        body="Educational deep dives, implementation playbooks, and strategic guidance for enterprise buyers."
+        variant="blog"
+        visual={<BlogHeroVisual />}
+        actions={
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+            Start Free Risk Scan
+          </Link>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-blog-grid">
@@ -2817,13 +3100,23 @@ function AboutPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Company</p>
-        <h1>Building the future control plane for machine identity security</h1>
-        <p>
-          Identrail exists to make machine identity risk understandable, operable, and controllable for every engineering-driven organization.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Company"
+        title="Building the future control plane for machine identity security"
+        body="Identrail exists to make machine identity risk understandable, operable, and controllable for every engineering-driven organization."
+        variant="about"
+        visual={<AboutHeroVisual />}
+        actions={
+          <>
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-primary">
+              View Open Source
+            </SafeLink>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Partner with Us
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-about-grid">
@@ -2859,13 +3152,23 @@ function EnterprisePage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Enterprise</p>
-        <h1>Enterprise machine identity programs that satisfy security, platform, and procurement stakeholders</h1>
-        <p>
-          Standard deal range: $50k-$500k+ ACV with tailored rollout plans, architecture support, and compliance alignment.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Enterprise"
+        title="Enterprise machine identity programs that satisfy security, platform, and procurement stakeholders"
+        body="Standard deal range: $50k-$500k+ ACV with tailored rollout plans, architecture support, and compliance alignment."
+        variant="enterprise"
+        visual={<EnterpriseHeroVisual />}
+        actions={
+          <>
+            <Link to="/demo" className="idt-btn idt-btn-primary">
+              Book Demo
+            </Link>
+            <Link to="/security" className="idt-btn idt-btn-dark">
+              Review Security
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-enterprise-grid">
