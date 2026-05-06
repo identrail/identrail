@@ -1,35 +1,35 @@
 const TRUST_LOGOS = [
   {
     name: 'AWS IAM',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@15.15.0/icons/amazoniam.svg'
+    icon: '/brand-logos/amazoniam.svg'
   },
   {
     name: 'Kubernetes',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/kubernetes.svg'
+    icon: '/brand-logos/kubernetes.svg'
   },
   {
     name: 'GitHub',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/github.svg'
+    icon: '/brand-logos/github.svg'
   },
   {
     name: 'OpenID',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openid.svg'
+    icon: '/brand-logos/openid.svg'
   },
   {
     name: 'Terraform',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/terraform.svg'
+    icon: '/brand-logos/terraform.svg'
   },
   {
     name: 'Docker',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/docker.svg'
+    icon: '/brand-logos/docker.svg'
   },
   {
     name: 'PostgreSQL',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/postgresql.svg'
+    icon: '/brand-logos/postgresql.svg'
   },
   {
     name: 'Prometheus',
-    icon: 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/prometheus.svg'
+    icon: '/brand-logos/prometheus.svg'
   }
 ] as const;
 
