@@ -3,8 +3,14 @@ import { apiClient, buildQuery, mergeRequestHeaders } from './client';
 
 describe('buildQuery', () => {
   it('encodes defined query params only', () => {
-    const query = buildQuery({ scan_id: 'scan-1', severity: 'high', empty: '', missing: undefined });
-    expect(query).toBe('?scan_id=scan-1&severity=high');
+    const query = buildQuery({
+      scan_id: 'scan-1',
+      severity: 'high',
+      include_archived: true,
+      empty: '',
+      missing: undefined
+    });
+    expect(query).toBe('?scan_id=scan-1&severity=high&include_archived=true');
   });
 });
 
@@ -176,6 +182,73 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('lists workspace projects with archive filters and scoped headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.listProjects(
+      'workspace/a',
+      {
+        limit: 25,
+        sort_by: 'updated_at',
+        sort_order: 'desc',
+        include_archived: true
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects?limit=25&sort_by=updated_at&sort_order=desc&include_archived=true'
+    );
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
+  it('posts workspace project payload and encodes the target workspace id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ project: { project_id: 'project-1' } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.upsertProject(
+      'workspace/a',
+      {
+        project_id: 'project-1',
+        name: 'Project 1',
+        slug: 'project-1',
+        description: 'Production boundary'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace%2Fa/projects');
+    expect(options.method).toBe('POST');
+    expect(options.body).toBe(
+      JSON.stringify({
+        project_id: 'project-1',
+        name: 'Project 1',
+        slug: 'project-1',
+        description: 'Production boundary'
+      })
+    );
+  });
+
   it('supports 204 no-content workspace member removal responses', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -194,5 +267,43 @@ describe('apiClient', () => {
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/v1/workspaces/workspace-a/members/member-a');
     expect(options.method).toBe('DELETE');
+  });
+
+  it('posts project source connector payloads with scoped headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ connection: { provider: 'aws', connected: true } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.upsertAWSProjectConnection(
+      'workspace/a',
+      'project 1',
+      {
+        role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+        external_id: 'external-prod',
+        region: 'us-east-1'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace%2Fa/projects/project%201/aws/connection');
+    expect(options.method).toBe('POST');
+    expect(options.body).toBe(
+      JSON.stringify({
+        role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+        external_id: 'external-prod',
+        region: 'us-east-1'
+      })
+    );
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 });

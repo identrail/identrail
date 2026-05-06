@@ -131,13 +131,6 @@ export const integrations = [
   'AWS',
   'Kubernetes',
   'GitHub',
-  'Terraform',
   'OpenID Connect',
-  'OpenAI',
-  'Datadog',
-  'Prometheus',
-  'Splunk',
-  'HashiCorp Vault',
-  'ArgoCD',
-  'Helm'
+  'Prometheus'
 ];

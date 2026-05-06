@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -528,6 +528,16 @@ func TestRouterGitHubWebhookEdgeCases(t *testing.T) {
 	r.ServeHTTP(badJSONResp, badJSONReq)
 	if badJSONResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid JSON, got %d", badJSONResp.Code)
+	}
+
+	noRepoPayload := []byte(`{"installation":{"id":1}}`)
+	noRepoReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(noRepoPayload))
+	noRepoReq.Header.Set("X-GitHub-Event", "push")
+	noRepoReq.Header.Set("X-Hub-Signature-256", "sha256=abc")
+	noRepoResp := httptest.NewRecorder()
+	r.ServeHTTP(noRepoResp, noRepoReq)
+	if noRepoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unsigned webhook payload without repository, got %d body=%s", noRepoResp.Code, noRepoResp.Body.String())
 	}
 }
 
