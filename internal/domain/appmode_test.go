@@ -225,16 +225,16 @@ func TestConnectorStatusTransitions(t *testing.T) {
 }
 
 func TestRemediationStatusTransitions(t *testing.T) {
-	if !CanTransitionRemediationJobStatus(RemediationJobStatusQueued, RemediationJobStatusRunning) {
+	if !canTransitionRemediationJobStatus(RemediationJobStatusQueued, RemediationJobStatusRunning) {
 		t.Fatal("expected queued -> running transition to be valid")
 	}
-	if !CanTransitionRemediationJobStatus(RemediationJobStatusRunning, RemediationJobStatusSucceeded) {
+	if !canTransitionRemediationJobStatus(RemediationJobStatusRunning, RemediationJobStatusSucceeded) {
 		t.Fatal("expected running -> succeeded transition to be valid")
 	}
-	if CanTransitionRemediationJobStatus(RemediationJobStatusSucceeded, RemediationJobStatusQueued) {
+	if canTransitionRemediationJobStatus(RemediationJobStatusSucceeded, RemediationJobStatusQueued) {
 		t.Fatal("expected succeeded -> queued transition to be invalid")
 	}
-	if !CanTransitionRemediationJobStatus(RemediationJobStatusFailed, RemediationJobStatusQueued) {
+	if !canTransitionRemediationJobStatus(RemediationJobStatusFailed, RemediationJobStatusQueued) {
 		t.Fatal("expected failed -> queued transition to be valid for retry")
 	}
 }
