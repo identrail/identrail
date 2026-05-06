@@ -38,18 +38,18 @@ export function HeroProductReveal() {
                 Source identity
                 <span>GitHub Actions OIDC</span>
               </div>
-              <label>
+              <div>
                 Privilege boundary
                 <span>AWS role assumption</span>
-              </label>
-              <label>
+              </div>
+              <div>
                 Workload
                 <span>payments-api service account</span>
-              </label>
-              <label>
+              </div>
+              <div>
                 Target resource
                 <span>billing-ledger datastore</span>
-              </label>
+              </div>
             </div>
             <ol className="idt-admin-activity" aria-label="Preview activity">
               {EVIDENCE_EVENTS.map((event, index) => (
