@@ -89,7 +89,7 @@ func TestServiceRunScanSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run scan failed: %v", err)
 	}
-	if result.Scan.Status != "completed" || result.FindingCount != 1 {
+	if result.Scan.Status != "succeeded" || result.FindingCount != 1 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
@@ -152,7 +152,7 @@ func TestServiceRunScanUsesPersistedAWSConnector(t *testing.T) {
 	if !factoryCalled {
 		t.Fatal("expected scan to use persisted aws connector scanner factory")
 	}
-	if result.Scan.Status != "completed" || result.Assets != 1 {
+	if result.Scan.Status != "succeeded" || result.Assets != 1 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
@@ -266,8 +266,8 @@ func TestServiceRunScanAlertFailureIsNonBlocking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected scan success despite alert error, got %v", err)
 	}
-	if result.Scan.Status != "completed" {
-		t.Fatalf("expected completed status, got %q", result.Scan.Status)
+	if result.Scan.Status != "succeeded" {
+		t.Fatalf("expected succeeded status, got %q", result.Scan.Status)
 	}
 	if errorCalls != 1 {
 		t.Fatalf("expected alert error callback once, got %d", errorCalls)
@@ -663,8 +663,8 @@ func TestServiceRunScanPartialLifecycleEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run scan: %v", err)
 	}
-	if result.Scan.Status != "completed" {
-		t.Fatalf("expected completed scan status, got %q", result.Scan.Status)
+	if result.Scan.Status != "succeeded" {
+		t.Fatalf("expected succeeded scan status, got %q", result.Scan.Status)
 	}
 
 	events, err := svc.ListScanEvents(defaultScopeContext(), result.Scan.ID, 50)
@@ -1003,7 +1003,7 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run repo scan persisted: %v", err)
 	}
-	if run.RepoScan.ID == "" || run.RepoScan.Status != "completed" || run.RepoScan.FindingCount != 1 {
+	if run.RepoScan.ID == "" || run.RepoScan.Status != "succeeded" || run.RepoScan.FindingCount != 1 {
 		t.Fatalf("unexpected repo scan run result: %+v", run)
 	}
 
@@ -1250,7 +1250,7 @@ func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get scan: %v", err)
 	}
-	if scan.Status != "completed" || scan.FindingCount != 1 {
+	if scan.Status != "succeeded" || scan.FindingCount != 1 {
 		t.Fatalf("unexpected processed scan record: %+v", scan)
 	}
 	processed, err = svc.ProcessNextQueuedScan(defaultScopeContext())
@@ -1311,8 +1311,8 @@ func TestServiceQueuedScanBurstProcessing(t *testing.T) {
 		t.Fatalf("expected %d persisted scans, got %d", queued, len(scans))
 	}
 	for _, scan := range scans {
-		if scan.Status != "completed" {
-			t.Fatalf("expected completed scan status, got %q", scan.Status)
+		if scan.Status != "succeeded" {
+			t.Fatalf("expected succeeded scan status, got %q", scan.Status)
 		}
 	}
 }
@@ -1357,7 +1357,7 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get repo scan: %v", err)
 	}
-	if stored.Status != "completed" || stored.CommitsScanned != 25 {
+	if stored.Status != "succeeded" || stored.CommitsScanned != 25 {
 		t.Fatalf("unexpected processed repo scan record: %+v", stored)
 	}
 }
@@ -1483,8 +1483,8 @@ func TestServiceProcessQueuedRepoScanContinuesToNextTargetAfterRequeue(t *testin
 	if err != nil {
 		t.Fatalf("get repo-b scan: %v", err)
 	}
-	if repoBRecord.Status != "completed" {
-		t.Fatalf("expected repo-b to complete, got %q", repoBRecord.Status)
+	if repoBRecord.Status != "succeeded" {
+		t.Fatalf("expected repo-b to succeed, got %q", repoBRecord.Status)
 	}
 }
 

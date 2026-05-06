@@ -411,13 +411,13 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "findings persisted", map[string]any{"findings": len(result.Findings)})
 
-	if err := s.Store.CompleteScan(ctx, record.ID, "completed", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
+	if err := s.Store.CompleteScan(ctx, record.ID, "succeeded", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
 		return RunScanResult{}, fmt.Errorf("complete scan record: %w", err)
 	}
 
-	record.Status = "completed"
+	record.Status = "succeeded"
 	finished := s.Now().UTC()
 	record.FinishedAt = &finished
 	record.AssetCount = result.Assets
@@ -668,7 +668,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	if err := s.Store.CompleteRepoScan(
 		ctx,
 		record.ID,
-		"completed",
+		"succeeded",
 		s.Now().UTC(),
 		result.CommitsScanned,
 		result.FilesScanned,
@@ -678,7 +678,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	); err != nil {
 		return RunRepoScanResult{}, fmt.Errorf("complete repo scan: %w", err)
 	}
-	record.Status = "completed"
+	record.Status = "succeeded"
 	finished := s.Now().UTC()
 	record.FinishedAt = &finished
 	record.CommitsScanned = result.CommitsScanned
