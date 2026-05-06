@@ -7372,6 +7372,7 @@ html[data-theme='light'] .idt-hero,
 .idt-hero {
   min-height: 760px;
   padding: 5.1rem 0 0;
+  overflow-x: hidden;
   border-bottom: 1px solid rgba(21, 25, 34, 0.08);
   background:
     linear-gradient(90deg, #ffffff 0%, #ffffff 49%, rgba(255, 255, 255, 0) 49%),
