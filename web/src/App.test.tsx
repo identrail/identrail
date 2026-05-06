@@ -49,7 +49,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'The control room for every machine identity path.'
+        name: 'Every machine identity path, clear to you.'
       })
     ).toBeInTheDocument();
 
