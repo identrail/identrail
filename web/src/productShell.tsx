@@ -1,7 +1,12 @@
-import { Component, FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   apiClient,
+  type AWSConnectionStatus,
+  type GitHubConnectionStartResponse,
+  type GitHubConnectionStatus,
+  type KubernetesConnectionStatus,
+  type ProjectRecord,
   type RequestAuthContext,
   type WhoAmIResponse,
   type WorkspaceMemberRecord,
@@ -35,6 +40,23 @@ type ScopedShellPageProps = {
   description: string;
   actionLabel?: string;
   actionTo?: string;
+};
+
+type SourceProvider = 'github' | 'aws' | 'kubernetes';
+
+type SourceConnectionMap = {
+  github?: GitHubConnectionStatus;
+  aws?: AWSConnectionStatus;
+  kubernetes?: KubernetesConnectionStatus;
+};
+
+type SourceProfile = {
+  provider: SourceProvider;
+  name: string;
+  eyebrow: string;
+  summary: string;
+  primarySignal: string;
+  requiredAccess: string;
 };
 
 type OIDCConfig = {
@@ -633,8 +655,46 @@ function buildScopedPath(scope: ProductSession, suffix = ''): string {
   return suffix ? `${base}/${suffix}` : base;
 }
 
+function buildProjectsPath(scope: ProductSession): string {
+  return buildScopedPath(scope, 'projects');
+}
+
+function buildProjectPath(scope: ProductSession, projectID: string): string {
+  return `${buildProjectsPath(scope)}/${encodeURIComponent(projectID)}`;
+}
+
 const MEMBER_ROLE_OPTIONS: WorkspaceMemberRole[] = ['owner', 'admin', 'analyst', 'viewer'];
 const MEMBER_STATUS_OPTIONS: WorkspaceMemberStatus[] = ['invited', 'active', 'suspended', 'removed'];
+const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
+  github: {
+    provider: 'github',
+    name: 'GitHub',
+    eyebrow: 'Code and workflow identity',
+    summary: 'Connect a GitHub App installation and select repositories that should feed exposure telemetry.',
+    primarySignal: 'Repositories, workflow identity, webhook scan triggers',
+    requiredAccess: 'GitHub App installation with selected repository access'
+  },
+  aws: {
+    provider: 'aws',
+    name: 'AWS',
+    eyebrow: 'Cloud IAM identity',
+    summary: 'Validate a read-only IAM role before Identrail records the account connector.',
+    primarySignal: 'Roles, trust policies, account identity, IAM read checks',
+    requiredAccess: 'Assumable read-only IAM role ARN'
+  },
+  kubernetes: {
+    provider: 'kubernetes',
+    name: 'Kubernetes',
+    eyebrow: 'Cluster service identity',
+    summary: 'Run a non-mutating preflight against the configured cluster context before activation.',
+    primarySignal: 'Service accounts, RBAC bindings, pods, cluster metadata',
+    requiredAccess: 'Read-only kubectl context available to the API runtime'
+  }
+};
+const SOURCE_ORDER: SourceProvider[] = ['github', 'aws', 'kubernetes'];
+const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as const;
+const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
+const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
 
 function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
   const session = readProductSession();
@@ -661,6 +721,18 @@ function deriveMemberID(userID: string, email: string): string {
   return token ? `member-${token}`.slice(0, 72) : `member-${Date.now()}`;
 }
 
+function normalizeProjectToken(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function deriveProjectToken(value: string, fallback = 'project'): string {
+  return normalizeProjectToken(value) || fallback;
+}
+
 function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse | null): boolean {
   const fromSession = (readProductSession()?.roles ?? []).map((role) => role.toLowerCase());
   if (fromSession.includes('owner') || fromSession.includes('admin')) {
@@ -679,6 +751,86 @@ function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse |
     return false;
   }
   return activeRole === 'owner' || activeRole === 'admin';
+}
+
+function sourceConnection(connections: SourceConnectionMap, provider: SourceProvider) {
+  return provider === 'github'
+    ? connections.github
+    : provider === 'aws'
+      ? connections.aws
+      : connections.kubernetes;
+}
+
+function connectionHealth(status?: GitHubConnectionStatus | AWSConnectionStatus | KubernetesConnectionStatus): string {
+  if (!status) {
+    return 'unknown';
+  }
+  if ('health_status' in status) {
+    return status.health_status;
+  }
+  return status.connected ? 'healthy' : 'unknown';
+}
+
+function connectionLifecycle(status?: GitHubConnectionStatus | AWSConnectionStatus | KubernetesConnectionStatus): string {
+  if (!status) {
+    return 'Not checked';
+  }
+  if (status.connected) {
+    return 'Active';
+  }
+  if ('status' in status) {
+    return status.status.charAt(0).toUpperCase() + status.status.slice(1);
+  }
+  return 'Not connected';
+}
+
+function connectionTone(status?: GitHubConnectionStatus | AWSConnectionStatus | KubernetesConnectionStatus): 'success' | 'warning' | 'error' | 'neutral' {
+  if (!status) {
+    return 'neutral';
+  }
+  const health = connectionHealth(status);
+  if (status.connected && (health === 'healthy' || health === 'unknown')) {
+    return 'success';
+  }
+  if (health === 'error' || ('status' in status && status.status === 'degraded')) {
+    return 'error';
+  }
+  if (health === 'warning') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function formatConnectionTime(value?: string): string {
+  if (!value) {
+    return 'Never';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString();
+}
+
+function parseGitHubRepositories(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .split(GITHUB_REPOSITORY_SPLIT_PATTERN)
+    .map((entry) => normalizeValue(entry).toLowerCase())
+    .filter((entry) => {
+      if (!entry || !entry.includes('/') || seen.has(entry)) {
+        return false;
+      }
+      seen.add(entry);
+      return true;
+    });
+}
+
+function newWebhookSecret(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    return `whsec_${randomString(32)}`;
+  }
+  return `whsec_${Date.now().toString(36)}`;
 }
 
 function useScaffoldDataState(delayMS = 320) {
@@ -1181,9 +1333,9 @@ export function ProductOverviewPage() {
   return (
     <ScopedShellPage
       title="Overview"
-      description={`Entry view for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'}.`}
-      actionLabel="Open findings"
-      actionTo={`/app/${encodeURIComponent(scope?.tenantID ?? 'default')}/${encodeURIComponent(scope?.workspaceID ?? 'default')}/findings`}
+      description={`Choose a project for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'} before connecting source telemetry.`}
+      actionLabel="Select project"
+      actionTo={scope ? buildProjectsPath(scope) : undefined}
     />
   );
 }
@@ -1728,24 +1880,1021 @@ export function ProductWorkspacesPage() {
 
 export function ProductProjectsPage() {
   const params = useParams<ScopeRouteParams>();
+  const navigate = useNavigate();
   const scope = resolveScopeFromParams(params);
+
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [draftName, setDraftName] = useState('');
+  const [draftProjectID, setDraftProjectID] = useState('');
+  const [draftSlug, setDraftSlug] = useState('');
+  const [draftDescription, setDraftDescription] = useState('');
+  const [projectIDEdited, setProjectIDEdited] = useState(false);
+  const [slugEdited, setSlugEdited] = useState(false);
+
+  useEffect(() => {
+    if (!scope) {
+      setProjects([]);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+
+    const loadProjects = async () => {
+      setLoading(true);
+      setError('');
+      setProjects([]);
+      try {
+        const auth = buildProductAuthContext(scope);
+        const response = await apiClient.listProjects(
+          scope.workspaceID,
+          {
+            limit: 50,
+            sort_by: 'updated_at',
+            sort_order: 'desc',
+            include_archived: true
+          },
+          auth
+        );
+        if (!active) {
+          return;
+        }
+        setProjects(response.items);
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace projects.');
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadProjects();
+
+    return () => {
+      active = false;
+    };
+  }, [scope?.tenantID, scope?.workspaceID]);
+
+  const activeProjectCount = useMemo(
+    () => projects.filter((project) => !normalizeValue(project.archived_at ?? '')).length,
+    [projects]
+  );
+  const archivedProjectCount = projects.length - activeProjectCount;
+  const latestProject = projects[0];
+
+  if (!scope) {
+    return <AppShellLoading message="Resolving workspace scope" />;
+  }
+
+  if (loading) {
+    return <AppShellLoading message="Loading projects" />;
+  }
+
+  const handleNameChange = (value: string) => {
+    setDraftName(value);
+    const token = deriveProjectToken(value);
+    if (!projectIDEdited) {
+      setDraftProjectID(token);
+    }
+    if (!slugEdited) {
+      setDraftSlug(token);
+    }
+  };
+
+  const handleCreateProject = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const name = normalizeValue(draftName);
+    const projectID = normalizeValue(draftProjectID) || deriveProjectToken(name);
+    const slug = normalizeValue(draftSlug) || deriveProjectToken(name);
+    const description = normalizeValue(draftDescription);
+
+    if (!name) {
+      setError('Project name is required.');
+      return;
+    }
+    if (!projectID) {
+      setError('Project ID is required.');
+      return;
+    }
+    if (!slug) {
+      setError('Project slug is required.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.upsertProject(
+        scope.workspaceID,
+        {
+          project_id: projectID,
+          name,
+          slug,
+          description: description || undefined
+        },
+        auth
+      );
+      setProjects((current) => {
+        const remaining = current.filter((project) => project.project_id !== response.project.project_id);
+        return [response.project, ...remaining];
+      });
+      setDraftName('');
+      setDraftProjectID('');
+      setDraftSlug('');
+      setDraftDescription('');
+      setProjectIDEdited(false);
+      setSlugEdited(false);
+      navigate(buildProjectPath(scope, response.project.project_id));
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save project.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <ScopedShellPage
-      title="Projects"
-      description="Project-level onboarding and scan boundaries live here."
-      actionLabel="View placeholder project"
-      actionTo={`/app/${encodeURIComponent(scope?.tenantID ?? 'default')}/${encodeURIComponent(scope?.workspaceID ?? 'default')}/projects/${encodeURIComponent(scope?.projectID ?? 'sample-project')}`}
-    />
+    <section className="idt-app-panel idt-projects-page">
+      <div className="idt-projects-header">
+        <div>
+          <p className="idt-app-kicker">Project registry</p>
+          <h2>Choose a project before connecting source data</h2>
+          <p>Projects set the workspace boundary for GitHub, AWS, and Kubernetes onboarding.</p>
+        </div>
+        <div className="idt-inline-actions">
+          <Link className="idt-btn idt-btn-ghost" to={buildScopedPath(scope)}>
+            Back to overview
+          </Link>
+        </div>
+      </div>
+
+      <div className="idt-projects-summary">
+        <article>
+          <span>{projects.length}</span>
+          <p>Total projects</p>
+        </article>
+        <article>
+          <span>{activeProjectCount}</span>
+          <p>Active boundaries</p>
+        </article>
+        <article>
+          <span>{latestProject ? formatConnectionTime(latestProject.updated_at) : 'No activity yet'}</span>
+          <p>Latest update</p>
+        </article>
+      </div>
+
+      {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
+
+      <div className="idt-projects-grid">
+        <article className="idt-projects-list">
+          <div className="idt-projects-section-header">
+            <div>
+              <h3>Workspace projects</h3>
+              <p>
+                {archivedProjectCount > 0
+                  ? `${activeProjectCount} active, ${archivedProjectCount} archived.`
+                  : 'Select an existing project to continue source onboarding.'}
+              </p>
+            </div>
+          </div>
+
+          {projects.length === 0 ? (
+            <AppShellEmptyState
+              title="No projects yet"
+              body="Create the first project for this workspace, then continue into source onboarding."
+            />
+          ) : (
+            <div className="idt-project-card-list">
+              {projects.map((project) => {
+                const archived = Boolean(normalizeValue(project.archived_at ?? ''));
+                return (
+                  <article key={project.project_id} className="idt-project-card">
+                    <div className="idt-project-card-header">
+                      <div>
+                        <h4>{project.name}</h4>
+                        <p>{project.description || 'No description yet. Use this project to scope connector onboarding and scan ownership.'}</p>
+                      </div>
+                      <span
+                        className={`idt-source-status-pill ${archived ? 'is-warning' : 'is-success'}`}
+                      >
+                        {archived ? 'Archived' : 'Active'}
+                      </span>
+                    </div>
+
+                    <dl className="idt-project-card-meta">
+                      <div>
+                        <dt>Project ID</dt>
+                        <dd>{project.project_id}</dd>
+                      </div>
+                      <div>
+                        <dt>Slug</dt>
+                        <dd>{project.slug}</dd>
+                      </div>
+                      <div>
+                        <dt>Updated</dt>
+                        <dd>{formatConnectionTime(project.updated_at)}</dd>
+                      </div>
+                    </dl>
+
+                    <div className="idt-inline-actions">
+                      <Link className="idt-btn idt-btn-primary" to={buildProjectPath(scope, project.project_id)}>
+                        Manage sources
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </article>
+
+        <article className="idt-project-composer">
+          <div className="idt-projects-section-header">
+            <div>
+              <h3>Create project</h3>
+              <p>Set the canonical project ID and route-safe slug once, then continue into connector setup.</p>
+            </div>
+          </div>
+
+          <form className="idt-app-form" onSubmit={handleCreateProject}>
+            <label>
+              Project name
+              <input
+                value={draftName}
+                onChange={(event) => handleNameChange(event.target.value)}
+                placeholder="Production platform"
+                required
+              />
+            </label>
+            <div className="idt-project-inline-fields">
+              <label>
+                Project ID
+                <input
+                  value={draftProjectID}
+                  onChange={(event) => {
+                    setProjectIDEdited(true);
+                    setDraftProjectID(normalizeProjectToken(event.target.value));
+                  }}
+                  placeholder="production-platform"
+                  required
+                />
+              </label>
+              <label>
+                Slug
+                <input
+                  value={draftSlug}
+                  onChange={(event) => {
+                    setSlugEdited(true);
+                    setDraftSlug(normalizeProjectToken(event.target.value));
+                  }}
+                  placeholder="production-platform"
+                  required
+                />
+              </label>
+            </div>
+            <label>
+              Description
+              <textarea
+                value={draftDescription}
+                onChange={(event) => setDraftDescription(event.target.value)}
+                placeholder="Identity boundary for the production control plane and its delivery repositories."
+              />
+            </label>
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={saving}>
+              {saving ? 'Creating project...' : 'Create project and continue'}
+            </button>
+          </form>
+        </article>
+      </div>
+    </section>
   );
 }
 
 export function ProductProjectDetailPage() {
   const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const projectID = normalizeValue(params.projectID ?? '');
+  const refreshSequenceRef = useRef(0);
+
+  const [connections, setConnections] = useState<SourceConnectionMap>({});
+  const [sourceErrors, setSourceErrors] = useState<Partial<Record<SourceProvider, string>>>({});
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [submitting, setSubmitting] = useState<SourceProvider | ''>('');
+  const [selectedSource, setSelectedSource] = useState<SourceProvider>('github');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [githubStart, setGitHubStart] = useState<GitHubConnectionStartResponse | null>(null);
+  const [githubStartForm, setGitHubStartForm] = useState({
+    appSlug: 'identrail',
+    redirectURI: ''
+  });
+  const [githubComplete, setGitHubComplete] = useState({
+    state: '',
+    installationID: '',
+    accountLogin: '',
+    repositories: '',
+    tokenReference: '',
+    webhookSecret: '',
+    webhookSecretReference: ''
+  });
+  const [awsForm, setAWSForm] = useState({
+    roleARN: '',
+    externalID: '',
+    region: 'us-east-1',
+    displayName: '',
+    sessionName: 'identrail-connector-validation'
+  });
+  const [kubernetesForm, setKubernetesForm] = useState({
+    displayName: '',
+    context: ''
+  });
+
+  const nextRequestSequence = () => {
+    const nextSequence = refreshSequenceRef.current + 1;
+    refreshSequenceRef.current = nextSequence;
+    return nextSequence;
+  };
+
+  const isStaleRequestSequence = (sequence: number) => refreshSequenceRef.current !== sequence;
+
+  const refreshConnections = async (quiet = false) => {
+    const refreshSequence = nextRequestSequence();
+
+    if (!scope || !projectID) {
+      setConnections({});
+      setSourceErrors({});
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    if (quiet) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    setSourceErrors({});
+    const auth = buildProductAuthContext(scope);
+
+    const results = await Promise.allSettled([
+      apiClient.getGitHubProjectConnection(scope.workspaceID, projectID, auth),
+      apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth),
+      apiClient.getKubernetesProjectConnection(scope.workspaceID, projectID, auth)
+    ]);
+
+    if (isStaleRequestSequence(refreshSequence)) {
+      return;
+    }
+
+    const nextConnections: SourceConnectionMap = {};
+    const nextErrors: Partial<Record<SourceProvider, string>> = {};
+    const providers: SourceProvider[] = ['github', 'aws', 'kubernetes'];
+
+    results.forEach((result, index) => {
+      const provider = providers[index];
+      if (!provider) {
+        return;
+      }
+      if (result.status === 'fulfilled') {
+        if (provider === 'github') {
+          nextConnections.github = result.value.connection as GitHubConnectionStatus;
+        } else if (provider === 'aws') {
+          nextConnections.aws = result.value.connection as AWSConnectionStatus;
+        } else {
+          nextConnections.kubernetes = result.value.connection as KubernetesConnectionStatus;
+        }
+        return;
+      }
+      nextErrors[provider] = result.reason instanceof Error ? result.reason.message : `Unable to load ${SOURCE_PROFILES[provider].name} status.`;
+    });
+
+    setConnections(nextConnections);
+    setSourceErrors(nextErrors);
+    setLoading(false);
+    setRefreshing(false);
+  };
+
+  useEffect(() => {
+    setConnections({});
+    setSourceErrors({});
+    setSubmitting('');
+    setSuccessMessage('');
+    setGitHubStart(null);
+    void refreshConnections(false);
+
+    return () => {
+      refreshSequenceRef.current += 1;
+    };
+  }, [scope?.tenantID, scope?.workspaceID, projectID]);
+
+  if (!scope || !projectID) {
+    return <AppShellLoading message="Resolving project scope" />;
+  }
+
+  if (loading) {
+    return <AppShellLoading message="Loading source connections" />;
+  }
+
+  const selectedStatus = sourceConnection(connections, selectedSource);
+  const selectedProfile = SOURCE_PROFILES[selectedSource];
+  const connectedCount = SOURCE_ORDER.filter((provider) => sourceConnection(connections, provider)?.connected).length;
+  const activeStepIndex = selectedStatus?.connected ? 3 : submitting === selectedSource ? 2 : 1;
+
+  const handleGitHubStart = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting('github');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, github: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const redirectURI =
+        normalizeValue(githubStartForm.redirectURI) ||
+        (typeof window !== 'undefined' ? `${window.location.origin}${buildProjectPath(scope, projectID)}` : undefined);
+      const response = await apiClient.startGitHubProjectConnection(
+        scope.workspaceID,
+        projectID,
+        {
+          app_slug: normalizeValue(githubStartForm.appSlug) || undefined,
+          redirect_uri: redirectURI
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setGitHubStart(response.connection);
+      setGitHubComplete((current) => ({
+        ...current,
+        state: response.connection.state,
+        webhookSecret: current.webhookSecret || newWebhookSecret(),
+        webhookSecretReference:
+          current.webhookSecretReference || `github-webhook:${projectID}:${response.connection.state.slice(0, 8)}`
+      }));
+      setSuccessMessage('GitHub installation link generated.');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to start GitHub connection.';
+      setSourceErrors((current) => ({ ...current, github: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleGitHubComplete = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting('github');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, github: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const state = normalizeValue(githubComplete.state || githubStart?.state || '');
+      const installationID = Number.parseInt(githubComplete.installationID, 10);
+      const repositories = parseGitHubRepositories(githubComplete.repositories);
+      if (!state) {
+        throw new Error('Generate a GitHub install state before saving the connection.');
+      }
+      if (!Number.isFinite(installationID) || installationID <= 0) {
+        throw new Error('Enter a valid GitHub App installation ID.');
+      }
+      if (repositories.length === 0) {
+        throw new Error('Add at least one repository in owner/name format.');
+      }
+
+      const tokenReference =
+        normalizeValue(githubComplete.tokenReference) || `github-app-installation:${installationID}`;
+      const webhookSecret = normalizeValue(githubComplete.webhookSecret) || newWebhookSecret();
+      const webhookSecretReference =
+        normalizeValue(githubComplete.webhookSecretReference) || `github-webhook:${projectID}:${installationID}`;
+      setGitHubComplete((current) => ({
+        ...current,
+        tokenReference,
+        webhookSecret,
+        webhookSecretReference
+      }));
+
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.completeGitHubProjectConnection(
+        scope.workspaceID,
+        projectID,
+        {
+          state,
+          installation_id: installationID,
+          account_login: normalizeValue(githubComplete.accountLogin) || undefined,
+          token_reference: tokenReference,
+          webhook_secret: webhookSecret,
+          webhook_secret_reference: webhookSecretReference,
+          selected_repositories: repositories
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setConnections((current) => ({ ...current, github: response.connection }));
+      setGitHubStart(null);
+      setSuccessMessage('GitHub connection saved and ready for repository events.');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to complete GitHub connection.';
+      setSourceErrors((current) => ({ ...current, github: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleAWSSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting('aws');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, aws: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const roleARN = normalizeValue(awsForm.roleARN);
+      if (!AWS_ROLE_ARN_PATTERN.test(roleARN)) {
+        throw new Error('Enter a valid IAM role ARN, for example arn:aws:iam::123456789012:role/IdentrailReadOnly.');
+      }
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.upsertAWSProjectConnection(
+        scope.workspaceID,
+        projectID,
+        {
+          role_arn: roleARN,
+          external_id: normalizeValue(awsForm.externalID) || undefined,
+          region: normalizeValue(awsForm.region) || 'us-east-1',
+          display_name: normalizeValue(awsForm.displayName) || undefined,
+          session_name: normalizeValue(awsForm.sessionName) || undefined
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setConnections((current) => ({ ...current, aws: response.connection }));
+      setSuccessMessage(
+        response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
+      );
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to validate AWS connection.';
+      setSourceErrors((current) => ({ ...current, aws: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleKubernetesSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting('kubernetes');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, kubernetes: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.upsertKubernetesProjectConnection(
+        scope.workspaceID,
+        projectID,
+        {
+          display_name: normalizeValue(kubernetesForm.displayName) || undefined,
+          context: normalizeValue(kubernetesForm.context) || undefined
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setConnections((current) => ({ ...current, kubernetes: response.connection }));
+      setSuccessMessage(
+        response.connection.connected
+          ? 'Kubernetes connector is active.'
+          : 'Kubernetes preflight completed with diagnostics to resolve.'
+      );
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to validate Kubernetes connection.';
+      setSourceErrors((current) => ({ ...current, kubernetes: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
   return (
-    <ScopedShellPage
-      title="Project detail"
-      description={`Project ${params.projectID ?? 'unknown'} placeholder with room for run status, controls, and ownership context.`}
-    />
+    <section className="idt-app-panel idt-source-onboarding">
+      <div className="idt-source-onboarding-header">
+        <div>
+          <p className="idt-app-kicker">Project source onboarding</p>
+          <h2>Connect sources for {projectID}</h2>
+          <p>
+            Add GitHub, AWS, or Kubernetes signals for workspace <strong>{scope.workspaceID}</strong> with live
+            validation and remediation feedback.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="idt-btn idt-btn-ghost"
+          onClick={() => {
+            void refreshConnections(true);
+          }}
+          disabled={refreshing || submitting !== ''}
+        >
+          {refreshing ? 'Refreshing...' : 'Refresh status'}
+        </button>
+      </div>
+
+      <div className="idt-source-summary" aria-label="source connection summary">
+        <article>
+          <span>{connectedCount}</span>
+          <p>Active sources</p>
+        </article>
+        <article>
+          <span>{SOURCE_ORDER.length - connectedCount}</span>
+          <p>Remaining</p>
+        </article>
+        <article>
+          <span>{connectionLifecycle(selectedStatus)}</span>
+          <p>Selected status</p>
+        </article>
+      </div>
+
+      {successMessage ? (
+        <p role="status" className="idt-app-alert idt-app-alert-success">
+          {successMessage}
+        </p>
+      ) : null}
+
+      <ol className="idt-source-stepper" aria-label="Connect source steps">
+        {CONNECT_SOURCE_STEPS.map((step, index) => (
+          <li key={step} className={index <= activeStepIndex ? 'is-active' : ''}>
+            <span>{index + 1}</span>
+            {step}
+          </li>
+        ))}
+      </ol>
+
+      <div className="idt-source-wizard-grid">
+        <aside className="idt-source-picker" aria-label="Source types">
+          {SOURCE_ORDER.map((provider) => {
+            const profile = SOURCE_PROFILES[provider];
+            const status = sourceConnection(connections, provider);
+            const error = sourceErrors[provider];
+            return (
+              <button
+                key={provider}
+                type="button"
+                className={`idt-source-card ${selectedSource === provider ? 'is-selected' : ''}`}
+                aria-pressed={selectedSource === provider}
+                onClick={() => setSelectedSource(provider)}
+              >
+                <span className="idt-source-card-topline">
+                  <span>{profile.eyebrow}</span>
+                  <span className={`idt-source-status-pill is-${connectionTone(status)}`}>
+                    {error ? 'Needs retry' : connectionLifecycle(status)}
+                  </span>
+                </span>
+                <strong>{profile.name}</strong>
+                <small>{profile.primarySignal}</small>
+              </button>
+            );
+          })}
+        </aside>
+
+        <div className="idt-source-config">
+          <div className="idt-source-config-header">
+            <div>
+              <p className="idt-app-kicker">{selectedProfile.eyebrow}</p>
+              <h3>{selectedProfile.name}</h3>
+              <p>{selectedProfile.summary}</p>
+            </div>
+            <span className={`idt-source-status-pill is-${connectionTone(selectedStatus)}`}>
+              {connectionLifecycle(selectedStatus)}
+            </span>
+          </div>
+
+          <dl className="idt-source-meta">
+            <div>
+              <dt>Required access</dt>
+              <dd>{selectedProfile.requiredAccess}</dd>
+            </div>
+            <div>
+              <dt>Health</dt>
+              <dd>{connectionHealth(selectedStatus)}</dd>
+            </div>
+            <div>
+              <dt>Last validation</dt>
+              <dd>
+                {selectedStatus && 'last_validated_at' in selectedStatus
+                  ? formatConnectionTime(selectedStatus.last_validated_at)
+                  : formatConnectionTime(selectedStatus?.updated_at)}
+              </dd>
+            </div>
+          </dl>
+
+          {sourceErrors[selectedSource] ? (
+            <p role="alert" className="idt-app-alert idt-app-alert-error">
+              {sourceErrors[selectedSource]}
+            </p>
+          ) : null}
+
+          {selectedSource === 'github' ? (
+            <div className="idt-source-form-stack">
+              <form className="idt-app-form" onSubmit={handleGitHubStart}>
+                <div className="idt-source-inline-fields">
+                  <label>
+                    GitHub App slug
+                    <input
+                      value={githubStartForm.appSlug}
+                      onChange={(event) => setGitHubStartForm((current) => ({ ...current, appSlug: event.target.value }))}
+                      placeholder="identrail"
+                    />
+                  </label>
+                  <label>
+                    Redirect URI
+                    <input
+                      value={githubStartForm.redirectURI}
+                      onChange={(event) =>
+                        setGitHubStartForm((current) => ({ ...current, redirectURI: event.target.value }))
+                      }
+                      placeholder="Current project page"
+                    />
+                  </label>
+                </div>
+                <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                  {submitting === 'github' ? 'Preparing...' : 'Generate install link'}
+                </button>
+              </form>
+
+              {githubStart ? (
+                <article className="idt-source-install-card">
+                  <div>
+                    <h4>GitHub installation ready</h4>
+                    <p>State expires {formatConnectionTime(githubStart.expires_at)}.</p>
+                  </div>
+                  <a className="idt-btn idt-btn-dark" href={githubStart.connect_url} target="_blank" rel="noreferrer">
+                    Open GitHub
+                  </a>
+                </article>
+              ) : null}
+
+              <form className="idt-app-form" onSubmit={handleGitHubComplete}>
+                <div className="idt-source-inline-fields">
+                  <label>
+                    Install state
+                    <input
+                      value={githubComplete.state}
+                      onChange={(event) => setGitHubComplete((current) => ({ ...current, state: event.target.value }))}
+                      placeholder="Generated install state"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Installation ID
+                    <input
+                      inputMode="numeric"
+                      value={githubComplete.installationID}
+                      onChange={(event) =>
+                        setGitHubComplete((current) => ({ ...current, installationID: event.target.value }))
+                      }
+                      placeholder="12345678"
+                      required
+                    />
+                  </label>
+                </div>
+                <label>
+                  Account login
+                  <input
+                    value={githubComplete.accountLogin}
+                    onChange={(event) =>
+                      setGitHubComplete((current) => ({ ...current, accountLogin: event.target.value }))
+                    }
+                    placeholder="organization or user"
+                  />
+                </label>
+                <label>
+                  Selected repositories
+                  <textarea
+                    value={githubComplete.repositories}
+                    onChange={(event) =>
+                      setGitHubComplete((current) => ({ ...current, repositories: event.target.value }))
+                    }
+                    placeholder="owner/repo, owner/security-platform"
+                    required
+                  />
+                </label>
+                <details className="idt-source-advanced">
+                  <summary>Credential references</summary>
+                  <div className="idt-source-inline-fields">
+                    <label>
+                      Token reference
+                      <input
+                        value={githubComplete.tokenReference}
+                        onChange={(event) =>
+                          setGitHubComplete((current) => ({ ...current, tokenReference: event.target.value }))
+                        }
+                        placeholder="Auto generated from installation ID"
+                      />
+                    </label>
+                    <label>
+                      Webhook secret reference
+                      <input
+                        value={githubComplete.webhookSecretReference}
+                        onChange={(event) =>
+                          setGitHubComplete((current) => ({ ...current, webhookSecretReference: event.target.value }))
+                        }
+                        placeholder="Auto generated for this project"
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Webhook secret
+                    <input
+                      type="password"
+                      value={githubComplete.webhookSecret}
+                      onChange={(event) =>
+                        setGitHubComplete((current) => ({ ...current, webhookSecret: event.target.value }))
+                      }
+                      placeholder="Generated when install link is created"
+                    />
+                  </label>
+                </details>
+                <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                  {submitting === 'github' ? 'Saving...' : 'Save GitHub connection'}
+                </button>
+              </form>
+            </div>
+          ) : null}
+
+          {selectedSource === 'aws' ? (
+            <form className="idt-app-form" onSubmit={handleAWSSubmit}>
+              <label>
+                Role ARN
+                <input
+                  value={awsForm.roleARN}
+                  onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))}
+                  placeholder="arn:aws:iam::123456789012:role/IdentrailReadOnly"
+                  required
+                />
+              </label>
+              <div className="idt-source-inline-fields">
+                <label>
+                  External ID
+                  <input
+                    value={awsForm.externalID}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, externalID: event.target.value }))}
+                    placeholder="optional trust-policy guard"
+                  />
+                </label>
+                <label>
+                  Region
+                  <input
+                    value={awsForm.region}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, region: event.target.value }))}
+                    placeholder="us-east-1"
+                  />
+                </label>
+              </div>
+              <div className="idt-source-inline-fields">
+                <label>
+                  Display name
+                  <input
+                    value={awsForm.displayName}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, displayName: event.target.value }))}
+                    placeholder="Production AWS"
+                  />
+                </label>
+                <label>
+                  Session name
+                  <input
+                    value={awsForm.sessionName}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, sessionName: event.target.value }))}
+                    placeholder="identrail-connector-validation"
+                  />
+                </label>
+              </div>
+              <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                {submitting === 'aws' ? 'Validating...' : 'Validate and save AWS'}
+              </button>
+            </form>
+          ) : null}
+
+          {selectedSource === 'kubernetes' ? (
+            <form className="idt-app-form" onSubmit={handleKubernetesSubmit}>
+              <div className="idt-source-inline-fields">
+                <label>
+                  Display name
+                  <input
+                    value={kubernetesForm.displayName}
+                    onChange={(event) =>
+                      setKubernetesForm((current) => ({ ...current, displayName: event.target.value }))
+                    }
+                    placeholder="Production cluster"
+                  />
+                </label>
+                <label>
+                  kubectl context
+                  <input
+                    value={kubernetesForm.context}
+                    onChange={(event) => setKubernetesForm((current) => ({ ...current, context: event.target.value }))}
+                    placeholder="API runtime default"
+                  />
+                </label>
+              </div>
+              <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                {submitting === 'kubernetes' ? 'Running preflight...' : 'Run preflight and save'}
+              </button>
+            </form>
+          ) : null}
+
+          {selectedSource === 'aws' && connections.aws ? (
+            <div className="idt-source-diagnostics">
+              {connections.aws.account_id ? <p>Account {connections.aws.account_id}</p> : null}
+              {connections.aws.principal_arn ? <p>Principal {connections.aws.principal_arn}</p> : null}
+              {connections.aws.permission_checks.map((check) => (
+                <article key={check.name}>
+                  <strong>{check.name}</strong>
+                  <span>{check.passed ? 'Passed' : 'Needs attention'}</span>
+                  <p>{check.message}</p>
+                  {check.remediation ? <small>{check.remediation}</small> : null}
+                </article>
+              ))}
+              {connections.aws.diagnostics.map((diagnostic) => (
+                <article key={diagnostic.code}>
+                  <strong>{diagnostic.code}</strong>
+                  <span>Diagnostic</span>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {selectedSource === 'kubernetes' && connections.kubernetes ? (
+            <div className="idt-source-diagnostics">
+              {connections.kubernetes.cluster ? <p>Cluster {connections.kubernetes.cluster}</p> : null}
+              {connections.kubernetes.server ? <p>Server {connections.kubernetes.server}</p> : null}
+              {connections.kubernetes.permission_checks.map((check) => (
+                <article key={`${check.verb}-${check.resource}-${check.scope}`}>
+                  <strong>
+                    {check.verb} {check.resource}
+                  </strong>
+                  <span>{check.allowed ? 'Allowed' : 'Blocked'}</span>
+                  {check.diagnostic ? <p>{check.diagnostic}</p> : null}
+                  {check.remediation ? <small>{check.remediation}</small> : null}
+                </article>
+              ))}
+              {connections.kubernetes.diagnostics.map((diagnostic) => (
+                <article key={diagnostic.code}>
+                  <strong>{diagnostic.code}</strong>
+                  <span>{diagnostic.severity}</span>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {selectedSource === 'github' && connections.github ? (
+            <div className="idt-source-diagnostics">
+              {connections.github.account_login ? <p>Account {connections.github.account_login}</p> : null}
+              {connections.github.installation_id ? <p>Installation {connections.github.installation_id}</p> : null}
+              {connections.github.webhook_secret_rotation_due_at ? (
+                <p>Webhook rotation due {formatConnectionTime(connections.github.webhook_secret_rotation_due_at)}</p>
+              ) : null}
+              {connections.github.selected_repositories.map((repository) => (
+                <article key={repository}>
+                  <strong>{repository}</strong>
+                  <span>Selected</span>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/audit"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/telemetry"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -194,12 +194,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
-	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
-	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
+	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
+	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
-	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
 	registerTenancyRoutes(v1, logger, svc)
@@ -271,8 +271,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListFindingsFiltered(c.Request.Context(), pageFetchLimit(offset, limit), FindingsFilter{
-			ScanID:          strings.TrimSpace(c.Query("scan_id")),
+			ScanID:          scanID,
 			Severity:        strings.TrimSpace(c.Query("severity")),
 			Type:            strings.TrimSpace(c.Query("type")),
 			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
@@ -308,10 +312,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	})
 
 	v1.GET("/findings/:finding_id", func(c *gin.Context) {
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		item, err := svc.GetFinding(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -327,10 +335,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.GET("/findings/:finding_id/history", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultEventsLimit, maxListLimit)
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListFindingTriageHistory(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			limit,
 		)
 		if err != nil {
@@ -346,10 +358,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	})
 
 	v1.GET("/findings/:finding_id/exports", func(c *gin.Context) {
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		exports, err := svc.GetFindingExports(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -385,10 +401,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		item, err := svc.TriageFinding(
 			c.Request.Context(),
 			strings.TrimSpace(c.Param("finding_id")),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			request,
 			triageActorFromContext(c, opts.AuditFingerprinter),
 		)
@@ -412,9 +432,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "name")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListIdentities(
 			c.Request.Context(),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("provider")),
 			strings.TrimSpace(c.Query("type")),
 			strings.TrimSpace(c.Query("name_prefix")),
@@ -442,9 +466,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "discovered_at")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListRelationships(
 			c.Request.Context(),
-			strings.TrimSpace(c.Query("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("type")),
 			strings.TrimSpace(c.Query("from_node_id")),
 			strings.TrimSpace(c.Query("to_node_id")),
@@ -472,10 +500,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "confidence")
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListOwnershipSignals(
 			c.Request.Context(),
 			pageFetchLimit(offset, limit),
-			OwnershipFilter{ScanID: strings.TrimSpace(c.Query("scan_id"))},
+			OwnershipFilter{ScanID: scanID},
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -516,9 +548,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.GET("/scans/:scan_id/diff", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
+		scanID, ok := requiredUUIDParam(c, c.Param("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		diff, err := svc.GetScanDiffAgainst(
 			c.Request.Context(),
-			strings.TrimSpace(c.Param("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("previous_scan_id")),
 			limit,
 		)
@@ -542,9 +578,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		limit := parseLimit(c.Query("limit"), defaultEventsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
+		scanID, ok := requiredUUIDParam(c, c.Param("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
 		items, err := svc.ListScanEventsFiltered(
 			c.Request.Context(),
-			strings.TrimSpace(c.Param("scan_id")),
+			scanID,
 			strings.TrimSpace(c.Query("level")),
 			pageFetchLimit(offset, limit),
 		)
@@ -1442,6 +1482,27 @@ func isValidUUID(raw string) bool {
 	return err == nil
 }
 
+func optionalUUIDParam(c *gin.Context, raw string, field string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", true
+	}
+	if !isValidUUID(trimmed) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid " + field})
+		return "", false
+	}
+	return trimmed, true
+}
+
+func requiredUUIDParam(c *gin.Context, raw string, field string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if !isValidUUID(trimmed) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid " + field})
+		return "", false
+	}
+	return trimmed, true
+}
+
 func sortFindings(items []domain.Finding, sortBy string, desc bool) {
 	sort.SliceStable(items, func(i, j int) bool {
 		left := items[i]
@@ -1811,45 +1872,43 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) g
 		WorkspaceID: defaultWorkspaceID,
 	}.Normalize()
 	return func(c *gin.Context) {
+		apiKeyAuth := authContextString(c, "auth.api_key") != ""
 		tenantID := authContextString(c, "auth.tenant_id")
 		workspaceID := authContextString(c, "auth.workspace_id")
 		tenantHeader := strings.TrimSpace(c.GetHeader(scopeHeaderTenantID))
 		workspaceHeader := strings.TrimSpace(c.GetHeader(scopeHeaderWorkspaceID))
 
-		if tenantID == "" && workspaceID == "" && authContextString(c, "auth.api_key") != "" {
+		if apiKeyAuth {
 			boundTenantID := authContextString(c, authAPIKeyTenantID)
 			boundWorkspaceID := authContextString(c, authAPIKeyWorkspaceID)
-			if tenantHeader != "" && (boundTenantID == "" || tenantHeader != boundTenantID) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
+			if boundTenantID != "" || boundWorkspaceID != "" {
+				if tenantHeader != "" && (boundTenantID == "" || tenantHeader != boundTenantID) {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+					return
+				}
+				if workspaceHeader != "" && (boundWorkspaceID == "" || workspaceHeader != boundWorkspaceID) {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+					return
+				}
+				if tenantID == "" {
+					tenantID = boundTenantID
+				}
+				if workspaceID == "" {
+					workspaceID = boundWorkspaceID
+				}
 			}
-			if workspaceHeader != "" && (boundWorkspaceID == "" || workspaceHeader != boundWorkspaceID) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
-			}
-			if boundTenantID != "" {
-				tenantID = boundTenantID
-			} else {
-				tenantID = defaultScope.TenantID
-			}
-			if boundWorkspaceID != "" {
-				workspaceID = boundWorkspaceID
-			} else {
-				workspaceID = defaultScope.WorkspaceID
-			}
-		} else {
-			if tenantID == "" {
-				tenantID = tenantHeader
-			}
-			if tenantID == "" {
-				tenantID = defaultScope.TenantID
-			}
-			if workspaceID == "" {
-				workspaceID = workspaceHeader
-			}
-			if workspaceID == "" {
-				workspaceID = defaultScope.WorkspaceID
-			}
+		}
+		if tenantID == "" && !apiKeyAuth {
+			tenantID = tenantHeader
+		}
+		if tenantID == "" {
+			tenantID = defaultScope.TenantID
+		}
+		if workspaceID == "" && !apiKeyAuth {
+			workspaceID = workspaceHeader
+		}
+		if workspaceID == "" {
+			workspaceID = defaultScope.WorkspaceID
 		}
 		scopedCtx := db.WithScope(c.Request.Context(), db.Scope{
 			TenantID:    tenantID,
@@ -1945,7 +2004,7 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string) gin.HandlerFunc {
+func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
 	oidcWriteScopeSet := newScopeSet(oidcWriteScopes)
 
 	scopedAllowed := map[string]scopedAPIKeyAuthConfig{}
@@ -1984,11 +2043,13 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 				if config.WorkspaceID != "" {
 					c.Set(authAPIKeyWorkspaceID, config.WorkspaceID)
 				}
+				setAuditActorOnRequestContext(c, fingerprinter)
 				c.Next()
 				return
 			}
 			if keyInList(legacyAllowed, candidate) {
 				c.Set("auth.api_key", candidate)
+				setAuditActorOnRequestContext(c, fingerprinter)
 				c.Next()
 				return
 			}
@@ -2006,6 +2067,7 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 				c.Set("auth.tenant_id", token.TenantID)
 				c.Set("auth.workspace_id", token.WorkspaceID)
 				c.Set("auth.scope_set", scopeSetFromOIDCToken(token, oidcWriteScopeSet))
+				setAuditActorOnRequestContext(c, fingerprinter)
 				c.Next()
 				return
 			}
@@ -2198,9 +2260,7 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 		sink = audit.NopAuditSink{}
 	}
 	return func(c *gin.Context) {
-		actor := triageActorFromContext(c, fingerprinter)
 		ctx := audit.WithSink(c.Request.Context(), sink)
-		ctx = audit.WithActor(ctx, actor)
 
 		// Prefer upstream request IDs when present, otherwise generate a new ID.
 		if headerID := strings.TrimSpace(c.GetHeader("X-Request-Id")); headerID != "" {
@@ -2212,6 +2272,7 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 
 		start := time.Now()
 		c.Next()
+		actor := triageActorFromContext(c, fingerprinter)
 		event := audit.AuditEvent{
 			Timestamp:  time.Now().UTC(),
 			Kind:       "api_request",
@@ -2255,6 +2316,17 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
 		}
 	}
+}
+
+func setAuditActorOnRequestContext(c *gin.Context, fingerprinter *audit.Fingerprinter) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	actor := triageActorFromContext(c, fingerprinter)
+	if actor == "unknown" {
+		return
+	}
+	c.Request = c.Request.WithContext(audit.WithActor(c.Request.Context(), actor))
 }
 
 func readAPIKey(c *gin.Context) string {
