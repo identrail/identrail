@@ -553,12 +553,68 @@ func validateRepositoryHost(host string) error {
 	if zoneIndex := strings.Index(ipCandidate, "%"); zoneIndex != -1 {
 		ipCandidate = ipCandidate[:zoneIndex]
 	}
-	if ip := net.ParseIP(ipCandidate); ip != nil {
+	ip := net.ParseIP(ipCandidate)
+	if ip == nil {
+		ip = parseLegacyIPv4Host(ipCandidate)
+	}
+	if ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
 			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 		}
 	}
 	return nil
+}
+
+func parseLegacyIPv4Host(host string) net.IP {
+	parts := strings.Split(host, ".")
+	if len(parts) == 0 || len(parts) > 4 {
+		return nil
+	}
+
+	values := make([]uint64, len(parts))
+	for i, part := range parts {
+		if part == "" {
+			return nil
+		}
+		value, err := strconv.ParseUint(part, 0, 32)
+		if err != nil {
+			return nil
+		}
+		values[i] = value
+	}
+
+	var combined uint64
+	switch len(values) {
+	case 1:
+		if values[0] > 0xffffffff {
+			return nil
+		}
+		combined = values[0]
+	case 2:
+		if values[0] > 0xff || values[1] > 0xffffff {
+			return nil
+		}
+		combined = values[0]<<24 | values[1]
+	case 3:
+		if values[0] > 0xff || values[1] > 0xff || values[2] > 0xffff {
+			return nil
+		}
+		combined = values[0]<<24 | values[1]<<16 | values[2]
+	case 4:
+		for _, value := range values {
+			if value > 0xff {
+				return nil
+			}
+		}
+		combined = values[0]<<24 | values[1]<<16 | values[2]<<8 | values[3]
+	}
+
+	return net.IPv4(
+		byte(combined>>24),
+		byte(combined>>16),
+		byte(combined>>8),
+		byte(combined),
+	).To4()
 }
 
 func redactMatch(line string, value string) string {

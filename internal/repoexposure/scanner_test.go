@@ -221,6 +221,10 @@ func TestValidateCloneURL(t *testing.T) {
 		{name: "localhost fqdn host", target: "ssh://git@localhost./owner/repo.git", expectErr: true},
 		{name: "scp bracketed ipv6 loopback host", target: "git@[::1]:owner/repo.git", expectErr: true},
 		{name: "scoped ipv6 link-local host", target: "ssh://git@[fe80::1%25lo]/owner/repo.git", expectErr: true},
+		{name: "decimal loopback host", target: "ssh://git@2130706433/owner/repo.git", expectErr: true},
+		{name: "hex loopback host", target: "ssh://git@0x7f000001/owner/repo.git", expectErr: true},
+		{name: "octal dotted loopback host", target: "ssh://git@0177.0.0.1/owner/repo.git", expectErr: true},
+		{name: "short dotted loopback host", target: "ssh://git@127.1/owner/repo.git", expectErr: true},
 	}
 
 	for _, tc := range tests {
