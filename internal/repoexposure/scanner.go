@@ -28,7 +28,6 @@ const (
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
-var gitSCPTargetPattern = regexp.MustCompile(`^(?:[^@\s]+@)?([^:/\s]+):.+$`)
 
 // CommandRunner executes git commands. It is injectable for deterministic tests.
 type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -460,8 +459,8 @@ func validateCloneURL(cloneURL string) error {
 		return fmt.Errorf("insecure repository url scheme http is not allowed; use https or ssh")
 	}
 	if !strings.Contains(lower, "://") {
-		if matches := gitSCPTargetPattern.FindStringSubmatch(trimmed); len(matches) == 2 {
-			return validateRepositoryHost(matches[1])
+		if host, ok := parseGitSCPTargetHost(trimmed); ok {
+			return validateRepositoryHost(host)
 		}
 		return nil
 	}
@@ -491,6 +490,56 @@ func validateCloneURL(cloneURL string) error {
 	}
 }
 
+func parseGitSCPTargetHost(target string) (string, bool) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" || strings.ContainsAny(trimmed, " \t\r\n") {
+		return "", false
+	}
+
+	bracketDepth := 0
+	separator := -1
+	for i, r := range trimmed {
+		switch r {
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth == 0 {
+				return "", false
+			}
+			bracketDepth--
+		case ':':
+			if bracketDepth == 0 {
+				separator = i
+				break
+			}
+		}
+		if separator != -1 {
+			break
+		}
+	}
+	if bracketDepth != 0 || separator <= 0 || separator >= len(trimmed)-1 {
+		return "", false
+	}
+
+	hostPart := strings.TrimSpace(trimmed[:separator])
+	if at := strings.LastIndex(hostPart, "@"); at != -1 {
+		hostPart = strings.TrimSpace(hostPart[at+1:])
+	}
+	if hostPart == "" {
+		return "", false
+	}
+	if strings.HasPrefix(hostPart, "[") {
+		if !strings.HasSuffix(hostPart, "]") || len(hostPart) <= 2 {
+			return "", false
+		}
+		return hostPart[1 : len(hostPart)-1], true
+	}
+	if strings.ContainsAny(hostPart, "/[]") {
+		return "", false
+	}
+	return hostPart, true
+}
+
 func validateRepositoryHost(host string) error {
 	normalizedHost := strings.TrimSpace(host)
 	if normalizedHost == "" {
@@ -500,7 +549,11 @@ func validateRepositoryHost(host string) error {
 	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
 		return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 	}
-	if ip := net.ParseIP(lowerHost); ip != nil {
+	ipCandidate := lowerHost
+	if zoneIndex := strings.Index(ipCandidate, "%"); zoneIndex != -1 {
+		ipCandidate = ipCandidate[:zoneIndex]
+	}
+	if ip := net.ParseIP(ipCandidate); ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
 			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 		}

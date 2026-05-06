@@ -209,12 +209,18 @@ func TestValidateCloneURL(t *testing.T) {
 		{name: "insecure http", target: "http://github.com/owner/repo.git", expectErr: true},
 		{name: "unsupported file scheme", target: "file:///tmp/repo.git", expectErr: true},
 		{name: "credentials in https url", target: "https://token@example.com/owner/repo.git", expectErr: true},
+		{name: "credentials in ssh url", target: "ssh://git:password@example.com/owner/repo.git", expectErr: true},
 		{name: "loopback ip host", target: "https://127.0.0.1/owner/repo.git", expectErr: true},
 		{name: "private ip host", target: "https://10.0.0.8/owner/repo.git", expectErr: true},
+		{name: "link-local ip host", target: "https://169.254.169.254/owner/repo.git", expectErr: true},
+		{name: "multicast ip host", target: "https://224.0.0.1/owner/repo.git", expectErr: true},
+		{name: "unspecified ip host", target: "https://0.0.0.0/owner/repo.git", expectErr: true},
 		{name: "localhost host", target: "ssh://git@localhost/owner/repo.git", expectErr: true},
 		{name: "scp localhost host", target: "git@localhost:owner/repo.git", expectErr: true},
 		{name: "scp host without user", target: "10.0.0.8:owner/repo.git", expectErr: true},
 		{name: "localhost fqdn host", target: "ssh://git@localhost./owner/repo.git", expectErr: true},
+		{name: "scp bracketed ipv6 loopback host", target: "git@[::1]:owner/repo.git", expectErr: true},
+		{name: "scoped ipv6 link-local host", target: "ssh://git@[fe80::1%25lo]/owner/repo.git", expectErr: true},
 	}
 
 	for _, tc := range tests {
