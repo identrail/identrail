@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Reworked the homepage visual language around Identrail-owned product metaphors:
+  - replaced the ZITADEL-like hero wash and floating cards with a trust graph route map
+  - added evidence packets, blast-radius context, connector scopes, and policy diff previews
+  - changed the signal strip and homepage intro to emphasize machine identity investigation artifacts
 - Polished the public website header navigation and brand treatment:
   - renamed the primary navigation to Product, Docs, Company, Pricing, and Blog
   - removed dropdown chevrons from plain navigation links

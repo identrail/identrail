@@ -4,6 +4,7 @@ import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { CommandCenterSection } from './components/home/CommandCenterSection';
+import { HomeSignatureSection } from './components/home/HomeSignatureSection';
 import { ProblemFramingSection } from './components/home/ProblemFramingSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
@@ -1364,42 +1365,42 @@ function HomePage() {
           <div className="idt-hero-copy">
             <p className="idt-eyebrow">Machine identity trust graph</p>
             <h1>
-              Every machine identity path, clear to <span>you</span>.
+              Every machine identity path, <span>proven</span>.
             </h1>
             <p className="idt-lead idt-lead-emphasis">
-              Deployment-safe visibility for machine identity trust paths.
+              Evidence-first visibility for the routes machines use to reach production.
             </p>
             <p className="idt-lead idt-lead-body">
-              Identrail maps how AWS IAM roles, Kubernetes service accounts, GitHub workflows, and OIDC claims reach
-              sensitive resources, then turns the evidence into safe, owner-ready remediation.
+              Identrail turns AWS IAM roles, Kubernetes service accounts, GitHub workflows, and OIDC claims into a live
+              trust graph with blast-radius routes, policy diffs, and owner-ready fixes.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <Link to="/demo" className="idt-btn idt-btn-dark">
-                Book Demo
-              </Link>
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
               </a>
+              <Link to="/demo" className="idt-btn idt-btn-dark">
+                Book Demo
+              </Link>
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
               <div>
-                <dt>Collection</dt>
-                <dd>Read-only by default</dd>
+                <dt>Trust paths</dt>
+                <dd>Source to sensitive target</dd>
               </div>
               <div>
-                <dt>Coverage</dt>
-                <dd>AWS, K8s, GitHub, OIDC</dd>
+                <dt>Evidence</dt>
+                <dd>Policy, RBAC, OIDC claims</dd>
               </div>
               <div>
-                <dt>Output</dt>
-                <dd>Evidence and first fix</dd>
+                <dt>Fixes</dt>
+                <dd>Simulated before rollout</dd>
               </div>
             </dl>
             <ul className="idt-hero-trust-cues" aria-label="Evaluation trust cues">
-              <li>Open-core under Apache-2.0</li>
-              <li>Read-only onboarding model</li>
+              <li>Read-only connector scopes</li>
+              <li>Evidence packets for every finding</li>
+              <li>Policy diffs before enforcement</li>
               <li>Self-hosted and hosted paths</li>
-              <li>Public docs and release history</li>
             </ul>
           </div>
           <HeroProductReveal />
@@ -1407,6 +1408,8 @@ function HomePage() {
       </section>
 
       <TrustProofStrip />
+
+      <HomeSignatureSection />
 
       <ProblemFramingSection />
 

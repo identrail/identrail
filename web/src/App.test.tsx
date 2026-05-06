@@ -49,14 +49,14 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'Every machine identity path, clear to you.'
+        name: 'Every machine identity path, proven.'
       })
     ).toBeInTheDocument();
 
     expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Book Demo' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Trust graph paths/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Blast-radius routes/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('heading', { level: 2, name: /From connector setup to board-ready risk evidence/i })).toBeInTheDocument();
   });
 
