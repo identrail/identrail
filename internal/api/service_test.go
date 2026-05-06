@@ -1514,6 +1514,18 @@ func TestServiceRunRepoScanRejectsLocalRepositoryTarget(t *testing.T) {
 	}
 }
 
+func TestServiceRunRepoScanRejectsCredentialBearingRepositoryURL(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"*"}
+
+	_, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{
+		Repository: "https://token@example.com/org/repo.git",
+	})
+	if !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid repo scan request for credential-bearing url, got %v", err)
+	}
+}
+
 func TestSanitizeRepoScanLimit(t *testing.T) {
 	got, err := sanitizeRepoScanLimit(0, 100, 500)
 	if err != nil || got != 100 {

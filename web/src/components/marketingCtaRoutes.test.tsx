@@ -50,8 +50,8 @@ describe('marketing CTA routing', () => {
       <MemoryRouter>
         <Header
           navLinks={[
-            { to: '/product', label: 'Platform', hasMenu: true },
-            { to: '/docs', label: 'Develop', hasMenu: true }
+            { to: '/product', label: 'Product' },
+            { to: '/docs', label: 'Docs' }
           ]}
           githubRepo={siteLinks.github}
         />
@@ -62,5 +62,6 @@ describe('marketing CTA routing', () => {
     expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', siteLinks.signIn);
     expect(screen.getByRole('link', { name: 'Sign up' })).toHaveAttribute('href', siteLinks.app);
     expect(screen.getByRole('link', { name: 'Star Identrail on GitHub' })).toHaveAttribute('href', siteLinks.github);
+    expect(screen.queryByLabelText(/Loading GitHub star count/i)).not.toBeInTheDocument();
   });
 });
