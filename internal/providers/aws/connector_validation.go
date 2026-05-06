@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/Oluwatobi-Mustapha/identrail/internal/api"
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
+	api "github.com/identrail/identrail/internal/api"
+	"github.com/identrail/identrail/internal/textutil"
 )
 
 // ConnectionValidator validates AWS connector setup with read-only AWS calls.
@@ -64,7 +65,7 @@ func NewConnectionValidator(region string, profile string) *ConnectionValidator 
 
 // ValidateAWSConnection assumes the configured connector role and checks scanner-critical read permissions.
 func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request api.AWSConnectionValidationRequest) (api.AWSConnectionValidationResult, error) {
-	region := firstNonEmptyString(strings.TrimSpace(request.Region), v.region, "us-east-1")
+	region := textutil.FirstNonEmpty(strings.TrimSpace(request.Region), v.region, "us-east-1")
 	loadConfig := v.loadConfig
 	if loadConfig == nil {
 		loadConfig = loadAWSConnectorConfig
@@ -87,7 +88,7 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 
 	assumeInput := &sts.AssumeRoleInput{
 		RoleArn:         awsv2.String(result.RoleARN),
-		RoleSessionName: awsv2.String(firstNonEmptyString(strings.TrimSpace(request.SessionName), "identrail-connector-validation")),
+		RoleSessionName: awsv2.String(textutil.FirstNonEmpty(strings.TrimSpace(request.SessionName), "identrail-connector-validation")),
 	}
 	if externalID := strings.TrimSpace(request.ExternalID); externalID != "" {
 		assumeInput.ExternalId = awsv2.String(externalID)
@@ -289,13 +290,4 @@ func classifyAWSError(err error, fallback string) string {
 		}
 	}
 	return fallback
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
