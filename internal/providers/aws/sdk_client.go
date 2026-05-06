@@ -13,7 +13,7 @@ import (
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/textutil"
+	"github.com/identrail/identrail/internal/textutil"
 )
 
 const maxAWSPolicyPages = 100
