@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
+	"github.com/identrail/identrail/internal/audit"
 )
 
 type recordingAuditSink struct {
