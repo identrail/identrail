@@ -11,20 +11,12 @@ function applyInitialTheme() {
     return;
   }
 
-  const stored = (() => {
-    try {
-      return window.localStorage.getItem(THEME_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  })();
-  const preferredBySystem =
-    typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches
-      ? 'light'
-      : 'dark';
-  const preferred = stored === 'dark' || stored === 'light' ? stored : preferredBySystem;
-
-  document.documentElement.dataset.theme = preferred;
+  document.documentElement.dataset.theme = 'light';
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
+  } catch {
+    // Ignore storage write failures (blocked/disabled storage).
+  }
 }
 
 applyInitialTheme();
