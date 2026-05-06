@@ -75,6 +75,9 @@ var oidcClaimNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._:-]{0,127}$
 
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
+	if len(cfg.parseErrors) > 0 {
+		return fmt.Errorf("invalid environment configuration: %s", strings.Join(cfg.parseErrors, "; "))
+	}
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if provider == "" {
 		provider = defaultProvider
@@ -184,6 +187,9 @@ func ValidateSecurity(cfg Config) error {
 		}
 	}
 
+	if cfg.apiKeyScopesError != "" {
+		return fmt.Errorf("invalid IDENTRAIL_API_KEY_SCOPES: %s", cfg.apiKeyScopesError)
+	}
 	if len(cfg.APIKeyScopes) > 0 {
 		for key, scopes := range cfg.APIKeyScopes {
 			trimmedKey := strings.TrimSpace(key)

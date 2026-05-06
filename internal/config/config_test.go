@@ -743,11 +743,30 @@ func TestLoadAppModeFromEnv(t *testing.T) {
 }
 
 func TestParseKeyScopes(t *testing.T) {
-	scopes := parseKeyScopes("key1:read;key2:read,write;invalid;:missing")
+	scopes, parseErr := parseKeyScopes("key1:read;key2:read,write")
+	if parseErr != "" {
+		t.Fatalf("expected valid scoped keys, got %q", parseErr)
+	}
 	if len(scopes) != 2 {
 		t.Fatalf("expected 2 scoped keys, got %d", len(scopes))
 	}
 	if len(scopes["key2"]) != 2 {
 		t.Fatalf("expected key2 to have 2 scopes, got %+v", scopes["key2"])
+	}
+}
+
+func TestParseKeyScopesRejectsMalformedEntries(t *testing.T) {
+	tests := []string{
+		"key1:read;invalid",
+		":missing",
+		"key1:",
+		"key1:read;key1:write",
+	}
+	for _, test := range tests {
+		t.Run(test, func(t *testing.T) {
+			if _, parseErr := parseKeyScopes(test); parseErr == "" {
+				t.Fatal("expected malformed scoped keys to be rejected")
+			}
+		})
 	}
 }
