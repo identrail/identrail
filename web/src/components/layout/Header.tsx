@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { siteLinks } from '../../siteConfig';
+import { githubRepo as githubRepoConfig, siteLinks } from '../../siteConfig';
 import { SafeLink } from '../SafeLink';
 
 type NavLinkItem = {
@@ -8,6 +8,10 @@ type NavLinkItem = {
   label: string;
   hasMenu?: boolean;
 };
+
+function formatGitHubStars(count: number): string {
+  return String(count);
+}
 
 export function Header({
   navLinks,
@@ -17,11 +21,32 @@ export function Header({
   githubRepo: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [starCount, setStarCount] = useState<number | null>(null);
   const location = useLocation();
 
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch(`https://api.github.com/repos/${githubRepoConfig.owner}/${githubRepoConfig.name}`, {
+      signal: controller.signal,
+      headers: { Accept: 'application/vnd.github+json' }
+    })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const payload = (await response.json()) as { stargazers_count?: number };
+        return typeof payload.stargazers_count === 'number' ? payload.stargazers_count : null;
+      })
+      .then((count) => {
+        if (count !== null) setStarCount(count);
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -86,7 +111,7 @@ export function Header({
               </svg>
               Star
             </span>
-            <span className="idt-github-star-count">13702</span>
+            {starCount !== null ? <span className="idt-github-star-count">{formatGitHubStars(starCount)}</span> : null}
           </SafeLink>
           <Link to={siteLinks.signIn} className="idt-header-utility">
             Login
