@@ -52,3 +52,23 @@ func TestRelationshipResolverBuildsExpectedEdges(t *testing.T) {
 		t.Fatalf("unexpected relationship counts bound_to=%d attached_policy=%d can_access=%d", boundTo, attachedPolicy, canAccess)
 	}
 }
+
+func TestRelationshipResolverSkipsBoundToWhenIdentityMissing(t *testing.T) {
+	resolver := NewRelationshipResolver()
+	relationships, err := resolver.ResolveRelationships(context.Background(), providers.NormalizedBundle{
+		Workloads: []domain.Workload{
+			{
+				ID:     workloadID("apps", "payments-api-0"),
+				RawRef: serviceAccountID("apps", "default"),
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("resolve relationships failed: %v", err)
+	}
+	for _, relationship := range relationships {
+		if relationship.Type == domain.RelationshipBoundTo {
+			t.Fatalf("expected missing identity bound_to relationship to be skipped")
+		}
+	}
+}

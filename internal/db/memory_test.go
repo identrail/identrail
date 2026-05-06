@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -418,6 +419,60 @@ func TestMemoryStoreScanQueueLifecycle(t *testing.T) {
 	}
 	if _, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws"); err == nil {
 		t.Fatal("expected no queued scan remaining")
+	}
+}
+
+func TestMemoryStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	if _, err := store.CreateQueuedScan(defaultScopeContext(), "aws", now); err != nil {
+		t.Fatalf("create aws queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScan(defaultScopeContext(), "gcp", now.Add(time.Minute)); err != nil {
+		t.Fatalf("create gcp queued scan: %v", err)
+	}
+
+	count, err := store.CountQueuedScans(defaultScopeContext(), "")
+	if err != nil {
+		t.Fatalf("count queued scans wildcard: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected wildcard queued count 2, got %d", count)
+	}
+}
+
+func TestMemoryStoreNonPositiveLimitsUseDefaultPageSize(t *testing.T) {
+	store := NewMemoryStore()
+	base := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < 105; i++ {
+		scan, err := store.CreateScan(defaultScopeContext(), "aws", base.Add(time.Duration(i)*time.Minute))
+		if err != nil {
+			t.Fatalf("create scan %d: %v", i, err)
+		}
+		if err := store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{{
+			ID:        fmt.Sprintf("finding-%03d", i),
+			Type:      domain.FindingOwnerless,
+			Severity:  domain.SeverityHigh,
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}}); err != nil {
+			t.Fatalf("upsert finding %d: %v", i, err)
+		}
+	}
+
+	scans, err := store.ListScans(defaultScopeContext(), 0)
+	if err != nil {
+		t.Fatalf("list scans default page: %v", err)
+	}
+	if len(scans) != 100 {
+		t.Fatalf("expected default scan page size 100, got %d", len(scans))
+	}
+
+	findings, err := store.ListFindings(defaultScopeContext(), 0)
+	if err != nil {
+		t.Fatalf("list findings default page: %v", err)
+	}
+	if len(findings) != 100 {
+		t.Fatalf("expected default finding page size 100, got %d", len(findings))
 	}
 }
 
