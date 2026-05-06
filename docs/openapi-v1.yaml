@@ -1531,14 +1531,14 @@ components:
       required: false
       schema:
         type: string
-      description: Optional tenant scope override when token claims do not provide tenant context.
+      description: Optional tenant scope override when token claims do not provide tenant context. API key callers must use a key bound to the same tenant scope.
     scopeWorkspaceID:
       in: header
       name: X-Identrail-Workspace-ID
       required: false
       schema:
         type: string
-      description: Optional workspace scope override when token claims do not provide workspace context.
+      description: Optional workspace scope override when token claims do not provide workspace context. API key callers must use a key bound to the same workspace scope.
     limit:
       in: query
       name: limit

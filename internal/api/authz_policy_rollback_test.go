@@ -49,7 +49,7 @@ func TestAuthzPolicyRollbackEndpointSwitchesActiveVersionAndCountsRollback(t *te
 		DefaultTenantID:    "tenant-a",
 		DefaultWorkspaceID: "workspace-a",
 		APIKeyScopes: map[string][]string{
-			"admin-key": {scopeRead, scopeWrite, scopeAdmin},
+			"admin-key": {scopeRead, scopeWrite, scopeAdmin, "tenant:tenant-a", "workspace:workspace-a"},
 		},
 	})
 
@@ -116,8 +116,8 @@ func TestAuthzPolicyLifecycleActivateShadowEnforceRollbackIntegration(t *testing
 		DefaultTenantID:    "tenant-a",
 		DefaultWorkspaceID: "workspace-a",
 		APIKeyScopes: map[string][]string{
-			"write-key": {scopeRead, scopeWrite},
-			"admin-key": {scopeRead, scopeWrite, scopeAdmin},
+			"write-key": {scopeRead, scopeWrite, "tenant:tenant-a", "workspace:workspace-a"},
+			"admin-key": {scopeRead, scopeWrite, scopeAdmin, "tenant:tenant-a", "workspace:workspace-a"},
 		},
 	})
 
@@ -207,7 +207,7 @@ func TestAuthzPolicyRollbackEndpointReturnsInternalErrorOnTargetVersionStoreFail
 		DefaultTenantID:    "tenant-a",
 		DefaultWorkspaceID: "workspace-a",
 		APIKeyScopes: map[string][]string{
-			"admin-key": {scopeRead, scopeWrite, scopeAdmin},
+			"admin-key": {scopeRead, scopeWrite, scopeAdmin, "tenant:tenant-a", "workspace:workspace-a"},
 		},
 	})
 
@@ -250,7 +250,7 @@ func TestAuthzPolicyRollbackEndpointReturnsBadRequestWhenTargetBundleInvalid(t *
 		DefaultTenantID:    "tenant-a",
 		DefaultWorkspaceID: "workspace-a",
 		APIKeyScopes: map[string][]string{
-			"admin-key": {scopeRead, scopeWrite, scopeAdmin},
+			"admin-key": {scopeRead, scopeWrite, scopeAdmin, "tenant:tenant-a", "workspace:workspace-a"},
 		},
 	})
 
