@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { saveProductSession } from './productShell';
@@ -15,6 +15,16 @@ function makeJWT(payload: Record<string, unknown>): string {
     .replace(/\//g, '_')
     .replace(/=+$/g, '');
   return `${header}.${body}.signature`;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('App', () => {
@@ -39,7 +49,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'The control room for every machine identity path.'
+        name: 'Every machine identity path, clear to you.'
       })
     ).toBeInTheDocument();
 
@@ -166,16 +176,641 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
   });
 
-  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
+  it('routes overview onboarding into the real project selection flow', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
       workspaceID: 'workspace-a'
     });
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    render(<App />);
+
+    const selectProjectLink = await screen.findByRole('link', { name: /Select project/i });
+    expect(selectProjectLink).toHaveAttribute('href', '/app/tenant-a/workspace-a/projects');
+  });
+
+  it('lists workspace projects and links them to concrete source onboarding routes', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            tenant_id: 'tenant-a',
+            workspace_id: 'workspace-a',
+            project_id: 'project-1',
+            name: 'Production platform',
+            slug: 'production-platform',
+            description: 'Primary production boundary',
+            created_at: '2026-05-04T10:00:00Z',
+            updated_at: '2026-05-05T10:00:00Z'
+          }
+        ]
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project before connecting source data/i })).toBeInTheDocument();
+    expect(screen.getByText('Production platform')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Manage sources/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects/project-1'
+    );
+  });
+
+  it('renders tenancy-scoped connect-source wizard inside app shell', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
     window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Project detail/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Project project-1 placeholder/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Generate install link/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /AWS/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Kubernetes/i })).toBeInTheDocument();
+  });
+
+  it('ignores stale project refresh responses after route changes', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+
+    const project1GitHub = deferred<Response>();
+    const project1AWS = deferred<Response>();
+    const project1Kubernetes = deferred<Response>();
+    const project2GitHub = deferred<Response>();
+    const project2AWS = deferred<Response>();
+    const project2Kubernetes = deferred<Response>();
+
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => project1GitHub.promise)
+      .mockImplementationOnce(() => project1AWS.promise)
+      .mockImplementationOnce(() => project1Kubernetes.promise)
+      .mockImplementationOnce(() => project2GitHub.promise)
+      .mockImplementationOnce(() => project2AWS.promise)
+      .mockImplementationOnce(() => project2Kubernetes.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-2');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    project2GitHub.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'github_app',
+          connected: true,
+          account_login: 'project-2-org',
+          installation_id: 22,
+          token_reference: 'github-app-installation:22',
+          webhook_secret_reference: 'github-webhook:project-2:22',
+          webhook_secret_rotation_required: false,
+          selected_repositories: ['identrail/project-2'],
+          updated_at: '2026-05-05T10:05:00Z'
+        }
+      })
+    } as Response);
+    project2AWS.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'aws',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          external_id_configured: false,
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+    project2Kubernetes.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'kubernetes',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-2/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Account project-2-org/i)).toBeInTheDocument();
+
+    project1GitHub.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'github_app',
+          connected: true,
+          account_login: 'project-1-org',
+          installation_id: 11,
+          token_reference: 'github-app-installation:11',
+          webhook_secret_reference: 'github-webhook:project-1:11',
+          webhook_secret_rotation_required: false,
+          selected_repositories: ['identrail/project-1'],
+          updated_at: '2026-05-05T09:55:00Z'
+        }
+      })
+    } as Response);
+    project1AWS.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'aws',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          external_id_configured: false,
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+    project1Kubernetes.resolve({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'kubernetes',
+          connected: false,
+          status: 'pending',
+          health_status: 'unknown',
+          permission_checks: [],
+          diagnostics: []
+        }
+      })
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Account project-1-org/i)).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(/Account project-2-org/i)).toBeInTheDocument();
+  });
+
+  it('ignores stale connector submit responses after project navigation', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+
+    let staleAWSResponseParsed = false;
+    const staleAWSSubmit = deferred<Response>();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockImplementationOnce(() => staleAWSSubmit.promise)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /AWS/i }));
+    fireEvent.change(screen.getByLabelText('Role ARN'), {
+      target: { value: 'arn:aws:iam::123456789012:role/IdentrailReadOnly' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Validate and save AWS/i }));
+
+    await act(async () => {
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-2');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-2/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Refresh status/i })).not.toBeDisabled();
+    });
+    expect(screen.getByRole('button', { name: /Validate and save AWS/i })).not.toBeDisabled();
+
+    await act(async () => {
+      staleAWSSubmit.resolve({
+        ok: true,
+        json: async () => {
+          staleAWSResponseParsed = true;
+          return {
+            connection: {
+              provider: 'aws',
+              connected: true,
+              status: 'active',
+              health_status: 'healthy',
+              role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+              external_id_configured: false,
+              permission_checks: [],
+              diagnostics: []
+            }
+          };
+        }
+      } as Response);
+      await staleAWSSubmit.promise;
+    });
+
+    await waitFor(() => {
+      expect(staleAWSResponseParsed).toBe(true);
+    });
+
+    expect(screen.queryByText(/AWS connector is active\./i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Validate and save AWS/i })).not.toBeDisabled();
+  });
+
+  it('validates and saves an AWS source from the connect-source wizard', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: true,
+            status: 'active',
+            health_status: 'healthy',
+            role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+            external_id_configured: true,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            permission_checks: [{ name: 'sts:AssumeRole', passed: true, message: 'Role assumption succeeded.' }],
+            diagnostics: [],
+            last_validated_at: '2026-05-05T10:00:00Z'
+          }
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /AWS/i }));
+    fireEvent.change(screen.getByLabelText('Role ARN'), {
+      target: { value: 'arn:aws:iam::123456789012:role/IdentrailReadOnly' }
+    });
+    fireEvent.change(screen.getByLabelText('External ID'), { target: { value: 'external-prod' } });
+    fireEvent.click(screen.getByRole('button', { name: /Validate and save AWS/i }));
+
+    expect(await screen.findByText(/AWS connector is active/i)).toBeInTheDocument();
+    const postCall = fetchMock.mock.calls.find(([url, options]) => {
+      return typeof url === 'string' && url.includes('/projects/project-1/aws/connection') && options?.method === 'POST';
+    });
+    expect(postCall).toBeDefined();
+    expect(postCall?.[1]?.body).toContain('external-prod');
+  });
+
+  it('starts and completes a GitHub source from the connect-source wizard', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            state: 'state-123',
+            connect_url: 'https://github.com/apps/identrail/installations/new?state=state-123',
+            expires_at: '2026-05-05T10:10:00Z'
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: true,
+            account_login: 'identrail',
+            installation_id: 77,
+            token_reference: 'github-app-installation:77',
+            webhook_secret_reference: 'github-webhook:project-1:77',
+            webhook_secret_rotation_required: false,
+            selected_repositories: ['identrail/identrail'],
+            updated_at: '2026-05-05T10:05:00Z'
+          }
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Generate install link/i }));
+    expect(await screen.findByText(/GitHub installation link generated/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open GitHub/i })).toHaveAttribute('href', expect.stringContaining('state-123'));
+
+    fireEvent.change(screen.getByLabelText('Installation ID'), { target: { value: '77' } });
+    fireEvent.change(screen.getByLabelText('Account login'), { target: { value: 'identrail' } });
+    fireEvent.change(screen.getByLabelText('Selected repositories'), { target: { value: 'Identrail/Identrail' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save GitHub connection/i }));
+
+    expect(await screen.findByText(/GitHub connection saved/i)).toBeInTheDocument();
+    const completeCall = fetchMock.mock.calls.find(([url, options]) => {
+      return typeof url === 'string' && url.includes('/projects/project-1/github/connect/complete') && options?.method === 'POST';
+    });
+    expect(completeCall).toBeDefined();
+    expect(completeCall?.[1]?.body).toContain('"selected_repositories":["identrail/identrail"]');
+  });
+
+  it('runs Kubernetes preflight from the connect-source wizard', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'pending',
+            health_status: 'unknown',
+            permission_checks: [],
+            diagnostics: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connection: {
+            provider: 'kubernetes',
+            connected: true,
+            status: 'active',
+            health_status: 'healthy',
+            display_name: 'Production cluster',
+            context: 'prod',
+            cluster: 'prod-cluster',
+            server: 'https://kubernetes.example.test',
+            permission_checks: [
+              {
+                verb: 'list',
+                resource: 'pods',
+                scope: 'cluster',
+                allowed: true
+              }
+            ],
+            diagnostics: [],
+            last_validated_at: '2026-05-05T10:00:00Z'
+          }
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Kubernetes/i }));
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production cluster' } });
+    fireEvent.change(screen.getByLabelText('kubectl context'), { target: { value: 'prod' } });
+    fireEvent.click(screen.getByRole('button', { name: /Run preflight and save/i }));
+
+    expect(await screen.findByText(/Kubernetes connector is active/i)).toBeInTheDocument();
+    expect(screen.getByText(/prod-cluster/i)).toBeInTheDocument();
+    const postCall = fetchMock.mock.calls.find(([url, options]) => {
+      return typeof url === 'string' && url.includes('/projects/project-1/kubernetes/connection') && options?.method === 'POST';
+    });
+    expect(postCall).toBeDefined();
+    expect(postCall?.[1]?.body).toContain('"context":"prod"');
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {
