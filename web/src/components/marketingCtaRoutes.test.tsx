@@ -45,22 +45,22 @@ describe('marketing CTA routing', () => {
     expect(screen.getByRole('link', { name: /Read the Docs/i })).toHaveAttribute('href', siteLinks.docs);
   });
 
-  it('keeps explicit sign-in actions mapped to /app/login', () => {
+  it('keeps explicit login actions mapped to /app/login', () => {
     render(
       <MemoryRouter>
         <Header
           navLinks={[
-            { to: '/product', label: 'Product' },
-            { to: '/docs', label: 'Docs' }
+            { to: '/product', label: 'Platform', hasMenu: true },
+            { to: '/docs', label: 'Develop', hasMenu: true }
           ]}
           githubRepo={siteLinks.github}
-          theme="dark"
-          onToggleTheme={() => undefined}
         />
       </MemoryRouter>
     );
 
     expect(siteLinks.signIn).toBe('/app/login');
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', siteLinks.signIn);
+    expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', siteLinks.signIn);
+    expect(screen.getByRole('link', { name: 'Sign up' })).toHaveAttribute('href', siteLinks.app);
+    expect(screen.getByRole('link', { name: 'Star Identrail on GitHub' })).toHaveAttribute('href', siteLinks.github);
   });
 });

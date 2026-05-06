@@ -52,35 +52,11 @@ const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 const THEME_STORAGE_KEY = 'identrail-theme';
 let activeModalLocks = 0;
 let bodyOverflowBeforeModal = '';
-type ThemeMode = 'dark' | 'light';
-
-function resolveInitialTheme(): ThemeMode {
-  if (typeof window === 'undefined') {
-    return 'dark';
-  }
-
-  let stored: string | null = null;
-  try {
-    stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  } catch {
-    stored = null;
-  }
-  if (stored === 'dark' || stored === 'light') {
-    return stored;
-  }
-
-  if (typeof window.matchMedia === 'function') {
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  }
-
-  return 'dark';
-}
 
 const NAV_LINKS = [
-  { to: '/product', label: 'Product' },
-  { to: '/solutions', label: 'Solutions' },
-  { to: '/demo', label: 'Demo' },
-  { to: '/docs', label: 'Docs' },
+  { to: '/product', label: 'Platform', hasMenu: true },
+  { to: '/docs', label: 'Develop', hasMenu: true },
+  { to: '/about', label: 'Company', hasMenu: true },
   { to: '/pricing', label: 'Pricing' },
   { to: '/blog', label: 'Blog' }
 ] as const;
@@ -1387,18 +1363,23 @@ function HomePage() {
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
             <p className="idt-eyebrow">Machine identity trust graph</p>
-            <h1>The control room for every machine identity path.</h1>
-            <p className="idt-lead">
+            <h1>
+              Every machine identity path, clear to <span>you</span>.
+            </h1>
+            <p className="idt-lead idt-lead-emphasis">
+              Deployment-safe visibility for machine identity trust paths.
+            </p>
+            <p className="idt-lead idt-lead-body">
               Identrail maps how AWS IAM roles, Kubernetes service accounts, GitHub workflows, and OIDC claims reach
               sensitive resources, then turns the evidence into safe, owner-ready remediation.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
-                Start Free Risk Scan
-              </a>
               <Link to="/demo" className="idt-btn idt-btn-dark">
                 Book Demo
               </Link>
+              <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
+                Start Free Risk Scan
+              </a>
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
               <div>
@@ -2953,17 +2934,16 @@ function NotFoundPage() {
 export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
-  const [theme, setTheme] = useState<ThemeMode>(resolveInitialTheme);
   const isProductShellRoute = location.pathname.startsWith('/app');
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.theme = 'light';
     try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+      window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
     } catch {
       // Ignore storage write failures (blocked/disabled storage).
     }
-  }, [theme]);
+  }, []);
 
   return (
     <div className="idt-site">
@@ -2975,8 +2955,6 @@ export function RoutedSite() {
         <Header
           navLinks={NAV_LINKS}
           githubRepo={GITHUB_REPO}
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
         />
       ) : null}
 
