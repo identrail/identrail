@@ -1,30 +1,52 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { siteLinks } from '../../siteConfig';
+import { githubRepo as githubRepoConfig, siteLinks } from '../../siteConfig';
 import { SafeLink } from '../SafeLink';
 
 type NavLinkItem = {
   to: string;
   label: string;
+  hasMenu?: boolean;
 };
+
+function formatGitHubStars(count: number): string {
+  return String(count);
+}
 
 export function Header({
   navLinks,
-  githubRepo,
-  theme,
-  onToggleTheme
+  githubRepo
 }: {
   navLinks: readonly NavLinkItem[];
   githubRepo: string;
-  theme: 'dark' | 'light';
-  onToggleTheme: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [starCount, setStarCount] = useState<number | null>(null);
   const location = useLocation();
 
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch(`https://api.github.com/repos/${githubRepoConfig.owner}/${githubRepoConfig.name}`, {
+      signal: controller.signal,
+      headers: { Accept: 'application/vnd.github+json' }
+    })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const payload = (await response.json()) as { stargazers_count?: number };
+        return typeof payload.stargazers_count === 'number' ? payload.stargazers_count : null;
+      })
+      .then((count) => {
+        if (count !== null) setStarCount(count);
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -72,49 +94,31 @@ export function Header({
               className={({ isActive }) => (isActive ? 'is-active' : '')}
               onClick={() => setMenuOpen(false)}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.hasMenu ? <span className="idt-nav-chevron" aria-hidden="true" /> : null}
             </NavLink>
           ))}
         </nav>
 
         <div className={`idt-header-actions ${menuOpen ? 'is-open' : ''}`}>
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
-            Start Free Risk Scan
+          <SafeLink href={githubRepo} className="idt-github-star" aria-label="Star Identrail on GitHub">
+            <span className="idt-github-star-action">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M8 0C3.58 0 0 3.67 0 8.2c0 3.63 2.29 6.71 5.47 7.8.4.08.55-.18.55-.4 0-.2-.01-.86-.01-1.56-2.01.38-2.53-.5-2.69-.95-.09-.23-.48-.95-.82-1.14-.28-.16-.68-.55-.01-.56.63-.01 1.08.59 1.23.83.72 1.24 1.87.89 2.33.68.07-.53.28-.89.51-1.1-1.78-.21-3.64-.91-3.64-4.04 0-.89.31-1.62.82-2.2-.08-.2-.36-1.03.08-2.16 0 0 .67-.22 2.2.84A7.43 7.43 0 0 1 8 3.96c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.13.16 1.96.08 2.16.51.58.82 1.31.82 2.2 0 3.14-1.87 3.83-3.65 4.04.29.25.54.74.54 1.5 0 1.1-.01 1.98-.01 2.25 0 .22.15.49.55.4A8.12 8.12 0 0 0 16 8.2C16 3.67 12.42 0 8 0Z"
+                />
+              </svg>
+              Star
+            </span>
+            {starCount !== null ? <span className="idt-github-star-count">{formatGitHubStars(starCount)}</span> : null}
+          </SafeLink>
+          <Link to={siteLinks.signIn} className="idt-header-utility">
+            Login
           </Link>
-          <Link to="/demo" className="idt-btn idt-btn-dark">
-            Book Demo
+          <Link to={siteLinks.app} className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
+            Sign up
           </Link>
-          <div className="idt-header-utility-group">
-            <Link to={siteLinks.signIn} className="idt-header-utility">
-              Sign in
-            </Link>
-            <SafeLink href={githubRepo} className="idt-header-utility">
-              GitHub
-            </SafeLink>
-            <button
-              type="button"
-              className={`idt-theme-toggle ${theme === 'light' ? 'is-light' : ''}`}
-              onClick={onToggleTheme}
-              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? (
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M12 4.5a1 1 0 0 1 1 1V7a1 1 0 1 1-2 0V5.5a1 1 0 0 1 1-1Zm0 12a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V17.5a1 1 0 0 1 1-1ZM6.34 6.34a1 1 0 0 1 1.41 0L8.8 7.39A1 1 0 0 1 7.39 8.8L6.34 7.75a1 1 0 0 1 0-1.41Zm8.86 8.86a1 1 0 0 1 1.41 0l1.05 1.05a1 1 0 0 1-1.41 1.41L15.2 16.6a1 1 0 0 1 0-1.4ZM4.5 12a1 1 0 0 1 1-1H7a1 1 0 0 1 0 2H5.5a1 1 0 0 1-1-1Zm12.5 0a1 1 0 0 1 1-1h1.5a1 1 0 1 1 0 2H18a1 1 0 0 1-1-1ZM7.39 15.2A1 1 0 1 1 8.8 16.6l-1.05 1.06a1 1 0 0 1-1.41-1.42l1.05-1.05Zm8.86-8.86a1 1 0 1 1 1.42 1.41L16.6 8.8a1 1 0 1 1-1.4-1.41l1.05-1.05ZM12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z"
-                  />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M21.2 14.97A8.94 8.94 0 0 1 9.03 2.8a.75.75 0 0 0-.92-.95A10.5 10.5 0 1 0 22.15 15.9a.75.75 0 0 0-.95-.92Z"
-                  />
-                </svg>
-              )}
-            </button>
-          </div>
         </div>
       </div>
     </header>

@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added a project connect-source wizard in the authenticated web app:
+  - guided GitHub, AWS, and Kubernetes source onboarding from the project detail route
+  - wired live connection status, validation, retry, and remediation feedback to existing project-scoped connector APIs
+  - added UI and API-client regression coverage for first-source onboarding
 - Hardened connector secret storage and rotation:
   - encrypted GitHub webhook secrets with versioned AES-256-GCM envelopes instead of retaining plaintext service state
   - added a webhook-secret rotation endpoint with audit events and status metadata for key version, algorithm, and rotation due date
