@@ -28,6 +28,20 @@ const (
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+var repositorySharedAddressRange = mustParseCIDR("100.64.0.0/10")
+var repositoryHostLookupIPs = func(ctx context.Context, host string) ([]net.IP, error) {
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	ips := make([]net.IP, 0, len(addrs))
+	for _, addr := range addrs {
+		if addr.IP != nil {
+			ips = append(ips, addr.IP)
+		}
+	}
+	return ips, nil
+}
 
 // CommandRunner executes git commands. It is injectable for deterministic tests.
 type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -558,11 +572,38 @@ func validateRepositoryHost(host string) error {
 		ip = parseLegacyIPv4Host(ipCandidate)
 	}
 	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+		if isBlockedRepositoryIP(ip) {
+			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+		}
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	resolvedIPs, err := repositoryHostLookupIPs(ctx, lowerHost)
+	if err != nil {
+		return nil
+	}
+	for _, resolvedIP := range resolvedIPs {
+		if isBlockedRepositoryIP(resolvedIP) {
 			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 		}
 	}
 	return nil
+}
+
+func isBlockedRepositoryIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified() ||
+		repositorySharedAddressRange.Contains(ip)
 }
 
 func parseLegacyIPv4Host(host string) net.IP {
@@ -615,6 +656,14 @@ func parseLegacyIPv4Host(host string) net.IP {
 		byte(combined>>8),
 		byte(combined),
 	).To4()
+}
+
+func mustParseCIDR(raw string) *net.IPNet {
+	_, network, err := net.ParseCIDR(raw)
+	if err != nil {
+		panic(err)
+	}
+	return network
 }
 
 func redactMatch(line string, value string) string {
