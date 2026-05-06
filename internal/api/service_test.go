@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/app"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/repoexposure"
+	"github.com/identrail/identrail/internal/scheduler"
 )
 
 type fakeScanner struct {
@@ -1511,6 +1511,18 @@ func TestServiceRunRepoScanRejectsLocalRepositoryTarget(t *testing.T) {
 
 	if _, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{Repository: repo}); !errors.Is(err, ErrRepoTargetNotAllowed) {
 		t.Fatalf("expected local repo target rejection, got %v", err)
+	}
+}
+
+func TestServiceRunRepoScanRejectsCredentialBearingRepositoryURL(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"*"}
+
+	_, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{
+		Repository: "https://token@example.com/org/repo.git",
+	})
+	if !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid repo scan request for credential-bearing url, got %v", err)
 	}
 }
 
