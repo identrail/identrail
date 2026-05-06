@@ -292,12 +292,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortFindings(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/findings/summary", func(c *gin.Context) {
@@ -454,12 +449,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortIdentities(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/relationships", func(c *gin.Context) {
@@ -488,12 +478,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortRelationships(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/ownership/signals", func(c *gin.Context) {
@@ -519,12 +504,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortOwnershipSignals(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/scans", func(c *gin.Context) {
@@ -538,12 +518,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortScans(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/scans/:scan_id/diff", func(c *gin.Context) {
@@ -598,12 +573,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortScanEvents(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/repo-scans", func(c *gin.Context) {
@@ -617,12 +587,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortRepoScans(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/repo-scans/:repo_scan_id", func(c *gin.Context) {
@@ -672,12 +637,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortFindings(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/scans", func(c *gin.Context) {
@@ -819,12 +779,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		sortWorkspaces(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/workspaces", func(c *gin.Context) {
@@ -1013,12 +968,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		sortWorkspaceMembers(items)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/workspaces/:workspace_id/members", func(c *gin.Context) {
@@ -1111,12 +1061,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		sortProjects(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/workspaces/:workspace_id/projects", func(c *gin.Context) {
@@ -1864,6 +1809,15 @@ func pageWithCursor[T any](items []T, offset int, limit int) ([]T, string) {
 		next = strconv.Itoa(end)
 	}
 	return items[offset:end], next
+}
+
+func paginatedItemsResponse[T any](items []T, offset int, limit int) gin.H {
+	page, next := pageWithCursor(items, offset, limit)
+	response := gin.H{"items": page}
+	if next != "" {
+		response["next_cursor"] = next
+	}
+	return response
 }
 
 func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) gin.HandlerFunc {
