@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 // HealthStatus normalizes provider-specific connection health into one shared model.
