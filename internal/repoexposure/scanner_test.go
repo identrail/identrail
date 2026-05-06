@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 const testSecretValue = "ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234"
