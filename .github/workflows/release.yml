@@ -74,6 +74,8 @@ jobs:
     name: Release Qualification
     needs: prepare
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 40
     env:
       CI_POSTGRES_PASSWORD: release-pg-${{ github.run_id }}-${{ github.run_attempt }}
