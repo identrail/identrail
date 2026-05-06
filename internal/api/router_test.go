@@ -1665,7 +1665,7 @@ func TestParseLimit(t *testing.T) {
 }
 
 func TestRouterEmitsAuditLog(t *testing.T) {
-	core, observed := observer.New(zap.InfoLevel)
+	core, observed := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 	metrics := telemetry.NewMetrics()
 	r := NewRouter(logger, metrics, nil, RouterOptions{})
