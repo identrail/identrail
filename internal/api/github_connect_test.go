@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 
