@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
+	"github.com/identrail/identrail/internal/db"
 )
 
 func defaultScopeContext() context.Context {
