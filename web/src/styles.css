@@ -7226,6 +7226,7 @@ html[data-theme='light'] .idt-header,
   background: rgba(255, 255, 255, 0.92);
   border-bottom: 1px solid rgba(21, 25, 34, 0.08);
   backdrop-filter: blur(16px);
+  box-shadow: 0 10px 30px rgba(21, 25, 34, 0.045);
 }
 
 .idt-header-row {
@@ -7252,12 +7253,17 @@ html[data-theme='light'] .idt-header,
 }
 
 .idt-brand span {
+  font-family: var(--idt-nav-font);
   color: #151922;
-  font-size: 1.02rem;
-  font-weight: 500;
-  letter-spacing: 0.44em;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   line-height: 1;
   text-transform: uppercase;
+}
+
+.idt-brand small {
+  display: none;
 }
 
 .idt-nav {
@@ -7266,6 +7272,7 @@ html[data-theme='light'] .idt-header,
 }
 
 .idt-nav a {
+  position: relative;
   min-height: 42px;
   padding: 0;
   display: inline-flex;
@@ -7274,11 +7281,28 @@ html[data-theme='light'] .idt-header,
   border: 0;
   border-radius: 0;
   color: #5d6370;
-  font-size: 0.95rem;
-  font-weight: 400;
+  font-family: var(--idt-nav-font);
+  font-size: 0.94rem;
+  font-weight: 500;
   letter-spacing: 0;
   line-height: 1;
   text-transform: none;
+  transition: color 160ms ease;
+}
+
+.idt-nav a::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0.48rem;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: #742bdc;
+  opacity: 0;
+  transform: scaleX(0.4);
+  transform-origin: center;
+  transition: opacity 160ms ease, transform 160ms ease;
 }
 
 html[data-theme='light'] .idt-nav a:hover,
@@ -7291,13 +7315,11 @@ html[data-theme='light'] .idt-nav a.is-active,
   color: #151922;
 }
 
-.idt-nav-chevron {
-  width: 0.42rem;
-  height: 0.42rem;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: translateY(-0.12rem) rotate(45deg);
-  opacity: 0.72;
+.idt-nav a:hover::after,
+.idt-nav a:focus-visible::after,
+.idt-nav a.is-active::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .idt-header-actions {
@@ -7306,6 +7328,7 @@ html[data-theme='light'] .idt-nav a.is-active,
 }
 
 .idt-github-star {
+  font-family: var(--idt-nav-font);
   min-height: 40px;
   display: inline-flex;
   align-items: center;
@@ -7316,6 +7339,14 @@ html[data-theme='light'] .idt-nav a.is-active,
   color: #090b10;
   text-decoration: none;
   box-shadow: 0 8px 18px rgba(21, 25, 34, 0.04);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.idt-github-star:hover,
+.idt-github-star:focus-visible {
+  border-color: rgba(116, 43, 220, 0.28);
+  box-shadow: 0 10px 24px rgba(21, 25, 34, 0.08);
+  transform: translateY(-1px);
 }
 
 .idt-github-star-action,
@@ -7342,18 +7373,32 @@ html[data-theme='light'] .idt-nav a.is-active,
 .idt-github-star-count {
   border-left: 1px solid rgba(21, 25, 34, 0.1);
   background: #ffffff;
+  min-width: 2.45rem;
+}
+
+.idt-github-star-count.is-loading {
+  color: rgba(21, 25, 34, 0.42);
 }
 
 .idt-header-utility {
+  font-family: var(--idt-nav-font);
   min-height: 40px;
   display: inline-flex;
   align-items: center;
   color: #5d6370;
   font-size: 0.94rem;
-  font-weight: 400;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 160ms ease;
+}
+
+.idt-header-utility:hover,
+.idt-header-utility:focus-visible {
+  color: #151922;
 }
 
 .idt-header-actions .idt-btn {
+  font-family: var(--idt-nav-font);
   min-height: 40px;
   border-radius: 7px;
   padding: 0.52rem 1.1rem;
@@ -7667,6 +7712,14 @@ html[data-theme='light'] .idt-trust-strip,
     border-bottom: 1px solid rgba(21, 25, 34, 0.08);
   }
 
+  .idt-nav a::after {
+    right: auto;
+    bottom: 0.8rem;
+    left: 0;
+    width: 22px;
+    transform-origin: left;
+  }
+
   .idt-header-actions {
     display: none;
   }
@@ -7693,7 +7746,7 @@ html[data-theme='light'] .idt-trust-strip,
 @media (max-width: 720px) {
   .idt-brand span {
     font-size: 0.9rem;
-    letter-spacing: 0.3em;
+    letter-spacing: 0.08em;
   }
 
   .idt-brand img {
@@ -7742,6 +7795,39 @@ html[data-theme='light'] .idt-trust-strip,
 
   .idt-logo-cloud-track span {
     font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .idt-header-row {
+    position: relative;
+    width: min(100% - 1rem, 1080px);
+    gap: 0.6rem;
+  }
+
+  .idt-brand {
+    gap: 0.5rem;
+  }
+
+  .idt-menu-toggle {
+    position: fixed;
+    top: 12px;
+    right: 0.75rem;
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 50%;
+    padding: 0;
+    z-index: 180;
+  }
+
+  .idt-menu-toggle-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 }
 

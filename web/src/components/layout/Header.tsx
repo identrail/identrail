@@ -6,7 +6,6 @@ import { SafeLink } from '../SafeLink';
 type NavLinkItem = {
   to: string;
   label: string;
-  hasMenu?: boolean;
 };
 
 function formatGitHubStars(count: number): string {
@@ -68,10 +67,7 @@ export function Header({
       <div className="idt-shell idt-header-row">
         <Link to="/" className="idt-brand" aria-label="Identrail homepage">
           <img src="/identrail-logo.png" width="32" height="32" alt="Identrail" decoding="async" />
-          <span>
-            Identrail
-            <small>Machine Identity Security</small>
-          </span>
+          <span>IDENTRAIL</span>
         </Link>
 
         <button
@@ -95,7 +91,6 @@ export function Header({
               onClick={() => setMenuOpen(false)}
             >
               <span>{item.label}</span>
-              {item.hasMenu ? <span className="idt-nav-chevron" aria-hidden="true" /> : null}
             </NavLink>
           ))}
         </nav>
@@ -111,7 +106,12 @@ export function Header({
               </svg>
               Star
             </span>
-            {starCount !== null ? <span className="idt-github-star-count">{formatGitHubStars(starCount)}</span> : null}
+            <span
+              className={`idt-github-star-count ${starCount === null ? 'is-loading' : ''}`}
+              aria-label={starCount === null ? 'Loading GitHub star count' : `${formatGitHubStars(starCount)} GitHub stars`}
+            >
+              {starCount === null ? '...' : formatGitHubStars(starCount)}
+            </span>
           </SafeLink>
           <Link to={siteLinks.signIn} className="idt-header-utility">
             Login

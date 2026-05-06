@@ -54,9 +54,9 @@ let activeModalLocks = 0;
 let bodyOverflowBeforeModal = '';
 
 const NAV_LINKS = [
-  { to: '/product', label: 'Platform', hasMenu: true },
-  { to: '/docs', label: 'Develop', hasMenu: true },
-  { to: '/about', label: 'Company', hasMenu: true },
+  { to: '/product', label: 'Product' },
+  { to: '/docs', label: 'Docs' },
+  { to: '/about', label: 'Company' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/blog', label: 'Blog' }
 ] as const;

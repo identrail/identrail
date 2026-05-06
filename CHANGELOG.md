@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Polished the public website header navigation and brand treatment:
+  - renamed the primary navigation to Product, Docs, Company, Pricing, and Blog
+  - removed dropdown chevrons from plain navigation links
+  - tightened the IDENTRAIL wordmark and applied Geist typography to the header controls
 - Added a project connect-source wizard in the authenticated web app:
   - guided GitHub, AWS, and Kubernetes source onboarding from the project detail route
   - wired live connection status, validation, retry, and remediation feedback to existing project-scoped connector APIs

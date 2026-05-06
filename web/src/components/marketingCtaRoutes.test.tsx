@@ -50,8 +50,8 @@ describe('marketing CTA routing', () => {
       <MemoryRouter>
         <Header
           navLinks={[
-            { to: '/product', label: 'Platform', hasMenu: true },
-            { to: '/docs', label: 'Develop', hasMenu: true }
+            { to: '/product', label: 'Product' },
+            { to: '/docs', label: 'Docs' }
           ]}
           githubRepo={siteLinks.github}
         />
