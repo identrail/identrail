@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 // MemoryStore is a concurrency-safe in-memory persistence adapter.

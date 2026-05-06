@@ -19,8 +19,10 @@ Edit `deploy/docker/.env` and set at minimum:
 - `IDENTRAIL_WRITE_API_KEYS` with write-capable keys
 - `IDENTRAIL_POSTGRES_PASSWORD` with a strong database password
 - `IDENTRAIL_API_KEY_SCOPES` (required for this quickstart), for example:
-  - `IDENTRAIL_API_KEY_SCOPES=<reader-key>:read;<writer-key>:read,write;<admin-key>:read,write,admin`
+  - `IDENTRAIL_API_KEY_SCOPES=<reader-key>:read,tenant:tenant-a,workspace:workspace-a;<writer-key>:read,write,tenant:tenant-a,workspace:workspace-a;<admin-key>:read,write,admin,tenant:tenant-a,workspace:workspace-a`
 - `IDENTRAIL_AUDIT_LOG_FILE=/tmp/identrail-audit.jsonl`
+
+Scoped API key bindings are enforced before tenant/workspace headers are accepted. For API key callers, `X-Identrail-Tenant-ID` and `X-Identrail-Workspace-ID` must match the key binding metadata.
 
 Optional hardening:
 - `IDENTRAIL_AUDIT_FORWARD_URL=https://audit.example.com/events`
