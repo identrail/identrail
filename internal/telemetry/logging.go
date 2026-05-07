@@ -20,3 +20,15 @@ func ZapError(err error) zap.Field {
 func String(key, val string) zap.Field {
 	return zap.String(key, val)
 }
+
+// StandardLogFields returns the baseline fields every structured operational log
+// should carry so API, worker, and scanner logs remain easy to correlate.
+func StandardLogFields(component string, operation string, fields ...zap.Field) []zap.Field {
+	result := make([]zap.Field, 0, 2)
+	result = append(result,
+		zap.String("component", component),
+		zap.String("operation", operation),
+	)
+	result = append(result, fields...)
+	return result
+}

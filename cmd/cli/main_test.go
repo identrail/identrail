@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
+	"github.com/identrail/identrail/internal/config"
 )
 
 func TestRunCallsExecute(t *testing.T) {
