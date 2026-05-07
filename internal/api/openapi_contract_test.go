@@ -183,7 +183,7 @@ func TestOpenAPIV1SpecDocumentsRepresentativeErrorResponses(t *testing.T) {
 		required []string
 	}{
 		{path: "/v1/findings", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
-		{path: "/v1/scans", method: "post", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"403":`, `#/components/responses/Forbidden`, `"429":`, `#/components/responses/TooManyRequests`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/scans", method: "post", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"403":`, `#/components/responses/Forbidden`, `"429":`, `#/components/responses/TooManyRequests`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
 		{path: "/v1/scans/{scan_id}/diff", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
 		{path: "/v1/scans/{scan_id}/events", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
 		{path: "/v1/identities", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
