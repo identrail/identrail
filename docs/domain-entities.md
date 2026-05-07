@@ -79,6 +79,6 @@ This document defines the normalized multi-tenant app-mode entities introduced f
   - `tenancy_connector_secret_envelopes`
   - `tenancy_scan_policies`
 
-Connector credential material is stored only in encrypted envelope rows (`tenancy_connector_secret_envelopes`), never as plaintext in connector state records.
+Connector credential material is never stored in plaintext. In current GitHub connector behavior, encrypted webhook material remains in the service runtime connection cache, and the migration for `tenancy_connector_secret_envelopes` is present but not yet wired as a write path for this flow.
 
 Referential integrity is enforced in migrations so connector/policy rows cannot outlive their workspace/project scope.
