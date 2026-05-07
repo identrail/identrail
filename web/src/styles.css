@@ -8722,3 +8722,426 @@ html[data-theme='light'] .idt-page-hero-visual .idt-blog-hero-featured h3 {
     min-height: 300px;
   }
 }
+
+/* Homepage hero and Browserbase-style nav pass. */
+html[data-theme='light'] .idt-hero,
+.idt-hero {
+  background:
+    linear-gradient(90deg, #ffffff 0%, #ffffff 41%, rgba(255, 255, 255, 0) 41%),
+    linear-gradient(112deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0) 35%, #ffecdf 35%, #fff5ed 70%, #f5efff 100%);
+}
+
+@media (min-width: 1181px) {
+  .idt-hero-grid {
+    width: min(100% - 3rem, 1280px);
+    grid-template-columns: minmax(380px, 0.72fr) minmax(640px, 1.28fr);
+    gap: clamp(2.2rem, 3.4vw, 4rem);
+  }
+
+  .idt-hero-copy {
+    transform: translateX(clamp(-1.7rem, -2vw, -0.8rem));
+  }
+
+  .idt-hero-product-stage {
+    transform: translateX(0);
+  }
+}
+
+.idt-hero-copy h1 {
+  max-width: 12.4ch;
+  font-size: clamp(3.9rem, 5vw, 5.08rem);
+  font-weight: 360;
+  line-height: 1.06;
+}
+
+.idt-lead-emphasis {
+  margin-top: 2.05rem;
+}
+
+.idt-lead-body {
+  margin-top: 1.65rem;
+}
+
+.idt-hero-admin-window {
+  right: -88px;
+  width: 760px;
+}
+
+.idt-hero-login-card {
+  left: 54px;
+}
+
+.idt-admin-profile-row strong {
+  font-size: 1.04rem;
+}
+
+.idt-admin-field-grid span {
+  font-size: 0.78rem;
+  line-height: 1.28;
+}
+
+.idt-hero-login-card h3 {
+  font-size: 1.05rem;
+}
+
+.idt-hero-login-card p {
+  max-width: 24ch;
+  margin-inline: auto;
+}
+
+html[data-theme='light'] .idt-trust-strip,
+.idt-trust-strip {
+  min-height: 128px;
+  display: grid;
+  align-content: center;
+  gap: 0.75rem;
+  padding: 1.15rem 0 1.35rem;
+}
+
+.idt-trust-strip .idt-logo-cloud-label {
+  width: min(100% - 2rem, var(--idt-shell));
+  margin: 0 auto;
+  color: rgba(21, 25, 34, 0.52);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.idt-logo-cloud {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 7%, #000 93%, transparent 100%);
+}
+
+.idt-logo-cloud-track {
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+  gap: clamp(2rem, 4.4vw, 4.6rem);
+  animation: idtLogoCloudSlide 34s linear infinite;
+  will-change: transform;
+}
+
+.idt-logo-cloud-track .idt-logo-cloud-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.72rem;
+  color: rgba(21, 25, 34, 0.34);
+  font-size: clamp(1.02rem, 1.4vw, 1.34rem);
+  font-weight: 780;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.idt-logo-cloud-item img {
+  width: clamp(1.2rem, 1.9vw, 1.75rem);
+  height: clamp(1.2rem, 1.9vw, 1.75rem);
+  object-fit: contain;
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.idt-logo-cloud-item span {
+  color: rgba(21, 25, 34, 0.32);
+}
+
+@keyframes idtLogoCloudSlide {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-logo-cloud-track {
+    animation: none;
+  }
+}
+
+html[data-theme='light'] .idt-header,
+.idt-header {
+  border-bottom: 1px solid #cfd9e6;
+  background: #ffffff;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.idt-header-row {
+  width: min(100% - 2rem, 1480px);
+  min-height: 60px;
+  gap: clamp(1.25rem, 2.4vw, 3.1rem);
+}
+
+@media (min-width: 1081px) {
+  .idt-header-row {
+    grid-template-columns: minmax(250px, 1fr) auto minmax(250px, 1fr);
+  }
+}
+
+.idt-brand {
+  gap: 0.62rem;
+}
+
+.idt-brand img {
+  width: 38px;
+  height: 38px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.idt-brand span {
+  color: #050505;
+  font-family: var(--idt-nav-font);
+  font-size: clamp(1rem, 1.1vw, 1.18rem);
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idt-nav {
+  justify-self: center;
+  gap: clamp(1.35rem, 2.6vw, 2.55rem);
+}
+
+.idt-nav a {
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #050505;
+  font-family: var(--idt-nav-font);
+  font-size: clamp(0.94rem, 0.92vw, 1.05rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+}
+
+.idt-nav a::after {
+  display: none;
+}
+
+html[data-theme='light'] .idt-nav a:hover,
+html[data-theme='light'] .idt-nav a:focus-visible,
+html[data-theme='light'] .idt-nav a.is-active,
+.idt-nav a:hover,
+.idt-nav a:focus-visible,
+.idt-nav a.is-active {
+  background: transparent;
+  color: #050505;
+  text-decoration: none;
+}
+
+.idt-header-actions {
+  justify-self: end;
+  gap: clamp(1.2rem, 1.7vw, 1.65rem);
+}
+
+.idt-header-utility,
+.idt-header-signup {
+  min-height: 40px;
+  padding: 0;
+  color: #050505;
+  font-family: var(--idt-nav-font);
+  font-size: clamp(0.94rem, 0.92vw, 1.05rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+
+.idt-header-utility:hover,
+.idt-header-utility:focus-visible,
+.idt-header-signup:hover,
+.idt-header-signup:focus-visible {
+  color: #050505;
+  text-decoration: none;
+}
+
+.idt-header-demo {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #050505;
+  border-radius: 999px;
+  background: #050505;
+  color: #ffffff;
+  font-family: var(--idt-nav-font);
+  font-size: clamp(0.94rem, 0.92vw, 1.05rem);
+  font-weight: 760;
+  line-height: 1;
+  padding: 0 1.35rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.idt-header-demo:hover,
+.idt-header-demo:focus-visible {
+  border-color: #161616;
+  background: #161616;
+  color: #ffffff;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+@media (min-width: 1500px) {
+  .idt-hero-admin-window {
+    right: -118px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .idt-hero-copy h1 {
+    font-size: clamp(3.4rem, 8vw, 4.4rem);
+  }
+
+  .idt-hero-admin-window {
+    right: 0;
+    width: min(760px, 100%);
+  }
+
+  .idt-hero-login-card {
+    left: 6%;
+  }
+}
+
+@media (max-width: 1080px) {
+  .idt-header-row {
+    width: min(100% - 2rem, 1080px);
+  }
+
+  .idt-header-actions {
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 880px) {
+  .idt-header-row {
+    width: min(100% - 1.25rem, 1080px);
+    grid-template-columns: 1fr auto;
+    min-height: 64px;
+  }
+
+  .idt-menu-toggle {
+    position: static;
+    top: auto;
+    right: auto;
+    display: inline-flex;
+    width: 42px;
+    min-width: 42px;
+    min-height: 42px;
+    justify-self: end;
+    border-color: #050505;
+    border-radius: 999px;
+    background: #050505;
+    color: #ffffff;
+    padding: 0;
+  }
+
+  .idt-menu-toggle-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .idt-nav,
+  .idt-header-actions {
+    justify-self: stretch;
+  }
+
+  .idt-nav a,
+  .idt-header-utility,
+  .idt-header-signup,
+  .idt-header-demo {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .idt-nav a {
+    border-bottom: 1px solid rgba(5, 5, 5, 0.08);
+  }
+
+  .idt-header-actions.is-open {
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .idt-hero {
+    overflow-x: hidden;
+  }
+
+  .idt-hero .idt-shell {
+    width: min(100% - 1.25rem, var(--idt-shell));
+    max-width: calc(100vw - 1.25rem);
+  }
+
+  .idt-hero-copy {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .idt-hero-copy h1 {
+    max-width: 9.4ch;
+    font-size: clamp(2.65rem, 11.6vw, 3.25rem);
+    line-height: 1.08;
+    overflow-wrap: break-word;
+  }
+
+  .idt-lead-emphasis,
+  .idt-lead-body {
+    width: 100%;
+    max-width: 31ch;
+    overflow-wrap: break-word;
+  }
+
+  .idt-hero .idt-inline-actions {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .idt-hero .idt-btn {
+    width: 100%;
+  }
+
+  .idt-hero-admin-window {
+    right: -150px;
+    width: min(560px, calc(100% + 150px));
+  }
+
+  .idt-hero-login-card {
+    left: 50%;
+    width: min(100%, 280px);
+  }
+
+  .idt-trust-strip .idt-logo-cloud-label {
+    font-size: 0.68rem;
+  }
+
+  .idt-logo-cloud-track {
+    gap: 1.5rem;
+  }
+
+  .idt-logo-cloud-track .idt-logo-cloud-item {
+    gap: 0.5rem;
+    font-size: 0.98rem;
+  }
+
+  .idt-logo-cloud-item img {
+    width: 1.08rem;
+    height: 1.08rem;
+  }
+}

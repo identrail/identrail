@@ -601,7 +601,7 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 		return "", 0, 0, ErrInvalidRepoScanRequest
 	}
 	if repoTargetContainsURLCredentials(target) {
-		return "", 0, 0, ErrInvalidRepoScanRequest
+		return "", 0, 0, repoScanRequestValidationError{"repository target must not include credentials in URL userinfo"}
 	}
 	if repoexposure.IsLocalRepositoryTarget(target) {
 		return "", 0, 0, ErrRepoTargetNotAllowed
@@ -620,20 +620,35 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 	return target, historyLimit, maxFindings, nil
 }
 
+// repoScanRequestValidationError keeps the user-facing message while preserving
+// ErrInvalidRepoScanRequest compatibility for routing checks.
+type repoScanRequestValidationError struct {
+	message string
+}
+
+func (e repoScanRequestValidationError) Error() string {
+	return e.message
+}
+
+func (e repoScanRequestValidationError) Is(target error) bool {
+	return target == ErrInvalidRepoScanRequest
+}
+
 func repoTargetContainsURLCredentials(target string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(target))
-	if err != nil || parsed == nil || parsed.User == nil {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed == nil || parsed.Scheme == "" {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
-	case "http", "https":
-		return true
-	case "ssh":
-		_, hasPassword := parsed.User.Password()
-		return hasPassword
-	default:
+	if parsed.User == nil {
 		return false
 	}
+	if strings.EqualFold(parsed.Scheme, "ssh") {
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			return true
+		}
+		return strings.TrimSpace(parsed.User.Username()) == ""
+	}
+	return true
 }
 
 func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RunRepoScanResult, error) {
