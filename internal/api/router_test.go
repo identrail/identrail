@@ -1427,7 +1427,6 @@ func TestRequestScopeMiddlewareRequiresExplicitScope(t *testing.T) {
 		t.Fatalf("expected explicit headers to pass, got %d", w.Code)
 	}
 }
-
 func TestRequestScopeMiddlewareIgnoresScopeHeadersForAPIKeyAuth(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()

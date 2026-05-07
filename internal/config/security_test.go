@@ -262,7 +262,6 @@ func TestValidateSecurityRejectsInvalidDurationEnv(t *testing.T) {
 		t.Fatalf("expected invalid duration env error, got %v", err)
 	}
 }
-
 func TestValidateSecurityAcceptsScopedKeyTenantWorkspaceBindings(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes: map[string][]string{
