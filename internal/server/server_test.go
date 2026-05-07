@@ -15,12 +15,12 @@ import (
 func TestNewBootstrap(t *testing.T) {
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:     ":0",
-		LogLevel:     "info",
-		Provider:     "aws",
-		ServiceName:  "identrail-test",
-		APIKeys:      []string{"test-read"},
-		WriteAPIKeys: []string{"test-read"},
+		HTTPAddr:         ":0",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 	bootstrap, err := NewBootstrap(context.Background(), cfg)
 	if err != nil {
@@ -34,13 +34,13 @@ func TestNewBootstrap(t *testing.T) {
 func TestNewBootstrapWithAuditFile(t *testing.T) {
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:     ":0",
-		LogLevel:     "info",
-		Provider:     "aws",
-		ServiceName:  "identrail-test",
-		AuditLogFile: filepath.Join(t.TempDir(), "audit.log"),
-		APIKeys:      []string{"test-read"},
-		WriteAPIKeys: []string{"test-read"},
+		HTTPAddr:         ":0",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		AuditLogFile:     filepath.Join(t.TempDir(), "audit.log"),
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 	bootstrap, err := NewBootstrap(context.Background(), cfg)
 	if err != nil {
@@ -57,11 +57,11 @@ func TestNewBootstrapWithAuditFile(t *testing.T) {
 func TestNewBootstrapAuditFileError(t *testing.T) {
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:     ":0",
-		LogLevel:     "info",
-		Provider:     "aws",
-		ServiceName:  "identrail-test",
-		AuditLogFile: filepath.Join(t.TempDir(), "missing", "audit.log"),
+		HTTPAddr:         ":0",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		AuditLogFile:     filepath.Join(t.TempDir(), "missing", "audit.log"),
 	}
 	if _, err := NewBootstrap(context.Background(), cfg); err == nil {
 		t.Fatal("expected bootstrap error for invalid audit path")
@@ -114,12 +114,12 @@ func TestNewBootstrapInvalidAuditForwardConfig(t *testing.T) {
 func TestNewBootstrapInvalidSecurityConfig(t *testing.T) {
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:     ":0",
-		LogLevel:     "info",
-		Provider:     "aws",
-		ServiceName:  "identrail-test",
-		WriteAPIKeys: []string{"writer-only"},
-		APIKeys:      []string{"reader-only"},
+		HTTPAddr:         ":0",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		WriteAPIKeys:     []string{"writer-only"},
+		APIKeys:          []string{"reader-only"},
 	}
 	if _, err := NewBootstrap(context.Background(), cfg); err == nil {
 		t.Fatal("expected security validation error")
@@ -143,12 +143,12 @@ func TestRunCancelledContext(t *testing.T) {
 
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:     ":0",
-		LogLevel:     "info",
-		Provider:     "aws",
-		ServiceName:  "identrail-test",
-		APIKeys:      []string{"test-read"},
-		WriteAPIKeys: []string{"test-read"},
+		HTTPAddr:         ":0",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 	sigCh := make(chan os.Signal, 1)
 	if err := Run(ctx, cfg, sigCh); err != nil {
@@ -162,12 +162,12 @@ func TestRunSignalRequested(t *testing.T) {
 
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:     ":0",
-		LogLevel:     "info",
-		Provider:     "aws",
-		ServiceName:  "identrail-test",
-		APIKeys:      []string{"test-read"},
-		WriteAPIKeys: []string{"test-read"},
+		HTTPAddr:         ":0",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -180,12 +180,12 @@ func TestRunSignalRequested(t *testing.T) {
 func TestRunServerListenError(t *testing.T) {
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:     "invalid-listen-address",
-		LogLevel:     "info",
-		Provider:     "aws",
-		ServiceName:  "identrail-test",
-		APIKeys:      []string{"test-read"},
-		WriteAPIKeys: []string{"test-read"},
+		HTTPAddr:         "invalid-listen-address",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 	sigCh := make(chan os.Signal, 1)
 	if err := Run(context.Background(), cfg, sigCh); err == nil {
@@ -195,7 +195,7 @@ func TestRunServerListenError(t *testing.T) {
 
 func TestRunMigrationsOnlyExitsBeforeListen(t *testing.T) {
 	cfg := config.Config{
-		AllowMemoryStore: true,
+		AllowMemoryStore:  true,
 		HTTPAddr:          "invalid-listen-address",
 		LogLevel:          "info",
 		Provider:          "aws",
@@ -246,14 +246,14 @@ func TestNewBootstrapWithMultipleAuditSinks(t *testing.T) {
 func TestNewBootstrapInvalidOIDCVerifierConfig(t *testing.T) {
 	cfg := config.Config{
 		AllowMemoryStore: true,
-		HTTPAddr:      ":0",
-		LogLevel:      "info",
-		Provider:      "aws",
-		ServiceName:   "identrail-test",
-		OIDCIssuerURL: "://bad-issuer",
-		OIDCAudience:  "identrail-api",
-		APIKeys:       []string{"test-read"},
-		WriteAPIKeys:  []string{"test-read"},
+		HTTPAddr:         ":0",
+		LogLevel:         "info",
+		Provider:         "aws",
+		ServiceName:      "identrail-test",
+		OIDCIssuerURL:    "://bad-issuer",
+		OIDCAudience:     "identrail-api",
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 	if _, err := NewBootstrap(context.Background(), cfg); err == nil {
 		t.Fatal("expected oidc verifier initialization error")
