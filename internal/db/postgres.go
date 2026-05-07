@@ -33,6 +33,20 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+type scopedQueryRow struct {
+	row *sql.Row
+	tx  *sql.Tx
+}
+
+func (s *scopedQueryRow) Scan(dest ...any) error {
+	err := s.row.Scan(dest...)
+	if err != nil {
+		_ = s.tx.Rollback()
+		return err
+	}
+	return s.tx.Commit()
+}
+
 type errScanner struct {
 	err error
 }
@@ -158,16 +172,73 @@ func (p *PostgresStore) injectScopeCTE(ctx context.Context, query string, args [
 	return query, scopedArgs, nil
 }
 
+func (p *PostgresStore) injectScopedSelectCTE(ctx context.Context, query string, args []any) (string, []any, error) {
+	if !p.enforceScopeRLS {
+		return query, args, nil
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	maxPlaceholder := 0
+	for _, match := range placeholderPattern.FindAllStringSubmatch(query, -1) {
+		if len(match) != 2 {
+			continue
+		}
+		value, convErr := strconv.Atoi(match[1])
+		if convErr != nil {
+			continue
+		}
+		if value > maxPlaceholder {
+			maxPlaceholder = value
+		}
+	}
+
+	tenantPos := maxPlaceholder + 1
+	workspacePos := maxPlaceholder + 2
+	enforcePos := maxPlaceholder + 3
+	scopedQuery := fmt.Sprintf(
+		"WITH _identrail_scope AS (SELECT set_config('identrail.tenant_id', $%d, true), set_config('identrail.workspace_id', $%d, true), set_config('identrail.rls_enforce', $%d, true)), _identrail_scoped_query AS (%s) SELECT _identrail_scoped_query.* FROM _identrail_scope, _identrail_scoped_query",
+		tenantPos,
+		workspacePos,
+		enforcePos,
+		strings.TrimSpace(query),
+	)
+
+	capacity, err := checkedSliceCapacity(len(args), 3)
+	if err != nil {
+		return "", nil, err
+	}
+
+	scopedArgs := make([]any, 0, capacity)
+	scopedArgs = append(scopedArgs, args...)
+	scopedArgs = append(scopedArgs, scope.TenantID, scope.WorkspaceID, "on")
+	return scopedQuery, scopedArgs, nil
+}
+
 func (p *PostgresStore) execContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+	if !p.enforceScopeRLS {
+		return p.db.ExecContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return p.db.ExecContext(ctx, scopedQuery, scopedArgs...)
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit scoped exec: %w", err)
+	}
+	return result, nil
 }
 
 func (p *PostgresStore) queryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+	scopedQuery, scopedArgs, err := p.injectScopedSelectCTE(ctx, query, args)
 	if err != nil {
 		return nil, err
 	}
@@ -175,24 +246,30 @@ func (p *PostgresStore) queryContext(ctx context.Context, query string, args ...
 }
 
 func (p *PostgresStore) queryRowContext(ctx context.Context, query string, args ...any) rowScanner {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+	if !p.enforceScopeRLS {
+		return p.db.QueryRowContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return errScanner{err: err}
 	}
-	return p.db.QueryRowContext(ctx, scopedQuery, scopedArgs...)
+	return &scopedQueryRow{
+		row: tx.QueryRowContext(ctx, query, args...),
+		tx:  tx,
+	}
 }
 
 func (p *PostgresStore) beginTx(ctx context.Context) (*sql.Tx, error) {
-	tx, err := p.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
 	if !p.enforceScopeRLS {
-		return tx, nil
+		return p.db.BeginTx(ctx, nil)
 	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
-		_ = tx.Rollback()
+		return nil, err
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(

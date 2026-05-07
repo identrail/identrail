@@ -1603,12 +1603,136 @@ func TestPostgresStoreInjectScopeCTEHandlesWithRecursive(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreInjectScopedSelectCTERewritesQueryWhenEnabled(t *testing.T) {
+	store := &PostgresStore{}
+	store.SetScopeRLSEnforcement(true)
+
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	query := "SELECT id FROM scans WHERE tenant_id = $1"
+	args := []any{"tenant-a"}
+
+	gotQuery, gotArgs, err := store.injectScopedSelectCTE(ctx, query, args)
+	if err != nil {
+		t.Fatalf("inject scoped select cte: %v", err)
+	}
+
+	expectedQuery := "WITH _identrail_scope AS (SELECT set_config('identrail.tenant_id', $2, true), set_config('identrail.workspace_id', $3, true), set_config('identrail.rls_enforce', $4, true)), _identrail_scoped_query AS (SELECT id FROM scans WHERE tenant_id = $1) SELECT _identrail_scoped_query.* FROM _identrail_scope, _identrail_scoped_query"
+	if gotQuery != expectedQuery {
+		t.Fatalf("unexpected scoped select query:\nexpected: %s\ngot:      %s", expectedQuery, gotQuery)
+	}
+
+	expectedArgs := []any{"tenant-a", "tenant-a", "workspace-a", "on"}
+	if !reflect.DeepEqual(gotArgs, expectedArgs) {
+		t.Fatalf("unexpected scoped select args: %+v", gotArgs)
+	}
+}
+
 func TestPostgresStoreInjectScopeCTERequiresScopeWhenEnabled(t *testing.T) {
 	store := &PostgresStore{}
 	store.SetScopeRLSEnforcement(true)
 
 	if _, _, err := store.injectScopeCTE(context.Background(), "SELECT 1", nil); !errors.Is(err, ErrScopeRequired) {
 		t.Fatalf("expected ErrScopeRequired, got %v", err)
+	}
+}
+
+func TestPostgresStoreExecContextUsesScopedTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	store.SetScopeRLSEnforcement(true)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT set_config('identrail.tenant_id', $1, true), set_config('identrail.workspace_id', $2, true), set_config('identrail.rls_enforce', $3, true)`)).
+		WithArgs("default", "default", "on").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE scans SET status=$1 WHERE id=$2`)).
+		WithArgs("completed", "scan-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	result, err := store.execContext(defaultScopeContext(), `UPDATE scans SET status=$1 WHERE id=$2`, "completed", "scan-1")
+	if err != nil {
+		t.Fatalf("exec scoped update: %v", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		t.Fatalf("rows affected: %v", err)
+	}
+	if rowsAffected != 1 {
+		t.Fatalf("expected 1 row, got %d", rowsAffected)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreQueryRowContextUsesScopedTransaction(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	store.SetScopeRLSEnforcement(true)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT set_config('identrail.tenant_id', $1, true), set_config('identrail.workspace_id', $2, true), set_config('identrail.rls_enforce', $3, true)`)).
+		WithArgs("default", "default", "on").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id FROM scans WHERE tenant_id = $1`)).
+		WithArgs("default").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id"}).AddRow("default"))
+	mock.ExpectCommit()
+
+	scanner := store.queryRowContext(defaultScopeContext(), `SELECT tenant_id FROM scans WHERE tenant_id = $1`, "default")
+	var tenantID string
+	if err := scanner.Scan(&tenantID); err != nil {
+		t.Fatalf("scoped query row scan: %v", err)
+	}
+	if tenantID != "default" {
+		t.Fatalf("expected tenant id default, got %q", tenantID)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreQueryRowContextRollsBackOnScanError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	store.SetScopeRLSEnforcement(true)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT set_config('identrail.tenant_id', $1, true), set_config('identrail.workspace_id', $2, true), set_config('identrail.rls_enforce', $3, true)`)).
+		WithArgs("default", "default", "on").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id FROM scans WHERE tenant_id = $1`)).
+		WithArgs("default").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id"}))
+	mock.ExpectRollback()
+
+	scanner := store.queryRowContext(defaultScopeContext(), `SELECT tenant_id FROM scans WHERE tenant_id = $1`, "default")
+	var tenantID string
+	err = scanner.Scan(&tenantID)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows from scan, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
 
@@ -1650,9 +1774,6 @@ func TestPostgresStoreBeginTxRequiresScopeWhenRLSEnabled(t *testing.T) {
 
 	store := NewPostgresStoreWithDB(db)
 	store.SetScopeRLSEnforcement(true)
-
-	mock.ExpectBegin()
-	mock.ExpectRollback()
 
 	if _, err := store.beginTx(context.Background()); !errors.Is(err, ErrScopeRequired) {
 		t.Fatalf("expected ErrScopeRequired, got %v", err)
