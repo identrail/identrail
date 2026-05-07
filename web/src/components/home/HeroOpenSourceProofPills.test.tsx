@@ -24,9 +24,11 @@ describe('HeroOpenSourceProofPills', () => {
 
   it('does not show zero Docker pulls when pull metrics are unavailable', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      const url = fetchURL(input);
-      if (url.includes('api.github.com')) return okJSON({ stargazers_count: 3 });
-      if (url.includes('img.shields.io/docker/pulls')) return okJSON({ message: 'repo not found' });
+      const url = new URL(fetchURL(input));
+      if (url.hostname === 'api.github.com') return okJSON({ stargazers_count: 3 });
+      if (url.hostname === 'img.shields.io' && url.pathname.includes('/docker/pulls')) {
+        return okJSON({ message: 'repo not found' });
+      }
       return okJSON({});
     });
     vi.stubGlobal('fetch', fetchMock);
