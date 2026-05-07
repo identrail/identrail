@@ -12,6 +12,8 @@ This guide standardizes deployment for five common targets:
 
 Use this for quick production-like environments on one host.
 
+The checked-in Compose file is optimized for local bootstrap. For production-like single-host use, adapt `deploy/docker/docker-compose.prod.example.yml` and set a TLS-enabled `IDENTRAIL_DATABASE_URL`, `VITE_IDENTRAIL_API_URL`, and `IDENTRAIL_CORS_ALLOWED_ORIGINS`.
+
 Fastest local bootstrap:
 - `make quickstart`
 
