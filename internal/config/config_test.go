@@ -785,7 +785,10 @@ func TestParseKeyScopesRejectsMalformedEntries(t *testing.T) {
 }
 
 func TestParseKeyScopeBindings(t *testing.T) {
-	bindings := parseKeyScopeBindings("key1:tenant-a/workspace-a;key2:tenant-b/workspace-b;empty-tenant:/workspace-c;empty-workspace:tenant-d/;invalid;:missing")
+	bindings, parseErr := parseKeyScopeBindings("key1:tenant-a/workspace-a;key2:tenant-b/workspace-b")
+	if parseErr != "" {
+		t.Fatalf("expected valid scoped key bindings, got %q", parseErr)
+	}
 	if len(bindings) != 2 {
 		t.Fatalf("expected 2 key scope bindings, got %d", len(bindings))
 	}
@@ -795,10 +798,21 @@ func TestParseKeyScopeBindings(t *testing.T) {
 	if bindings["key2"] != (db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}) {
 		t.Fatalf("unexpected key2 binding: %+v", bindings["key2"])
 	}
-	if _, exists := bindings["empty-tenant"]; exists {
-		t.Fatalf("expected malformed empty-tenant binding to be rejected: %+v", bindings)
+}
+
+func TestParseKeyScopeBindingsRejectsMalformedEntries(t *testing.T) {
+	tests := []string{
+		"key1:tenant-a/workspace-a;key1:tenant-a/workspace-b",
+		"empty-tenant:/workspace-c",
+		"empty-workspace:tenant-d/",
+		"invalid",
+		":missing",
 	}
-	if _, exists := bindings["empty-workspace"]; exists {
-		t.Fatalf("expected malformed empty-workspace binding to be rejected: %+v", bindings)
+	for _, test := range tests {
+		t.Run(test, func(t *testing.T) {
+			if _, parseErr := parseKeyScopeBindings(test); parseErr == "" {
+				t.Fatal("expected malformed scoped key bindings to be rejected")
+			}
+		})
 	}
 }

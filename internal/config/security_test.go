@@ -353,6 +353,20 @@ func TestValidateSecurityRejectsScopeBindingsForUnknownKey(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsScopeBindingConflictsWithLegacyMetadata(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read", "tenant:tenant-a", "workspace:workspace-a"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-b", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected scope binding conflict to be rejected")
+	}
+}
+
 func TestValidateSecurityRejectsScopedKeysWithoutBindingsWhenBindingsEnabled(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes: map[string][]string{
