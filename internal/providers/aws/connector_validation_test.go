@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/Oluwatobi-Mustapha/identrail/internal/api"
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/aws/smithy-go"
+	api "github.com/identrail/identrail/internal/api"
 )
 
 type fakeSTSAssumeRoleClient struct {
