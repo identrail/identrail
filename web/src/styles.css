@@ -7493,16 +7493,20 @@ html[data-theme='light'] .idt-hero::before,
 }
 
 .idt-lead-body {
-  margin-top: 2rem;
-  max-width: 47ch;
-  color: #1f2736;
-  font-size: 1.12rem;
-  line-height: 1.55;
+  margin-top: 2.25rem;
+  max-width: 42ch;
+  color: #4c566a;
+  font-family: var(--idt-nav-font);
+  font-size: 1.07rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.62;
 }
 
 .idt-hero .idt-inline-actions {
   margin-top: 2.4rem;
   gap: 1rem;
+  align-items: center;
 }
 
 .idt-hero .idt-btn {
@@ -7526,6 +7530,67 @@ html[data-theme='light'] .idt-hero .idt-btn-primary,
   border: 1px solid #742bdc;
   color: #ffffff;
   box-shadow: none;
+}
+
+.idt-hero-proof-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.62rem;
+  min-height: 52px;
+}
+
+.idt-hero-proof-pill {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.62rem;
+  border: 1px solid rgba(21, 25, 34, 0.1);
+  border-radius: 999px;
+  padding: 0.5rem 0.74rem;
+  background: rgba(255, 255, 255, 0.88);
+  color: #151922;
+  text-decoration: none;
+  box-shadow: 0 16px 34px rgba(17, 24, 39, 0.08);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.idt-hero-proof-pill:hover,
+.idt-hero-proof-pill:focus-visible {
+  border-color: rgba(116, 43, 220, 0.28);
+  box-shadow: 0 18px 40px rgba(17, 24, 39, 0.12);
+  transform: translateY(-1px);
+}
+
+.idt-hero-proof-pill img {
+  width: 1.06rem;
+  height: 1.06rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.idt-hero-proof-pill span {
+  display: grid;
+  gap: 0.08rem;
+  line-height: 1;
+}
+
+.idt-hero-proof-pill strong {
+  font-family: var(--idt-nav-font);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.idt-hero-proof-pill small {
+  color: #6b7281;
+  font-family: var(--idt-nav-font);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .idt-hero-metrics {
@@ -9120,10 +9185,27 @@ html[data-theme='light'] .idt-nav a.is-active,
   .idt-hero .idt-inline-actions {
     width: 100%;
     max-width: 100%;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .idt-hero .idt-btn {
     width: 100%;
+  }
+
+  .idt-hero-proof-pills {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  .idt-hero-proof-pill {
+    width: 100%;
+    justify-content: center;
+    min-width: 0;
+    overflow: hidden;
+    padding-inline: 0.62rem;
   }
 
   .idt-hero-admin-window {
@@ -9184,8 +9266,8 @@ html[data-theme='light'] .idt-hero,
 }
 
 .idt-lead-body {
-  margin-top: 1.45rem;
-  max-width: 41ch;
+  margin-top: 2.25rem;
+  max-width: 42ch;
 }
 
 .idt-hero .idt-inline-actions {
@@ -9949,6 +10031,42 @@ html[data-theme='light'] .idt-trust-strip,
   .idt-lead-emphasis,
   .idt-lead-body {
     max-width: 31ch;
+  }
+
+  .idt-hero .idt-inline-actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .idt-hero-proof-pills {
+    width: 100%;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+  }
+
+  .idt-hero-proof-pill {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    gap: 0.48rem;
+    overflow: hidden;
+    padding: 0.5rem 0.48rem;
+  }
+
+  .idt-hero-proof-pill img {
+    width: 0.98rem;
+    height: 0.98rem;
+  }
+
+  .idt-hero-proof-pill strong {
+    font-size: 0.9rem;
+  }
+
+  .idt-hero-proof-pill small {
+    font-size: 0.56rem;
   }
 
   .idt-hero-product-stage {
