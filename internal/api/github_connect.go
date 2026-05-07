@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/audit"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 const (

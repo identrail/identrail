@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 const (
@@ -115,7 +115,11 @@ func normalizePermissionPolicies(identityID string, policies []IAMPermissionPoli
 			if len(actions) == 0 || len(resources) == 0 {
 				continue
 			}
-			statements = append(statements, normalizedStatement(statement.Effect, actions, resources))
+			normalized, ok := normalizedStatement(statement.Effect, actions, resources)
+			if !ok {
+				continue
+			}
+			statements = append(statements, normalized)
 		}
 		if len(statements) == 0 {
 			continue
