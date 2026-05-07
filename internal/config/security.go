@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/identrail/identrail/internal/repoallowlist"
 	"github.com/identrail/identrail/internal/secretstore"
 )
 
@@ -635,28 +636,5 @@ func validateForwardURL(raw string) error {
 }
 
 func configRepoTargetAllowed(target string, allowlist []string) bool {
-	if len(allowlist) == 0 {
-		return true
-	}
-	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
-	if normalizedTarget == "" {
-		return false
-	}
-	for _, pattern := range allowlist {
-		normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
-		if normalizedPattern == "" {
-			continue
-		}
-		if strings.HasSuffix(normalizedPattern, "*") {
-			prefix := strings.TrimSuffix(normalizedPattern, "*")
-			if strings.HasPrefix(normalizedTarget, prefix) {
-				return true
-			}
-			continue
-		}
-		if normalizedTarget == normalizedPattern {
-			return true
-		}
-	}
-	return false
+	return repoallowlist.TargetAllowed(target, allowlist, true)
 }

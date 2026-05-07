@@ -1624,12 +1624,12 @@ function HomePage() {
               sensitive resources, then turns the evidence into safe, owner-ready remediation.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <Link to="/demo" className="idt-btn idt-btn-dark">
-                Book Demo
-              </Link>
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
               </a>
+              <Link to="/demo" className="idt-btn idt-btn-dark">
+                Book Demo
+              </Link>
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
               <div>

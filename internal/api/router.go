@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"errors"
@@ -33,6 +34,7 @@ const (
 	rateLimiterEntryTTL    = 15 * time.Minute
 	rateLimiterMaxEntries  = 10000
 	rateLimiterCleanupTick = 256
+	defaultJSONBodyLimit   = int64(1 << 20)
 	corsAllowMethods       = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
 	corsAllowHeaders       = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID"
 	corsMaxAgeSeconds      = "600"
@@ -158,7 +160,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, defaultJSONBodyLimit)
 		payload, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
@@ -199,6 +201,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	v1.Use(apiDenialMetricsMiddleware(metrics))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
+	v1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID, opts.RequireExplicitScope))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
@@ -1888,6 +1891,47 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string, r
 	}
 }
 
+func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
+	if limit <= 0 {
+		limit = defaultJSONBodyLimit
+	}
+	return func(c *gin.Context) {
+		if c.Request == nil || c.Request.Body == nil {
+			c.Next()
+			return
+		}
+		switch c.Request.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+		default:
+			c.Next()
+			return
+		}
+		if c.Request.ContentLength < 0 {
+			limited := http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+			body, err := io.ReadAll(limited)
+			if err != nil {
+				var maxErr *http.MaxBytesError
+				if errors.As(err, &maxErr) {
+					c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+			c.Request.ContentLength = int64(len(body))
+			c.Next()
+			return
+		}
+		if c.Request.ContentLength > limit {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+		c.Next()
+	}
+}
+
 func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 	allowAll := false
 	allowed := map[string]struct{}{}
@@ -2253,7 +2297,7 @@ func rateLimitKey(c *gin.Context) string {
 		return ip + "|api"
 	}
 	if bearer := readBearerToken(c); bearer != "" {
-		return ip + "|bearer:" + fingerprintIdentifierWith(nil, bearer)
+		return ip + "|bearer"
 	}
 	return ip + "|anon"
 }

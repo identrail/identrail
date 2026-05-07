@@ -15,6 +15,7 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/findings/standards"
 	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/repoallowlist"
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
@@ -1721,30 +1722,7 @@ func truncateSourceErrors(errors []providers.SourceError, max int) []providers.S
 }
 
 func repoTargetAllowed(target string, allowlist []string) bool {
-	if len(allowlist) == 0 {
-		return false
-	}
-	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
-	if normalizedTarget == "" {
-		return false
-	}
-	for _, item := range allowlist {
-		pattern := strings.ToLower(strings.TrimSpace(item))
-		if pattern == "" {
-			continue
-		}
-		if strings.HasSuffix(pattern, "*") {
-			prefix := strings.TrimSuffix(pattern, "*")
-			if strings.HasPrefix(normalizedTarget, prefix) {
-				return true
-			}
-			continue
-		}
-		if normalizedTarget == pattern {
-			return true
-		}
-	}
-	return false
+	return repoallowlist.TargetAllowed(target, allowlist, false)
 }
 
 func inferOwnershipSignal(identity domain.Identity) (domain.OwnershipSignal, bool) {

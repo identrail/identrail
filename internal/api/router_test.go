@@ -1547,6 +1547,76 @@ func TestRouterRateLimitExceeded(t *testing.T) {
 	}
 }
 
+func TestRouterRejectsOversizedJSONRequestBody(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "writer-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized request to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRouterRejectsOversizedJSONRequestBodyWithoutContentType(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("X-API-Key", "writer-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized request without content type to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRouterRejectsOversizedChunkedJSONRequestBody(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "writer-key")
+	req.TransferEncoding = []string{"chunked"}
+	req.ContentLength = -1
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized chunked request to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
@@ -1573,7 +1643,7 @@ func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestRouterRateLimitInvalidBearerDoesNotThrottleValidOIDCToken(t *testing.T) {
+func TestRouterRateLimitDoesNotTrustPresentedBearerTokenValue(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
 	r := NewRouter(logger, metrics, nil, RouterOptions{
@@ -1600,13 +1670,13 @@ func TestRouterRateLimitInvalidBearerDoesNotThrottleValidOIDCToken(t *testing.T)
 		t.Fatalf("expected invalid bearer request to be unauthorized, got %d", invalidW.Code)
 	}
 
-	valid := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
-	valid.RemoteAddr = "127.0.0.1:27501"
-	valid.Header.Set("Authorization", "Bearer good-token")
-	validW := httptest.NewRecorder()
-	r.ServeHTTP(validW, valid)
-	if validW.Code != http.StatusOK {
-		t.Fatalf("expected valid oidc request to avoid invalid bearer bucket and pass, got %d", validW.Code)
+	validFirst := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	validFirst.RemoteAddr = "127.0.0.1:27501"
+	validFirst.Header.Set("Authorization", "Bearer good-token")
+	validFirstW := httptest.NewRecorder()
+	r.ServeHTTP(validFirstW, validFirst)
+	if validFirstW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected valid bearer request to share anonymous bearer bucket after invalid token, got %d", validFirstW.Code)
 	}
 
 	validSecond := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
@@ -1615,7 +1685,7 @@ func TestRouterRateLimitInvalidBearerDoesNotThrottleValidOIDCToken(t *testing.T)
 	validSecondW := httptest.NewRecorder()
 	r.ServeHTTP(validSecondW, validSecond)
 	if validSecondW.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected second request for same valid bearer token to hit 429, got %d", validSecondW.Code)
+		t.Fatalf("expected second request on exhausted bearer bucket to hit 429, got %d", validSecondW.Code)
 	}
 }
 func TestRouterRateLimitExceededIsAudited(t *testing.T) {
