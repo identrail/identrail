@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { HeroOpenSourceProofPills } from './components/home/HeroOpenSourceProofPills';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { CommandCenterSection } from './components/home/CommandCenterSection';
 import { ProblemFramingSection } from './components/home/ProblemFramingSection';
@@ -1616,20 +1617,15 @@ function HomePage() {
             <h1>
               Every machine identity path, clear to <span>you</span>.
             </h1>
-            <p className="idt-lead idt-lead-emphasis">
-              Deployment-safe visibility for machine identity trust paths.
-            </p>
             <p className="idt-lead idt-lead-body">
-              Identrail maps how AWS IAM roles, Kubernetes service accounts, GitHub workflows, and OIDC claims reach
-              sensitive resources, then turns the evidence into safe, owner-ready remediation.
+              Identrail traces how AWS IAM roles, Kubernetes service accounts, GitHub Actions, and OIDC claims can reach
+              sensitive resources, then packages the proof and safest first fix for the owner.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
               </a>
-              <Link to="/demo" className="idt-btn idt-btn-dark">
-                Book Demo
-              </Link>
+              <HeroOpenSourceProofPills />
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
               <div>
