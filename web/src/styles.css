@@ -9186,7 +9186,8 @@ html[data-theme='light'] .idt-hero,
 .idt-hero-product-stage {
   --idt-preview-phone-width: clamp(268px, 27%, 292px);
   --idt-preview-dashboard-left: clamp(14.75rem, 25%, 18rem);
-  --idt-preview-phone-left: clamp(8.6rem, 16.5vw, 12.9rem);
+  --idt-preview-phone-overlap: clamp(2.7rem, 4.4vw, 3.85rem);
+  --idt-preview-phone-left: calc(var(--idt-preview-dashboard-left) - var(--idt-preview-phone-width) + var(--idt-preview-phone-overlap));
   min-height: 800px;
   margin-top: 0;
   overflow: hidden;
@@ -9200,9 +9201,9 @@ html[data-theme='light'] .idt-hero,
   border-radius: 34px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background:
-    radial-gradient(circle at 22% 20%, rgba(99, 102, 241, 0.16), transparent 22%),
-    radial-gradient(circle at 70% 74%, rgba(16, 185, 129, 0.09), transparent 18%),
-    linear-gradient(145deg, #0b0d12 0%, #050506 52%, #090a0f 100%);
+    radial-gradient(circle at 24% 14%, rgba(255, 255, 255, 0.08), transparent 18%),
+    radial-gradient(circle at 84% 78%, rgba(255, 255, 255, 0.05), transparent 22%),
+    linear-gradient(145deg, #050505 0%, #000000 54%, #030303 100%);
   box-shadow:
     0 38px 90px rgba(9, 13, 20, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -9231,8 +9232,8 @@ html[data-theme='light'] .idt-hero,
 
 .idt-hero-backdrop-panel::after {
   background:
-    radial-gradient(circle at 56% 58%, rgba(255, 202, 113, 0.18), transparent 16%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+    radial-gradient(circle at 58% 54%, rgba(255, 255, 255, 0.06), transparent 18%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
 }
 
 .idt-hero-backdrop-node,
@@ -9869,7 +9870,7 @@ html[data-theme='light'] .idt-trust-strip,
   .idt-hero-product-stage {
     --idt-preview-phone-width: clamp(276px, 28%, 310px);
     --idt-preview-dashboard-left: clamp(18rem, 31%, 22rem);
-    --idt-preview-phone-left: clamp(8.6rem, 17vw, 12.6rem);
+    --idt-preview-phone-overlap: clamp(2.55rem, 4.2vw, 3.6rem);
     min-height: 860px;
   }
 
