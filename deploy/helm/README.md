@@ -27,6 +27,9 @@ This chart is the Kubernetes deployment baseline for Identrail.
 - Helm API defaults match the static production manifest baseline for replica count and API resources; tune values explicitly for smaller development clusters.
 - Disable hook jobs only if migrations are handled externally: set `migrations.enabled=false`.
 - Values default to `IDENTRAIL_AWS_SOURCE=sdk` and enforce `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`.
+- Before production rollout, set API, worker, and web image tags to the intended release tag; avoid mutable `latest` tags.
+- This chart currently renders image references as `repository:tag` and does not support digest-style `repository@sha256:...` values.
+- Default resource requests and limits are conservative baselines and should be tuned for target workload size.
 - `IDENTRAIL_K8S_SOURCE` defaults to `fixture` to avoid requiring a `kubectl` binary in the default backend image. For Kubernetes provider deployments, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
 - Enable web deployment by setting `web.enabled=true`.
 - Enable ingress by setting `ingress.enabled=true`.

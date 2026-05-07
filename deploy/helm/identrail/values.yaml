@@ -6,8 +6,8 @@ imagePullSecrets: []
 api:
   replicaCount: 2
   image:
-    repository: identrail/api
-    tag: latest
+    repository: ghcr.io/identrail/identrail-api
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   podSecurityContext:
     runAsNonRoot: true
@@ -31,8 +31,8 @@ api:
 worker:
   replicaCount: 1
   image:
-    repository: identrail/worker
-    tag: latest
+    repository: ghcr.io/identrail/identrail-worker
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   podSecurityContext:
     runAsNonRoot: true
@@ -42,7 +42,13 @@ worker:
     capabilities:
       drop:
         - ALL
-  resources: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 migrations:
   enabled: true
@@ -53,13 +59,19 @@ web:
   enabled: false
   replicaCount: 1
   image:
-    repository: identrail/web
-    tag: latest
+    repository: ghcr.io/identrail/identrail-web
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 8080
-  resources: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 ingress:
   enabled: false
