@@ -71,6 +71,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "")
+	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "")
 	t.Setenv("IDENTRAIL_OIDC_TENANT_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_GROUPS_CLAIM", "")
@@ -266,6 +267,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DefaultWorkspaceID != defaultWorkspaceID {
 		t.Fatalf("expected default workspace id %q, got %q", defaultWorkspaceID, cfg.DefaultWorkspaceID)
 	}
+	if cfg.RequireExplicitScope {
+		t.Fatal("expected explicit scope requirement false by default")
+	}
 	if cfg.OIDCIssuerURL != "" {
 		t.Fatalf("expected empty oidc issuer by default, got %q", cfg.OIDCIssuerURL)
 	}
@@ -354,6 +358,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "prod-identrail")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "tenant-prod")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "workspace-blue")
+	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "true")
 	t.Setenv("IDENTRAIL_OIDC_ISSUER_URL", "https://iam.example.com/realms/identrail")
 	t.Setenv("IDENTRAIL_OIDC_AUDIENCE", "identrail-api")
 	t.Setenv("IDENTRAIL_OIDC_WRITE_SCOPES", "identrail.write,identrail.admin")
@@ -552,6 +557,9 @@ func TestLoadFromEnv(t *testing.T) {
 	if cfg.DefaultWorkspaceID != "workspace-blue" {
 		t.Fatalf("unexpected default workspace id: %q", cfg.DefaultWorkspaceID)
 	}
+	if !cfg.RequireExplicitScope {
+		t.Fatal("expected explicit scope requirement true")
+	}
 	if cfg.OIDCIssuerURL != "https://iam.example.com/realms/identrail" {
 		t.Fatalf("unexpected oidc issuer url: %q", cfg.OIDCIssuerURL)
 	}
@@ -735,11 +743,30 @@ func TestLoadAppModeFromEnv(t *testing.T) {
 }
 
 func TestParseKeyScopes(t *testing.T) {
-	scopes := parseKeyScopes("key1:read;key2:read,write;invalid;:missing")
+	scopes, parseErr := parseKeyScopes("key1:read;key2:read,write")
+	if parseErr != "" {
+		t.Fatalf("expected valid scoped keys, got %q", parseErr)
+	}
 	if len(scopes) != 2 {
 		t.Fatalf("expected 2 scoped keys, got %d", len(scopes))
 	}
 	if len(scopes["key2"]) != 2 {
 		t.Fatalf("expected key2 to have 2 scopes, got %+v", scopes["key2"])
+	}
+}
+
+func TestParseKeyScopesRejectsMalformedEntries(t *testing.T) {
+	tests := []string{
+		"key1:read;invalid",
+		":missing",
+		"key1:",
+		"key1:read;key1:write",
+	}
+	for _, test := range tests {
+		t.Run(test, func(t *testing.T) {
+			if _, parseErr := parseKeyScopes(test); parseErr == "" {
+				t.Fatal("expected malformed scoped keys to be rejected")
+			}
+		})
 	}
 }

@@ -30,12 +30,14 @@ Portable deployment profiles:
   - single instance: `IDENTRAIL_LOCK_BACKEND=inmemory` or `auto`
   - multi-instance: `IDENTRAIL_LOCK_BACKEND=postgres`
   - set `IDENTRAIL_LOCK_NAMESPACE` to isolate lock domains between environments
-- Confirm API auth is configured:
-  - legacy: `IDENTRAIL_API_KEYS` (+ `IDENTRAIL_WRITE_API_KEYS`)
-  - scoped: `IDENTRAIL_API_KEY_SCOPES`
+- Confirm API auth is configured (OIDC or API keys); if using API keys, configure exactly one mode unless a deliberate migration requires overlap:
+  - scoped mode: `IDENTRAIL_API_KEY_SCOPES`
+  - legacy mode: `IDENTRAIL_API_KEYS` plus `IDENTRAIL_WRITE_API_KEYS`
 - Confirm default request scope values for non-claim/non-header contexts:
   - `IDENTRAIL_DEFAULT_TENANT_ID`
   - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
+- Confirm production APIs reject fallback scope:
+  - `IDENTRAIL_REQUIRE_EXPLICIT_SCOPE=true`
 - Confirm durable connector secret storage:
   - `IDENTRAIL_CONNECTOR_SECRET_KEYS`
   - `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true`
