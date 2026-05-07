@@ -2151,22 +2151,31 @@ func recordAuthenticationFailure(c *gin.Context, sink audit.AuditSink, fingerpri
 	if c == nil || sink == nil {
 		return
 	}
+	ctx := context.Background()
+	if c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	ctx, correlationID := audit.EnsureCorrelationID(ctx)
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(ctx)
+	}
 	event := audit.AuditEvent{
-		Timestamp: time.Now().UTC(),
-		Kind:      "api_auth_failure",
-		Method:    c.Request.Method,
-		Path:      c.Request.URL.Path,
-		Status:    http.StatusUnauthorized,
-		ClientIP:  c.ClientIP(),
-		UserAgent: c.Request.UserAgent(),
-		Actor:     "unknown",
-		Outcome:   "denied",
-		Error:     "unauthorized",
+		Timestamp:     time.Now().UTC(),
+		Kind:          "api_auth_failure",
+		Method:        c.Request.Method,
+		Path:          c.Request.URL.Path,
+		Status:        http.StatusUnauthorized,
+		ClientIP:      c.ClientIP(),
+		UserAgent:     c.Request.UserAgent(),
+		Actor:         "unknown",
+		Outcome:       "denied",
+		Error:         "unauthorized",
+		CorrelationID: correlationID,
 	}
 	if apiKey := readAPIKey(c); apiKey != "" {
 		event.APIKeyID = fingerprintAPIKeyWith(fingerprinter, apiKey)
 	}
-	if err := sink.Write(c.Request.Context(), event); err != nil && logger != nil {
+	if err := sink.Write(ctx, event); err != nil && logger != nil {
 		logger.Warn("auth failure audit sink write failed", telemetry.ZapError(err))
 	}
 }

@@ -2161,6 +2161,14 @@ func TestRouterWritesAuditSinkForAuthenticationFailure(t *testing.T) {
 	if event.APIKeyID == "bad-key" {
 		t.Fatal("expected fingerprint instead of raw api key in auth failure event")
 	}
+	if event.CorrelationID == "" {
+		t.Fatalf("expected correlation id on auth failure event, got %+v", event)
+	}
+	if headerID := w.Header().Get("X-Request-Id"); headerID == "" {
+		t.Fatalf("expected X-Request-Id header to be set, got event correlation_id=%q", event.CorrelationID)
+	} else if headerID != event.CorrelationID {
+		t.Fatalf("expected auth failure correlation_id to match X-Request-Id header, got header=%q event=%q", headerID, event.CorrelationID)
+	}
 }
 
 func TestRouterWritesAuditSinkForScopedAPIKeyBindingAuthenticationFailure(t *testing.T) {
