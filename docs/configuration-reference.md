@@ -122,6 +122,8 @@ App-mode feature flags are supported runtime configuration for API and worker pr
 
 Audit:
 - `IDENTRAIL_AUDIT_LOG_FILE`
+- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
+  - Enables keyed HMAC-SHA256 pseudonymization for audit identifiers and API-key fingerprints.
 - `IDENTRAIL_AUDIT_FORWARD_URL`
 - `IDENTRAIL_AUDIT_FORWARD_TIMEOUT`
 - `IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES`
