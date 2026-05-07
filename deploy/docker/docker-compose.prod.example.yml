@@ -37,8 +37,7 @@ services:
       - .env
     environment:
       IDENTRAIL_DATABASE_URL: "${IDENTRAIL_DATABASE_URL:?set a TLS-enabled production Postgres URL}"
-      IDENTRAIL_REQUIRE_LIVE_SOURCES: "true"
-      IDENTRAIL_AWS_SOURCE: "sdk"
+      IDENTRAIL_REQUIRE_LIVE_SOURCES: "false"
       IDENTRAIL_RUN_MIGRATIONS: "true"
       IDENTRAIL_RUN_MIGRATIONS_ONLY: "true"
       IDENTRAIL_MIGRATIONS_DIR: "/app/migrations"
