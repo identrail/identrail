@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 func TestNewWebhookAlerterURLValidation(t *testing.T) {
