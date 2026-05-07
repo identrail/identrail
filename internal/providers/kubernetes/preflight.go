@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/connectors"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/connectors"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 var requiredKubernetesPreflightChecks = []KubernetesPermissionCheck{

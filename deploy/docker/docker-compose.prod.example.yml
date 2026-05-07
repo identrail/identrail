@@ -1,0 +1,50 @@
+# Production-oriented override for deploy/docker/docker-compose.yml.
+# Copy or adapt this file instead of using the local quickstart defaults directly.
+services:
+  postgres:
+    ports: !reset []
+    profiles:
+      - local
+
+  api:
+    environment:
+      IDENTRAIL_DATABASE_URL: "${IDENTRAIL_DATABASE_URL:?set a TLS-enabled production Postgres URL}"
+      IDENTRAIL_REQUIRE_LIVE_SOURCES: "true"
+      IDENTRAIL_AWS_SOURCE: "sdk"
+      IDENTRAIL_RUN_MIGRATIONS: "false"
+      IDENTRAIL_CORS_ALLOWED_ORIGINS: "${IDENTRAIL_CORS_ALLOWED_ORIGINS:?set the public web origin}"
+    depends_on: !reset []
+    ports: !reset []
+
+  worker:
+    environment:
+      IDENTRAIL_DATABASE_URL: "${IDENTRAIL_DATABASE_URL:?set a TLS-enabled production Postgres URL}"
+      IDENTRAIL_REQUIRE_LIVE_SOURCES: "true"
+      IDENTRAIL_AWS_SOURCE: "sdk"
+      IDENTRAIL_RUN_MIGRATIONS: "false"
+    depends_on: !reset []
+
+  migrations:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.backend
+      args:
+        TARGET: server
+    image: identrail/api:local
+    container_name: identrail-migrations
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      IDENTRAIL_DATABASE_URL: "${IDENTRAIL_DATABASE_URL:?set a TLS-enabled production Postgres URL}"
+      IDENTRAIL_REQUIRE_LIVE_SOURCES: "false"
+      IDENTRAIL_RUN_MIGRATIONS: "true"
+      IDENTRAIL_RUN_MIGRATIONS_ONLY: "true"
+      IDENTRAIL_MIGRATIONS_DIR: "/app/migrations"
+
+  web:
+    build:
+      args:
+        VITE_IDENTRAIL_API_URL: "${VITE_IDENTRAIL_API_URL:?set the public HTTPS API URL}"
+        NGINX_CONF: "default.conf"
+    ports: !reset []

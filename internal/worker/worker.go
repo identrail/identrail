@@ -7,11 +7,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/runtime"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/api"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/runtime"
+	"github.com/identrail/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/telemetry"
 )
 
 const (
@@ -66,13 +66,13 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		result, runErr := svc.RunScan(scanCtx)
 		if runErr != nil {
 			if errors.Is(runErr, api.ErrScanInProgress) {
-				logger.Info("scan skipped because another run is in progress")
+				logger.Info("scan skipped because another run is in progress", telemetry.StandardLogFields("worker", "scheduled_scan", telemetry.String("provider", cfg.Provider), telemetry.String("outcome", "skipped_in_progress"))...)
 				return nil
 			}
-			logger.Error("scheduled scan failed", telemetry.ZapError(runErr))
+			logger.Error("scheduled scan failed", telemetry.StandardLogFields("worker", "scheduled_scan", telemetry.String("provider", cfg.Provider), telemetry.String("outcome", "failed"), telemetry.ZapError(runErr))...)
 			return runErr
 		}
-		logger.Info("scheduled scan completed", telemetry.String("scan_id", result.Scan.ID))
+		logger.Info("scheduled scan completed", telemetry.StandardLogFields("worker", "scheduled_scan", telemetry.String("provider", cfg.Provider), telemetry.String("scan_id", result.Scan.ID), telemetry.String("outcome", "completed"))...)
 		return nil
 	}
 	repoTrigger := func(runCtx context.Context) error {
@@ -87,17 +87,20 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			cancel()
 			if runErr != nil {
 				if errors.Is(runErr, api.ErrRepoScanInProgress) {
-					logger.Info("repo scan skipped because another run is in progress", telemetry.String("repository", target))
+					logger.Info("repo scan skipped because another run is in progress", telemetry.StandardLogFields("worker", "scheduled_repo_scan", telemetry.String("repository", target), telemetry.String("outcome", "skipped_in_progress"))...)
 					continue
 				}
 				failures++
-				logger.Error("scheduled repo scan failed", telemetry.String("repository", target), telemetry.ZapError(runErr))
+				logger.Error("scheduled repo scan failed", telemetry.StandardLogFields("worker", "scheduled_repo_scan", telemetry.String("repository", target), telemetry.String("outcome", "failed"), telemetry.ZapError(runErr))...)
 				continue
 			}
 			logger.Info(
 				"scheduled repo scan completed",
-				telemetry.String("repository", target),
-				telemetry.String("repo_scan_id", repoRun.RepoScan.ID),
+				telemetry.StandardLogFields("worker", "scheduled_repo_scan",
+					telemetry.String("repository", target),
+					telemetry.String("repo_scan_id", repoRun.RepoScan.ID),
+					telemetry.String("outcome", "completed"),
+				)...,
 			)
 		}
 		if failures > 0 {
@@ -116,10 +119,10 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			withJobTimeout(svc.ProcessNextQueuedScan, defaultWorkerScanTimeout),
 			withJobTimeout(svc.ProcessNextQueuedRepoScan, defaultWorkerRepoScanTimeout),
 			func(err error) {
-				logger.Error("queued scan processing failed", telemetry.ZapError(err))
+				logger.Error("queued scan processing failed", telemetry.StandardLogFields("worker", "api_queue_scan", telemetry.String("outcome", "failed"), telemetry.ZapError(err))...)
 			},
 			func(err error) {
-				logger.Error("queued repo scan processing failed", telemetry.ZapError(err))
+				logger.Error("queued repo scan processing failed", telemetry.StandardLogFields("worker", "api_queue_repo_scan", telemetry.String("outcome", "failed"), telemetry.ZapError(err))...)
 			},
 		)
 	}
