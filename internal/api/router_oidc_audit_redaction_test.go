@@ -68,4 +68,7 @@ func TestRouterOIDCAuditSinkRedactsSensitiveAuthzIdentifiers(t *testing.T) {
 	if strings.Contains(text, rawToken) {
 		t.Fatalf("audit payload leaked bearer token: %s", text)
 	}
+	if strings.Contains(text, rawSubject) {
+		t.Fatalf("audit payload leaked raw subject: %s", text)
+	}
 }

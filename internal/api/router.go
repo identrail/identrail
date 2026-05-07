@@ -2430,7 +2430,7 @@ func triageActorFromContext(c *gin.Context, fingerprinter *audit.Fingerprinter) 
 		if subject, ok := subjectValue.(string); ok {
 			normalizedSubject := strings.TrimSpace(subject)
 			if normalizedSubject != "" {
-				return "subject:" + normalizedSubject
+				return "subject:" + fingerprintIdentifierWith(fingerprinter, normalizedSubject)
 			}
 		}
 	}
