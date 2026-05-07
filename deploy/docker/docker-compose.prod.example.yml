@@ -20,4 +20,5 @@ services:
     build:
       args:
         VITE_IDENTRAIL_API_URL: "${VITE_IDENTRAIL_API_URL:?set the public HTTPS API URL}"
+        NGINX_CONF: "default.conf"
     ports: !reset []
