@@ -33,6 +33,7 @@ export const siteLinks = {
   whyIdentrail: '/product',
   platformDemo: '/demo',
   blogInsights: '/blog',
+  agenticAiRoadmap: '/blog/machine-identity-security-operating-model-2026',
   agenticAi: '/security',
   integrations: '/integrations',
   legalPrivacy: '/privacy',
