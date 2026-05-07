@@ -262,6 +262,38 @@ func TestValidateSecurityRejectsInvalidDurationEnv(t *testing.T) {
 		t.Fatalf("expected invalid duration env error, got %v", err)
 	}
 }
+func TestValidateSecurityAcceptsScopedKeyTenantWorkspaceBindings(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key-12345678901234567890": {"read", "tenant:tenant-a", "workspace:workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected scoped key bindings to validate, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidScopedKeyTenantBinding(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key-12345678901234567890": {"read", "tenant:bad tenant"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected invalid tenant binding to fail validation")
+	}
+}
+
+func TestValidateSecurityRejectsConflictingScopedKeyTenantBindings(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key-12345678901234567890": {"read", "tenant:tenant-a", "tenant:tenant-b"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected conflicting tenant bindings to fail validation")
+	}
+}
 
 func TestValidateSecurityRejectsInvalidDefaultTenantID(t *testing.T) {
 	cfg := Config{

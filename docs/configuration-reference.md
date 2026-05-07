@@ -36,6 +36,8 @@ Notes:
 - `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
 - OIDC bearer auth enforces issuer/audience plus token validity (`exp`) via provider verification.
 - Use either scoped API keys (`IDENTRAIL_API_KEY_SCOPES`) or legacy key lists (`IDENTRAIL_API_KEYS` plus `IDENTRAIL_WRITE_API_KEYS`). Scoped keys take precedence when both are set; overlap should be limited to planned migrations.
+- `IDENTRAIL_API_KEY_SCOPES` supports optional tenant/workspace binding metadata per key: `tenant:<tenant-id>` and `workspace:<workspace-id>`.
+- API key callers can send `X-Identrail-Tenant-ID` and `X-Identrail-Workspace-ID` only when those headers match the key binding metadata.
 - Malformed `IDENTRAIL_API_KEY_SCOPES` entries are startup errors. Do not include bare keys, empty keys, empty scope lists, or duplicate key entries.
 
 ## Provider Collection
