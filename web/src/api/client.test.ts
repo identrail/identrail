@@ -182,6 +182,60 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('follows next_cursor when listing workspace members', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              member_id: 'member-a',
+              user_id: 'user-a',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            }
+          ],
+          next_cursor: 'cursor-2'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              member_id: 'member-b',
+              user_id: 'user-b',
+              role: 'viewer',
+              status: 'invited',
+              joined_at: '2026-01-02T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await apiClient.listWorkspaceMembers(
+      'workspace-a',
+      { limit: 1 },
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' }
+    );
+
+    expect(response.items).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [firstURL] = fetchMock.mock.calls[0] as [string];
+    const [secondURL] = fetchMock.mock.calls[1] as [string];
+    expect(firstURL).toContain('/v1/workspaces/workspace-a/members?limit=1');
+    expect(secondURL).toContain('/v1/workspaces/workspace-a/members?limit=1&cursor=cursor-2');
+  });
+
   it('lists workspace projects with archive filters and scoped headers', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
