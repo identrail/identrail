@@ -476,6 +476,22 @@ func TestMemoryStoreNonPositiveLimitsUseDefaultPageSize(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCreateQueuedScanWithinLimit(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+
+	first, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now, 1)
+	if err != nil {
+		t.Fatalf("create queued scan with limit: %v", err)
+	}
+	if first.Status != "queued" {
+		t.Fatalf("expected queued status, got %q", first.Status)
+	}
+	if _, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
+		t.Fatalf("expected ErrQueueLimitReached, got %v", err)
+	}
+}
+
 func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)

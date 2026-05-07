@@ -77,6 +77,11 @@ var placeholderAPIKeys = map[string]struct{}{
 	"replace-with-strong-write-key": {},
 }
 
+var placeholderDefaultScopeIDs = map[string]struct{}{
+	"replace-tenant-id":    {},
+	"replace-workspace-id": {},
+}
+
 var scopeIdentifierPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$`)
 var oidcClaimNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._:-]{0,127}$`)
 
@@ -102,11 +107,17 @@ func ValidateSecurity(cfg Config) error {
 	if err := validateScopeIdentifier("IDENTRAIL_DEFAULT_TENANT_ID", defaultTenant); err != nil {
 		return err
 	}
+	if err := validateNotPlaceholderScopeIdentifier("IDENTRAIL_DEFAULT_TENANT_ID", defaultTenant); err != nil {
+		return err
+	}
 	defaultWorkspace := strings.TrimSpace(cfg.DefaultWorkspaceID)
 	if defaultWorkspace == "" {
 		defaultWorkspace = defaultWorkspaceID
 	}
 	if err := validateScopeIdentifier("IDENTRAIL_DEFAULT_WORKSPACE_ID", defaultWorkspace); err != nil {
+		return err
+	}
+	if err := validateNotPlaceholderScopeIdentifier("IDENTRAIL_DEFAULT_WORKSPACE_ID", defaultWorkspace); err != nil {
 		return err
 	}
 	if cfg.AppModeConnectorsEnabled && !cfg.AppModeEnabled {
@@ -536,6 +547,14 @@ func validateScopeIdentifier(envName string, value string) error {
 	}
 	if !scopeIdentifierPattern.MatchString(normalized) {
 		return fmt.Errorf("%s must match %s", envName, scopeIdentifierPattern.String())
+	}
+	return nil
+}
+
+func validateNotPlaceholderScopeIdentifier(envName string, value string) error {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if _, ok := placeholderDefaultScopeIDs[normalized]; ok {
+		return fmt.Errorf("%s cannot use a placeholder value", envName)
 	}
 	return nil
 }

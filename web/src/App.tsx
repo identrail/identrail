@@ -7,7 +7,6 @@ import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { CommandCenterSection } from './components/home/CommandCenterSection';
 import { ProblemFramingSection } from './components/home/ProblemFramingSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
-import { AgenticAiSection } from './components/AgenticAiSection';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
@@ -1656,8 +1655,6 @@ function HomePage() {
       <TrustProofStrip />
 
       <ProblemFramingSection />
-
-      <AgenticAiSection />
 
       <CommandCenterSection />
 

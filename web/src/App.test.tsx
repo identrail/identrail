@@ -47,6 +47,7 @@ describe('App', () => {
     window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
     vi.unstubAllEnvs();
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -191,6 +192,21 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
   });
 
+  it('allows manual login when OIDC is not configured even if manual sessions default off', async () => {
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', '');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', '');
+    window.history.pushState({}, '', '/app/login');
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Tenant ID/i), { target: { value: 'tenant-a' } });
+    fireEvent.change(screen.getByLabelText(/Workspace ID/i), { target: { value: 'workspace-a' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue to app/i }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+  });
+
   it('routes overview onboarding into the real project selection flow', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
@@ -202,6 +218,65 @@ describe('App', () => {
 
     const selectProjectLink = await screen.findByRole('link', { name: /Select project/i });
     expect(selectProjectLink).toHaveAttribute('href', '/app/tenant-a/workspace-a/projects');
+  });
+
+  it('keeps persisted manual sessions when OIDC is not configured and manual sessions are disabled', async () => {
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', '');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', '');
+    window.sessionStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'manual'
+      })
+    );
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+  });
+
+  it('removes untrusted next path when rejecting manual sessions under OIDC', async () => {
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'manual'
+      })
+    );
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a?tab=risky');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    const query = new URLSearchParams(window.location.search);
+    expect(query.get('reason')).toBe('manual_auth_disabled');
+    expect(query.has('next')).toBe(false);
+    expect(screen.getByRole('button', { name: /Continue with Keycloak/i })).toBeInTheDocument();
+    expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
+  });
+
+  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
+    saveProductSession({
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace-a'
+    });
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    expect(screen.getByText('Project source onboarding')).toBeInTheDocument();
   });
 
   it('lists workspace projects and links them to concrete source onboarding routes', async () => {

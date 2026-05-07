@@ -104,6 +104,38 @@ func (m *MemoryStore) CreateQueuedScan(ctx context.Context, provider string, que
 	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
 }
 
+// CreateQueuedScanWithinLimit persists one queued scan request only when pending capacity remains.
+func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	normalizedProvider := strings.TrimSpace(provider)
+	queued := 0
+	for _, record := range m.scans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if record.Status != "queued" {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		queued++
+	}
+	if queued >= maxPending {
+		return ScanRecord{}, ErrQueueLimitReached
+	}
+	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
+}
+
 // ClaimNextQueuedScan moves one queued scan to running for execution.
 func (m *MemoryStore) ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error) {
 	m.mu.Lock()
@@ -113,12 +145,24 @@ func (m *MemoryStore) ClaimNextQueuedScan(ctx context.Context, provider string) 
 	if err != nil {
 		return ScanRecord{}, err
 	}
+	return m.claimNextQueuedScanLocked(&scope, provider)
+}
+
+// ClaimNextQueuedScanAnyScope moves one queued scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedScanAnyScope(_ context.Context, provider string) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedScanLocked(nil, provider)
+}
+
+func (m *MemoryStore) claimNextQueuedScanLocked(scope *Scope, provider string) (ScanRecord, error) {
 	normalizedProvider := strings.TrimSpace(provider)
 	found := false
 	var bestRecord ScanRecord
 	for _, scanID := range m.scanIDs {
 		record := m.scans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {
@@ -1202,11 +1246,23 @@ func (m *MemoryStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanReco
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
+	return m.claimNextQueuedRepoScanLocked(&scope)
+}
+
+// ClaimNextQueuedRepoScanAnyScope moves one queued repository scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedRepoScanAnyScope(_ context.Context) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedRepoScanLocked(nil)
+}
+
+func (m *MemoryStore) claimNextQueuedRepoScanLocked(scope *Scope) (RepoScanRecord, error) {
 	var claimed RepoScanRecord
 	found := false
 	for _, scanID := range m.repoScanIDs {
 		record := m.repoScans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {

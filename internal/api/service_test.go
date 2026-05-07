@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1389,6 +1392,60 @@ func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	}
 }
 
+func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{err: errors.New("scanner failed during analysis")}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	record, err := svc.EnqueueScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("enqueue scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+	if err == nil {
+		t.Fatal("expected scanner failure to be returned")
+	}
+
+	scan, err := store.GetScan(defaultScopeContext(), record.ID)
+	if err != nil {
+		t.Fatalf("get scan: %v", err)
+	}
+	if scan.Status != "failed" {
+		t.Fatalf("expected failed status, got %q", scan.Status)
+	}
+	if scan.ErrorMessage == "" {
+		t.Fatal("expected persisted scan error message")
+	}
+
+	events, err := svc.ListScanEvents(defaultScopeContext(), record.ID, 20)
+	if err != nil {
+		t.Fatalf("list scan events: %v", err)
+	}
+	foundFailureEvent := false
+	for _, event := range events {
+		if event.Level == db.ScanEventLevelError && strings.Contains(event.Message, "scan failed during collection/analysis") {
+			foundFailureEvent = true
+			break
+		}
+	}
+	if !foundFailureEvent {
+		t.Fatalf("expected failure scan event, got %+v", events)
+	}
+
+	processed, err = svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("second queue process: %v", err)
+	}
+	if processed {
+		t.Fatal("expected failed scan to not be retried from queue")
+	}
+}
+
 func TestServiceEnqueueScanQueueFull(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
 	svc.ScanQueueMaxPending = 1
@@ -1397,6 +1454,86 @@ func TestServiceEnqueueScanQueueFull(t *testing.T) {
 	}
 	if _, err := svc.EnqueueScan(defaultScopeContext()); !errors.Is(err, ErrScanQueueFull) {
 		t.Fatalf("expected scan queue full error, got %v", err)
+	}
+}
+
+func TestServiceEnqueueScanConcurrentRespectsQueueLimit(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.ScanQueueMaxPending = 1
+
+	const workers = 12
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var successCount int32
+	var queueFullCount int32
+	var unexpectedErrCount int32
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := svc.EnqueueScan(defaultScopeContext())
+			switch {
+			case err == nil:
+				atomic.AddInt32(&successCount, 1)
+			case errors.Is(err, ErrScanQueueFull):
+				atomic.AddInt32(&queueFullCount, 1)
+			default:
+				atomic.AddInt32(&unexpectedErrCount, 1)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if unexpectedErrCount != 0 {
+		t.Fatalf("expected no unexpected enqueue errors, got %d", unexpectedErrCount)
+	}
+	if successCount != 1 {
+		t.Fatalf("expected exactly one successful enqueue, got %d", successCount)
+	}
+	if queueFullCount != workers-1 {
+		t.Fatalf("expected %d queue-full responses, got %d", workers-1, queueFullCount)
+	}
+}
+
+func TestServiceProcessQueuedScanAcrossScopes(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 10, 15, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{result: app.ScanResult{
+		Assets:   1,
+		Findings: []domain.Finding{{ID: "f-cross-scope", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now}},
+	}}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	tenantScopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	record, err := svc.EnqueueScan(tenantScopeCtx)
+	if err != nil {
+		t.Fatalf("enqueue scoped scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process queued scan from default scope context: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scoped scan to be processed")
+	}
+
+	scan, err := store.GetScan(tenantScopeCtx, record.ID)
+	if err != nil {
+		t.Fatalf("get scoped scan: %v", err)
+	}
+	if scan.Status != "succeeded" {
+		t.Fatalf("expected succeeded scan status, got %q", scan.Status)
+	}
+	if scan.FindingCount != 1 {
+		t.Fatalf("expected finding_count=1, got %d", scan.FindingCount)
+	}
+	if scan.TenantID != "tenant-a" || scan.WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected scan scope: tenant=%q workspace=%q", scan.TenantID, scan.WorkspaceID)
 	}
 }
 
@@ -1505,6 +1642,49 @@ func TestServiceEnqueueRepoScanGuards(t *testing.T) {
 	}
 	if _, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/another"}); !errors.Is(err, ErrRepoScanQueueFull) {
 		t.Fatalf("expected repo queue full error, got %v", err)
+	}
+}
+
+func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: historyLimit,
+				FilesScanned:   3,
+				Findings: []domain.Finding{
+					{ID: "rf-cross-scope", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, CreatedAt: time.Now().UTC()},
+				},
+			},
+		}
+	}
+	tenantScopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	record, err := svc.EnqueueRepoScan(tenantScopeCtx, RepoScanRequest{
+		Repository:   "owner/repo",
+		HistoryLimit: 10,
+		MaxFindings:  20,
+	})
+	if err != nil {
+		t.Fatalf("enqueue scoped repo scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process scoped repo scan from default scope context: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scoped repo scan to be processed")
+	}
+
+	stored, err := svc.GetRepoScan(tenantScopeCtx, record.ID)
+	if err != nil {
+		t.Fatalf("get scoped repo scan: %v", err)
+	}
+	if stored.Status != "succeeded" {
+		t.Fatalf("expected succeeded repo scan status, got %q", stored.Status)
 	}
 }
 

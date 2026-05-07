@@ -147,6 +147,11 @@ function isOIDCEnabled(): boolean {
   return readOIDCConfig() !== null;
 }
 
+function isManualSessionEntryEnabled(): boolean {
+  const enabled = normalizeValue(import.meta.env.VITE_ALLOW_MANUAL_PRODUCT_SESSION ?? '').toLowerCase();
+  return enabled === 'true';
+}
+
 async function loadOIDCDiscovery(config: OIDCConfig): Promise<OIDCDiscoveryDocument> {
   const issuer = config.issuerURL.endsWith('/') ? config.issuerURL.slice(0, -1) : config.issuerURL;
   const response = await fetch(`${issuer}/.well-known/openid-configuration`, {
@@ -641,6 +646,8 @@ function loginReasonMessage(reason: string): string {
   switch (reason) {
     case 'session_expired':
       return 'Your session expired. Sign in again to continue.';
+    case 'manual_auth_disabled':
+      return 'Manual workspace entry is disabled for this deployment. Sign in with single sign-on to continue.';
     case 'callback_error':
       return 'OIDC callback failed. Please retry sign-in.';
     case 'state_mismatch':
@@ -953,6 +960,15 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
           return;
         }
 
+        const manualSessionAllowed = isManualSessionEntryEnabled() || !isOIDCEnabled();
+        if (activeSession.authMode === 'manual' && !manualSessionAllowed) {
+          clearProductSession();
+          setReason('manual_auth_disabled');
+          setAuthenticated(false);
+          setReady(true);
+          return;
+        }
+
         if (JSON.stringify(activeSession) !== JSON.stringify(existing)) {
           saveProductSession(activeSession);
         }
@@ -982,8 +998,15 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   }
 
   if (!authenticated) {
-    const next = `${location.pathname}${location.search}`;
-    const redirect = `/app/login?next=${encodeURIComponent(next)}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`;
+    const preserveNextPath = reason !== 'manual_auth_disabled';
+    const query = new URLSearchParams();
+    if (preserveNextPath) {
+      query.set('next', `${location.pathname}${location.search}`);
+    }
+    if (reason) {
+      query.set('reason', reason);
+    }
+    const redirect = query.size > 0 ? `/app/login?${query.toString()}` : '/app/login';
     return <Navigate to={redirect} replace />;
   }
 
@@ -997,6 +1020,7 @@ export function ProductLoginPage() {
   const nextPath = normalizeValue(query.get('next') ?? '');
   const existing = useMemo(() => readProductSession(), []);
   const oidcEnabled = isOIDCEnabled();
+  const manualEntryEnabled = isManualSessionEntryEnabled() || !oidcEnabled;
 
   const [tenantID, setTenantID] = useState(existing?.tenantID ?? 'default');
   const [workspaceID, setWorkspaceID] = useState(existing?.workspaceID ?? 'default');
@@ -1070,23 +1094,29 @@ export function ProductLoginPage() {
           </div>
         ) : null}
 
-        <form className="idt-app-form" onSubmit={handleSubmit}>
-          <label>
-            Tenant ID
-            <input value={tenantID} onChange={(event) => setTenantID(event.target.value)} required />
-          </label>
-          <label>
-            Workspace ID
-            <input value={workspaceID} onChange={(event) => setWorkspaceID(event.target.value)} required />
-          </label>
-          <label>
-            Project ID (optional)
-            <input value={projectID} onChange={(event) => setProjectID(event.target.value)} />
-          </label>
-          <button className="idt-btn idt-btn-ghost" type="submit">
-            Continue to app
-          </button>
-        </form>
+        {manualEntryEnabled ? (
+          <form className="idt-app-form" onSubmit={handleSubmit}>
+            <label>
+              Tenant ID
+              <input value={tenantID} onChange={(event) => setTenantID(event.target.value)} required />
+            </label>
+            <label>
+              Workspace ID
+              <input value={workspaceID} onChange={(event) => setWorkspaceID(event.target.value)} required />
+            </label>
+            <label>
+              Project ID (optional)
+              <input value={projectID} onChange={(event) => setProjectID(event.target.value)} />
+            </label>
+            <button className="idt-btn idt-btn-ghost" type="submit">
+              Continue to app
+            </button>
+          </form>
+        ) : (
+          <p className="idt-app-alert">
+            Manual workspace entry is disabled for this deployment. Use single sign-on to establish tenant and workspace access.
+          </p>
+        )}
       </article>
     </section>
   );

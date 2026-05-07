@@ -85,6 +85,16 @@ export type RequestAuthContext = {
   bearerToken?: string;
 };
 
+export const IDENTRAIL_SCOPE_HEADERS = {
+  tenantID: 'X-Identrail-Tenant-ID',
+  workspaceID: 'X-Identrail-Workspace-ID'
+} as const;
+
+export type IdentrailScopeHeaders = {
+  [IDENTRAIL_SCOPE_HEADERS.tenantID]: string;
+  [IDENTRAIL_SCOPE_HEADERS.workspaceID]: string;
+};
+
 export type WorkspaceMemberRole = 'owner' | 'admin' | 'analyst' | 'viewer';
 export type WorkspaceMemberStatus = 'invited' | 'active' | 'suspended' | 'removed';
 
@@ -113,6 +123,11 @@ export type WorkspaceContextSnapshot = {
   workspace: WorkspaceRecord;
   member?: WorkspaceMemberRecord;
   is_active: boolean;
+};
+
+type WorkspaceMemberPage = {
+  items: WorkspaceMemberRecord[];
+  next_cursor?: string;
 };
 
 export type ProjectRecord = {
@@ -350,11 +365,11 @@ function buildRequestHeaders(auth?: RequestAuthContext): Record<string, string> 
   }
   const tenantID = trimOrUndefined(auth?.tenantID);
   if (tenantID) {
-    headers['X-Identrail-Tenant-ID'] = tenantID;
+    headers[IDENTRAIL_SCOPE_HEADERS.tenantID] = tenantID;
   }
   const workspaceID = trimOrUndefined(auth?.workspaceID);
   if (workspaceID) {
-    headers['X-Identrail-Workspace-ID'] = workspaceID;
+    headers[IDENTRAIL_SCOPE_HEADERS.workspaceID] = workspaceID;
   }
   const bearerToken = trimOrUndefined(auth?.bearerToken);
   if (bearerToken) {
@@ -419,7 +434,7 @@ export const apiClient = {
     return request<{
       active_workspace: WorkspaceContextSnapshot;
       scope: { tenant_id: string; workspace_id: string };
-      scope_headers: { 'X-Identrail-Tenant-ID': string; 'X-Identrail-Workspace-ID': string };
+      scope_headers: IdentrailScopeHeaders;
     }>('/v1/workspaces/active', auth, {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceID })
@@ -435,10 +450,26 @@ export const apiClient = {
     auth?: RequestAuthContext
   ) {
     const encodedWorkspaceID = encodeURIComponent(workspaceID);
-    return request<{ items: WorkspaceMemberRecord[] }>(
-      `/v1/workspaces/${encodedWorkspaceID}/members${buildQuery(filters)}`,
-      auth
-    );
+    const loadAllPages = async () => {
+      const items: WorkspaceMemberRecord[] = [];
+      let nextCursor: string | undefined;
+
+      do {
+        const page = await request<WorkspaceMemberPage>(
+          `/v1/workspaces/${encodedWorkspaceID}/members${buildQuery({
+            ...filters,
+            cursor: nextCursor
+          })}`,
+          auth
+        );
+        items.push(...page.items);
+        nextCursor = trimOrUndefined(page.next_cursor);
+      } while (nextCursor);
+
+      return { items };
+    };
+
+    return loadAllPages();
   },
   listProjects(
     workspaceID: string,

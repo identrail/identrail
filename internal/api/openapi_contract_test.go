@@ -161,6 +161,24 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsWorkspaceMemberStatusDefault(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"WorkspaceMemberUpsertRequest:",
+		"required: [member_id, user_id, role]",
+		"default: invited",
+		"Defaults to `invited` when omitted.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+	if strings.Contains(spec, "required: [member_id, user_id, role, status]") {
+		t.Fatalf("openapi spec should not require workspace member status in the request body")
+	}
+}
+
 func TestOpenAPIV1SpecDocumentsRouteAuthorizationMetadata(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	for _, route := range defaultBuiltInRoutePolicyDefinitions() {
@@ -197,6 +215,30 @@ func TestOpenAPIV1SpecDocumentsActionRoleGrants(t *testing.T) {
 		if !strings.Contains(spec, strings.Join(lines, "\n")) {
 			t.Fatalf("openapi authz metadata missing role grants for action %q", action)
 		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsServiceStatusHealthSchemas(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"ServiceStatusResponse:",
+		"required: [status, service]",
+		`$ref: "#/components/schemas/ServiceStatusResponse"`,
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	readyzBlock := pathBlock(t, spec, "/readyz")
+	readyzServiceStatusPattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ServiceStatusResponse"`)
+	if !readyzServiceStatusPattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q must document a 503 service status body", "/readyz")
+	}
+	readyzErrorResponsePattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ErrorResponse"`)
+	if readyzErrorResponsePattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q should not document readiness 503 as ErrorResponse", "/readyz")
 	}
 }
 
