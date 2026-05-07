@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 
