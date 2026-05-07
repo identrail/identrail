@@ -328,7 +328,8 @@ paths:
       tags: [RepositoryExposure]
       summary: Receive GitHub webhook events for repository scan triggers
       operationId: receiveGitHubWebhook
-      security: []
+      security:
+        - GitHubWebhookSignature: []
       parameters:
         - in: header
           name: X-GitHub-Event
@@ -337,10 +338,6 @@ paths:
         - in: header
           name: X-GitHub-Delivery
           required: false
-          schema: { type: string }
-        - in: header
-          name: X-Hub-Signature-256
-          required: true
           schema: { type: string }
       requestBody:
         required: true
@@ -1772,6 +1769,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    GitHubWebhookSignature:
+      type: apiKey
+      in: header
+      name: X-Hub-Signature-256
+      description: GitHub HMAC SHA-256 signature of the raw webhook request body.
   parameters:
     scopeTenantID:
       in: header
