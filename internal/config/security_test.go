@@ -319,6 +319,28 @@ func TestValidateSecurityRejectsInvalidDefaultWorkspaceID(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsPlaceholderDefaultTenantID(t *testing.T) {
+	cfg := Config{
+		APIKeys:         []string{"reader", "writer", "reader-key-12345678901234567890"},
+		WriteAPIKeys:    []string{"writer"},
+		DefaultTenantID: "replace-tenant-id",
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected placeholder default tenant id error")
+	}
+}
+
+func TestValidateSecurityRejectsPlaceholderDefaultWorkspaceID(t *testing.T) {
+	cfg := Config{
+		APIKeys:            []string{"reader", "writer", "reader-key-12345678901234567890"},
+		WriteAPIKeys:       []string{"writer"},
+		DefaultWorkspaceID: "replace-workspace-id",
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected placeholder default workspace id error")
+	}
+}
+
 func TestValidateSecurityRejectsScopedKeyWithoutValidScope(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes: map[string][]string{"key1": {""}},
