@@ -5,9 +5,11 @@ create_namespace         = true
 create_kubernetes_secret = true
 
 secret_data = {
-  IDENTRAIL_API_KEYS      = "replace-read-key,replace-write-key"
-  IDENTRAIL_WRITE_API_KEYS = "replace-write-key"
-  IDENTRAIL_DATABASE_URL  = "postgres://identrail:replace-password@postgres:5432/identrail?sslmode=require"
+  IDENTRAIL_API_KEYS                 = "replace-read-key,replace-write-key"
+  IDENTRAIL_WRITE_API_KEYS           = "replace-write-key"
+  IDENTRAIL_DATABASE_URL             = "postgres://identrail:replace-password@postgres:5432/identrail?sslmode=require"
+  IDENTRAIL_CONNECTOR_SECRET_KEYS    = "v1:replace-with-base64-32-byte-key"
+  IDENTRAIL_AUDIT_FINGERPRINT_SECRET = "replace-with-strong-secret"
 }
 
 chart_values = {
@@ -26,10 +28,17 @@ chart_values = {
     }
   }
   config = {
-    IDENTRAIL_PROVIDER = "aws"
-    IDENTRAIL_AWS_SOURCE = "sdk"
-    IDENTRAIL_K8S_SOURCE = "kubectl"
-    IDENTRAIL_LOCK_BACKEND = "postgres"
-    IDENTRAIL_LOCK_NAMESPACE = "identrail-prod"
+    IDENTRAIL_PROVIDER                        = "aws"
+    IDENTRAIL_ALLOW_MEMORY_STORE              = "false"
+    IDENTRAIL_REQUIRE_EXPLICIT_SCOPE          = "true"
+    IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED  = "true"
+    IDENTRAIL_REQUIRE_LIVE_SOURCES            = "true"
+    IDENTRAIL_AWS_SOURCE                      = "sdk"
+    IDENTRAIL_K8S_SOURCE                      = "kubectl"
+    IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED    = "true"
+    IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL   = "2s"
+    IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE = "5"
+    IDENTRAIL_LOCK_BACKEND                    = "postgres"
+    IDENTRAIL_LOCK_NAMESPACE                  = "identrail-prod"
   }
 }

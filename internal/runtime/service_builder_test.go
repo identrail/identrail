@@ -16,9 +16,10 @@ import (
 
 func TestBuildScanServiceMemoryStore(t *testing.T) {
 	cfg := config.Config{
-		Provider:       "aws",
-		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
-		ScanInterval:   5 * time.Minute,
+		Provider:         "aws",
+		AllowMemoryStore: true,
+		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
+		ScanInterval:     5 * time.Minute,
 	}
 
 	svc, closeFn, err := BuildScanService(cfg)
@@ -33,9 +34,20 @@ func TestBuildScanServiceMemoryStore(t *testing.T) {
 	}
 }
 
+func TestBuildScanServiceRequiresPersistentStoreByDefault(t *testing.T) {
+	cfg := config.Config{
+		Provider:       "aws",
+		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
+	}
+	if _, _, err := BuildScanService(cfg); err == nil {
+		t.Fatal("expected missing database url to fail without memory-store opt-in")
+	}
+}
+
 func TestBuildScanServiceRepoScanSettings(t *testing.T) {
 	cfg := config.Config{
 		Provider:                "aws",
+		AllowMemoryStore:        true,
 		AWSFixturePath:          []string{"testdata/aws/role_with_policies.json"},
 		RepoScanEnabled:         true,
 		RepoScanHistoryLimit:    700,
@@ -68,10 +80,11 @@ func TestBuildScanServiceRepoScanSettings(t *testing.T) {
 
 func TestBuildScanServiceLockDefaults(t *testing.T) {
 	cfg := config.Config{
-		Provider:       "aws",
-		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
-		LockBackend:    "inmemory",
-		LockNamespace:  "tenant-a",
+		Provider:         "aws",
+		AllowMemoryStore: true,
+		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
+		LockBackend:      "inmemory",
+		LockNamespace:    "tenant-a",
 	}
 	svc, closeFn, err := BuildScanService(cfg)
 	if err != nil {
@@ -89,9 +102,10 @@ func TestBuildScanServiceLockDefaults(t *testing.T) {
 
 func TestBuildScanServiceLockBackendAutoWithoutDatabase(t *testing.T) {
 	cfg := config.Config{
-		Provider:       "aws",
-		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
-		LockBackend:    "auto",
+		Provider:         "aws",
+		AllowMemoryStore: true,
+		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
+		LockBackend:      "auto",
 	}
 	svc, closeFn, err := BuildScanService(cfg)
 	if err != nil {
@@ -106,7 +120,8 @@ func TestBuildScanServiceLockBackendAutoWithoutDatabase(t *testing.T) {
 
 func TestBuildScanServiceKubernetesProvider(t *testing.T) {
 	cfg := config.Config{
-		Provider: "kubernetes",
+		Provider:         "kubernetes",
+		AllowMemoryStore: true,
 		KubernetesFixturePath: []string{
 			repoFixturePathForProvider(t, "kubernetes", "service_account_payments.json"),
 			repoFixturePathForProvider(t, "kubernetes", "role_binding_cluster_admin.json"),
@@ -132,7 +147,8 @@ func TestBuildScanServiceKubernetesProvider(t *testing.T) {
 
 func TestBuildScanServiceUnsupportedProvider(t *testing.T) {
 	cfg := config.Config{
-		Provider: "azure",
+		Provider:         "azure",
+		AllowMemoryStore: true,
 	}
 	if _, _, err := BuildScanService(cfg); err == nil {
 		t.Fatal("expected unsupported provider error")
@@ -141,8 +157,9 @@ func TestBuildScanServiceUnsupportedProvider(t *testing.T) {
 
 func TestBuildScanServiceUnsupportedAWSSource(t *testing.T) {
 	cfg := config.Config{
-		Provider:  "aws",
-		AWSSource: "unknown",
+		Provider:         "aws",
+		AllowMemoryStore: true,
+		AWSSource:        "unknown",
 	}
 	if _, _, err := BuildScanService(cfg); err == nil {
 		t.Fatal("expected unsupported aws source error")
@@ -151,9 +168,10 @@ func TestBuildScanServiceUnsupportedAWSSource(t *testing.T) {
 
 func TestBuildScanServiceAWSSDKMode(t *testing.T) {
 	cfg := config.Config{
-		Provider:  "aws",
-		AWSSource: "sdk",
-		AWSRegion: "us-east-1",
+		Provider:         "aws",
+		AllowMemoryStore: true,
+		AWSSource:        "sdk",
+		AWSRegion:        "us-east-1",
 	}
 	svc, closeFn, err := BuildScanService(cfg)
 	if err != nil {
@@ -170,6 +188,7 @@ func TestBuildScanServiceAWSSDKMode(t *testing.T) {
 func TestBuildScanServiceUnsupportedKubernetesSource(t *testing.T) {
 	cfg := config.Config{
 		Provider:         "kubernetes",
+		AllowMemoryStore: true,
 		KubernetesSource: "unknown",
 	}
 	if _, _, err := BuildScanService(cfg); err == nil {
@@ -180,6 +199,7 @@ func TestBuildScanServiceUnsupportedKubernetesSource(t *testing.T) {
 func TestBuildScanServiceKubernetesKubectlMode(t *testing.T) {
 	cfg := config.Config{
 		Provider:         "kubernetes",
+		AllowMemoryStore: true,
 		KubernetesSource: "kubectl",
 		KubectlPath:      "/path/does/not/exist/kubectl",
 	}
@@ -195,7 +215,8 @@ func TestBuildScanServiceKubernetesKubectlMode(t *testing.T) {
 
 func TestBuildScanServiceWiresKubernetesPreflightFactory(t *testing.T) {
 	cfg := config.Config{
-		Provider: "kubernetes",
+		Provider:         "kubernetes",
+		AllowMemoryStore: true,
 		KubernetesFixturePath: []string{
 			repoFixturePathForProvider(t, "kubernetes", "service_account_payments.json"),
 			repoFixturePathForProvider(t, "kubernetes", "role_binding_cluster_admin.json"),
@@ -242,6 +263,7 @@ func TestNewStoreMemoryAndInvalidPostgres(t *testing.T) {
 func TestBuildScanServiceInvalidAlertWebhookConfig(t *testing.T) {
 	cfg := config.Config{
 		Provider:         "aws",
+		AllowMemoryStore: true,
 		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
 		AlertWebhookURL:  "http://example.com/hook",
 		AlertMinSeverity: "high",
@@ -259,6 +281,7 @@ func TestBuildScanServiceWithAlertWebhook(t *testing.T) {
 
 	cfg := config.Config{
 		Provider:         "aws",
+		AllowMemoryStore: true,
 		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
 		AlertWebhookURL:  server.URL,
 		AlertMinSeverity: "high",
@@ -291,6 +314,7 @@ func TestBuildScanServiceAlertWebhookRetriesOnTransientFailure(t *testing.T) {
 
 	cfg := config.Config{
 		Provider:          "aws",
+		AllowMemoryStore:  true,
 		AWSFixturePath:    []string{repoFixturePath(t, "role_with_policies.json")},
 		AlertWebhookURL:   server.URL,
 		AlertMinSeverity:  "high",

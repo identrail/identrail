@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 
-const PATH_STEPS = ['GitHub OIDC', 'AWS role', 'K8s service account', 'Billing datastore'] as const;
+const PATH_STEPS = ['K8s service account', 'OIDC federation', 'AWS IAM role', 'PostgreSQL ledger'] as const;
 const EVIDENCE_EVENTS = [
-  'Trust policy wildcard detected',
-  'Namespace binding reviewed',
-  'Production resource reached'
+  'Wildcard subject claim detected',
+  'Production namespace can assume role',
+  'Billing data path confirmed'
 ] as const;
 
 export function HeroProductReveal() {
@@ -27,28 +27,28 @@ export function HeroProductReveal() {
           </nav>
           <div className="idt-admin-main">
             <div className="idt-admin-profile-row">
-              <div className="idt-admin-avatar">ID</div>
+              <div className="idt-admin-avatar">K8</div>
               <div>
                 <p>Production workspace</p>
-                <strong>Risk review ready</strong>
+                <strong>Evidence packet ready</strong>
               </div>
             </div>
             <div className="idt-admin-field-grid">
               <div>
                 Source identity
-                <span>GitHub Actions OIDC</span>
+                <span>Kubernetes service account</span>
               </div>
               <div>
                 Privilege boundary
-                <span>AWS role assumption</span>
+                <span>AWS IAM role: billing-prod</span>
               </div>
               <div>
                 Workload
-                <span>payments-api service account</span>
+                <span>payments-api namespace</span>
               </div>
               <div>
                 Target resource
-                <span>billing-ledger datastore</span>
+                <span>PostgreSQL billing ledger</span>
               </div>
             </div>
             <ol className="idt-admin-activity" aria-label="Preview activity">
@@ -69,11 +69,11 @@ export function HeroProductReveal() {
           <span />
           <span />
         </div>
-        <h3>Trust path review</h3>
-        <p>High-risk chain with source evidence and a safe first fix.</p>
+        <h3>Evidence path review</h3>
+        <p>Kubernetes workload reaches an AWS role with proof and a safe first fix.</p>
         <div className="idt-path-input" aria-label="Source identity">
-          <span>GH</span>
-          github.com/org/repo
+          <span>K8</span>
+          payments-api service account
         </div>
         <div className="idt-path-input" aria-label="Finding state">
           <span>HI</span>

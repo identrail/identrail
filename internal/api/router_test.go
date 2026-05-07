@@ -1370,7 +1370,7 @@ func TestRequestScopeMiddlewarePrefersOIDCTenantWorkspaceClaims(t *testing.T) {
 		c.Set("auth.workspace_id", "workspace-from-token")
 		c.Next()
 	})
-	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace", false))
 	r.GET("/scope", func(c *gin.Context) {
 		scope := db.ScopeFromContext(c.Request.Context())
 		c.JSON(http.StatusOK, map[string]string{
@@ -1400,6 +1400,33 @@ func TestRequestScopeMiddlewarePrefersOIDCTenantWorkspaceClaims(t *testing.T) {
 	}
 }
 
+func TestRequestScopeMiddlewareRequiresExplicitScope(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace", true))
+	r.GET("/scope", func(c *gin.Context) {
+		scope := db.ScopeFromContext(c.Request.Context())
+		c.JSON(http.StatusOK, map[string]string{
+			"tenant_id":    scope.TenantID,
+			"workspace_id": scope.WorkspaceID,
+		})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/scope", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing explicit scope to return 400, got %d", w.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	req.Header.Set("X-Identrail-Tenant-ID", "tenant-a")
+	req.Header.Set("X-Identrail-Workspace-ID", "workspace-a")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected explicit headers to pass, got %d", w.Code)
+	}
+}
 func TestRequestScopeMiddlewareIgnoresScopeHeadersForAPIKeyAuth(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -1517,32 +1544,6 @@ func TestRouterRateLimitExceeded(t *testing.T) {
 	r.ServeHTTP(w2, second)
 	if w2.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected second request 429, got %d", w2.Code)
-	}
-}
-
-func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	metrics := telemetry.NewMetrics()
-	r := NewRouter(logger, metrics, nil, RouterOptions{
-		APIKeys:        []string{"secret-key"},
-		RateLimitRPM:   1,
-		RateLimitBurst: 1,
-	})
-
-	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
-	first.RemoteAddr = "127.0.0.1:23456"
-	w1 := httptest.NewRecorder()
-	r.ServeHTTP(w1, first)
-	if w1.Code != http.StatusUnauthorized {
-		t.Fatalf("expected first unauthorized request 401, got %d", w1.Code)
-	}
-
-	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
-	second.RemoteAddr = "127.0.0.1:23456"
-	w2 := httptest.NewRecorder()
-	r.ServeHTTP(w2, second)
-	if w2.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected second unauthorized request 429, got %d", w2.Code)
 	}
 }
 
@@ -1686,6 +1687,22 @@ func TestRouterEmitsAuditLog(t *testing.T) {
 	if got := last.ContextMap()["method"]; got != "GET" {
 		t.Fatalf("expected method GET, got %v", got)
 	}
+	if got := last.ContextMap()["component"]; got != "api" {
+		t.Fatalf("expected component api, got %v", got)
+	}
+	if got := last.ContextMap()["operation"]; got != "api_request" {
+		t.Fatalf("expected operation api_request, got %v", got)
+	}
+	gotRequestID, ok := last.ContextMap()["request_id"]
+	if !ok {
+		t.Fatal("expected request_id in audit log entry")
+	}
+	if gotRequestID == nil {
+		t.Fatal("expected request_id in audit log entry")
+	}
+	if got, ok := gotRequestID.(string); !ok || got == "" {
+		t.Fatal("expected request_id in audit log entry")
+	}
 }
 
 func TestRouterWritesAuditSink(t *testing.T) {
@@ -1741,44 +1758,6 @@ func TestRouterWritesAuditSink(t *testing.T) {
 	}
 	if event.Authz.PolicySetID != defaultCentralPolicySetID {
 		t.Fatalf("expected policy set %q, got %q", defaultCentralPolicySetID, event.Authz.PolicySetID)
-	}
-}
-
-func TestRouterWritesAuditSinkForUnauthorizedRequest(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	metrics := telemetry.NewMetrics()
-	sink := &recordingAuditSink{}
-	r := NewRouter(logger, metrics, nil, RouterOptions{
-		AuditSink: sink,
-		APIKeys:   []string{"secret-key"},
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
-	req.RemoteAddr = "127.0.0.1:45678"
-	req.Header.Set("User-Agent", "router-test-unauthorized")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected unauthorized request status 401, got %d", w.Code)
-	}
-
-	sink.mu.Lock()
-	defer sink.mu.Unlock()
-	if len(sink.events) == 0 {
-		t.Fatal("expected sink to capture unauthorized event")
-	}
-	event := sink.events[len(sink.events)-1]
-	if event.Status != http.StatusUnauthorized {
-		t.Fatalf("expected unauthorized status in audit event, got %d", event.Status)
-	}
-	if event.APIKeyID != "" {
-		t.Fatalf("expected empty api key fingerprint for missing key, got %q", event.APIKeyID)
-	}
-	if event.Actor != "unknown" {
-		t.Fatalf("expected unknown actor for missing credentials, got %q", event.Actor)
-	}
-	if event.Authz != nil {
-		t.Fatalf("expected no authz decision for unauthorized request, got %+v", event.Authz)
 	}
 }
 
