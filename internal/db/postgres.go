@@ -29,8 +29,37 @@ type sqlExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+type storeExecutor struct {
+	store *PostgresStore
+}
+
+func (e storeExecutor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return e.store.execContext(ctx, query, args...)
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+type rowsScanner interface {
+	Next() bool
+	Scan(dest ...any) error
+	Close() error
+	Err() error
+}
+
+type scopedQueryRow struct {
+	row *sql.Row
+	tx  *sql.Tx
+}
+
+func (s *scopedQueryRow) Scan(dest ...any) error {
+	err := s.row.Scan(dest...)
+	if err != nil {
+		_ = s.tx.Rollback()
+		return err
+	}
+	return s.tx.Commit()
 }
 
 type errScanner struct {
@@ -39,6 +68,49 @@ type errScanner struct {
 
 func (e errScanner) Scan(_ ...any) error {
 	return e.err
+}
+
+type scopedRows struct {
+	rows    *sql.Rows
+	tx      *sql.Tx
+	errSeen bool
+	closed  bool
+}
+
+func (s *scopedRows) Next() bool {
+	return s.rows.Next()
+}
+
+func (s *scopedRows) Scan(dest ...any) error {
+	err := s.rows.Scan(dest...)
+	if err != nil {
+		s.errSeen = true
+	}
+	return err
+}
+
+func (s *scopedRows) Err() error {
+	err := s.rows.Err()
+	if err != nil {
+		s.errSeen = true
+	}
+	return err
+}
+
+func (s *scopedRows) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	closeErr := s.rows.Close()
+	if closeErr != nil || s.errSeen {
+		_ = s.tx.Rollback()
+		return closeErr
+	}
+	if err := s.tx.Commit(); err != nil {
+		return fmt.Errorf("commit scoped query: %w", err)
+	}
+	return nil
 }
 
 var placeholderPattern = regexp.MustCompile(`\$(\d+)`)
@@ -159,40 +231,67 @@ func (p *PostgresStore) injectScopeCTE(ctx context.Context, query string, args [
 }
 
 func (p *PostgresStore) execContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+	if !p.enforceScopeRLS {
+		return p.db.ExecContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return p.db.ExecContext(ctx, scopedQuery, scopedArgs...)
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit scoped exec: %w", err)
+	}
+	return result, nil
 }
 
-func (p *PostgresStore) queryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+func (p *PostgresStore) queryContext(ctx context.Context, query string, args ...any) (rowsScanner, error) {
+	if !p.enforceScopeRLS {
+		return p.db.QueryContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return p.db.QueryContext(ctx, scopedQuery, scopedArgs...)
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	return &scopedRows{rows: rows, tx: tx}, nil
 }
 
 func (p *PostgresStore) queryRowContext(ctx context.Context, query string, args ...any) rowScanner {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+	if !p.enforceScopeRLS {
+		return p.db.QueryRowContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return errScanner{err: err}
 	}
-	return p.db.QueryRowContext(ctx, scopedQuery, scopedArgs...)
+	return &scopedQueryRow{
+		row: tx.QueryRowContext(ctx, query, args...),
+		tx:  tx,
+	}
 }
 
 func (p *PostgresStore) beginTx(ctx context.Context) (*sql.Tx, error) {
-	tx, err := p.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
 	if !p.enforceScopeRLS {
-		return tx, nil
+		return p.db.BeginTx(ctx, nil)
 	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
-		_ = tx.Rollback()
+		return nil, err
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(
@@ -568,7 +667,7 @@ func (p *PostgresStore) ListFindingTriageStates(ctx context.Context, findingIDs 
 
 // UpsertFindingTriageState creates or updates mutable triage metadata.
 func (p *PostgresStore) UpsertFindingTriageState(ctx context.Context, state FindingTriageState) error {
-	return p.upsertFindingTriageStateWithExecutor(ctx, p.db, state)
+	return p.upsertFindingTriageStateWithExecutor(ctx, storeExecutor{store: p}, state)
 }
 
 func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context, executor sqlExecutor, state FindingTriageState) error {
@@ -608,7 +707,7 @@ func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context
 
 // AppendFindingTriageEvent records one immutable triage action.
 func (p *PostgresStore) AppendFindingTriageEvent(ctx context.Context, event FindingTriageEvent) error {
-	return p.appendFindingTriageEventWithExecutor(ctx, p.db, event)
+	return p.appendFindingTriageEventWithExecutor(ctx, storeExecutor{store: p}, event)
 }
 
 func (p *PostgresStore) appendFindingTriageEventWithExecutor(ctx context.Context, executor sqlExecutor, event FindingTriageEvent) error {
@@ -2626,7 +2725,7 @@ func scanAuthzPolicyEvent(scanner scanner) (AuthzPolicyEvent, error) {
 	return record, nil
 }
 
-func findingsFromSQLRows(rows *sql.Rows) ([]domain.Finding, error) {
+func findingsFromSQLRows(rows rowsScanner) ([]domain.Finding, error) {
 	result := []domain.Finding{}
 	for rows.Next() {
 		var row struct {
