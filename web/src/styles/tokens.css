@@ -24,6 +24,7 @@
 
   /* Typography */
   --font-display: 'Barlow Semi Condensed', 'Space Grotesk', 'Inter', 'Segoe UI', sans-serif;
+  --font-nav: 'Geist', 'Inter', 'Segoe UI', sans-serif;
   --font-body: 'Inter', 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', 'SFMono-Regular', 'Menlo', monospace;
 
@@ -75,6 +76,7 @@
   --idt-glow: var(--glow-soft);
   --idt-cta: var(--cta-primary);
   --idt-display: var(--font-display);
+  --idt-nav-font: var(--font-nav);
   --idt-body: var(--font-body);
   --idt-radius: var(--radius-md);
   --idt-shell: var(--shell-max-width);

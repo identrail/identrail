@@ -4,6 +4,7 @@
 
 - `Dockerfile.backend`: builds API or worker image (`TARGET=server|worker`)
 - `Dockerfile.web`: builds dashboard web image
+  - production builds use the strict nginx CSP by default; Compose passes `NGINX_CONF=default.local.conf` for localhost API access.
 - `docker-compose.yml`: local single-host stack
 - `.env.example`: environment template
 
