@@ -38,8 +38,8 @@ export function TrustProofStrip() {
 
   return (
     <section className="idt-trust-strip" aria-label="Identity ecosystem signals">
-      <p className="idt-logo-cloud-label">Reviewed across your tech stack</p>
-      <div className="idt-logo-cloud">
+      <p className="idt-logo-cloud-label">Reviewed across your identity stack</p>
+      <div className="idt-logo-cloud" aria-hidden="true">
         <div className="idt-logo-cloud-track">
           {logos.map((logo, index) => (
             <span className="idt-logo-cloud-item" key={`${logo.name}-${index}`}>
