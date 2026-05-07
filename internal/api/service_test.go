@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1388,6 +1389,60 @@ func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	}
 	if processed {
 		t.Fatal("expected no more queued scans")
+	}
+}
+
+func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{err: errors.New("scanner failed during analysis")}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	record, err := svc.EnqueueScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("enqueue scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+	if err == nil {
+		t.Fatal("expected scanner failure to be returned")
+	}
+
+	scan, err := store.GetScan(defaultScopeContext(), record.ID)
+	if err != nil {
+		t.Fatalf("get scan: %v", err)
+	}
+	if scan.Status != "failed" {
+		t.Fatalf("expected failed status, got %q", scan.Status)
+	}
+	if scan.ErrorMessage == "" {
+		t.Fatal("expected persisted scan error message")
+	}
+
+	events, err := svc.ListScanEvents(defaultScopeContext(), record.ID, 20)
+	if err != nil {
+		t.Fatalf("list scan events: %v", err)
+	}
+	foundFailureEvent := false
+	for _, event := range events {
+		if event.Level == db.ScanEventLevelError && strings.Contains(event.Message, "scan failed during collection/analysis") {
+			foundFailureEvent = true
+			break
+		}
+	}
+	if !foundFailureEvent {
+		t.Fatalf("expected failure scan event, got %+v", events)
+	}
+
+	processed, err = svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("second queue process: %v", err)
+	}
+	if processed {
+		t.Fatal("expected failed scan to not be retried from queue")
 	}
 }
 
