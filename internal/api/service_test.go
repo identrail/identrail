@@ -244,6 +244,34 @@ func TestServiceRunScanFailureUsesFreshContextForTerminalWrite(t *testing.T) {
 	}
 }
 
+func TestServiceRunScanSuccessUsesFreshContextForTerminalWrite(t *testing.T) {
+	store := &completionContextStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{result: app.ScanResult{
+		Assets: 3,
+		Findings: []domain.Finding{{
+			ID:           "finding-success",
+			Type:         domain.FindingRiskyTrustPolicy,
+			Severity:     domain.SeverityLow,
+			Title:        "No issue",
+			HumanSummary: "summary",
+		}},
+	}}, "aws")
+
+	canceledCtx, cancel := context.WithCancel(defaultScopeContext())
+	cancel()
+
+	result, err := svc.RunScan(canceledCtx)
+	if err != nil {
+		t.Fatalf("run scan failed: %v", err)
+	}
+	if result.Scan.Status != "succeeded" {
+		t.Fatalf("expected succeeded scan status, got %q", result.Scan.Status)
+	}
+	if store.lastScanCompletionCtxErr != nil {
+		t.Fatalf("expected terminal scan completion to use non-canceled context, got %v", store.lastScanCompletionCtxErr)
+	}
+}
+
 func seedDefaultProject(t *testing.T, store db.Store, ctx context.Context, projectID string) {
 	t.Helper()
 	scope, err := db.RequireScope(ctx)

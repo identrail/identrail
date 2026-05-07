@@ -412,7 +412,7 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "findings persisted", map[string]any{"findings": len(result.Findings)})
 
-	if err := s.Store.CompleteScan(ctx, record.ID, "succeeded", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
+	if err := s.completeScanTerminal(ctx, record.ID, "succeeded", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
 		return RunScanResult{}, fmt.Errorf("complete scan record: %w", err)
