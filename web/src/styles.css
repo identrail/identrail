@@ -9193,6 +9193,7 @@ html[data-theme='light'] .idt-hero,
 }
 
 .idt-hero-backdrop-panel {
+  display: block;
   inset: 0 -1.25rem 18px 0;
   overflow: hidden;
   border-radius: 36px 36px 30px 104px;
