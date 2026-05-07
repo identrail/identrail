@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/cli"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
+	"github.com/identrail/identrail/internal/cli"
+	"github.com/identrail/identrail/internal/config"
 )
 
 var cliExecute = cli.Execute

@@ -20,19 +20,19 @@ export function TrustGraphAgentSection() {
     <section className="section reveal-on-scroll" aria-labelledby="agent-title">
       <div className="section-card agent-section">
         <div className="agent-copy">
-          <p className="eyebrow eyebrow-dark">Auto-Remediate</p>
+          <p className="eyebrow eyebrow-dark">Remediation Planning</p>
           <h2 id="agent-title">Meet the Identrail Trust Graph Agent</h2>
           <p>
-            Auto-remediate machine identity risks with one click. The agent analyzes trust paths,
-            drafts least-privilege changes, and opens a simulated pull request with policy diffs.
+            Plan machine identity remediation with guided trust-path analysis.
+            Review least-privilege change suggestions and simulated pull-request policy diffs before operator approval.
           </p>
-          <div className="agent-steps" aria-hidden="true">
-            <span>Analyze graph</span>
-            <span>Generate fix</span>
-            <span>Open PR</span>
+          <div className="agent-steps">
+            <h3>Analyze graph</h3>
+            <h3>Review fix</h3>
+            <h3>Approve plan</h3>
           </div>
           <SafeLink className="btn btn-primary" href={siteLinks.agentRelease}>
-            Star the repo to get the agent in your next release
+            Star the repo to follow future agent workflow releases
           </SafeLink>
         </div>
 
