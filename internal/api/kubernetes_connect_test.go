@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/connectors"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
+	"github.com/identrail/identrail/internal/connectors"
+	"github.com/identrail/identrail/internal/db"
+	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 
