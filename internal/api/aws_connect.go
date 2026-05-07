@@ -11,7 +11,6 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
-	"github.com/identrail/identrail/internal/textutil"
 )
 
 var awsRoleARNPattern = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$`)
@@ -145,7 +144,7 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		"account_id":             strings.TrimSpace(validation.AccountID),
 		"principal_arn":          strings.TrimSpace(validation.PrincipalARN),
 		"user_id":                strings.TrimSpace(validation.UserID),
-		"region":                 textutil.FirstNonEmpty(strings.TrimSpace(validation.Region), normalized.Region),
+		"region":                 firstNonEmptyAWSValue(strings.TrimSpace(validation.Region), normalized.Region),
 		"permission_checks":      checks,
 		"diagnostics":            copyAWSDiagnostics(validation.Diagnostics),
 		"last_validated_at":      now.Format(time.RFC3339Nano),
@@ -261,7 +260,7 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 		ConnectorID:          stored.Connector.ConnectorID,
 		DisplayName:          stored.Connector.DisplayName,
 		Status:               stored.Connector.Status,
-		HealthStatus:         textutil.FirstNonEmpty(stored.State.HealthStatus, "unknown"),
+		HealthStatus:         firstNonEmptyAWSValue(stored.State.HealthStatus, "unknown"),
 		RoleARN:              awsMetadataString(metadata, "role_arn"),
 		ExternalID:           awsMetadataString(metadata, "external_id"),
 		ExternalIDConfigured: awsMetadataBool(metadata, "external_id_configured"),
@@ -319,6 +318,15 @@ func copyAWSDiagnostics(diagnostics []AWSConnectionDiagnostic) []AWSConnectionDi
 	copied := make([]AWSConnectionDiagnostic, len(diagnostics))
 	copy(copied, diagnostics)
 	return copied
+}
+
+func firstNonEmptyAWSValue(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func awsMetadataString(metadata map[string]any, key string) string {

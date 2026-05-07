@@ -11,7 +11,6 @@ import (
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
-	"github.com/identrail/identrail/internal/textutil"
 )
 
 // ErrInvalidKubernetesConnectionRequest indicates invalid Kubernetes connector input.
@@ -122,7 +121,7 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 		DisplayName:      normalized.DisplayName,
 		Status:           status,
 		HealthStatus:     string(result.Health),
-		Context:          textutil.FirstNonEmptyTrimmed(result.Cluster.Context, normalized.Context),
+		Context:          firstNonEmptyKubernetesValue(result.Cluster.Context, normalized.Context),
 		Cluster:          strings.TrimSpace(result.Cluster.Cluster),
 		Server:           strings.TrimSpace(result.Cluster.Server),
 		GitVersion:       strings.TrimSpace(result.Cluster.GitVersion),
@@ -254,6 +253,15 @@ func firstKubernetesRemediation(diagnostics []k8sprovider.KubernetesPreflightDia
 			if remediation := strings.TrimSpace(check.Remediation); remediation != "" {
 				return remediation
 			}
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyKubernetesValue(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
 		}
 	}
 	return ""

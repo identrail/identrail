@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Refined the public website homepage presentation:
+  - adopted a Browserbase-style navigation rail with centered links and a black demo CTA
+  - updated the homepage product preview around Kubernetes, AWS IAM, and PostgreSQL evidence
+  - replaced static technology labels with a moving logo strip for reviewed stack coverage
 - Polished the public website header navigation and brand treatment:
   - renamed the primary navigation to Product, Docs, Company, Pricing, and Blog
   - removed dropdown chevrons from plain navigation links

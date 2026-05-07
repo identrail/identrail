@@ -15,10 +15,10 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/findings/standards"
 	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/repoallowlist"
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
-	"github.com/identrail/identrail/internal/textutil"
 )
 
 const (
@@ -602,7 +602,7 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 		return "", 0, 0, ErrInvalidRepoScanRequest
 	}
 	if repoTargetContainsURLCredentials(target) {
-		return "", 0, 0, ErrInvalidRepoScanRequest
+		return "", 0, 0, repoScanRequestValidationError{"repository target must not include credentials in URL userinfo"}
 	}
 	if repoexposure.IsLocalRepositoryTarget(target) {
 		return "", 0, 0, ErrRepoTargetNotAllowed
@@ -621,20 +621,35 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 	return target, historyLimit, maxFindings, nil
 }
 
+// repoScanRequestValidationError keeps the user-facing message while preserving
+// ErrInvalidRepoScanRequest compatibility for routing checks.
+type repoScanRequestValidationError struct {
+	message string
+}
+
+func (e repoScanRequestValidationError) Error() string {
+	return e.message
+}
+
+func (e repoScanRequestValidationError) Is(target error) bool {
+	return target == ErrInvalidRepoScanRequest
+}
+
 func repoTargetContainsURLCredentials(target string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(target))
-	if err != nil || parsed == nil || parsed.User == nil {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed == nil || parsed.Scheme == "" {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
-	case "http", "https":
-		return true
-	case "ssh":
-		_, hasPassword := parsed.User.Password()
-		return hasPassword
-	default:
+	if parsed.User == nil {
 		return false
 	}
+	if strings.EqualFold(parsed.Scheme, "ssh") {
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			return true
+		}
+		return strings.TrimSpace(parsed.User.Username()) == ""
+	}
+	return true
 }
 
 func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RunRepoScanResult, error) {
@@ -1707,30 +1722,7 @@ func truncateSourceErrors(errors []providers.SourceError, max int) []providers.S
 }
 
 func repoTargetAllowed(target string, allowlist []string) bool {
-	if len(allowlist) == 0 {
-		return false
-	}
-	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
-	if normalizedTarget == "" {
-		return false
-	}
-	for _, item := range allowlist {
-		pattern := strings.ToLower(strings.TrimSpace(item))
-		if pattern == "" {
-			continue
-		}
-		if strings.HasSuffix(pattern, "*") {
-			prefix := strings.TrimSuffix(pattern, "*")
-			if strings.HasPrefix(normalizedTarget, prefix) {
-				return true
-			}
-			continue
-		}
-		if normalizedTarget == pattern {
-			return true
-		}
-	}
-	return false
+	return repoallowlist.TargetAllowed(target, allowlist, false)
 }
 
 func inferOwnershipSignal(identity domain.Identity) (domain.OwnershipSignal, bool) {
@@ -1809,11 +1801,13 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 }
 
 func firstNonEmptyTag(tags map[string]string, keys ...string) string {
-	values := make([]string, 0, len(keys))
 	for _, key := range keys {
-		values = append(values, tags[key])
+		value := strings.TrimSpace(tags[key])
+		if value != "" {
+			return value
+		}
 	}
-	return textutil.FirstNonEmptyTrimmed(values...)
+	return ""
 }
 
 func (s *Service) lockKey(key string) string {

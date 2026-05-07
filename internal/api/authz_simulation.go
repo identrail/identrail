@@ -12,7 +12,6 @@ import (
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
-	"github.com/identrail/identrail/internal/textutil"
 	"go.uber.org/zap"
 )
 
@@ -131,14 +130,14 @@ func authzPolicySimulationHandler(logger *zap.Logger, store db.Store, resolver c
 func toSimulationPolicyInput(c *gin.Context, request authzPolicySimulationRequest) PolicyInput {
 	scope := db.ScopeFromContext(c.Request.Context())
 
-	subjectTenant := textutil.FirstNonEmptyTrimmed(request.Subject.TenantID, scope.TenantID)
-	subjectWorkspace := textutil.FirstNonEmptyTrimmed(request.Subject.WorkspaceID, scope.WorkspaceID)
-	resourceTenant := textutil.FirstNonEmptyTrimmed(request.Resource.TenantID, scope.TenantID)
-	resourceWorkspace := textutil.FirstNonEmptyTrimmed(request.Resource.WorkspaceID, scope.WorkspaceID)
+	subjectTenant := firstNonEmpty(request.Subject.TenantID, scope.TenantID)
+	subjectWorkspace := firstNonEmpty(request.Subject.WorkspaceID, scope.WorkspaceID)
+	resourceTenant := firstNonEmpty(request.Resource.TenantID, scope.TenantID)
+	resourceWorkspace := firstNonEmpty(request.Resource.WorkspaceID, scope.WorkspaceID)
 
 	contextAttributes := normalizeSimulationAttributes(request.Context.Attributes)
-	contextAttributes[policyContextTenantIDKey] = textutil.FirstNonEmptyTrimmed(contextAttributes[policyContextTenantIDKey], scope.TenantID)
-	contextAttributes[policyContextWorkspaceIDKey] = textutil.FirstNonEmptyTrimmed(contextAttributes[policyContextWorkspaceIDKey], scope.WorkspaceID)
+	contextAttributes[policyContextTenantIDKey] = firstNonEmpty(contextAttributes[policyContextTenantIDKey], scope.TenantID)
+	contextAttributes[policyContextWorkspaceIDKey] = firstNonEmpty(contextAttributes[policyContextWorkspaceIDKey], scope.WorkspaceID)
 
 	return PolicyInput{
 		Subject: PolicySubject{

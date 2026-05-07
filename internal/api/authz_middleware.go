@@ -15,7 +15,6 @@ import (
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
-	"github.com/identrail/identrail/internal/textutil"
 )
 
 const (
@@ -332,13 +331,13 @@ func shouldTargetRolloutRequest(rollout db.AuthzPolicyRollout, input PolicyInput
 	if canary > 100 {
 		canary = 100
 	}
-	tenantID := textutil.FirstNonEmptyTrimmed(
+	tenantID := firstNonEmpty(
 		input.Resource.TenantID,
-		textutil.FirstNonEmptyTrimmed(input.Subject.TenantID, strings.TrimSpace(input.Context.Attributes[policyContextTenantIDKey])),
+		firstNonEmpty(input.Subject.TenantID, strings.TrimSpace(input.Context.Attributes[policyContextTenantIDKey])),
 	)
-	workspaceID := textutil.FirstNonEmptyTrimmed(
+	workspaceID := firstNonEmpty(
 		input.Resource.WorkspaceID,
-		textutil.FirstNonEmptyTrimmed(input.Subject.WorkspaceID, strings.TrimSpace(input.Context.Attributes[policyContextWorkspaceIDKey])),
+		firstNonEmpty(input.Subject.WorkspaceID, strings.TrimSpace(input.Context.Attributes[policyContextWorkspaceIDKey])),
 	)
 
 	if len(rollout.TenantAllowlist) > 0 && !containsStringExact(rollout.TenantAllowlist, tenantID) {
@@ -438,13 +437,13 @@ func setAuthzDecisionContext(c *gin.Context, policySetID string, policyVersion i
 	if normalizedRolloutMode == "" {
 		normalizedRolloutMode = db.AuthzPolicyRolloutModeDisabled
 	}
-	tenantID := textutil.FirstNonEmptyTrimmed(
+	tenantID := firstNonEmpty(
 		input.Resource.TenantID,
-		textutil.FirstNonEmptyTrimmed(input.Subject.TenantID, strings.TrimSpace(input.Context.Attributes[policyContextTenantIDKey])),
+		firstNonEmpty(input.Subject.TenantID, strings.TrimSpace(input.Context.Attributes[policyContextTenantIDKey])),
 	)
-	workspaceID := textutil.FirstNonEmptyTrimmed(
+	workspaceID := firstNonEmpty(
 		input.Resource.WorkspaceID,
-		textutil.FirstNonEmptyTrimmed(input.Subject.WorkspaceID, strings.TrimSpace(input.Context.Attributes[policyContextWorkspaceIDKey])),
+		firstNonEmpty(input.Subject.WorkspaceID, strings.TrimSpace(input.Context.Attributes[policyContextWorkspaceIDKey])),
 	)
 
 	auditDecision := audit.AuditAuthzDecision{
@@ -485,14 +484,14 @@ func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKey
 	if strings.TrimSpace(policy.ResourceIDParam) != "" {
 		resourceID = strings.TrimSpace(c.Param(policy.ResourceIDParam))
 	}
-	subjectType := textutil.FirstNonEmptyTrimmed(authContextString(c, "auth.principal_type"), inferPrincipalType(c))
-	subjectID := textutil.FirstNonEmptyTrimmed(authContextString(c, "auth.principal_id"), inferPrincipalID(c))
+	subjectType := firstNonEmpty(authContextString(c, "auth.principal_type"), inferPrincipalType(c))
+	subjectID := firstNonEmpty(authContextString(c, "auth.principal_id"), inferPrincipalID(c))
 	input := PolicyInput{
 		Subject: PolicySubject{
 			Type:        subjectType,
 			ID:          subjectID,
-			TenantID:    textutil.FirstNonEmptyTrimmed(authContextString(c, "auth.tenant_id"), strings.TrimSpace(scope.TenantID)),
-			WorkspaceID: textutil.FirstNonEmptyTrimmed(authContextString(c, "auth.workspace_id"), strings.TrimSpace(scope.WorkspaceID)),
+			TenantID:    firstNonEmpty(authContextString(c, "auth.tenant_id"), strings.TrimSpace(scope.TenantID)),
+			WorkspaceID: firstNonEmpty(authContextString(c, "auth.workspace_id"), strings.TrimSpace(scope.WorkspaceID)),
 			Roles:       policyRolesFromAuth(c, writeKeys, scopedKeys),
 		},
 		Action: strings.ToLower(strings.TrimSpace(policy.Action)),
@@ -519,6 +518,13 @@ func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKey
 		return PolicyInput{}, err
 	}
 	return input, nil
+}
+
+func firstNonEmpty(primary string, fallback string) string {
+	if strings.TrimSpace(primary) != "" {
+		return strings.TrimSpace(primary)
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func inferPrincipalType(c *gin.Context) string {

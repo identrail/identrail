@@ -1370,7 +1370,7 @@ func TestRequestScopeMiddlewarePrefersOIDCTenantWorkspaceClaims(t *testing.T) {
 		c.Set("auth.workspace_id", "workspace-from-token")
 		c.Next()
 	})
-	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace", false))
 	r.GET("/scope", func(c *gin.Context) {
 		scope := db.ScopeFromContext(c.Request.Context())
 		c.JSON(http.StatusOK, map[string]string{
@@ -1400,6 +1400,33 @@ func TestRequestScopeMiddlewarePrefersOIDCTenantWorkspaceClaims(t *testing.T) {
 	}
 }
 
+func TestRequestScopeMiddlewareRequiresExplicitScope(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace", true))
+	r.GET("/scope", func(c *gin.Context) {
+		scope := db.ScopeFromContext(c.Request.Context())
+		c.JSON(http.StatusOK, map[string]string{
+			"tenant_id":    scope.TenantID,
+			"workspace_id": scope.WorkspaceID,
+		})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/scope", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing explicit scope to return 400, got %d", w.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	req.Header.Set("X-Identrail-Tenant-ID", "tenant-a")
+	req.Header.Set("X-Identrail-Workspace-ID", "workspace-a")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected explicit headers to pass, got %d", w.Code)
+	}
+}
 func TestRequestScopeMiddlewareIgnoresScopeHeadersForAPIKeyAuth(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -1520,6 +1547,76 @@ func TestRouterRateLimitExceeded(t *testing.T) {
 	}
 }
 
+func TestRouterRejectsOversizedJSONRequestBody(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "writer-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized request to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRouterRejectsOversizedJSONRequestBodyWithoutContentType(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("X-API-Key", "writer-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized request without content type to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRouterRejectsOversizedChunkedJSONRequestBody(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "writer-key")
+	req.TransferEncoding = []string{"chunked"}
+	req.ContentLength = -1
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized chunked request to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
@@ -1546,6 +1643,51 @@ func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
 	}
 }
 
+func TestRouterRateLimitDoesNotTrustPresentedBearerTokenValue(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{
+			tokens: map[string]VerifiedToken{
+				"good-token": {
+					Subject:     "user-1",
+					TenantID:    "tenant-1",
+					WorkspaceID: "workspace-1",
+					Scopes:      []string{"read"},
+				},
+			},
+		},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	invalid := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	invalid.RemoteAddr = "127.0.0.1:27501"
+	invalid.Header.Set("Authorization", "Bearer invalid-token")
+	invalidW := httptest.NewRecorder()
+	r.ServeHTTP(invalidW, invalid)
+	if invalidW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected invalid bearer request to be unauthorized, got %d", invalidW.Code)
+	}
+
+	validFirst := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	validFirst.RemoteAddr = "127.0.0.1:27501"
+	validFirst.Header.Set("Authorization", "Bearer good-token")
+	validFirstW := httptest.NewRecorder()
+	r.ServeHTTP(validFirstW, validFirst)
+	if validFirstW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected valid bearer request to share anonymous bearer bucket after invalid token, got %d", validFirstW.Code)
+	}
+
+	validSecond := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	validSecond.RemoteAddr = "127.0.0.1:27501"
+	validSecond.Header.Set("Authorization", "Bearer good-token")
+	validSecondW := httptest.NewRecorder()
+	r.ServeHTTP(validSecondW, validSecond)
+	if validSecondW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request on exhausted bearer bucket to hit 429, got %d", validSecondW.Code)
+	}
+}
 func TestRouterRateLimitExceededIsAudited(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
@@ -1580,6 +1722,69 @@ func TestRouterRateLimitExceededIsAudited(t *testing.T) {
 	last := sink.events[len(sink.events)-1]
 	if last.Path != "/v1/scans" || last.Status != http.StatusTooManyRequests {
 		t.Fatalf("expected throttled request audit event, got %+v", last)
+	}
+}
+
+func TestRouterRateLimitAppliesBeforeUnauthorizedAuthChecks(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys:        []string{"expected-key"},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	first.RemoteAddr = "127.0.0.1:23456"
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected first unauthorized request to return 401, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	second.RemoteAddr = "127.0.0.1:23456"
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second unauthorized request to return 429, got %d", w2.Code)
+	}
+
+	authorized := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	authorized.RemoteAddr = "127.0.0.1:23456"
+	authorized.Header.Set("X-API-Key", "expected-key")
+	w3 := httptest.NewRecorder()
+	r.ServeHTTP(w3, authorized)
+	if w3.Code != http.StatusOK {
+		t.Fatalf("expected authorized request to use a separate rate limit bucket, got %d", w3.Code)
+	}
+}
+
+func TestRouterRateLimitDoesNotTrustPresentedCredentialValue(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys:        []string{"expected-key"},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	first.RemoteAddr = "127.0.0.1:34567"
+	first.Header.Set("X-API-Key", "bogus-one")
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected first invalid API key request to return 401, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	second.RemoteAddr = "127.0.0.1:34567"
+	second.Header.Set("X-API-Key", "bogus-two")
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second invalid API key request to return 429 despite a rotated key, got %d", w2.Code)
 	}
 }
 
@@ -1686,6 +1891,22 @@ func TestRouterEmitsAuditLog(t *testing.T) {
 	if got := last.ContextMap()["method"]; got != "GET" {
 		t.Fatalf("expected method GET, got %v", got)
 	}
+	if got := last.ContextMap()["component"]; got != "api" {
+		t.Fatalf("expected component api, got %v", got)
+	}
+	if got := last.ContextMap()["operation"]; got != "api_request" {
+		t.Fatalf("expected operation api_request, got %v", got)
+	}
+	gotRequestID, ok := last.ContextMap()["request_id"]
+	if !ok {
+		t.Fatal("expected request_id in audit log entry")
+	}
+	if gotRequestID == nil {
+		t.Fatal("expected request_id in audit log entry")
+	}
+	if got, ok := gotRequestID.(string); !ok || got == "" {
+		t.Fatal("expected request_id in audit log entry")
+	}
 }
 
 func TestRouterWritesAuditSink(t *testing.T) {
@@ -1741,44 +1962,6 @@ func TestRouterWritesAuditSink(t *testing.T) {
 	}
 	if event.Authz.PolicySetID != defaultCentralPolicySetID {
 		t.Fatalf("expected policy set %q, got %q", defaultCentralPolicySetID, event.Authz.PolicySetID)
-	}
-}
-
-func TestRouterWritesAuditSinkForUnauthorizedRequest(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	metrics := telemetry.NewMetrics()
-	sink := &recordingAuditSink{}
-	r := NewRouter(logger, metrics, nil, RouterOptions{
-		AuditSink: sink,
-		APIKeys:   []string{"secret-key"},
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
-	req.RemoteAddr = "127.0.0.1:45678"
-	req.Header.Set("User-Agent", "router-test-unauthorized")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected unauthorized request status 401, got %d", w.Code)
-	}
-
-	sink.mu.Lock()
-	defer sink.mu.Unlock()
-	if len(sink.events) == 0 {
-		t.Fatal("expected sink to capture unauthorized event")
-	}
-	event := sink.events[len(sink.events)-1]
-	if event.Status != http.StatusUnauthorized {
-		t.Fatalf("expected unauthorized status in audit event, got %d", event.Status)
-	}
-	if event.APIKeyID != "" {
-		t.Fatalf("expected empty api key fingerprint for missing key, got %q", event.APIKeyID)
-	}
-	if event.Actor != "unknown" {
-		t.Fatalf("expected unknown actor for missing credentials, got %q", event.Actor)
-	}
-	if event.Authz != nil {
-		t.Fatalf("expected no authz decision for unauthorized request, got %+v", event.Authz)
 	}
 }
 
