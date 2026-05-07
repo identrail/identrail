@@ -415,3 +415,10 @@ This file tracks major decisions in simple terms.
 - Decision: Store connector credential material in AES-256-GCM envelopes with explicit key versions and rotation metadata.
 - Why: Connector onboarding needs confidential credential handling, operable key rotation, and auditability without exposing raw secrets.
 - Tradeoff: Operators must maintain `IDENTRAIL_CONNECTOR_SECRET_KEYS` for durable deployments; local runs without it use only ephemeral in-memory connector encryption.
+
+## ADR-070: Keep Inherited Scope on Scan Child Tables
+- Date: 2026-05-05
+- Decision: Keep tenant/workspace scope on parent scan tables and enforce child-table scope by foreign-key parent binding plus scoped joins/RLS helper policies.
+- Why: Preserves simpler write paths and avoids duplicating scope columns on high-volume child rows.
+- Tradeoff: Child tables cannot be directly partitioned/indexed by scope without joining parent scan tables.
+- Follow-up trigger: If scoped child-table query performance becomes a bottleneck, denormalize `tenant_id` and `workspace_id` to child tables with composite integrity checks and migration backfill.
