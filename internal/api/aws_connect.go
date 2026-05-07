@@ -11,7 +11,6 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
-	"github.com/identrail/identrail/internal/stringutil"
 )
 
 var awsRoleARNPattern = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$`)
@@ -322,7 +321,12 @@ func copyAWSDiagnostics(diagnostics []AWSConnectionDiagnostic) []AWSConnectionDi
 }
 
 func firstNonEmptyAWSValue(values ...string) string {
-	return stringutil.FirstNonEmpty(values...)
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func awsMetadataString(metadata map[string]any, key string) string {

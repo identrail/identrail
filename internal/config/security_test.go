@@ -110,6 +110,17 @@ func TestValidateSecurityRejectsInvalidConnectorSecretKeys(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRequiresConnectorSecretKeysWhenEnabled(t *testing.T) {
+	cfg := Config{
+		APIKeys:                     []string{"reader", "writer"},
+		WriteAPIKeys:                []string{"writer"},
+		ConnectorSecretKeysRequired: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_CONNECTOR_SECRET_KEYS") {
+		t.Fatalf("expected missing connector secret keys error, got %v", err)
+	}
+}
+
 func TestValidateSecurityRejectsInvalidAWSSource(t *testing.T) {
 	cfg := Config{
 		Provider:  "aws",
@@ -227,6 +238,30 @@ func TestValidateSecurityRejectsInvalidScopedKeyScope(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsMalformedAPIKeyScopesEnv(t *testing.T) {
+	cfg := Config{
+		apiKeyScopesError: "entry 1 must use key:scope1,scope2 format",
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_API_KEY_SCOPES") {
+		t.Fatalf("expected malformed api key scopes error, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidBooleanEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "sometimes")
+	cfg := Load()
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_WORKER_RUN_NOW") {
+		t.Fatalf("expected invalid boolean env error, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidDurationEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "soon")
+	cfg := Load()
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_SCAN_INTERVAL") {
+		t.Fatalf("expected invalid duration env error, got %v", err)
+	}
+}
 func TestValidateSecurityAcceptsScopedKeyTenantWorkspaceBindings(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes: map[string][]string{

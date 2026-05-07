@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
-	"github.com/identrail/identrail/internal/stringutil"
 	"github.com/identrail/identrail/internal/telemetry"
 )
 
@@ -256,7 +255,11 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 		}
 		policy, exists := runtimePolicy.Registry.lookup(c.Request.Method, fullPath)
 		if !exists {
-			c.Next()
+			decision := denyDecision(PolicyStageDefaultDeny, "route authorization policy missing")
+			input := policyInputForMissingRoutePolicy(c, fullPath, normalizedWriteKeys, scopedKeys)
+			recordPolicyDecisionMetric(metrics, runtimePolicy.PolicySetID, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision.Allowed)
+			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision, input, fingerprinter)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
 
@@ -322,6 +325,21 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 
 		c.Next()
 	}
+}
+
+func policyInputForMissingRoutePolicy(c *gin.Context, fullPath string, writeKeys []string, scopedKeys map[string][]string) PolicyInput {
+	method := ""
+	if c != nil && c.Request != nil {
+		method = c.Request.Method
+	}
+	input, err := buildPolicyInputFromGinContext(c, routePolicy{
+		Action:       routePolicyKey(method, fullPath),
+		ResourceType: "route",
+	}, writeKeys, scopedKeys, nil)
+	if err != nil {
+		return PolicyInput{}
+	}
+	return input
 }
 
 func shouldTargetRolloutRequest(rollout db.AuthzPolicyRollout, input PolicyInput) bool {
@@ -522,7 +540,10 @@ func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKey
 }
 
 func firstNonEmpty(primary string, fallback string) string {
-	return stringutil.FirstNonBlankTrimmed(primary, fallback)
+	if strings.TrimSpace(primary) != "" {
+		return strings.TrimSpace(primary)
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func inferPrincipalType(c *gin.Context) string {

@@ -231,6 +231,100 @@ func TestRoutePolicyRegistryCoversAllV1Routes(t *testing.T) {
 	}
 }
 
+func TestRequireCentralPolicyMiddlewareDeniesWhenRoutePolicyMissing(t *testing.T) {
+	metrics := telemetry.NewMetrics()
+	runtime := resolvedCentralPolicyRuntime{
+		Engine:      newCentralPolicyEngine(nil),
+		Registry:    routePolicyRegistry{},
+		Source:      "persisted_active_version",
+		PolicySetID: defaultCentralPolicySetID,
+		Version:     1,
+		RolloutMode: db.AuthzPolicyRolloutModeDisabled,
+		Rollout: db.AuthzPolicyRollout{
+			PolicySetID: defaultCentralPolicySetID,
+			Mode:        db.AuthzPolicyRolloutModeDisabled,
+		},
+	}
+	router := newPolicyTestRouterWithResolver(
+		newScopeSet([]string{scopeWrite}),
+		true,
+		staticPolicyRuntimeResolver{runtime: runtime},
+		metrics,
+	)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when route policy is missing, got %d", w.Code)
+	}
+	if got := testutil.ToFloat64(metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(
+		defaultCentralPolicySetID,
+		"1",
+		"persisted_active_version",
+		db.AuthzPolicyRolloutModeDisabled,
+		"false",
+	)); got != 1 {
+		t.Fatalf("expected one denied metric entry for missing route policy, got %v", got)
+	}
+}
+
+func TestRequireCentralPolicyMiddlewareSetsAuditDecisionContextWhenRoutePolicyMissing(t *testing.T) {
+	sink := &middlewareRecordingAuditSink{}
+	metrics := telemetry.NewMetrics()
+	runtime := resolvedCentralPolicyRuntime{
+		Engine:      newCentralPolicyEngine(nil),
+		Registry:    routePolicyRegistry{},
+		Source:      "persisted_active_version",
+		PolicySetID: defaultCentralPolicySetID,
+		Version:     1,
+		RolloutMode: db.AuthzPolicyRolloutModeDisabled,
+		Rollout: db.AuthzPolicyRollout{
+			PolicySetID: defaultCentralPolicySetID,
+			Mode:        db.AuthzPolicyRolloutModeDisabled,
+		},
+	}
+	router := newPolicyAuditTestRouter(
+		newScopeSet([]string{scopeWrite}),
+		true,
+		staticPolicyRuntimeResolver{runtime: runtime},
+		metrics,
+		sink,
+	)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when route policy is missing, got %d", w.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) == 0 {
+		t.Fatal("expected denied request to be audited")
+	}
+	event := sink.events[len(sink.events)-1]
+	if event.Authz == nil {
+		t.Fatal("expected authz decision in audit event")
+	}
+	if event.Authz.Allowed {
+		t.Fatalf("expected denied decision, got %+v", event.Authz)
+	}
+	if event.Authz.Stage != string(PolicyStageDefaultDeny) {
+		t.Fatalf("expected default_deny stage, got %q", event.Authz.Stage)
+	}
+	if !strings.Contains(strings.ToLower(event.Authz.Reason), "route authorization policy missing") {
+		t.Fatalf("expected missing-policy reason, got %q", event.Authz.Reason)
+	}
+	if !strings.Contains(event.Authz.Input.Action, "/v1/scans") {
+		t.Fatalf("expected authz input action to include request route, got %q", event.Authz.Input.Action)
+	}
+	if event.Authz.Input.ResourceType != "route" {
+		t.Fatalf("expected route resource type for missing policy decision, got %q", event.Authz.Input.ResourceType)
+	}
+}
+
 func TestRequireCentralPolicyMiddlewareABACTriageAllowsWhenTrustedAttributesMatch(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := policyTestScopeContext()
