@@ -63,7 +63,7 @@ For enterprise auth scope, tenant/workspace context, and decision audit verifica
 - Discovers machine identities and trust relationships across AWS and Kubernetes.
 - Persists raw and normalized scan artifacts for explainability and auditability.
 - Produces deterministic findings with risk evidence and remediation context.
-- Provides API and CLI workflows for scans, findings, trends, and diff analysis.
+- Provides API and web workflows for trends and diff analysis, plus CLI workflows for scans, findings, repo exposure scans, and authz rollback.
 - Supports optional repository exposure scanning (secrets and CI/IaC risk) in an isolated pipeline.
 
 ## What Identrail Does Not Do

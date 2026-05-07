@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -45,6 +46,28 @@ func TestOpenAPIV1SpecDeclaresAuthSecurity(t *testing.T) {
 		if !strings.Contains(spec, item) {
 			t.Fatalf("openapi spec missing %q", item)
 		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsGitHubWebhookSignatureSecurity(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"GitHubWebhookSignature:",
+		"name: X-Hub-Signature-256",
+		"description: GitHub HMAC SHA-256 signature of the raw webhook request body.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	block := pathBlock(t, spec, "/webhooks/github")
+	if !strings.Contains(block, "- GitHubWebhookSignature: []") {
+		t.Fatalf("openapi path %q missing GitHub webhook signature security requirement", "/webhooks/github")
+	}
+	if strings.Contains(block, "name: X-Hub-Signature-256") {
+		t.Fatalf("openapi path %q should declare X-Hub-Signature-256 via security scheme, not as a duplicate header parameter", "/webhooks/github")
 	}
 }
 
@@ -138,6 +161,87 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsWorkspaceMemberStatusDefault(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"WorkspaceMemberUpsertRequest:",
+		"required: [member_id, user_id, role]",
+		"default: invited",
+		"Defaults to `invited` when omitted.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+	if strings.Contains(spec, "required: [member_id, user_id, role, status]") {
+		t.Fatalf("openapi spec should not require workspace member status in the request body")
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsRouteAuthorizationMetadata(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	for _, route := range defaultBuiltInRoutePolicyDefinitions() {
+		path := pathVarPattern.ReplaceAllString(route.Path, `{$1}`)
+		lines := []string{
+			fmt.Sprintf("  - method: %s", route.Method),
+			fmt.Sprintf("    path: %s", path),
+			fmt.Sprintf("    action: %s", route.Action),
+			fmt.Sprintf("    resource_type: %s", route.ResourceType),
+		}
+		if route.ResourceIDParam != "" {
+			lines = append(lines, fmt.Sprintf("    resource_id_param: %s", route.ResourceIDParam))
+		}
+		if !strings.Contains(spec, strings.Join(lines, "\n")) {
+			t.Fatalf("openapi authz metadata missing route authorization entry for %s %s", route.Method, path)
+		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsActionRoleGrants(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	grants := defaultRouteActionRoleGrants()
+	actions := make([]string, 0, len(grants))
+	for action := range grants {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+
+	for _, action := range actions {
+		lines := []string{fmt.Sprintf("  %s:", action)}
+		for _, role := range uniqueStrings(grants[action]) {
+			lines = append(lines, fmt.Sprintf("    - %s", role))
+		}
+		if !strings.Contains(spec, strings.Join(lines, "\n")) {
+			t.Fatalf("openapi authz metadata missing role grants for action %q", action)
+		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsServiceStatusHealthSchemas(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"ServiceStatusResponse:",
+		"required: [status, service]",
+		`$ref: "#/components/schemas/ServiceStatusResponse"`,
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	readyzBlock := pathBlock(t, spec, "/readyz")
+	readyzServiceStatusPattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ServiceStatusResponse"`)
+	if !readyzServiceStatusPattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q must document a 503 service status body", "/readyz")
+	}
+	readyzErrorResponsePattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ErrorResponse"`)
+	if readyzErrorResponsePattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q should not document readiness 503 as ErrorResponse", "/readyz")
+	}
+}
+
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
@@ -214,4 +318,17 @@ func pathBlock(t *testing.T, spec string, path string) string {
 	}
 
 	return spec[start:end]
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }

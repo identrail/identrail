@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 func TestRelationshipIDUsesDeterministicSHA256Prefix(t *testing.T) {

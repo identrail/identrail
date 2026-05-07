@@ -24,6 +24,7 @@ This chart is the Kubernetes deployment baseline for Identrail.
 - Default mode uses `secret.existingSecret=identrail-secrets` with `secret.create=false`.
 - Migrations run as a pre-install/pre-upgrade Helm hook job (`templates/migration-job.yaml`).
 - API and worker deployments force `IDENTRAIL_RUN_MIGRATIONS=false` to avoid DDL races.
+- Helm API defaults match the static production manifest baseline for replica count and API resources; tune values explicitly for smaller development clusters.
 - Disable hook jobs only if migrations are handled externally: set `migrations.enabled=false`.
 - Values default to `IDENTRAIL_AWS_SOURCE=sdk` and enforce `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`.
 - Before production rollout, set API, worker, and web image tags to the intended release tag or digest; avoid mutable `latest` tags.
