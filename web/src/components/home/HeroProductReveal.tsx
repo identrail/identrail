@@ -117,7 +117,12 @@ export function HeroProductReveal() {
           <span />
           <div className="idt-window-status">
             <span className="idt-window-pill is-live">AWS IAM live</span>
-            <span className="idt-window-pill">Evidence ready</span>
+            <span className="idt-window-pill is-ready">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M6.7 10.7 3.9 7.9l-.9.9 3.7 3.7 6.3-7.1-1-.9-5.3 6.2Z" />
+              </svg>
+              Evidence ready
+            </span>
           </div>
         </div>
 
@@ -131,8 +136,8 @@ export function HeroProductReveal() {
 
           <div className="idt-admin-main">
             <div className="idt-admin-profile-row">
-              <div className="idt-admin-avatar is-logo">
-                <img src="/brand-logos/amazoniam.svg" alt="" aria-hidden="true" />
+              <div className="idt-admin-avatar is-logo is-aws">
+                <img src="/brand-logos/aws.svg" alt="" aria-hidden="true" />
               </div>
               <div>
                 <p>Production workspace / AWS IAM</p>

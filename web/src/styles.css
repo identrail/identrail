@@ -39,20 +39,29 @@ a {
 }
 
 .idt-skip {
-  position: absolute;
-  top: -44px;
+  position: fixed;
+  top: 1rem;
   left: 1rem;
   z-index: 1000;
+  transform: translateY(calc(-100% - 2rem));
+  opacity: 0;
+  pointer-events: none;
   border-radius: 8px;
   padding: 0.5rem 0.8rem;
   background: var(--idt-accent);
   color: #031018;
   font-weight: 700;
   text-decoration: none;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
 }
 
-.idt-skip:focus {
-  top: 0.75rem;
+.idt-skip:focus,
+.idt-skip:focus-visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .idt-header {
@@ -9358,6 +9367,22 @@ html[data-theme='light'] .idt-hero,
   animation: idtHeroLiveGlow 2.8s ease-in-out infinite;
 }
 
+.idt-window-bar .idt-window-pill.is-ready {
+  gap: 0.34rem;
+  background: #f3f7fb;
+  color: #34415b;
+}
+
+.idt-window-bar .idt-window-pill.is-ready svg {
+  width: 0.82rem;
+  height: 0.82rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #18b478;
+  fill: #ffffff;
+  box-shadow: 0 0 0 3px rgba(24, 180, 120, 0.12);
+}
+
 .idt-admin-layout {
   grid-template-columns: 136px 1fr;
   min-height: 396px;
@@ -9400,10 +9425,19 @@ html[data-theme='light'] .idt-hero,
   box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.06);
 }
 
+.idt-admin-avatar.is-logo.is-aws {
+  background: #ffffff;
+}
+
 .idt-admin-avatar.is-logo img {
   width: 24px;
   height: 24px;
   object-fit: contain;
+}
+
+.idt-admin-avatar.is-logo.is-aws img {
+  width: 30px;
+  height: auto;
 }
 
 .idt-admin-profile-row p {
@@ -9736,6 +9770,7 @@ html[data-theme='light'] .idt-trust-strip,
 .idt-trust-strip {
   min-height: 108px;
   padding: 0.82rem 0 1rem;
+  overflow: hidden;
 }
 
 .idt-trust-strip .idt-logo-cloud-label {
@@ -9758,13 +9793,17 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 .idt-logo-cloud {
-  width: min(100% - 2rem, 1320px);
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
 }
 
 .idt-logo-cloud-track {
   gap: 0.82rem;
-  padding-inline: 0.82rem;
+  padding-inline: 0;
   animation-duration: 32s;
 }
 
@@ -9785,6 +9824,10 @@ html[data-theme='light'] .idt-trust-strip,
   height: 1.02rem;
   opacity: 1;
   filter: none;
+}
+
+.idt-logo-cloud-track .idt-logo-cloud-item img[src$='aws.svg'] {
+  width: 1.72rem;
 }
 
 .idt-logo-cloud-track .idt-logo-cloud-item span {
@@ -9991,12 +10034,12 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-logo-cloud {
-    width: min(100% - 1.25rem, 1320px);
+    width: 100%;
   }
 
   .idt-logo-cloud-track {
     gap: 0.8rem;
-    padding-inline: 0.6rem;
+    padding-inline: 0;
   }
 
   .idt-logo-cloud-track .idt-logo-cloud-item {

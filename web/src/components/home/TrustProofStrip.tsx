@@ -1,7 +1,7 @@
 const TRUST_LOGOS = [
   {
     name: 'AWS IAM',
-    icon: '/brand-logos/amazoniam.svg'
+    icon: '/brand-logos/aws.svg'
   },
   {
     name: 'Kubernetes',
