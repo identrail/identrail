@@ -2253,7 +2253,7 @@ func rateLimitKey(c *gin.Context) string {
 		return ip + "|api"
 	}
 	if bearer := readBearerToken(c); bearer != "" {
-		return ip + "|bearer"
+		return ip + "|bearer:" + fingerprintIdentifierWith(nil, bearer)
 	}
 	return ip + "|anon"
 }

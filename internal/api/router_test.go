@@ -1547,6 +1547,77 @@ func TestRouterRateLimitExceeded(t *testing.T) {
 	}
 }
 
+func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys:        []string{"secret-key"},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	first.RemoteAddr = "127.0.0.1:23456"
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected first unauthorized request 401, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	second.RemoteAddr = "127.0.0.1:23456"
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second unauthorized request 429, got %d", w2.Code)
+	}
+}
+
+func TestRouterRateLimitInvalidBearerDoesNotThrottleValidOIDCToken(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{
+			tokens: map[string]VerifiedToken{
+				"good-token": {
+					Subject:     "user-1",
+					TenantID:    "tenant-1",
+					WorkspaceID: "workspace-1",
+					Scopes:      []string{"read"},
+				},
+			},
+		},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	invalid := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	invalid.RemoteAddr = "127.0.0.1:27501"
+	invalid.Header.Set("Authorization", "Bearer invalid-token")
+	invalidW := httptest.NewRecorder()
+	r.ServeHTTP(invalidW, invalid)
+	if invalidW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected invalid bearer request to be unauthorized, got %d", invalidW.Code)
+	}
+
+	valid := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	valid.RemoteAddr = "127.0.0.1:27501"
+	valid.Header.Set("Authorization", "Bearer good-token")
+	validW := httptest.NewRecorder()
+	r.ServeHTTP(validW, valid)
+	if validW.Code != http.StatusOK {
+		t.Fatalf("expected valid oidc request to avoid invalid bearer bucket and pass, got %d", validW.Code)
+	}
+
+	validSecond := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	validSecond.RemoteAddr = "127.0.0.1:27501"
+	validSecond.Header.Set("Authorization", "Bearer good-token")
+	validSecondW := httptest.NewRecorder()
+	r.ServeHTTP(validSecondW, validSecond)
+	if validSecondW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request for same valid bearer token to hit 429, got %d", validSecondW.Code)
+	}
+}
 func TestRouterRateLimitExceededIsAudited(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
