@@ -232,8 +232,8 @@ describe('App', () => {
     window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Project detail/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Project project-1 placeholder/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
+    expect(screen.getByText('Project source onboarding')).toBeInTheDocument();
   });
 
   it('lists workspace projects and links them to concrete source onboarding routes', async () => {
