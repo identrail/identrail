@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/identrail/identrail/internal/repoallowlist"
 	"github.com/identrail/identrail/internal/secretstore"
 )
 
@@ -80,6 +81,9 @@ var oidcClaimNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._:-]{0,127}$
 
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
+	if len(cfg.parseErrors) > 0 {
+		return fmt.Errorf("invalid environment configuration: %s", strings.Join(cfg.parseErrors, "; "))
+	}
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if provider == "" {
 		provider = defaultProvider
@@ -189,6 +193,9 @@ func ValidateSecurity(cfg Config) error {
 		}
 	}
 
+	if cfg.apiKeyScopesError != "" {
+		return fmt.Errorf("invalid IDENTRAIL_API_KEY_SCOPES: %s", cfg.apiKeyScopesError)
+	}
 	if len(cfg.APIKeyScopes) > 0 {
 		for key, scopes := range cfg.APIKeyScopes {
 			trimmedKey := strings.TrimSpace(key)
@@ -290,6 +297,9 @@ func ValidateSecurity(cfg Config) error {
 		if err := validateForwardURL(cfg.AuditForwardURL); err != nil {
 			return err
 		}
+	}
+	if strings.TrimSpace(cfg.ConnectorSecretKeys) == "" && cfg.ConnectorSecretKeysRequired {
+		return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS is required when IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true")
 	}
 	if strings.TrimSpace(cfg.ConnectorSecretKeys) != "" {
 		materials, err := secretstore.ParseKeySet(cfg.ConnectorSecretKeys)
@@ -521,6 +531,9 @@ func SecurityWarnings(cfg Config) []string {
 	if strings.TrimSpace(cfg.AuditFingerprintSecret) == "" {
 		warnings = append(warnings, "audit fingerprinting uses legacy unkeyed hash; set IDENTRAIL_AUDIT_FINGERPRINT_SECRET for HMAC-SHA256 pseudonymization")
 	}
+	if !cfg.RequireExplicitScope {
+		warnings = append(warnings, "tenant/workspace scope may fall back to defaults; set IDENTRAIL_REQUIRE_EXPLICIT_SCOPE=true in production")
+	}
 	if strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
 		warnings = append(warnings, "connector secrets use an ephemeral in-memory encryption key; set IDENTRAIL_CONNECTOR_SECRET_KEYS before persisting connector credentials")
 	}
@@ -623,28 +636,5 @@ func validateForwardURL(raw string) error {
 }
 
 func configRepoTargetAllowed(target string, allowlist []string) bool {
-	if len(allowlist) == 0 {
-		return true
-	}
-	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
-	if normalizedTarget == "" {
-		return false
-	}
-	for _, pattern := range allowlist {
-		normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
-		if normalizedPattern == "" {
-			continue
-		}
-		if strings.HasSuffix(normalizedPattern, "*") {
-			prefix := strings.TrimSuffix(normalizedPattern, "*")
-			if strings.HasPrefix(normalizedTarget, prefix) {
-				return true
-			}
-			continue
-		}
-		if normalizedTarget == normalizedPattern {
-			return true
-		}
-	}
-	return false
+	return repoallowlist.TargetAllowed(target, allowlist, true)
 }

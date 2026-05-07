@@ -184,16 +184,16 @@ const INTEGRATION_ROWS = [
     status: 'GA'
   },
   {
-    source: 'OIDC Federation',
+    source: 'OpenID Connect',
     signals: 'Provider trust boundaries and subject claim controls',
     depth: 'Focused',
     status: 'GA'
   },
   {
-    source: 'Multi-cloud adapters',
-    signals: 'Extended identity graph edges and normalized trust metadata',
-    depth: 'Roadmap',
-    status: 'Beta'
+    source: 'Prometheus',
+    signals: 'Operational metrics for scans, workers, and authz policy telemetry',
+    depth: 'Focused',
+    status: 'GA'
   }
 ] as const;
 
@@ -1624,12 +1624,12 @@ function HomePage() {
               sensitive resources, then turns the evidence into safe, owner-ready remediation.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <Link to="/demo" className="idt-btn idt-btn-dark">
-                Book Demo
-              </Link>
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
               </a>
+              <Link to="/demo" className="idt-btn idt-btn-dark">
+                Book Demo
+              </Link>
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
               <div>
@@ -2598,7 +2598,7 @@ function IntegrationsPage() {
   useSeo({
     title: 'Integrations | Machine Identity Signal Coverage',
     description:
-      'Review Identrail integration coverage across AWS IAM, Kubernetes, GitHub, and OIDC trust paths with depth and signal details.',
+      'Review Identrail integration coverage across AWS IAM, Kubernetes, GitHub, OpenID Connect, and Prometheus with depth and signal details.',
     path: '/integrations'
   });
 

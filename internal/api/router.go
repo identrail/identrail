@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"errors"
@@ -33,6 +34,7 @@ const (
 	rateLimiterEntryTTL    = 15 * time.Minute
 	rateLimiterMaxEntries  = 10000
 	rateLimiterCleanupTick = 256
+	defaultJSONBodyLimit   = int64(1 << 20)
 	corsAllowMethods       = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
 	corsAllowHeaders       = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID"
 	corsMaxAgeSeconds      = "600"
@@ -49,19 +51,20 @@ const (
 
 // RouterOptions controls API middleware behavior.
 type RouterOptions struct {
-	APIKeys            []string
-	WriteAPIKeys       []string
-	APIKeyScopes       map[string][]string
-	OIDCTokenVerifier  TokenVerifier
-	OIDCWriteScopes    []string
-	RateLimitRPM       int
-	RateLimitBurst     int
-	AuditSink          audit.AuditSink
-	AuditFingerprinter *audit.Fingerprinter
-	TrustedProxies     []string
-	CORSAllowedOrigins []string
-	DefaultTenantID    string
-	DefaultWorkspaceID string
+	APIKeys              []string
+	WriteAPIKeys         []string
+	APIKeyScopes         map[string][]string
+	OIDCTokenVerifier    TokenVerifier
+	OIDCWriteScopes      []string
+	RateLimitRPM         int
+	RateLimitBurst       int
+	AuditSink            audit.AuditSink
+	AuditFingerprinter   *audit.Fingerprinter
+	TrustedProxies       []string
+	CORSAllowedOrigins   []string
+	DefaultTenantID      string
+	DefaultWorkspaceID   string
+	RequireExplicitScope bool
 }
 
 type scopedAPIKeyAuthConfig struct {
@@ -108,6 +111,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.RepoScanRunsTotal,
 		metrics.RepoScanFailureTotal,
 		metrics.RepoScanDurationMS,
+		metrics.APIDeniedRequestsTotal,
 		metrics.AuthzPolicyShadowEvaluationsTotal,
 		metrics.AuthzPolicyShadowDivergencesTotal,
 		metrics.AuthzPolicyShadowEvaluationErrorsTotal,
@@ -156,7 +160,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, defaultJSONBodyLimit)
 		payload, err := io.ReadAll(c.Request.Body)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
@@ -195,9 +199,11 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1 := r.Group("/v1")
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
+	v1.Use(apiDenialMetricsMiddleware(metrics))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
+	v1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
-	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
+	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID, opts.RequireExplicitScope))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
@@ -292,12 +298,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortFindings(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/findings/summary", func(c *gin.Context) {
@@ -454,12 +455,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortIdentities(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/relationships", func(c *gin.Context) {
@@ -488,12 +484,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortRelationships(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/ownership/signals", func(c *gin.Context) {
@@ -519,12 +510,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortOwnershipSignals(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/scans", func(c *gin.Context) {
@@ -538,12 +524,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortScans(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/scans/:scan_id/diff", func(c *gin.Context) {
@@ -598,12 +579,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortScanEvents(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/repo-scans", func(c *gin.Context) {
@@ -617,12 +593,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortRepoScans(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.GET("/repo-scans/:repo_scan_id", func(c *gin.Context) {
@@ -672,12 +643,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortFindings(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/scans", func(c *gin.Context) {
@@ -819,12 +785,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		sortWorkspaces(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/workspaces", func(c *gin.Context) {
@@ -1013,12 +974,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		sortWorkspaceMembers(items)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/workspaces/:workspace_id/members", func(c *gin.Context) {
@@ -1111,12 +1067,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		sortProjects(items, sortBy, sortDesc)
-		page, next := pageWithCursor(items, offset, limit)
-		response := gin.H{"items": page}
-		if next != "" {
-			response["next_cursor"] = next
-		}
-		c.JSON(http.StatusOK, response)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
 	v1.POST("/workspaces/:workspace_id/projects", func(c *gin.Context) {
@@ -1866,7 +1817,20 @@ func pageWithCursor[T any](items []T, offset int, limit int) ([]T, string) {
 	return items[offset:end], next
 }
 
-func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) gin.HandlerFunc {
+func paginatedItemsResponse[T any](items []T, offset int, limit int) gin.H {
+	page, next := pageWithCursor(items, offset, limit)
+	response := gin.H{"items": page}
+	if next != "" {
+		response["next_cursor"] = next
+	}
+	return response
+}
+
+func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string, requireExplicitScope ...bool) gin.HandlerFunc {
+	explicitScope := false
+	if len(requireExplicitScope) > 0 {
+		explicitScope = requireExplicitScope[0]
+	}
 	defaultScope := db.Scope{
 		TenantID:    defaultTenantID,
 		WorkspaceID: defaultWorkspaceID,
@@ -1901,20 +1865,69 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) g
 		if tenantID == "" && !apiKeyAuth {
 			tenantID = tenantHeader
 		}
+		tenantProvided := tenantID != ""
 		if tenantID == "" {
 			tenantID = defaultScope.TenantID
 		}
 		if workspaceID == "" && !apiKeyAuth {
 			workspaceID = workspaceHeader
 		}
+		workspaceProvided := workspaceID != ""
 		if workspaceID == "" {
 			workspaceID = defaultScope.WorkspaceID
+		}
+		if explicitScope && (!tenantProvided || !workspaceProvided) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error": "explicit tenant and workspace scope are required",
+			})
+			return
 		}
 		scopedCtx := db.WithScope(c.Request.Context(), db.Scope{
 			TenantID:    tenantID,
 			WorkspaceID: workspaceID,
 		})
 		c.Request = c.Request.WithContext(scopedCtx)
+		c.Next()
+	}
+}
+
+func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
+	if limit <= 0 {
+		limit = defaultJSONBodyLimit
+	}
+	return func(c *gin.Context) {
+		if c.Request == nil || c.Request.Body == nil {
+			c.Next()
+			return
+		}
+		switch c.Request.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+		default:
+			c.Next()
+			return
+		}
+		if c.Request.ContentLength < 0 {
+			limited := http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+			body, err := io.ReadAll(limited)
+			if err != nil {
+				var maxErr *http.MaxBytesError
+				if errors.As(err, &maxErr) {
+					c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+			c.Request.ContentLength = int64(len(body))
+			c.Next()
+			return
+		}
+		if c.Request.ContentLength > limit {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()
 	}
 }
@@ -2076,6 +2089,25 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 		}
 
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	}
+}
+
+func apiDenialMetricsMiddleware(metrics *telemetry.Metrics) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+		if metrics == nil || metrics.APIDeniedRequestsTotal == nil {
+			return
+		}
+		switch c.Writer.Status() {
+		case http.StatusUnauthorized:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("unauthorized", "auth").Inc()
+		case http.StatusForbidden:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("forbidden", "authz").Inc()
+		case http.StatusTooManyRequests:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("rate_limited", "rate_limit").Inc()
+		case http.StatusBadRequest:
+			metrics.APIDeniedRequestsTotal.WithLabelValues("validation_denied", "validation").Inc()
+		}
 	}
 }
 
@@ -2243,16 +2275,31 @@ func (l *ipRateLimiter) evictOldestLocked() {
 func rateLimitMiddleware(rpm int, burst int) gin.HandlerFunc {
 	limiter := newIPRateLimiter(rpm, burst)
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		if ip == "" {
-			ip = "unknown"
-		}
-		if !limiter.allow(ip) {
+		if !limiter.allow(rateLimitKey(c)) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
 		c.Next()
 	}
+}
+
+func rateLimitKey(c *gin.Context) string {
+	ip := "unknown"
+	if c != nil {
+		if clientIP := strings.TrimSpace(c.ClientIP()); clientIP != "" {
+			ip = clientIP
+		}
+	}
+	if c == nil {
+		return ip + "|anon"
+	}
+	if apiKey := readAPIKey(c); apiKey != "" {
+		return ip + "|api"
+	}
+	if bearer := readBearerToken(c); bearer != "" {
+		return ip + "|bearer"
+	}
+	return ip + "|anon"
 }
 
 func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
@@ -2305,12 +2352,16 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 		}
 		logger.Info(
 			"api request",
-			zap.String("method", event.Method),
-			zap.String("path", event.Path),
-			zap.Int("status", event.Status),
-			zap.String("client_ip", event.ClientIP),
-			zap.Int64("duration_ms", event.DurationMS),
-			zap.String("user_agent", event.UserAgent),
+			telemetry.StandardLogFields("api", "api_request",
+				zap.String("request_id", event.CorrelationID),
+				zap.String("method", event.Method),
+				zap.String("path", event.Path),
+				zap.Int("status", event.Status),
+				zap.String("client_ip", event.ClientIP),
+				zap.Int64("duration_ms", event.DurationMS),
+				zap.String("user_agent", event.UserAgent),
+				zap.String("actor", event.Actor),
+			)...,
 		)
 		if err := sink.Write(c.Request.Context(), event); err != nil {
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
@@ -2430,7 +2481,7 @@ func triageActorFromContext(c *gin.Context, fingerprinter *audit.Fingerprinter) 
 		if subject, ok := subjectValue.(string); ok {
 			normalizedSubject := strings.TrimSpace(subject)
 			if normalizedSubject != "" {
-				return "subject:" + normalizedSubject
+				return "subject:" + fingerprintIdentifierWith(fingerprinter, normalizedSubject)
 			}
 		}
 	}

@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
-	"github.com/identrail/identrail/internal/stringutil"
 	"github.com/identrail/identrail/internal/telemetry"
 )
 
@@ -541,7 +540,10 @@ func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKey
 }
 
 func firstNonEmpty(primary string, fallback string) string {
-	return stringutil.FirstNonBlankTrimmed(primary, fallback)
+	if strings.TrimSpace(primary) != "" {
+		return strings.TrimSpace(primary)
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func inferPrincipalType(c *gin.Context) string {

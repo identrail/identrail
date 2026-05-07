@@ -16,14 +16,15 @@ func TestRunWithCancelledContext(t *testing.T) {
 	cancel()
 
 	cfg := config.Config{
-		LogLevel:       "info",
-		ServiceName:    "identrail-test",
-		Provider:       "aws",
-		ScanInterval:   10 * time.Millisecond,
-		WorkerRunNow:   false,
-		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
-		APIKeys:        []string{"test-read"},
-		WriteAPIKeys:   []string{"test-read"},
+		AllowMemoryStore: true,
+		LogLevel:         "info",
+		ServiceName:      "identrail-test",
+		Provider:         "aws",
+		ScanInterval:     10 * time.Millisecond,
+		WorkerRunNow:     false,
+		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -37,14 +38,15 @@ func TestRunFailsWhenStartupScanCannotReadFixtures(t *testing.T) {
 	defer cancel()
 
 	cfg := config.Config{
-		LogLevel:       "info",
-		ServiceName:    "identrail-test",
-		Provider:       "aws",
-		ScanInterval:   10 * time.Millisecond,
-		WorkerRunNow:   true,
-		AWSFixturePath: []string{"/path/does/not/exist.json"},
-		APIKeys:        []string{"test-read"},
-		WriteAPIKeys:   []string{"test-read"},
+		AllowMemoryStore: true,
+		LogLevel:         "info",
+		ServiceName:      "identrail-test",
+		Provider:         "aws",
+		ScanInterval:     10 * time.Millisecond,
+		WorkerRunNow:     true,
+		AWSFixturePath:   []string{"/path/does/not/exist.json"},
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -101,6 +103,7 @@ func TestRunWithCancelledContextAndRepoWorkerEnabled(t *testing.T) {
 	cancel()
 
 	cfg := config.Config{
+		AllowMemoryStore:       true,
 		LogLevel:               "info",
 		ServiceName:            "identrail-test",
 		Provider:               "aws",
