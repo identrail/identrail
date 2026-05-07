@@ -280,12 +280,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  service:
-                    type: string
+                $ref: "#/components/schemas/ServiceStatusResponse"
   /readyz:
     get:
       tags: [Health]
@@ -298,18 +293,13 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  service:
-                    type: string
+                $ref: "#/components/schemas/ServiceStatusResponse"
         "503":
           description: Service not ready
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ServiceStatusResponse"
   /metrics:
     get:
       tags: [Health]
@@ -1828,6 +1818,14 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    ServiceStatusResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+        service:
+          type: string
     ErrorResponse:
       type: object
       properties:

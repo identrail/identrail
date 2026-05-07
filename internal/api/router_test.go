@@ -112,6 +112,7 @@ func TestRouterReadyzWithoutService(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d", w.Code)
 	}
+	assertServiceStatusBody(t, w.Body.Bytes(), "not_ready")
 }
 
 func TestRouterReadyzWithService(t *testing.T) {
@@ -127,6 +128,7 @@ func TestRouterReadyzWithService(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", w.Code)
 	}
+	assertServiceStatusBody(t, w.Body.Bytes(), "ready")
 }
 
 func TestRouterReadyzWithDependencyFailure(t *testing.T) {
@@ -145,6 +147,7 @@ func TestRouterReadyzWithDependencyFailure(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d", w.Code)
 	}
+	assertServiceStatusBody(t, w.Body.Bytes(), "not_ready")
 }
 
 func TestRouterCORSDisabledByDefault(t *testing.T) {
@@ -162,6 +165,20 @@ func TestRouterCORSDisabledByDefault(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("expected no cors allow origin header, got %q", got)
+	}
+}
+
+func assertServiceStatusBody(t *testing.T, payload []byte, wantStatus string) {
+	t.Helper()
+	var body map[string]string
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["status"] != wantStatus {
+		t.Fatalf("expected status %q, got %+v", wantStatus, body)
+	}
+	if body["service"] != "identrail" {
+		t.Fatalf("expected service identrail, got %+v", body)
 	}
 }
 

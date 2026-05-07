@@ -200,6 +200,30 @@ func TestOpenAPIV1SpecDocumentsActionRoleGrants(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsServiceStatusHealthSchemas(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"ServiceStatusResponse:",
+		"required: [status, service]",
+		`$ref: "#/components/schemas/ServiceStatusResponse"`,
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	readyzBlock := pathBlock(t, spec, "/readyz")
+	readyzServiceStatusPattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ServiceStatusResponse"`)
+	if !readyzServiceStatusPattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q must document a 503 service status body", "/readyz")
+	}
+	readyzErrorResponsePattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ErrorResponse"`)
+	if readyzErrorResponsePattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q should not document readiness 503 as ErrorResponse", "/readyz")
+	}
+}
+
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
