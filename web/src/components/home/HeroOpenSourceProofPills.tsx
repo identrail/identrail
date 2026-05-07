@@ -7,7 +7,7 @@ type HeroProofStats = {
   pulls: number | null;
 };
 
-const CACHE_KEY = 'identrail_hero_proof_stats_v1';
+const CACHE_KEY = 'identrail_hero_proof_stats_v2';
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const EMPTY_STATS: HeroProofStats = { stars: null, pulls: null };
 
@@ -62,11 +62,16 @@ async function fetchGitHubStars(signal: AbortSignal): Promise<number | null> {
 }
 
 async function fetchDockerPulls(repoPath: string, signal: AbortSignal): Promise<number | null> {
-  const response = await fetch(`https://img.shields.io/docker/pulls/${repoPath}.json`, { signal });
-  if (!response.ok) return null;
+  try {
+    const response = await fetch(`https://img.shields.io/docker/pulls/${repoPath}.json`, { signal });
+    if (!response.ok) return null;
 
-  const body = (await response.json()) as { message?: string; value?: string };
-  return parseCompactMetric(body.message ?? body.value ?? '');
+    const body = (await response.json()) as { message?: string; value?: string };
+    return parseCompactMetric(body.message ?? body.value ?? '');
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return null;
+  }
 }
 
 async function fetchHeroProofStats(signal: AbortSignal): Promise<HeroProofStats> {
@@ -75,7 +80,8 @@ async function fetchHeroProofStats(signal: AbortSignal): Promise<HeroProofStats>
     Promise.all(projectMetricsSource.dockerHubRepos.map((repoPath) => fetchDockerPulls(repoPath, signal)))
   ]);
 
-  const pulls = pullResults.reduce<number>((total, current) => total + (current ?? 0), 0);
+  const availablePulls = pullResults.filter((current): current is number => current !== null);
+  const pulls = availablePulls.length > 0 ? availablePulls.reduce((total, current) => total + current, 0) : null;
   return { stars, pulls };
 }
 
