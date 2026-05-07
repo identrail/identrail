@@ -1291,6 +1291,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FindingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1617,6 +1619,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IdentityPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1655,6 +1659,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RelationshipPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1684,6 +1690,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OwnershipSignalPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
