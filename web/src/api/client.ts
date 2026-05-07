@@ -85,6 +85,16 @@ export type RequestAuthContext = {
   bearerToken?: string;
 };
 
+export const IDENTRAIL_SCOPE_HEADERS = {
+  tenantID: 'X-Identrail-Tenant-ID',
+  workspaceID: 'X-Identrail-Workspace-ID'
+} as const;
+
+export type IdentrailScopeHeaders = {
+  [IDENTRAIL_SCOPE_HEADERS.tenantID]: string;
+  [IDENTRAIL_SCOPE_HEADERS.workspaceID]: string;
+};
+
 export type WorkspaceMemberRole = 'owner' | 'admin' | 'analyst' | 'viewer';
 export type WorkspaceMemberStatus = 'invited' | 'active' | 'suspended' | 'removed';
 
@@ -350,11 +360,11 @@ function buildRequestHeaders(auth?: RequestAuthContext): Record<string, string> 
   }
   const tenantID = trimOrUndefined(auth?.tenantID);
   if (tenantID) {
-    headers['X-Identrail-Tenant-ID'] = tenantID;
+    headers[IDENTRAIL_SCOPE_HEADERS.tenantID] = tenantID;
   }
   const workspaceID = trimOrUndefined(auth?.workspaceID);
   if (workspaceID) {
-    headers['X-Identrail-Workspace-ID'] = workspaceID;
+    headers[IDENTRAIL_SCOPE_HEADERS.workspaceID] = workspaceID;
   }
   const bearerToken = trimOrUndefined(auth?.bearerToken);
   if (bearerToken) {
@@ -419,7 +429,7 @@ export const apiClient = {
     return request<{
       active_workspace: WorkspaceContextSnapshot;
       scope: { tenant_id: string; workspace_id: string };
-      scope_headers: { 'X-Identrail-Tenant-ID': string; 'X-Identrail-Workspace-ID': string };
+      scope_headers: IdentrailScopeHeaders;
     }>('/v1/workspaces/active', auth, {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceID })
