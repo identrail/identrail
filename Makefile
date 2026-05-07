@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap quickstart quickstart-down clean-local fmt fmt-check vet test test-integration web-install web-test web-build api-example-contract-check vercel-prod-deploy helm-lint tfmt-check ci pre-commit
+.PHONY: help bootstrap quickstart quickstart-down clean-local fmt fmt-check vet test test-integration web-install web-test web-build web-route-integrity-check api-example-contract-check vercel-prod-deploy helm-lint tfmt-check ci pre-commit
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -35,7 +35,11 @@ fmt-check: ## Check formatting without modifying files
 			exit 1; \
 		fi; \
 	fi
-	@terraform fmt -check -recursive deploy/terraform >/dev/null 2>&1 || true
+	@if command -v terraform >/dev/null 2>&1; then \
+		terraform fmt -check -recursive deploy/terraform; \
+	else \
+		echo "terraform not found; skipping deploy/terraform fmt check"; \
+	fi
 
 vet: ## Run go vet
 	go vet ./...
@@ -55,6 +59,9 @@ web-test: ## Run web test suite in CI mode
 web-build: ## Build web frontend
 	npm run build --prefix web
 
+web-route-integrity-check: ## Validate web app routes for static generation integrity
+	./scripts/check_web_route_integrity.sh
+
 api-example-contract-check: ## Validate docs/web API snippets against current v1 contract
 	./scripts/check_api_example_contract.sh
 
@@ -67,7 +74,7 @@ helm-lint: ## Lint Helm chart
 tfmt-check: ## Check Terraform formatting
 	terraform fmt -check -recursive deploy/terraform
 
-ci: fmt-check vet test api-example-contract-check web-test web-build ## Run core local CI checks
+ci: fmt-check vet test api-example-contract-check web-route-integrity-check web-test web-build ## Run core local CI checks
 
 pre-commit: ## Run pre-commit hooks across the repository
 	pre-commit run --all-files
