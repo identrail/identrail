@@ -4,19 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/findings/standards"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/app"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/findings/standards"
+	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/repoexposure"
+	"github.com/identrail/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 const (
@@ -410,13 +411,13 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "findings persisted", map[string]any{"findings": len(result.Findings)})
 
-	if err := s.Store.CompleteScan(ctx, record.ID, "completed", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
+	if err := s.Store.CompleteScan(ctx, record.ID, "succeeded", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
 		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
 		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
 		return RunScanResult{}, fmt.Errorf("complete scan record: %w", err)
 	}
 
-	record.Status = "completed"
+	record.Status = "succeeded"
 	finished := s.Now().UTC()
 	record.FinishedAt = &finished
 	record.AssetCount = result.Assets
@@ -599,6 +600,9 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 	if target == "" {
 		return "", 0, 0, ErrInvalidRepoScanRequest
 	}
+	if repoTargetContainsURLCredentials(target) {
+		return "", 0, 0, repoScanRequestValidationError{"repository target must not include credentials in URL userinfo"}
+	}
 	if repoexposure.IsLocalRepositoryTarget(target) {
 		return "", 0, 0, ErrRepoTargetNotAllowed
 	}
@@ -614,6 +618,37 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 		return "", 0, 0, ErrInvalidRepoScanRequest
 	}
 	return target, historyLimit, maxFindings, nil
+}
+
+// repoScanRequestValidationError keeps the user-facing message while preserving
+// ErrInvalidRepoScanRequest compatibility for routing checks.
+type repoScanRequestValidationError struct {
+	message string
+}
+
+func (e repoScanRequestValidationError) Error() string {
+	return e.message
+}
+
+func (e repoScanRequestValidationError) Is(target error) bool {
+	return target == ErrInvalidRepoScanRequest
+}
+
+func repoTargetContainsURLCredentials(target string) bool {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed == nil || parsed.Scheme == "" {
+		return false
+	}
+	if parsed.User == nil {
+		return false
+	}
+	if strings.EqualFold(parsed.Scheme, "ssh") {
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			return true
+		}
+		return strings.TrimSpace(parsed.User.Username()) == ""
+	}
+	return true
 }
 
 func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RunRepoScanResult, error) {
@@ -648,7 +683,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	if err := s.Store.CompleteRepoScan(
 		ctx,
 		record.ID,
-		"completed",
+		"succeeded",
 		s.Now().UTC(),
 		result.CommitsScanned,
 		result.FilesScanned,
@@ -658,7 +693,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	); err != nil {
 		return RunRepoScanResult{}, fmt.Errorf("complete repo scan: %w", err)
 	}
-	record.Status = "completed"
+	record.Status = "succeeded"
 	finished := s.Now().UTC()
 	record.FinishedAt = &finished
 	record.CommitsScanned = result.CommitsScanned

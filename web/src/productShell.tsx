@@ -601,6 +601,10 @@ async function ensureActiveSession(session: ProductSession): Promise<ProductSess
     return session;
   }
 
+  if (!session.accessToken) {
+    return session.refreshToken ? refreshOIDCSession(session) : null;
+  }
+
   if (!isSessionExpired(session) && !needsSessionRefresh(session)) {
     return session;
   }

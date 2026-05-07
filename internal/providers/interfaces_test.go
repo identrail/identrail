@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 type fakeCollector struct{ err error }
