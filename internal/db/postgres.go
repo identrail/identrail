@@ -29,6 +29,14 @@ type sqlExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+type storeExecutor struct {
+	store *PostgresStore
+}
+
+func (e storeExecutor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return e.store.execContext(ctx, query, args...)
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -659,7 +667,7 @@ func (p *PostgresStore) ListFindingTriageStates(ctx context.Context, findingIDs 
 
 // UpsertFindingTriageState creates or updates mutable triage metadata.
 func (p *PostgresStore) UpsertFindingTriageState(ctx context.Context, state FindingTriageState) error {
-	return p.upsertFindingTriageStateWithExecutor(ctx, p.db, state)
+	return p.upsertFindingTriageStateWithExecutor(ctx, storeExecutor{store: p}, state)
 }
 
 func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context, executor sqlExecutor, state FindingTriageState) error {
@@ -699,7 +707,7 @@ func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context
 
 // AppendFindingTriageEvent records one immutable triage action.
 func (p *PostgresStore) AppendFindingTriageEvent(ctx context.Context, event FindingTriageEvent) error {
-	return p.appendFindingTriageEventWithExecutor(ctx, p.db, event)
+	return p.appendFindingTriageEventWithExecutor(ctx, storeExecutor{store: p}, event)
 }
 
 func (p *PostgresStore) appendFindingTriageEventWithExecutor(ctx context.Context, executor sqlExecutor, event FindingTriageEvent) error {
