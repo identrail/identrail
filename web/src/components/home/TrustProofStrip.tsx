@@ -1,44 +1,51 @@
-import { Link } from 'react-router-dom';
-import { SafeLink } from '../SafeLink';
-import { TRUST_PROOF_LINKS } from '../../content/proofArtifacts';
-
-const TRUST_SUMMARY_ITEMS = TRUST_PROOF_LINKS.slice(0, 4);
-const TRUST_METRICS = [
-  { value: 'Apache-2.0', label: 'open-core license' },
-  { value: '37', label: 'public routes and docs paths' },
-  { value: '4', label: 'production signal families' }
+const TRUST_LOGOS = [
+  {
+    name: 'AWS IAM',
+    icon: '/brand-logos/amazoniam.svg'
+  },
+  {
+    name: 'Kubernetes',
+    icon: '/brand-logos/kubernetes.svg'
+  },
+  {
+    name: 'GitHub',
+    icon: '/brand-logos/github.svg'
+  },
+  {
+    name: 'OpenID',
+    icon: '/brand-logos/openid.svg'
+  },
+  {
+    name: 'Terraform',
+    icon: '/brand-logos/terraform.svg'
+  },
+  {
+    name: 'Docker',
+    icon: '/brand-logos/docker.svg'
+  },
+  {
+    name: 'PostgreSQL',
+    icon: '/brand-logos/postgresql.svg'
+  },
+  {
+    name: 'Prometheus',
+    icon: '/brand-logos/prometheus.svg'
+  }
 ] as const;
 
 export function TrustProofStrip() {
+  const logos = [...TRUST_LOGOS, ...TRUST_LOGOS];
+
   return (
-    <section className="idt-trust-strip" aria-label="Credibility and proof">
-      <div className="idt-shell idt-proof-architecture">
-        <div className="idt-proof-strip-head">
-          <p className="idt-proof-heading">Built in the open with verifiable trust controls.</p>
-          <dl className="idt-proof-metrics" aria-label="Identrail trust signals">
-            {TRUST_METRICS.map((metric) => (
-              <div key={metric.label}>
-                <dt>{metric.value}</dt>
-                <dd>{metric.label}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-        <div className="idt-proof-architecture-list">
-          {TRUST_SUMMARY_ITEMS.map((entry) => (
-            <article key={entry.label} className="idt-proof-architecture-item">
-              <p className="idt-proof-item-title">{entry.label}</p>
-              <p>{entry.description}</p>
-              {entry.external ? (
-                <SafeLink href={entry.href} className="idt-proof-link">
-                  Review
-                </SafeLink>
-              ) : (
-                <Link to={entry.href} className="idt-proof-link">
-                  Review
-                </Link>
-              )}
-            </article>
+    <section className="idt-trust-strip" aria-label="Identity ecosystem signals">
+      <p className="idt-logo-cloud-label">Reviewed across your tech stack</p>
+      <div className="idt-logo-cloud">
+        <div className="idt-logo-cloud-track">
+          {logos.map((logo, index) => (
+            <span className="idt-logo-cloud-item" key={`${logo.name}-${index}`}>
+              <img src={logo.icon} alt="" aria-hidden="true" loading="lazy" />
+              <span>{logo.name}</span>
+            </span>
           ))}
         </div>
       </div>
