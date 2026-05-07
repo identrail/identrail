@@ -267,6 +267,13 @@ func TestServiceRunScanSuccessUsesFreshContextForTerminalWrite(t *testing.T) {
 	if result.Scan.Status != "succeeded" {
 		t.Fatalf("expected succeeded scan status, got %q", result.Scan.Status)
 	}
+	scans, err := store.ListScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
+	}
+	if len(scans) != 1 || scans[0].Status != "succeeded" {
+		t.Fatalf("expected succeeded scan record, got %+v", scans)
+	}
 	if store.lastScanCompletionCtxErr != nil {
 		t.Fatalf("expected terminal scan completion to use non-canceled context, got %v", store.lastScanCompletionCtxErr)
 	}
