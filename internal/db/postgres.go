@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db/sqlcdb"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/db/sqlcdb"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -287,7 +287,7 @@ func (p *PostgresStore) CountQueuedScans(ctx context.Context, provider string) (
 		 FROM scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
-		   AND provider = $3
+		   AND ($3 = '' OR provider = $3)
 		   AND status = 'queued'`,
 		scope.TenantID,
 		scope.WorkspaceID,
@@ -739,7 +739,7 @@ func (p *PostgresStore) ListFindingTriageEvents(ctx context.Context, findingID s
 // ListScans returns latest scans first.
 func (p *PostgresStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, error) {
 	if limit <= 0 {
-		limit = 20
+		limit = 100
 	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
