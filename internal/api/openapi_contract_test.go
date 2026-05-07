@@ -49,6 +49,28 @@ func TestOpenAPIV1SpecDeclaresAuthSecurity(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsGitHubWebhookSignatureSecurity(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"GitHubWebhookSignature:",
+		"name: X-Hub-Signature-256",
+		"description: GitHub HMAC SHA-256 signature of the raw webhook request body.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	block := pathBlock(t, spec, "/webhooks/github")
+	if !strings.Contains(block, "- GitHubWebhookSignature: []") {
+		t.Fatalf("openapi path %q missing GitHub webhook signature security requirement", "/webhooks/github")
+	}
+	if strings.Contains(block, "name: X-Hub-Signature-256") {
+		t.Fatalf("openapi path %q should declare X-Hub-Signature-256 via security scheme, not as a duplicate header parameter", "/webhooks/github")
+	}
+}
+
 func TestOpenAPIV1SpecDocumentsRequestScopeHeaders(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	required := []string{
