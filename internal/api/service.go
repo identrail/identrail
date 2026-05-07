@@ -15,6 +15,7 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/findings/standards"
 	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/repoallowlist"
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
