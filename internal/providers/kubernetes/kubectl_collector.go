@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 const defaultKubectlPath = "kubectl"
