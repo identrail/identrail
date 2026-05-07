@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
-	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
+	"github.com/identrail/identrail/internal/domain"
+	awsprovider "github.com/identrail/identrail/internal/providers/aws"
+	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
 )
 
 func TestAWSFixtureGraphContract(t *testing.T) {

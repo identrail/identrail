@@ -23,7 +23,7 @@ export const siteLinks = {
   platformOverview: '/product',
   howWeDoIt: '/product',
   impactQueries: 'https://github.com/identrail/identrail',
-  detectionEngine: 'https://github.com/identrail/identrail/tree/dev/internal/detection',
+  detectionEngine: 'https://github.com/identrail/identrail/tree/dev/internal/providers',
   interactiveDemo: '/demo',
   agentRelease: 'https://github.com/identrail/identrail',
   technicalDocs: '/docs',
