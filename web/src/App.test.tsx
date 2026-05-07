@@ -5,6 +5,21 @@ import { saveProductSession } from './productShell';
 
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
 
+function okJSON(payload: unknown) {
+  return {
+    ok: true,
+    json: async () => payload
+  };
+}
+
+function errorJSON(status: number, error: string) {
+  return {
+    ok: false,
+    status,
+    json: async () => ({ error })
+  };
+}
+
 function makeJWT(payload: Record<string, unknown>): string {
   const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
     .replace(/\+/g, '-')
@@ -1094,6 +1109,121 @@ describe('App', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/app/default/payments/workspaces');
     });
+  });
+
+  it('shows workspace admin load errors without redirecting to login', async () => {
+    saveProductSession({
+      tenantID: 'default',
+      workspaceID: 'default'
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(errorJSON(403, 'workspace access denied')));
+
+    window.history.pushState({}, '', '/app/default/default/workspaces');
+    render(<App />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/workspace access denied/i);
+    expect(window.location.pathname).toBe('/app/default/default/workspaces');
+    expect(window.location.pathname).not.toBe('/app/login');
+  });
+
+  it('keeps existing member state when invite action fails', async () => {
+    saveProductSession({
+      tenantID: 'default',
+      workspaceID: 'default'
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'default' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              display_name: 'Default',
+              slug: 'default',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                display_name: 'Default',
+                slug: 'default',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                member_id: 'member-owner-user',
+                user_id: 'owner-user',
+                email: 'owner@example.com',
+                role: 'owner',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(
+        okJSON({
+          items: [
+            {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(errorJSON(500, 'invite rejected'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/default/default/workspaces');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(screen.getByText('owner-user')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('User ID'), { target: { value: 'analyst@example.com' } });
+    fireEvent.change(screen.getByLabelText('Email (optional)'), { target: { value: 'analyst@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /Invite member/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/invite rejected/i);
+    expect(screen.getByText('owner-user')).toBeInTheDocument();
+    expect(screen.queryByText('member-analyst-example-com')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/default/default/workspaces');
   });
 
   it('redirects expired oidc sessions to login with re-auth prompt', async () => {

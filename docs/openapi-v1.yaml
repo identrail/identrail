@@ -19,6 +19,254 @@ tags:
 security:
   - ApiKeyAuth: []
   - BearerAuth: []
+x-identrail-route-authorizations:
+  - method: GET
+    path: /v1/findings
+    action: findings.read
+    resource_type: finding
+  - method: GET
+    path: /v1/findings/{finding_id}
+    action: findings.read
+    resource_type: finding
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/findings/{finding_id}/history
+    action: findings.read
+    resource_type: finding_history
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/findings/{finding_id}/exports
+    action: findings.read
+    resource_type: finding_export
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/findings/trends
+    action: findings.read
+    resource_type: finding_trend
+  - method: GET
+    path: /v1/findings/summary
+    action: findings.read
+    resource_type: finding_summary
+  - method: PATCH
+    path: /v1/findings/{finding_id}/triage
+    action: findings.triage
+    resource_type: finding
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/identities
+    action: graph.read
+    resource_type: identity
+  - method: GET
+    path: /v1/relationships
+    action: graph.read
+    resource_type: relationship
+  - method: GET
+    path: /v1/ownership/signals
+    action: graph.read
+    resource_type: ownership_signal
+  - method: GET
+    path: /v1/scans
+    action: scans.read
+    resource_type: scan
+  - method: GET
+    path: /v1/scans/{scan_id}/diff
+    action: scans.read
+    resource_type: scan_diff
+    resource_id_param: scan_id
+  - method: GET
+    path: /v1/scans/{scan_id}/events
+    action: scans.read
+    resource_type: scan_event
+    resource_id_param: scan_id
+  - method: POST
+    path: /v1/scans
+    action: scans.run
+    resource_type: scan
+  - method: GET
+    path: /v1/repo-scans
+    action: repo_scans.read
+    resource_type: repo_scan
+  - method: GET
+    path: /v1/repo-scans/{repo_scan_id}
+    action: repo_scans.read
+    resource_type: repo_scan
+    resource_id_param: repo_scan_id
+  - method: GET
+    path: /v1/repo-findings
+    action: repo_scans.read
+    resource_type: repo_finding
+  - method: POST
+    path: /v1/repo-scans
+    action: repo_scans.run
+    resource_type: repo_scan
+  - method: POST
+    path: /v1/authz/policies/simulate
+    action: authz.policies.simulate
+    resource_type: authz_policy
+  - method: POST
+    path: /v1/authz/policies/rollback
+    action: authz.policies.rollback
+    resource_type: authz_policy
+  - method: GET
+    path: /v1/whoami
+    action: tenancy.read
+    resource_type: workspace_context
+  - method: GET
+    path: /v1/organizations/current
+    action: tenancy.read
+    resource_type: organization
+  - method: PUT
+    path: /v1/organizations/current
+    action: tenancy.write
+    resource_type: organization
+  - method: GET
+    path: /v1/workspaces
+    action: tenancy.read
+    resource_type: workspace
+  - method: POST
+    path: /v1/workspaces
+    action: tenancy.write
+    resource_type: workspace
+  - method: POST
+    path: /v1/workspaces/active
+    action: tenancy.read
+    resource_type: workspace_context
+  - method: GET
+    path: /v1/workspaces/{workspace_id}
+    action: tenancy.read
+    resource_type: workspace
+    resource_id_param: workspace_id
+  - method: DELETE
+    path: /v1/workspaces/{workspace_id}
+    action: tenancy.write
+    resource_type: workspace
+    resource_id_param: workspace_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/members
+    action: tenancy.read
+    resource_type: workspace_member
+    resource_id_param: workspace_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/members
+    action: tenancy.write
+    resource_type: workspace_member
+    resource_id_param: workspace_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/members/{member_id}
+    action: tenancy.read
+    resource_type: workspace_member
+    resource_id_param: member_id
+  - method: DELETE
+    path: /v1/workspaces/{workspace_id}/members/{member_id}
+    action: tenancy.write
+    resource_type: workspace_member
+    resource_id_param: member_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: workspace_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: workspace_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: DELETE
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/connection
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: PUT
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/repositories
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/secret/rotate
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+x-identrail-action-role-grants:
+  authz.policies.rollback:
+    - admin
+  authz.policies.simulate:
+    - admin
+  findings.read:
+    - read
+    - write
+    - admin
+  findings.triage:
+    - write
+    - admin
+  graph.read:
+    - read
+    - write
+    - admin
+  repo_scans.read:
+    - read
+    - write
+    - admin
+  repo_scans.run:
+    - write
+    - admin
+  scans.read:
+    - read
+    - write
+    - admin
+  scans.run:
+    - write
+    - admin
+  tenancy.read:
+    - read
+    - write
+    - admin
+    - owner
+    - analyst
+    - viewer
+  tenancy.write:
+    - write
+    - admin
+    - owner
 paths:
   /healthz:
     get:

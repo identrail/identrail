@@ -1484,7 +1484,7 @@ func TestServiceProcessQueuedRepoScanContinuesToNextTargetAfterRequeue(t *testin
 		t.Fatalf("get repo-b scan: %v", err)
 	}
 	if repoBRecord.Status != "succeeded" {
-		t.Fatalf("expected repo-b to succeed, got %q", repoBRecord.Status)
+		t.Fatalf("expected repo-b to complete, got %q", repoBRecord.Status)
 	}
 }
 
@@ -1521,8 +1521,29 @@ func TestServiceRunRepoScanRejectsCredentialBearingRepositoryURL(t *testing.T) {
 	_, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{
 		Repository: "https://token@example.com/org/repo.git",
 	})
-	if !errors.Is(err, ErrInvalidRepoScanRequest) {
+	if err == nil || !errors.Is(err, ErrInvalidRepoScanRequest) || err.Error() != "repository target must not include credentials in URL userinfo" {
 		t.Fatalf("expected invalid repo scan request for credential-bearing url, got %v", err)
+	}
+}
+
+func TestServiceRepoTargetContainsURLCredentials(t *testing.T) {
+	testCases := []struct {
+		target   string
+		expected bool
+	}{
+		{target: "https://token@example.com/org/repo.git", expected: true},
+		{target: "ssh://git@example.com/owner/repo.git", expected: false},
+		{target: "ssh://git:password@example.com/owner/repo.git", expected: true},
+		{target: "git@github.com:owner/repo.git", expected: false},
+		{target: "ssh://@example.com/owner/repo.git", expected: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.target, func(t *testing.T) {
+			if got, want := repoTargetContainsURLCredentials(tc.target), tc.expected; got != want {
+				t.Fatalf("expected %v for %q, got %v", want, tc.target, got)
+			}
+		})
 	}
 }
 
