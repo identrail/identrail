@@ -9155,14 +9155,14 @@ html[data-theme='light'] .idt-hero,
 }
 
 .idt-hero-grid {
-  width: min(100% - 3rem, 1320px);
-  grid-template-columns: minmax(350px, 0.72fr) minmax(660px, 1.28fr);
+  width: min(100% - 3rem, 1760px);
+  grid-template-columns: minmax(340px, 0.64fr) minmax(760px, 1.36fr);
   gap: clamp(2rem, 3.4vw, 4rem);
-  min-height: 710px;
+  min-height: 800px;
 }
 
 .idt-hero-copy {
-  transform: translateX(clamp(-1.9rem, -2.8vw, -0.7rem));
+  transform: translateX(clamp(-0.65rem, -0.85vw, -0.25rem));
 }
 
 .idt-hero-copy h1 {
@@ -9186,7 +9186,9 @@ html[data-theme='light'] .idt-hero,
 }
 
 .idt-hero-product-stage {
-  min-height: 710px;
+  --idt-preview-phone-width: clamp(268px, 27%, 292px);
+  --idt-preview-dashboard-left: clamp(14.75rem, 25%, 18rem);
+  min-height: 800px;
   margin-top: 0;
   overflow: hidden;
   transform: translateX(clamp(-1.75rem, -2.1vw, -0.75rem));
@@ -9305,9 +9307,10 @@ html[data-theme='light'] .idt-hero,
 }
 
 .idt-hero-admin-window {
-  top: 24px;
-  right: 24px;
-  width: min(720px, calc(100% - 3.5rem));
+  top: 12px;
+  left: var(--idt-preview-dashboard-left);
+  right: auto;
+  width: min(720px, calc(100% - var(--idt-preview-dashboard-left) - 1.25rem));
   min-height: 444px;
 }
 
@@ -9556,9 +9559,9 @@ html[data-theme='light'] .idt-hero,
 }
 
 .idt-hero-login-card {
-  top: 178px;
-  left: 12px;
-  width: 286px;
+  top: 238px;
+  left: clamp(0.8rem, 2.1vw, 1.55rem);
+  width: var(--idt-preview-phone-width);
   min-height: 0;
   padding: 0.86rem;
   border-radius: 26px;
@@ -9844,6 +9847,11 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 @media (max-width: 1180px) {
+  html[data-theme='light'] .idt-hero,
+  .idt-hero {
+    background: #ffffff;
+  }
+
   .idt-hero-grid {
     width: min(100% - 2.2rem, 1120px);
     grid-template-columns: 1fr;
@@ -9862,7 +9870,9 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-product-stage {
-    min-height: 650px;
+    --idt-preview-phone-width: clamp(276px, 28%, 310px);
+    --idt-preview-dashboard-left: clamp(18rem, 31%, 22rem);
+    min-height: 860px;
   }
 
   .idt-hero-backdrop-panel {
@@ -9872,14 +9882,15 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-admin-window {
-    top: 0;
-    right: 18px;
-    width: min(700px, calc(100% - 1rem));
+    top: 10px;
+    left: var(--idt-preview-dashboard-left);
+    right: auto;
+    width: min(700px, calc(100% - var(--idt-preview-dashboard-left) - 1rem));
   }
 
   .idt-hero-login-card {
-    left: 28px;
-    top: 166px;
+    left: clamp(1.25rem, 5vw, 3rem);
+    top: 226px;
   }
 }
 
@@ -9900,7 +9911,8 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-product-stage {
-    min-height: 660px;
+    --idt-preview-phone-width: min(318px, calc(100% - 2rem));
+    min-height: 930px;
   }
 
   .idt-hero-backdrop-panel {
@@ -9910,13 +9922,20 @@ html[data-theme='light'] .idt-trust-strip,
 
   .idt-hero-admin-window {
     top: 18px;
-    right: -56px;
-    width: min(540px, calc(100% + 56px));
-    min-height: 400px;
+    left: 50%;
+    right: auto;
+    width: min(520px, calc(100% - 1.25rem));
+    min-height: auto;
+    transform: translateX(-50%);
   }
 
   .idt-admin-layout {
-    grid-template-columns: 118px 1fr;
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .idt-admin-layout nav {
+    display: none;
   }
 
   .idt-window-status {
@@ -9933,6 +9952,7 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-admin-field-grid {
+    grid-template-columns: 1fr;
     gap: 0.64rem;
   }
 
@@ -9942,6 +9962,16 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-admin-field-grid small {
+    display: none;
+  }
+
+  .idt-admin-field-grid > div:nth-child(n + 3),
+  .idt-admin-activity li:nth-child(n + 3) {
+    display: none;
+  }
+
+  .idt-admin-path-strip,
+  .idt-admin-activity {
     display: none;
   }
 
@@ -9955,10 +9985,11 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-login-card {
-    top: 234px;
-    left: 16px;
-    width: min(292px, calc(100% - 2rem));
+    top: 390px;
+    left: 50%;
+    width: var(--idt-preview-phone-width);
     min-height: auto;
+    transform: translateX(-50%);
   }
 
   .idt-logo-cloud {
@@ -9982,19 +10013,16 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-product-stage {
-    min-height: 640px;
+    min-height: 920px;
   }
 
   .idt-hero-admin-window {
-    right: -94px;
-    width: min(500px, calc(100% + 94px));
+    width: min(440px, calc(100% - 1rem));
   }
 
   .idt-hero-login-card {
-    left: 50%;
-    top: 248px;
+    top: 382px;
     width: min(286px, calc(100% - 1.5rem));
-    transform: translateX(-50%);
   }
 }
 
