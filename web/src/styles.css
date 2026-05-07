@@ -9287,7 +9287,7 @@ html[data-theme='light'] .idt-hero,
 
 .idt-hero-backdrop-panel {
   display: block;
-  inset: 0 0 18px 0;
+  inset: 0;
   overflow: hidden;
   border-radius: 34px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -9295,9 +9295,7 @@ html[data-theme='light'] .idt-hero,
     radial-gradient(circle at 24% 14%, rgba(255, 255, 255, 0.08), transparent 18%),
     radial-gradient(circle at 84% 78%, rgba(255, 255, 255, 0.05), transparent 22%),
     linear-gradient(145deg, #050505 0%, #000000 54%, #030303 100%);
-  box-shadow:
-    0 38px 90px rgba(9, 13, 20, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .idt-hero-backdrop-panel::before,
@@ -9875,18 +9873,20 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 .idt-logo-cloud {
-  width: 100%;
+  width: 100vw;
   max-width: none;
-  margin: 0;
+  margin-inline: calc(50% - 50vw);
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 1.2%, #000 98.8%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 1.2%, #000 98.8%, transparent 100%);
 }
 
 .idt-logo-cloud-track {
-  gap: 0.82rem;
+  gap: 0.7rem;
+  width: max-content;
+  margin-left: -4rem;
   padding-inline: 0;
-  animation-duration: 32s;
+  animation-duration: 44s;
 }
 
 .idt-logo-cloud-track .idt-logo-cloud-item {
@@ -10000,7 +10000,7 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-backdrop-panel {
-    inset: 12px 0;
+    inset: 12px 0 0;
     border-radius: 34px;
   }
 
@@ -10075,7 +10075,7 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-backdrop-panel {
-    inset: 14px 0 10px 0;
+    inset: 14px 0 0;
     border-radius: 28px;
   }
 
@@ -10152,11 +10152,13 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-logo-cloud {
-    width: 100%;
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
   }
 
   .idt-logo-cloud-track {
     gap: 0.8rem;
+    margin-left: -3rem;
     padding-inline: 0;
   }
 

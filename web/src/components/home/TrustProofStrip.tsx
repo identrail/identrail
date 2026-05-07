@@ -34,7 +34,7 @@ const TRUST_LOGOS = [
 ] as const;
 
 export function TrustProofStrip() {
-  const logos = [...TRUST_LOGOS, ...TRUST_LOGOS];
+  const logos = [...TRUST_LOGOS, ...TRUST_LOGOS, ...TRUST_LOGOS, ...TRUST_LOGOS];
 
   return (
     <section className="idt-trust-strip" aria-label="Identity ecosystem signals">
