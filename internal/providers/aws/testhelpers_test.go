@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 func loadRawRoleAssetFixture(t *testing.T, fileName string) providers.RawAsset {

@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/connectors"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/connectors"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
 )
 
 // ErrInvalidKubernetesConnectionRequest indicates invalid Kubernetes connector input.
