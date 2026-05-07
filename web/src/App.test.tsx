@@ -194,6 +194,8 @@ describe('App', () => {
 
   it('allows manual login when OIDC is not configured even if manual sessions default off', async () => {
     vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', '');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', '');
     window.history.pushState({}, '', '/app/login');
     render(<App />);
 
@@ -220,6 +222,8 @@ describe('App', () => {
 
   it('keeps persisted manual sessions when OIDC is not configured and manual sessions are disabled', async () => {
     vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', '');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', '');
     window.sessionStorage.setItem(
       'identrail-product-session',
       JSON.stringify({
