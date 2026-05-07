@@ -35,6 +35,22 @@ spec:
           env:
             - name: IDENTRAIL_RUN_MIGRATIONS
               value: "false"
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/bin/identrail
+                - --healthcheck
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/identrail
+                - --healthcheck
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 2
           resources:
             requests:
               cpu: 100m
