@@ -75,6 +75,16 @@ func (s *recordingAuditSink) Write(_ context.Context, event audit.AuditEvent) er
 
 func (*recordingAuditSink) Close() error { return nil }
 
+func countAuditEventsByKind(events []audit.AuditEvent, kind string) int {
+	count := 0
+	for _, event := range events {
+		if event.Kind == kind {
+			count++
+		}
+	}
+	return count
+}
+
 func TestRouterHealthz(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
@@ -1285,6 +1295,8 @@ func TestAPIKeyAuthMiddlewareEnforcesScopeBindings(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
+		nil,
 	))
 	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
 	r.GET("/scope", func(c *gin.Context) {
@@ -2099,6 +2111,104 @@ func TestRouterWritesAuditSinkForDeniedAuthzDecision(t *testing.T) {
 	}
 	if event.Authz.Input.Action != policyActionScansRun {
 		t.Fatalf("expected action %q, got %q", policyActionScansRun, event.Authz.Input.Action)
+	}
+}
+
+func TestRouterWritesAuditSinkForAuthenticationFailure(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink: sink,
+		APIKeys:   []string{"good-key"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	req.RemoteAddr = "127.0.0.1:34567"
+	req.Header.Set("User-Agent", "router-test-auth-failure")
+	req.Header.Set("X-API-Key", "bad-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized status 401, got %d", w.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) == 0 {
+		t.Fatal("expected sink to capture auth failure event")
+	}
+	var authFailureEvent *audit.AuditEvent
+	for i := len(sink.events) - 1; i >= 0; i-- {
+		if sink.events[i].Kind == "api_auth_failure" {
+			authFailureEvent = &sink.events[i]
+			break
+		}
+	}
+	if authFailureEvent == nil {
+		t.Fatalf("expected sink to capture auth failure event, got %+v", sink.events[len(sink.events)-1])
+	}
+	event := *authFailureEvent
+	if event.Kind != "api_auth_failure" {
+		t.Fatalf("expected auth failure event kind, got %+v", event)
+	}
+	if event.Status != http.StatusUnauthorized {
+		t.Fatalf("expected auth failure status 401, got %+v", event)
+	}
+	if event.APIKeyID == "" {
+		t.Fatal("expected api key fingerprint in auth failure event")
+	}
+	if event.APIKeyID == "bad-key" {
+		t.Fatal("expected fingerprint instead of raw api key in auth failure event")
+	}
+	if event.CorrelationID == "" {
+		t.Fatalf("expected correlation id on auth failure event, got %+v", event)
+	}
+	if headerID := w.Header().Get("X-Request-Id"); headerID == "" {
+		t.Fatalf("expected X-Request-Id header to be set, got event correlation_id=%q", event.CorrelationID)
+	} else if headerID != event.CorrelationID {
+		t.Fatalf("expected auth failure correlation_id to match X-Request-Id header, got header=%q event=%q", headerID, event.CorrelationID)
+	}
+}
+
+func TestRouterWritesAuditSinkForScopedAPIKeyBindingAuthenticationFailure(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink: sink,
+		APIKeyScopes: map[string][]string{
+			"reader-key":  {scopeRead},
+			"unbound-key": {scopeRead},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	})
+
+	mismatchReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	mismatchReq.Header.Set("X-API-Key", "reader-key")
+	mismatchReq.Header.Set(scopeHeaderTenantID, "tenant-b")
+	mismatchReq.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	mismatchW := httptest.NewRecorder()
+	r.ServeHTTP(mismatchW, mismatchReq)
+	if mismatchW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected scoped mismatch request to be unauthorized, got %d", mismatchW.Code)
+	}
+
+	unboundReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	unboundReq.Header.Set("X-API-Key", "unbound-key")
+	unboundW := httptest.NewRecorder()
+	r.ServeHTTP(unboundW, unboundReq)
+	if unboundW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unbound scoped key request to be unauthorized, got %d", unboundW.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	authFailureCount := countAuditEventsByKind(sink.events, "api_auth_failure")
+	if authFailureCount < 2 {
+		t.Fatalf("expected at least two auth failure audit events for scoped key failures, got %d events: %+v", authFailureCount, sink.events)
 	}
 }
 

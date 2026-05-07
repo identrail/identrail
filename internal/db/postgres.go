@@ -317,6 +317,69 @@ func (p *PostgresStore) CreateQueuedScan(ctx context.Context, provider string, q
 	return p.createScanWithStatus(ctx, provider, "queued", queuedAt)
 }
 
+// CreateQueuedScanWithinLimit inserts one queued scan request only when pending capacity remains.
+func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("begin queued scan transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	normalizedProvider := strings.TrimSpace(provider)
+	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+		return ScanRecord{}, fmt.Errorf("lock queued scan capacity: %w", err)
+	}
+
+	var queued int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM scans
+		WHERE tenant_id = $1
+		  AND workspace_id = $2
+		  AND provider = $3
+		  AND status = 'queued'`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedProvider,
+	).Scan(&queued); err != nil {
+		return ScanRecord{}, fmt.Errorf("count queued scans: %w", err)
+	}
+	if queued >= maxPending {
+		return ScanRecord{}, ErrQueueLimitReached
+	}
+
+	row := tx.QueryRowContext(
+		ctx,
+		`INSERT INTO scans (
+			id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
+		)
+		VALUES ($1, $2, $3, $4, 'queued', $5, NULL, 0, 0, NULL)
+		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')`,
+		uuid.NewString(),
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedProvider,
+		queuedAt.UTC(),
+	)
+	record, err := scanScanRecord(row)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("insert queued scan: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ScanRecord{}, fmt.Errorf("commit queued scan transaction: %w", err)
+	}
+	return record, nil
+}
+
 // ClaimNextQueuedScan atomically claims one queued scan for execution.
 func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)

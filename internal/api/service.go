@@ -300,21 +300,21 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	if maxPending <= 0 {
 		maxPending = defaultScanQueueMaxPending
 	}
+	record, err := s.Store.CreateQueuedScanWithinLimit(ctx, s.Provider, s.Now().UTC(), maxPending)
+	if err != nil {
+		if errors.Is(err, db.ErrQueueLimitReached) {
+			return db.ScanRecord{}, ErrScanQueueFull
+		}
+		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
+	}
 	queuedCount, err := s.Store.CountQueuedScans(ctx, s.Provider)
 	if err != nil {
-		return db.ScanRecord{}, fmt.Errorf("count queued scans: %w", err)
-	}
-	if queuedCount >= maxPending {
-		return db.ScanRecord{}, ErrScanQueueFull
-	}
-	record, err := s.Store.CreateQueuedScan(ctx, s.Provider, s.Now().UTC())
-	if err != nil {
-		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
+		queuedCount = 0
 	}
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{"provider": s.Provider})
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan queued for worker execution", map[string]any{
 		"provider":    s.Provider,
-		"queue_depth": queuedCount + 1,
+		"queue_depth": queuedCount,
 		"queue_limit": maxPending,
 	})
 	return record, nil
