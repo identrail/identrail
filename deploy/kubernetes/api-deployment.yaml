@@ -20,7 +20,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: api
-          image: ghcr.io/oluwatobi-mustapha/identrail-api:latest
+          image: ghcr.io/identrail/identrail-api:v1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

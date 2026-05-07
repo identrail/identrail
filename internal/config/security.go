@@ -3,12 +3,13 @@ package config
 import (
 	"fmt"
 	"net/netip"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/repoallowlist"
+	"github.com/identrail/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/urlpolicy"
 )
 
 const (
@@ -33,6 +34,11 @@ var allowedKeyScopes = map[string]struct{}{
 	"write": {},
 	"admin": {},
 }
+
+const (
+	apiKeyScopeTenantPrefix    = "tenant:"
+	apiKeyScopeWorkspacePrefix = "workspace:"
+)
 
 var allowedAlertSeverities = map[string]struct{}{
 	"info":     {},
@@ -75,6 +81,9 @@ var oidcClaimNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._:-]{0,127}$
 
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
+	if len(cfg.parseErrors) > 0 {
+		return fmt.Errorf("invalid environment configuration: %s", strings.Join(cfg.parseErrors, "; "))
+	}
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if provider == "" {
 		provider = defaultProvider
@@ -184,6 +193,9 @@ func ValidateSecurity(cfg Config) error {
 		}
 	}
 
+	if cfg.apiKeyScopesError != "" {
+		return fmt.Errorf("invalid IDENTRAIL_API_KEY_SCOPES: %s", cfg.apiKeyScopesError)
+	}
 	if len(cfg.APIKeyScopes) > 0 {
 		for key, scopes := range cfg.APIKeyScopes {
 			trimmedKey := strings.TrimSpace(key)
@@ -191,9 +203,39 @@ func ValidateSecurity(cfg Config) error {
 				return fmt.Errorf("scoped api key cannot be empty")
 			}
 			validScopeCount := 0
+			tenantBinding := ""
+			workspaceBinding := ""
 			for _, scope := range scopes {
 				normalizedScope := strings.ToLower(strings.TrimSpace(scope))
 				if normalizedScope == "" {
+					continue
+				}
+				if strings.HasPrefix(normalizedScope, apiKeyScopeTenantPrefix) {
+					tenantID := strings.TrimSpace(scope[len(apiKeyScopeTenantPrefix):])
+					if tenantID == "" {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					if err := validateScopeIdentifier("IDENTRAIL_API_KEY_SCOPES tenant binding", tenantID); err != nil {
+						return err
+					}
+					if tenantBinding != "" && tenantBinding != tenantID {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					tenantBinding = tenantID
+					continue
+				}
+				if strings.HasPrefix(normalizedScope, apiKeyScopeWorkspacePrefix) {
+					workspaceID := strings.TrimSpace(scope[len(apiKeyScopeWorkspacePrefix):])
+					if workspaceID == "" {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					if err := validateScopeIdentifier("IDENTRAIL_API_KEY_SCOPES workspace binding", workspaceID); err != nil {
+						return err
+					}
+					if workspaceBinding != "" && workspaceBinding != workspaceID {
+						return fmt.Errorf("invalid API key scope configured")
+					}
+					workspaceBinding = workspaceID
 					continue
 				}
 				if _, ok := allowedKeyScopes[normalizedScope]; !ok {
@@ -280,6 +322,9 @@ func ValidateSecurity(cfg Config) error {
 		if err := validateForwardURL(cfg.AuditForwardURL); err != nil {
 			return err
 		}
+	}
+	if strings.TrimSpace(cfg.ConnectorSecretKeys) == "" && cfg.ConnectorSecretKeysRequired {
+		return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS is required when IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true")
 	}
 	if strings.TrimSpace(cfg.ConnectorSecretKeys) != "" {
 		materials, err := secretstore.ParseKeySet(cfg.ConnectorSecretKeys)
@@ -514,6 +559,9 @@ func SecurityWarnings(cfg Config) []string {
 	if strings.TrimSpace(cfg.AuditFingerprintSecret) == "" {
 		warnings = append(warnings, "audit fingerprinting uses legacy unkeyed hash; set IDENTRAIL_AUDIT_FINGERPRINT_SECRET for HMAC-SHA256 pseudonymization")
 	}
+	if !cfg.RequireExplicitScope {
+		warnings = append(warnings, "tenant/workspace scope may fall back to defaults; set IDENTRAIL_REQUIRE_EXPLICIT_SCOPE=true in production")
+	}
 	if strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
 		warnings = append(warnings, "connector secrets use an ephemeral in-memory encryption key; set IDENTRAIL_CONNECTOR_SECRET_KEYS before persisting connector credentials")
 	}
@@ -597,47 +645,9 @@ func findPlaceholderAPIKey(keys []string, writeKeys []string, scoped map[string]
 }
 
 func validateForwardURL(raw string) error {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return fmt.Errorf("parse audit forward url: %w", err)
-	}
-	host := strings.ToLower(parsed.Hostname())
-	switch strings.ToLower(parsed.Scheme) {
-	case "https":
-		return nil
-	case "http":
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-			return nil
-		}
-		return fmt.Errorf("insecure audit forward url scheme http is only allowed for localhost")
-	default:
-		return fmt.Errorf("unsupported audit forward url scheme %q", parsed.Scheme)
-	}
+	return urlpolicy.ValidateAuditForwardURL(raw)
 }
 
 func configRepoTargetAllowed(target string, allowlist []string) bool {
-	if len(allowlist) == 0 {
-		return true
-	}
-	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
-	if normalizedTarget == "" {
-		return false
-	}
-	for _, pattern := range allowlist {
-		normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
-		if normalizedPattern == "" {
-			continue
-		}
-		if strings.HasSuffix(normalizedPattern, "*") {
-			prefix := strings.TrimSuffix(normalizedPattern, "*")
-			if strings.HasPrefix(normalizedTarget, prefix) {
-				return true
-			}
-			continue
-		}
-		if normalizedTarget == normalizedPattern {
-			return true
-		}
-	}
-	return false
+	return repoallowlist.TargetAllowed(target, allowlist, true)
 }
