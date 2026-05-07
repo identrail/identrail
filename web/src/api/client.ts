@@ -85,6 +85,16 @@ export type RequestAuthContext = {
   bearerToken?: string;
 };
 
+export const IDENTRAIL_SCOPE_HEADERS = {
+  tenantID: 'X-Identrail-Tenant-ID',
+  workspaceID: 'X-Identrail-Workspace-ID'
+} as const;
+
+export type IdentrailScopeHeaders = {
+  [IDENTRAIL_SCOPE_HEADERS.tenantID]: string;
+  [IDENTRAIL_SCOPE_HEADERS.workspaceID]: string;
+};
+
 export type WorkspaceMemberRole = 'owner' | 'admin' | 'analyst' | 'viewer';
 export type WorkspaceMemberStatus = 'invited' | 'active' | 'suspended' | 'removed';
 
@@ -113,6 +123,26 @@ export type WorkspaceContextSnapshot = {
   workspace: WorkspaceRecord;
   member?: WorkspaceMemberRecord;
   is_active: boolean;
+};
+
+export type ProjectRecord = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  archived_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectUpsertRequest = {
+  project_id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  archived_at?: string | null;
 };
 
 export type WhoAmIResponse = {
@@ -173,6 +203,135 @@ export type FindingTriageRequest = {
   comment?: string;
 };
 
+export type ConnectorLifecycleStatus = 'pending' | 'active' | 'degraded' | 'disconnected';
+export type ConnectorHealthStatus = 'unknown' | 'healthy' | 'warning' | 'error';
+
+export type AWSConnectionPermissionCheck = {
+  name: string;
+  passed: boolean;
+  message: string;
+  remediation?: string;
+};
+
+export type AWSConnectionDiagnostic = {
+  code: string;
+  message: string;
+  remediation?: string;
+};
+
+export type AWSConnectionStatus = {
+  provider: 'aws';
+  connected: boolean;
+  connector_id?: string;
+  display_name?: string;
+  status: ConnectorLifecycleStatus;
+  health_status: ConnectorHealthStatus;
+  role_arn?: string;
+  external_id_configured: boolean;
+  account_id?: string;
+  principal_arn?: string;
+  user_id?: string;
+  region?: string;
+  permission_checks: AWSConnectionPermissionCheck[];
+  diagnostics: AWSConnectionDiagnostic[];
+  remediation_message?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_validated_at?: string;
+};
+
+export type AWSConnectionUpsertRequest = {
+  connector_id?: string;
+  display_name?: string;
+  role_arn: string;
+  external_id?: string;
+  region?: string;
+  session_name?: string;
+};
+
+export type KubernetesPermissionCheck = {
+  verb: string;
+  resource: string;
+  scope: string;
+  allowed: boolean;
+  diagnostic?: string;
+  remediation?: string;
+};
+
+export type KubernetesPreflightDiagnostic = {
+  code: string;
+  severity: 'warning' | 'error';
+  message: string;
+  remediation?: string;
+};
+
+export type KubernetesConnectionStatus = {
+  provider: 'kubernetes';
+  connected: boolean;
+  connector_id?: string;
+  display_name?: string;
+  status: ConnectorLifecycleStatus;
+  health_status: ConnectorHealthStatus;
+  context?: string;
+  cluster?: string;
+  server?: string;
+  git_version?: string;
+  platform?: string;
+  permission_checks: KubernetesPermissionCheck[];
+  diagnostics: KubernetesPreflightDiagnostic[];
+  remediation_message?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_validated_at?: string;
+};
+
+export type KubernetesConnectionUpsertRequest = {
+  connector_id?: string;
+  display_name?: string;
+  context?: string;
+};
+
+export type GitHubConnectionStartRequest = {
+  app_slug?: string;
+  redirect_uri?: string;
+};
+
+export type GitHubConnectionStartResponse = {
+  state: string;
+  connect_url: string;
+  expires_at: string;
+};
+
+export type GitHubConnectionCompleteRequest = {
+  state: string;
+  installation_id: number;
+  account_login?: string;
+  token_reference: string;
+  webhook_secret: string;
+  webhook_secret_reference: string;
+  selected_repositories?: string[];
+};
+
+export type GitHubConnectionStatus = {
+  provider: string;
+  connected: boolean;
+  account_login?: string;
+  installation_id?: number;
+  token_reference?: string;
+  webhook_secret_reference?: string;
+  webhook_secret_key_version?: string;
+  webhook_secret_algorithm?: string;
+  webhook_secret_rotated_at?: string;
+  webhook_secret_rotation_due_at?: string;
+  webhook_secret_rotation_required: boolean;
+  selected_repositories: string[];
+  created_at?: string;
+  updated_at?: string;
+  last_webhook_event_type?: string;
+  last_webhook_delivery_id?: string;
+  last_webhook_event_at?: string;
+};
+
 const viteEnv = ((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<string, unknown>;
 const isProd = viteEnv.PROD === true || viteEnv.PROD === 'true';
 const configuredURL = typeof viteEnv.VITE_IDENTRAIL_API_URL === 'string' ? viteEnv.VITE_IDENTRAIL_API_URL : undefined;
@@ -201,11 +360,11 @@ function buildRequestHeaders(auth?: RequestAuthContext): Record<string, string> 
   }
   const tenantID = trimOrUndefined(auth?.tenantID);
   if (tenantID) {
-    headers['X-Identrail-Tenant-ID'] = tenantID;
+    headers[IDENTRAIL_SCOPE_HEADERS.tenantID] = tenantID;
   }
   const workspaceID = trimOrUndefined(auth?.workspaceID);
   if (workspaceID) {
-    headers['X-Identrail-Workspace-ID'] = workspaceID;
+    headers[IDENTRAIL_SCOPE_HEADERS.workspaceID] = workspaceID;
   }
   const bearerToken = trimOrUndefined(auth?.bearerToken);
   if (bearerToken) {
@@ -252,7 +411,7 @@ async function request<T>(path: string, auth?: RequestAuthContext, init: Request
   return (await res.json()) as T;
 }
 
-function buildQuery(params: Record<string, string | number | undefined>): string {
+function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === '') return;
@@ -270,7 +429,7 @@ export const apiClient = {
     return request<{
       active_workspace: WorkspaceContextSnapshot;
       scope: { tenant_id: string; workspace_id: string };
-      scope_headers: { 'X-Identrail-Tenant-ID': string; 'X-Identrail-Workspace-ID': string };
+      scope_headers: IdentrailScopeHeaders;
     }>('/v1/workspaces/active', auth, {
       method: 'POST',
       body: JSON.stringify({ workspace_id: workspaceID })
@@ -289,6 +448,38 @@ export const apiClient = {
     return request<{ items: WorkspaceMemberRecord[] }>(
       `/v1/workspaces/${encodedWorkspaceID}/members${buildQuery(filters)}`,
       auth
+    );
+  },
+  listProjects(
+    workspaceID: string,
+    filters: {
+      limit?: number;
+      cursor?: string;
+      sort_by?: string;
+      sort_order?: 'asc' | 'desc';
+      include_archived?: boolean;
+    } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ items: ProjectRecord[]; next_cursor?: string }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects${buildQuery(filters)}`,
+      auth
+    );
+  },
+  getProject(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ project: ProjectRecord }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}`,
+      auth
+    );
+  },
+  upsertProject(workspaceID: string, payload: ProjectUpsertRequest, auth?: RequestAuthContext) {
+    return request<{ project: ProjectRecord }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
     );
   },
   upsertWorkspaceMember(
@@ -392,6 +583,84 @@ export const apiClient = {
         sort_order: 'desc'
       })}`,
       auth
+    );
+  },
+  getAWSProjectConnection(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: AWSConnectionStatus }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/connection`,
+      auth
+    );
+  },
+  upsertAWSProjectConnection(
+    workspaceID: string,
+    projectID: string,
+    payload: AWSConnectionUpsertRequest,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ connection: AWSConnectionStatus }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/connection`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  getKubernetesProjectConnection(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: KubernetesConnectionStatus }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/kubernetes/connection`,
+      auth
+    );
+  },
+  upsertKubernetesProjectConnection(
+    workspaceID: string,
+    projectID: string,
+    payload: KubernetesConnectionUpsertRequest,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ connection: KubernetesConnectionStatus }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/kubernetes/connection`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  getGitHubProjectConnection(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: GitHubConnectionStatus }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/github/connection`,
+      auth
+    );
+  },
+  startGitHubProjectConnection(
+    workspaceID: string,
+    projectID: string,
+    payload: GitHubConnectionStartRequest = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ connection: GitHubConnectionStartResponse }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/github/connect/start`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  completeGitHubProjectConnection(
+    workspaceID: string,
+    projectID: string,
+    payload: GitHubConnectionCompleteRequest,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ connection: GitHubConnectionStatus }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/github/connect/complete`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
     );
   },
   async submitLeadCapture(payload: LeadCapturePayload) {
