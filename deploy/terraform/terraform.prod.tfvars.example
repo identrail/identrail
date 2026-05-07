@@ -30,10 +30,14 @@ chart_values = {
     }
   }
   web = {
-    enabled = true
+    # The web bundle bakes VITE_IDENTRAIL_API_URL at build time (see deploy/docker/Dockerfile.web).
+    # For production, build/publish your own web image with:
+    #   VITE_IDENTRAIL_API_URL=https://api.example.com
+    # Then set enabled=true and update repository/tag below.
+    enabled = false
     image = {
-      repository = "ghcr.io/identrail/identrail-web"
-      tag        = "v1.0.0"
+      repository = "ghcr.io/your-org/identrail-web"
+      tag        = "replace-with-image-tag"
       pullPolicy = "IfNotPresent"
     }
   }
