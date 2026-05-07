@@ -31,8 +31,8 @@ The default Compose file is a local quickstart profile. Do not reuse its `sslmod
 
 Apply database migrations before starting API and worker services:
 
-- `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml run --rm migrations`
-- `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml up -d api worker web`
+- `docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml run --rm migrations`
+- `docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml up -d api worker web`
 
 
 - API health: `curl http://localhost:8080/healthz`
