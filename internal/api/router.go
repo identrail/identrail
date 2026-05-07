@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"errors"
@@ -1902,6 +1903,23 @@ func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
 		switch c.Request.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch:
 		default:
+			c.Next()
+			return
+		}
+		if c.Request.ContentLength < 0 {
+			limited := http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+			body, err := io.ReadAll(limited)
+			if err != nil {
+				var maxErr *http.MaxBytesError
+				if errors.As(err, &maxErr) {
+					c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+			c.Request.ContentLength = int64(len(body))
 			c.Next()
 			return
 		}

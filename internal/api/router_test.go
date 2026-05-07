@@ -1592,6 +1592,31 @@ func TestRouterRejectsOversizedJSONRequestBodyWithoutContentType(t *testing.T) {
 	}
 }
 
+func TestRouterRejectsOversizedChunkedJSONRequestBody(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"writer-key"},
+		WriteAPIKeys: []string{"writer-key"},
+	})
+
+	payload := bytes.Repeat([]byte("a"), int(defaultJSONBodyLimit)+1)
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "writer-key")
+	req.TransferEncoding = []string{"chunked"}
+	req.ContentLength = -1
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized chunked request to return 413, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestRouterRateLimitAppliesToUnauthorizedRequests(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
