@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/urlpolicy"
+	"github.com/identrail/identrail/internal/urlpolicy"
 )
 
 // AuditEvent captures one structured audit record for external export.

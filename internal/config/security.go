@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/identrail/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/urlpolicy"
 )
 
 const (
