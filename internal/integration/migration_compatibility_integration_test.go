@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/api"
+	"github.com/identrail/identrail/internal/db"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 

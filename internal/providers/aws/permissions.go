@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 // PolicyPermissionResolver expands normalized policy statements into permission tuples.
