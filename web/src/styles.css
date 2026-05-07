@@ -9149,9 +9149,7 @@ html[data-theme='light'] .idt-nav a.is-active,
 /* Homepage hero activity polish pass. */
 html[data-theme='light'] .idt-hero,
 .idt-hero {
-  background:
-    linear-gradient(90deg, #ffffff 0%, #ffffff 40%, rgba(255, 255, 255, 0) 40%),
-    linear-gradient(118deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0) 33%, #171d27 33%, #202633 69%, #151a22 100%);
+  background: #ffffff;
 }
 
 .idt-hero-grid {
@@ -9188,6 +9186,7 @@ html[data-theme='light'] .idt-hero,
 .idt-hero-product-stage {
   --idt-preview-phone-width: clamp(268px, 27%, 292px);
   --idt-preview-dashboard-left: clamp(14.75rem, 25%, 18rem);
+  --idt-preview-phone-left: clamp(8.6rem, 16.5vw, 12.9rem);
   min-height: 800px;
   margin-top: 0;
   overflow: hidden;
@@ -9196,19 +9195,17 @@ html[data-theme='light'] .idt-hero,
 
 .idt-hero-backdrop-panel {
   display: block;
-  inset: 0 -1.25rem 18px 0;
+  inset: 0 0 18px 0;
   overflow: hidden;
-  border-radius: 36px 36px 30px 104px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   background:
-    radial-gradient(circle at 20% 18%, rgba(135, 182, 255, 0.18), transparent 19%),
-    radial-gradient(circle at 80% 15%, rgba(198, 161, 255, 0.14), transparent 18%),
-    radial-gradient(circle at 67% 77%, rgba(85, 210, 175, 0.13), transparent 16%),
-    linear-gradient(148deg, #202733 0%, #151a22 50%, #1a2029 100%);
+    radial-gradient(circle at 22% 20%, rgba(99, 102, 241, 0.16), transparent 22%),
+    radial-gradient(circle at 70% 74%, rgba(16, 185, 129, 0.09), transparent 18%),
+    linear-gradient(145deg, #0b0d12 0%, #050506 52%, #090a0f 100%);
   box-shadow:
-    0 38px 90px rgba(9, 13, 20, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  clip-path: polygon(18% 0, 100% 0, 100% 100%, 0 100%, 0 28%);
+    0 38px 90px rgba(9, 13, 20, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .idt-hero-backdrop-panel::before,
@@ -9220,16 +9217,16 @@ html[data-theme='light'] .idt-hero,
 
 .idt-hero-backdrop-panel::before {
   background:
-    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.22) 0 2px, transparent 3px),
-    radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.12) 0 1.5px, transparent 2px),
-    radial-gradient(circle at 56% 26%, rgba(255, 255, 255, 0.16) 0 2px, transparent 3px),
-    radial-gradient(circle at 72% 54%, rgba(255, 255, 255, 0.16) 0 1.5px, transparent 2px),
-    radial-gradient(circle at 86% 22%, rgba(255, 255, 255, 0.22) 0 2px, transparent 3px),
-    radial-gradient(circle at 80% 78%, rgba(255, 255, 255, 0.16) 0 2px, transparent 3px),
-    linear-gradient(122deg, transparent 13%, rgba(255, 255, 255, 0.08) 13.3%, transparent 13.8%),
-    linear-gradient(101deg, transparent 41%, rgba(255, 255, 255, 0.06) 41.3%, transparent 41.8%),
-    linear-gradient(58deg, transparent 68%, rgba(255, 255, 255, 0.06) 68.2%, transparent 68.8%);
-  opacity: 0.55;
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.2) 0 2px, transparent 3px),
+    radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.1) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 56% 26%, rgba(255, 255, 255, 0.14) 0 2px, transparent 3px),
+    radial-gradient(circle at 72% 54%, rgba(255, 255, 255, 0.12) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 86% 22%, rgba(255, 255, 255, 0.18) 0 2px, transparent 3px),
+    radial-gradient(circle at 80% 78%, rgba(255, 255, 255, 0.12) 0 2px, transparent 3px),
+    linear-gradient(122deg, transparent 13%, rgba(255, 255, 255, 0.06) 13.3%, transparent 13.8%),
+    linear-gradient(101deg, transparent 41%, rgba(255, 255, 255, 0.045) 41.3%, transparent 41.8%),
+    linear-gradient(58deg, transparent 68%, rgba(255, 255, 255, 0.045) 68.2%, transparent 68.8%);
+  opacity: 0.5;
 }
 
 .idt-hero-backdrop-panel::after {
@@ -9559,8 +9556,8 @@ html[data-theme='light'] .idt-hero,
 }
 
 .idt-hero-login-card {
-  top: 238px;
-  left: clamp(0.8rem, 2.1vw, 1.55rem);
+  top: 286px;
+  left: var(--idt-preview-phone-left);
   width: var(--idt-preview-phone-width);
   min-height: 0;
   padding: 0.86rem;
@@ -9872,12 +9869,12 @@ html[data-theme='light'] .idt-trust-strip,
   .idt-hero-product-stage {
     --idt-preview-phone-width: clamp(276px, 28%, 310px);
     --idt-preview-dashboard-left: clamp(18rem, 31%, 22rem);
+    --idt-preview-phone-left: clamp(8.6rem, 17vw, 12.6rem);
     min-height: 860px;
   }
 
   .idt-hero-backdrop-panel {
-    inset: 12px 0 12px 0;
-    clip-path: none;
+    inset: 12px 0;
     border-radius: 34px;
   }
 
@@ -9889,8 +9886,8 @@ html[data-theme='light'] .idt-trust-strip,
   }
 
   .idt-hero-login-card {
-    left: clamp(1.25rem, 5vw, 3rem);
-    top: 226px;
+    left: var(--idt-preview-phone-left);
+    top: 278px;
   }
 }
 
