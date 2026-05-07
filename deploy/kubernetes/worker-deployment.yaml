@@ -16,8 +16,13 @@ spec:
       labels:
         app: identrail-worker
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
           image: ghcr.io/identrail/identrail-worker:v1.0.0
@@ -40,6 +45,9 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             capabilities:
               drop:
                 - ALL

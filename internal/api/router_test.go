@@ -1237,6 +1237,83 @@ func TestRouterScopedAuthorizationPrefersScopeMap(t *testing.T) {
 	}
 }
 
+func TestRouterScopedAuthorizationRejectsUnboundScopedKey(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"other-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	req.Header.Set("X-API-Key", "reader-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unbound scoped key to be rejected, got %d", w.Code)
+	}
+}
+
+func TestAPIKeyAuthMiddlewareEnforcesScopeBindings(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(apiKeyAuthMiddleware(
+		[]string{"reader-key"},
+		map[string][]string{"reader-key": {"read"}},
+		map[string]db.Scope{"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"}},
+		nil,
+		nil,
+		nil,
+	))
+	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
+	r.GET("/scope", func(c *gin.Context) {
+		scope := db.ScopeFromContext(c.Request.Context())
+		c.JSON(http.StatusOK, map[string]string{
+			"tenant_id":    scope.TenantID,
+			"workspace_id": scope.WorkspaceID,
+		})
+	})
+
+	noHeaderReq := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	noHeaderReq.Header.Set("X-API-Key", "reader-key")
+	noHeaderW := httptest.NewRecorder()
+	r.ServeHTTP(noHeaderW, noHeaderReq)
+	if noHeaderW.Code != http.StatusOK {
+		t.Fatalf("expected bound key to work without explicit headers, got %d", noHeaderW.Code)
+	}
+	var noHeaderBody map[string]string
+	if err := json.Unmarshal(noHeaderW.Body.Bytes(), &noHeaderBody); err != nil {
+		t.Fatalf("decode no-header scope response: %v", err)
+	}
+	if noHeaderBody["tenant_id"] != "tenant-a" || noHeaderBody["workspace_id"] != "workspace-a" {
+		t.Fatalf("expected bound scope tenant-a/workspace-a, got %+v", noHeaderBody)
+	}
+
+	matchReq := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	matchReq.Header.Set("X-API-Key", "reader-key")
+	matchReq.Header.Set(scopeHeaderTenantID, "tenant-a")
+	matchReq.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	matchW := httptest.NewRecorder()
+	r.ServeHTTP(matchW, matchReq)
+	if matchW.Code != http.StatusOK {
+		t.Fatalf("expected matching scoped headers to pass, got %d", matchW.Code)
+	}
+
+	mismatchReq := httptest.NewRequest(http.MethodGet, "/scope", nil)
+	mismatchReq.Header.Set("X-API-Key", "reader-key")
+	mismatchReq.Header.Set(scopeHeaderTenantID, "tenant-b")
+	mismatchReq.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	mismatchW := httptest.NewRecorder()
+	r.ServeHTTP(mismatchW, mismatchReq)
+	if mismatchW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected mismatched scoped headers to be rejected, got %d", mismatchW.Code)
+	}
+}
+
 func TestRouterOIDCOnlyAuthentication(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

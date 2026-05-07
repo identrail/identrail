@@ -31,5 +31,6 @@ Notes:
 - Default manifest profile is production-oriented and fails fast on fixture collectors (`IDENTRAIL_REQUIRE_LIVE_SOURCES=true`).
 - Keep `IDENTRAIL_AWS_SOURCE=sdk` for production AWS runs.
 - For Kubernetes provider runs, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
+- The default manifests disable service account token automounting. If Kubernetes provider mode needs in-cluster API credentials, explicitly enable token mounting for that workload and bind a least-privilege service account.
 - For upgrade-safe deployment at scale, prefer Helm (`deploy/helm/identrail`).
 - Update the API, worker, and migration manifests to the same release tag or digest before applying them in production; avoid mutable `latest` tags.

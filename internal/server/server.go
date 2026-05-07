@@ -125,6 +125,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		APIKeys:              cfg.APIKeys,
 		WriteAPIKeys:         cfg.WriteAPIKeys,
 		APIKeyScopes:         cfg.APIKeyScopes,
+		APIKeyScopeBindings:  cfg.APIKeyScopeBindings,
 		OIDCTokenVerifier:    tokenVerifier,
 		OIDCWriteScopes:      cfg.OIDCWriteScopes,
 		RateLimitRPM:         cfg.RateLimitRPM,

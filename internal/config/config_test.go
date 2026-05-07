@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/identrail/identrail/internal/db"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -29,6 +31,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_API_KEYS", "")
 	t.Setenv("IDENTRAIL_WRITE_API_KEYS", "")
 	t.Setenv("IDENTRAIL_API_KEY_SCOPES", "")
+	t.Setenv("IDENTRAIL_API_KEY_SCOPE_BINDINGS", "")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "")
@@ -316,6 +319,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_API_KEYS", "key1,key2")
 	t.Setenv("IDENTRAIL_WRITE_API_KEYS", "key2")
 	t.Setenv("IDENTRAIL_API_KEY_SCOPES", "key1:read;key2:read,write")
+	t.Setenv("IDENTRAIL_API_KEY_SCOPE_BINDINGS", "key1:tenant-a/workspace-a;key2:tenant-b/workspace-b")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "300")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "50")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "false")
@@ -433,6 +437,15 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if len(cfg.APIKeyScopes) != 2 || cfg.APIKeyScopes["key1"][0] != "read" || len(cfg.APIKeyScopes["key2"]) != 2 {
 		t.Fatalf("unexpected key scopes: %+v", cfg.APIKeyScopes)
+	}
+	if len(cfg.APIKeyScopeBindings) != 2 {
+		t.Fatalf("unexpected key scope bindings: %+v", cfg.APIKeyScopeBindings)
+	}
+	if cfg.APIKeyScopeBindings["key1"] != (db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}) {
+		t.Fatalf("unexpected key1 scope binding: %+v", cfg.APIKeyScopeBindings["key1"])
+	}
+	if cfg.APIKeyScopeBindings["key2"] != (db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}) {
+		t.Fatalf("unexpected key2 scope binding: %+v", cfg.APIKeyScopeBindings["key2"])
 	}
 	if cfg.RateLimitRPM != 300 || cfg.RateLimitBurst != 50 {
 		t.Fatalf("unexpected rate limit settings: rpm=%d burst=%d", cfg.RateLimitRPM, cfg.RateLimitBurst)
@@ -766,6 +779,39 @@ func TestParseKeyScopesRejectsMalformedEntries(t *testing.T) {
 		t.Run(test, func(t *testing.T) {
 			if _, parseErr := parseKeyScopes(test); parseErr == "" {
 				t.Fatal("expected malformed scoped keys to be rejected")
+			}
+		})
+	}
+}
+
+func TestParseKeyScopeBindings(t *testing.T) {
+	bindings, parseErr := parseKeyScopeBindings("key1:tenant-a/workspace-a;key2:tenant-b/workspace-b")
+	if parseErr != "" {
+		t.Fatalf("expected valid scoped key bindings, got %q", parseErr)
+	}
+	if len(bindings) != 2 {
+		t.Fatalf("expected 2 key scope bindings, got %d", len(bindings))
+	}
+	if bindings["key1"] != (db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}) {
+		t.Fatalf("unexpected key1 binding: %+v", bindings["key1"])
+	}
+	if bindings["key2"] != (db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}) {
+		t.Fatalf("unexpected key2 binding: %+v", bindings["key2"])
+	}
+}
+
+func TestParseKeyScopeBindingsRejectsMalformedEntries(t *testing.T) {
+	tests := []string{
+		"key1:tenant-a/workspace-a;key1:tenant-a/workspace-b",
+		"empty-tenant:/workspace-c",
+		"empty-workspace:tenant-d/",
+		"invalid",
+		":missing",
+	}
+	for _, test := range tests {
+		t.Run(test, func(t *testing.T) {
+			if _, parseErr := parseKeyScopeBindings(test); parseErr == "" {
+				t.Fatal("expected malformed scoped key bindings to be rejected")
 			}
 		})
 	}

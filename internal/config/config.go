@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/identrail/identrail/internal/db"
 )
 
 const (
@@ -82,7 +84,9 @@ type Config struct {
 	APIKeys                     []string
 	WriteAPIKeys                []string
 	APIKeyScopes                map[string][]string
+	APIKeyScopeBindings         map[string]db.Scope
 	apiKeyScopesError           string
+	apiKeyScopeBindingsError    string
 	RateLimitRPM                int
 	RateLimitBurst              int
 	RunMigrations               bool
@@ -170,6 +174,10 @@ func Load() Config {
 	if apiKeyScopesError != "" {
 		parseErrors = append(parseErrors, "invalid IDENTRAIL_API_KEY_SCOPES: "+apiKeyScopesError)
 	}
+	apiKeyScopeBindings, apiKeyScopeBindingsError := parseKeyScopeBindings(getEnv("IDENTRAIL_API_KEY_SCOPE_BINDINGS", ""))
+	if apiKeyScopeBindingsError != "" {
+		parseErrors = append(parseErrors, "invalid IDENTRAIL_API_KEY_SCOPE_BINDINGS: "+apiKeyScopeBindingsError)
+	}
 
 	return Config{
 		HTTPAddr:                    getEnv("IDENTRAIL_HTTP_ADDR", defaultHTTPAddr),
@@ -196,6 +204,8 @@ func Load() Config {
 		APIKeys:                     parseCommaSeparated(getEnv("IDENTRAIL_API_KEYS", "")),
 		WriteAPIKeys:                parseCommaSeparated(getEnv("IDENTRAIL_WRITE_API_KEYS", "")),
 		APIKeyScopes:                apiKeyScopes,
+		APIKeyScopeBindings:         apiKeyScopeBindings,
+		apiKeyScopeBindingsError:    apiKeyScopeBindingsError,
 		apiKeyScopesError:           apiKeyScopesError,
 		RateLimitRPM:                parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
 		RateLimitBurst:              parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
@@ -372,6 +382,42 @@ func parseKeyScopes(value string) (map[string][]string, string) {
 			return result, "entry " + strconv.Itoa(index+1) + " duplicates a key"
 		}
 		result[key] = scopes
+	}
+	return result, ""
+}
+
+func parseKeyScopeBindings(value string) (map[string]db.Scope, string) {
+	result := map[string]db.Scope{}
+	for index, entry := range strings.Split(value, ";") {
+		trimmed := strings.TrimSpace(entry)
+		if trimmed == "" {
+			continue
+		}
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) != 2 {
+			return result, "entry " + strconv.Itoa(index+1) + " must use key:tenant-id/workspace-id format"
+		}
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			return result, "entry " + strconv.Itoa(index+1) + " has an empty key"
+		}
+		if _, exists := result[key]; exists {
+			return result, "entry " + strconv.Itoa(index+1) + " duplicates a key"
+		}
+		scopeParts := strings.SplitN(strings.TrimSpace(parts[1]), "/", 2)
+		if len(scopeParts) != 2 {
+			return result, "entry " + strconv.Itoa(index+1) + " must use tenant-id/workspace-id format"
+		}
+		tenantID := strings.TrimSpace(scopeParts[0])
+		workspaceID := strings.TrimSpace(scopeParts[1])
+		if tenantID == "" || workspaceID == "" {
+			return result, "entry " + strconv.Itoa(index+1) + " must include non-empty tenant and workspace"
+		}
+		scope := db.Scope{
+			TenantID:    tenantID,
+			WorkspaceID: workspaceID,
+		}.Normalize()
+		result[key] = scope
 	}
 	return result, ""
 }

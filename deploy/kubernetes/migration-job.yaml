@@ -14,8 +14,13 @@ spec:
         app: identrail-migrations
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: migrations
           image: ghcr.io/identrail/identrail-api:v1.0.0
@@ -40,6 +45,9 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             capabilities:
               drop:
                 - ALL
