@@ -192,6 +192,19 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
   });
 
+  it('allows manual login when OIDC is not configured even if manual sessions default off', async () => {
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    window.history.pushState({}, '', '/app/login');
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Tenant ID/i), { target: { value: 'tenant-a' } });
+    fireEvent.change(screen.getByLabelText(/Workspace ID/i), { target: { value: 'workspace-a' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue to app/i }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+  });
+
   it('routes overview onboarding into the real project selection flow', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
@@ -205,7 +218,7 @@ describe('App', () => {
     expect(selectProjectLink).toHaveAttribute('href', '/app/tenant-a/workspace-a/projects');
   });
 
-  it('falls back to manual login when OIDC is not configured and manual sessions are disabled', async () => {
+  it('keeps persisted manual sessions when OIDC is not configured and manual sessions are disabled', async () => {
     vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
     window.sessionStorage.setItem(
       'identrail-product-session',
@@ -219,9 +232,9 @@ describe('App', () => {
     window.history.pushState({}, '', '/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/Tenant ID/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Continue to app/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
   });
 
   it('removes untrusted next path when rejecting manual sessions under OIDC', async () => {

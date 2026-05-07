@@ -960,7 +960,8 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (activeSession.authMode === 'manual' && !isManualSessionEntryEnabled()) {
+        const manualSessionAllowed = isManualSessionEntryEnabled() || !isOIDCEnabled();
+        if (activeSession.authMode === 'manual' && !manualSessionAllowed) {
           clearProductSession();
           setReason('manual_auth_disabled');
           setAuthenticated(false);
