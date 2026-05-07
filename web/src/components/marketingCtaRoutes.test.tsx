@@ -61,7 +61,6 @@ describe('marketing CTA routing', () => {
     expect(siteLinks.signIn).toBe('/app/login');
     expect(screen.getByRole('link', { name: 'Login' })).toHaveAttribute('href', siteLinks.signIn);
     expect(screen.getByRole('link', { name: 'Sign up' })).toHaveAttribute('href', siteLinks.app);
-    expect(screen.getByRole('link', { name: 'Star Identrail on GitHub' })).toHaveAttribute('href', siteLinks.github);
-    expect(screen.queryByLabelText(/Loading GitHub star count/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Book Demo' })).toHaveAttribute('href', siteLinks.requestDemo);
   });
 });
