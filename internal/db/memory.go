@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 // MemoryStore is a concurrency-safe in-memory persistence adapter.
@@ -445,6 +445,9 @@ func (m *MemoryStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, e
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -460,7 +463,7 @@ func (m *MemoryStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, e
 	sort.Slice(records, func(i, j int) bool {
 		return records[i].StartedAt.After(records[j].StartedAt)
 	})
-	if limit > 0 && len(records) > limit {
+	if len(records) > limit {
 		records = records[:limit]
 	}
 	return records, nil
@@ -471,6 +474,9 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -486,7 +492,7 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
-	if limit > 0 && len(result) > limit {
+	if len(result) > limit {
 		result = result[:limit]
 	}
 	return result, nil
@@ -497,6 +503,9 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -516,7 +525,7 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
-	if limit > 0 && len(result) > limit {
+	if len(result) > limit {
 		result = result[:limit]
 	}
 	return result, nil
