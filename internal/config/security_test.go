@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
+	"github.com/identrail/identrail/internal/db"
 )
 
 func TestValidateSecurityRejectsNoAPIKeys(t *testing.T) {
