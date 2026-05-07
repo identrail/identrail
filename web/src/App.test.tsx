@@ -223,7 +223,7 @@ describe('App', () => {
     expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
   });
 
-  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
+  it('routes overview onboarding into the real project selection flow', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
       workspaceID: 'workspace-a'
