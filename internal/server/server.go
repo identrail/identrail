@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/runtime"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/api"
+	"github.com/identrail/identrail/internal/audit"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/runtime"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -122,20 +122,21 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 	}
 
 	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
-		APIKeys:             cfg.APIKeys,
-		WriteAPIKeys:        cfg.WriteAPIKeys,
-		APIKeyScopes:        cfg.APIKeyScopes,
-		APIKeyScopeBindings: cfg.APIKeyScopeBindings,
-		OIDCTokenVerifier:   tokenVerifier,
-		OIDCWriteScopes:     cfg.OIDCWriteScopes,
-		RateLimitRPM:        cfg.RateLimitRPM,
-		RateLimitBurst:      cfg.RateLimitBurst,
-		AuditSink:           auditSink,
-		AuditFingerprinter:  auditFingerprinter,
-		TrustedProxies:      cfg.TrustedProxies,
-		CORSAllowedOrigins:  cfg.CORSAllowedOrigins,
-		DefaultTenantID:     cfg.DefaultTenantID,
-		DefaultWorkspaceID:  cfg.DefaultWorkspaceID,
+		APIKeys:              cfg.APIKeys,
+		WriteAPIKeys:         cfg.WriteAPIKeys,
+		APIKeyScopes:         cfg.APIKeyScopes,
+		APIKeyScopeBindings:  cfg.APIKeyScopeBindings,
+		OIDCTokenVerifier:    tokenVerifier,
+		OIDCWriteScopes:      cfg.OIDCWriteScopes,
+		RateLimitRPM:         cfg.RateLimitRPM,
+		RateLimitBurst:       cfg.RateLimitBurst,
+		AuditSink:            auditSink,
+		AuditFingerprinter:   auditFingerprinter,
+		TrustedProxies:       cfg.TrustedProxies,
+		CORSAllowedOrigins:   cfg.CORSAllowedOrigins,
+		DefaultTenantID:      cfg.DefaultTenantID,
+		DefaultWorkspaceID:   cfg.DefaultWorkspaceID,
+		RequireExplicitScope: cfg.RequireExplicitScope,
 	})
 	return Bootstrap{
 		Logger:        logger,
