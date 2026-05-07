@@ -417,8 +417,8 @@ func TestMemoryStoreScanQueueLifecycle(t *testing.T) {
 	if claimed.ID != queued.ID || claimed.Status != "running" {
 		t.Fatalf("unexpected claimed scan %+v", claimed)
 	}
-	if _, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws"); err == nil {
-		t.Fatal("expected no queued scan remaining")
+	if _, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound when queue is empty, got %v", err)
 	}
 }
 

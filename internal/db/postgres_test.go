@@ -708,6 +708,11 @@ func TestPostgresStoreScanQueueLifecycle(t *testing.T) {
 		t.Fatalf("expected running status after claim, got %q", claimed.Status)
 	}
 
+	mock.ExpectQuery("WITH next_scan AS").WithArgs("default", "default", "aws").WillReturnError(sql.ErrNoRows)
+	if _, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound when queue is empty, got %v", err)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
