@@ -75,6 +75,16 @@ func (s *recordingAuditSink) Write(_ context.Context, event audit.AuditEvent) er
 
 func (*recordingAuditSink) Close() error { return nil }
 
+func countAuditEventsByKind(events []audit.AuditEvent, kind string) int {
+	count := 0
+	for _, event := range events {
+		if event.Kind == kind {
+			count++
+		}
+	}
+	return count
+}
+
 func TestRouterHealthz(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
@@ -2150,6 +2160,47 @@ func TestRouterWritesAuditSinkForAuthenticationFailure(t *testing.T) {
 	}
 	if event.APIKeyID == "bad-key" {
 		t.Fatal("expected fingerprint instead of raw api key in auth failure event")
+	}
+}
+
+func TestRouterWritesAuditSinkForScopedAPIKeyBindingAuthenticationFailure(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink: sink,
+		APIKeyScopes: map[string][]string{
+			"reader-key":  {scopeRead},
+			"unbound-key": {scopeRead},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	})
+
+	mismatchReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	mismatchReq.Header.Set("X-API-Key", "reader-key")
+	mismatchReq.Header.Set(scopeHeaderTenantID, "tenant-b")
+	mismatchReq.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	mismatchW := httptest.NewRecorder()
+	r.ServeHTTP(mismatchW, mismatchReq)
+	if mismatchW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected scoped mismatch request to be unauthorized, got %d", mismatchW.Code)
+	}
+
+	unboundReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	unboundReq.Header.Set("X-API-Key", "unbound-key")
+	unboundW := httptest.NewRecorder()
+	r.ServeHTTP(unboundW, unboundReq)
+	if unboundW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unbound scoped key request to be unauthorized, got %d", unboundW.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	authFailureCount := countAuditEventsByKind(sink.events, "api_auth_failure")
+	if authFailureCount < 2 {
+		t.Fatalf("expected at least two auth failure audit events for scoped key failures, got %d events: %+v", authFailureCount, sink.events)
 	}
 }
 

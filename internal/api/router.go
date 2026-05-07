@@ -2084,10 +2084,12 @@ func apiKeyAuthMiddleware(
 			if config, ok := scopedKeyLookup(scopedAllowed, candidate); ok {
 				if binding, hasBinding := scopedKeyBindingLookup(normalizedScopedBindings, candidate); hasBinding {
 					if !applyScopedKeyBinding(c, binding, config.TenantID, config.WorkspaceID) {
+						recordAuthenticationFailure(c, sink, fingerprinter, logger)
 						c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 						return
 					}
 				} else if len(normalizedScopedBindings) > 0 {
+					recordAuthenticationFailure(c, sink, fingerprinter, logger)
 					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 					return
 				} else if config.TenantID != "" || config.WorkspaceID != "" {
@@ -2100,6 +2102,7 @@ func apiKeyAuthMiddleware(
 						"",
 						"",
 					) {
+						recordAuthenticationFailure(c, sink, fingerprinter, logger)
 						c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 						return
 					}
