@@ -161,6 +161,24 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsWorkspaceMemberStatusDefault(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"WorkspaceMemberUpsertRequest:",
+		"required: [member_id, user_id, role]",
+		"default: invited",
+		"Defaults to `invited` when omitted.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+	if strings.Contains(spec, "required: [member_id, user_id, role, status]") {
+		t.Fatalf("openapi spec should not require workspace member status in the request body")
+	}
+}
+
 func TestOpenAPIV1SpecDocumentsRouteAuthorizationMetadata(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	for _, route := range defaultBuiltInRoutePolicyDefinitions() {

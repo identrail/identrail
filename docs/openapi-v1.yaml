@@ -1963,7 +1963,7 @@ components:
           format: date-time
     WorkspaceMemberUpsertRequest:
       type: object
-      required: [member_id, user_id, role, status]
+      required: [member_id, user_id, role]
       properties:
         member_id: { type: string }
         user_id: { type: string }
@@ -1971,7 +1971,10 @@ components:
         role:
           $ref: "#/components/schemas/WorkspaceMemberRole"
         status:
-          $ref: "#/components/schemas/WorkspaceMemberStatus"
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceMemberStatus"
+          default: invited
+          description: Defaults to `invited` when omitted.
     Project:
       type: object
       properties:
