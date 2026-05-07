@@ -44,5 +44,7 @@ chart_values = {
     IDENTRAIL_LOCK_NAMESPACE         = "identrail-prod"
     IDENTRAIL_CORS_ALLOWED_ORIGINS   = "https://app.example.com"
     IDENTRAIL_POSTGRES_RLS_ENFORCED  = "true"
+    # Fail fast if the external secret does not provide stable connector secret keys.
+    IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED = "true"
   }
 }
