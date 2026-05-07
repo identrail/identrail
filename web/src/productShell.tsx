@@ -997,8 +997,15 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   }
 
   if (!authenticated) {
-    const next = `${location.pathname}${location.search}`;
-    const redirect = `/app/login?next=${encodeURIComponent(next)}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`;
+    const preserveNextPath = reason !== 'manual_auth_disabled';
+    const query = new URLSearchParams();
+    if (preserveNextPath) {
+      query.set('next', `${location.pathname}${location.search}`);
+    }
+    if (reason) {
+      query.set('reason', reason);
+    }
+    const redirect = query.size > 0 ? `/app/login?${query.toString()}` : '/app/login';
     return <Navigate to={redirect} replace />;
   }
 
@@ -1012,7 +1019,7 @@ export function ProductLoginPage() {
   const nextPath = normalizeValue(query.get('next') ?? '');
   const existing = useMemo(() => readProductSession(), []);
   const oidcEnabled = isOIDCEnabled();
-  const manualEntryEnabled = isManualSessionEntryEnabled();
+  const manualEntryEnabled = isManualSessionEntryEnabled() || !oidcEnabled;
 
   const [tenantID, setTenantID] = useState(existing?.tenantID ?? 'default');
   const [workspaceID, setWorkspaceID] = useState(existing?.workspaceID ?? 'default');

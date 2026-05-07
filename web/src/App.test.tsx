@@ -205,7 +205,7 @@ describe('App', () => {
     expect(selectProjectLink).toHaveAttribute('href', '/app/tenant-a/workspace-a/projects');
   });
 
-  it('rejects persisted manual workspace sessions in production builds', async () => {
+  it('falls back to manual login when OIDC is not configured and manual sessions are disabled', async () => {
     vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
     window.sessionStorage.setItem(
       'identrail-product-session',
@@ -220,6 +220,32 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Tenant ID/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Continue to app/i })).toBeInTheDocument();
+  });
+
+  it('removes untrusted next path when rejecting manual sessions under OIDC', async () => {
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'manual'
+      })
+    );
+
+    window.history.pushState({}, '', '/app/tenant-a/workspace-a?tab=risky');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    const query = new URLSearchParams(window.location.search);
+    expect(query.get('reason')).toBe('manual_auth_disabled');
+    expect(query.has('next')).toBe(false);
+    expect(screen.getByRole('button', { name: /Continue with Keycloak/i })).toBeInTheDocument();
     expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
   });
 
