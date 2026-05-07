@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/app"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/repoexposure"
+	"github.com/identrail/identrail/internal/scheduler"
 )
 
 type fakeScanner struct {
@@ -49,6 +49,50 @@ func (f *fakeRepoExecutor) ScanRepository(_ context.Context, target string) (rep
 		return repoexposure.ScanResult{}, f.err
 	}
 	return f.result, nil
+}
+
+type completionContextStore struct {
+	*db.MemoryStore
+	lastScanCompletionCtxErr     error
+	lastRepoScanCompletionCtxErr error
+}
+
+func (s *completionContextStore) CompleteScan(
+	ctx context.Context,
+	scanID string,
+	status string,
+	finishedAt time.Time,
+	assetCount int,
+	findingCount int,
+	errorMessage string,
+) error {
+	s.lastScanCompletionCtxErr = ctx.Err()
+	return s.MemoryStore.CompleteScan(ctx, scanID, status, finishedAt, assetCount, findingCount, errorMessage)
+}
+
+func (s *completionContextStore) CompleteRepoScan(
+	ctx context.Context,
+	repoScanID string,
+	status string,
+	finishedAt time.Time,
+	commitsScanned int,
+	filesScanned int,
+	findingCount int,
+	truncated bool,
+	errorMessage string,
+) error {
+	s.lastRepoScanCompletionCtxErr = ctx.Err()
+	return s.MemoryStore.CompleteRepoScan(
+		ctx,
+		repoScanID,
+		status,
+		finishedAt,
+		commitsScanned,
+		filesScanned,
+		findingCount,
+		truncated,
+		errorMessage,
+	)
 }
 
 func TestServiceCheckReadiness(t *testing.T) {
@@ -89,7 +133,7 @@ func TestServiceRunScanSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run scan failed: %v", err)
 	}
-	if result.Scan.Status != "completed" || result.FindingCount != 1 {
+	if result.Scan.Status != "succeeded" || result.FindingCount != 1 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
@@ -152,7 +196,7 @@ func TestServiceRunScanUsesPersistedAWSConnector(t *testing.T) {
 	if !factoryCalled {
 		t.Fatal("expected scan to use persisted aws connector scanner factory")
 	}
-	if result.Scan.Status != "completed" || result.Assets != 1 {
+	if result.Scan.Status != "succeeded" || result.Assets != 1 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
@@ -175,6 +219,63 @@ func TestServiceRunScanFailure(t *testing.T) {
 	}
 	if len(scans) != 1 || scans[0].Status != "failed" {
 		t.Fatalf("expected failed scan record, got %+v", scans)
+	}
+}
+
+func TestServiceRunScanFailureUsesFreshContextForTerminalWrite(t *testing.T) {
+	store := &completionContextStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{err: context.Canceled}, "aws")
+
+	canceledCtx, cancel := context.WithCancel(defaultScopeContext())
+	cancel()
+
+	if _, err := svc.RunScan(canceledCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if store.lastScanCompletionCtxErr != nil {
+		t.Fatalf("expected terminal scan completion to use non-canceled context, got %v", store.lastScanCompletionCtxErr)
+	}
+	scans, err := store.ListScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
+	}
+	if len(scans) != 1 || scans[0].Status != "failed" {
+		t.Fatalf("expected failed scan record, got %+v", scans)
+	}
+}
+
+func TestServiceRunScanSuccessUsesFreshContextForTerminalWrite(t *testing.T) {
+	store := &completionContextStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{result: app.ScanResult{
+		Assets: 3,
+		Findings: []domain.Finding{{
+			ID:           "finding-success",
+			Type:         domain.FindingRiskyTrustPolicy,
+			Severity:     domain.SeverityLow,
+			Title:        "No issue",
+			HumanSummary: "summary",
+		}},
+	}}, "aws")
+
+	canceledCtx, cancel := context.WithCancel(defaultScopeContext())
+	cancel()
+
+	result, err := svc.RunScan(canceledCtx)
+	if err != nil {
+		t.Fatalf("run scan failed: %v", err)
+	}
+	if result.Scan.Status != "succeeded" {
+		t.Fatalf("expected succeeded scan status, got %q", result.Scan.Status)
+	}
+	scans, err := store.ListScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
+	}
+	if len(scans) != 1 || scans[0].Status != "succeeded" {
+		t.Fatalf("expected succeeded scan record, got %+v", scans)
+	}
+	if store.lastScanCompletionCtxErr != nil {
+		t.Fatalf("expected terminal scan completion to use non-canceled context, got %v", store.lastScanCompletionCtxErr)
 	}
 }
 
@@ -266,8 +367,8 @@ func TestServiceRunScanAlertFailureIsNonBlocking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected scan success despite alert error, got %v", err)
 	}
-	if result.Scan.Status != "completed" {
-		t.Fatalf("expected completed status, got %q", result.Scan.Status)
+	if result.Scan.Status != "succeeded" {
+		t.Fatalf("expected succeeded status, got %q", result.Scan.Status)
 	}
 	if errorCalls != 1 {
 		t.Fatalf("expected alert error callback once, got %d", errorCalls)
@@ -663,8 +764,8 @@ func TestServiceRunScanPartialLifecycleEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run scan: %v", err)
 	}
-	if result.Scan.Status != "completed" {
-		t.Fatalf("expected completed scan status, got %q", result.Scan.Status)
+	if result.Scan.Status != "succeeded" {
+		t.Fatalf("expected succeeded scan status, got %q", result.Scan.Status)
 	}
 
 	events, err := svc.ListScanEvents(defaultScopeContext(), result.Scan.ID, 50)
@@ -1003,7 +1104,7 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run repo scan persisted: %v", err)
 	}
-	if run.RepoScan.ID == "" || run.RepoScan.Status != "completed" || run.RepoScan.FindingCount != 1 {
+	if run.RepoScan.ID == "" || run.RepoScan.Status != "succeeded" || run.RepoScan.FindingCount != 1 {
 		t.Fatalf("unexpected repo scan run result: %+v", run)
 	}
 
@@ -1223,6 +1324,32 @@ func TestServiceRunRepoScanPersistedScannerError(t *testing.T) {
 	}
 }
 
+func TestServiceRunRepoScanPersistedFailureUsesFreshContextForTerminalWrite(t *testing.T) {
+	store := &completionContextStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return &fakeRepoExecutor{err: context.Canceled}
+	}
+
+	canceledCtx, cancel := context.WithCancel(defaultScopeContext())
+	cancel()
+
+	if _, err := svc.RunRepoScanPersisted(canceledCtx, RepoScanRequest{Repository: "owner/repo"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if store.lastRepoScanCompletionCtxErr != nil {
+		t.Fatalf("expected terminal repo completion to use non-canceled context, got %v", store.lastRepoScanCompletionCtxErr)
+	}
+	repoScans, err := svc.ListRepoScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(repoScans) != 1 || repoScans[0].Status != "failed" {
+		t.Fatalf("expected failed repo scan record, got %+v", repoScans)
+	}
+}
+
 func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 20, 8, 0, 0, 0, time.UTC)
@@ -1250,7 +1377,7 @@ func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get scan: %v", err)
 	}
-	if scan.Status != "completed" || scan.FindingCount != 1 {
+	if scan.Status != "succeeded" || scan.FindingCount != 1 {
 		t.Fatalf("unexpected processed scan record: %+v", scan)
 	}
 	processed, err = svc.ProcessNextQueuedScan(defaultScopeContext())
@@ -1311,8 +1438,8 @@ func TestServiceQueuedScanBurstProcessing(t *testing.T) {
 		t.Fatalf("expected %d persisted scans, got %d", queued, len(scans))
 	}
 	for _, scan := range scans {
-		if scan.Status != "completed" {
-			t.Fatalf("expected completed scan status, got %q", scan.Status)
+		if scan.Status != "succeeded" {
+			t.Fatalf("expected succeeded scan status, got %q", scan.Status)
 		}
 	}
 }
@@ -1357,7 +1484,7 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get repo scan: %v", err)
 	}
-	if stored.Status != "completed" || stored.CommitsScanned != 25 {
+	if stored.Status != "succeeded" || stored.CommitsScanned != 25 {
 		t.Fatalf("unexpected processed repo scan record: %+v", stored)
 	}
 }
@@ -1483,7 +1610,7 @@ func TestServiceProcessQueuedRepoScanContinuesToNextTargetAfterRequeue(t *testin
 	if err != nil {
 		t.Fatalf("get repo-b scan: %v", err)
 	}
-	if repoBRecord.Status != "completed" {
+	if repoBRecord.Status != "succeeded" {
 		t.Fatalf("expected repo-b to complete, got %q", repoBRecord.Status)
 	}
 }
@@ -1511,6 +1638,39 @@ func TestServiceRunRepoScanRejectsLocalRepositoryTarget(t *testing.T) {
 
 	if _, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{Repository: repo}); !errors.Is(err, ErrRepoTargetNotAllowed) {
 		t.Fatalf("expected local repo target rejection, got %v", err)
+	}
+}
+
+func TestServiceRunRepoScanRejectsCredentialBearingRepositoryURL(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"*"}
+
+	_, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{
+		Repository: "https://token@example.com/org/repo.git",
+	})
+	if err == nil || !errors.Is(err, ErrInvalidRepoScanRequest) || err.Error() != "repository target must not include credentials in URL userinfo" {
+		t.Fatalf("expected invalid repo scan request for credential-bearing url, got %v", err)
+	}
+}
+
+func TestServiceRepoTargetContainsURLCredentials(t *testing.T) {
+	testCases := []struct {
+		target   string
+		expected bool
+	}{
+		{target: "https://token@example.com/org/repo.git", expected: true},
+		{target: "ssh://git@example.com/owner/repo.git", expected: false},
+		{target: "ssh://git:password@example.com/owner/repo.git", expected: true},
+		{target: "git@github.com:owner/repo.git", expected: false},
+		{target: "ssh://@example.com/owner/repo.git", expected: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.target, func(t *testing.T) {
+			if got, want := repoTargetContainsURLCredentials(tc.target), tc.expected; got != want {
+				t.Fatalf("expected %v for %q, got %v", want, tc.target, got)
+			}
+		})
 	}
 }
 
