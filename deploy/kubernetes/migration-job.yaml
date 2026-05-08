@@ -17,6 +17,8 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: migrations
           image: ghcr.io/identrail/identrail-api:v1.0.0
