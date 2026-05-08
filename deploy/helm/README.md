@@ -11,7 +11,7 @@ This chart is the Kubernetes deployment baseline for Identrail.
 1. Copy default values:
    - `cp deploy/helm/identrail/values.yaml /tmp/identrail-values.yaml`
 2. Create the runtime secret referenced by default (`identrail-secrets`):
-   - `READ_KEY=$(openssl rand -hex 24); WRITE_KEY=$(openssl rand -hex 24); DB_PASSWORD=$(openssl rand -hex 24); kubectl -n identrail create secret generic identrail-secrets --from-literal=IDENTRAIL_API_KEYS="${READ_KEY},${WRITE_KEY}" --from-literal=IDENTRAIL_WRITE_API_KEYS="${WRITE_KEY}" --from-literal=IDENTRAIL_DATABASE_URL="postgres://identrail:${DB_PASSWORD}@postgres:5432/identrail?sslmode=require"`
+   - `READ_KEY=$(openssl rand -hex 24); WRITE_KEY=$(openssl rand -hex 24); DB_PASSWORD=$(openssl rand -hex 24); CONNECTOR_KEY=$(openssl rand -base64 32); kubectl -n identrail create secret generic identrail-secrets --from-literal=IDENTRAIL_API_KEYS="${READ_KEY},${WRITE_KEY}" --from-literal=IDENTRAIL_WRITE_API_KEYS="${WRITE_KEY}" --from-literal=IDENTRAIL_DATABASE_URL="postgres://identrail:${DB_PASSWORD}@postgres:5432/identrail?sslmode=require" --from-literal=IDENTRAIL_CONNECTOR_SECRET_KEYS="v1:${CONNECTOR_KEY}"`
 3. (Optional) If you want Helm to create the secret instead, set `secret.create=true` and provide `secret.data`.
 4. Install or upgrade:
    - `helm upgrade --install identrail deploy/helm/identrail -n identrail --create-namespace -f /tmp/identrail-values.yaml`
@@ -34,3 +34,4 @@ This chart is the Kubernetes deployment baseline for Identrail.
 - Enable web deployment by setting `web.enabled=true`.
 - Enable ingress by setting `ingress.enabled=true`.
 - `IDENTRAIL_AUDIT_LOG_FILE` is empty by default. If you enable it, mount a writable path for the container user.
+- `IDENTRAIL_CONNECTOR_SECRET_KEYS` should be set for durable connector credential storage. If omitted, connector secret envelopes use an ephemeral in-memory key suitable only for local/test runs.
