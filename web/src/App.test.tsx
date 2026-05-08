@@ -68,7 +68,9 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: /Book Demo/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { level: 2, name: /From connector setup to board-ready risk evidence/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: /From connector setup to evidence-ready remediation/i })
+    ).toBeInTheDocument();
   });
 
   it('renders pricing page routes and key elements', () => {

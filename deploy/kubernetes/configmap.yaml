@@ -47,6 +47,7 @@ data:
   IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST: ""
   IDENTRAIL_SCAN_QUEUE_MAX_PENDING: "25"
   IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING: "100"
+  IDENTRAIL_CORS_ALLOWED_ORIGINS: "https://app.example.com"
   IDENTRAIL_TRUSTED_PROXIES: ""
   # Replace these bootstrap IDs with your tenant/workspace before production rollout.
   IDENTRAIL_DEFAULT_TENANT_ID: "tenant-bootstrap"
