@@ -161,31 +161,6 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
-func TestOpenAPIV1SpecDocumentsGitHubInstallationIDFallback(t *testing.T) {
-	spec := readOpenAPISpec(t)
-	required := []string{
-		"githubInstallationID:",
-		"name: X-GitHub-Installation-ID",
-		"Optional installation ID fallback when the completion request body omits `installation_id`.",
-		"May be supplied via the `X-GitHub-Installation-ID` header instead of the JSON body.",
-	}
-	for _, item := range required {
-		if !strings.Contains(spec, item) {
-			t.Fatalf("openapi spec missing %q", item)
-		}
-	}
-
-	completeBlock := pathBlock(t, spec, "/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete")
-	if !strings.Contains(completeBlock, `#/components/parameters/githubInstallationID`) {
-		t.Fatalf("openapi path %q missing GitHub installation header parameter", "/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete")
-	}
-
-	schemaBlock := schemaBlock(t, spec, "GitHubConnectionCompleteRequest")
-	if strings.Contains(schemaBlock, "- installation_id") {
-		t.Fatalf("openapi schema %q should not require installation_id in the request body", "GitHubConnectionCompleteRequest")
-	}
-}
-
 func TestOpenAPIV1SpecDocumentsRepresentativeErrorResponses(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	requiredResponses := []string{
@@ -388,27 +363,6 @@ func pathBlock(t *testing.T, spec string, path string) string {
 	return spec[start:end]
 }
 
-func schemaBlock(t *testing.T, spec string, name string) string {
-	t.Helper()
-	start := strings.Index(spec, "\n    "+name+":")
-	if start >= 0 {
-		start++
-	} else {
-		prefix := "    " + name + ":"
-		if strings.HasPrefix(spec, prefix) {
-			start = 0
-		} else {
-			t.Fatalf("openapi schema block not found for %q", name)
-		}
-	}
-
-	end := len(spec)
-	if nextSchema := strings.Index(spec[start+1:], "\n    "); nextSchema >= 0 {
-		end = start + 1 + nextSchema
-	}
-	return spec[start:end]
-}
-
 func operationBlock(t *testing.T, spec string, path string, method string) string {
 	t.Helper()
 	pathContent := pathBlock(t, spec, path)
@@ -440,6 +394,52 @@ func operationBlock(t *testing.T, spec string, path string, method string) strin
 	}
 
 	return pathContent[start:end]
+}
+
+func TestOpenAPIV1SpecDocumentsGitHubInstallationIDFallback(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"githubInstallationID:",
+		"name: X-GitHub-Installation-ID",
+		"Optional installation ID fallback when the completion request body omits `installation_id`.",
+		"May be supplied via the `X-GitHub-Installation-ID` header instead of the JSON body.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	completeBlock := pathBlock(t, spec, "/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete")
+	if !strings.Contains(completeBlock, `#/components/parameters/githubInstallationID`) {
+		t.Fatalf("openapi path %q missing GitHub installation header parameter", "/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete")
+	}
+
+	schemaBlock := schemaBlock(t, spec, "GitHubConnectionCompleteRequest")
+	if strings.Contains(schemaBlock, "- installation_id") {
+		t.Fatalf("openapi schema %q should not require installation_id in the request body", "GitHubConnectionCompleteRequest")
+	}
+}
+
+func schemaBlock(t *testing.T, spec string, name string) string {
+	t.Helper()
+	start := strings.Index(spec, "\n    "+name+":")
+	if start >= 0 {
+		start++
+	} else {
+		prefix := "    " + name + ":"
+		if strings.HasPrefix(spec, prefix) {
+			start = 0
+		} else {
+			t.Fatalf("openapi schema block not found for %q", name)
+		}
+	}
+
+	end := len(spec)
+	if nextSchema := strings.Index(spec[start+1:], "\n    "); nextSchema >= 0 {
+		end = start + 1 + nextSchema
+	}
+	return spec[start:end]
 }
 
 func uniqueStrings(values []string) []string {
