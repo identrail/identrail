@@ -9285,6 +9285,12 @@ html[data-theme='light'] .idt-hero,
   transform: translateX(clamp(-3.75rem, calc(1.75rem - 4.5vw), -1.8rem));
 }
 
+@media (min-width: 1440px) {
+  .idt-hero-product-stage {
+    transform: translateX(clamp(-7.5rem, calc(4rem - 9vw), -4.75rem));
+  }
+}
+
 .idt-hero-backdrop-panel {
   display: block;
   inset: 0;
