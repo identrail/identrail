@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/server"
+	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/server"
 )
 
 var serverRun = server.Run
