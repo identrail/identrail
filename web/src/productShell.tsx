@@ -1212,6 +1212,13 @@ function resolveScopeFromParams(params: ScopeRouteParams): ProductSession | null
   return { tenantID, workspaceID, projectID };
 }
 
+function getScopeKey(scope: ProductSession | null): string {
+  if (!scope) {
+    return '';
+  }
+  return `${scope.tenantID}:${scope.workspaceID}`;
+}
+
 export function ProductShellLayout() {
   const params = useParams<ScopeRouteParams>();
   const navigate = useNavigate();
@@ -1413,12 +1420,19 @@ export function ProductWorkspacesPage() {
   const [savingMemberID, setSavingMemberID] = useState('');
   const [removingMemberID, setRemovingMemberID] = useState('');
   const membersRequestRef = useRef(0);
+  const membersScopeRef = useRef(getScopeKey(scope));
+  const scopeKey = getScopeKey(scope);
+  if (scopeKey !== membersScopeRef.current) {
+    membersScopeRef.current = scopeKey;
+    membersRequestRef.current += 1;
+  }
 
   const refreshMembers = async (targetScope: ProductSession) => {
     const requestID = ++membersRequestRef.current;
+    const targetScopeKey = getScopeKey(targetScope);
     const auth = buildProductAuthContext(targetScope);
     const response = await apiClient.listWorkspaceMembers(targetScope.workspaceID, {}, auth);
-    if (requestID !== membersRequestRef.current) {
+    if (requestID !== membersRequestRef.current || targetScopeKey !== membersScopeRef.current) {
       return;
     }
     setMembers(response.items);
@@ -1429,12 +1443,6 @@ export function ProductWorkspacesPage() {
       }, {})
     );
   };
-
-  useEffect(() => {
-    return () => {
-      membersRequestRef.current += 1;
-    };
-  }, [scope?.tenantID, scope?.workspaceID]);
 
   useEffect(() => {
     if (!scope) {
@@ -1472,6 +1480,7 @@ export function ProductWorkspacesPage() {
     void run();
     return () => {
       mounted = false;
+      membersRequestRef.current += 1;
     };
   }, [scope?.tenantID, scope?.workspaceID]);
 
