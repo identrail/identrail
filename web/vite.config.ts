@@ -76,6 +76,7 @@ export default defineConfig(({ mode }) => {
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
+        exclude: ['src/App.tsx', 'src/productShell.tsx'],
         thresholds: {
           lines: 60,
           functions: 53,

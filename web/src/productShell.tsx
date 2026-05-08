@@ -1446,10 +1446,15 @@ export function ProductWorkspacesPage() {
 
   const [savingMemberID, setSavingMemberID] = useState('');
   const [removingMemberID, setRemovingMemberID] = useState('');
+  const membersRequestRef = useRef(0);
 
   const refreshMembers = async (targetScope: ProductSession) => {
+    const requestID = ++membersRequestRef.current;
     const auth = buildProductAuthContext(targetScope);
     const response = await apiClient.listWorkspaceMembers(targetScope.workspaceID, {}, auth);
+    if (requestID !== membersRequestRef.current) {
+      return;
+    }
     setMembers(response.items);
     setMemberDrafts(
       response.items.reduce<MemberDraftState>((acc, member) => {
@@ -1458,6 +1463,12 @@ export function ProductWorkspacesPage() {
       }, {})
     );
   };
+
+  useEffect(() => {
+    return () => {
+      membersRequestRef.current += 1;
+    };
+  }, [scope?.tenantID, scope?.workspaceID]);
 
   useEffect(() => {
     if (!scope) {
