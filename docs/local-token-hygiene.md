@@ -35,4 +35,8 @@ This repository ships an optional pre-push hook:
 - script: `scripts/check-local-token-hygiene.sh`
 - hook id: `local-token-hygiene` in `.pre-commit-config.yaml`
 
-When enabled via pre-commit, pushes are blocked if `.env.local` contains a JWT-shaped `VERCEL_OIDC_TOKEN`.
+When enabled via pre-commit, pushes are blocked if local env files contain JWT-shaped
+tokens, GitHub tokens, private keys, or credential-bearing Postgres URLs.
+
+The guard checks root, Docker, web, and legacy site env files and reports only the
+affected file path and token type.
