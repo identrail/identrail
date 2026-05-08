@@ -1,7 +1,8 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { HeroOpenSourceProofPills } from './components/home/HeroOpenSourceProofPills';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { CommandCenterSection } from './components/home/CommandCenterSection';
 import { ProblemFramingSection } from './components/home/ProblemFramingSection';
@@ -52,35 +53,11 @@ const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 const THEME_STORAGE_KEY = 'identrail-theme';
 let activeModalLocks = 0;
 let bodyOverflowBeforeModal = '';
-type ThemeMode = 'dark' | 'light';
-
-function resolveInitialTheme(): ThemeMode {
-  if (typeof window === 'undefined') {
-    return 'dark';
-  }
-
-  let stored: string | null = null;
-  try {
-    stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  } catch {
-    stored = null;
-  }
-  if (stored === 'dark' || stored === 'light') {
-    return stored;
-  }
-
-  if (typeof window.matchMedia === 'function') {
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  }
-
-  return 'dark';
-}
 
 const NAV_LINKS = [
   { to: '/product', label: 'Product' },
-  { to: '/solutions', label: 'Solutions' },
-  { to: '/demo', label: 'Demo' },
   { to: '/docs', label: 'Docs' },
+  { to: '/about', label: 'Company' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/blog', label: 'Blog' }
 ] as const;
@@ -113,29 +90,72 @@ const DIFFERENTIATION_ROWS = [
 const PRODUCT_TOUR_STEPS = [
   {
     step: '01',
-    title: 'Connect read-only signals',
-    detail: 'Add AWS IAM, Kubernetes, GitHub, and OIDC sources without granting write access.',
-    proof: 'Least-privilege connector scope'
+    title: 'Connect read-only sources',
+    detail: 'Validate AWS IAM, Kubernetes, GitHub Actions, and OIDC claims without write permissions.',
+    proof: 'Connector scope',
+    active: true
   },
   {
     step: '02',
-    title: 'Rank reachable risk paths',
-    detail: 'See which identities can reach production resources and why the path matters.',
-    proof: 'Blast-radius queue'
+    title: 'Trace reachable risk paths',
+    detail: 'Show the identity, workload, role, and resource in one chain with severity context.',
+    proof: 'Reachable path',
+    active: false
   },
   {
     step: '03',
     title: 'Simulate the first safe fix',
-    detail: 'Preview trust-policy and RBAC changes before enforcement to avoid workload breakage.',
-    proof: 'Policy simulation'
+    detail: 'Preview trust-policy and RBAC edits before anything touches production.',
+    proof: 'Policy simulation',
+    active: false
   },
   {
     step: '04',
     title: 'Export the evidence packet',
-    detail: 'Package source evidence, owner notes, timeline, and residual risk for review.',
-    proof: 'Audit-ready report'
+    detail: 'Package the source proof, owner note, policy diff, and residual risk for review.',
+    proof: 'Evidence packet',
+    active: false
   }
 ] as const;
+
+const PRODUCT_TOUR_CONNECTORS = [
+  {
+    name: 'AWS IAM',
+    status: 'Read-only',
+    icon: '/brand-logos/aws.svg'
+  },
+  {
+    name: 'Kubernetes',
+    status: 'Namespace scope',
+    icon: '/brand-logos/kubernetes.svg'
+  },
+  {
+    name: 'GitHub/OIDC',
+    status: 'Claims only',
+    icon: '/brand-logos/github.svg'
+  }
+] as const;
+
+const PRODUCT_TOUR_PATH = [
+  {
+    label: 'Identity',
+    value: 'GitHub Actions OIDC'
+  },
+  {
+    label: 'Privilege',
+    value: 'AWS IAM role: billing-prod'
+  },
+  {
+    label: 'Workload',
+    value: 'payments-api namespace'
+  },
+  {
+    label: 'Resource',
+    value: 'PostgreSQL billing ledger'
+  }
+] as const;
+
+const PRODUCT_TOUR_PACKET = ['Source proof', 'Policy diff', 'Affected workload', 'Owner timeline'] as const;
 
 const FEATURE_ROWS = [
   {
@@ -208,16 +228,16 @@ const INTEGRATION_ROWS = [
     status: 'GA'
   },
   {
-    source: 'OIDC Federation',
+    source: 'OpenID Connect',
     signals: 'Provider trust boundaries and subject claim controls',
     depth: 'Focused',
     status: 'GA'
   },
   {
-    source: 'Multi-cloud adapters',
-    signals: 'Extended identity graph edges and normalized trust metadata',
-    depth: 'Roadmap',
-    status: 'Beta'
+    source: 'Prometheus',
+    signals: 'Operational metrics for scans, workers, and authz policy telemetry',
+    depth: 'Focused',
+    status: 'GA'
   }
 ] as const;
 
@@ -523,6 +543,256 @@ function SectionTitle({
       {eyebrow ? <p className="idt-eyebrow">{eyebrow}</p> : null}
       <h2>{title}</h2>
       {body ? <p>{body}</p> : null}
+    </div>
+  );
+}
+
+type PageHeroVariant = 'product' | 'pricing' | 'docs' | 'blog' | 'about' | 'enterprise';
+
+function PageHero({
+  eyebrow,
+  title,
+  body,
+  actions,
+  visual,
+  variant
+}: {
+  eyebrow: string;
+  title: string;
+  body?: ReactNode;
+  actions?: ReactNode;
+  visual: ReactNode;
+  variant: PageHeroVariant;
+}) {
+  return (
+    <section className={`idt-page-hero idt-page-hero-rich idt-shell is-${variant}`}>
+      <div className="idt-page-hero-copy">
+        <p className="idt-eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        {body ? <p>{body}</p> : null}
+        {actions ? <div className="idt-inline-actions">{actions}</div> : null}
+      </div>
+      <div className="idt-page-hero-visual" aria-hidden="true">
+        {visual}
+      </div>
+    </section>
+  );
+}
+
+function ProductHeroVisual() {
+  return (
+    <div className="idt-product-hero-visual">
+      <div className="idt-product-hero-window">
+        <div className="idt-visual-window-bar">
+          <span />
+          <span />
+          <span />
+          <strong>Trust graph</strong>
+        </div>
+        <div className="idt-product-hero-body">
+          <div className="idt-product-hero-sidebar">
+            <span className="is-active">Paths</span>
+            <span>Evidence</span>
+            <span>Fixes</span>
+          </div>
+          <div className="idt-product-hero-graph">
+            <svg viewBox="0 0 440 290" aria-hidden="true" focusable="false">
+              <path className="is-muted" d="M58 74 C150 30 196 102 256 82 S350 48 396 94" />
+              <path className="is-risk" d="M84 94 C172 124 224 148 244 198 S304 246 366 226" />
+              <path className="is-safe" d="M78 200 C150 164 194 230 268 190" />
+            </svg>
+            <div className="idt-graph-pill is-github">
+              <strong>GitHub OIDC</strong>
+              <span>Verified</span>
+            </div>
+            <div className="idt-graph-pill is-aws">
+              <strong>AWS Role</strong>
+              <span>High risk</span>
+            </div>
+            <div className="idt-graph-pill is-k8s">
+              <strong>K8s service account</strong>
+              <span>Namespace bridge</span>
+            </div>
+            <div className="idt-graph-pill is-data">
+              <strong>Billing datastore</strong>
+              <span>Critical target</span>
+            </div>
+            <aside className="idt-product-evidence-card">
+              <span>Evidence packet</span>
+              <strong>OIDC wildcard can reach production data</strong>
+              <p>JWT claims, trust policy, API call proof</p>
+            </aside>
+          </div>
+        </div>
+      </div>
+      <div className="idt-product-hero-queue">
+        <span>Live queue</span>
+        <strong>37 risky paths</strong>
+        <p>12 have owner-ready fixes</p>
+      </div>
+    </div>
+  );
+}
+
+function PricingHeroVisual() {
+  const plans = [
+    ['OSS', '$0', 'Self-hosted'],
+    ['Pro', '$59', 'Hosted trial'],
+    ['Enterprise', '$50k+', 'Private tenancy']
+  ] as const;
+
+  return (
+    <div className="idt-pricing-hero-visual">
+      <div className="idt-pricing-hero-toggle">
+        <span>Monthly</span>
+        <strong>Annual - save 25%</strong>
+      </div>
+      <div className="idt-pricing-hero-plans">
+        {plans.map(([name, price, note]) => (
+          <div key={name} className={name === 'Pro' ? 'is-featured' : ''}>
+            <span>{name}</span>
+            <strong>{price}</strong>
+            <p>{note}</p>
+          </div>
+        ))}
+      </div>
+      <div className="idt-pricing-hero-matrix">
+        <span>Capability</span>
+        <span>OSS</span>
+        <span>Pro</span>
+        <span>Ent</span>
+        <strong>Trust graph</strong>
+        <b>Yes</b>
+        <b>Yes</b>
+        <b>Yes</b>
+        <strong>SSO / SCIM</strong>
+        <b>-</b>
+        <b>SSO</b>
+        <b>Full</b>
+        <strong>Support SLA</strong>
+        <b>-</b>
+        <b>Biz</b>
+        <b>24/7</b>
+      </div>
+      <div className="idt-pricing-hero-procurement">
+        <strong>Procurement ready</strong>
+        <span>SOC 2 roadmap</span>
+        <span>Security review</span>
+        <span>Data residency</span>
+      </div>
+    </div>
+  );
+}
+
+function DocsHeroVisual() {
+  return (
+    <div className="idt-docs-hero-visual">
+      <div className="idt-docs-search-preview">
+        <span>Search docs topics</span>
+        <strong>kubernetes connector hardening</strong>
+      </div>
+      <div className="idt-docs-preview-shell">
+        <nav>
+          <span className="is-active">Quickstart</span>
+          <span>Connectors</span>
+          <span>Architecture</span>
+          <span>Operations</span>
+        </nav>
+        <article>
+          <p>Runbook</p>
+          <h3>Deploy read-only source collection</h3>
+          <ul>
+            <li>Validate connector scope</li>
+            <li>Import trust-path evidence</li>
+            <li>Review first risk queue</li>
+          </ul>
+          <code>identrail scan --source kubernetes --read-only</code>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+function BlogHeroVisual() {
+  const [featured, ...secondary] = BLOG_POSTS.slice(0, 3);
+
+  return (
+    <div className="idt-blog-hero-visual">
+      {featured ? (
+        <article className="idt-blog-hero-featured">
+          <span>{featured.category}</span>
+          <h3>{featured.title}</h3>
+          <p>{featured.readTime}</p>
+        </article>
+      ) : null}
+      <div className="idt-blog-hero-stack">
+        {secondary.map((post) => (
+          <article key={post.slug}>
+            <span>{post.category}</span>
+            <strong>{post.title}</strong>
+            <p>{post.readTime}</p>
+          </article>
+        ))}
+      </div>
+      <div className="idt-blog-hero-radar">
+        <span>Editorial focus</span>
+        <strong>Attack paths</strong>
+        <strong>Open core</strong>
+        <strong>Cloud identity</strong>
+      </div>
+    </div>
+  );
+}
+
+function AboutHeroVisual() {
+  return (
+    <div className="idt-about-hero-visual">
+      <div className="idt-about-orbit">
+        <span className="is-core">Identrail</span>
+        <span className="is-one">Open core</span>
+        <span className="is-two">Evidence</span>
+        <span className="is-three">Operators</span>
+      </div>
+      <ol className="idt-about-timeline">
+        <li>
+          <span>01</span>
+          <strong>Make risk visible</strong>
+        </li>
+        <li>
+          <span>02</span>
+          <strong>Keep control transparent</strong>
+        </li>
+        <li>
+          <span>03</span>
+          <strong>Help teams ship safer fixes</strong>
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+function EnterpriseHeroVisual() {
+  return (
+    <div className="idt-enterprise-hero-visual">
+      <div className="idt-enterprise-form-preview">
+        <span>Enterprise intake</span>
+        <label>
+          Environment scope
+          <strong>Multi-cloud, 12 clusters, 340 repos</strong>
+        </label>
+        <label>
+          Buying motion
+          <strong>Security review + private tenancy</strong>
+        </label>
+        <span className="idt-enterprise-form-action">Generate rollout blueprint</span>
+      </div>
+      <div className="idt-enterprise-blueprint">
+        <span>Deployment blueprint</span>
+        <p>Private tenancy</p>
+        <p>SAML + SCIM</p>
+        <p>Regional data boundary</p>
+        <p>Named TAM + SLA</p>
+      </div>
     </div>
   );
 }
@@ -1251,19 +1521,24 @@ function ProductTourSection() {
     <section className="idt-section idt-shell idt-product-tour" aria-labelledby="product-tour-title">
       <div className="idt-product-tour-copy">
         <p className="idt-eyebrow">Product tour</p>
-        <h2 id="product-tour-title">From connector setup to board-ready risk evidence.</h2>
+        <h2 id="product-tour-title">From connector setup to evidence-ready remediation.</h2>
         <p>
-          A tighter product story: connect safely, find reachable risk, simulate remediation, and export proof without
-          repeating the same trust-graph promise section after section.
+          Connect read-only sources, trace the path to sensitive resources, test the safest fix, and hand owners one
+          evidence packet they can act on.
         </p>
       </div>
 
       <div className="idt-product-tour-shell" aria-label="Identrail product workflow preview">
         <div className="idt-tour-rail">
           {PRODUCT_TOUR_STEPS.map((item) => (
-            <article key={item.step} className="idt-tour-step">
-              <span>{item.step}</span>
+            <article
+              key={item.step}
+              aria-current={item.active ? 'step' : undefined}
+              className={`idt-tour-step${item.active ? ' is-active' : ''}`}
+            >
+              <span className="idt-tour-step-index">{item.step}</span>
               <div>
+                <small>{item.proof}</small>
                 <h3>{item.title}</h3>
                 <p>{item.detail}</p>
               </div>
@@ -1273,23 +1548,74 @@ function ProductTourSection() {
 
         <div className="idt-tour-screen">
           <div className="idt-tour-screen-head">
-            <div>
-              <p>Live trust path investigation</p>
-              <h3>Reachable Risk Paths</h3>
+            <div className="idt-tour-window-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
             </div>
-            <span>4 evidence artifacts</span>
+            <div>
+              <p>Production workspace</p>
+              <h3>Owner-ready risk path</h3>
+            </div>
+            <span>Evidence ready</span>
           </div>
-          <div className="idt-tour-finding-grid">
-            {PRODUCT_TOUR_STEPS.map((item) => (
-              <article key={item.proof}>
-                <small>{item.proof}</small>
-                <strong>{item.title}</strong>
-              </article>
-            ))}
-          </div>
-          <div className="idt-tour-report">
-            <p>Export packet</p>
-            <strong>Source evidence, policy diff, affected workloads, owner timeline, residual risk</strong>
+
+          <div className="idt-tour-product-preview">
+            <aside className="idt-tour-connector-scope" aria-label="Read-only connector scope">
+              <p>Connector scope</p>
+              {PRODUCT_TOUR_CONNECTORS.map((connector) => (
+                <article key={connector.name}>
+                  <img src={connector.icon} alt="" aria-hidden="true" loading="lazy" />
+                  <div>
+                    <strong>{connector.name}</strong>
+                    <span>{connector.status}</span>
+                  </div>
+                </article>
+              ))}
+            </aside>
+
+            <div className="idt-tour-path-panel">
+              <div className="idt-tour-path-head">
+                <div>
+                  <p>Reachable path</p>
+                  <h4>GitHub workflow can reach billing data through AWS role trust.</h4>
+                </div>
+                <span>High</span>
+              </div>
+
+              <div className="idt-tour-path-chain" aria-label="Machine identity path">
+                {PRODUCT_TOUR_PATH.map((node) => (
+                  <article key={node.label}>
+                    <small>{node.label}</small>
+                    <strong>{node.value}</strong>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="idt-tour-simulation">
+              <div>
+                <p>Safe fix simulation</p>
+                <strong>Restrict subject claim and namespace tags</strong>
+              </div>
+              <code>
+                <span className="is-remove">- sub = "*"</span>
+                <span className="is-add">+ sub = "repo:payments-api:prod"</span>
+                <span className="is-add">+ namespace = "payments-api"</span>
+              </code>
+            </div>
+
+            <div className="idt-tour-evidence-packet">
+              <div>
+                <p>Evidence packet</p>
+                <strong>Ready for owner review</strong>
+              </div>
+              <ul aria-label="Evidence packet contents">
+                {PRODUCT_TOUR_PACKET.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -1387,18 +1713,18 @@ function HomePage() {
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
             <p className="idt-eyebrow">Machine identity trust graph</p>
-            <h1>The control room for every machine identity path.</h1>
-            <p className="idt-lead">
-              Identrail maps how AWS IAM roles, Kubernetes service accounts, GitHub workflows, and OIDC claims reach
-              sensitive resources, then turns the evidence into safe, owner-ready remediation.
+            <h1>
+              Every machine identity path, clear to <span>you</span>.
+            </h1>
+            <p className="idt-lead idt-lead-body">
+              Identrail traces how AWS IAM roles, Kubernetes service accounts, GitHub Actions, and OIDC claims can reach
+              sensitive resources, then packages the proof and safest first fix for the owner.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
               </a>
-              <Link to="/demo" className="idt-btn idt-btn-dark">
-                Book Demo
-              </Link>
+              <HeroOpenSourceProofPills />
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
               <div>
@@ -1699,13 +2025,23 @@ function ProductPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Product</p>
-        <h1>One platform for machine identity visibility, detection, and control</h1>
-        <p>
-          Identrail unifies IAM graph discovery, repository exposure scanning, and rollout-safe authorization workflows into one operator-grade platform.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Product"
+        title="One platform for machine identity visibility, detection, and control"
+        body="Identrail unifies IAM graph discovery, repository exposure scanning, and rollout-safe authorization workflows into one operator-grade platform."
+        variant="product"
+        visual={<ProductHeroVisual />}
+        actions={
+          <>
+            <Link to="/demo" className="idt-btn idt-btn-primary">
+              Explore Product Demo
+            </Link>
+            <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
+              Start Free Risk Scan
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-product-capabilities">
@@ -2053,11 +2389,23 @@ function PricingPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Pricing</p>
-        <h1>Pricing aligned to how teams adopt machine identity security</h1>
-        <p>Start with open source, move to hosted Pro for speed, then scale to enterprise controls when needed.</p>
-      </section>
+      <PageHero
+        eyebrow="Pricing"
+        title="Pricing aligned to how teams adopt machine identity security"
+        body="Start with open source, move to hosted Pro for speed, then scale to enterprise controls when needed."
+        variant="pricing"
+        visual={<PricingHeroVisual />}
+        actions={
+          <>
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+              Start Free Risk Scan
+            </Link>
+            <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
+              Talk to Enterprise
+            </button>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-pricing-toggle" role="group" aria-label="Pricing cadence">
@@ -2345,7 +2693,7 @@ function IntegrationsPage() {
   useSeo({
     title: 'Integrations | Machine Identity Signal Coverage',
     description:
-      'Review Identrail integration coverage across AWS IAM, Kubernetes, GitHub, and OIDC trust paths with depth and signal details.',
+      'Review Identrail integration coverage across AWS IAM, Kubernetes, GitHub, OpenID Connect, and Prometheus with depth and signal details.',
     path: '/integrations'
   });
 
@@ -2499,14 +2847,18 @@ function DocsPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Docs</p>
-        <h1>Deploy, connect, and operate Identrail in production</h1>
-        <p>Fast search, practical runbooks, and source-linked operator docs for production rollouts.</p>
-        <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-primary">
-          Open Full GitHub Docs
-        </SafeLink>
-      </section>
+      <PageHero
+        eyebrow="Docs"
+        title="Deploy, connect, and operate Identrail in production"
+        body="Fast search, practical runbooks, and source-linked operator docs for production rollouts."
+        variant="docs"
+        visual={<DocsHeroVisual />}
+        actions={
+          <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-primary">
+            Open Full GitHub Docs
+          </SafeLink>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid three-col">
@@ -2577,11 +2929,18 @@ function BlogPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Blog & Resources</p>
-        <h1>Actionable content for security and platform teams operating machine identities</h1>
-        <p>Educational deep dives, implementation playbooks, and strategic guidance for enterprise buyers.</p>
-      </section>
+      <PageHero
+        eyebrow="Blog & Resources"
+        title="Actionable content for security and platform teams operating machine identities"
+        body="Educational deep dives, implementation playbooks, and strategic guidance for enterprise buyers."
+        variant="blog"
+        visual={<BlogHeroVisual />}
+        actions={
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+            Start Free Risk Scan
+          </Link>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-blog-grid">
@@ -2836,13 +3195,23 @@ function AboutPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Company</p>
-        <h1>Building the future control plane for machine identity security</h1>
-        <p>
-          Identrail exists to make machine identity risk understandable, operable, and controllable for every engineering-driven organization.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Company"
+        title="Building the future control plane for machine identity security"
+        body="Identrail exists to make machine identity risk understandable, operable, and controllable for every engineering-driven organization."
+        variant="about"
+        visual={<AboutHeroVisual />}
+        actions={
+          <>
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-primary">
+              View Open Source
+            </SafeLink>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Partner with Us
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-about-grid">
@@ -2878,13 +3247,23 @@ function EnterprisePage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Enterprise</p>
-        <h1>Enterprise machine identity programs that satisfy security, platform, and procurement stakeholders</h1>
-        <p>
-          Standard deal range: $50k-$500k+ ACV with tailored rollout plans, architecture support, and compliance alignment.
-        </p>
-      </section>
+      <PageHero
+        eyebrow="Enterprise"
+        title="Enterprise machine identity programs that satisfy security, platform, and procurement stakeholders"
+        body="Standard deal range: $50k-$500k+ ACV with tailored rollout plans, architecture support, and compliance alignment."
+        variant="enterprise"
+        visual={<EnterpriseHeroVisual />}
+        actions={
+          <>
+            <Link to="/demo" className="idt-btn idt-btn-primary">
+              Book Demo
+            </Link>
+            <Link to="/security" className="idt-btn idt-btn-dark">
+              Review Security
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-enterprise-grid">
@@ -2953,17 +3332,16 @@ function NotFoundPage() {
 export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
-  const [theme, setTheme] = useState<ThemeMode>(resolveInitialTheme);
   const isProductShellRoute = location.pathname.startsWith('/app');
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.theme = 'light';
     try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+      window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
     } catch {
       // Ignore storage write failures (blocked/disabled storage).
     }
-  }, [theme]);
+  }, []);
 
   return (
     <div className="idt-site">
@@ -2975,8 +3353,6 @@ export function RoutedSite() {
         <Header
           navLinks={NAV_LINKS}
           githubRepo={GITHUB_REPO}
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
         />
       ) : null}
 
