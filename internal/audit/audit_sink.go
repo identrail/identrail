@@ -11,11 +11,12 @@ import (
 	"hash/fnv"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/identrail/identrail/internal/urlpolicy"
 )
 
 // AuditEvent captures one structured audit record for external export.
@@ -302,22 +303,7 @@ func FingerprintIdentifier(raw string) string {
 }
 
 func validateAuditForwardURL(raw string) error {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("parse audit forward url: %w", err)
-	}
-	host := strings.ToLower(parsed.Hostname())
-	switch strings.ToLower(parsed.Scheme) {
-	case "https":
-		return nil
-	case "http":
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-			return nil
-		}
-		return fmt.Errorf("insecure audit forward url scheme http is only allowed for localhost")
-	default:
-		return fmt.Errorf("unsupported audit forward url scheme %q", parsed.Scheme)
-	}
+	return urlpolicy.ValidateAuditForwardURL(raw)
 }
 
 func computeHMAC(body []byte, secret string) string {
