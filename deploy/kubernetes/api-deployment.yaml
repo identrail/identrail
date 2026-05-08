@@ -16,11 +16,12 @@ spec:
       labels:
         app: identrail-api
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
       containers:
         - name: api
-          image: ghcr.io/oluwatobi-mustapha/identrail-api:v0.1.0
+          image: ghcr.io/identrail/identrail-api:v1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

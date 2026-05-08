@@ -6,13 +6,14 @@ imagePullSecrets: []
 api:
   replicaCount: 1
   image:
-    repository: identrail/api
-    tag: v0.1.0
+    repository: ghcr.io/identrail/identrail-api
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   podSecurityContext:
     runAsNonRoot: true
   securityContext:
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop:
         - ALL
@@ -30,8 +31,8 @@ api:
 worker:
   replicaCount: 1
   image:
-    repository: identrail/worker
-    tag: v0.1.0
+    repository: ghcr.io/identrail/identrail-worker
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   podSecurityContext:
     runAsNonRoot: true
@@ -58,8 +59,8 @@ web:
   enabled: false
   replicaCount: 1
   image:
-    repository: identrail/web
-    tag: v0.1.0
+    repository: ghcr.io/identrail/identrail-web
+    tag: v1.0.0
     pullPolicy: IfNotPresent
   podSecurityContext:
     runAsNonRoot: true
@@ -69,7 +70,7 @@ web:
       type: RuntimeDefault
   securityContext:
     allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: true
+    readOnlyRootFilesystem: false
     runAsNonRoot: true
     runAsUser: 101
     runAsGroup: 101
@@ -177,6 +178,7 @@ config:
   IDENTRAIL_OIDC_WRITE_SCOPES: identrail.write,identrail.admin,write,admin
   IDENTRAIL_DEFAULT_TENANT_ID: default
   IDENTRAIL_DEFAULT_WORKSPACE_ID: default
+  IDENTRAIL_REQUIRE_EXPLICIT_SCOPE: "true"
   IDENTRAIL_OIDC_TENANT_CLAIM: tenant_id
   IDENTRAIL_OIDC_WORKSPACE_CLAIM: workspace_id
   IDENTRAIL_OIDC_GROUPS_CLAIM: groups
