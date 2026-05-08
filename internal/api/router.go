@@ -2433,6 +2433,7 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 	}
 	return func(c *gin.Context) {
 		ctx := audit.WithSink(c.Request.Context(), sink)
+		ctx = audit.WithFingerprinter(ctx, fingerprinter)
 
 		// Prefer upstream request IDs when present, otherwise generate a new ID.
 		if headerID := strings.TrimSpace(c.GetHeader("X-Request-Id")); headerID != "" {
@@ -2498,11 +2499,36 @@ func setAuditActorOnRequestContext(c *gin.Context, fingerprinter *audit.Fingerpr
 	if c == nil || c.Request == nil {
 		return
 	}
-	actor := triageActorFromContext(c, fingerprinter)
+	actor := actionAuditActorFromContext(c, fingerprinter)
 	if actor == "unknown" {
 		return
 	}
 	c.Request = c.Request.WithContext(audit.WithActor(c.Request.Context(), actor))
+}
+
+func actionAuditActorFromContext(c *gin.Context, fingerprinter *audit.Fingerprinter) string {
+	if c == nil {
+		return "unknown"
+	}
+	if subjectValue, exists := c.Get("auth.subject"); exists {
+		if subject, ok := subjectValue.(string); ok {
+			normalizedSubject := strings.TrimSpace(subject)
+			if normalizedSubject != "" {
+				// Keep request-scoped OIDC subjects raw here so WriteAction can apply
+				// exactly one fingerprint pass and preserve cross-event correlation.
+				return "subject:" + normalizedSubject
+			}
+		}
+	}
+	if apiKeyValue, exists := c.Get("auth.api_key"); exists {
+		if apiKey, ok := apiKeyValue.(string); ok {
+			normalizedKey := strings.TrimSpace(apiKey)
+			if normalizedKey != "" {
+				return "api_key:" + fingerprintAPIKeyWith(fingerprinter, normalizedKey)
+			}
+		}
+	}
+	return "unknown"
 }
 
 func readAPIKey(c *gin.Context) string {

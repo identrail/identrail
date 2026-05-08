@@ -25,11 +25,11 @@ variable "create_namespace" {
 variable "create_kubernetes_secret" {
   description = "Create a Kubernetes secret from secret_data."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "secret_name" {
-  description = "Existing secret name to use when create_kubernetes_secret=false. Leave empty to fall back to <release_name>-secrets."
+  description = "Existing secret name to use when create_kubernetes_secret=false."
   type        = string
   default     = ""
 }

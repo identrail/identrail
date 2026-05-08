@@ -223,6 +223,19 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	if strings.Contains(string(auditPayload), secret) || strings.Contains(string(auditPayload), newSecret) {
 		t.Fatalf("audit events exposed webhook secret: %s", string(auditPayload))
 	}
+	actionEvents := 0
+	for _, event := range sink.events {
+		if event.Kind != "action" {
+			continue
+		}
+		actionEvents++
+		if event.TenantID == "tenant-a" || event.WorkspaceID == "workspace-a" || event.ResourceID == "project-1" {
+			t.Fatalf("action audit event exposed raw scope identifiers: %+v", event)
+		}
+	}
+	if actionEvents == 0 {
+		t.Fatal("expected action audit events")
+	}
 	if !strings.Contains(string(auditPayload), "connector.github.webhook_secret.rotate") {
 		t.Fatalf("expected rotation audit event, got %s", string(auditPayload))
 	}

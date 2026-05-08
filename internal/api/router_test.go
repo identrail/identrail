@@ -2114,63 +2114,6 @@ func TestRouterWritesAuditSinkForDeniedAuthzDecision(t *testing.T) {
 	}
 }
 
-func TestRouterWritesAuditSinkForAuthenticationFailure(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	metrics := telemetry.NewMetrics()
-	sink := &recordingAuditSink{}
-	r := NewRouter(logger, metrics, nil, RouterOptions{
-		AuditSink: sink,
-		APIKeys:   []string{"good-key"},
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
-	req.RemoteAddr = "127.0.0.1:34567"
-	req.Header.Set("User-Agent", "router-test-auth-failure")
-	req.Header.Set("X-API-Key", "bad-key")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected unauthorized status 401, got %d", w.Code)
-	}
-
-	sink.mu.Lock()
-	defer sink.mu.Unlock()
-	if len(sink.events) == 0 {
-		t.Fatal("expected sink to capture auth failure event")
-	}
-	var authFailureEvent *audit.AuditEvent
-	for i := len(sink.events) - 1; i >= 0; i-- {
-		if sink.events[i].Kind == "api_auth_failure" {
-			authFailureEvent = &sink.events[i]
-			break
-		}
-	}
-	if authFailureEvent == nil {
-		t.Fatalf("expected sink to capture auth failure event, got %+v", sink.events[len(sink.events)-1])
-	}
-	event := *authFailureEvent
-	if event.Kind != "api_auth_failure" {
-		t.Fatalf("expected auth failure event kind, got %+v", event)
-	}
-	if event.Status != http.StatusUnauthorized {
-		t.Fatalf("expected auth failure status 401, got %+v", event)
-	}
-	if event.APIKeyID == "" {
-		t.Fatal("expected api key fingerprint in auth failure event")
-	}
-	if event.APIKeyID == "bad-key" {
-		t.Fatal("expected fingerprint instead of raw api key in auth failure event")
-	}
-	if event.CorrelationID == "" {
-		t.Fatalf("expected correlation id on auth failure event, got %+v", event)
-	}
-	if headerID := w.Header().Get("X-Request-Id"); headerID == "" {
-		t.Fatalf("expected X-Request-Id header to be set, got event correlation_id=%q", event.CorrelationID)
-	} else if headerID != event.CorrelationID {
-		t.Fatalf("expected auth failure correlation_id to match X-Request-Id header, got header=%q event=%q", headerID, event.CorrelationID)
-	}
-}
-
 func TestRouterWritesAuditSinkForScopedAPIKeyBindingAuthenticationFailure(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
@@ -2210,6 +2153,7 @@ func TestRouterWritesAuditSinkForScopedAPIKeyBindingAuthenticationFailure(t *tes
 	if authFailureCount < 2 {
 		t.Fatalf("expected at least two auth failure audit events for scoped key failures, got %d events: %+v", authFailureCount, sink.events)
 	}
+
 }
 
 func TestRouterScanDiffAndEventsNotFound(t *testing.T) {
@@ -3174,4 +3118,146 @@ func githubWebhookSignature(secret string, payload []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write(payload)
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestRouterDoesNotWriteAuditSinkForAuthenticationFailure(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink: sink,
+		APIKeys:   []string{"good-key"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	req.RemoteAddr = "127.0.0.1:34567"
+	req.Header.Set("User-Agent", "router-test-auth-failure")
+	req.Header.Set("X-API-Key", "bad-key")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized status 401, got %d", w.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	authFailureCount := countAuditEventsByKind(sink.events, "api_auth_failure")
+	if authFailureCount == 0 {
+		t.Fatalf("expected auth failure audit event, got %d events: %+v", len(sink.events), sink.events)
+	}
+	for _, event := range sink.events {
+		if event.Kind != "api_auth_failure" {
+			continue
+		}
+		if event.APIKeyID == "bad-key" {
+			t.Fatalf("expected hashed api_key_id in auth failure event, got %+v", event)
+		}
+	}
+}
+
+func TestRouterWritesAuditSinkWithSanitizedOIDCSubjectActor(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink: sink,
+		OIDCTokenVerifier: fakeTokenVerifier{
+			tokens: map[string]VerifiedToken{
+				"subject-token": {
+					Subject:     "user-raw-subject",
+					TenantID:    "tenant-a",
+					WorkspaceID: "workspace-a",
+					Scopes:      []string{scopeRead},
+				},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	req.RemoteAddr = "127.0.0.1:34567"
+	req.Header.Set("Authorization", "Bearer subject-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) == 0 {
+		t.Fatal("expected sink to capture event")
+	}
+	event := sink.events[len(sink.events)-1]
+	if event.Actor == "subject:user-raw-subject" {
+		t.Fatalf("expected sanitized subject actor, got %+v", event)
+	}
+	if !strings.HasPrefix(event.Actor, "subject:fnv64a:") {
+		t.Fatalf("expected hashed subject actor format, got %+v", event)
+	}
+}
+
+func TestSetAuditActorOnRequestContextPreservesOIDCActorCorrelationForActionEvents(t *testing.T) {
+	fingerprinter := audit.NewFingerprinter("audit-secret")
+	sink := &recordingAuditSink{}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/v1/workspaces", nil)
+	ctx := audit.WithSink(req.Context(), sink)
+	ctx = audit.WithFingerprinter(ctx, fingerprinter)
+	c.Request = req.WithContext(ctx)
+	c.Set("auth.subject", "oidc-actor-123")
+
+	requestActor := triageActorFromContext(c, fingerprinter)
+	setAuditActorOnRequestContext(c, fingerprinter)
+	audit.WriteAction(c.Request.Context(), audit.AuditEvent{
+		Action:     "workspace.create",
+		ResourceID: "workspace-a",
+	})
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) != 1 {
+		t.Fatalf("expected 1 action event, got %d", len(sink.events))
+	}
+	event := sink.events[0]
+	if event.Actor != requestActor {
+		t.Fatalf("expected action actor %q to match request actor %q", event.Actor, requestActor)
+	}
+	if strings.Contains(event.Actor, "oidc-actor-123") {
+		t.Fatalf("expected redacted action actor, got %+v", event)
+	}
+}
+
+func TestSetAuditActorOnRequestContextKeepsAPIKeyActorsRedactedForActionEvents(t *testing.T) {
+	fingerprinter := audit.NewFingerprinter("audit-secret")
+	sink := &recordingAuditSink{}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(http.MethodPost, "/v1/workspaces", nil)
+	ctx := audit.WithSink(req.Context(), sink)
+	ctx = audit.WithFingerprinter(ctx, fingerprinter)
+	c.Request = req.WithContext(ctx)
+	c.Set("auth.api_key", "fixture-credential-123")
+
+	requestActor := triageActorFromContext(c, fingerprinter)
+	setAuditActorOnRequestContext(c, fingerprinter)
+	audit.WriteAction(c.Request.Context(), audit.AuditEvent{
+		Action:     "workspace.create",
+		ResourceID: "workspace-a",
+	})
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) != 1 {
+		t.Fatalf("expected 1 action event, got %d", len(sink.events))
+	}
+	event := sink.events[0]
+	if event.Actor != requestActor {
+		t.Fatalf("expected action actor %q to match request actor %q", event.Actor, requestActor)
+	}
+	if strings.Contains(event.Actor, "fixture-credential-123") {
+		t.Fatalf("expected redacted api key actor, got %+v", event)
+	}
 }

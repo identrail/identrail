@@ -28,6 +28,4 @@ This Terraform baseline deploys Identrail on Kubernetes through the Helm chart.
 ## Notes
 
 - This module assumes a Kubernetes cluster already exists.
-- For production, use external secret management and set `create_kubernetes_secret=false`.
-- If `secret_name` is empty, Terraform falls back to `${release_name}-secrets`; set it explicitly when you want a shared external secret name such as `identrail-secrets`.
-- Keep remote state encrypted and access-controlled. Avoid `secret_data` for production because Terraform-created Kubernetes secrets are written to state.
+- For production, use external secret management and set `create_kubernetes_secret=false` with `secret_name`.
