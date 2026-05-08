@@ -90,29 +90,72 @@ const DIFFERENTIATION_ROWS = [
 const PRODUCT_TOUR_STEPS = [
   {
     step: '01',
-    title: 'Connect read-only signals',
-    detail: 'Add AWS IAM, Kubernetes, GitHub, and OIDC sources without granting write access.',
-    proof: 'Least-privilege connector scope'
+    title: 'Connect read-only sources',
+    detail: 'Validate AWS IAM, Kubernetes, GitHub Actions, and OIDC claims without write permissions.',
+    proof: 'Connector scope',
+    active: true
   },
   {
     step: '02',
-    title: 'Rank reachable risk paths',
-    detail: 'See which identities can reach production resources and why the path matters.',
-    proof: 'Blast-radius queue'
+    title: 'Trace reachable risk paths',
+    detail: 'Show the identity, workload, role, and resource in one chain with severity context.',
+    proof: 'Reachable path',
+    active: false
   },
   {
     step: '03',
     title: 'Simulate the first safe fix',
-    detail: 'Preview trust-policy and RBAC changes before enforcement to avoid workload breakage.',
-    proof: 'Policy simulation'
+    detail: 'Preview trust-policy and RBAC edits before anything touches production.',
+    proof: 'Policy simulation',
+    active: false
   },
   {
     step: '04',
     title: 'Export the evidence packet',
-    detail: 'Package source evidence, owner notes, timeline, and residual risk for review.',
-    proof: 'Audit-ready report'
+    detail: 'Package the source proof, owner note, policy diff, and residual risk for review.',
+    proof: 'Evidence packet',
+    active: false
   }
 ] as const;
+
+const PRODUCT_TOUR_CONNECTORS = [
+  {
+    name: 'AWS IAM',
+    status: 'Read-only',
+    icon: '/brand-logos/aws.svg'
+  },
+  {
+    name: 'Kubernetes',
+    status: 'Namespace scope',
+    icon: '/brand-logos/kubernetes.svg'
+  },
+  {
+    name: 'GitHub/OIDC',
+    status: 'Claims only',
+    icon: '/brand-logos/github.svg'
+  }
+] as const;
+
+const PRODUCT_TOUR_PATH = [
+  {
+    label: 'Identity',
+    value: 'GitHub Actions OIDC'
+  },
+  {
+    label: 'Privilege',
+    value: 'AWS IAM role: billing-prod'
+  },
+  {
+    label: 'Workload',
+    value: 'payments-api namespace'
+  },
+  {
+    label: 'Resource',
+    value: 'PostgreSQL billing ledger'
+  }
+] as const;
+
+const PRODUCT_TOUR_PACKET = ['Source proof', 'Policy diff', 'Affected workload', 'Owner timeline'] as const;
 
 const FEATURE_ROWS = [
   {
@@ -1478,19 +1521,24 @@ function ProductTourSection() {
     <section className="idt-section idt-shell idt-product-tour" aria-labelledby="product-tour-title">
       <div className="idt-product-tour-copy">
         <p className="idt-eyebrow">Product tour</p>
-        <h2 id="product-tour-title">From connector setup to board-ready risk evidence.</h2>
+        <h2 id="product-tour-title">From connector setup to evidence-ready remediation.</h2>
         <p>
-          A tighter product story: connect safely, find reachable risk, simulate remediation, and export proof without
-          repeating the same trust-graph promise section after section.
+          Connect read-only sources, trace the path to sensitive resources, test the safest fix, and hand owners one
+          evidence packet they can act on.
         </p>
       </div>
 
       <div className="idt-product-tour-shell" aria-label="Identrail product workflow preview">
         <div className="idt-tour-rail">
           {PRODUCT_TOUR_STEPS.map((item) => (
-            <article key={item.step} className="idt-tour-step">
-              <span>{item.step}</span>
+            <article
+              key={item.step}
+              aria-current={item.active ? 'step' : undefined}
+              className={`idt-tour-step${item.active ? ' is-active' : ''}`}
+            >
+              <span className="idt-tour-step-index">{item.step}</span>
               <div>
+                <small>{item.proof}</small>
                 <h3>{item.title}</h3>
                 <p>{item.detail}</p>
               </div>
@@ -1500,23 +1548,74 @@ function ProductTourSection() {
 
         <div className="idt-tour-screen">
           <div className="idt-tour-screen-head">
-            <div>
-              <p>Live trust path investigation</p>
-              <h3>Reachable Risk Paths</h3>
+            <div className="idt-tour-window-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
             </div>
-            <span>4 evidence artifacts</span>
+            <div>
+              <p>Production workspace</p>
+              <h3>Owner-ready risk path</h3>
+            </div>
+            <span>Evidence ready</span>
           </div>
-          <div className="idt-tour-finding-grid">
-            {PRODUCT_TOUR_STEPS.map((item) => (
-              <article key={item.proof}>
-                <small>{item.proof}</small>
-                <strong>{item.title}</strong>
-              </article>
-            ))}
-          </div>
-          <div className="idt-tour-report">
-            <p>Export packet</p>
-            <strong>Source evidence, policy diff, affected workloads, owner timeline, residual risk</strong>
+
+          <div className="idt-tour-product-preview">
+            <aside className="idt-tour-connector-scope" aria-label="Read-only connector scope">
+              <p>Connector scope</p>
+              {PRODUCT_TOUR_CONNECTORS.map((connector) => (
+                <article key={connector.name}>
+                  <img src={connector.icon} alt="" aria-hidden="true" loading="lazy" />
+                  <div>
+                    <strong>{connector.name}</strong>
+                    <span>{connector.status}</span>
+                  </div>
+                </article>
+              ))}
+            </aside>
+
+            <div className="idt-tour-path-panel">
+              <div className="idt-tour-path-head">
+                <div>
+                  <p>Reachable path</p>
+                  <h4>GitHub workflow can reach billing data through AWS role trust.</h4>
+                </div>
+                <span>High</span>
+              </div>
+
+              <div className="idt-tour-path-chain" aria-label="Machine identity path">
+                {PRODUCT_TOUR_PATH.map((node) => (
+                  <article key={node.label}>
+                    <small>{node.label}</small>
+                    <strong>{node.value}</strong>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="idt-tour-simulation">
+              <div>
+                <p>Safe fix simulation</p>
+                <strong>Restrict subject claim and namespace tags</strong>
+              </div>
+              <code>
+                <span className="is-remove">- sub = "*"</span>
+                <span className="is-add">+ sub = "repo:payments-api:prod"</span>
+                <span className="is-add">+ namespace = "payments-api"</span>
+              </code>
+            </div>
+
+            <div className="idt-tour-evidence-packet">
+              <div>
+                <p>Evidence packet</p>
+                <strong>Ready for owner review</strong>
+              </div>
+              <ul aria-label="Evidence packet contents">
+                {PRODUCT_TOUR_PACKET.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </div>
