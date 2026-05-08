@@ -16,7 +16,12 @@ function originFromURL(value?: string): string | null {
 }
 
 function buildConnectSrc(env: Record<string, string>, isProduction: boolean): string {
-  const allowlist = new Set<string>(["'self'", 'https://api.github.com', 'https://img.shields.io']);
+  const allowlist = new Set<string>([
+    "'self'",
+    'https://api.identrail.io',
+    'https://api.github.com',
+    'https://img.shields.io'
+  ]);
   const apiOrigin = originFromURL(env.VITE_IDENTRAIL_API_URL);
   const oidcOrigin = originFromURL(env.VITE_OIDC_ISSUER_URL);
 
