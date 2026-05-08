@@ -14,11 +14,12 @@ spec:
         app: identrail-migrations
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
       containers:
         - name: migrations
-          image: ghcr.io/oluwatobi-mustapha/identrail-api:v0.1.0
+          image: ghcr.io/identrail/identrail-api:v0.1.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
