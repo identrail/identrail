@@ -124,12 +124,13 @@ Audit:
 - `IDENTRAIL_AUDIT_LOG_FILE`
 - `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
   - Enables keyed HMAC-SHA256 pseudonymization for audit identifiers and API-key fingerprints.
+  - Optional HMAC-SHA256 secret used to pseudonymize audit subject/resource identifiers.
+  - If unset, audit fingerprinting falls back to a legacy unkeyed hash intended only for local or transitional setups.
 - `IDENTRAIL_AUDIT_FORWARD_URL`
 - `IDENTRAIL_AUDIT_FORWARD_TIMEOUT`
 - `IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES`
 - `IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF`
 - `IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET`
-- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
 
 Alerts:
 - `IDENTRAIL_ALERT_WEBHOOK_URL`
