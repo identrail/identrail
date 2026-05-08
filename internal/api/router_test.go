@@ -1033,6 +1033,57 @@ func TestRouterSupportsScansSortParameters(t *testing.T) {
 	}
 }
 
+func TestRouterSortsScansBeyondInitialPageFetchWindow(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC)
+
+	scanOldest, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create oldest scan: %v", err)
+	}
+	scanMiddle, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("create middle scan: %v", err)
+	}
+	scanNewest, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("create newest scan: %v", err)
+	}
+	if err := store.CompleteScan(defaultScopeContext(), scanOldest.ID, "completed", now.Add(3*time.Minute), 2, 99, ""); err != nil {
+		t.Fatalf("complete oldest scan: %v", err)
+	}
+	if err := store.CompleteScan(defaultScopeContext(), scanMiddle.ID, "completed", now.Add(4*time.Minute), 2, 1, ""); err != nil {
+		t.Fatalf("complete middle scan: %v", err)
+	}
+	if err := store.CompleteScan(defaultScopeContext(), scanNewest.ID, "completed", now.Add(5*time.Minute), 2, 2, ""); err != nil {
+		t.Fatalf("complete newest scan: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{RateLimitRPM: 10000, RateLimitBurst: 1000})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/scans?limit=1&sort_by=finding_count&sort_order=desc", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	var body struct {
+		Items []db.ScanRecord `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("expected one scan on page, got %d", len(body.Items))
+	}
+	if body.Items[0].ID != scanOldest.ID || body.Items[0].FindingCount != 99 {
+		t.Fatalf("expected oldest high-finding scan first, got %+v", body.Items[0])
+	}
+}
+
 func TestSortHelpersFallbackAndLevels(t *testing.T) {
 	sortBy, desc := parseSortParams(" ", "invalid", "created_at")
 	if sortBy != "created_at" || !desc {
