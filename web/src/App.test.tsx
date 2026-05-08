@@ -5,6 +5,21 @@ import { saveProductSession } from './productShell';
 
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
 
+function okJSON(payload: unknown) {
+  return {
+    ok: true,
+    json: async () => payload
+  };
+}
+
+function errorJSON(status: number, error: string) {
+  return {
+    ok: false,
+    status,
+    json: async () => ({ error })
+  };
+}
+
 function makeJWT(payload: Record<string, unknown>): string {
   const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
     .replace(/\+/g, '-')

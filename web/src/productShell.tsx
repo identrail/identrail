@@ -1434,7 +1434,7 @@ export function ProductWorkspacesPage() {
     return () => {
       membersRequestRef.current += 1;
     };
-  }, []);
+  }, [scope?.tenantID, scope?.workspaceID]);
 
   useEffect(() => {
     if (!scope) {
