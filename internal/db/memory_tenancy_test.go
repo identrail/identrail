@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 func TestMemoryStoreTenancyCRUD(t *testing.T) {
@@ -275,6 +275,41 @@ func TestMemoryStoreProjectReadsCloneArchivedPointer(t *testing.T) {
 	}
 	if projectAfterList.ArchivedAt == nil || !projectAfterList.ArchivedAt.Equal(archived) {
 		t.Fatalf("expected stored archived_at to remain unchanged after list mutation, got %+v want %v", projectAfterList.ArchivedAt, archived)
+	}
+}
+
+func TestMemoryStoreWorkspaceMemberDefaultsStatusToInvited(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-1",
+		UserID:      "user-1",
+		Role:        "viewer",
+	}); err != nil {
+		t.Fatalf("upsert workspace member: %v", err)
+	}
+
+	member, err := store.GetWorkspaceMember(ctx, "workspace-a", "member-1")
+	if err != nil {
+		t.Fatalf("get workspace member: %v", err)
+	}
+	if member.Status != "invited" {
+		t.Fatalf("expected default status invited, got %+v", member)
 	}
 }
 

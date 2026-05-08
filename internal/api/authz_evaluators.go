@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
+	"github.com/identrail/identrail/internal/db"
 )
 
 const (
