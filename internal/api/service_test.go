@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"sync"
@@ -460,6 +461,35 @@ func TestServiceGetFinding(t *testing.T) {
 
 	if _, err := svc.GetFinding(defaultScopeContext(), "missing", scan.ID); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("expected not found for missing finding, got %v", err)
+	}
+}
+
+func TestServiceGetFindingBeyondListWindow(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scan, _ := store.CreateScan(defaultScopeContext(), "aws", now)
+
+	findings := make([]domain.Finding, 0, 6001)
+	for i := 0; i < 6001; i++ {
+		id := fmt.Sprintf("finding-%04d", i)
+		findings = append(findings, domain.Finding{
+			ID:        id,
+			Type:      domain.FindingOwnerless,
+			Severity:  domain.SeverityHigh,
+			CreatedAt: now.Add(time.Duration(i) * time.Second),
+		})
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scan.ID, findings); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	found, err := svc.GetFinding(defaultScopeContext(), "finding-0000", scan.ID)
+	if err != nil {
+		t.Fatalf("get finding beyond previous list window: %v", err)
+	}
+	if found.ID != "finding-0000" {
+		t.Fatalf("unexpected finding id: %q", found.ID)
 	}
 }
 

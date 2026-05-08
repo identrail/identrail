@@ -543,6 +543,49 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 	return result, nil
 }
 
+// GetFinding returns one finding by id, optionally scoped to one scan id.
+func (m *MemoryStore) GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return domain.Finding{}, ErrNotFound
+	}
+	scanFilter := strings.TrimSpace(scanID)
+	var latest domain.Finding
+	found := false
+	for _, scanKey := range m.scanIDs {
+		record := m.scans[scanKey]
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if scanFilter != "" && scanKey != scanFilter {
+			continue
+		}
+		findingKey := scanKey + "|" + id
+		finding, exists := m.findings[findingKey]
+		if !exists {
+			continue
+		}
+		if scanFilter != "" {
+			return finding, nil
+		}
+		if !found || finding.CreatedAt.After(latest.CreatedAt) {
+			latest = finding
+			found = true
+		}
+	}
+	if found {
+		return latest, nil
+	}
+	return domain.Finding{}, ErrNotFound
+}
+
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
 func (m *MemoryStore) UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error {
 	normalized, err := NormalizeAuthzEntityAttributesForWrite(attributes)

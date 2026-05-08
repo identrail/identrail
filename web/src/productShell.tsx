@@ -121,10 +121,22 @@ function normalizeClaimName(value: string, fallback: string): string {
   return normalized || fallback;
 }
 
+function isSecureOIDCEndpointURL(rawURL: string): boolean {
+  try {
+    const parsed = new URL(rawURL);
+    return parsed.protocol === 'https:' && Boolean(normalizeValue(parsed.host));
+  } catch {
+    return false;
+  }
+}
+
 function readOIDCConfig(): OIDCConfig | null {
   const issuerURL = normalizeValue(import.meta.env.VITE_OIDC_ISSUER_URL ?? '');
   const clientID = normalizeValue(import.meta.env.VITE_OIDC_CLIENT_ID ?? '');
   if (!issuerURL || !clientID) {
+    return null;
+  }
+  if (!isSecureOIDCEndpointURL(issuerURL)) {
     return null;
   }
 
@@ -179,6 +191,19 @@ async function loadOIDCDiscovery(config: OIDCConfig): Promise<OIDCDiscoveryDocum
   }
   if (typeof payload.token_endpoint !== 'string' || !normalizeValue(payload.token_endpoint)) {
     throw new Error('OIDC discovery document missing token_endpoint');
+  }
+  if (!isSecureOIDCEndpointURL(payload.authorization_endpoint)) {
+    throw new Error('OIDC discovery authorization_endpoint must use https');
+  }
+  if (!isSecureOIDCEndpointURL(payload.token_endpoint)) {
+    throw new Error('OIDC discovery token_endpoint must use https');
+  }
+  if (
+    typeof payload.end_session_endpoint === 'string' &&
+    normalizeValue(payload.end_session_endpoint) &&
+    !isSecureOIDCEndpointURL(payload.end_session_endpoint)
+  ) {
+    throw new Error('OIDC discovery end_session_endpoint must use https');
   }
 
   return {
