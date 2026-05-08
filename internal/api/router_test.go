@@ -2505,6 +2505,109 @@ func TestRouterRejectsInvalidRepoScanUUIDInputs(t *testing.T) {
 	}
 }
 
+func TestRouterErrorEnvelopeForCommonStatuses(t *testing.T) {
+	assertErrorEnvelope := func(t *testing.T, w *httptest.ResponseRecorder, expectedStatus int) {
+		t.Helper()
+		if w.Code != expectedStatus {
+			t.Fatalf("expected status %d, got %d body=%s", expectedStatus, w.Code, w.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode error envelope: %v body=%s", err, w.Body.String())
+		}
+		raw, ok := body["error"]
+		if !ok {
+			t.Fatalf("expected error field in envelope, got %+v", body)
+		}
+		message, ok := raw.(string)
+		if !ok || strings.TrimSpace(message) == "" {
+			t.Fatalf("expected non-empty error string, got %+v", body)
+		}
+	}
+
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+
+	noServiceRouter := NewRouter(logger, metrics, nil, RouterOptions{})
+	noServiceReq := httptest.NewRequest(http.MethodGet, "/v1/workspaces", nil)
+	noServiceW := httptest.NewRecorder()
+	noServiceRouter.ServeHTTP(noServiceW, noServiceReq)
+	assertErrorEnvelope(t, noServiceW, http.StatusServiceUnavailable)
+
+	authSvc := NewService(db.NewMemoryStore(), routerScanner{}, "aws")
+	authRouter := NewRouter(logger, metrics, authSvc, RouterOptions{
+		APIKeys:            []string{"read-key"},
+		WriteAPIKeys:       []string{"write-key"},
+		APIKeyScopes:       map[string][]string{"read-key": {scopeRead}, "write-key": {scopeRead, scopeWrite}},
+		RateLimitRPM:       10000,
+		RateLimitBurst:     1000,
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+	})
+	unauthorizedReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	unauthorizedW := httptest.NewRecorder()
+	authRouter.ServeHTTP(unauthorizedW, unauthorizedReq)
+	assertErrorEnvelope(t, unauthorizedW, http.StatusUnauthorized)
+
+	forbiddenReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	forbiddenReq.Header.Set("X-API-Key", "read-key")
+	forbiddenW := httptest.NewRecorder()
+	authRouter.ServeHTTP(forbiddenW, forbiddenReq)
+	assertErrorEnvelope(t, forbiddenW, http.StatusForbidden)
+
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ScanQueueMaxPending = 1
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	securedRouter := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"write-key"},
+		WriteAPIKeys: []string{"write-key"},
+		APIKeyScopes: map[string][]string{"write-key": {scopeRead, scopeWrite}},
+	})
+
+	notFoundReq := httptest.NewRequest(http.MethodGet, "/v1/findings?scan_id=00000000-0000-0000-0000-000000000000", nil)
+	notFoundReq.Header.Set("X-API-Key", "write-key")
+	notFoundW := httptest.NewRecorder()
+	securedRouter.ServeHTTP(notFoundW, notFoundReq)
+	assertErrorEnvelope(t, notFoundW, http.StatusNotFound)
+
+	badRequestReq := httptest.NewRequest(http.MethodGet, "/v1/repo-scans/not-a-uuid", nil)
+	badRequestReq.Header.Set("X-API-Key", "write-key")
+	badRequestW := httptest.NewRecorder()
+	securedRouter.ServeHTTP(badRequestW, badRequestReq)
+	assertErrorEnvelope(t, badRequestW, http.StatusBadRequest)
+
+	firstRepoReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	firstRepoReq.Header.Set("X-API-Key", "write-key")
+	firstRepoReq.Header.Set("Content-Type", "application/json")
+	firstRepoW := httptest.NewRecorder()
+	securedRouter.ServeHTTP(firstRepoW, firstRepoReq)
+	if firstRepoW.Code != http.StatusAccepted {
+		t.Fatalf("expected first repo scan enqueue 202, got %d body=%s", firstRepoW.Code, firstRepoW.Body.String())
+	}
+
+	conflictReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	conflictReq.Header.Set("X-API-Key", "write-key")
+	conflictReq.Header.Set("Content-Type", "application/json")
+	conflictW := httptest.NewRecorder()
+	securedRouter.ServeHTTP(conflictW, conflictReq)
+	assertErrorEnvelope(t, conflictW, http.StatusConflict)
+
+	firstScanReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	firstScanReq.Header.Set("X-API-Key", "write-key")
+	firstScanW := httptest.NewRecorder()
+	securedRouter.ServeHTTP(firstScanW, firstScanReq)
+	if firstScanW.Code != http.StatusAccepted {
+		t.Fatalf("expected first scan enqueue 202, got %d body=%s", firstScanW.Code, firstScanW.Body.String())
+	}
+
+	queueFullReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	queueFullReq.Header.Set("X-API-Key", "write-key")
+	queueFullW := httptest.NewRecorder()
+	securedRouter.ServeHTTP(queueFullW, queueFullReq)
+	assertErrorEnvelope(t, queueFullW, http.StatusTooManyRequests)
+}
+
 func TestRouterPaginationHelpers(t *testing.T) {
 	if got := parseCursor(""); got != 0 {
 		t.Fatalf("expected empty cursor to parse as 0, got %d", got)
