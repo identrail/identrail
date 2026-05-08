@@ -5,10 +5,10 @@ create_namespace         = true
 create_kubernetes_secret = true
 
 secret_data = {
-  IDENTRAIL_API_KEYS                 = "replace-read-key,replace-write-key"
-  IDENTRAIL_WRITE_API_KEYS           = "replace-write-key"
-  IDENTRAIL_DATABASE_URL             = "postgres://identrail:replace-password@postgres:5432/identrail?sslmode=require"
-  IDENTRAIL_CONNECTOR_SECRET_KEYS    = "v1:replace-with-base64-32-byte-key"
+  IDENTRAIL_API_KEYS      = "replace-read-key,replace-write-key"
+  IDENTRAIL_WRITE_API_KEYS = "replace-write-key"
+  IDENTRAIL_DATABASE_URL  = "postgres://identrail:replace-password@postgres:5432/identrail?sslmode=require"
+  IDENTRAIL_CONNECTOR_SECRET_KEYS = "v1:replace-with-base64-32-byte-key"
   IDENTRAIL_AUDIT_FINGERPRINT_SECRET = "replace-with-strong-secret"
 }
 
