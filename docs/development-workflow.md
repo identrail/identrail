@@ -28,6 +28,9 @@ Identrail now provides standardized local developer workflows through:
 
 If you use `go-task`, equivalent commands are available via `task`.
 
+The Vite dev server binds to `127.0.0.1` by default. For an intentional LAN test,
+run `npm run dev --prefix web -- --host 0.0.0.0`.
+
 ## Optional Pre-commit Hooks
 
 To enable optional hooks:

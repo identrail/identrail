@@ -23,9 +23,9 @@ variable "create_namespace" {
 }
 
 variable "create_kubernetes_secret" {
-  description = "Create a Kubernetes secret from secret_data."
+  description = "Create a Kubernetes secret from secret_data. Keep false in production to avoid persisting secrets in Terraform state."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "secret_name" {
@@ -43,6 +43,13 @@ variable "secret_data" {
 
 variable "chart_values" {
   description = "Additional Helm values merged into release settings."
-  type        = map(any)
-  default     = {}
+  # Helm chart values are best modeled as an object because different top-level
+  # keys (api/worker/web/secret/config/...) often have different shapes.
+  type     = any
+  nullable = false
+  default  = {}
+  validation {
+    condition     = can(keys(var.chart_values))
+    error_message = "chart_values must be a map/object of Helm values."
+  }
 }
