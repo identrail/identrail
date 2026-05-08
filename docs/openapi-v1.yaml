@@ -19,6 +19,254 @@ tags:
 security:
   - ApiKeyAuth: []
   - BearerAuth: []
+x-identrail-route-authorizations:
+  - method: GET
+    path: /v1/findings
+    action: findings.read
+    resource_type: finding
+  - method: GET
+    path: /v1/findings/{finding_id}
+    action: findings.read
+    resource_type: finding
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/findings/{finding_id}/history
+    action: findings.read
+    resource_type: finding_history
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/findings/{finding_id}/exports
+    action: findings.read
+    resource_type: finding_export
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/findings/trends
+    action: findings.read
+    resource_type: finding_trend
+  - method: GET
+    path: /v1/findings/summary
+    action: findings.read
+    resource_type: finding_summary
+  - method: PATCH
+    path: /v1/findings/{finding_id}/triage
+    action: findings.triage
+    resource_type: finding
+    resource_id_param: finding_id
+  - method: GET
+    path: /v1/identities
+    action: graph.read
+    resource_type: identity
+  - method: GET
+    path: /v1/relationships
+    action: graph.read
+    resource_type: relationship
+  - method: GET
+    path: /v1/ownership/signals
+    action: graph.read
+    resource_type: ownership_signal
+  - method: GET
+    path: /v1/scans
+    action: scans.read
+    resource_type: scan
+  - method: GET
+    path: /v1/scans/{scan_id}/diff
+    action: scans.read
+    resource_type: scan_diff
+    resource_id_param: scan_id
+  - method: GET
+    path: /v1/scans/{scan_id}/events
+    action: scans.read
+    resource_type: scan_event
+    resource_id_param: scan_id
+  - method: POST
+    path: /v1/scans
+    action: scans.run
+    resource_type: scan
+  - method: GET
+    path: /v1/repo-scans
+    action: repo_scans.read
+    resource_type: repo_scan
+  - method: GET
+    path: /v1/repo-scans/{repo_scan_id}
+    action: repo_scans.read
+    resource_type: repo_scan
+    resource_id_param: repo_scan_id
+  - method: GET
+    path: /v1/repo-findings
+    action: repo_scans.read
+    resource_type: repo_finding
+  - method: POST
+    path: /v1/repo-scans
+    action: repo_scans.run
+    resource_type: repo_scan
+  - method: POST
+    path: /v1/authz/policies/simulate
+    action: authz.policies.simulate
+    resource_type: authz_policy
+  - method: POST
+    path: /v1/authz/policies/rollback
+    action: authz.policies.rollback
+    resource_type: authz_policy
+  - method: GET
+    path: /v1/whoami
+    action: tenancy.read
+    resource_type: workspace_context
+  - method: GET
+    path: /v1/organizations/current
+    action: tenancy.read
+    resource_type: organization
+  - method: PUT
+    path: /v1/organizations/current
+    action: tenancy.write
+    resource_type: organization
+  - method: GET
+    path: /v1/workspaces
+    action: tenancy.read
+    resource_type: workspace
+  - method: POST
+    path: /v1/workspaces
+    action: tenancy.write
+    resource_type: workspace
+  - method: POST
+    path: /v1/workspaces/active
+    action: tenancy.read
+    resource_type: workspace_context
+  - method: GET
+    path: /v1/workspaces/{workspace_id}
+    action: tenancy.read
+    resource_type: workspace
+    resource_id_param: workspace_id
+  - method: DELETE
+    path: /v1/workspaces/{workspace_id}
+    action: tenancy.write
+    resource_type: workspace
+    resource_id_param: workspace_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/members
+    action: tenancy.read
+    resource_type: workspace_member
+    resource_id_param: workspace_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/members
+    action: tenancy.write
+    resource_type: workspace_member
+    resource_id_param: workspace_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/members/{member_id}
+    action: tenancy.read
+    resource_type: workspace_member
+    resource_id_param: member_id
+  - method: DELETE
+    path: /v1/workspaces/{workspace_id}/members/{member_id}
+    action: tenancy.write
+    resource_type: workspace_member
+    resource_id_param: member_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: workspace_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: workspace_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: DELETE
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/connection
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: PUT
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/repositories
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/secret/rotate
+    action: tenancy.write
+    resource_type: project
+    resource_id_param: project_id
+x-identrail-action-role-grants:
+  authz.policies.rollback:
+    - admin
+  authz.policies.simulate:
+    - admin
+  findings.read:
+    - read
+    - write
+    - admin
+  findings.triage:
+    - write
+    - admin
+  graph.read:
+    - read
+    - write
+    - admin
+  repo_scans.read:
+    - read
+    - write
+    - admin
+  repo_scans.run:
+    - write
+    - admin
+  scans.read:
+    - read
+    - write
+    - admin
+  scans.run:
+    - write
+    - admin
+  tenancy.read:
+    - read
+    - write
+    - admin
+    - owner
+    - analyst
+    - viewer
+  tenancy.write:
+    - write
+    - admin
+    - owner
 paths:
   /healthz:
     get:
@@ -32,12 +280,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  service:
-                    type: string
+                $ref: "#/components/schemas/ServiceStatusResponse"
   /readyz:
     get:
       tags: [Health]
@@ -50,24 +293,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  service:
-                    type: string
+                $ref: "#/components/schemas/ServiceStatusResponse"
         "503":
           description: Service not ready
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ServiceStatusResponse"
   /metrics:
     get:
       tags: [Health]
       summary: Prometheus metrics endpoint
       operationId: metrics
-      security: []
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
       responses:
         "200":
           description: Prometheus text exposition format
@@ -80,7 +320,8 @@ paths:
       tags: [RepositoryExposure]
       summary: Receive GitHub webhook events for repository scan triggers
       operationId: receiveGitHubWebhook
-      security: []
+      security:
+        - GitHubWebhookSignature: []
       parameters:
         - in: header
           name: X-GitHub-Event
@@ -89,10 +330,6 @@ paths:
         - in: header
           name: X-GitHub-Delivery
           required: false
-          schema: { type: string }
-        - in: header
-          name: X-Hub-Signature-256
-          required: true
           schema: { type: string }
       requestBody:
         required: true
@@ -569,8 +806,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProjectPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
     post:
       tags: [ProjectManagement]
       summary: Create or update workspace project
@@ -637,22 +880,22 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-    delete:
-      tags: [ProjectManagement]
-      summary: Delete workspace project
-      operationId: deleteProject
-      parameters:
-        - in: path
-          name: workspace_id
-          required: true
-          schema: { type: string }
-        - in: path
-          name: project_id
-          required: true
-          schema: { type: string }
-      responses:
-        "204":
-          description: Project deleted
+      delete:
+        tags: [ProjectManagement]
+        summary: Delete workspace project
+        operationId: deleteProject
+        parameters:
+          - in: path
+            name: workspace_id
+            required: true
+            schema: { type: string }
+          - in: path
+            name: project_id
+            required: true
+            schema: { type: string }
+        responses:
+          "204":
+            description: Project deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -871,6 +1114,7 @@ paths:
           name: project_id
           required: true
           schema: { type: string }
+        - $ref: "#/components/parameters/githubInstallationID"
       requestBody:
         required: true
         content:
@@ -1052,8 +1296,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FindingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/findings/summary:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1265,8 +1515,16 @@ paths:
                 properties:
                   scan:
                     $ref: "#/components/schemas/ScanRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
-          description: Scan queue is full
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/scans/{scan_id}/diff:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1292,7 +1550,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScanDiff"
         "400":
-          description: Invalid baseline
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/scans/{scan_id}/events:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1322,6 +1586,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScanEventPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/identities:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1356,6 +1628,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IdentityPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/relationships:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1388,6 +1668,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RelationshipPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/ownership/signals:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1411,6 +1699,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OwnershipSignalPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/repo-scans:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1452,15 +1748,19 @@ paths:
                   repo_scan:
                     $ref: "#/components/schemas/RepoScanRecord"
         "400":
-          description: Invalid repository scan request
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Repo target not allowed
+          $ref: "#/components/responses/Forbidden"
         "409":
-          description: Repo scan already in progress for target
+          $ref: "#/components/responses/Conflict"
         "429":
-          description: Repo scan queue is full
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
         "503":
-          description: Repo scan is disabled
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/repo-scans/{repo_scan_id}:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1481,8 +1781,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RepoScanRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/repo-findings:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1514,6 +1822,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FindingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -1524,6 +1840,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    GitHubWebhookSignature:
+      type: apiKey
+      in: header
+      name: X-Hub-Signature-256
+      description: GitHub HMAC SHA-256 signature of the raw webhook request body.
   parameters:
     scopeTenantID:
       in: header
@@ -1564,7 +1885,40 @@ components:
         type: string
         enum: [asc, desc]
       description: Sort direction.
+    githubInstallationID:
+      in: header
+      name: X-GitHub-Installation-ID
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      description: Optional installation ID fallback when the completion request body omits `installation_id`.
   responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     Unauthorized:
       description: Unauthorized
       content:
@@ -1577,7 +1931,27 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    ServiceStatusResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+        service:
+          type: string
     ErrorResponse:
       type: object
       properties:
@@ -1715,7 +2089,7 @@ components:
           format: date-time
     WorkspaceMemberUpsertRequest:
       type: object
-      required: [member_id, user_id, role, status]
+      required: [member_id, user_id, role]
       properties:
         member_id: { type: string }
         user_id: { type: string }
@@ -1723,7 +2097,10 @@ components:
         role:
           $ref: "#/components/schemas/WorkspaceMemberRole"
         status:
-          $ref: "#/components/schemas/WorkspaceMemberStatus"
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceMemberStatus"
+          default: invited
+          description: Defaults to `invited` when omitted.
     Project:
       type: object
       properties:
@@ -1956,7 +2333,6 @@ components:
       type: object
       required:
         - state
-        - installation_id
         - token_reference
         - webhook_secret
         - webhook_secret_reference
@@ -1967,6 +2343,7 @@ components:
           type: integer
           format: int64
           minimum: 1
+          description: GitHub App installation ID. May be supplied via the `X-GitHub-Installation-ID` header instead of the JSON body.
         account_login:
           type: string
         token_reference:

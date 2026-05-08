@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/identrail/identrail/internal/db"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -14,6 +16,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_TRUSTED_PROXIES", "")
 	t.Setenv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "")
+	t.Setenv("IDENTRAIL_ALLOW_MEMORY_STORE", "")
 	t.Setenv("IDENTRAIL_AWS_SOURCE", "")
 	t.Setenv("IDENTRAIL_AWS_REGION", "")
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "")
@@ -28,6 +31,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_API_KEYS", "")
 	t.Setenv("IDENTRAIL_WRITE_API_KEYS", "")
 	t.Setenv("IDENTRAIL_API_KEY_SCOPES", "")
+	t.Setenv("IDENTRAIL_API_KEY_SCOPE_BINDINGS", "")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "")
@@ -41,6 +45,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", "")
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", "")
 	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS", "")
+	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", "")
 	t.Setenv("IDENTRAIL_ALERT_WEBHOOK_URL", "")
 	t.Setenv("IDENTRAIL_ALERT_MIN_SEVERITY", "")
 	t.Setenv("IDENTRAIL_ALERT_TIMEOUT", "")
@@ -69,6 +74,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "")
+	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "")
 	t.Setenv("IDENTRAIL_OIDC_TENANT_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_GROUPS_CLAIM", "")
@@ -95,6 +101,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.DatabaseURL != "" {
 		t.Fatalf("expected empty database url, got %q", cfg.DatabaseURL)
+	}
+	if cfg.AllowMemoryStore {
+		t.Fatal("expected memory store opt-in to be false by default")
 	}
 	if cfg.AWSSource != defaultAWSSource {
 		t.Fatalf("expected default aws source %q, got %q", defaultAWSSource, cfg.AWSSource)
@@ -173,6 +182,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.ConnectorSecretKeys != "" {
 		t.Fatalf("expected empty connector secret keys, got %q", cfg.ConnectorSecretKeys)
+	}
+	if cfg.ConnectorSecretKeysRequired {
+		t.Fatal("expected connector secret keys required false by default")
 	}
 	if cfg.AlertWebhookURL != "" {
 		t.Fatalf("expected empty alert webhook url, got %q", cfg.AlertWebhookURL)
@@ -258,6 +270,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DefaultWorkspaceID != defaultWorkspaceID {
 		t.Fatalf("expected default workspace id %q, got %q", defaultWorkspaceID, cfg.DefaultWorkspaceID)
 	}
+	if cfg.RequireExplicitScope {
+		t.Fatal("expected explicit scope requirement false by default")
+	}
 	if cfg.OIDCIssuerURL != "" {
 		t.Fatalf("expected empty oidc issuer by default, got %q", cfg.OIDCIssuerURL)
 	}
@@ -289,6 +304,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_TRUSTED_PROXIES", "10.0.0.0/8,127.0.0.1")
 	t.Setenv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "https://app.identrail.io,https://console.identrail.io")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "postgres://example")
+	t.Setenv("IDENTRAIL_ALLOW_MEMORY_STORE", "true")
 	t.Setenv("IDENTRAIL_AWS_SOURCE", "sdk")
 	t.Setenv("IDENTRAIL_AWS_REGION", "eu-west-1")
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "engineering")
@@ -303,6 +319,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_API_KEYS", "key1,key2")
 	t.Setenv("IDENTRAIL_WRITE_API_KEYS", "key2")
 	t.Setenv("IDENTRAIL_API_KEY_SCOPES", "key1:read;key2:read,write")
+	t.Setenv("IDENTRAIL_API_KEY_SCOPE_BINDINGS", "key1:tenant-a/workspace-a;key2:tenant-b/workspace-b")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "300")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "50")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "false")
@@ -316,6 +333,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", "2s")
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", "audit-secret")
 	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS", "v1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", "true")
 	t.Setenv("IDENTRAIL_ALERT_WEBHOOK_URL", "https://alerts.example.com/hooks/identrail")
 	t.Setenv("IDENTRAIL_ALERT_MIN_SEVERITY", "critical")
 	t.Setenv("IDENTRAIL_ALERT_TIMEOUT", "12s")
@@ -344,6 +362,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "prod-identrail")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "tenant-prod")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "workspace-blue")
+	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "true")
 	t.Setenv("IDENTRAIL_OIDC_ISSUER_URL", "https://iam.example.com/realms/identrail")
 	t.Setenv("IDENTRAIL_OIDC_AUDIENCE", "identrail-api")
 	t.Setenv("IDENTRAIL_OIDC_WRITE_SCOPES", "identrail.write,identrail.admin")
@@ -373,6 +392,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.DatabaseURL != "postgres://example" {
 		t.Fatalf("unexpected database url: %q", cfg.DatabaseURL)
+	}
+	if !cfg.AllowMemoryStore {
+		t.Fatal("expected memory store opt-in true")
 	}
 	if cfg.AWSSource != "sdk" {
 		t.Fatalf("unexpected aws source: %q", cfg.AWSSource)
@@ -416,6 +438,15 @@ func TestLoadFromEnv(t *testing.T) {
 	if len(cfg.APIKeyScopes) != 2 || cfg.APIKeyScopes["key1"][0] != "read" || len(cfg.APIKeyScopes["key2"]) != 2 {
 		t.Fatalf("unexpected key scopes: %+v", cfg.APIKeyScopes)
 	}
+	if len(cfg.APIKeyScopeBindings) != 2 {
+		t.Fatalf("unexpected key scope bindings: %+v", cfg.APIKeyScopeBindings)
+	}
+	if cfg.APIKeyScopeBindings["key1"] != (db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}) {
+		t.Fatalf("unexpected key1 scope binding: %+v", cfg.APIKeyScopeBindings["key1"])
+	}
+	if cfg.APIKeyScopeBindings["key2"] != (db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}) {
+		t.Fatalf("unexpected key2 scope binding: %+v", cfg.APIKeyScopeBindings["key2"])
+	}
 	if cfg.RateLimitRPM != 300 || cfg.RateLimitBurst != 50 {
 		t.Fatalf("unexpected rate limit settings: rpm=%d burst=%d", cfg.RateLimitRPM, cfg.RateLimitBurst)
 	}
@@ -451,6 +482,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.ConnectorSecretKeys != "v1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=" {
 		t.Fatalf("unexpected connector secret keys: %q", cfg.ConnectorSecretKeys)
+	}
+	if !cfg.ConnectorSecretKeysRequired {
+		t.Fatal("expected connector secret keys required true")
 	}
 	if cfg.AlertWebhookURL != "https://alerts.example.com/hooks/identrail" {
 		t.Fatalf("unexpected alert webhook url: %q", cfg.AlertWebhookURL)
@@ -535,6 +569,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.DefaultWorkspaceID != "workspace-blue" {
 		t.Fatalf("unexpected default workspace id: %q", cfg.DefaultWorkspaceID)
+	}
+	if !cfg.RequireExplicitScope {
+		t.Fatal("expected explicit scope requirement true")
 	}
 	if cfg.OIDCIssuerURL != "https://iam.example.com/realms/identrail" {
 		t.Fatalf("unexpected oidc issuer url: %q", cfg.OIDCIssuerURL)
@@ -719,11 +756,63 @@ func TestLoadAppModeFromEnv(t *testing.T) {
 }
 
 func TestParseKeyScopes(t *testing.T) {
-	scopes := parseKeyScopes("key1:read;key2:read,write,tenant:tenant-a,workspace:workspace-a;invalid;:missing")
+	scopes, parseErr := parseKeyScopes("key1:read;key2:read,write,tenant:tenant-a,workspace:workspace-a")
+	if parseErr != "" {
+		t.Fatalf("expected valid scoped keys, got %q", parseErr)
+	}
 	if len(scopes) != 2 {
 		t.Fatalf("expected 2 scoped keys, got %d", len(scopes))
 	}
 	if len(scopes["key2"]) != 4 {
 		t.Fatalf("expected key2 to have 4 scope entries, got %+v", scopes["key2"])
+	}
+}
+
+func TestParseKeyScopesRejectsMalformedEntries(t *testing.T) {
+	tests := []string{
+		"key1:read;invalid",
+		":missing",
+		"key1:",
+		"key1:read;key1:write",
+	}
+	for _, test := range tests {
+		t.Run(test, func(t *testing.T) {
+			if _, parseErr := parseKeyScopes(test); parseErr == "" {
+				t.Fatal("expected malformed scoped keys to be rejected")
+			}
+		})
+	}
+}
+
+func TestParseKeyScopeBindings(t *testing.T) {
+	bindings, parseErr := parseKeyScopeBindings("key1:tenant-a/workspace-a;key2:tenant-b/workspace-b")
+	if parseErr != "" {
+		t.Fatalf("expected valid scoped key bindings, got %q", parseErr)
+	}
+	if len(bindings) != 2 {
+		t.Fatalf("expected 2 key scope bindings, got %d", len(bindings))
+	}
+	if bindings["key1"] != (db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}) {
+		t.Fatalf("unexpected key1 binding: %+v", bindings["key1"])
+	}
+	if bindings["key2"] != (db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}) {
+		t.Fatalf("unexpected key2 binding: %+v", bindings["key2"])
+	}
+}
+
+func TestParseKeyScopeBindingsRejectsMalformedEntries(t *testing.T) {
+	tests := []string{
+		"key1:tenant-a/workspace-a;key1:tenant-a/workspace-b",
+		"empty-tenant:/workspace-c",
+		"empty-workspace:tenant-d/",
+		"invalid",
+		":missing",
+	}
+	for _, test := range tests {
+		t.Run(test, func(t *testing.T) {
+			if _, parseErr := parseKeyScopeBindings(test); parseErr == "" {
+				t.Fatal("expected malformed scoped key bindings to be rejected")
+			}
+		})
 	}
 }

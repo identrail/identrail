@@ -278,6 +278,41 @@ func TestMemoryStoreProjectReadsCloneArchivedPointer(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreWorkspaceMemberDefaultsStatusToInvited(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-1",
+		UserID:      "user-1",
+		Role:        "viewer",
+	}); err != nil {
+		t.Fatalf("upsert workspace member: %v", err)
+	}
+
+	member, err := store.GetWorkspaceMember(ctx, "workspace-a", "member-1")
+	if err != nil {
+		t.Fatalf("get workspace member: %v", err)
+	}
+	if member.Status != "invited" {
+		t.Fatalf("expected default status invited, got %+v", member)
+	}
+}
+
 func TestMemoryStoreTenancyKeysAvoidDelimiterCollision(t *testing.T) {
 	store := NewMemoryStore()
 	ctxA := WithScope(context.Background(), Scope{TenantID: "tenant", WorkspaceID: "a|b"})

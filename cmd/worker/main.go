@@ -19,6 +19,10 @@ func run(ctx context.Context, sigCh <-chan os.Signal) error {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--healthcheck" {
+		return
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
