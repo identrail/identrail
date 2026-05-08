@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -144,6 +144,12 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	if completeBody.Connection.WebhookSecretKeyVersion == "" || completeBody.Connection.WebhookSecretAlgorithm != "AES-256-GCM" {
 		t.Fatalf("expected encrypted secret metadata, got %+v", completeBody.Connection)
 	}
+	if completeBody.Connection.WebhookSecretRotatedAt == nil || completeBody.Connection.WebhookSecretRotationDueAt == nil {
+		t.Fatalf("expected webhook secret rotation timestamps after initial connect, got %+v", completeBody.Connection)
+	}
+	if completeBody.Connection.WebhookSecretRotationRequired {
+		t.Fatalf("expected newly connected secret to not require immediate rotation, got %+v", completeBody.Connection)
+	}
 	if strings.Contains(completeResp.Body.String(), secret) {
 		t.Fatalf("response exposed webhook secret: %s", completeResp.Body.String())
 	}
@@ -166,6 +172,24 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	}
 	if strings.Contains(rotateResp.Body.String(), newSecret) {
 		t.Fatalf("rotation response exposed webhook secret: %s", rotateResp.Body.String())
+	}
+	var rotateBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(rotateResp.Body.Bytes(), &rotateBody); err != nil {
+		t.Fatalf("decode rotate response: %v", err)
+	}
+	if rotateBody.Connection.WebhookSecretReference != "vault://secret/v2" {
+		t.Fatalf("expected rotated secret reference, got %+v", rotateBody.Connection)
+	}
+	if rotateBody.Connection.WebhookSecretRotatedAt == nil || rotateBody.Connection.WebhookSecretRotationDueAt == nil {
+		t.Fatalf("expected rotation metadata after rotate, got %+v", rotateBody.Connection)
+	}
+	if rotateBody.Connection.WebhookSecretRotatedAt.Before(*completeBody.Connection.WebhookSecretRotatedAt) {
+		t.Fatalf("expected rotated_at to stay monotonic after rotation, before=%s after=%s", *completeBody.Connection.WebhookSecretRotatedAt, *rotateBody.Connection.WebhookSecretRotatedAt)
+	}
+	if rotateBody.Connection.WebhookSecretRotationRequired {
+		t.Fatalf("expected freshly rotated secret to not require immediate rotation, got %+v", rotateBody.Connection)
 	}
 
 	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
@@ -199,8 +223,44 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	if strings.Contains(string(auditPayload), secret) || strings.Contains(string(auditPayload), newSecret) {
 		t.Fatalf("audit events exposed webhook secret: %s", string(auditPayload))
 	}
+	actionEvents := 0
+	for _, event := range sink.events {
+		if event.Kind != "action" {
+			continue
+		}
+		actionEvents++
+		if event.TenantID == "tenant-a" || event.WorkspaceID == "workspace-a" || event.ResourceID == "project-1" {
+			t.Fatalf("action audit event exposed raw scope identifiers: %+v", event)
+		}
+	}
+	if actionEvents == 0 {
+		t.Fatal("expected action audit events")
+	}
 	if !strings.Contains(string(auditPayload), "connector.github.webhook_secret.rotate") {
 		t.Fatalf("expected rotation audit event, got %s", string(auditPayload))
+	}
+
+	svc.githubConnectMu.Lock()
+	connection = svc.githubConnections[key]
+	connection.WebhookSecretEnvelope.KeyVersion = "legacy-v1"
+	svc.githubConnections[key] = connection
+	svc.githubConnectMu.Unlock()
+
+	statusResp := doAPI(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/github/connection", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("status expected 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if !statusBody.Connection.WebhookSecretRotationRequired {
+		t.Fatalf("expected legacy key version to require rotation, got %+v", statusBody.Connection)
+	}
+	if strings.Contains(statusResp.Body.String(), newSecret) {
+		t.Fatalf("status response exposed webhook secret: %s", statusResp.Body.String())
 	}
 }
 
@@ -521,6 +581,15 @@ func TestRouterGitHubWebhookEdgeCases(t *testing.T) {
 		t.Fatalf("expected 400 for missing event type, got %d", noEventResp.Code)
 	}
 
+	emptyRepoPayload := []byte(`{"repository":{"full_name":""},"installation":{"id":1}}`)
+	emptyRepoReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(emptyRepoPayload))
+	emptyRepoReq.Header.Set("X-GitHub-Event", "push")
+	emptyRepoResp := httptest.NewRecorder()
+	r.ServeHTTP(emptyRepoResp, emptyRepoReq)
+	if emptyRepoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unsigned payload with empty repository, got %d body=%s", emptyRepoResp.Code, emptyRepoResp.Body.String())
+	}
+
 	badJSONReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString("not-json"))
 	badJSONReq.Header.Set("X-GitHub-Event", "push")
 	badJSONReq.Header.Set("X-Hub-Signature-256", "sha256=abc")
@@ -528,6 +597,16 @@ func TestRouterGitHubWebhookEdgeCases(t *testing.T) {
 	r.ServeHTTP(badJSONResp, badJSONReq)
 	if badJSONResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid JSON, got %d", badJSONResp.Code)
+	}
+
+	noRepoPayload := []byte(`{"installation":{"id":1}}`)
+	noRepoReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(noRepoPayload))
+	noRepoReq.Header.Set("X-GitHub-Event", "push")
+	noRepoReq.Header.Set("X-Hub-Signature-256", "sha256=abc")
+	noRepoResp := httptest.NewRecorder()
+	r.ServeHTTP(noRepoResp, noRepoReq)
+	if noRepoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unsigned webhook payload without repository, got %d body=%s", noRepoResp.Code, noRepoResp.Body.String())
 	}
 }
 
