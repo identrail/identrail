@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 type secretRule struct {
