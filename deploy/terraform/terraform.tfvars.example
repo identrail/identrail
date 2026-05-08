@@ -2,7 +2,8 @@ namespace    = "identrail"
 release_name = "identrail"
 
 create_namespace         = true
-create_kubernetes_secret = true
+create_kubernetes_secret = false
+secret_name              = "identrail-secrets"
 
 secret_data = {
   IDENTRAIL_API_KEYS      = "replace-read-key,replace-write-key"

@@ -305,7 +305,9 @@ paths:
       tags: [Health]
       summary: Prometheus metrics endpoint
       operationId: metrics
-      security: []
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
       responses:
         "200":
           description: Prometheus text exposition format

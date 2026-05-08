@@ -22,7 +22,7 @@ variable "create_namespace" {
 variable "create_kubernetes_secret" {
   description = "Create runtime secret from secret_data."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "secret_name" {
