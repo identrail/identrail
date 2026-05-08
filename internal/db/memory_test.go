@@ -3,11 +3,12 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 func TestMemoryStoreScanLifecycleAndFindings(t *testing.T) {
@@ -63,6 +64,13 @@ func TestMemoryStoreScanLifecycleAndFindings(t *testing.T) {
 	}
 	if len(storedFindings) != 1 || storedFindings[0].ScanID != scan.ID {
 		t.Fatalf("unexpected findings: %+v", storedFindings)
+	}
+	allFindings, err := store.ListFindingsAll(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("list all findings failed: %v", err)
+	}
+	if len(allFindings) != 1 || allFindings[0].ScanID != scan.ID {
+		t.Fatalf("unexpected all findings: %+v", allFindings)
 	}
 }
 
@@ -147,6 +155,107 @@ func TestMemoryStoreScanDetails(t *testing.T) {
 	}
 	if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+}
+
+func TestMemoryStoreSummarizeFindingsRespectsScope(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+
+	defaultCtx := defaultScopeContext()
+	otherCtx := WithScope(defaultCtx, Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	defaultScan, err := store.CreateScan(defaultCtx, "aws", now)
+	if err != nil {
+		t.Fatalf("create default scan: %v", err)
+	}
+	otherScan, err := store.CreateScan(otherCtx, "aws", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create other scan: %v", err)
+	}
+
+	if err := store.UpsertFindings(defaultCtx, defaultScan.ID, []domain.Finding{
+		{ID: "default-1", ScanID: defaultScan.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(time.Second)},
+		{ID: "default-2", ScanID: defaultScan.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityMedium, CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert default findings: %v", err)
+	}
+	if err := store.UpsertFindings(otherCtx, otherScan.ID, []domain.Finding{
+		{ID: "other-1", ScanID: otherScan.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityCritical, CreatedAt: now.Add(3 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert other findings: %v", err)
+	}
+
+	summary, err := store.SummarizeFindings(defaultCtx)
+	if err != nil {
+		t.Fatalf("summarize default findings: %v", err)
+	}
+	if summary.Total != 2 {
+		t.Fatalf("expected summary total 2, got %d", summary.Total)
+	}
+	if summary.BySeverity["high"] != 1 || summary.BySeverity["medium"] != 1 {
+		t.Fatalf("unexpected severity counts: %+v", summary.BySeverity)
+	}
+	if summary.ByType["ownerless_identity"] != 1 || summary.ByType["escalation_path"] != 1 {
+		t.Fatalf("unexpected type counts: %+v", summary.ByType)
+	}
+	if _, exists := summary.BySeverity["critical"]; exists {
+		t.Fatalf("expected other-scope severity to be excluded, got %+v", summary.BySeverity)
+	}
+}
+
+func TestMemoryStoreGetFinding(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scan, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+	item, err := store.GetFinding(defaultScopeContext(), "finding-1", scan.ID)
+	if err != nil {
+		t.Fatalf("get finding: %v", err)
+	}
+	if item.ID != "finding-1" || item.ScanID != scan.ID {
+		t.Fatalf("unexpected finding %+v", item)
+	}
+	if _, err := store.GetFinding(defaultScopeContext(), "missing", scan.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found for missing finding, got %v", err)
+	}
+}
+
+func TestMemoryStoreGetFindingWithoutScanIDReturnsLatestMatch(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scanA, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(1 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert scan A findings: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityCritical, CreatedAt: now.Add(6 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert scan B findings: %v", err)
+	}
+
+	item, err := store.GetFinding(defaultScopeContext(), "finding-1", "")
+	if err != nil {
+		t.Fatalf("get finding without scan id: %v", err)
+	}
+	if item.ScanID != scanB.ID || item.Severity != domain.SeverityCritical {
+		t.Fatalf("expected latest scan finding, got %+v", item)
 	}
 }
 
@@ -416,8 +525,78 @@ func TestMemoryStoreScanQueueLifecycle(t *testing.T) {
 	if claimed.ID != queued.ID || claimed.Status != "running" {
 		t.Fatalf("unexpected claimed scan %+v", claimed)
 	}
-	if _, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws"); err == nil {
-		t.Fatal("expected no queued scan remaining")
+	if _, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound when queue is empty, got %v", err)
+	}
+}
+
+func TestMemoryStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	if _, err := store.CreateQueuedScan(defaultScopeContext(), "aws", now); err != nil {
+		t.Fatalf("create aws queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScan(defaultScopeContext(), "gcp", now.Add(time.Minute)); err != nil {
+		t.Fatalf("create gcp queued scan: %v", err)
+	}
+
+	count, err := store.CountQueuedScans(defaultScopeContext(), "")
+	if err != nil {
+		t.Fatalf("count queued scans wildcard: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected wildcard queued count 2, got %d", count)
+	}
+}
+
+func TestMemoryStoreNonPositiveLimitsUseDefaultPageSize(t *testing.T) {
+	store := NewMemoryStore()
+	base := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < 105; i++ {
+		scan, err := store.CreateScan(defaultScopeContext(), "aws", base.Add(time.Duration(i)*time.Minute))
+		if err != nil {
+			t.Fatalf("create scan %d: %v", i, err)
+		}
+		if err := store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{{
+			ID:        fmt.Sprintf("finding-%03d", i),
+			Type:      domain.FindingOwnerless,
+			Severity:  domain.SeverityHigh,
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}}); err != nil {
+			t.Fatalf("upsert finding %d: %v", i, err)
+		}
+	}
+
+	scans, err := store.ListScans(defaultScopeContext(), 0)
+	if err != nil {
+		t.Fatalf("list scans default page: %v", err)
+	}
+	if len(scans) != 100 {
+		t.Fatalf("expected default scan page size 100, got %d", len(scans))
+	}
+
+	findings, err := store.ListFindings(defaultScopeContext(), 0)
+	if err != nil {
+		t.Fatalf("list findings default page: %v", err)
+	}
+	if len(findings) != 100 {
+		t.Fatalf("expected default finding page size 100, got %d", len(findings))
+	}
+}
+
+func TestMemoryStoreCreateQueuedScanWithinLimit(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+
+	first, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now, 1)
+	if err != nil {
+		t.Fatalf("create queued scan with limit: %v", err)
+	}
+	if first.Status != "queued" {
+		t.Fatalf("expected queued status, got %q", first.Status)
+	}
+	if _, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
+		t.Fatalf("expected ErrQueueLimitReached, got %v", err)
 	}
 }
 

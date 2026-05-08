@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/api"
+	"github.com/identrail/identrail/internal/app"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 type integrationScanner struct {
