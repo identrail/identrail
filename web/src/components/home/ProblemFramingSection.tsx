@@ -48,7 +48,7 @@ export function ProblemFramingSection() {
           </p>
         </div>
 
-        <div className="idt-problem-path-visual" aria-label="Identity signals converge into the Identrail trust graph">
+        <div className="idt-problem-path-visual" role="group" aria-label="Identity signals converge into the Identrail trust graph">
           <div className="idt-problem-source-stack" aria-label="Source systems">
             {identitySignals.map((signal) => (
               <article className="idt-problem-source-card" key={signal.name}>
