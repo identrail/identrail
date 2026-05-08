@@ -20,7 +20,7 @@ variable "create_namespace" {
   description = "Create the namespace if it does not already exist."
   type        = bool
   default     = true
-  default     = "identrail-secrets"
+}
 
 variable "create_kubernetes_secret" {
   description = "Create a Kubernetes secret from secret_data. Keep false in production to avoid persisting secrets in Terraform state."
