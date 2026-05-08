@@ -1,4 +1,4 @@
-module github.com/Oluwatobi-Mustapha/identrail
+module github.com/identrail/identrail
 
 go 1.25.9
 
