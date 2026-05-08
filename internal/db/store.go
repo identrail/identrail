@@ -1021,6 +1021,7 @@ type Store interface {
 	ListScans(ctx context.Context, limit int) ([]ScanRecord, error)
 	ListFindings(ctx context.Context, limit int) ([]domain.Finding, error)
 	ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error)
+	GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
 	GetAuthzEntityAttributes(ctx context.Context, entityKind string, entityType string, entityID string) (AuthzEntityAttributes, error)
 	UpsertAuthzRelationship(ctx context.Context, relationship AuthzRelationship) error

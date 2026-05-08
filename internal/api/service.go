@@ -1083,20 +1083,24 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 
 // GetFinding returns one finding by id, optionally scoped to one scan.
 func (s *Service) GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error) {
+	ctx = s.scopeContext(ctx)
 	id := strings.TrimSpace(findingID)
 	if id == "" {
 		return domain.Finding{}, db.ErrNotFound
 	}
-	filtered, err := s.ListFindingsFiltered(ctx, 5000, FindingsFilter{ScanID: strings.TrimSpace(scanID)})
+	item, err := s.Store.GetFinding(ctx, id, strings.TrimSpace(scanID))
 	if err != nil {
 		return domain.Finding{}, err
 	}
-	for _, item := range filtered {
-		if item.ID == id {
-			return item, nil
-		}
+	enriched := enrichFindings([]domain.Finding{item})
+	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
+	if err != nil {
+		return domain.Finding{}, err
 	}
-	return domain.Finding{}, db.ErrNotFound
+	if len(withTriage) == 0 {
+		return domain.Finding{}, db.ErrNotFound
+	}
+	return withTriage[0], nil
 }
 
 // TriageFinding applies one workflow mutation and records audit history.

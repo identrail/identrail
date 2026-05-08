@@ -256,6 +256,39 @@ func TestPostgresStoreGetScanAndFindingsByScan(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreGetFinding(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+
+	findingsRows := sqlmock.NewRows([]string{"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).
+		AddRow("scan-1", "f1", "ownerless_identity", "medium", "Ownerless", "summary", []byte("[\"x\"]"), []byte("{\"a\":1}"), "fix", now)
+	mock.ExpectQuery("SELECT f.scan_id, f.finding_id, f.type").WithArgs("default", "default", "f1", "scan-1").WillReturnRows(findingsRows)
+
+	item, err := store.GetFinding(defaultScopeContext(), "f1", "scan-1")
+	if err != nil {
+		t.Fatalf("get finding failed: %v", err)
+	}
+	if item.ID != "f1" || item.ScanID != "scan-1" {
+		t.Fatalf("unexpected finding: %+v", item)
+	}
+
+	emptyRows := sqlmock.NewRows([]string{"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"})
+	mock.ExpectQuery("SELECT f.scan_id, f.finding_id, f.type").WithArgs("default", "default", "missing", "scan-1").WillReturnRows(emptyRows)
+	if _, err := store.GetFinding(defaultScopeContext(), "missing", "scan-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing finding, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreScanEvents(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

@@ -106,6 +106,11 @@ type ProductSessionTokens = {
 let inMemoryTokens: ProductSessionTokens = {};
 const OIDC_REFRESH_SKEW_MS = 90 * 1000;
 const OIDC_MAX_PENDING_LOGIN_AGE_MS = 10 * 60 * 1000;
+const OIDC_DEFAULT_CLAIMS = {
+  tenant: 'tenant_id',
+  workspace: 'workspace_id',
+  roles: 'roles'
+} as const;
 
 function normalizeValue(value: string): string {
   return value.trim();
@@ -116,10 +121,22 @@ function normalizeClaimName(value: string, fallback: string): string {
   return normalized || fallback;
 }
 
+function isSecureOIDCEndpointURL(rawURL: string): boolean {
+  try {
+    const parsed = new URL(rawURL);
+    return parsed.protocol === 'https:' && Boolean(normalizeValue(parsed.host));
+  } catch {
+    return false;
+  }
+}
+
 function readOIDCConfig(): OIDCConfig | null {
   const issuerURL = normalizeValue(import.meta.env.VITE_OIDC_ISSUER_URL ?? '');
   const clientID = normalizeValue(import.meta.env.VITE_OIDC_CLIENT_ID ?? '');
   if (!issuerURL || !clientID) {
+    return null;
+  }
+  if (!isSecureOIDCEndpointURL(issuerURL)) {
     return null;
   }
 
@@ -137,9 +154,9 @@ function readOIDCConfig(): OIDCConfig | null {
     scope: normalizeValue(import.meta.env.VITE_OIDC_SCOPE ?? '') || 'openid profile email offline_access',
     redirectURI,
     postLogoutRedirectURI,
-    tenantClaim: normalizeClaimName(import.meta.env.VITE_OIDC_TENANT_CLAIM ?? '', 'tenant_id'),
-    workspaceClaim: normalizeClaimName(import.meta.env.VITE_OIDC_WORKSPACE_CLAIM ?? '', 'workspace_id'),
-    rolesClaim: normalizeClaimName(import.meta.env.VITE_OIDC_ROLES_CLAIM ?? '', 'roles')
+    tenantClaim: normalizeClaimName(import.meta.env.VITE_OIDC_TENANT_CLAIM ?? '', OIDC_DEFAULT_CLAIMS.tenant),
+    workspaceClaim: normalizeClaimName(import.meta.env.VITE_OIDC_WORKSPACE_CLAIM ?? '', OIDC_DEFAULT_CLAIMS.workspace),
+    rolesClaim: normalizeClaimName(import.meta.env.VITE_OIDC_ROLES_CLAIM ?? '', OIDC_DEFAULT_CLAIMS.roles)
   };
 }
 
@@ -174,6 +191,19 @@ async function loadOIDCDiscovery(config: OIDCConfig): Promise<OIDCDiscoveryDocum
   }
   if (typeof payload.token_endpoint !== 'string' || !normalizeValue(payload.token_endpoint)) {
     throw new Error('OIDC discovery document missing token_endpoint');
+  }
+  if (!isSecureOIDCEndpointURL(payload.authorization_endpoint)) {
+    throw new Error('OIDC discovery authorization_endpoint must use https');
+  }
+  if (!isSecureOIDCEndpointURL(payload.token_endpoint)) {
+    throw new Error('OIDC discovery token_endpoint must use https');
+  }
+  if (
+    typeof payload.end_session_endpoint === 'string' &&
+    normalizeValue(payload.end_session_endpoint) &&
+    !isSecureOIDCEndpointURL(payload.end_session_endpoint)
+  ) {
+    throw new Error('OIDC discovery end_session_endpoint must use https');
   }
 
   return {
@@ -301,10 +331,14 @@ function claimStringArray(claims: OIDCClaims, key: string): string[] {
 }
 
 function resolveSessionScopeFromClaims(claims: OIDCClaims, config: OIDCConfig): { tenantID: string; workspaceID: string } {
-  const tenantID = claimString(claims, config.tenantClaim) || claimString(claims, 'tenant_id') || claimString(claims, 'tenant') || 'default';
+  const tenantID =
+    claimString(claims, config.tenantClaim) ||
+    claimString(claims, OIDC_DEFAULT_CLAIMS.tenant) ||
+    claimString(claims, 'tenant') ||
+    'default';
   const workspaceID =
     claimString(claims, config.workspaceClaim) ||
-    claimString(claims, 'workspace_id') ||
+    claimString(claims, OIDC_DEFAULT_CLAIMS.workspace) ||
     claimString(claims, 'workspace') ||
     'default';
 
