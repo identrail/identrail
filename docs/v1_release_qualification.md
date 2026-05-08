@@ -17,6 +17,8 @@ This is the release gate for priorities 21-22.
 
 - Full qualification runner:
   - `scripts/v1_release_qualify.sh`
+- Release workflow enforcement:
+  - `.github/workflows/release.yml` runs the qualification gate before publishing release artifacts.
 - Required checks:
   - Go tests
   - Integration tests

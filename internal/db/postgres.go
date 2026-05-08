@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db/sqlcdb"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/db/sqlcdb"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -29,8 +29,37 @@ type sqlExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+type storeExecutor struct {
+	store *PostgresStore
+}
+
+func (e storeExecutor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return e.store.execContext(ctx, query, args...)
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+type rowsScanner interface {
+	Next() bool
+	Scan(dest ...any) error
+	Close() error
+	Err() error
+}
+
+type scopedQueryRow struct {
+	row *sql.Row
+	tx  *sql.Tx
+}
+
+func (s *scopedQueryRow) Scan(dest ...any) error {
+	err := s.row.Scan(dest...)
+	if err != nil {
+		_ = s.tx.Rollback()
+		return err
+	}
+	return s.tx.Commit()
 }
 
 type errScanner struct {
@@ -39,6 +68,49 @@ type errScanner struct {
 
 func (e errScanner) Scan(_ ...any) error {
 	return e.err
+}
+
+type scopedRows struct {
+	rows    *sql.Rows
+	tx      *sql.Tx
+	errSeen bool
+	closed  bool
+}
+
+func (s *scopedRows) Next() bool {
+	return s.rows.Next()
+}
+
+func (s *scopedRows) Scan(dest ...any) error {
+	err := s.rows.Scan(dest...)
+	if err != nil {
+		s.errSeen = true
+	}
+	return err
+}
+
+func (s *scopedRows) Err() error {
+	err := s.rows.Err()
+	if err != nil {
+		s.errSeen = true
+	}
+	return err
+}
+
+func (s *scopedRows) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	closeErr := s.rows.Close()
+	if closeErr != nil || s.errSeen {
+		_ = s.tx.Rollback()
+		return closeErr
+	}
+	if err := s.tx.Commit(); err != nil {
+		return fmt.Errorf("commit scoped query: %w", err)
+	}
+	return nil
 }
 
 var placeholderPattern = regexp.MustCompile(`\$(\d+)`)
@@ -159,40 +231,71 @@ func (p *PostgresStore) injectScopeCTE(ctx context.Context, query string, args [
 }
 
 func (p *PostgresStore) execContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+	if !p.enforceScopeRLS {
+		return p.db.ExecContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return p.db.ExecContext(ctx, scopedQuery, scopedArgs...)
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit scoped exec: %w", err)
+	}
+	return result, nil
 }
 
-func (p *PostgresStore) queryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+func (p *PostgresStore) queryContext(ctx context.Context, query string, args ...any) (rowsScanner, error) {
+	if !p.enforceScopeRLS {
+		return p.db.QueryContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return p.db.QueryContext(ctx, scopedQuery, scopedArgs...)
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	return &scopedRows{rows: rows, tx: tx}, nil
 }
 
 func (p *PostgresStore) queryRowContext(ctx context.Context, query string, args ...any) rowScanner {
-	scopedQuery, scopedArgs, err := p.injectScopeCTE(ctx, query, args)
+	if !p.enforceScopeRLS {
+		return p.db.QueryRowContext(ctx, query, args...)
+	}
+
+	tx, err := p.beginTx(ctx)
 	if err != nil {
 		return errScanner{err: err}
 	}
-	return p.db.QueryRowContext(ctx, scopedQuery, scopedArgs...)
+	return &scopedQueryRow{
+		row: tx.QueryRowContext(ctx, query, args...),
+		tx:  tx,
+	}
+}
+
+func (p *PostgresStore) queryRowContextAnyScope(ctx context.Context, query string, args ...any) rowScanner {
+	return p.db.QueryRowContext(ctx, query, args...)
 }
 
 func (p *PostgresStore) beginTx(ctx context.Context) (*sql.Tx, error) {
-	tx, err := p.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
 	if !p.enforceScopeRLS {
-		return tx, nil
+		return p.db.BeginTx(ctx, nil)
 	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
-		_ = tx.Rollback()
+		return nil, err
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(
@@ -218,15 +321,103 @@ func (p *PostgresStore) CreateQueuedScan(ctx context.Context, provider string, q
 	return p.createScanWithStatus(ctx, provider, "queued", queuedAt)
 }
 
+// CreateQueuedScanWithinLimit inserts one queued scan request only when pending capacity remains.
+func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("begin queued scan transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	normalizedProvider := strings.TrimSpace(provider)
+	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+		return ScanRecord{}, fmt.Errorf("lock queued scan capacity: %w", err)
+	}
+
+	var queued int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM scans
+		WHERE tenant_id = $1
+		  AND workspace_id = $2
+		  AND provider = $3
+		  AND status = 'queued'`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedProvider,
+	).Scan(&queued); err != nil {
+		return ScanRecord{}, fmt.Errorf("count queued scans: %w", err)
+	}
+	if queued >= maxPending {
+		return ScanRecord{}, ErrQueueLimitReached
+	}
+
+	row := tx.QueryRowContext(
+		ctx,
+		`INSERT INTO scans (
+			id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
+		)
+		VALUES ($1, $2, $3, $4, 'queued', $5, NULL, 0, 0, NULL)
+		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')`,
+		uuid.NewString(),
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedProvider,
+		queuedAt.UTC(),
+	)
+	record, err := scanScanRecord(row)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("insert queued scan: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ScanRecord{}, fmt.Errorf("commit queued scan transaction: %w", err)
+	}
+	return record, nil
+}
+
 // ClaimNextQueuedScan atomically claims one queued scan for execution.
 func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return ScanRecord{}, err
 	}
-	row := p.queryRowContext(
-		ctx,
-		`WITH next_scan AS (
+	return p.claimNextQueuedScan(ctx, provider, &scope)
+}
+
+// ClaimNextQueuedScanAnyScope atomically claims one queued scan across all scopes.
+func (p *PostgresStore) ClaimNextQueuedScanAnyScope(ctx context.Context, provider string) (ScanRecord, error) {
+	return p.claimNextQueuedScan(ctx, provider, nil)
+}
+
+func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string, scope *Scope) (ScanRecord, error) {
+	query := `WITH next_scan AS (
+			SELECT id
+			FROM scans
+			WHERE provider = $1
+			  AND status = 'queued'
+			ORDER BY started_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		)
+		UPDATE scans AS s
+		SET status = 'running',
+		    finished_at = NULL,
+		    error_message = NULL
+		FROM next_scan
+		WHERE s.id = next_scan.id
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`
+	args := []any{strings.TrimSpace(provider)}
+	if scope != nil {
+		query = `WITH next_scan AS (
 			SELECT id
 			FROM scans
 			WHERE tenant_id = $1
@@ -243,11 +434,13 @@ func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string
 		    error_message = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`,
-		scope.TenantID,
-		scope.WorkspaceID,
-		strings.TrimSpace(provider),
-	)
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`
+		args = []any{scope.TenantID, scope.WorkspaceID, strings.TrimSpace(provider)}
+	}
+	row := p.queryRowContext(ctx, query, args...)
+	if scope == nil {
+		row = p.queryRowContextAnyScope(ctx, query, args...)
+	}
 	var record ScanRecord
 	var finishedAt sql.NullTime
 	if err := row.Scan(
@@ -287,7 +480,7 @@ func (p *PostgresStore) CountQueuedScans(ctx context.Context, provider string) (
 		 FROM scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
-		   AND provider = $3
+		   AND ($3 = '' OR provider = $3)
 		   AND status = 'queued'`,
 		scope.TenantID,
 		scope.WorkspaceID,
@@ -568,7 +761,7 @@ func (p *PostgresStore) ListFindingTriageStates(ctx context.Context, findingIDs 
 
 // UpsertFindingTriageState creates or updates mutable triage metadata.
 func (p *PostgresStore) UpsertFindingTriageState(ctx context.Context, state FindingTriageState) error {
-	return p.upsertFindingTriageStateWithExecutor(ctx, p.db, state)
+	return p.upsertFindingTriageStateWithExecutor(ctx, storeExecutor{store: p}, state)
 }
 
 func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context, executor sqlExecutor, state FindingTriageState) error {
@@ -608,7 +801,7 @@ func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context
 
 // AppendFindingTriageEvent records one immutable triage action.
 func (p *PostgresStore) AppendFindingTriageEvent(ctx context.Context, event FindingTriageEvent) error {
-	return p.appendFindingTriageEventWithExecutor(ctx, p.db, event)
+	return p.appendFindingTriageEventWithExecutor(ctx, storeExecutor{store: p}, event)
 }
 
 func (p *PostgresStore) appendFindingTriageEventWithExecutor(ctx context.Context, executor sqlExecutor, event FindingTriageEvent) error {
@@ -739,7 +932,7 @@ func (p *PostgresStore) ListFindingTriageEvents(ctx context.Context, findingID s
 // ListScans returns latest scans first.
 func (p *PostgresStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, error) {
 	if limit <= 0 {
-		limit = 20
+		limit = 100
 	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
@@ -836,6 +1029,43 @@ func (p *PostgresStore) ListFindingsByScan(ctx context.Context, scanID string, l
 	}
 	defer rows.Close()
 	return findingsFromSQLRows(rows)
+}
+
+// GetFinding returns one finding by id, optionally scoped to one scan id.
+func (p *PostgresStore) GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return domain.Finding{}, ErrNotFound
+	}
+	query := `SELECT f.scan_id, f.finding_id, f.type, f.severity, f.title, f.human_summary, f.path, f.evidence, COALESCE(f.remediation, ''), f.created_at
+	 FROM findings f
+	 JOIN scans s ON s.id = f.scan_id
+	 WHERE s.tenant_id = $1
+	   AND s.workspace_id = $2
+	   AND f.finding_id = $3`
+	args := []any{scope.TenantID, scope.WorkspaceID, id}
+	if normalizedScanID := strings.TrimSpace(scanID); normalizedScanID != "" {
+		query += " AND f.scan_id = $4"
+		args = append(args, normalizedScanID)
+	}
+	query += " ORDER BY f.created_at DESC LIMIT 1"
+	rows, err := p.queryContext(ctx, query, args...)
+	if err != nil {
+		return domain.Finding{}, fmt.Errorf("query finding: %w", err)
+	}
+	defer rows.Close()
+	items, err := findingsFromSQLRows(rows)
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	if len(items) == 0 {
+		return domain.Finding{}, ErrNotFound
+	}
+	return items[0], nil
 }
 
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
@@ -1762,15 +1992,145 @@ func (p *PostgresStore) CreateQueuedRepoScan(ctx context.Context, repository str
 	return p.createRepoScanWithStatus(ctx, repository, "queued", historyLimit, maxFindings, queuedAt)
 }
 
+// CreateQueuedRepoScanWithinLimit inserts one queued repository scan only when the target is idle and queue capacity remains.
+func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return RepoScanRecord{}, fmt.Errorf("begin queued repo scan transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	normalizedRepository := strings.TrimSpace(repository)
+	queueLockKey := fmt.Sprintf("repo-queue:%s:%s", scope.TenantID, scope.WorkspaceID)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, queueLockKey); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("lock repo scan queue capacity: %w", err)
+	}
+	repositoryLockKey := fmt.Sprintf("repo-target:%s:%s:%s", scope.TenantID, scope.WorkspaceID, strings.ToLower(normalizedRepository))
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, repositoryLockKey); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("lock repo scan target: %w", err)
+	}
+
+	var pendingForTarget int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM repo_scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND LOWER(repository) = LOWER($3)
+		   AND status IN ('queued', 'running')`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedRepository,
+	).Scan(&pendingForTarget); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("count pending repo scans: %w", err)
+	}
+	if pendingForTarget > 0 {
+		return RepoScanRecord{}, ErrPendingRepoScanExists
+	}
+
+	var queued int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM repo_scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'queued'`,
+		scope.TenantID,
+		scope.WorkspaceID,
+	).Scan(&queued); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("count queued repo scans: %w", err)
+	}
+	if queued >= maxPending {
+		return RepoScanRecord{}, ErrQueueLimitReached
+	}
+
+	record := RepoScanRecord{
+		ID:           uuid.NewString(),
+		TenantID:     scope.TenantID,
+		WorkspaceID:  scope.WorkspaceID,
+		Repository:   normalizedRepository,
+		Status:       "queued",
+		StartedAt:    queuedAt.UTC(),
+		HistoryLimit: historyLimit,
+		MaxFindings:  maxFindings,
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8)`,
+		record.ID,
+		record.TenantID,
+		record.WorkspaceID,
+		record.Repository,
+		record.Status,
+		record.StartedAt,
+		record.HistoryLimit,
+		record.MaxFindings,
+	); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("insert queued repo scan: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return RepoScanRecord{}, fmt.Errorf("commit queued repo scan transaction: %w", err)
+	}
+	return record, nil
+}
+
 // ClaimNextQueuedRepoScan atomically claims one queued repository scan.
 func (p *PostgresStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	row := p.queryRowContext(
-		ctx,
-		`WITH next_repo_scan AS (
+	return p.claimNextQueuedRepoScan(ctx, &scope)
+}
+
+// ClaimNextQueuedRepoScanAnyScope atomically claims one queued repository scan across all scopes.
+func (p *PostgresStore) ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (RepoScanRecord, error) {
+	return p.claimNextQueuedRepoScan(ctx, nil)
+}
+
+func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scope) (RepoScanRecord, error) {
+	query := `WITH next_repo_scan AS (
+			SELECT id
+			FROM repo_scans
+			WHERE status = 'queued'
+			ORDER BY started_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		)
+		UPDATE repo_scans AS r
+		SET status = 'running',
+		    finished_at = NULL,
+		    error_message = NULL
+		FROM next_repo_scan
+		WHERE r.id = next_repo_scan.id
+		RETURNING
+			r.id,
+			r.tenant_id,
+			r.workspace_id,
+			r.repository,
+			r.status,
+			r.started_at,
+			r.finished_at,
+			r.commits_scanned,
+			r.files_scanned,
+			r.finding_count,
+			r.truncated,
+			COALESCE(r.error_message, ''),
+			r.history_limit,
+			r.max_findings_limit`
+	args := []any{}
+	if scope != nil {
+		query = `WITH next_repo_scan AS (
 			SELECT id
 			FROM repo_scans
 			WHERE tenant_id = $1
@@ -1800,10 +2160,13 @@ func (p *PostgresStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRe
 			r.truncated,
 			COALESCE(r.error_message, ''),
 			r.history_limit,
-			r.max_findings_limit`,
-		scope.TenantID,
-		scope.WorkspaceID,
-	)
+			r.max_findings_limit`
+		args = []any{scope.TenantID, scope.WorkspaceID}
+	}
+	row := p.queryRowContext(ctx, query, args...)
+	if scope == nil {
+		row = p.queryRowContextAnyScope(ctx, query, args...)
+	}
 	record, err := scanRepoScanRecord(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -2626,7 +2989,7 @@ func scanAuthzPolicyEvent(scanner scanner) (AuthzPolicyEvent, error) {
 	return record, nil
 }
 
-func findingsFromSQLRows(rows *sql.Rows) ([]domain.Finding, error) {
+func findingsFromSQLRows(rows rowsScanner) ([]domain.Finding, error) {
 	result := []domain.Finding{}
 	for rows.Next() {
 		var row struct {
