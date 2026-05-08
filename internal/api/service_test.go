@@ -1688,6 +1688,55 @@ func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
 	}
 }
 
+func TestServiceEnqueueRepoScanConcurrentDeduplicatesTarget(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.RepoQueueMaxPending = 100
+
+	const workers = 12
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var successCount int32
+	var inProgressCount int32
+	var queueFullCount int32
+	var unexpectedErrCount int32
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo"})
+			switch {
+			case err == nil:
+				atomic.AddInt32(&successCount, 1)
+			case errors.Is(err, ErrRepoScanInProgress):
+				atomic.AddInt32(&inProgressCount, 1)
+			case errors.Is(err, ErrRepoScanQueueFull):
+				atomic.AddInt32(&queueFullCount, 1)
+			default:
+				atomic.AddInt32(&unexpectedErrCount, 1)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if unexpectedErrCount != 0 {
+		t.Fatalf("expected no unexpected enqueue errors, got %d", unexpectedErrCount)
+	}
+	if queueFullCount != 0 {
+		t.Fatalf("expected no queue-full errors, got %d", queueFullCount)
+	}
+	if successCount != 1 {
+		t.Fatalf("expected exactly one successful enqueue, got %d", successCount)
+	}
+	if inProgressCount != workers-1 {
+		t.Fatalf("expected %d in-progress responses, got %d", workers-1, inProgressCount)
+	}
+}
+
 func TestServiceProcessQueuedRepoScanRequeuesWhenExecutionLockHeld(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
@@ -1792,6 +1841,87 @@ func TestServiceProcessQueuedRepoScanContinuesToNextTargetAfterRequeue(t *testin
 	}
 	if repoBRecord.Status != "succeeded" {
 		t.Fatalf("expected repo-b to complete, got %q", repoBRecord.Status)
+	}
+}
+
+func TestServiceProcessQueuedRepoScanFailureDoesNotBlockLaterQueuedTarget(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.Now = func() time.Time { return now }
+
+	factoryCalls := 0
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		factoryCalls++
+		if factoryCalls == 1 {
+			return &fakeRepoExecutor{err: errors.New("repo-a scanner failed")}
+		}
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo-b",
+				CommitsScanned: historyLimit,
+				FilesScanned:   4,
+				Findings: []domain.Finding{
+					{ID: "rf-batch-continue", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, CreatedAt: now},
+				},
+			},
+		}
+	}
+
+	repoA, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo-a"})
+	if err != nil {
+		t.Fatalf("enqueue repo-a scan: %v", err)
+	}
+	repoB, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo-b"})
+	if err != nil {
+		t.Fatalf("enqueue repo-b scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if !processed {
+		t.Fatal("expected first queued repo scan to be processed")
+	}
+	if err == nil {
+		t.Fatal("expected first queued repo scan to fail")
+	}
+
+	processed, err = svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("expected second queued repo scan to succeed, got %v", err)
+	}
+	if !processed {
+		t.Fatal("expected second queued repo scan to be processed")
+	}
+
+	repoARecord, err := svc.GetRepoScan(defaultScopeContext(), repoA.ID)
+	if err != nil {
+		t.Fatalf("get repo-a scan: %v", err)
+	}
+	if repoARecord.Status != "failed" || repoARecord.ErrorMessage == "" {
+		t.Fatalf("expected failed repo-a scan with error message, got %+v", repoARecord)
+	}
+
+	repoBRecord, err := svc.GetRepoScan(defaultScopeContext(), repoB.ID)
+	if err != nil {
+		t.Fatalf("get repo-b scan: %v", err)
+	}
+	if repoBRecord.Status != "succeeded" || repoBRecord.FindingCount != 1 {
+		t.Fatalf("expected repo-b succeeded with findings, got %+v", repoBRecord)
+	}
+
+	repoScans, err := svc.ListRepoScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	queuedOrRunning := 0
+	for _, scan := range repoScans {
+		if scan.Status == "queued" || scan.Status == "running" {
+			queuedOrRunning++
+		}
+	}
+	if queuedOrRunning != 0 {
+		t.Fatalf("expected no leftover queued/running records, got %d (%+v)", queuedOrRunning, repoScans)
 	}
 }
 

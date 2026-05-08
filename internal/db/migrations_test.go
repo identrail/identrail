@@ -214,6 +214,52 @@ func TestTenthMigrationContainsAuthzPolicyLifecycleTables(t *testing.T) {
 	}
 }
 
+func TestEleventhMigrationContainsAuthzRolloutStagedControls(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000011_authz_policy_rollout_staged_controls.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"ADD COLUMN IF NOT EXISTS tenant_allowlist JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"ADD COLUMN IF NOT EXISTS workspace_allowlist JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"ADD COLUMN IF NOT EXISTS canary_percentage INTEGER NOT NULL DEFAULT 100",
+		"ADD COLUMN IF NOT EXISTS validated_versions JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"ADD CONSTRAINT authz_policy_rollouts_canary_percentage_valid",
+		"ADD CONSTRAINT authz_policy_rollouts_tenant_allowlist_array",
+		"ADD CONSTRAINT authz_policy_rollouts_workspace_allowlist_array",
+		"ADD CONSTRAINT authz_policy_rollouts_validated_versions_array",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected authz rollout staged controls migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000011_authz_policy_rollout_staged_controls.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP CONSTRAINT IF EXISTS authz_policy_rollouts_validated_versions_array",
+		"DROP CONSTRAINT IF EXISTS authz_policy_rollouts_workspace_allowlist_array",
+		"DROP CONSTRAINT IF EXISTS authz_policy_rollouts_tenant_allowlist_array",
+		"DROP CONSTRAINT IF EXISTS authz_policy_rollouts_canary_percentage_valid",
+		"DROP COLUMN IF EXISTS validated_versions",
+		"DROP COLUMN IF EXISTS canary_percentage",
+		"DROP COLUMN IF EXISTS workspace_allowlist",
+		"DROP COLUMN IF EXISTS tenant_allowlist",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected authz rollout staged controls down migration item %q", item)
+		}
+	}
+}
+
 func TestTwelfthMigrationContainsTenancyCoreTables(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000012_tenancy_core_entities.up.sql")
 	content, err := os.ReadFile(path)
@@ -264,6 +310,50 @@ func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
 	for _, item := range required {
 		if !strings.Contains(text, item) {
 			t.Fatalf("expected connector/policy migration item %q", item)
+		}
+	}
+}
+
+func TestFourteenthMigrationContainsConnectorSecretEnvelopeSchema(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000014_connector_secret_envelopes.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"CREATE TABLE IF NOT EXISTS tenancy_connector_secret_envelopes",
+		"envelope_version INTEGER NOT NULL DEFAULT 1",
+		"algorithm TEXT NOT NULL",
+		"key_version TEXT NOT NULL",
+		"nonce BYTEA NOT NULL",
+		"ciphertext BYTEA NOT NULL",
+		"secret_ref_id TEXT",
+		"rotated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+		"rotation_due_at TIMESTAMPTZ",
+		"CHECK (algorithm = 'AES-256-GCM')",
+		"CHECK (LENGTH(nonce) = 12)",
+		"idx_tenancy_connector_secret_envelopes_rotation",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected connector secret envelope migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000014_connector_secret_envelopes.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP INDEX IF EXISTS idx_tenancy_connector_secret_envelopes_rotation",
+		"DROP TABLE IF EXISTS tenancy_connector_secret_envelopes",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected connector secret envelope down migration item %q", item)
 		}
 	}
 }

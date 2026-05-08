@@ -1237,6 +1237,37 @@ func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository strin
 	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), "queued", historyLimit, maxFindings, queuedAt), nil
 }
 
+// CreateQueuedRepoScanWithinLimit persists one queued repository scan only when the target is idle and queue capacity remains.
+func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	normalizedRepository := strings.TrimSpace(repository)
+	queued := 0
+	for _, record := range m.repoScans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if strings.EqualFold(record.Repository, normalizedRepository) && (record.Status == "queued" || record.Status == "running") {
+			return RepoScanRecord{}, ErrPendingRepoScanExists
+		}
+		if record.Status == "queued" {
+			queued++
+		}
+	}
+	if queued >= maxPending {
+		return RepoScanRecord{}, ErrQueueLimitReached
+	}
+	return m.createRepoScanLocked(scope, normalizedRepository, "queued", historyLimit, maxFindings, queuedAt), nil
+}
+
 // ClaimNextQueuedRepoScan moves one queued repository scan to running for execution.
 func (m *MemoryStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error) {
 	m.mu.Lock()
