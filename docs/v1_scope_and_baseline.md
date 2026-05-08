@@ -22,7 +22,7 @@ This document locks the first twenty non-negotiable V1 priorities.
 - Idempotent persistence for scans, artifacts, findings, and repo findings.
 - Single-flight locking for scan execution (`scan:<provider>`, `repo-scan:<target>`).
 - AWS collector retries transient IAM failures with bounded exponential backoff and jitter.
-- Partial-failure visibility through scan event stream and explicit failed/completed scan status transitions.
+- Partial-failure visibility through scan event stream and explicit failed/succeeded scan status transitions.
 
 ## 4) Data Contract Hardening
 
