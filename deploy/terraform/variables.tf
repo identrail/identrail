@@ -43,6 +43,13 @@ variable "secret_data" {
 
 variable "chart_values" {
   description = "Additional Helm values merged into release settings."
-  type        = map(any)
-  default     = {}
+  # Helm chart values are best modeled as an object because different top-level
+  # keys (api/worker/web/secret/config/...) often have different shapes.
+  type     = any
+  nullable = false
+  default  = {}
+  validation {
+    condition     = can(keys(var.chart_values))
+    error_message = "chart_values must be a map/object of Helm values."
+  }
 }
