@@ -885,6 +885,110 @@ func TestRouterSupportsFindingsSortParameters(t *testing.T) {
 	}
 }
 
+func TestRouterFindingsPaginationFilterDeterminism(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 9, 30, 0, 0, time.UTC)
+
+	scanA, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: "f-a", Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "a", CreatedAt: now},
+		{ID: "f-b", Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "b", CreatedAt: now},
+		{ID: "f-c", Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "c", CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("seed findings for scan A: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: "f-other-scan", Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "other", CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("seed findings for scan B: %v", err)
+	}
+
+	for findingID, assignee := range map[string]string{
+		"f-a": "platform",
+		"f-b": "platform",
+		"f-c": "security",
+	} {
+		if err := store.UpsertFindingTriageState(defaultScopeContext(), db.FindingTriageState{
+			FindingID: findingID,
+			Status:    domain.FindingLifecycleAck,
+			Assignee:  assignee,
+			UpdatedAt: now,
+			UpdatedBy: "subject:test",
+		}); err != nil {
+			t.Fatalf("upsert triage state for %s: %v", findingID, err)
+		}
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{RateLimitRPM: 10000, RateLimitBurst: 1000})
+
+	baseQuery := "/v1/findings?scan_id=" + scanA.ID +
+		"&severity=high&type=risky_trust_policy&lifecycle_status=ack&assignee=platform" +
+		"&sort_by=severity&sort_order=asc&limit=1"
+	pageOneReq := httptest.NewRequest(http.MethodGet, baseQuery, nil)
+	pageOneW := httptest.NewRecorder()
+	r.ServeHTTP(pageOneW, pageOneReq)
+	if pageOneW.Code != http.StatusOK {
+		t.Fatalf("expected findings page one 200, got %d body=%s", pageOneW.Code, pageOneW.Body.String())
+	}
+	var pageOneBody struct {
+		Items      []domain.Finding `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(pageOneW.Body.Bytes(), &pageOneBody); err != nil {
+		t.Fatalf("decode findings page one: %v", err)
+	}
+	if len(pageOneBody.Items) != 1 || pageOneBody.Items[0].ID != "f-a" {
+		t.Fatalf("unexpected findings page one items: %+v", pageOneBody.Items)
+	}
+	if pageOneBody.NextCursor == "" {
+		t.Fatal("expected findings page one next_cursor")
+	}
+
+	pageTwoReq := httptest.NewRequest(http.MethodGet, baseQuery+"&cursor="+pageOneBody.NextCursor, nil)
+	pageTwoW := httptest.NewRecorder()
+	r.ServeHTTP(pageTwoW, pageTwoReq)
+	if pageTwoW.Code != http.StatusOK {
+		t.Fatalf("expected findings page two 200, got %d body=%s", pageTwoW.Code, pageTwoW.Body.String())
+	}
+	var pageTwoBody struct {
+		Items      []domain.Finding `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(pageTwoW.Body.Bytes(), &pageTwoBody); err != nil {
+		t.Fatalf("decode findings page two: %v", err)
+	}
+	if len(pageTwoBody.Items) != 1 || pageTwoBody.Items[0].ID != "f-b" {
+		t.Fatalf("unexpected findings page two items: %+v", pageTwoBody.Items)
+	}
+	if pageTwoBody.NextCursor != "" {
+		t.Fatalf("expected no further cursor after last filtered result, got %q", pageTwoBody.NextCursor)
+	}
+	if pageOneBody.Items[0].ID == pageTwoBody.Items[0].ID {
+		t.Fatalf("expected no duplicate findings across pages, got %q", pageOneBody.Items[0].ID)
+	}
+	for _, item := range append(pageOneBody.Items, pageTwoBody.Items...) {
+		if item.ScanID != scanA.ID {
+			t.Fatalf("expected scan_id filter to persist across pages, got finding %+v", item)
+		}
+		if item.Severity != domain.SeverityHigh || item.Type != domain.FindingRiskyTrustPolicy {
+			t.Fatalf("expected severity/type filters to persist across pages, got finding %+v", item)
+		}
+		if item.Triage.Status != domain.FindingLifecycleAck || item.Triage.Assignee != "platform" {
+			t.Fatalf("expected lifecycle_status/assignee filters to persist across pages, got finding %+v", item)
+		}
+	}
+}
+
 func TestRouterSupportsScansSortParameters(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
