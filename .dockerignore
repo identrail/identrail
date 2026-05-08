@@ -1,8 +1,39 @@
+# Git metadata
 .git
 .github
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets
+secrets/**
+
+# Vercel local project state
+.vercel
+web/.vercel
+site/.vercel
+
+# Terraform local state and providers
+*.tfstate
+*.tfstate.*
+.terraform
+.terraform/**
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Dependency and build outputs
 web/node_modules
 web/dist
 coverage.out
+coverage
 *.log
 tmp
 .DS_Store

@@ -33,7 +33,7 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
   - `GET /v1/relationships`
   - `GET /v1/ownership/signals`
 - API filters and drill-down:
-  - findings filters: `scan_id`, `severity`, `type`
+  - findings filters: `scan_id`, `severity`, `type`, `lifecycle_status`, `assignee`
   - trends filters: `severity`, `type`
   - scan event filters: `level`
   - list endpoint cursor pagination: `cursor`, `next_cursor`

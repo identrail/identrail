@@ -2,13 +2,16 @@
 
 This page is the canonical runtime configuration surface for API and worker processes.
 
+Boolean values must parse as Go booleans (`true`, `false`, `1`, `0`, `t`, `f`) and duration values must be positive Go durations such as `5s`, `15m`, or `1h`. Invalid boolean or duration values are startup errors.
+
 ## Core Runtime
 
 - `IDENTRAIL_SERVICE_NAME` (default: `identrail`)
 - `IDENTRAIL_LOG_LEVEL` (default: `info`)
 - `IDENTRAIL_HTTP_ADDR` (default: `:8080`)
 - `IDENTRAIL_PROVIDER` (`aws|kubernetes`)
-- `IDENTRAIL_DATABASE_URL` (empty uses memory store)
+- `IDENTRAIL_DATABASE_URL` (required for API and worker persistence)
+- `IDENTRAIL_ALLOW_MEMORY_STORE` (default: `false`; set `true` only for local tests or disposable demos without persisted state)
 - `IDENTRAIL_RUN_MIGRATIONS` (default: `true`)
 - `IDENTRAIL_RUN_MIGRATIONS_ONLY` (default: `false`)
 - `IDENTRAIL_MIGRATIONS_DIR` (default: `migrations`)
@@ -17,7 +20,8 @@ This page is the canonical runtime configuration surface for API and worker proc
 
 - `IDENTRAIL_API_KEYS`
 - `IDENTRAIL_WRITE_API_KEYS`
-- `IDENTRAIL_API_KEY_SCOPES` (takes precedence over legacy key lists)
+- `IDENTRAIL_API_KEY_SCOPES` (takes precedence over legacy key lists; semicolon-separated `key:scope1,scope2` entries)
+- `IDENTRAIL_API_KEY_SCOPE_BINDINGS` (optional tenant/workspace binding for scoped keys, format: `<api-key>:<tenant-id>/<workspace-id>;...`)
 - `IDENTRAIL_OIDC_ISSUER_URL`
 - `IDENTRAIL_OIDC_AUDIENCE`
 - `IDENTRAIL_OIDC_WRITE_SCOPES`
@@ -27,10 +31,15 @@ This page is the canonical runtime configuration surface for API and worker proc
 - `IDENTRAIL_OIDC_ROLES_CLAIM`
 - `IDENTRAIL_DEFAULT_TENANT_ID`
 - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
+- `IDENTRAIL_REQUIRE_EXPLICIT_SCOPE` (default: `false`; set `true` in production to require tenant/workspace claims or headers instead of default fallback)
 
 Notes:
 - `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
 - OIDC bearer auth enforces issuer/audience plus token validity (`exp`) via provider verification.
+- Use either scoped API keys (`IDENTRAIL_API_KEY_SCOPES`) or legacy key lists (`IDENTRAIL_API_KEYS` plus `IDENTRAIL_WRITE_API_KEYS`). Scoped keys take precedence when both are set; overlap should be limited to planned migrations.
+- `IDENTRAIL_API_KEY_SCOPE_BINDINGS` can optionally bind scoped keys to a tenant/workspace pair: `<api-key>:<tenant-id>/<workspace-id>;...`.
+- API key callers can send `X-Identrail-Tenant-ID` and `X-Identrail-Workspace-ID` only when those headers match the configured binding for that scoped key.
+- Malformed `IDENTRAIL_API_KEY_SCOPES` entries are startup errors. Do not include bare keys, empty keys, empty scope lists, or duplicate key entries.
 
 ## Provider Collection
 
@@ -51,6 +60,8 @@ Kubernetes connector onboarding uses the same kubectl path and context to run a 
 Cross-provider:
 - `IDENTRAIL_REQUIRE_LIVE_SOURCES`
 
+Production deployment templates set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true` with `IDENTRAIL_AWS_SOURCE=sdk` and `IDENTRAIL_K8S_SOURCE=kubectl`. Keep fixture sources for local smoke tests only, and set `IDENTRAIL_REQUIRE_LIVE_SOURCES=false` when using them intentionally.
+
 ## Queue, Worker, and Locking
 
 - `IDENTRAIL_SCAN_INTERVAL`
@@ -65,7 +76,7 @@ Cross-provider:
 
 ## App-Mode Feature Flags
 
-All app-mode feature flags are disabled by default and must be explicitly enabled.
+App-mode feature flags are supported runtime configuration for API and worker processes. They are disabled by default and must be explicitly enabled; dependent feature flags fail validation unless their parent flag is enabled.
 
 - `IDENTRAIL_APP_MODE_ENABLED` (default: `false`)
 - `IDENTRAIL_APP_MODE_CONNECTORS_ENABLED` (default: `false`)
@@ -105,19 +116,21 @@ All app-mode feature flags are disabled by default and must be explicitly enable
   - Format: `version:base64-encoded-32-byte-key`, separated by commas or semicolons for rotation keysets.
   - The last key in the list is used for new connector secret envelopes; earlier versions remain available for decrypting existing envelopes during rotation.
   - If unset, the API uses an ephemeral in-memory key intended only for local/test connector state.
+- `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED` (default: `false`; set `true` in durable connector deployments so startup fails if `IDENTRAIL_CONNECTOR_SECRET_KEYS` is missing)
 
 ## Audit and Alerts
 
 Audit:
 - `IDENTRAIL_AUDIT_LOG_FILE`
+- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
+  - Enables keyed HMAC-SHA256 pseudonymization for audit identifiers and API-key fingerprints.
+  - Optional HMAC-SHA256 secret used to pseudonymize audit subject/resource identifiers.
+  - If unset, audit fingerprinting falls back to a legacy unkeyed hash intended only for local or transitional setups.
 - `IDENTRAIL_AUDIT_FORWARD_URL`
 - `IDENTRAIL_AUDIT_FORWARD_TIMEOUT`
 - `IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES`
 - `IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF`
 - `IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET`
-- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
-  - Optional HMAC-SHA256 secret used to pseudonymize audit subject/resource identifiers.
-  - If unset, audit fingerprinting falls back to a legacy unkeyed hash intended only for local or transitional setups.
 
 Alerts:
 - `IDENTRAIL_ALERT_WEBHOOK_URL`
