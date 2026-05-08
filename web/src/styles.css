@@ -9282,7 +9282,7 @@ html[data-theme='light'] .idt-hero,
   min-height: 800px;
   margin-top: 0;
   overflow: hidden;
-  transform: translateX(clamp(-1.75rem, -2.1vw, -0.75rem));
+  transform: translateX(clamp(-3.75rem, calc(1.75rem - 4.5vw), -1.8rem));
 }
 
 .idt-hero-backdrop-panel {
