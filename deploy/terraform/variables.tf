@@ -29,9 +29,9 @@ variable "create_kubernetes_secret" {
 }
 
 variable "secret_name" {
-  description = "Existing secret name to use when create_kubernetes_secret=false."
+  description = "Existing secret name to use when create_kubernetes_secret=false. Leave empty to fall back to <release_name>-secrets."
   type        = string
-  default     = "identrail-secrets"
+  default     = ""
 }
 
 variable "secret_data" {

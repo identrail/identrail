@@ -9,7 +9,7 @@ Deploys the Identrail Helm chart into an existing Kubernetes cluster.
 - `chart_path`: filesystem path to chart.
 - `create_namespace`: create namespace if missing.
 - `create_kubernetes_secret`: create runtime secret from `secret_data` (default `false`).
-- `secret_name`: existing secret when not creating one (default `identrail-secrets`).
+- `secret_name`: existing secret when not creating one. When empty, the module falls back to `${release_name}-secrets`.
 - `secret_data`: sensitive key/value runtime configuration.
 - `chart_values`: additional chart values.
 

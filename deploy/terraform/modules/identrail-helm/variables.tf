@@ -26,13 +26,9 @@ variable "create_kubernetes_secret" {
 }
 
 variable "secret_name" {
-  description = "Existing secret name to use when not creating one."
+  description = "Existing secret name to use when not creating one. Leave empty to fall back to <release_name>-secrets."
   type        = string
-  default     = "identrail-secrets"
-  validation {
-    condition     = var.create_kubernetes_secret || length(trimspace(var.secret_name)) > 0
-    error_message = "secret_name must be set when create_kubernetes_secret=false."
-  }
+  default     = ""
 }
 
 variable "secret_data" {

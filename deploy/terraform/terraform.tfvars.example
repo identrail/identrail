@@ -6,6 +6,7 @@ create_kubernetes_secret = false
 secret_name              = "identrail-secrets"
 
 # For production, create identrail-secrets through external secret management.
+# Remove secret_name to use the per-release default name: <release_name>-secrets.
 # Setting create_kubernetes_secret=true stores secret_data in Terraform state.
 secret_data = {}
 
