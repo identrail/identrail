@@ -30,7 +30,7 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
    - `Project` -> `Settings` -> `Environment Variables`
    - Add `VITE_IDENTRAIL_API_URL` for Production (and Preview if needed)
 
-If GitHub Actions variable is missing, workflow upsert is skipped. Deploy may still succeed when Vercel already has the env var set manually.
+If the GitHub Actions variable is missing, the production deploy workflow fails before deployment so the web app cannot ship without an explicit API URL.
 
 ## `site/` (legacy Next.js marketing surface)
 
