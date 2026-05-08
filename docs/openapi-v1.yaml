@@ -878,22 +878,22 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-    delete:
-      tags: [ProjectManagement]
-      summary: Delete workspace project
-      operationId: deleteProject
-      parameters:
-        - in: path
-          name: workspace_id
-          required: true
-          schema: { type: string }
-        - in: path
-          name: project_id
-          required: true
-          schema: { type: string }
-      responses:
-        "204":
-          description: Project deleted
+      delete:
+        tags: [ProjectManagement]
+        summary: Delete workspace project
+        operationId: deleteProject
+        parameters:
+          - in: path
+            name: workspace_id
+            required: true
+            schema: { type: string }
+          - in: path
+            name: project_id
+            required: true
+            schema: { type: string }
+        responses:
+          "204":
+            description: Project deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -1112,6 +1112,7 @@ paths:
           name: project_id
           required: true
           schema: { type: string }
+        - $ref: "#/components/parameters/githubInstallationID"
       requestBody:
         required: true
         content:
@@ -1882,6 +1883,15 @@ components:
         type: string
         enum: [asc, desc]
       description: Sort direction.
+    githubInstallationID:
+      in: header
+      name: X-GitHub-Installation-ID
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      description: Optional installation ID fallback when the completion request body omits `installation_id`.
   responses:
     BadRequest:
       description: Bad request
@@ -2321,7 +2331,6 @@ components:
       type: object
       required:
         - state
-        - installation_id
         - token_reference
         - webhook_secret
         - webhook_secret_reference
@@ -2332,6 +2341,7 @@ components:
           type: integer
           format: int64
           minimum: 1
+          description: GitHub App installation ID. May be supplied via the `X-GitHub-Installation-ID` header instead of the JSON body.
         account_login:
           type: string
         token_reference:
