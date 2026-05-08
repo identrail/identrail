@@ -375,6 +375,7 @@ func TestFifteenthMigrationContainsTenancyConnectorRLSGuardrails(t *testing.T) {
 		"ALTER TABLE tenancy_connector_states ENABLE ROW LEVEL SECURITY",
 		"ALTER TABLE tenancy_scan_policies ENABLE ROW LEVEL SECURITY",
 		"CREATE POLICY tenancy_organizations_scope_isolation",
+		"USING (identrail_rls_tenant_matches(tenant_id))",
 		"CREATE POLICY tenancy_connector_states_scope_isolation",
 		"CREATE POLICY tenancy_scan_policies_scope_isolation",
 		"CREATE POLICY tenancy_connector_secret_envelopes_scope_isolation",

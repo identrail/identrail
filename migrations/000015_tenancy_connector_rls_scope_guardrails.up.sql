@@ -22,8 +22,8 @@ ALTER TABLE tenancy_workspaces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenancy_workspaces FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenancy_workspaces_scope_isolation ON tenancy_workspaces;
 CREATE POLICY tenancy_workspaces_scope_isolation ON tenancy_workspaces
-USING (identrail_rls_scope_matches(tenant_id, workspace_id))
-WITH CHECK (identrail_rls_scope_matches(tenant_id, workspace_id));
+USING (identrail_rls_tenant_matches(tenant_id))
+WITH CHECK (identrail_rls_tenant_matches(tenant_id));
 
 ALTER TABLE tenancy_workspace_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenancy_workspace_members FORCE ROW LEVEL SECURITY;
