@@ -1906,8 +1906,8 @@ func TestServiceProcessQueuedRepoScanFailureDoesNotBlockLaterQueuedTarget(t *tes
 	if err != nil {
 		t.Fatalf("get repo-b scan: %v", err)
 	}
-	if repoBRecord.Status != "completed" || repoBRecord.FindingCount != 1 {
-		t.Fatalf("expected repo-b completed with findings, got %+v", repoBRecord)
+	if repoBRecord.Status != "succeeded" || repoBRecord.FindingCount != 1 {
+		t.Fatalf("expected repo-b succeeded with findings, got %+v", repoBRecord)
 	}
 
 	repoScans, err := svc.ListRepoScans(defaultScopeContext(), 10)
