@@ -156,7 +156,16 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	r.GET(
 		"/metrics",
-		apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes),
+		apiKeyAuthMiddleware(
+			opts.APIKeys,
+			opts.APIKeyScopes,
+			opts.APIKeyScopeBindings,
+			opts.OIDCTokenVerifier,
+			opts.OIDCWriteScopes,
+			opts.AuditSink,
+			opts.AuditFingerprinter,
+			logger,
+		),
 		requireMetricsScopeMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes),
 		gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})),
 	)
