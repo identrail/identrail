@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 func TestPostgresStoreUpsertAndGetOrganizationScoped(t *testing.T) {

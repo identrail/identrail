@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/audit"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 const (
@@ -402,16 +402,16 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 	if err := json.Unmarshal(payload, &envelope); err != nil {
 		return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
 	}
-	repository := normalizeGitHubRepository(envelope.Repository.FullName)
-	if repository == "" {
-		return GitHubWebhookResult{EventType: normalizedEventType}, nil
-	}
-
 	installationID := envelope.Installation.ID
 	normalizedSignature := strings.TrimSpace(signature)
 
 	if !s.verifyGitHubWebhookSignatureForInstallation(installationID, payload, normalizedSignature) {
 		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
+	}
+
+	repository := normalizeGitHubRepository(envelope.Repository.FullName)
+	if repository == "" {
+		return GitHubWebhookResult{EventType: normalizedEventType}, nil
 	}
 
 	candidates := s.lookupGitHubConnectionsByRepository(repository, installationID)

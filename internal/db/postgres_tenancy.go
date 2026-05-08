@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/audit"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 // UpsertOrganization persists one scoped organization metadata row.
