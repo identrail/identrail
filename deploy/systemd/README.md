@@ -25,3 +25,5 @@ Use this for VM or bare-metal Linux hosts.
 Run `identrail-migrations` once before starting or upgrading the API and worker units. Keep
 `IDENTRAIL_RUN_MIGRATIONS=false` in the shared environment file so long-running services do
 not race each other on schema changes.
+
+The migration unit is intentionally manual-only; avoid enabling it at boot to prevent migrations from running automatically during every startup. Run it explicitly once before enabling long-running services.
