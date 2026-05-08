@@ -15,14 +15,14 @@ secret_data = {
 chart_values = {
   api = {
     image = {
-      repository = "ghcr.io/example/identrail-api"
+      repository = "ghcr.io/identrail/identrail-api"
       tag        = "v1.0.0"
       pullPolicy = "IfNotPresent"
     }
   }
   worker = {
     image = {
-      repository = "ghcr.io/example/identrail-worker"
+      repository = "ghcr.io/identrail/identrail-worker"
       tag        = "v1.0.0"
       pullPolicy = "IfNotPresent"
     }
