@@ -16,11 +16,16 @@ spec:
       labels:
         app: identrail-worker
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/oluwatobi-mustapha/identrail-worker:latest
+          image: ghcr.io/identrail/identrail-worker:v1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -30,6 +35,22 @@ spec:
           env:
             - name: IDENTRAIL_RUN_MIGRATIONS
               value: "false"
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/bin/identrail
+                - --healthcheck
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/identrail
+                - --healthcheck
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 2
           resources:
             requests:
               cpu: 100m
@@ -40,6 +61,9 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             capabilities:
               drop:
                 - ALL
