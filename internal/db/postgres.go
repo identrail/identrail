@@ -1031,6 +1031,43 @@ func (p *PostgresStore) ListFindingsByScan(ctx context.Context, scanID string, l
 	return findingsFromSQLRows(rows)
 }
 
+// GetFinding returns one finding by id, optionally scoped to one scan id.
+func (p *PostgresStore) GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return domain.Finding{}, ErrNotFound
+	}
+	query := `SELECT f.scan_id, f.finding_id, f.type, f.severity, f.title, f.human_summary, f.path, f.evidence, COALESCE(f.remediation, ''), f.created_at
+	 FROM findings f
+	 JOIN scans s ON s.id = f.scan_id
+	 WHERE s.tenant_id = $1
+	   AND s.workspace_id = $2
+	   AND f.finding_id = $3`
+	args := []any{scope.TenantID, scope.WorkspaceID, id}
+	if normalizedScanID := strings.TrimSpace(scanID); normalizedScanID != "" {
+		query += " AND f.scan_id = $4"
+		args = append(args, normalizedScanID)
+	}
+	query += " ORDER BY f.created_at DESC LIMIT 1"
+	rows, err := p.queryContext(ctx, query, args...)
+	if err != nil {
+		return domain.Finding{}, fmt.Errorf("query finding: %w", err)
+	}
+	defer rows.Close()
+	items, err := findingsFromSQLRows(rows)
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	if len(items) == 0 {
+		return domain.Finding{}, ErrNotFound
+	}
+	return items[0], nil
+}
+
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
 func (p *PostgresStore) UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error {
 	scope, err := RequireScope(ctx)

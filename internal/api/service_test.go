@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"sync"
@@ -460,6 +461,35 @@ func TestServiceGetFinding(t *testing.T) {
 
 	if _, err := svc.GetFinding(defaultScopeContext(), "missing", scan.ID); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("expected not found for missing finding, got %v", err)
+	}
+}
+
+func TestServiceGetFindingBeyondListWindow(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scan, _ := store.CreateScan(defaultScopeContext(), "aws", now)
+
+	findings := make([]domain.Finding, 0, 6001)
+	for i := 0; i < 6001; i++ {
+		id := fmt.Sprintf("finding-%04d", i)
+		findings = append(findings, domain.Finding{
+			ID:        id,
+			Type:      domain.FindingOwnerless,
+			Severity:  domain.SeverityHigh,
+			CreatedAt: now.Add(time.Duration(i) * time.Second),
+		})
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scan.ID, findings); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	found, err := svc.GetFinding(defaultScopeContext(), "finding-0000", scan.ID)
+	if err != nil {
+		t.Fatalf("get finding beyond previous list window: %v", err)
+	}
+	if found.ID != "finding-0000" {
+		t.Fatalf("unexpected finding id: %q", found.ID)
 	}
 }
 
@@ -1841,6 +1871,87 @@ func TestServiceProcessQueuedRepoScanContinuesToNextTargetAfterRequeue(t *testin
 	}
 	if repoBRecord.Status != "succeeded" {
 		t.Fatalf("expected repo-b to complete, got %q", repoBRecord.Status)
+	}
+}
+
+func TestServiceProcessQueuedRepoScanFailureDoesNotBlockLaterQueuedTarget(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.Now = func() time.Time { return now }
+
+	factoryCalls := 0
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		factoryCalls++
+		if factoryCalls == 1 {
+			return &fakeRepoExecutor{err: errors.New("repo-a scanner failed")}
+		}
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo-b",
+				CommitsScanned: historyLimit,
+				FilesScanned:   4,
+				Findings: []domain.Finding{
+					{ID: "rf-batch-continue", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, CreatedAt: now},
+				},
+			},
+		}
+	}
+
+	repoA, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo-a"})
+	if err != nil {
+		t.Fatalf("enqueue repo-a scan: %v", err)
+	}
+	repoB, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo-b"})
+	if err != nil {
+		t.Fatalf("enqueue repo-b scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if !processed {
+		t.Fatal("expected first queued repo scan to be processed")
+	}
+	if err == nil {
+		t.Fatal("expected first queued repo scan to fail")
+	}
+
+	processed, err = svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("expected second queued repo scan to succeed, got %v", err)
+	}
+	if !processed {
+		t.Fatal("expected second queued repo scan to be processed")
+	}
+
+	repoARecord, err := svc.GetRepoScan(defaultScopeContext(), repoA.ID)
+	if err != nil {
+		t.Fatalf("get repo-a scan: %v", err)
+	}
+	if repoARecord.Status != "failed" || repoARecord.ErrorMessage == "" {
+		t.Fatalf("expected failed repo-a scan with error message, got %+v", repoARecord)
+	}
+
+	repoBRecord, err := svc.GetRepoScan(defaultScopeContext(), repoB.ID)
+	if err != nil {
+		t.Fatalf("get repo-b scan: %v", err)
+	}
+	if repoBRecord.Status != "succeeded" || repoBRecord.FindingCount != 1 {
+		t.Fatalf("expected repo-b succeeded with findings, got %+v", repoBRecord)
+	}
+
+	repoScans, err := svc.ListRepoScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	queuedOrRunning := 0
+	for _, scan := range repoScans {
+		if scan.Status == "queued" || scan.Status == "running" {
+			queuedOrRunning++
+		}
+	}
+	if queuedOrRunning != 0 {
+		t.Fatalf("expected no leftover queued/running records, got %d (%+v)", queuedOrRunning, repoScans)
 	}
 }
 
