@@ -236,3 +236,38 @@ func TestProcessAPIQueueBatchReturnsNilWhenNoFailures(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 }
+
+func TestProcessAPIQueueBatchRepoFailuresContinueWithinBatch(t *testing.T) {
+	repoCalls := 0
+	repoErrors := 0
+
+	err := processAPIQueueBatch(
+		context.Background(),
+		3,
+		func(context.Context) (bool, error) { return false, nil },
+		func(context.Context) (bool, error) {
+			repoCalls++
+			if repoCalls == 1 {
+				return true, errors.New("repo-a failed")
+			}
+			if repoCalls == 2 {
+				return true, nil
+			}
+			return false, nil
+		},
+		nil,
+		func(error) { repoErrors++ },
+	)
+	if err == nil {
+		t.Fatal("expected queue batch error")
+	}
+	if repoCalls < 2 {
+		t.Fatalf("expected repo queue to continue after first failure, got %d calls", repoCalls)
+	}
+	if repoErrors != 1 {
+		t.Fatalf("expected one repo error callback, got %d", repoErrors)
+	}
+	if !strings.Contains(err.Error(), "api queue batch failed for 1 job(s)") {
+		t.Fatalf("unexpected queue batch error: %v", err)
+	}
+}
