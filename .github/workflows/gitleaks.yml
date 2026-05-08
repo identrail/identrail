@@ -25,7 +25,14 @@ jobs:
           VERSION="8.24.2"
           TARBALL="gitleaks_${VERSION}_linux_x64.tar.gz"
           TARBALL_SHA256="fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e"
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/${TARBALL}" -o "${RUNNER_TEMP}/${TARBALL}"
+          curl -sSfL \
+            --retry 5 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            --connect-timeout 15 \
+            --max-time 180 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/${TARBALL}" \
+            -o "${RUNNER_TEMP}/${TARBALL}"
           echo "${TARBALL_SHA256}  ${RUNNER_TEMP}/${TARBALL}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/bin"
           tar -xzf "${RUNNER_TEMP}/${TARBALL}" -C "${RUNNER_TEMP}/bin" gitleaks
