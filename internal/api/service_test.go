@@ -1688,6 +1688,55 @@ func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
 	}
 }
 
+func TestServiceEnqueueRepoScanConcurrentDeduplicatesTarget(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.RepoQueueMaxPending = 100
+
+	const workers = 12
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var successCount int32
+	var inProgressCount int32
+	var queueFullCount int32
+	var unexpectedErrCount int32
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo"})
+			switch {
+			case err == nil:
+				atomic.AddInt32(&successCount, 1)
+			case errors.Is(err, ErrRepoScanInProgress):
+				atomic.AddInt32(&inProgressCount, 1)
+			case errors.Is(err, ErrRepoScanQueueFull):
+				atomic.AddInt32(&queueFullCount, 1)
+			default:
+				atomic.AddInt32(&unexpectedErrCount, 1)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if unexpectedErrCount != 0 {
+		t.Fatalf("expected no unexpected enqueue errors, got %d", unexpectedErrCount)
+	}
+	if queueFullCount != 0 {
+		t.Fatalf("expected no queue-full errors, got %d", queueFullCount)
+	}
+	if successCount != 1 {
+		t.Fatalf("expected exactly one successful enqueue, got %d", successCount)
+	}
+	if inProgressCount != workers-1 {
+		t.Fatalf("expected %d in-progress responses, got %d", workers-1, inProgressCount)
+	}
+}
+
 func TestServiceProcessQueuedRepoScanRequeuesWhenExecutionLockHeld(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

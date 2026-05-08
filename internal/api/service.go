@@ -517,27 +517,20 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	if err != nil {
 		return db.RepoScanRecord{}, err
 	}
-	pendingForTarget, err := s.Store.CountPendingRepoScansByRepository(ctx, target)
-	if err != nil {
-		return db.RepoScanRecord{}, fmt.Errorf("count pending repo scans for target: %w", err)
-	}
-	if pendingForTarget > 0 {
-		return db.RepoScanRecord{}, ErrRepoScanInProgress
-	}
 	maxPending := s.RepoQueueMaxPending
 	if maxPending <= 0 {
 		maxPending = defaultRepoQueueMaxPending
 	}
-	queuedCount, err := s.Store.CountQueuedRepoScans(ctx)
+	record, err := s.Store.CreateQueuedRepoScanWithinLimit(ctx, target, historyLimit, maxFindings, s.Now().UTC(), maxPending)
 	if err != nil {
-		return db.RepoScanRecord{}, fmt.Errorf("count queued repo scans: %w", err)
-	}
-	if queuedCount >= maxPending {
-		return db.RepoScanRecord{}, ErrRepoScanQueueFull
-	}
-	record, err := s.Store.CreateQueuedRepoScan(ctx, target, historyLimit, maxFindings, s.Now().UTC())
-	if err != nil {
-		return db.RepoScanRecord{}, fmt.Errorf("enqueue repo scan: %w", err)
+		switch {
+		case errors.Is(err, db.ErrPendingRepoScanExists):
+			return db.RepoScanRecord{}, ErrRepoScanInProgress
+		case errors.Is(err, db.ErrQueueLimitReached):
+			return db.RepoScanRecord{}, ErrRepoScanQueueFull
+		default:
+			return db.RepoScanRecord{}, fmt.Errorf("enqueue repo scan: %w", err)
+		}
 	}
 	return record, nil
 }

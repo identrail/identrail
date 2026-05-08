@@ -22,9 +22,11 @@ var ErrNotFound = errors.New("record not found")
 // ErrScopeRequired indicates tenant/workspace scope must be provided in context.
 var ErrScopeRequired = errors.New("scope is required")
 
-// ErrQueueLimitReached indicates enqueue was rejected because pending capacity is full.
+// ErrQueueLimitReached indicates a bounded queue has no remaining capacity.
 var ErrQueueLimitReached = errors.New("queue limit reached")
 
+// ErrPendingRepoScanExists indicates the target repository already has a queued or running scan.
+var ErrPendingRepoScanExists = errors.New("pending repo scan exists")
 var authzOwnerTeamPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var tenancySlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -1057,6 +1059,7 @@ type Store interface {
 	ListScanEvents(ctx context.Context, scanID string, limit int) ([]ScanEvent, error)
 	CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error)
 	CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
+	CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (RepoScanRecord, error)
 	CountQueuedRepoScans(ctx context.Context) (int, error)
