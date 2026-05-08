@@ -27,13 +27,21 @@ describe('apiClient', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await apiClient.listFindings(
-      { scan_id: 'scan-1', severity: 'high', type: 'risky_trust_policy' },
+      {
+        scan_id: 'scan-1',
+        severity: 'high',
+        type: 'risky_trust_policy',
+        lifecycle_status: 'ack',
+        assignee: 'platform'
+      },
       { apiKey: 'reader' }
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/findings?scan_id=scan-1&severity=high&type=risky_trust_policy');
+    expect(url).toContain(
+      '/v1/findings?scan_id=scan-1&severity=high&type=risky_trust_policy&lifecycle_status=ack&assignee=platform'
+    );
     const headers = new Headers(options.headers);
     expect(headers.get('content-type')).toBe('application/json');
     expect(headers.get('x-api-key')).toBe('reader');
