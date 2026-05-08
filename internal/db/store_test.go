@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 func TestNormalizeScanEventLevel(t *testing.T) {
