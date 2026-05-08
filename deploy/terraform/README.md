@@ -12,7 +12,8 @@ This Terraform baseline deploys Identrail on Kubernetes through the Helm chart.
 
 1. Copy example variables:
    - `cp deploy/terraform/terraform.tfvars.example deploy/terraform/terraform.tfvars`
-2. Edit secrets and image tags in `terraform.tfvars`.
+2. Set `secret_name` to an existing Kubernetes secret and edit image tags in `terraform.tfvars`.
+   - The defaults keep `create_kubernetes_secret=false` to avoid writing runtime secrets to Terraform state.
    - For production hardening values, start from `terraform.prod.tfvars.example` and adapt image tags, CORS origins, resources, and secret management.
 3. Deploy:
    - `cd deploy/terraform`
@@ -28,4 +29,4 @@ This Terraform baseline deploys Identrail on Kubernetes through the Helm chart.
 ## Notes
 
 - This module assumes a Kubernetes cluster already exists.
-- For production, use external secret management and set `create_kubernetes_secret=false` with `secret_name`.
+- `create_kubernetes_secret=true` is an explicit opt-in and will place `secret_data` in Terraform state.
