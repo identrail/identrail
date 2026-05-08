@@ -44,6 +44,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES", "")
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", "")
 	t.Setenv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", "")
+	t.Setenv("IDENTRAIL_AUDIT_FINGERPRINT_SECRET", "")
 	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS", "")
 	t.Setenv("IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", "")
 	t.Setenv("IDENTRAIL_ALERT_WEBHOOK_URL", "")
@@ -179,6 +180,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.AuditForwardHMACSecret != "" {
 		t.Fatalf("expected empty audit forward hmac secret, got %q", cfg.AuditForwardHMACSecret)
+	}
+	if cfg.AuditFingerprintSecret != "" {
+		t.Fatalf("expected empty audit fingerprint secret, got %q", cfg.AuditFingerprintSecret)
 	}
 	if cfg.ConnectorSecretKeys != "" {
 		t.Fatalf("expected empty connector secret keys, got %q", cfg.ConnectorSecretKeys)
