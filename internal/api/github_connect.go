@@ -327,14 +327,17 @@ func (s *Service) UpdateGitHubConnectionRepositories(ctx context.Context, worksp
 			return GitHubConnectionStatus{}, ErrGitHubConnectionNotFound
 		}
 	}
-	connection.SelectedRepositories = repositories
-	connection.UpdatedAt = now
-	s.githubConnections[key] = connection
-	status := s.toGitHubConnectionStatus(connection)
+	updated := connection
+	updated.SelectedRepositories = repositories
+	updated.UpdatedAt = now
 	s.githubConnectMu.Unlock()
-	if err := s.persistGitHubConnection(ctx, connection); err != nil {
+	if err := s.persistGitHubConnection(ctx, updated); err != nil {
 		return GitHubConnectionStatus{}, err
 	}
+	s.githubConnectMu.Lock()
+	s.githubConnections[key] = updated
+	status := s.toGitHubConnectionStatus(updated)
+	s.githubConnectMu.Unlock()
 
 	auditGitHubConnectorAction(ctx, "connector.github.repositories.update", scope, project.ProjectID, "success")
 	return status, nil
@@ -377,16 +380,19 @@ func (s *Service) RotateGitHubConnectionSecret(ctx context.Context, workspaceID 
 			return GitHubConnectionStatus{}, ErrGitHubConnectionNotFound
 		}
 	}
-	connection.WebhookSecretReference = normalizedSecretRef
-	connection.WebhookSecretEnvelope = envelope
-	connection.WebhookSecretRotatedAt = now
-	connection.UpdatedAt = now
-	s.githubConnections[key] = connection
-	status := s.toGitHubConnectionStatus(connection)
+	updated := connection
+	updated.WebhookSecretReference = normalizedSecretRef
+	updated.WebhookSecretEnvelope = envelope
+	updated.WebhookSecretRotatedAt = now
+	updated.UpdatedAt = now
 	s.githubConnectMu.Unlock()
-	if err := s.persistGitHubConnection(ctx, connection); err != nil {
+	if err := s.persistGitHubConnection(ctx, updated); err != nil {
 		return GitHubConnectionStatus{}, err
 	}
+	s.githubConnectMu.Lock()
+	s.githubConnections[key] = updated
+	status := s.toGitHubConnectionStatus(updated)
+	s.githubConnectMu.Unlock()
 
 	auditGitHubConnectorAction(ctx, "connector.github.webhook_secret.rotate", scope, project.ProjectID, "success")
 	return status, nil
