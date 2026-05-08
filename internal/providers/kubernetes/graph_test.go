@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 func TestRelationshipResolverBuildsExpectedEdges(t *testing.T) {
@@ -93,6 +93,26 @@ func TestRelationshipResolverDeterministicAcrossShuffledRawAssetInput(t *testing
 		}
 		if !reflect.DeepEqual(baseline, signature) {
 			t.Fatalf("expected deterministic relationship signatures across shuffled raw inputs, baseline=%+v got=%+v", baseline, signature)
+		}
+	}
+}
+
+func TestRelationshipResolverSkipsBoundToWhenIdentityMissing(t *testing.T) {
+	resolver := NewRelationshipResolver()
+	relationships, err := resolver.ResolveRelationships(context.Background(), providers.NormalizedBundle{
+		Workloads: []domain.Workload{
+			{
+				ID:     workloadID("apps", "payments-api-0"),
+				RawRef: serviceAccountID("apps", "default"),
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("resolve relationships failed: %v", err)
+	}
+	for _, relationship := range relationships {
+		if relationship.Type == domain.RelationshipBoundTo {
+			t.Fatalf("expected missing identity bound_to relationship to be skipped")
 		}
 	}
 }
