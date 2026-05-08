@@ -154,7 +154,22 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 	})
 
-	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})))
+	r.GET(
+		"/metrics",
+		rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst),
+		apiKeyAuthMiddleware(
+			opts.APIKeys,
+			opts.APIKeyScopes,
+			opts.APIKeyScopeBindings,
+			opts.OIDCTokenVerifier,
+			opts.OIDCWriteScopes,
+			opts.AuditSink,
+			opts.AuditFingerprinter,
+			logger,
+		),
+		requireMetricsScopeMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes),
+		gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})),
+	)
 
 	r.POST("/webhooks/github", func(c *gin.Context) {
 		if svc == nil {
@@ -2425,6 +2440,25 @@ func rateLimitKey(c *gin.Context) string {
 		return ip + "|bearer"
 	}
 	return ip + "|anon"
+}
+
+func requireMetricsScopeMiddleware(writeKeys []string, scopedKeys map[string][]string) gin.HandlerFunc {
+	normalizedWriteKeys := normalizeKeyList(writeKeys)
+	return func(c *gin.Context) {
+		roles := policyRolesFromAuth(c, normalizedWriteKeys, scopedKeys)
+		allowed := false
+		for _, role := range roles {
+			if role == scopeWrite || role == scopeAdmin {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		c.Next()
+	}
 }
 
 func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {

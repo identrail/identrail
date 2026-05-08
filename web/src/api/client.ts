@@ -550,6 +550,8 @@ export const apiClient = {
       scan_id?: string;
       severity?: string;
       type?: string;
+      lifecycle_status?: FindingLifecycleStatus;
+      assignee?: string;
       sort_by?: string;
       sort_order?: 'asc' | 'desc';
     } = {},

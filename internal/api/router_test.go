@@ -160,6 +160,77 @@ func TestRouterReadyzWithDependencyFailure(t *testing.T) {
 	assertServiceStatusBody(t, w.Body.Bytes(), "not_ready")
 }
 
+func TestRouterMetricsRequiresAuthentication(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys: []string{"metrics-key"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected metrics endpoint to require auth, got %d", w.Code)
+	}
+}
+
+func TestRouterMetricsRateLimitAppliesBeforeAuth(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys:        []string{"metrics-key"},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	first.RemoteAddr = "127.0.0.1:30001"
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected first unauthorized metrics request to return 401, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	second.RemoteAddr = "127.0.0.1:30001"
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second unauthorized metrics request to return 429, got %d", w2.Code)
+	}
+}
+
+func TestRouterMetricsRequiresWriteOrAdminScope(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {scopeRead},
+			"writer-key": {scopeWrite},
+		},
+	})
+
+	readReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	readReq.Header.Set("X-API-Key", "reader-key")
+	readW := httptest.NewRecorder()
+	r.ServeHTTP(readW, readReq)
+	if readW.Code != http.StatusForbidden {
+		t.Fatalf("expected read-only scoped key denied on metrics endpoint, got %d", readW.Code)
+	}
+
+	writeReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	writeReq.Header.Set("X-API-Key", "writer-key")
+	writeW := httptest.NewRecorder()
+	r.ServeHTTP(writeW, writeReq)
+	if writeW.Code != http.StatusOK {
+		t.Fatalf("expected write scoped key allowed on metrics endpoint, got %d", writeW.Code)
+	}
+	if strings.TrimSpace(writeW.Body.String()) == "" {
+		t.Fatal("expected metrics response body")
+	}
+}
+
 func TestRouterCORSDisabledByDefault(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
