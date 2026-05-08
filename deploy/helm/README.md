@@ -22,6 +22,7 @@ This chart is the Kubernetes deployment baseline for Identrail.
 ## Notes
 
 - Default mode uses `secret.existingSecret=identrail-secrets` with `secret.create=false`.
+- Keep `secret.create=false` for production. Setting `secret.create=true` stores secret material in Helm release state and should be limited to local or disposable environments. Prefer External Secrets Operator, Sealed Secrets, SOPS, or pre-created Kubernetes Secrets.
 - Migrations run as a pre-install/pre-upgrade Helm hook job (`templates/migration-job.yaml`).
 - API and worker deployments force `IDENTRAIL_RUN_MIGRATIONS=false` to avoid DDL races.
 - Helm API defaults match the static production manifest baseline for replica count and API resources; tune values explicitly for smaller development clusters.

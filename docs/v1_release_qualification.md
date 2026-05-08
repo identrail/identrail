@@ -31,12 +31,16 @@ This is the release gate for priorities 21-22.
 ## Tagging Flow
 
 1. Ensure CI for `dev` is green.
-2. Create release candidate tag:
-   - `git tag -a v1.0.0-rc.1 -m "Identrail v1.0.0 release candidate 1"`
-   - `git push origin v1.0.0-rc.1`
-3. After final validation, create GA tag:
-   - `git tag -a v1.0.0 -m "Identrail v1.0.0 GA"`
-   - `git push origin v1.0.0`
+2. Choose the target release version (`vX.Y.Z`).
+3. Create release candidate tag:
+   - `git tag -a vX.Y.Z-rc.N -m "Identrail vX.Y.Z release candidate N"`
+   - `git push origin vX.Y.Z-rc.N`
+4. After final validation, create GA tag:
+   - `git tag -a vX.Y.Z -m "Identrail vX.Y.Z GA"`
+   - `git push origin vX.Y.Z`
+
+Historical note:
+- `v1.0.0-rc.1` and `v1.0.0` already exist and represent the original V1 release flow.
 
 ## V1 Lock Criteria
 
