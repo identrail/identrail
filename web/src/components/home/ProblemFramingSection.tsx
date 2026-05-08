@@ -1,50 +1,91 @@
+const identitySignals = [
+  {
+    name: 'AWS IAM',
+    detail: 'role assumptions and policy edges',
+    icon: '/brand-logos/aws.svg'
+  },
+  {
+    name: 'Kubernetes',
+    detail: 'service accounts, RBAC, namespaces',
+    icon: '/brand-logos/kubernetes.svg'
+  },
+  {
+    name: 'GitHub/OIDC',
+    detail: 'workflow identity and token claims',
+    icon: '/brand-logos/github.svg'
+  }
+];
+
+const storyStages = [
+  {
+    label: 'Before',
+    title: 'Isolated alerts',
+    detail: 'Each control plane looks acceptable until the machine identity path crosses boundaries.'
+  },
+  {
+    label: 'During',
+    title: 'Evidence stitching',
+    detail: 'Read-only collection joins IAM, Kubernetes, repository, and OIDC proof into one chain.'
+  },
+  {
+    label: 'After',
+    title: 'Safe remediation',
+    detail: 'Owners get the affected workload, blast-radius context, and the first low-risk fix.'
+  }
+];
+
 export function ProblemFramingSection() {
   return (
     <section className="idt-section idt-shell idt-problem-frame" aria-labelledby="problem-frame-title">
       <div className="idt-problem-frame-grid">
-        <div>
+        <div className="idt-problem-copy">
           <p className="idt-eyebrow">Why teams miss machine identity risk</p>
-          <h2 id="problem-frame-title">Cloud, cluster, and CI evidence rarely arrives as one story.</h2>
+          <h2 id="problem-frame-title">Signals only matter when they reveal the path.</h2>
           <p>
             IAM policies, Kubernetes RBAC, repository exposure, and OIDC workflow identities are reviewed in separate
-            tools. Attack paths are not. Identrail closes that gap by turning each signal into a connected trust path
-            with source evidence.
+            tools. Identrail connects them into one trust path, then shows the proof, blast radius, and safest first
+            fix.
           </p>
         </div>
 
-        <div className="idt-problem-map" aria-label="Identity signals converge into the Identrail trust graph">
-          <div className="idt-problem-map-source">
-            <span>AWS IAM</span>
-            <small>roles, policies, assumptions</small>
+        <div className="idt-problem-path-visual" role="group" aria-label="Identity signals converge into the Identrail trust graph">
+          <div className="idt-problem-source-stack" aria-label="Source systems">
+            {identitySignals.map((signal) => (
+              <article className="idt-problem-source-card" key={signal.name}>
+                <span className="idt-problem-source-icon">
+                  <img src={signal.icon} alt="" aria-hidden="true" loading="lazy" />
+                </span>
+                <span>{signal.name}</span>
+                <small>{signal.detail}</small>
+              </article>
+            ))}
           </div>
-          <div className="idt-problem-map-source">
-            <span>Kubernetes</span>
-            <small>service accounts, RBAC, namespaces</small>
+
+          <div className="idt-problem-path-spine" aria-hidden="true">
+            <span />
           </div>
-          <div className="idt-problem-map-source">
-            <span>GitHub/OIDC</span>
-            <small>workflow identity, claims, exposure</small>
-          </div>
+
           <div className="idt-problem-map-core">
-            <span>Identrail trust graph</span>
-            <small>path evidence, blast radius, first safe fix</small>
+            <p>Identrail trust graph</p>
+            <strong>One connected machine identity path</strong>
+            <div aria-label="Trust graph outputs">
+              <span>Evidence packet</span>
+              <span>Blast radius</span>
+              <span>First safe fix</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="idt-problem-signals" role="list" aria-label="Fragmentation signals">
-        <article role="listitem">
-          <h3>Before: isolated alerts</h3>
-          <p>Each system can look acceptable on its own while the combined path is risky.</p>
-        </article>
-        <article role="listitem">
-          <h3>During: evidence stitching</h3>
-          <p>Read-only collection normalizes source evidence into a single chain from identity to resource.</p>
-        </article>
-        <article role="listitem">
-          <h3>After: safe remediation</h3>
-          <p>Owners receive the policy context, affected workload view, and first action to reduce blast radius.</p>
-        </article>
+      <div className="idt-problem-timeline" role="list" aria-label="Risk evidence workflow">
+        {storyStages.map((stage, index) => (
+          <article role="listitem" key={stage.title}>
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <small>{stage.label}</small>
+            <h3>{stage.title}</h3>
+            <p>{stage.detail}</p>
+          </article>
+        ))}
       </div>
     </section>
   );
