@@ -21,6 +21,8 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
   - `observability.md`
   - `troubleshooting.md`
   - `incident-response.md`
+- Source setup:
+  - `source-onboarding.md`
 - Worker/scheduler behavior:
   - `worker.md`
   - `scheduler.md`
