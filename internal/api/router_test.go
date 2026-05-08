@@ -175,6 +175,32 @@ func TestRouterMetricsRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestRouterMetricsRateLimitAppliesBeforeAuth(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		APIKeys:        []string{"metrics-key"},
+		RateLimitRPM:   1,
+		RateLimitBurst: 1,
+	})
+
+	first := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	first.RemoteAddr = "127.0.0.1:30001"
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected first unauthorized metrics request to return 401, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	second.RemoteAddr = "127.0.0.1:30001"
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second unauthorized metrics request to return 429, got %d", w2.Code)
+	}
+}
+
 func TestRouterMetricsRequiresWriteOrAdminScope(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()

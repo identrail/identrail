@@ -156,6 +156,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	r.GET(
 		"/metrics",
+		rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst),
 		apiKeyAuthMiddleware(
 			opts.APIKeys,
 			opts.APIKeyScopes,
