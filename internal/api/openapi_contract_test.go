@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,6 +49,28 @@ func TestOpenAPIV1SpecDeclaresAuthSecurity(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsGitHubWebhookSignatureSecurity(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"GitHubWebhookSignature:",
+		"name: X-Hub-Signature-256",
+		"description: GitHub HMAC SHA-256 signature of the raw webhook request body.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	block := pathBlock(t, spec, "/webhooks/github")
+	if !strings.Contains(block, "- GitHubWebhookSignature: []") {
+		t.Fatalf("openapi path %q missing GitHub webhook signature security requirement", "/webhooks/github")
+	}
+	if strings.Contains(block, "name: X-Hub-Signature-256") {
+		t.Fatalf("openapi path %q should declare X-Hub-Signature-256 via security scheme, not as a duplicate header parameter", "/webhooks/github")
+	}
+}
+
 func TestOpenAPIV1SpecDocumentsRequestScopeHeaders(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	required := []string{
@@ -92,6 +115,52 @@ func TestOpenAPIV1SpecContainsPagingFilterSortParameters(t *testing.T) {
 		if !strings.Contains(spec, item) {
 			t.Fatalf("openapi spec missing %q", item)
 		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsGitHubInstallationIDFallback(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"githubInstallationID:",
+		"name: X-GitHub-Installation-ID",
+		"Optional installation ID fallback when the completion request body omits `installation_id`.",
+		"May be supplied via the `X-GitHub-Installation-ID` header instead of the JSON body.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	completeBlock := pathBlock(t, spec, "/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete")
+	if !strings.Contains(completeBlock, `#/components/parameters/githubInstallationID`) {
+		t.Fatalf("openapi path %q missing GitHub installation header parameter", "/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete")
+	}
+
+	schemaBlock := func() string {
+		const name = "GitHubConnectionCompleteRequest"
+		start := strings.Index(spec, "\n    "+name+":")
+		if start >= 0 {
+			start++
+		} else {
+			prefix := "    " + name + ":"
+			if strings.HasPrefix(spec, prefix) {
+				start = 0
+			} else {
+				t.Fatalf("openapi schema block not found for %q", name)
+			}
+		}
+
+		end := len(spec)
+		if nextSchema := strings.Index(spec[start+1:], "\n    "); nextSchema >= 0 {
+			end = start + 1 + nextSchema
+		}
+
+		return spec[start:end]
+	}()
+
+	if strings.Contains(schemaBlock, "- installation_id") {
+		t.Fatalf("openapi schema %q should not require installation_id in the request body", "GitHubConnectionCompleteRequest")
 	}
 }
 
@@ -154,6 +223,50 @@ func TestOpenAPIV1SpecCoversRegisteredV1RouteMethods(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsRepresentativeErrorResponses(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	requiredResponses := []string{
+		"BadRequest:",
+		"Conflict:",
+		"Forbidden:",
+		"InternalServerError:",
+		"ServiceUnavailable:",
+		"TooManyRequests:",
+	}
+	for _, item := range requiredResponses {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing response component %q", item)
+		}
+	}
+
+	cases := []struct {
+		path     string
+		method   string
+		required []string
+	}{
+		{path: "/v1/findings", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/scans", method: "post", required: []string{`"401":`, `#/components/responses/Unauthorized`, `"403":`, `#/components/responses/Forbidden`, `"429":`, `#/components/responses/TooManyRequests`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
+		{path: "/v1/scans/{scan_id}/diff", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/scans/{scan_id}/events", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/identities", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/relationships", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/ownership/signals", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/repo-scans", method: "post", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"403":`, `#/components/responses/Forbidden`, `"409":`, `#/components/responses/Conflict`, `"429":`, `#/components/responses/TooManyRequests`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
+		{path: "/v1/repo-scans/{repo_scan_id}", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
+		{path: "/v1/repo-findings", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/workspaces/{workspace_id}/projects", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
+	}
+
+	for _, tc := range cases {
+		block := operationBlock(t, spec, tc.path, tc.method)
+		for _, item := range tc.required {
+			if !strings.Contains(block, item) {
+				t.Fatalf("openapi operation %s %s missing %q", strings.ToUpper(tc.method), tc.path, item)
+			}
+		}
+	}
+}
+
 func TestOpenAPIV1SpecPathParameterNamesMatchRegisteredRoutes(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	router := readRouterSource(t)
@@ -193,6 +306,86 @@ func TestOpenAPIV1SpecPathParameterNamesMatchRegisteredRoutes(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsWorkspaceMemberStatusDefault(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"WorkspaceMemberUpsertRequest:",
+		"required: [member_id, user_id, role]",
+		"default: invited",
+		"Defaults to `invited` when omitted.",
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+	if strings.Contains(spec, "required: [member_id, user_id, role, status]") {
+		t.Fatalf("openapi spec should not require workspace member status in the request body")
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsRouteAuthorizationMetadata(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	for _, route := range defaultBuiltInRoutePolicyDefinitions() {
+		path := pathVarPattern.ReplaceAllString(route.Path, `{$1}`)
+		lines := []string{
+			fmt.Sprintf("  - method: %s", route.Method),
+			fmt.Sprintf("    path: %s", path),
+			fmt.Sprintf("    action: %s", route.Action),
+			fmt.Sprintf("    resource_type: %s", route.ResourceType),
+		}
+		if route.ResourceIDParam != "" {
+			lines = append(lines, fmt.Sprintf("    resource_id_param: %s", route.ResourceIDParam))
+		}
+		if !strings.Contains(spec, strings.Join(lines, "\n")) {
+			t.Fatalf("openapi authz metadata missing route authorization entry for %s %s", route.Method, path)
+		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsActionRoleGrants(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	grants := defaultRouteActionRoleGrants()
+	actions := make([]string, 0, len(grants))
+	for action := range grants {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+
+	for _, action := range actions {
+		lines := []string{fmt.Sprintf("  %s:", action)}
+		for _, role := range uniqueStrings(grants[action]) {
+			lines = append(lines, fmt.Sprintf("    - %s", role))
+		}
+		if !strings.Contains(spec, strings.Join(lines, "\n")) {
+			t.Fatalf("openapi authz metadata missing role grants for action %q", action)
+		}
+	}
+}
+
+func TestOpenAPIV1SpecDocumentsServiceStatusHealthSchemas(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	required := []string{
+		"ServiceStatusResponse:",
+		"required: [status, service]",
+		`$ref: "#/components/schemas/ServiceStatusResponse"`,
+	}
+	for _, item := range required {
+		if !strings.Contains(spec, item) {
+			t.Fatalf("openapi spec missing %q", item)
+		}
+	}
+
+	readyzBlock := pathBlock(t, spec, "/readyz")
+	readyzServiceStatusPattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ServiceStatusResponse"`)
+	if !readyzServiceStatusPattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q must document a 503 service status body", "/readyz")
+	}
+	readyzErrorResponsePattern := regexp.MustCompile(`(?s)"503":.*?\$ref: "#/components/schemas/ErrorResponse"`)
+	if readyzErrorResponsePattern.MatchString(readyzBlock) {
+		t.Fatalf("openapi path %q should not document readiness 503 as ErrorResponse", "/readyz")
+	}
+}
 func readOpenAPISpec(t *testing.T) string {
 	t.Helper()
 	return readRepositoryFile(t, filepath.Join("docs", "openapi-v1.yaml"))
@@ -331,6 +524,39 @@ func methodBlock(t *testing.T, block string, method string) string {
 	return block[start:end]
 }
 
+func operationBlock(t *testing.T, spec string, path string, method string) string {
+	t.Helper()
+	pathContent := pathBlock(t, spec, path)
+	marker := "\n    " + strings.ToLower(strings.TrimSpace(method)) + ":"
+	start := strings.Index(pathContent, marker)
+	if start >= 0 {
+		start++
+	} else {
+		prefix := "    " + strings.ToLower(strings.TrimSpace(method)) + ":"
+		if strings.HasPrefix(pathContent, prefix) {
+			start = 0
+		} else {
+			t.Fatalf("openapi operation block not found for %s %q", method, path)
+		}
+	}
+
+	end := len(pathContent)
+	nextMethods := []string{"\n    get:", "\n    post:", "\n    put:", "\n    patch:", "\n    delete:", "\n    options:", "\n    head:"}
+	for _, nextMethod := range nextMethods {
+		if nextMethod == marker {
+			continue
+		}
+		if idx := strings.Index(pathContent[start+1:], nextMethod); idx >= 0 {
+			candidate := start + 1 + idx
+			if candidate < end {
+				end = candidate
+			}
+		}
+	}
+
+	return pathContent[start:end]
+}
+
 func parameterEntries(block string) []string {
 	lines := strings.Split(block, "\n")
 	entries := []string{}
@@ -394,4 +620,17 @@ func parameterDeclaredAsPath(entries []string, name string) bool {
 
 func leadingSpaces(line string) int {
 	return len(line) - len(strings.TrimLeft(line, " "))
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }

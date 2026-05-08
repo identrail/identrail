@@ -1,0 +1,54 @@
+namespace    = "identrail"
+release_name = "identrail"
+
+create_namespace         = true
+create_kubernetes_secret = false
+secret_name              = "identrail-secrets"
+
+chart_values = {
+  api = {
+    replicaCount = 2
+    image = {
+      repository = "ghcr.io/identrail/identrail-api"
+      tag        = "v1.0.0"
+      pullPolicy = "IfNotPresent"
+    }
+    resources = {
+      requests = { cpu = "100m", memory = "128Mi" }
+      limits   = { cpu = "500m", memory = "512Mi" }
+    }
+  }
+  worker = {
+    image = {
+      repository = "ghcr.io/identrail/identrail-worker"
+      tag        = "v1.0.0"
+      pullPolicy = "IfNotPresent"
+    }
+    resources = {
+      requests = { cpu = "100m", memory = "128Mi" }
+      limits   = { cpu = "500m", memory = "512Mi" }
+    }
+  }
+  web = {
+    # The web bundle bakes VITE_IDENTRAIL_API_URL at build time (see deploy/docker/Dockerfile.web).
+    # For production, build/publish your own web image with:
+    #   VITE_IDENTRAIL_API_URL=https://api.example.com
+    # Then set enabled=true and update repository/tag below.
+    enabled = false
+    image = {
+      repository = "ghcr.io/your-org/identrail-web"
+      tag        = "replace-with-image-tag"
+      pullPolicy = "IfNotPresent"
+    }
+  }
+  config = {
+    IDENTRAIL_PROVIDER               = "aws"
+    IDENTRAIL_AWS_SOURCE             = "sdk"
+    IDENTRAIL_LOCK_BACKEND           = "postgres"
+    IDENTRAIL_LOCK_NAMESPACE         = "identrail-prod"
+    IDENTRAIL_CORS_ALLOWED_ORIGINS   = "https://app.example.com"
+    IDENTRAIL_POSTGRES_RLS_ENFORCED  = "true"
+    # Fail fast if the external secret does not provide stable connector secret keys.
+    IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED = "true"
+  }
+}
