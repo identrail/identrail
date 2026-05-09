@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -186,8 +187,9 @@ func TestWriteActionWithSink(t *testing.T) {
 	ctx = WithActor(ctx, "user:test")
 
 	WriteAction(ctx, AuditEvent{
-		Action:   "tenancy.organization.upsert",
-		TenantID: "tenant-1",
+		Action:      "tenancy.organization.upsert",
+		TenantID:    "tenant-1",
+		WorkspaceID: "workspace-1",
 	})
 
 	if len(sink.events) != 1 {
@@ -206,11 +208,155 @@ func TestWriteActionWithSink(t *testing.T) {
 	if ev.Action != "tenancy.organization.upsert" {
 		t.Fatalf("expected action=tenancy.organization.upsert, got %q", ev.Action)
 	}
-	if ev.TenantID != "tenant-1" {
-		t.Fatalf("expected tenant_id=tenant-1, got %q", ev.TenantID)
+	if ev.TenantID == "tenant-1" {
+		t.Fatalf("expected tenant_id to be sanitized, got %q", ev.TenantID)
+	}
+	if !strings.HasPrefix(ev.TenantID, "fnv64a:") {
+		t.Fatalf("expected hashed tenant_id, got %q", ev.TenantID)
+	}
+	if ev.WorkspaceID == "workspace-1" {
+		t.Fatalf("expected workspace_id to be sanitized, got %q", ev.WorkspaceID)
+	}
+	if !strings.HasPrefix(ev.WorkspaceID, "fnv64a:") {
+		t.Fatalf("expected hashed workspace_id, got %q", ev.WorkspaceID)
 	}
 	if ev.Timestamp.IsZero() {
 		t.Fatal("expected non-zero timestamp")
+	}
+}
+
+func TestWriteActionSanitizesSubjectActorAndResourceID(t *testing.T) {
+	sink := &testRecordingAuditSink{}
+	ctx := WithSink(context.Background(), sink)
+	ctx = WithActor(ctx, "subject:user-123")
+
+	WriteAction(ctx, AuditEvent{
+		Action:      "test.action",
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ResourceID:  "workspace-a",
+	})
+
+	if len(sink.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(sink.events))
+	}
+	ev := sink.events[0]
+	if ev.Actor == "subject:user-123" {
+		t.Fatalf("expected subject actor to be sanitized, got %q", ev.Actor)
+	}
+	if !strings.HasPrefix(ev.Actor, "subject:fnv64a:") {
+		t.Fatalf("expected hashed subject actor, got %q", ev.Actor)
+	}
+	if ev.ResourceID == "workspace-a" {
+		t.Fatalf("expected resource id to be sanitized, got %q", ev.ResourceID)
+	}
+	if !strings.HasPrefix(ev.ResourceID, "fnv64a:") {
+		t.Fatalf("expected hashed resource id, got %q", ev.ResourceID)
+	}
+}
+
+func TestWriteActionRedactsPrefixShapedIdentifiers(t *testing.T) {
+	sink := &testRecordingAuditSink{}
+	ctx := WithSink(context.Background(), sink)
+	ctx = WithActor(ctx, "subject:hmac256:alice@example.com")
+
+	WriteAction(ctx, AuditEvent{
+		Action:     "test.action",
+		ResourceID: "fnv64a:not-a-real-fingerprint",
+	})
+
+	if len(sink.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(sink.events))
+	}
+	ev := sink.events[0]
+	if ev.Actor == "subject:hmac256:alice@example.com" {
+		t.Fatalf("expected prefix-shaped subject actor to be re-fingerprinted, got %q", ev.Actor)
+	}
+	if strings.Contains(ev.Actor, "alice@example.com") {
+		t.Fatalf("expected raw subject identifier to be absent, got %q", ev.Actor)
+	}
+	if ev.ResourceID == "fnv64a:not-a-real-fingerprint" {
+		t.Fatalf("expected prefix-shaped resource id to be re-fingerprinted, got %q", ev.ResourceID)
+	}
+	if strings.Contains(ev.ResourceID, "not-a-real-fingerprint") {
+		t.Fatalf("expected raw resource identifier to be absent, got %q", ev.ResourceID)
+	}
+}
+
+func TestWriteActionUsesConfiguredFingerprinter(t *testing.T) {
+	sink := &testRecordingAuditSink{}
+	fingerprinter := NewFingerprinter("audit-secret")
+	ctx := WithSink(context.Background(), sink)
+	ctx = WithFingerprinter(ctx, fingerprinter)
+	ctx = WithActor(ctx, "subject:test-user")
+
+	WriteAction(ctx, AuditEvent{
+		Action:      "test.action",
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ResourceID:  "workspace-a",
+	})
+
+	if len(sink.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(sink.events))
+	}
+	ev := sink.events[0]
+	if !strings.HasPrefix(ev.Actor, "subject:hmac256:") {
+		t.Fatalf("expected hmac actor fingerprint, got %q", ev.Actor)
+	}
+	if !strings.HasPrefix(ev.TenantID, "hmac256:") {
+		t.Fatalf("expected hmac tenant identifier, got %q", ev.TenantID)
+	}
+	if !strings.HasPrefix(ev.WorkspaceID, "hmac256:") {
+		t.Fatalf("expected hmac workspace identifier, got %q", ev.WorkspaceID)
+	}
+	if !strings.HasPrefix(ev.ResourceID, "hmac256:") {
+		t.Fatalf("expected hmac resource identifier, got %q", ev.ResourceID)
+	}
+}
+
+func TestWriteActionResourceIDCanNotBypassWithFingerprintShape(t *testing.T) {
+	sink := &testRecordingAuditSink{}
+	ctx := WithSink(context.Background(), sink)
+	ctx = WithActor(ctx, "subject:user-123")
+
+	rawResourceID := "fnv64a:0123456789ab"
+	WriteAction(ctx, AuditEvent{
+		Action:     "test.action",
+		ResourceID: rawResourceID,
+	})
+
+	if len(sink.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(sink.events))
+	}
+	ev := sink.events[0]
+	if ev.ResourceID == rawResourceID {
+		t.Fatalf("expected fingerprint-shaped resource ID to be re-hashed, got %q", ev.ResourceID)
+	}
+	if strings.TrimSpace(ev.ResourceID) == "" {
+		t.Fatal("expected non-empty resource identifier")
+	}
+}
+
+func TestWriteActionSubjectActorCanNotBypassWithFingerprintShape(t *testing.T) {
+	sink := &testRecordingAuditSink{}
+	ctx := WithSink(context.Background(), sink)
+
+	rawActor := "subject:fnv64a:0123456789ab"
+	WriteAction(ctx, AuditEvent{
+		Action: "test.action",
+		Actor:  rawActor,
+	})
+
+	if len(sink.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(sink.events))
+	}
+	ev := sink.events[0]
+	if ev.Actor == rawActor {
+		t.Fatalf("expected fingerprint-shaped subject actor to be re-hashed, got %q", ev.Actor)
+	}
+	if strings.TrimSpace(ev.Actor) == "" {
+		t.Fatal("expected non-empty actor")
 	}
 }
 

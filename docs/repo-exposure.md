@@ -10,7 +10,7 @@ Detect leaked secrets and high-signal misconfigurations in public repository his
 identrail repo-scan --repo owner/repo
 ```
 
-Also supports full URLs and local git paths:
+CLI also supports full URLs and local git paths:
 
 ```bash
 identrail repo-scan --repo https://github.com/owner/repo.git
@@ -31,6 +31,14 @@ curl -X POST http://localhost:8080/v1/repo-scans \
     "max_findings": 200
   }'
 ```
+
+API/worker repository target forms:
+- `owner/repo`
+- `https://...`
+- `ssh://...`
+- `git@...`
+
+Local filesystem repository paths are CLI-only and are not valid API/worker targets.
 
 Read APIs:
 
@@ -111,4 +119,4 @@ Read APIs:
 
 - Focused on high-signal patterns, not exhaustive secret taxonomy.
 - Full-history scanning on very large repositories can be expensive; tune `--history-limit`.
-- Current version targets public repositories and local clones (no private-repo auth flow yet).
+- Current version supports public-repository remote targets in API/worker flows and public/local clone targets in CLI flows (no private-repo auth flow yet).

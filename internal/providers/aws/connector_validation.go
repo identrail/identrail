@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/Oluwatobi-Mustapha/identrail/internal/api"
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
+	api "github.com/identrail/identrail/internal/api"
 )
 
 // ConnectionValidator validates AWS connector setup with read-only AWS calls.
