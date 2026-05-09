@@ -24,6 +24,8 @@ The shipped manifests already enforce key container-level controls in:
 
 Those files set:
 
+- `serviceAccountName: identrail-scanner`
+- `automountServiceAccountToken: true`
 - `runAsNonRoot: true`
 - `allowPrivilegeEscalation: false`
 - `readOnlyRootFilesystem: true`
@@ -32,6 +34,10 @@ Those files set:
 ### Optional RBAC for Kubernetes Scan Collection
 
 If you run with `IDENTRAIL_K8S_SOURCE=kubectl`, attach a read-only role instead of cluster-admin:
+
+```bash
+kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
+```
 
 ```yaml
 apiVersion: v1
@@ -212,7 +218,7 @@ helm upgrade --install identrail deploy/helm/identrail \
 
 ## 3) Docker Compose Hardening Example
 
-For single-host production-style runs, use a hardened override:
+For single-host production-style runs, use the hardening override at `deploy/docker/docker-compose.security.example.yml`:
 
 ```yaml
 services:
@@ -245,6 +251,7 @@ Run with:
 docker compose \
   -f deploy/docker/docker-compose.yml \
   -f deploy/docker/docker-compose.prod.example.yml \
+  -f deploy/docker/docker-compose.security.example.yml \
   --env-file deploy/docker/.env \
   up -d
 ```
@@ -257,11 +264,20 @@ Use one high-privilege role for migrations and a reduced runtime role for API/wo
 CREATE ROLE identrail_migrator LOGIN PASSWORD 'replace-strong-password';
 CREATE ROLE identrail_runtime LOGIN PASSWORD 'replace-strong-password';
 
+GRANT CONNECT, TEMP ON DATABASE identrail TO identrail_migrator;
+GRANT USAGE, CREATE ON SCHEMA public TO identrail_migrator;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO identrail_migrator;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO identrail_migrator;
+
 GRANT CONNECT ON DATABASE identrail TO identrail_runtime;
 GRANT USAGE ON SCHEMA public TO identrail_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO identrail_runtime;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO identrail_runtime;
 
+ALTER DEFAULT PRIVILEGES FOR ROLE identrail_migrator IN SCHEMA public
+  GRANT ALL PRIVILEGES ON TABLES TO identrail_migrator;
+ALTER DEFAULT PRIVILEGES FOR ROLE identrail_migrator IN SCHEMA public
+  GRANT ALL PRIVILEGES ON SEQUENCES TO identrail_migrator;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO identrail_runtime;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public

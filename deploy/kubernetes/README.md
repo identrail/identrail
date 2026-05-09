@@ -22,14 +22,15 @@
 3. Run migrations once and wait for completion:
    - `kubectl apply -f deploy/kubernetes/migration-job.yaml`
    - `kubectl -n identrail wait --for=condition=complete --timeout=300s job/identrail-migrations`
-4. Apply API + worker:
+4. Apply the scanner service account and read-only RBAC used by API/worker:
+   - `kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml`
+5. Apply API + worker:
    - `kubectl apply -f deploy/kubernetes/api-deployment.yaml`
    - `kubectl apply -f deploy/kubernetes/api-service.yaml`
    - `kubectl apply -f deploy/kubernetes/worker-deployment.yaml`
-5. Optional ingress:
+6. Optional ingress:
    - `kubectl apply -f deploy/kubernetes/ingress.example.yaml`
-6. Optional least-privilege hardening examples:
-   - `kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml`
+7. Optional least-privilege hardening examples:
    - `kubectl apply -f deploy/kubernetes/network-policy.example.yaml`
 
 Notes:
@@ -37,8 +38,7 @@ Notes:
 - Replace the bootstrap `IDENTRAIL_DEFAULT_TENANT_ID` and `IDENTRAIL_DEFAULT_WORKSPACE_ID` values with real tenant/workspace IDs before production use. OIDC claims apply only to API request scoping; workers and background jobs still rely on fallback defaults and must not run with shared sample values.
 - The production manifest profile enables `IDENTRAIL_POSTGRES_RLS_ENFORCED=true`; confirm migrations and scoped policies before rollout.
 - Keep `IDENTRAIL_AWS_SOURCE=sdk` for production AWS runs.
-- For Kubernetes provider runs, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
-- The default manifests disable service account token automounting. If Kubernetes provider mode needs in-cluster API credentials, explicitly enable token mounting for that workload and bind a least-privilege service account.
+- For Kubernetes provider runs, keep `IDENTRAIL_K8S_SOURCE=kubectl`, apply `rbac-scanner-readonly.example.yaml`, and use an image that includes `kubectl`.
 - For upgrade-safe deployment at scale, prefer Helm (`deploy/helm/identrail`).
 - Worker probes use `identrail --healthcheck`, which verifies the worker binary can execute inside the container.
 - Update the API, worker, and migration manifests to the same release tag or digest before applying them in production; avoid mutable `latest` tags.
