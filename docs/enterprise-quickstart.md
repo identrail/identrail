@@ -13,14 +13,16 @@ This quickstart gets Identrail running with enterprise-safe defaults for auth sc
 cp deploy/docker/.env.example deploy/docker/.env
 ```
 
-Edit `deploy/docker/.env` and set at minimum:
+Edit `deploy/docker/.env` and use scoped API keys for this quickstart:
 
-- `IDENTRAIL_API_KEYS` with strong unique keys
-- `IDENTRAIL_WRITE_API_KEYS` with write-capable keys
 - `IDENTRAIL_POSTGRES_PASSWORD` with a strong database password
 - `IDENTRAIL_API_KEY_SCOPES` (required for this quickstart), for example:
   - `IDENTRAIL_API_KEY_SCOPES=<reader-key>:read,tenant:tenant-a,workspace:workspace-a;<writer-key>:read,write,tenant:tenant-a,workspace:workspace-a;<admin-key>:read,write,admin,tenant:tenant-a,workspace:workspace-a`
 - `IDENTRAIL_AUDIT_LOG_FILE=/tmp/identrail-audit.jsonl`
+- `IDENTRAIL_CONNECTOR_SECRET_KEYS=v1:<base64-32-byte-key>` and `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true` for durable connector credential storage
+- `IDENTRAIL_AUDIT_FINGERPRINT_SECRET=<strong-secret>` for keyed audit pseudonymization
+
+Do not also provision `IDENTRAIL_API_KEYS`/`IDENTRAIL_WRITE_API_KEYS` for this quickstart. Those legacy key lists are an alternative mode for simpler local deployments; when `IDENTRAIL_API_KEY_SCOPES` is set, scoped keys are the authorization source of truth.
 
 Scoped API key bindings are enforced before tenant/workspace headers are accepted. For API key callers, `X-Identrail-Tenant-ID` and `X-Identrail-Workspace-ID` must match the key binding metadata.
 
@@ -47,10 +49,10 @@ export IDENTRAIL_WRITER_KEY="<writer-key-from-.env>"
 export IDENTRAIL_ADMIN_KEY="<admin-key-from-.env>"
 ```
 
-If you are using the web dashboard, enter these same values in the top control bar:
-- `API Key`
-- `Tenant ID`
-- `Workspace ID`
+If you are using the web dashboard:
+- Preferred: sign in through OIDC (`/app/login`) so API credentials and scope come from the identity provider session.
+- Manual workspace entry is disabled by default for production-safe deployments.
+- Demo-only local override: set `VITE_ALLOW_MANUAL_PRODUCT_SESSION=true` in `deploy/docker/.env`, then rebuild the web image so Vite receives the flag at build time (for example: `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build web`).
 
 ## 4. Health and Auth Smoke Checks
 

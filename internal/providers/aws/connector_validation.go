@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	api "github.com/identrail/identrail/internal/api"
-	"github.com/identrail/identrail/internal/stringutil"
 )
 
 // ConnectionValidator validates AWS connector setup with read-only AWS calls.
@@ -293,5 +292,10 @@ func classifyAWSError(err error, fallback string) string {
 }
 
 func firstNonEmptyString(values ...string) string {
-	return stringutil.FirstNonEmpty(values...)
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

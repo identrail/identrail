@@ -35,7 +35,11 @@ fmt-check: ## Check formatting without modifying files
 			exit 1; \
 		fi; \
 	fi
-	@terraform fmt -check -recursive deploy/terraform >/dev/null 2>&1 || true
+	@if command -v terraform >/dev/null 2>&1; then \
+		terraform fmt -check -recursive deploy/terraform; \
+	else \
+		echo "terraform not found; skipping deploy/terraform fmt check"; \
+	fi
 
 vet: ## Run go vet
 	go vet ./...

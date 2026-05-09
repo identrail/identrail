@@ -176,7 +176,7 @@ Use GitHub private vulnerability reporting for this repository. If unavailable, 
 
 Be respectful and constructive in all interactions.
 
-A dedicated `CODE_OF_CONDUCT.md` may be added separately. Until then, maintain professional and inclusive communication in issues, discussions, and PR reviews.
+See [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) for contributor behavior expectations in issues, discussions, and PR reviews.
 
 ## License
 

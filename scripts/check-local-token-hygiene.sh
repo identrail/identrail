@@ -1,47 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-env_file=".env.local"
+env_files=(
+  ".env"
+  ".env.local"
+  "deploy/docker/.env"
+  "web/.env.local"
+  "site/.env.local"
+)
 
-if [[ ! -f "${env_file}" ]]; then
-  exit 0
-fi
+findings=0
 
-token_line="$(grep -E '^[[:space:]]*VERCEL_OIDC_TOKEN=' "${env_file}" | tail -n1 || true)"
-if [[ -z "${token_line}" ]]; then
-  exit 0
-fi
+report_finding() {
+  local file="$1"
+  local kind="$2"
+  printf 'Detected local secret-like value in %s: %s\n' "${file}" "${kind}" >&2
+  findings=1
+}
 
-token_value="${token_line#*=}"
-token_value="$(printf '%s' "${token_value}" | tr -d '\r')"
+scan_file() {
+  local file="$1"
+  local content
+  content="$(tr -d '\r' <"${file}")"
 
-# Strip inline comments (un-quoted # and everything after)
-token_value="$(printf '%s' "${token_value}" | sed -E 's/[[:space:]]+#.*$//')"
+  if [[ "${content}" =~ eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+ ]]; then
+    report_finding "${file}" "JWT-shaped token"
+  fi
 
-# Strip surrounding quotes (double or single)
-token_value="${token_value%\"}"
-token_value="${token_value#\"}"
-token_value="${token_value%\'}"
-token_value="${token_value#\'}"
+  if [[ "${content}" =~ gh[pousr]_[A-Za-z0-9_]{36,} ]] || [[ "${content}" =~ github_pat_[A-Za-z0-9_]+ ]]; then
+    report_finding "${file}" "GitHub token"
+  fi
 
-# Trim leading/trailing whitespace
-token_value="$(printf '%s' "${token_value}" | xargs)"
+  if [[ "${content}" =~ -----BEGIN[[:space:]]+(RSA[[:space:]]+|EC[[:space:]]+|OPENSSH[[:space:]]+|DSA[[:space:]]+)?PRIVATE[[:space:]]+KEY----- ]]; then
+    report_finding "${file}" "private key"
+  fi
 
-if [[ -z "${token_value}" ]]; then
-  exit 0
-fi
+  while IFS= read -r line; do
+    if [[ "${line}" =~ postgres(ql)?://[^[:space:]@/]+:[^[:space:]@]+@ ]] && [[ ! "${line}" =~ replace- ]]; then
+      report_finding "${file}" "credential-bearing Postgres URL"
+      break
+    fi
+  done <<<"${content}"
+}
 
-# Vercel OIDC tokens are JWT-shaped. Block pushes when one is present locally.
-if [[ "${token_value}" =~ ^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+for env_file in "${env_files[@]}"; do
+  if [[ -f "${env_file}" ]]; then
+    scan_file "${env_file}"
+  fi
+done
+
+if [[ "${findings}" -ne 0 ]]; then
   cat <<'MSG' >&2
-Detected a JWT-shaped VERCEL_OIDC_TOKEN in .env.local.
 
-For local token hygiene:
-1) Rotate/regenerate the token (vercel env pull).
-2) Avoid sharing terminal output that includes token values.
-3) Redact the token in local files before publishing logs/screenshots.
-
-This pre-push check is intentionally blocking to reduce local credential leak risk.
+Local env files contain credential-like values. These files are usually ignored by Git,
+but they are easy to leak through copied terminal output, screenshots, logs, or local
+artifact sharing. Rotate exposed credentials and redact local files before publishing
+debug material.
 MSG
   exit 1
 fi
