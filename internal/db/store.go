@@ -1163,6 +1163,23 @@ func NormalizeFindingTriage(triage domain.FindingTriage, now time.Time) domain.F
 	return normalized
 }
 
+// FindingMeta is the lightweight shape used for trend/diff set operations.
+type FindingMeta struct {
+	ID        string
+	ScanID    string
+	Severity  string
+	Type      string
+	CreatedAt time.Time
+}
+
+// FindingTrendCount aggregates finding totals for one scan and severity bucket.
+type FindingTrendCount struct {
+	ScanID     string
+	StartedAt  time.Time
+	Severity   string
+	TotalCount int
+}
+
 // Store defines persistence operations required by API and scheduler orchestration.
 type Store interface {
 	CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error)
@@ -1188,6 +1205,9 @@ type Store interface {
 	ListFindingsAll(ctx context.Context) ([]domain.Finding, error)
 	ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error)
 	GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error)
+	ListFindingMetasByScan(ctx context.Context, scanID string) ([]FindingMeta, error)
+	ListFindingsByScanAndIDs(ctx context.Context, scanID string, findingIDs []string) ([]domain.Finding, error)
+	ListFindingTrendCounts(ctx context.Context, scanIDs []string, severity string, findingType string) ([]FindingTrendCount, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
 	GetAuthzEntityAttributes(ctx context.Context, entityKind string, entityType string, entityID string) (AuthzEntityAttributes, error)
 	UpsertAuthzRelationship(ctx context.Context, relationship AuthzRelationship) error

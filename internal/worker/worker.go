@@ -258,40 +258,40 @@ func processAPIQueueBatch(
 	if batchSize <= 0 {
 		batchSize = 1
 	}
-	failures := 0
-	var firstErr error
-
-	for i := 0; i < batchSize; i++ {
-		processed, err := processScan(ctx)
-		if err != nil {
-			failures++
-			if firstErr == nil {
-				firstErr = err
-			}
-			if onScanError != nil {
-				onScanError(err)
-			}
-			continue
-		}
-		if !processed {
-			break
-		}
+	type batchResult struct {
+		failures int
+		firstErr error
 	}
-	for i := 0; i < batchSize; i++ {
-		processed, err := processRepoScan(ctx)
-		if err != nil {
-			failures++
-			if firstErr == nil {
-				firstErr = err
+	runBatch := func(process queueProcessFunc, onError func(error)) batchResult {
+		result := batchResult{}
+		for i := 0; i < batchSize; i++ {
+			processed, err := process(ctx)
+			if err != nil {
+				result.failures++
+				if result.firstErr == nil {
+					result.firstErr = err
+				}
+				if onError != nil {
+					onError(err)
+				}
+				continue
 			}
-			if onRepoError != nil {
-				onRepoError(err)
+			if !processed {
+				break
 			}
-			continue
 		}
-		if !processed {
-			break
-		}
+		return result
+	}
+	scanCh := make(chan batchResult, 1)
+	repoCh := make(chan batchResult, 1)
+	go func() { scanCh <- runBatch(processScan, onScanError) }()
+	go func() { repoCh <- runBatch(processRepoScan, onRepoError) }()
+	scanResult := <-scanCh
+	repoResult := <-repoCh
+	failures := scanResult.failures + repoResult.failures
+	firstErr := scanResult.firstErr
+	if firstErr == nil {
+		firstErr = repoResult.firstErr
 	}
 	if failures > 0 {
 		return fmt.Errorf("api queue batch failed for %d job(s): %w", failures, firstErr)

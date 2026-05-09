@@ -657,22 +657,13 @@ func (p *PostgresStore) UpsertFindings(ctx context.Context, scanID string, findi
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	query := `
-		INSERT INTO findings (scan_id, finding_id, type, severity, title, human_summary, path, evidence, remediation, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (scan_id, finding_id)
-		DO UPDATE SET
-		  type = EXCLUDED.type,
-		  severity = EXCLUDED.severity,
-		  title = EXCLUDED.title,
-		  human_summary = EXCLUDED.human_summary,
-		  path = EXCLUDED.path,
-		  evidence = EXCLUDED.evidence,
-		  remediation = EXCLUDED.remediation,
-		  created_at = EXCLUDED.created_at
-	`
-
+	rows := make([][]any, 0, len(findings))
+	seenFindings := make(map[string]struct{}, len(findings))
 	for _, finding := range findings {
+		if _, dup := seenFindings[finding.ID]; dup {
+			continue
+		}
+		seenFindings[finding.ID] = struct{}{}
 		pathJSON, err := json.Marshal(finding.Path)
 		if err != nil {
 			return fmt.Errorf("marshal finding path: %w", err)
@@ -686,10 +677,7 @@ func (p *PostgresStore) UpsertFindings(ctx context.Context, scanID string, findi
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
-
-		_, err = tx.ExecContext(
-			ctx,
-			query,
+		rows = append(rows, []any{
 			scanID,
 			finding.ID,
 			string(finding.Type),
@@ -700,10 +688,25 @@ func (p *PostgresStore) UpsertFindings(ctx context.Context, scanID string, findi
 			evidenceJSON,
 			finding.Remediation,
 			createdAt.UTC(),
-		)
-		if err != nil {
-			return fmt.Errorf("upsert finding %s: %w", finding.ID, err)
-		}
+		})
+	}
+	if err := executeBulkInsert(
+		ctx,
+		tx,
+		`INSERT INTO findings (scan_id, finding_id, type, severity, title, human_summary, path, evidence, remediation, created_at) VALUES `,
+		` ON CONFLICT (scan_id, finding_id)
+		  DO UPDATE SET
+		    type = EXCLUDED.type,
+		    severity = EXCLUDED.severity,
+		    title = EXCLUDED.title,
+		    human_summary = EXCLUDED.human_summary,
+		    path = EXCLUDED.path,
+		    evidence = EXCLUDED.evidence,
+		    remediation = EXCLUDED.remediation,
+		    created_at = EXCLUDED.created_at`,
+		rows,
+	); err != nil {
+		return fmt.Errorf("upsert findings: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1333,6 +1336,145 @@ func (p *PostgresStore) GetFinding(ctx context.Context, findingID string, scanID
 		return domain.Finding{}, ErrNotFound
 	}
 	return items[0], nil
+}
+
+// ListFindingMetasByScan returns lightweight finding metadata for one scan.
+func (p *PostgresStore) ListFindingMetasByScan(ctx context.Context, scanID string) ([]FindingMeta, error) {
+	if err := p.ensureScanInScope(ctx, scanID); err != nil {
+		return nil, err
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`SELECT finding_id, scan_id, severity, type, created_at
+		 FROM findings
+		 WHERE scan_id = $1
+		 ORDER BY created_at DESC`,
+		scanID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query finding metas by scan: %w", err)
+	}
+	defer rows.Close()
+	result := make([]FindingMeta, 0)
+	for rows.Next() {
+		var meta FindingMeta
+		if err := rows.Scan(&meta.ID, &meta.ScanID, &meta.Severity, &meta.Type, &meta.CreatedAt); err != nil {
+			return nil, fmt.Errorf("finding meta row: %w", err)
+		}
+		result = append(result, meta)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("finding meta rows: %w", err)
+	}
+	return result, nil
+}
+
+// ListFindingsByScanAndIDs returns detailed findings for one scan and ID set.
+func (p *PostgresStore) ListFindingsByScanAndIDs(ctx context.Context, scanID string, findingIDs []string) ([]domain.Finding, error) {
+	if err := p.ensureScanInScope(ctx, scanID); err != nil {
+		return nil, err
+	}
+	unique := make([]string, 0, len(findingIDs))
+	seen := map[string]struct{}{}
+	for _, findingID := range findingIDs {
+		normalized := strings.TrimSpace(findingID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		unique = append(unique, normalized)
+	}
+	if len(unique) == 0 {
+		return []domain.Finding{}, nil
+	}
+	placeholders := make([]string, 0, len(unique))
+	args := make([]any, 0, len(unique)+1)
+	args = append(args, scanID)
+	for i, findingID := range unique {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+2))
+		args = append(args, findingID)
+	}
+	rows, err := p.queryContext(
+		ctx,
+		fmt.Sprintf(`SELECT f.scan_id, f.finding_id, f.type, f.severity, f.title, f.human_summary, f.path, f.evidence, COALESCE(f.remediation, ''), f.created_at
+		 FROM findings f
+		 WHERE f.scan_id = $1
+		   AND f.finding_id IN (%s)`, strings.Join(placeholders, ",")),
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query findings by ids: %w", err)
+	}
+	defer rows.Close()
+	return findingsFromSQLRows(rows)
+}
+
+// ListFindingTrendCounts aggregates finding totals per scan and severity.
+func (p *PostgresStore) ListFindingTrendCounts(ctx context.Context, scanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unique := make([]string, 0, len(scanIDs))
+	seen := map[string]struct{}{}
+	for _, scanID := range scanIDs {
+		normalized := strings.TrimSpace(scanID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		unique = append(unique, normalized)
+	}
+	if len(unique) == 0 {
+		return []FindingTrendCount{}, nil
+	}
+	placeholders := make([]string, 0, len(unique))
+	args := make([]any, 0, len(unique)+4)
+	args = append(args, scope.TenantID, scope.WorkspaceID, strings.ToLower(strings.TrimSpace(severity)), strings.ToLower(strings.TrimSpace(findingType)))
+	for i, scanID := range unique {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+5))
+		args = append(args, scanID)
+	}
+	rows, err := p.queryContext(
+		ctx,
+		fmt.Sprintf(`SELECT s.id, s.started_at, f.severity, COUNT(f.finding_id)
+		 FROM scans s
+		 LEFT JOIN findings f
+		   ON f.scan_id = s.id
+		  AND ($3 = '' OR LOWER(f.severity) = $3)
+		  AND ($4 = '' OR LOWER(f.type) = $4)
+		 WHERE s.tenant_id = $1
+		   AND s.workspace_id = $2
+		   AND s.id IN (%s)
+		 GROUP BY s.id, s.started_at, f.severity`, strings.Join(placeholders, ",")),
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query finding trend counts: %w", err)
+	}
+	defer rows.Close()
+	result := make([]FindingTrendCount, 0)
+	for rows.Next() {
+		var count FindingTrendCount
+		var severityValue sql.NullString
+		if err := rows.Scan(&count.ScanID, &count.StartedAt, &severityValue, &count.TotalCount); err != nil {
+			return nil, fmt.Errorf("finding trend row: %w", err)
+		}
+		if severityValue.Valid {
+			count.Severity = severityValue.String
+		}
+		result = append(result, count)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("finding trend rows: %w", err)
+	}
+	return result, nil
 }
 
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
@@ -2635,21 +2777,13 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	query := `
-		INSERT INTO repo_findings (repo_scan_id, finding_id, type, severity, title, human_summary, path, evidence, remediation, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (repo_scan_id, finding_id)
-		DO UPDATE SET
-		  type = EXCLUDED.type,
-		  severity = EXCLUDED.severity,
-		  title = EXCLUDED.title,
-		  human_summary = EXCLUDED.human_summary,
-		  path = EXCLUDED.path,
-		  evidence = EXCLUDED.evidence,
-		  remediation = EXCLUDED.remediation,
-		  created_at = EXCLUDED.created_at
-	`
+	rows := make([][]any, 0, len(findings))
+	seenRepoFindings := make(map[string]struct{}, len(findings))
 	for _, finding := range findings {
+		if _, dup := seenRepoFindings[finding.ID]; dup {
+			continue
+		}
+		seenRepoFindings[finding.ID] = struct{}{}
 		pathJSON, pathErr := json.Marshal(finding.Path)
 		if pathErr != nil {
 			return fmt.Errorf("marshal repo finding path: %w", pathErr)
@@ -2662,9 +2796,7 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
-		_, execErr := tx.ExecContext(
-			ctx,
-			query,
+		rows = append(rows, []any{
 			repoScanID,
 			finding.ID,
 			string(finding.Type),
@@ -2675,10 +2807,25 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 			evidenceJSON,
 			finding.Remediation,
 			createdAt.UTC(),
-		)
-		if execErr != nil {
-			return fmt.Errorf("upsert repo finding %s: %w", finding.ID, execErr)
-		}
+		})
+	}
+	if err := executeBulkInsert(
+		ctx,
+		tx,
+		`INSERT INTO repo_findings (repo_scan_id, finding_id, type, severity, title, human_summary, path, evidence, remediation, created_at) VALUES `,
+		` ON CONFLICT (repo_scan_id, finding_id)
+		  DO UPDATE SET
+		    type = EXCLUDED.type,
+		    severity = EXCLUDED.severity,
+		    title = EXCLUDED.title,
+		    human_summary = EXCLUDED.human_summary,
+		    path = EXCLUDED.path,
+		    evidence = EXCLUDED.evidence,
+		    remediation = EXCLUDED.remediation,
+		    created_at = EXCLUDED.created_at`,
+		rows,
+	); err != nil {
+		return fmt.Errorf("upsert repo findings: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit repo findings transaction: %w", err)
@@ -2841,51 +2988,87 @@ func nullableTime(value time.Time) any {
 	return value.UTC()
 }
 
-func upsertRawAssets(ctx context.Context, tx *sql.Tx, scanID string, assets []providers.RawAsset) error {
-	query := `
-		INSERT INTO raw_assets (scan_id, source_id, kind, payload, collected_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (scan_id, source_id, kind)
-		DO UPDATE SET payload = EXCLUDED.payload, collected_at = EXCLUDED.collected_at
-	`
-	for _, asset := range assets {
-		collectedAt, err := time.Parse(time.RFC3339Nano, asset.Collected)
-		if err != nil {
-			collectedAt = time.Now().UTC()
+const bulkInsertChunkSize = 100
+
+func executeBulkInsert(ctx context.Context, tx *sql.Tx, prefix string, suffix string, values [][]any) error {
+	if len(values) == 0 {
+		return nil
+	}
+	for start := 0; start < len(values); start += bulkInsertChunkSize {
+		end := start + bulkInsertChunkSize
+		if end > len(values) {
+			end = len(values)
 		}
-		_, err = tx.ExecContext(ctx, query, scanID, asset.SourceID, asset.Kind, asset.Payload, collectedAt.UTC())
-		if err != nil {
-			return fmt.Errorf("upsert raw asset %s: %w", asset.SourceID, err)
+		chunk := values[start:end]
+		argsCap := 0
+		maxInt := int(^uint(0) >> 1)
+		for _, row := range chunk {
+			if len(row) == 0 {
+				return errors.New("bulk insert rows must contain at least one value")
+			}
+			if argsCap > maxInt-len(row) {
+				return errors.New("bulk insert argument capacity overflow")
+			}
+			argsCap += len(row)
+		}
+		valueParts := make([]string, 0, len(chunk))
+		args := make([]any, 0, argsCap)
+		placeholder := 1
+		for _, row := range chunk {
+			rowPlaceholders := make([]string, 0, len(row))
+			for _, value := range row {
+				rowPlaceholders = append(rowPlaceholders, fmt.Sprintf("$%d", placeholder))
+				args = append(args, value)
+				placeholder++
+			}
+			valueParts = append(valueParts, fmt.Sprintf("(%s)", strings.Join(rowPlaceholders, ", ")))
+		}
+		statement := prefix + strings.Join(valueParts, ", ") + suffix
+		if _, err := tx.ExecContext(ctx, statement, args...); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+func upsertRawAssets(ctx context.Context, tx *sql.Tx, scanID string, assets []providers.RawAsset) error {
+	rows := make([][]any, 0, len(assets))
+	seenAssets := make(map[string]struct{}, len(assets))
+	for _, asset := range assets {
+		key := asset.SourceID + "\x00" + asset.Kind
+		if _, dup := seenAssets[key]; dup {
+			continue
+		}
+		seenAssets[key] = struct{}{}
+		collectedAt, err := time.Parse(time.RFC3339Nano, asset.Collected)
+		if err != nil {
+			collectedAt = time.Now().UTC()
+		}
+		rows = append(rows, []any{scanID, asset.SourceID, asset.Kind, asset.Payload, collectedAt.UTC()})
+	}
+	return executeBulkInsert(
+		ctx,
+		tx,
+		`INSERT INTO raw_assets (scan_id, source_id, kind, payload, collected_at) VALUES `,
+		` ON CONFLICT (scan_id, source_id, kind)
+		  DO UPDATE SET payload = EXCLUDED.payload, collected_at = EXCLUDED.collected_at`,
+		rows,
+	)
+}
+
 func upsertIdentities(ctx context.Context, tx *sql.Tx, scanID string, identities []domain.Identity) error {
-	query := `
-		INSERT INTO identities (scan_id, id, provider, type, name, arn, owner_hint, created_at, last_used_at, tags, raw_ref, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-		ON CONFLICT (scan_id, id)
-		DO UPDATE SET
-		  provider = EXCLUDED.provider,
-		  type = EXCLUDED.type,
-		  name = EXCLUDED.name,
-		  arn = EXCLUDED.arn,
-		  owner_hint = EXCLUDED.owner_hint,
-		  created_at = EXCLUDED.created_at,
-		  last_used_at = EXCLUDED.last_used_at,
-		  tags = EXCLUDED.tags,
-		  raw_ref = EXCLUDED.raw_ref,
-		  updated_at = NOW()
-	`
+	rows := make([][]any, 0, len(identities))
+	seenIdentities := make(map[string]struct{}, len(identities))
 	for _, identity := range identities {
+		if _, dup := seenIdentities[identity.ID]; dup {
+			continue
+		}
+		seenIdentities[identity.ID] = struct{}{}
 		tagsJSON, err := json.Marshal(identity.Tags)
 		if err != nil {
 			return fmt.Errorf("marshal identity tags: %w", err)
 		}
-		_, err = tx.ExecContext(
-			ctx,
-			query,
+		rows = append(rows, []any{
 			scanID,
 			identity.ID,
 			string(identity.Provider),
@@ -2897,35 +3080,41 @@ func upsertIdentities(ctx context.Context, tx *sql.Tx, scanID string, identities
 			identity.LastUsedAt,
 			tagsJSON,
 			identity.RawRef,
-		)
-		if err != nil {
-			return fmt.Errorf("upsert identity %s: %w", identity.ID, err)
-		}
+		})
 	}
-	return nil
+	return executeBulkInsert(
+		ctx,
+		tx,
+		`INSERT INTO identities (scan_id, id, provider, type, name, arn, owner_hint, created_at, last_used_at, tags, raw_ref) VALUES `,
+		` ON CONFLICT (scan_id, id)
+		  DO UPDATE SET
+		    provider = EXCLUDED.provider,
+		    type = EXCLUDED.type,
+		    name = EXCLUDED.name,
+		    arn = EXCLUDED.arn,
+		    owner_hint = EXCLUDED.owner_hint,
+		    created_at = EXCLUDED.created_at,
+		    last_used_at = EXCLUDED.last_used_at,
+		    tags = EXCLUDED.tags,
+		    raw_ref = EXCLUDED.raw_ref,
+		    updated_at = NOW()`,
+		rows,
+	)
 }
 
 func upsertPolicies(ctx context.Context, tx *sql.Tx, scanID string, policies []domain.Policy) error {
-	query := `
-		INSERT INTO policies (scan_id, id, provider, name, document, normalized, raw_ref, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		ON CONFLICT (scan_id, id)
-		DO UPDATE SET
-		  provider = EXCLUDED.provider,
-		  name = EXCLUDED.name,
-		  document = EXCLUDED.document,
-		  normalized = EXCLUDED.normalized,
-		  raw_ref = EXCLUDED.raw_ref,
-		  updated_at = NOW()
-	`
+	rows := make([][]any, 0, len(policies))
+	seenPolicies := make(map[string]struct{}, len(policies))
 	for _, policy := range policies {
+		if _, dup := seenPolicies[policy.ID]; dup {
+			continue
+		}
+		seenPolicies[policy.ID] = struct{}{}
 		normalizedJSON, err := json.Marshal(policy.Normalized)
 		if err != nil {
 			return fmt.Errorf("marshal policy normalized: %w", err)
 		}
-		_, err = tx.ExecContext(
-			ctx,
-			query,
+		rows = append(rows, []any{
 			scanID,
 			policy.ID,
 			string(policy.Provider),
@@ -2933,30 +3122,33 @@ func upsertPolicies(ctx context.Context, tx *sql.Tx, scanID string, policies []d
 			string(policy.Document),
 			normalizedJSON,
 			policy.RawRef,
-		)
-		if err != nil {
-			return fmt.Errorf("upsert policy %s: %w", policy.ID, err)
-		}
+		})
 	}
-	return nil
+	return executeBulkInsert(
+		ctx,
+		tx,
+		`INSERT INTO policies (scan_id, id, provider, name, document, normalized, raw_ref) VALUES `,
+		` ON CONFLICT (scan_id, id)
+		  DO UPDATE SET
+		    provider = EXCLUDED.provider,
+		    name = EXCLUDED.name,
+		    document = EXCLUDED.document,
+		    normalized = EXCLUDED.normalized,
+		    raw_ref = EXCLUDED.raw_ref,
+		    updated_at = NOW()`,
+		rows,
+	)
 }
 
 func upsertRelationships(ctx context.Context, tx *sql.Tx, scanID string, relationships []domain.Relationship) error {
-	query := `
-		INSERT INTO relationships (scan_id, id, type, from_node_id, to_node_id, evidence_ref, discovered_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (scan_id, id)
-		DO UPDATE SET
-		  type = EXCLUDED.type,
-		  from_node_id = EXCLUDED.from_node_id,
-		  to_node_id = EXCLUDED.to_node_id,
-		  evidence_ref = EXCLUDED.evidence_ref,
-		  discovered_at = EXCLUDED.discovered_at
-	`
+	rows := make([][]any, 0, len(relationships))
+	seenRelationships := make(map[string]struct{}, len(relationships))
 	for _, relationship := range relationships {
-		_, err := tx.ExecContext(
-			ctx,
-			query,
+		if _, dup := seenRelationships[relationship.ID]; dup {
+			continue
+		}
+		seenRelationships[relationship.ID] = struct{}{}
+		rows = append(rows, []any{
 			scanID,
 			relationship.ID,
 			string(relationship.Type),
@@ -2964,36 +3156,48 @@ func upsertRelationships(ctx context.Context, tx *sql.Tx, scanID string, relatio
 			relationship.ToNodeID,
 			nullableString(relationship.EvidenceRef),
 			relationship.DiscoveredAt.UTC(),
-		)
-		if err != nil {
-			return fmt.Errorf("upsert relationship %s: %w", relationship.ID, err)
-		}
+		})
 	}
-	return nil
+	return executeBulkInsert(
+		ctx,
+		tx,
+		`INSERT INTO relationships (scan_id, id, type, from_node_id, to_node_id, evidence_ref, discovered_at) VALUES `,
+		` ON CONFLICT (scan_id, id)
+		  DO UPDATE SET
+		    type = EXCLUDED.type,
+		    from_node_id = EXCLUDED.from_node_id,
+		    to_node_id = EXCLUDED.to_node_id,
+		    evidence_ref = EXCLUDED.evidence_ref,
+		    discovered_at = EXCLUDED.discovered_at`,
+		rows,
+	)
 }
 
 func upsertPermissions(ctx context.Context, tx *sql.Tx, scanID string, permissions []providers.PermissionTuple) error {
-	query := `
-		INSERT INTO permissions (scan_id, identity_id, action, resource, effect)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (scan_id, identity_id, action, resource, effect)
-		DO NOTHING
-	`
+	rows := make([][]any, 0, len(permissions))
+	seenPermissions := make(map[string]struct{}, len(permissions))
 	for _, permission := range permissions {
-		_, err := tx.ExecContext(
-			ctx,
-			query,
+		key := permission.IdentityID + "\x00" + permission.Action + "\x00" + permission.Resource + "\x00" + permission.Effect
+		if _, dup := seenPermissions[key]; dup {
+			continue
+		}
+		seenPermissions[key] = struct{}{}
+		rows = append(rows, []any{
 			scanID,
 			permission.IdentityID,
 			permission.Action,
 			permission.Resource,
 			permission.Effect,
-		)
-		if err != nil {
-			return fmt.Errorf("upsert permission for %s: %w", permission.IdentityID, err)
-		}
+		})
 	}
-	return nil
+	return executeBulkInsert(
+		ctx,
+		tx,
+		`INSERT INTO permissions (scan_id, identity_id, action, resource, effect) VALUES `,
+		` ON CONFLICT (scan_id, identity_id, action, resource, effect)
+		  DO NOTHING`,
+		rows,
+	)
 }
 
 func (p *PostgresStore) createScanWithStatus(ctx context.Context, provider string, status string, startedAt time.Time) (ScanRecord, error) {

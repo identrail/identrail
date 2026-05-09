@@ -107,6 +107,8 @@ func (a *SDKIAMAPI) ListRoles(ctx context.Context, nextToken string, pageSize in
 	}
 
 	roles := make([]IAMRole, 0, len(output.Roles))
+	policyVersionByARN := map[string]string{}
+	policyDocumentByKey := map[string]string{}
 	for _, sdkRole := range output.Roles {
 		if err := ctx.Err(); err != nil {
 			return ListRolesPage{}, err
@@ -116,7 +118,7 @@ func (a *SDKIAMAPI) ListRoles(ctx context.Context, nextToken string, pageSize in
 		if arn == "" || roleName == "" {
 			continue
 		}
-		policies, err := a.collectPermissionPolicies(ctx, roleName)
+		policies, err := a.collectPermissionPolicies(ctx, roleName, policyVersionByARN, policyDocumentByKey)
 		if err != nil {
 			return ListRolesPage{}, fmt.Errorf("collect policies for role %s: %w", roleName, err)
 		}
@@ -141,7 +143,7 @@ func (a *SDKIAMAPI) ListRoles(ctx context.Context, nextToken string, pageSize in
 	return page, nil
 }
 
-func (a *SDKIAMAPI) collectPermissionPolicies(ctx context.Context, roleName string) ([]IAMPermissionPolicy, error) {
+func (a *SDKIAMAPI) collectPermissionPolicies(ctx context.Context, roleName string, policyVersionByARN map[string]string, policyDocumentByKey map[string]string) ([]IAMPermissionPolicy, error) {
 	inlineNames, err := a.listInlinePolicyNames(ctx, roleName)
 	if err != nil {
 		return nil, err
@@ -177,28 +179,41 @@ func (a *SDKIAMAPI) collectPermissionPolicies(ctx context.Context, roleName stri
 			policyName = policyARN
 		}
 
-		getPolicyOutput, err := a.client.GetPolicy(ctx, &iam.GetPolicyInput{PolicyArn: awsv2.String(policyARN)})
-		if err != nil {
-			return nil, fmt.Errorf("get managed policy %s: %w", policyARN, err)
+		defaultVersionID := strings.TrimSpace(policyVersionByARN[policyARN])
+		if defaultVersionID == "" {
+			getPolicyOutput, err := a.client.GetPolicy(ctx, &iam.GetPolicyInput{PolicyArn: awsv2.String(policyARN)})
+			if err != nil {
+				return nil, fmt.Errorf("get managed policy %s: %w", policyARN, err)
+			}
+			if getPolicyOutput.Policy == nil {
+				continue
+			}
+			defaultVersionID = strings.TrimSpace(awsv2.ToString(getPolicyOutput.Policy.DefaultVersionId))
+			if defaultVersionID != "" {
+				policyVersionByARN[policyARN] = defaultVersionID
+			}
 		}
-		if getPolicyOutput.Policy == nil {
-			continue
-		}
-		defaultVersionID := strings.TrimSpace(awsv2.ToString(getPolicyOutput.Policy.DefaultVersionId))
 		if defaultVersionID == "" {
 			continue
 		}
-		versionOutput, err := a.client.GetPolicyVersion(ctx, &iam.GetPolicyVersionInput{
-			PolicyArn: awsv2.String(policyARN),
-			VersionId: awsv2.String(defaultVersionID),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("get managed policy version %s (%s): %w", policyARN, defaultVersionID, err)
+		cacheKey := policyARN + "|" + defaultVersionID
+		document := strings.TrimSpace(policyDocumentByKey[cacheKey])
+		if document == "" {
+			versionOutput, err := a.client.GetPolicyVersion(ctx, &iam.GetPolicyVersionInput{
+				PolicyArn: awsv2.String(policyARN),
+				VersionId: awsv2.String(defaultVersionID),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("get managed policy version %s (%s): %w", policyARN, defaultVersionID, err)
+			}
+			if versionOutput.PolicyVersion == nil {
+				continue
+			}
+			document = strings.TrimSpace(awsv2.ToString(versionOutput.PolicyVersion.Document))
+			if document != "" {
+				policyDocumentByKey[cacheKey] = document
+			}
 		}
-		if versionOutput.PolicyVersion == nil {
-			continue
-		}
-		document := strings.TrimSpace(awsv2.ToString(versionOutput.PolicyVersion.Document))
 		if document == "" {
 			continue
 		}
