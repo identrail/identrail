@@ -40,18 +40,16 @@ func TestMigrationFiles(t *testing.T) {
 	}
 }
 
-func TestMigrationFilesAllowDuplicateVersions(t *testing.T) {
+func TestMigrationFilesRejectDuplicateVersions(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "0001_init.up.sql"), []byte("SELECT 1;"), 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "0001_add.up.sql"), []byte("SELECT 2;"), 0o600)
 
-	files, err := migrationFiles(dir)
-	if err != nil {
-		t.Fatalf("migrationFiles failed: %v", err)
+	_, err := migrationFiles(dir)
+	if err == nil {
+		t.Fatal("expected duplicate migration version error")
 	}
-	if len(files) != 2 {
-		t.Fatalf("expected 2 files, got %d", len(files))
-	}
+}
 }
 
 func TestUpFilenameForDown(t *testing.T) {
