@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/google/uuid"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 // MemoryStore is a concurrency-safe in-memory persistence adapter.
@@ -169,12 +169,24 @@ func (m *MemoryStore) ClaimNextQueuedScan(ctx context.Context, provider string) 
 	if err != nil {
 		return ScanRecord{}, err
 	}
+	return m.claimNextQueuedScanLocked(&scope, provider)
+}
+
+// ClaimNextQueuedScanAnyScope moves one queued scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedScanAnyScope(_ context.Context, provider string) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedScanLocked(nil, provider)
+}
+
+func (m *MemoryStore) claimNextQueuedScanLocked(scope *Scope, provider string) (ScanRecord, error) {
 	normalizedProvider := strings.TrimSpace(provider)
 	found := false
 	var bestRecord ScanRecord
 	for _, scanID := range m.scanIDs {
 		record := m.scans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {
@@ -469,6 +481,9 @@ func (m *MemoryStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, e
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -484,7 +499,7 @@ func (m *MemoryStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, e
 	sort.Slice(records, func(i, j int) bool {
 		return records[i].StartedAt.After(records[j].StartedAt)
 	})
-	if limit > 0 && len(records) > limit {
+	if len(records) > limit {
 		records = records[:limit]
 	}
 	return records, nil
@@ -495,6 +510,9 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -510,10 +528,40 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
-	if limit > 0 && len(result) > limit {
+	if len(result) > limit {
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+// ListFindingsAll returns all findings for current scope ordered by recency.
+func (m *MemoryStore) ListFindingsAll(ctx context.Context) ([]domain.Finding, error) {
+	return m.ListFindings(ctx, 0)
+}
+
+// SummarizeFindings returns aggregate counters for current scope without materializing router-facing copies.
+func (m *MemoryStore) SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return FindingSummaryCounts{}, err
+	}
+	summary := FindingSummaryCounts{
+		BySeverity: map[string]int{},
+		ByType:     map[string]int{},
+	}
+	for _, finding := range m.findings {
+		record, exists := m.scans[finding.ScanID]
+		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		summary.Total++
+		summary.BySeverity[string(finding.Severity)]++
+		summary.ByType[string(finding.Type)]++
+	}
+	return summary, nil
 }
 
 // ListFindingsByScan returns latest findings first for one scan.
@@ -521,6 +569,9 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -540,10 +591,53 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
-	if limit > 0 && len(result) > limit {
+	if len(result) > limit {
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+// GetFinding returns one finding by id, optionally scoped to one scan id.
+func (m *MemoryStore) GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return domain.Finding{}, ErrNotFound
+	}
+	scanFilter := strings.TrimSpace(scanID)
+	var latest domain.Finding
+	found := false
+	for _, scanKey := range m.scanIDs {
+		record := m.scans[scanKey]
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if scanFilter != "" && scanKey != scanFilter {
+			continue
+		}
+		findingKey := scanKey + "|" + id
+		finding, exists := m.findings[findingKey]
+		if !exists {
+			continue
+		}
+		if scanFilter != "" {
+			return finding, nil
+		}
+		if !found || finding.CreatedAt.After(latest.CreatedAt) {
+			latest = finding
+			found = true
+		}
+	}
+	if found {
+		return latest, nil
+	}
+	return domain.Finding{}, ErrNotFound
 }
 
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
@@ -1240,6 +1334,37 @@ func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository strin
 	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), "queued", historyLimit, maxFindings, queuedAt), nil
 }
 
+// CreateQueuedRepoScanWithinLimit persists one queued repository scan only when the target is idle and queue capacity remains.
+func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	normalizedRepository := strings.TrimSpace(repository)
+	queued := 0
+	for _, record := range m.repoScans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if strings.EqualFold(record.Repository, normalizedRepository) && (record.Status == "queued" || record.Status == "running") {
+			return RepoScanRecord{}, ErrPendingRepoScanExists
+		}
+		if record.Status == "queued" {
+			queued++
+		}
+	}
+	if queued >= maxPending {
+		return RepoScanRecord{}, ErrQueueLimitReached
+	}
+	return m.createRepoScanLocked(scope, normalizedRepository, "queued", historyLimit, maxFindings, queuedAt), nil
+}
+
 // ClaimNextQueuedRepoScan moves one queued repository scan to running for execution.
 func (m *MemoryStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error) {
 	m.mu.Lock()
@@ -1249,11 +1374,23 @@ func (m *MemoryStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanReco
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
+	return m.claimNextQueuedRepoScanLocked(&scope)
+}
+
+// ClaimNextQueuedRepoScanAnyScope moves one queued repository scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedRepoScanAnyScope(_ context.Context) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedRepoScanLocked(nil)
+}
+
+func (m *MemoryStore) claimNextQueuedRepoScanLocked(scope *Scope) (RepoScanRecord, error) {
 	var claimed RepoScanRecord
 	found := false
 	for _, scanID := range m.repoScanIDs {
 		record := m.repoScans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {
