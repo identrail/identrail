@@ -378,6 +378,9 @@ func TestFifteenthMigrationContainsDatabaseConstraintGuardrails(t *testing.T) {
 			t.Fatalf("expected database constraint migration item %q", item)
 		}
 	}
+	if strings.Contains(text, "SET status = 'completed'\nWHERE status = 'succeeded';") {
+		t.Fatal("expected status guardrail migration to avoid rewriting succeeded scan statuses")
+	}
 }
 
 func TestFifteenthMigrationContainsTenancyConnectorRLSGuardrails(t *testing.T) {
