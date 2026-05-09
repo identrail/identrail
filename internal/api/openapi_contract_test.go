@@ -393,7 +393,33 @@ func readOpenAPISpec(t *testing.T) string {
 
 func readRouterSource(t *testing.T) string {
 	t.Helper()
-	return readRepositoryFile(t, filepath.Join("internal", "api", "router.go"))
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to resolve caller")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+
+	paths := []string{filepath.Join(root, "internal", "api", "router.go")}
+	splitRoutes, err := filepath.Glob(filepath.Join(root, "internal", "api", "*routes*.go"))
+	if err != nil {
+		t.Fatalf("glob split route files: %v", err)
+	}
+	sort.Strings(splitRoutes)
+	paths = append(paths, splitRoutes...)
+
+	var builder strings.Builder
+	for idx, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if idx > 0 {
+			builder.WriteString("\n")
+		}
+		builder.Write(data)
+	}
+
+	return builder.String()
 }
 
 func readRepositoryFile(t *testing.T, relPath string) string {
