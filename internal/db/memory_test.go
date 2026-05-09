@@ -158,6 +158,144 @@ func TestMemoryStoreScanDetails(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListFindingsFiltered(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scanA, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: "f-a", ScanID: scanA.ID, Type: domain.FindingRiskyTrustPolicy, Severity: domain.SeverityHigh, Title: "Alpha", CreatedAt: now.Add(1 * time.Minute)},
+		{ID: "f-b", ScanID: scanA.ID, Type: domain.FindingRiskyTrustPolicy, Severity: domain.SeverityHigh, Title: "Beta", CreatedAt: now.Add(2 * time.Minute)},
+		{ID: "f-c", ScanID: scanA.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityLow, Title: "Gamma", CreatedAt: now.Add(3 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert scan A findings: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: "f-d", ScanID: scanB.ID, Type: domain.FindingRiskyTrustPolicy, Severity: domain.SeverityHigh, Title: "Delta", CreatedAt: now.Add(4 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert scan B findings: %v", err)
+	}
+	for _, findingID := range []string{"f-a", "f-b", "f-d"} {
+		if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
+			FindingID: findingID,
+			Status:    domain.FindingLifecycleAck,
+			Assignee:  "platform",
+			UpdatedAt: now.Add(5 * time.Minute),
+			UpdatedBy: "subject:test",
+		}); err != nil {
+			t.Fatalf("upsert triage for %s: %v", findingID, err)
+		}
+	}
+	expiredAt := now.Add(-time.Minute)
+	if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
+		FindingID:            "f-c",
+		Status:               domain.FindingLifecycleSuppressed,
+		Assignee:             "platform",
+		SuppressionExpiresAt: &expiredAt,
+		UpdatedAt:            now.Add(6 * time.Minute),
+		UpdatedBy:            "subject:test",
+	}); err != nil {
+		t.Fatalf("upsert triage for f-c: %v", err)
+	}
+
+	pageOne, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		ScanID:          scanA.ID,
+		Severity:        "HIGH",
+		Type:            "RISKY_TRUST_POLICY",
+		LifecycleStatus: "ACK",
+		Assignee:        "PLATFORM",
+		SortBy:          "title",
+		Limit:           1,
+		Offset:          0,
+		Now:             now.Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("list filtered page one: %v", err)
+	}
+	if len(pageOne) != 2 || pageOne[0].ID != "f-a" || pageOne[1].ID != "f-b" {
+		t.Fatalf("unexpected filtered page one: %+v", pageOne)
+	}
+
+	pageTwo, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		ScanID:          scanA.ID,
+		Severity:        "high",
+		Type:            "risky_trust_policy",
+		LifecycleStatus: "ack",
+		Assignee:        "platform",
+		SortBy:          "title",
+		Limit:           1,
+		Offset:          1,
+		Now:             now.Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("list filtered page two: %v", err)
+	}
+	if len(pageTwo) != 1 || pageTwo[0].ID != "f-b" {
+		t.Fatalf("unexpected filtered page two: %+v", pageTwo)
+	}
+
+	normalizedSuppression, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		FindingID:       "f-c",
+		LifecycleStatus: "open",
+		Assignee:        "platform",
+		Limit:           5,
+		Now:             now.Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("list filtered normalized suppression: %v", err)
+	}
+	if len(normalizedSuppression) != 1 || normalizedSuppression[0].Triage.Status != domain.FindingLifecycleOpen {
+		t.Fatalf("expected expired suppression to normalize to open, got %+v", normalizedSuppression)
+	}
+
+	_, err = store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		ScanID: "missing-scan",
+		Limit:  1,
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing scan to return ErrNotFound, got %v", err)
+	}
+}
+
+func TestSortFilteredFindingsOrders(t *testing.T) {
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	base := []domain.Finding{
+		{ScanID: "scan-2", ID: "finding-b", Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "Zulu", CreatedAt: now},
+		{ScanID: "scan-1", ID: "finding-a", Severity: domain.SeverityCritical, Type: domain.FindingOwnerless, Title: "Alpha", CreatedAt: now.Add(-time.Minute)},
+		{ScanID: "scan-1", ID: "finding-c", Severity: domain.SeverityCritical, Type: domain.FindingOwnerless, Title: "Beta", CreatedAt: now.Add(2 * time.Minute)},
+	}
+
+	bySeverity := append([]domain.Finding(nil), base...)
+	sortFilteredFindings(bySeverity, "severity", true)
+	if bySeverity[0].ID != "finding-c" || bySeverity[1].ID != "finding-a" {
+		t.Fatalf("unexpected severity sort order: %+v", bySeverity)
+	}
+
+	byType := append([]domain.Finding(nil), base...)
+	sortFilteredFindings(byType, "type", false)
+	if byType[0].Type != domain.FindingOwnerless || byType[1].Type != domain.FindingOwnerless {
+		t.Fatalf("unexpected type sort order: %+v", byType)
+	}
+
+	byTitle := append([]domain.Finding(nil), base...)
+	sortFilteredFindings(byTitle, "title", false)
+	if byTitle[0].Title != "Alpha" || byTitle[1].Title != "Beta" {
+		t.Fatalf("unexpected title sort order: %+v", byTitle)
+	}
+
+	byCreatedAt := append([]domain.Finding(nil), base...)
+	sortFilteredFindings(byCreatedAt, "created_at", false)
+	if byCreatedAt[0].ID != "finding-a" || byCreatedAt[len(byCreatedAt)-1].ID != "finding-c" {
+		t.Fatalf("unexpected created_at sort order: %+v", byCreatedAt)
+	}
+}
+
 func TestMemoryStoreSummarizeFindingsRespectsScope(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
