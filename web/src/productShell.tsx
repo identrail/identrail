@@ -1098,12 +1098,16 @@ export function ProductLoginPage() {
       }
       if (robotsWasNew) {
         robots.remove();
-      } else if (previousRobots !== null) {
+      } else if (previousRobots === null) {
+        robots.removeAttribute('content');
+      } else {
         robots.setAttribute('content', previousRobots);
       }
       if (canonicalWasNew) {
         canonical.remove();
-      } else if (previousCanonical !== null) {
+      } else if (previousCanonical === null) {
+        canonical.removeAttribute('href');
+      } else {
         canonical.setAttribute('href', previousCanonical);
       }
     };
