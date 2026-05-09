@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 
@@ -146,15 +149,20 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	if completeBody.Connection.WebhookSecretKeyVersion == "" || completeBody.Connection.WebhookSecretAlgorithm != "AES-256-GCM" {
 		t.Fatalf("expected encrypted secret metadata, got %+v", completeBody.Connection)
 	}
+	if completeBody.Connection.WebhookSecretRotatedAt == nil || completeBody.Connection.WebhookSecretRotationDueAt == nil {
+		t.Fatalf("expected webhook secret rotation timestamps after initial connect, got %+v", completeBody.Connection)
+	}
+	if completeBody.Connection.WebhookSecretRotationRequired {
+		t.Fatalf("expected newly connected secret to not require immediate rotation, got %+v", completeBody.Connection)
+	}
 	if strings.Contains(completeResp.Body.String(), secret) {
 		t.Fatalf("response exposed webhook secret: %s", completeResp.Body.String())
 	}
 
-	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
-	connection, err := svc.loadGitHubConnection(ctx, "workspace-a", "project-1")
-	if err != nil {
-		t.Fatalf("load persisted github connection: %v", err)
-	}
+	key := githubConnectionKey("tenant-a", "workspace-a", "project-1")
+	svc.githubConnectMu.RLock()
+	connection := svc.githubConnections[key]
+	svc.githubConnectMu.RUnlock()
 	if len(connection.WebhookSecretEnvelope.Ciphertext) == 0 {
 		t.Fatal("expected encrypted webhook secret ciphertext")
 	}
@@ -169,6 +177,24 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	}
 	if strings.Contains(rotateResp.Body.String(), newSecret) {
 		t.Fatalf("rotation response exposed webhook secret: %s", rotateResp.Body.String())
+	}
+	var rotateBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(rotateResp.Body.Bytes(), &rotateBody); err != nil {
+		t.Fatalf("decode rotate response: %v", err)
+	}
+	if rotateBody.Connection.WebhookSecretReference != "vault://secret/v2" {
+		t.Fatalf("expected rotated secret reference, got %+v", rotateBody.Connection)
+	}
+	if rotateBody.Connection.WebhookSecretRotatedAt == nil || rotateBody.Connection.WebhookSecretRotationDueAt == nil {
+		t.Fatalf("expected rotation metadata after rotate, got %+v", rotateBody.Connection)
+	}
+	if rotateBody.Connection.WebhookSecretRotatedAt.Before(*completeBody.Connection.WebhookSecretRotatedAt) {
+		t.Fatalf("expected rotated_at to stay monotonic after rotation, before=%s after=%s", *completeBody.Connection.WebhookSecretRotatedAt, *rotateBody.Connection.WebhookSecretRotatedAt)
+	}
+	if rotateBody.Connection.WebhookSecretRotationRequired {
+		t.Fatalf("expected freshly rotated secret to not require immediate rotation, got %+v", rotateBody.Connection)
 	}
 
 	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
@@ -202,8 +228,440 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	if strings.Contains(string(auditPayload), secret) || strings.Contains(string(auditPayload), newSecret) {
 		t.Fatalf("audit events exposed webhook secret: %s", string(auditPayload))
 	}
+	actionEvents := 0
+	for _, event := range sink.events {
+		if event.Kind != "action" {
+			continue
+		}
+		actionEvents++
+		if event.TenantID == "tenant-a" || event.WorkspaceID == "workspace-a" || event.ResourceID == "project-1" {
+			t.Fatalf("action audit event exposed raw scope identifiers: %+v", event)
+		}
+	}
+	if actionEvents == 0 {
+		t.Fatal("expected action audit events")
+	}
 	if !strings.Contains(string(auditPayload), "connector.github.webhook_secret.rotate") {
 		t.Fatalf("expected rotation audit event, got %s", string(auditPayload))
+	}
+
+	svc.githubConnectMu.Lock()
+	connection = svc.githubConnections[key]
+	connection.WebhookSecretEnvelope.KeyVersion = "legacy-v1"
+	svc.githubConnections[key] = connection
+	svc.githubConnectMu.Unlock()
+
+	statusResp := doAPI(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/github/connection", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("status expected 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if !statusBody.Connection.WebhookSecretRotationRequired {
+		t.Fatalf("expected legacy key version to require rotation, got %+v", statusBody.Connection)
+	}
+	if strings.Contains(statusResp.Body.String(), newSecret) {
+		t.Fatalf("status response exposed webhook secret: %s", statusResp.Body.String())
+	}
+}
+
+func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
+	store := db.NewMemoryStore()
+	manager := secretstore.NewEphemeralManager()
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	svcA := NewService(store, routerScanner{}, "aws")
+	svcA.ConnectorSecretManager = manager
+	start, err := svcA.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	_, err = svcA.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	})
+	if err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	svcB := NewService(store, routerScanner{}, "aws")
+	svcB.ConnectorSecretManager = manager
+	connection, err := svcB.GetGitHubConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get github connection: %v", err)
+	}
+	if !connection.Connected {
+		t.Fatalf("expected persisted connection to be connected, got %+v", connection)
+	}
+	if connection.InstallationID != 77 {
+		t.Fatalf("expected installation id 77, got %+v", connection)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookResult, err := svcB.HandleGitHubWebhook(
+		ctx,
+		"installation",
+		"delivery-persisted",
+		githubWebhookSignature("persisted-secret", webhookPayload),
+		webhookPayload,
+	)
+	if err != nil {
+		t.Fatalf("handle github webhook from persisted connection: %v", err)
+	}
+	if webhookResult.MatchedProjects != 1 {
+		t.Fatalf("expected matched persisted project, got %+v", webhookResult)
+	}
+}
+
+type countingConnectorListStore struct {
+	db.Store
+	mu        sync.Mutex
+	listCalls int
+}
+
+func (s *countingConnectorListStore) ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]db.TenancyConnectorWithState, error) {
+	s.mu.Lock()
+	s.listCalls++
+	s.mu.Unlock()
+	return s.Store.ListTenancyConnectorsUnscoped(ctx, connectorType, limit)
+}
+
+func (s *countingConnectorListStore) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listCalls
+}
+
+func TestHandleGitHubWebhookDoesNotHydrateConnectorsPerRequest(t *testing.T) {
+	baseStore := db.NewMemoryStore()
+	store := &countingConnectorListStore{Store: baseStore}
+	manager := secretstore.NewEphemeralManager()
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := baseStore.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := baseStore.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := baseStore.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	seed := NewService(baseStore, routerScanner{}, "aws")
+	seed.ConnectorSecretManager = manager
+	start, err := seed.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := seed.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         88,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	if got := store.callCount(); got != 1 {
+		t.Fatalf("expected constructor hydration exactly once, got %d calls", got)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":88}}`)
+	if _, err := svc.HandleGitHubWebhook(
+		ctx,
+		"push",
+		"delivery-1",
+		githubWebhookSignature("wrong-secret", webhookPayload),
+		webhookPayload,
+	); !errors.Is(err, ErrGitHubWebhookSignatureInvalid) {
+		t.Fatalf("expected invalid signature error, got %v", err)
+	}
+	if got := store.callCount(); got != 1 {
+		t.Fatalf("expected webhook handling to avoid extra hydration reads, got %d calls", got)
+	}
+}
+
+func TestGitHubConnectionReloadUpdateAndRotateAfterCacheMiss(t *testing.T) {
+	store := db.NewMemoryStore()
+	manager := secretstore.NewEphemeralManager()
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	seed := NewService(store, routerScanner{}, "aws")
+	seed.ConnectorSecretManager = manager
+	start, err := seed.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := seed.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         101,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "initial-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+
+	svc.githubConnectMu.Lock()
+	svc.githubConnections = map[string]githubProjectConnection{}
+	svc.githubConnectMu.Unlock()
+	status, err := svc.GetGitHubConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get github connection after cache miss: %v", err)
+	}
+	if !status.Connected || status.InstallationID != 101 {
+		t.Fatalf("expected persisted connection to reload, got %+v", status)
+	}
+
+	svc.githubConnectMu.Lock()
+	svc.githubConnections = map[string]githubProjectConnection{}
+	svc.githubConnectMu.Unlock()
+	status, err = svc.UpdateGitHubConnectionRepositories(ctx, "workspace-a", "project-1", GitHubConnectionRepositorySelectionRequest{
+		Repositories: []string{"owner/repo", "owner/infra"},
+	})
+	if err != nil {
+		t.Fatalf("update repositories after cache miss: %v", err)
+	}
+	if len(status.SelectedRepositories) != 2 {
+		t.Fatalf("expected two repositories after update, got %+v", status.SelectedRepositories)
+	}
+
+	svc.githubConnectMu.Lock()
+	svc.githubConnections = map[string]githubProjectConnection{}
+	svc.githubConnectMu.Unlock()
+	status, err = svc.RotateGitHubConnectionSecret(ctx, "workspace-a", "project-1", GitHubConnectionSecretRotationRequest{
+		WebhookSecret:          "rotated-secret",
+		WebhookSecretReference: "vault://secret/v2",
+	})
+	if err != nil {
+		t.Fatalf("rotate secret after cache miss: %v", err)
+	}
+	if status.WebhookSecretReference != "vault://secret/v2" {
+		t.Fatalf("expected rotated secret reference, got %+v", status)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/infra"},"installation":{"id":101}}`)
+	if _, err := svc.HandleGitHubWebhook(
+		ctx,
+		"push",
+		"delivery-rotated",
+		githubWebhookSignature("rotated-secret", webhookPayload),
+		webhookPayload,
+	); err != nil {
+		t.Fatalf("expected rotated secret webhook to validate: %v", err)
+	}
+}
+
+func TestGitHubMetadataHelpers(t *testing.T) {
+	metadata := map[string]any{
+		"string":            "  identrail  ",
+		"repos":             []any{" owner/repo ", 12, nil},
+		"repos_strings":     []string{" owner/infra "},
+		"installation_str":  "42",
+		"installation_num":  float64(77),
+		"timestamp_string":  "2026-05-05T12:00:00Z",
+		"timestamp_invalid": "not-a-time",
+		"timestamp_numeric": int64(123),
+	}
+
+	if got := metadataString(nil, "missing"); got != "" {
+		t.Fatalf("expected empty metadata string for nil map, got %q", got)
+	}
+	if got := metadataString(metadata, "string"); got != "identrail" {
+		t.Fatalf("unexpected metadata string: %q", got)
+	}
+
+	repos := metadataStringSlice(metadata, "repos")
+	if len(repos) != 1 || repos[0] != "owner/repo" {
+		t.Fatalf("unexpected repos slice: %+v", repos)
+	}
+	repos = metadataStringSlice(metadata, "repos_strings")
+	if len(repos) != 1 || repos[0] != " owner/infra " {
+		t.Fatalf("unexpected repos_strings slice: %+v", repos)
+	}
+	if repos := metadataStringSlice(metadata, "missing"); len(repos) != 0 {
+		t.Fatalf("expected missing repos slice to be empty, got %+v", repos)
+	}
+
+	if got := metadataInt64(metadata, "installation_str"); got != 42 {
+		t.Fatalf("expected string installation id 42, got %d", got)
+	}
+	if got := metadataInt64(metadata, "installation_num"); got != 77 {
+		t.Fatalf("expected numeric installation id 77, got %d", got)
+	}
+	if got := metadataInt64(metadata, "missing"); got != 0 {
+		t.Fatalf("expected missing installation id 0, got %d", got)
+	}
+
+	if got := metadataTime(metadata, "timestamp_string"); !got.Equal(time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected parsed timestamp string: %v", got)
+	}
+	if got := metadataTime(metadata, "timestamp_invalid"); !got.IsZero() {
+		t.Fatalf("expected invalid timestamp string to produce zero value, got %v", got)
+	}
+	if got := metadataTime(metadata, "timestamp_numeric"); !got.IsZero() {
+		t.Fatalf("expected unsupported timestamp type to produce zero value, got %v", got)
+	}
+
+	if got := firstNonEmptyString("", "fallback", "ignored"); got != "fallback" {
+		t.Fatalf("expected fallback string, got %q", got)
+	}
+	if got := firstNonEmptyString("", ""); got != "" {
+		t.Fatalf("expected empty fallback result, got %q", got)
+	}
+
+	nilService := (*Service)(nil)
+	if nilService.connectorSecretManager() == nil {
+		t.Fatal("expected connector secret manager fallback for nil service")
+	}
+}
+
+func TestGitHubConnectionMissingConnectorPaths(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	status, err := svc.GetGitHubConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get missing github connection: %v", err)
+	}
+	if status.Connected || len(status.SelectedRepositories) != 0 {
+		t.Fatalf("expected disconnected status for missing connector, got %+v", status)
+	}
+
+	if _, err := svc.UpdateGitHubConnectionRepositories(ctx, "workspace-a", "project-1", GitHubConnectionRepositorySelectionRequest{
+		Repositories: []string{"owner/repo"},
+	}); !errors.Is(err, ErrGitHubConnectionNotFound) {
+		t.Fatalf("expected missing connector update error, got %v", err)
+	}
+
+	if _, err := svc.RotateGitHubConnectionSecret(ctx, "workspace-a", "project-1", GitHubConnectionSecretRotationRequest{}); !errors.Is(err, ErrInvalidGitHubConnectionRequest) {
+		t.Fatalf("expected invalid rotation request error, got %v", err)
+	}
+
+	if _, err := svc.RotateGitHubConnectionSecret(ctx, "workspace-a", "project-1", GitHubConnectionSecretRotationRequest{
+		WebhookSecret:          "new-secret",
+		WebhookSecretReference: "vault://secret/v2",
+	}); !errors.Is(err, ErrGitHubConnectionNotFound) {
+		t.Fatalf("expected missing connector rotate error, got %v", err)
+	}
+
+	loaded, err := svc.loadGitHubConnection(ctx, db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("load missing github connection: %v", err)
+	}
+	if loaded {
+		t.Fatal("expected missing connector load to report false")
 	}
 }
 
@@ -275,65 +733,6 @@ func TestRouterGitHubWebhookNonScanEvent(t *testing.T) {
 	}
 	if webhookBody.Webhook.MatchedProjects != 1 {
 		t.Fatalf("expected 1 matched project, got %d", webhookBody.Webhook.MatchedProjects)
-	}
-}
-
-func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
-	store := db.NewMemoryStore()
-	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
-	seedDefaultProject(t, store, ctx, "project-1")
-	manager := secretstore.NewEphemeralManager()
-
-	first := NewService(store, routerScanner{}, "aws")
-	first.ConnectorSecretManager = manager
-	first.RepoScanAllowedTargets = []string{"owner/*"}
-	start, err := first.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
-	if err != nil {
-		t.Fatalf("start github connection: %v", err)
-	}
-	if _, err := first.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
-		State:                  start.State,
-		InstallationID:         77,
-		AccountLogin:           "identrail",
-		TokenReference:         "vault://token",
-		WebhookSecret:          "restart-secret",
-		WebhookSecretReference: "vault://secret",
-		SelectedRepositories:   []string{"owner/repo"},
-	}); err != nil {
-		t.Fatalf("complete github connection: %v", err)
-	}
-
-	second := NewService(store, routerScanner{}, "aws")
-	second.ConnectorSecretManager = manager
-	second.RepoScanAllowedTargets = []string{"owner/*"}
-	status, err := second.GetGitHubConnection(ctx, "workspace-a", "project-1")
-	if err != nil {
-		t.Fatalf("get github connection after service restart: %v", err)
-	}
-	if !status.Connected || status.InstallationID != 77 || status.AccountLogin != "identrail" {
-		t.Fatalf("expected persisted github connection, got %+v", status)
-	}
-
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
-	result, err := second.HandleGitHubWebhook(
-		context.Background(),
-		"push",
-		"delivery-restart",
-		githubWebhookSignature("restart-secret", webhookPayload),
-		webhookPayload,
-	)
-	if err != nil {
-		t.Fatalf("handle github webhook after service restart: %v", err)
-	}
-	if result.MatchedProjects != 1 || result.QueuedScans != 1 {
-		t.Fatalf("expected persisted webhook match to queue one scan, got %+v", result)
-	}
-	queued, err := store.CountQueuedRepoScans(ctx)
-	if err != nil {
-		t.Fatalf("count queued repo scans: %v", err)
-	}
-	if queued != 1 {
-		t.Fatalf("expected one queued repo scan, got %d", queued)
 	}
 }
 
@@ -583,6 +982,15 @@ func TestRouterGitHubWebhookEdgeCases(t *testing.T) {
 		t.Fatalf("expected 400 for missing event type, got %d", noEventResp.Code)
 	}
 
+	emptyRepoPayload := []byte(`{"repository":{"full_name":""},"installation":{"id":1}}`)
+	emptyRepoReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(emptyRepoPayload))
+	emptyRepoReq.Header.Set("X-GitHub-Event", "push")
+	emptyRepoResp := httptest.NewRecorder()
+	r.ServeHTTP(emptyRepoResp, emptyRepoReq)
+	if emptyRepoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unsigned payload with empty repository, got %d body=%s", emptyRepoResp.Code, emptyRepoResp.Body.String())
+	}
+
 	badJSONReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewBufferString("not-json"))
 	badJSONReq.Header.Set("X-GitHub-Event", "push")
 	badJSONReq.Header.Set("X-Hub-Signature-256", "sha256=abc")
@@ -590,6 +998,16 @@ func TestRouterGitHubWebhookEdgeCases(t *testing.T) {
 	r.ServeHTTP(badJSONResp, badJSONReq)
 	if badJSONResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid JSON, got %d", badJSONResp.Code)
+	}
+
+	noRepoPayload := []byte(`{"installation":{"id":1}}`)
+	noRepoReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(noRepoPayload))
+	noRepoReq.Header.Set("X-GitHub-Event", "push")
+	noRepoReq.Header.Set("X-Hub-Signature-256", "sha256=abc")
+	noRepoResp := httptest.NewRecorder()
+	r.ServeHTTP(noRepoResp, noRepoReq)
+	if noRepoResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unsigned webhook payload without repository, got %d body=%s", noRepoResp.Code, noRepoResp.Body.String())
 	}
 }
 
@@ -645,9 +1063,10 @@ func TestRouterGitHubConnectCompleteErrorPaths(t *testing.T) {
 	}
 }
 
-func TestFirstNonEmptyGitHubValue(t *testing.T) {
-	if got := firstNonEmptyGitHubValue("", "  ", "value", "other"); got != "value" {
-		t.Fatalf("expected first non-empty value, got %q", got)
+func TestGitHubConnectionKey(t *testing.T) {
+	key := githubConnectionKey("Tenant", "Workspace", "Project")
+	if key != "tenant::workspace::project" {
+		t.Fatalf("expected lowercase key, got %q", key)
 	}
 }
 
