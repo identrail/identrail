@@ -377,7 +377,7 @@ func CanTransitionConnectorStatus(from ConnectorStatus, to ConnectorStatus) bool
 	}
 }
 
-func CanTransitionRemediationJobStatus(from RemediationJobStatus, to RemediationJobStatus) bool {
+func canTransitionRemediationJobStatus(from RemediationJobStatus, to RemediationJobStatus) bool {
 	if from == to {
 		return true
 	}

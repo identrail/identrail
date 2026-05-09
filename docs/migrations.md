@@ -57,9 +57,13 @@ Current sequence in `migrations/`:
 11. `000011_authz_policy_rollout_staged_controls` - staged rollout controls
 12. `000012_tenancy_core_entities` - organization/workspace/member/project tenancy core
 13. `000013_connectors_state_scan_policies` - connector instances, connector runtime state, and scan policy persistence with scoped foreign-key integrity
-14. `000014_connector_secret_envelopes` - encrypted connector secret envelope storage
+14. `000014_connector_secret_envelopes` - encrypted connector secret envelopes with scoped connector foreign keys and rotation index metadata
 15. `000015_async_job_queue` - queued scan execution tables/paths
+16. `000015_db_constraints_guardrails` - database status, identifier, and non-negative counter constraints
+17. `000015_tenancy_connector_rls_scope_enforcement` - enforced tenant/workspace row-level security policies
+18. `000015_tenancy_connector_rls_scope_guardrails` - additive tenant/workspace row-level security guardrails
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.
+- Duplicate numeric prefixes are historical and preserved to avoid reordering risk.
 - Numeric migration versions are unique and tracked in `schema_migrations`.
