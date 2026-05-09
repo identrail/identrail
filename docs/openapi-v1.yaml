@@ -880,22 +880,22 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-      delete:
-        tags: [ProjectManagement]
-        summary: Delete workspace project
-        operationId: deleteProject
-        parameters:
-          - in: path
-            name: workspace_id
-            required: true
-            schema: { type: string }
-          - in: path
-            name: project_id
-            required: true
-            schema: { type: string }
-        responses:
-          "204":
-            description: Project deleted
+    delete:
+      tags: [ProjectManagement]
+      summary: Delete workspace project
+      operationId: deleteProject
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Project deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
