@@ -812,8 +812,8 @@ func TestRouterScanDuplicateGuard(t *testing.T) {
 	secondReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	secondW := httptest.NewRecorder()
 	r.ServeHTTP(secondW, secondReq)
-	if secondW.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected queue guard 429, got %d", secondW.Code)
+	if secondW.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate guard 409, got %d", secondW.Code)
 	}
 }
 
@@ -2612,7 +2612,7 @@ func TestRouterErrorEnvelopeForCommonStatuses(t *testing.T) {
 	queueFullReq.Header.Set("X-API-Key", "write-key")
 	queueFullW := httptest.NewRecorder()
 	securedRouter.ServeHTTP(queueFullW, queueFullReq)
-	assertErrorEnvelope(t, queueFullW, http.StatusTooManyRequests)
+	assertErrorEnvelope(t, queueFullW, http.StatusConflict)
 }
 
 func TestRouterPaginationHelpers(t *testing.T) {

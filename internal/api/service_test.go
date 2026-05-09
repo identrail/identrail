@@ -1513,8 +1513,8 @@ func TestServiceEnqueueScanRejectsDuplicatePendingScan(t *testing.T) {
 	if _, err := svc.EnqueueScan(defaultScopeContext()); err != nil {
 		t.Fatalf("enqueue first scan: %v", err)
 	}
-	if _, err := svc.EnqueueScan(defaultScopeContext()); !errors.Is(err, ErrScanQueueFull) {
-		t.Fatalf("expected scan queue full error, got %v", err)
+	if _, err := svc.EnqueueScan(defaultScopeContext()); !errors.Is(err, ErrScanInProgress) {
+		t.Fatalf("expected scan in-progress error, got %v", err)
 	}
 }
 
@@ -1526,7 +1526,7 @@ func TestServiceEnqueueScanConcurrentRespectsDuplicateGuard(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	var successCount int32
-	var queueFullCount int32
+	var inProgressCount int32
 	var unexpectedErrCount int32
 
 	for i := 0; i < workers; i++ {
@@ -1538,8 +1538,8 @@ func TestServiceEnqueueScanConcurrentRespectsDuplicateGuard(t *testing.T) {
 			switch {
 			case err == nil:
 				atomic.AddInt32(&successCount, 1)
-			case errors.Is(err, ErrScanQueueFull):
-				atomic.AddInt32(&queueFullCount, 1)
+			case errors.Is(err, ErrScanInProgress):
+				atomic.AddInt32(&inProgressCount, 1)
 			default:
 				atomic.AddInt32(&unexpectedErrCount, 1)
 			}
@@ -1555,8 +1555,8 @@ func TestServiceEnqueueScanConcurrentRespectsDuplicateGuard(t *testing.T) {
 	if successCount != 1 {
 		t.Fatalf("expected exactly one successful enqueue, got %d", successCount)
 	}
-	if queueFullCount != workers-1 {
-		t.Fatalf("expected %d queue-full responses, got %d", workers-1, queueFullCount)
+	if inProgressCount != workers-1 {
+		t.Fatalf("expected %d in-progress responses, got %d", workers-1, inProgressCount)
 	}
 }
 

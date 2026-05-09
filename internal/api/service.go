@@ -296,11 +296,27 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 // EnqueueScan stores one queued scan request for asynchronous worker execution.
 func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	ctx = s.scopeContext(ctx)
-	record, err := s.Store.CreateQueuedScanIfNoPending(ctx, s.Provider, s.Now().UTC())
-	if err != nil {
+	maxPending := s.ScanQueueMaxPending
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+
+	var (
+		record db.ScanRecord
+		err    error
+	)
+	if maxPending == 1 {
+		record, err = s.Store.CreateQueuedScanIfNoPending(ctx, s.Provider, s.Now().UTC())
 		if errors.Is(err, db.ErrPendingScanExists) {
 			return db.ScanRecord{}, ErrScanInProgress
 		}
+	} else {
+		record, err = s.Store.CreateQueuedScanWithinLimit(ctx, s.Provider, s.Now().UTC(), maxPending)
+		if errors.Is(err, db.ErrQueueLimitReached) {
+			return db.ScanRecord{}, ErrScanQueueFull
+		}
+	}
+	if err != nil {
 		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
 	}
 	queuedCount, err := s.Store.CountQueuedScans(ctx, s.Provider)
@@ -311,7 +327,7 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan queued for worker execution", map[string]any{
 		"provider":    s.Provider,
 		"queue_depth": queuedCount,
-		"queue_limit": 1,
+		"queue_limit": maxPending,
 	})
 	return record, nil
 }
