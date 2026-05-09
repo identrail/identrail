@@ -58,3 +58,34 @@ func TestFixtureCollectorErrors(t *testing.T) {
 		t.Fatal("expected decode error")
 	}
 }
+
+func TestFixtureCollectorSkipsMalformedAndMissingARNFixturesWhenValidRecordsExist(t *testing.T) {
+	dir := t.TempDir()
+
+	validRole := `{"arn":"arn:aws:iam::123456789012:role/valid","name":"valid","assume_role_policy_document":"{}","permission_policies":[]}`
+	missingARNRole := `{"name":"missing-arn","assume_role_policy_document":"{}","permission_policies":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "01-valid.json"), []byte(validRole), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "02-bad.json"), []byte("not-json"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "03-missing-arn.json"), []byte(missingARNRole), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "04-duplicate.json"), []byte(validRole), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	collector := NewFixtureCollector([]string{dir})
+	assets, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("collect with partial malformed fixtures: %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected one deduplicated valid asset, got %d", len(assets))
+	}
+	if assets[0].SourceID != "arn:aws:iam::123456789012:role/valid" {
+		t.Fatalf("unexpected source id for retained fixture: %q", assets[0].SourceID)
+	}
+}
