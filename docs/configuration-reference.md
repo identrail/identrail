@@ -154,6 +154,15 @@ The web app supports OIDC login/callback/refresh/logout flows when these Vite en
 - `VITE_OIDC_WORKSPACE_CLAIM` (default: `workspace_id`)
 - `VITE_OIDC_ROLES_CLAIM` (default: `roles`)
 
+## Web Lead Capture Forwarding
+
+Server-side `/api/leads` forwarding uses these optional runtime environment variables:
+
+- `LEAD_WEBHOOK_URL` (required to enable forwarding; must use `https`, or `http` only for localhost targets)
+- `LEAD_WEBHOOK_TIMEOUT_MS` (default: `3000`, bounded to `500..10000`)
+- `LEAD_CAPTURE_RATE_LIMIT_PER_MIN` (default: `15`, bounded to `1..120`, applied per client IP window)
+- `LEAD_WEBHOOK_HMAC_SECRET` (optional; when set, emits `X-Identrail-Signature: sha256=<digest>` for receiver-side verification)
+
 ## Validation and Limits
 
 Security validation and bounds are enforced at startup in:
