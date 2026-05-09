@@ -15,6 +15,9 @@ const migrationLedgerTable = "schema_migrations"
 const (
 	migrationLockNamespace = 98321
 	migrationLockKey       = 1
+	// Legacy deployments without a migration ledger already applied pre-000015 migrations.
+	// Seed those entries once so older non-idempotent migrations are not replayed.
+	migrationLedgerCutoverVersion = "000015"
 )
 
 // ApplyMigrations runs all *.up.sql files in lexical order.
@@ -65,7 +68,17 @@ func applyMigrationFiles(ctx context.Context, db *sql.DB, files []string, record
 	if err := ensureMigrationLedger(ctx, db); err != nil {
 		return err
 	}
+	if recordApplied {
+		if err := seedLegacyMigrationLedger(ctx, db, files); err != nil {
+			return err
+		}
+	}
 	for _, file := range files {
+		filename := filepath.Base(file)
+		ledgerFilename := filename
+		if !recordApplied {
+			ledgerFilename = upFilenameForDown(filename)
+		}
 		version, err := migrationVersion(file)
 		if err != nil {
 			return err
@@ -82,7 +95,7 @@ func applyMigrationFiles(ctx context.Context, db *sql.DB, files []string, record
 			return fmt.Errorf("begin migration %s: %w", filepath.Base(file), err)
 		}
 		if recordApplied {
-			applied, appliedErr := migrationApplied(ctx, tx, version)
+			applied, appliedErr := migrationApplied(ctx, tx, filename)
 			if appliedErr != nil {
 				_ = tx.Rollback()
 				return appliedErr
@@ -99,21 +112,21 @@ func applyMigrationFiles(ctx context.Context, db *sql.DB, files []string, record
 		if recordApplied {
 			if _, err := tx.ExecContext(
 				ctx,
-				`INSERT INTO schema_migrations (version, filename, applied_at) VALUES ($1, $2, NOW())`,
+				`INSERT INTO schema_migrations (filename, version, applied_at) VALUES ($1, $2, NOW())`,
+				filename,
 				version,
-				filepath.Base(file),
 			); err != nil {
 				_ = tx.Rollback()
-				return fmt.Errorf("record migration %s: %w", filepath.Base(file), err)
+				return fmt.Errorf("record migration %s: %w", filename, err)
 			}
 		} else {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = $1`, version); err != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM schema_migrations WHERE filename = $1`, ledgerFilename); err != nil {
 				_ = tx.Rollback()
-				return fmt.Errorf("delete migration ledger %s: %w", filepath.Base(file), err)
+				return fmt.Errorf("delete migration ledger %s: %w", ledgerFilename, err)
 			}
 		}
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %s: %w", filepath.Base(file), err)
+			return fmt.Errorf("commit migration %s: %w", filename, err)
 		}
 	}
 	return nil
@@ -139,9 +152,6 @@ func migrationFiles(dir string) ([]string, error) {
 		return nil, err
 	}
 	sort.Strings(files)
-	if err := validateUniqueMigrationVersions(files); err != nil {
-		return nil, err
-	}
 	return files, nil
 }
 
@@ -151,9 +161,6 @@ func downMigrationFiles(dir string) ([]string, error) {
 		return nil, err
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(files)))
-	if err := validateUniqueMigrationVersions(files); err != nil {
-		return nil, err
-	}
 	return files, nil
 }
 
@@ -183,40 +190,146 @@ func ensureMigrationLedger(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(
 		ctx,
 		`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
+			filename TEXT PRIMARY KEY,
+			version TEXT NOT NULL,
 			applied_at TIMESTAMPTZ NOT NULL
 		)`,
 	); err != nil {
 		return fmt.Errorf("ensure migration ledger: %w", err)
 	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS filename TEXT`); err != nil {
+		return fmt.Errorf("ensure migration ledger filename column: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS version TEXT`); err != nil {
+		return fmt.Errorf("ensure migration ledger version column: %w", err)
+	}
+	if _, err := db.ExecContext(
+		ctx,
+		`UPDATE schema_migrations
+		 SET filename = COALESCE(NULLIF(filename, ''), version)
+		 WHERE filename IS NULL OR filename = ''`,
+	); err != nil {
+		return fmt.Errorf("backfill migration ledger filename: %w", err)
+	}
+	if _, err := db.ExecContext(
+		ctx,
+		`UPDATE schema_migrations
+		 SET version = COALESCE(NULLIF(version, ''), split_part(filename, '_', 1))
+		 WHERE version IS NULL OR version = ''`,
+	); err != nil {
+		return fmt.Errorf("backfill migration ledger version: %w", err)
+	}
+	if _, err := db.ExecContext(
+		ctx,
+		`DO $$
+		DECLARE
+			pk_name text;
+		BEGIN
+			SELECT con.conname
+			  INTO pk_name
+			  FROM pg_constraint con
+			  JOIN pg_class rel ON rel.oid = con.conrelid
+			 WHERE con.contype = 'p'
+			   AND rel.relname = 'schema_migrations';
+			IF pk_name IS NOT NULL THEN
+				EXECUTE format('ALTER TABLE schema_migrations DROP CONSTRAINT %I', pk_name);
+			END IF;
+		END $$;`,
+	); err != nil {
+		return fmt.Errorf("normalize migration ledger primary key: %w", err)
+	}
+	if _, err := db.ExecContext(
+		ctx,
+		`ALTER TABLE schema_migrations
+		 ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (filename)`,
+	); err != nil && !strings.Contains(err.Error(), "already exists") {
+		return fmt.Errorf("ensure migration ledger primary key: %w", err)
+	}
 	return nil
 }
 
-func migrationApplied(ctx context.Context, tx *sql.Tx, version string) (bool, error) {
+func migrationApplied(ctx context.Context, tx *sql.Tx, filename string) (bool, error) {
 	var appliedAt string
-	if err := tx.QueryRowContext(ctx, `SELECT applied_at::text FROM schema_migrations WHERE version = $1`, version).Scan(&appliedAt); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT applied_at::text FROM schema_migrations WHERE filename = $1`, filename).Scan(&appliedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
-		return false, fmt.Errorf("lookup migration %s: %w", version, err)
+		return false, fmt.Errorf("lookup migration %s: %w", filename, err)
 	}
 	return true, nil
 }
 
-func validateUniqueMigrationVersions(files []string) error {
-	seen := make(map[string]string, len(files))
+func seedLegacyMigrationLedger(ctx context.Context, db *sql.DB, files []string) error {
+	needsBackfill, err := migrationLedgerNeedsBackfill(ctx, db)
+	if err != nil {
+		return err
+	}
+	if !needsBackfill {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration ledger backfill: %w", err)
+	}
 	for _, file := range files {
+		filename := filepath.Base(file)
 		version, err := migrationVersion(file)
 		if err != nil {
+			_ = tx.Rollback()
 			return err
 		}
-		if existing, exists := seen[version]; exists {
-			return fmt.Errorf("duplicate migration version %s in %s and %s", version, filepath.Base(existing), filepath.Base(file))
+		if version >= migrationLedgerCutoverVersion {
+			continue
 		}
-		seen[version] = file
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO schema_migrations (filename, version, applied_at)
+			 VALUES ($1, $2, NOW())
+			 ON CONFLICT (filename) DO NOTHING`,
+			filename,
+			version,
+		); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("seed migration ledger %s: %w", filename, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration ledger backfill: %w", err)
 	}
 	return nil
+}
+
+func migrationLedgerNeedsBackfill(ctx context.Context, db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
+		return false, fmt.Errorf("count migration ledger rows: %w", err)
+	}
+	if count > 0 {
+		return false, nil
+	}
+	hasLegacySchema, err := relationExists(ctx, db, "scans")
+	if err != nil {
+		return false, err
+	}
+	return hasLegacySchema, nil
+}
+
+func relationExists(ctx context.Context, db *sql.DB, relation string) (bool, error) {
+	var relationName sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT to_regclass($1)::text`, relation).Scan(&relationName); err != nil {
+		return false, fmt.Errorf("lookup relation %s: %w", relation, err)
+	}
+	if !relationName.Valid {
+		return false, nil
+	}
+	return strings.TrimSpace(relationName.String) != "", nil
+}
+
+func upFilenameForDown(downFilename string) string {
+	if !strings.HasSuffix(downFilename, ".down.sql") {
+		return downFilename
+	}
+	return strings.TrimSuffix(downFilename, ".down.sql") + ".up.sql"
 }
 
 func migrationVersion(path string) (string, error) {

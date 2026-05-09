@@ -40,15 +40,52 @@ func TestMigrationFiles(t *testing.T) {
 	}
 }
 
-func TestMigrationFilesRejectDuplicateVersions(t *testing.T) {
+func TestMigrationFilesAllowDuplicateVersions(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "0001_init.up.sql"), []byte("SELECT 1;"), 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "0001_add.up.sql"), []byte("SELECT 2;"), 0o600)
 
-	_, err := migrationFiles(dir)
-	if err == nil {
-		t.Fatal("expected duplicate migration version error")
+	files, err := migrationFiles(dir)
+	if err != nil {
+		t.Fatalf("migrationFiles failed: %v", err)
 	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+}
+
+func TestUpFilenameForDown(t *testing.T) {
+	if got := upFilenameForDown("0001_init.down.sql"); got != "0001_init.up.sql" {
+		t.Fatalf("expected up filename mapping, got %s", got)
+	}
+	if got := upFilenameForDown("unexpected.sql"); got != "unexpected.sql" {
+		t.Fatalf("expected passthrough for non-down migration filenames, got %s", got)
+	}
+}
+
+func expectEnsureMigrationLedger(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS filename TEXT`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS version TEXT`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE schema_migrations`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE schema_migrations`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`DO $$`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`ALTER TABLE schema_migrations`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
+func expectSkipLegacyLedgerBackfill(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM schema_migrations`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_regclass($1)::text`)).
+		WithArgs("scans").
+		WillReturnRows(sqlmock.NewRows([]string{"to_regclass"}).AddRow(nil))
 }
 
 func TestApplyMigrations(t *testing.T) {
@@ -67,18 +104,15 @@ func TestApplyMigrations(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
 		WithArgs(migrationLockNamespace, migrationLockKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL
-		)`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectEnsureMigrationLedger(mock)
+	expectSkipLegacyLedgerBackfill(mock)
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE version = $1`)).
-		WithArgs("0001").
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE filename = $1`)).
+		WithArgs("0001_init.up.sql").
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(query)).WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO schema_migrations (version, filename, applied_at) VALUES ($1, $2, NOW())`)).
-		WithArgs("0001", "0001_init.up.sql").
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO schema_migrations (filename, version, applied_at) VALUES ($1, $2, NOW())`)).
+		WithArgs("0001_init.up.sql", "0001").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
@@ -109,14 +143,11 @@ func TestApplyMigrationsSkipsRecordedVersion(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
 		WithArgs(migrationLockNamespace, migrationLockKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL
-		)`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectEnsureMigrationLedger(mock)
+	expectSkipLegacyLedgerBackfill(mock)
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE version = $1`)).
-		WithArgs("0001").
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE filename = $1`)).
+		WithArgs("0001_init.up.sql").
 		WillReturnRows(sqlmock.NewRows([]string{"applied_at"}).AddRow("2026-05-05T00:00:00Z"))
 	mock.ExpectRollback()
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
@@ -147,14 +178,11 @@ func TestApplyMigrationsRollsBackFailedMigration(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
 		WithArgs(migrationLockNamespace, migrationLockKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL
-		)`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectEnsureMigrationLedger(mock)
+	expectSkipLegacyLedgerBackfill(mock)
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE version = $1`)).
-		WithArgs("0001").
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE filename = $1`)).
+		WithArgs("0001_init.up.sql").
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(query)).WillReturnError(sql.ErrTxDone)
 	mock.ExpectRollback()
@@ -191,22 +219,18 @@ func TestApplyDownMigrations(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
 		WithArgs(migrationLockNamespace, migrationLockKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL
-		)`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectEnsureMigrationLedger(mock)
 	// Down migrations are applied in reverse lexical order.
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(queryTwo)).WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM schema_migrations WHERE version = $1`)).
-		WithArgs("0002").
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM schema_migrations WHERE filename = $1`)).
+		WithArgs("0002_add.up.sql").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(queryOne)).WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM schema_migrations WHERE version = $1`)).
-		WithArgs("0001").
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM schema_migrations WHERE filename = $1`)).
+		WithArgs("0001_init.up.sql").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
@@ -259,18 +283,15 @@ func TestNewPostgresStoreWithDBApplyMigrations(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
 		WithArgs(migrationLockNamespace, migrationLockKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL
-		)`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectEnsureMigrationLedger(mock)
+	expectSkipLegacyLedgerBackfill(mock)
 	mock.ExpectBegin()
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE version = $1`)).
-		WithArgs("0001").
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT applied_at::text FROM schema_migrations WHERE filename = $1`)).
+		WithArgs("0001_init.up.sql").
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(query)).WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO schema_migrations (version, filename, applied_at) VALUES ($1, $2, NOW())`)).
-		WithArgs("0001", "0001_init.up.sql").
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO schema_migrations (filename, version, applied_at) VALUES ($1, $2, NOW())`)).
+		WithArgs("0001_init.up.sql", "0001").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
@@ -302,15 +323,11 @@ func TestNewPostgresStoreWithDBApplyDownMigrations(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_lock($1, $2)`)).
 		WithArgs(migrationLockNamespace, migrationLockKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY,
-			filename TEXT NOT NULL,
-			applied_at TIMESTAMPTZ NOT NULL
-		)`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectEnsureMigrationLedger(mock)
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(query)).WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM schema_migrations WHERE version = $1`)).
-		WithArgs("0001").
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM schema_migrations WHERE filename = $1`)).
+		WithArgs("0001_init.up.sql").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_unlock($1, $2)`)).
