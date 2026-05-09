@@ -186,7 +186,6 @@ func TestAuthzPolicyLifecycleActivateShadowEnforceRollbackIntegration(t *testing
 		t.Fatalf("expected rollback counter 1, got %v", got)
 	}
 	if got := testutil.ToFloat64(metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(
-		defaultCentralPolicySetID,
 		"2",
 		"persisted_candidate_version",
 		db.AuthzPolicyRolloutModeEnforce,
