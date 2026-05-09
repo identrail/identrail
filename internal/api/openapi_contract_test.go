@@ -207,6 +207,22 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecCoversRegisteredV1RouteMethods(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	router := readRouterSource(t)
+	registered := registeredV1OpenAPIMethods(t, router)
+
+	for path, methods := range registered {
+		for method := range methods {
+			methodToken := "\n    " + strings.ToLower(method) + ":"
+			block := pathBlock(t, spec, path)
+			if !strings.Contains(block, methodToken) {
+				t.Fatalf("openapi path %q missing registered method %s", path, method)
+			}
+		}
+	}
+}
+
 func TestOpenAPIV1SpecDocumentsRepresentativeErrorResponses(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	requiredResponses := []string{
@@ -246,6 +262,45 @@ func TestOpenAPIV1SpecDocumentsRepresentativeErrorResponses(t *testing.T) {
 		for _, item := range tc.required {
 			if !strings.Contains(block, item) {
 				t.Fatalf("openapi operation %s %s missing %q", strings.ToUpper(tc.method), tc.path, item)
+			}
+		}
+	}
+}
+
+func TestOpenAPIV1SpecPathParameterNamesMatchRegisteredRoutes(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	router := readRouterSource(t)
+	registered := registeredV1OpenAPIMethods(t, router)
+
+	matches := v1RoutePattern.FindAllStringSubmatch(router, -1)
+	for _, match := range matches {
+		method := strings.TrimSpace(match[1])
+		route := strings.TrimSpace(match[2])
+		if route == "" || !strings.HasPrefix(route, "/") {
+			continue
+		}
+
+		openapiPath := "/v1" + pathVarPattern.ReplaceAllString(route, `{$1}`)
+		methods, ok := registered[openapiPath]
+		if !ok || !methods[method] {
+			continue
+		}
+
+		pathVars := pathVarPattern.FindAllStringSubmatch(route, -1)
+		if len(pathVars) == 0 {
+			continue
+		}
+
+		block := pathBlock(t, spec, openapiPath)
+		pathLevelEntries := parameterEntries(pathLevelBlock(t, block))
+		methodEntries := parameterEntries(methodBlock(t, block, strings.ToLower(method)))
+		for _, variable := range pathVars {
+			name := strings.TrimSpace(variable[1])
+			if name == "" {
+				continue
+			}
+			if !parameterDeclaredAsPath(pathLevelEntries, name) && !parameterDeclaredAsPath(methodEntries, name) {
+				t.Fatalf("openapi path %q missing path parameter name %q", openapiPath, name)
 			}
 		}
 	}
@@ -338,7 +393,33 @@ func readOpenAPISpec(t *testing.T) string {
 
 func readRouterSource(t *testing.T) string {
 	t.Helper()
-	return readRepositoryFile(t, filepath.Join("internal", "api", "router.go"))
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to resolve caller")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+
+	paths := []string{filepath.Join(root, "internal", "api", "router.go")}
+	splitRoutes, err := filepath.Glob(filepath.Join(root, "internal", "api", "*routes*.go"))
+	if err != nil {
+		t.Fatalf("glob split route files: %v", err)
+	}
+	sort.Strings(splitRoutes)
+	paths = append(paths, splitRoutes...)
+
+	var builder strings.Builder
+	for idx, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if idx > 0 {
+			builder.WriteString("\n")
+		}
+		builder.Write(data)
+	}
+
+	return builder.String()
 }
 
 func readRepositoryFile(t *testing.T, relPath string) string {
@@ -381,6 +462,29 @@ func registeredV1OpenAPIPaths(t *testing.T, routerSource string) []string {
 	return paths
 }
 
+func registeredV1OpenAPIMethods(t *testing.T, routerSource string) map[string]map[string]bool {
+	t.Helper()
+	matches := v1RoutePattern.FindAllStringSubmatch(routerSource, -1)
+	if len(matches) == 0 {
+		t.Fatal("no /v1 routes found in router source")
+	}
+
+	result := map[string]map[string]bool{}
+	for _, match := range matches {
+		method := strings.TrimSpace(match[1])
+		route := strings.TrimSpace(match[2])
+		if route == "" || !strings.HasPrefix(route, "/") {
+			continue
+		}
+		path := "/v1" + pathVarPattern.ReplaceAllString(route, `{$1}`)
+		if _, ok := result[path]; !ok {
+			result[path] = map[string]bool{}
+		}
+		result[path][method] = true
+	}
+	return result
+}
+
 func pathBlock(t *testing.T, spec string, path string) string {
 	t.Helper()
 	start := strings.Index(spec, "\n  "+path+":")
@@ -407,6 +511,43 @@ func pathBlock(t *testing.T, spec string, path string) string {
 	}
 
 	return spec[start:end]
+}
+
+func pathLevelBlock(t *testing.T, block string) string {
+	t.Helper()
+
+	methodStart := len(block)
+	for _, method := range []string{"get", "post", "put", "patch", "delete", "options", "head"} {
+		if idx := strings.Index(block, "\n    "+method+":"); idx >= 0 && idx < methodStart {
+			methodStart = idx
+		}
+	}
+	return block[:methodStart]
+}
+
+func methodBlock(t *testing.T, block string, method string) string {
+	t.Helper()
+
+	start := strings.Index(block, "\n    "+method+":")
+	if start < 0 {
+		t.Fatalf("openapi method block not found for %q", method)
+	}
+	start++
+
+	end := len(block)
+	for _, candidate := range []string{"get", "post", "put", "patch", "delete", "options", "head"} {
+		if candidate == method {
+			continue
+		}
+		if idx := strings.Index(block[start+1:], "\n    "+candidate+":"); idx >= 0 {
+			candidateEnd := start + 1 + idx
+			if candidateEnd < end {
+				end = candidateEnd
+			}
+		}
+	}
+
+	return block[start:end]
 }
 
 func operationBlock(t *testing.T, spec string, path string, method string) string {
@@ -440,6 +581,71 @@ func operationBlock(t *testing.T, spec string, path string, method string) strin
 	}
 
 	return pathContent[start:end]
+}
+
+func parameterEntries(block string) []string {
+	lines := strings.Split(block, "\n")
+	entries := []string{}
+	var current []string
+	parametersIndent := -1
+	entryIndent := -1
+
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		entries = append(entries, strings.Join(current, "\n"))
+		current = nil
+		entryIndent = -1
+	}
+
+	inParameters := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "parameters:" {
+			flush()
+			inParameters = true
+			parametersIndent = leadingSpaces(line)
+			continue
+		}
+		if !inParameters {
+			continue
+		}
+		lineIndent := leadingSpaces(line)
+		if strings.HasPrefix(trimmed, "- ") && lineIndent > parametersIndent {
+			flush()
+			current = []string{line}
+			entryIndent = lineIndent
+			continue
+		}
+		if current != nil {
+			if trimmed == "" || lineIndent > entryIndent {
+				current = append(current, line)
+				continue
+			}
+			flush()
+		}
+		if trimmed != "" && lineIndent <= parametersIndent {
+			inParameters = false
+			parametersIndent = -1
+		}
+	}
+	flush()
+
+	return entries
+}
+
+func parameterDeclaredAsPath(entries []string, name string) bool {
+	for _, entry := range entries {
+		if strings.Contains(entry, "name: "+name) && strings.Contains(entry, "in: path") {
+			return true
+		}
+	}
+	return false
+}
+
+func leadingSpaces(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
 }
 
 func uniqueStrings(values []string) []string {

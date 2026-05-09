@@ -263,7 +263,7 @@ var ErrWorkspaceAccessDenied = errors.New("workspace access denied")
 
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
-	return &Service{
+	svc := &Service{
 		Store:                       store,
 		Scanner:                     scanner,
 		Provider:                    provider,
@@ -291,6 +291,8 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 			)
 		},
 	}
+	svc.hydrateGitHubConnections(context.Background())
+	return svc
 }
 
 // EnqueueScan stores one queued scan request for asynchronous worker execution.

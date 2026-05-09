@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 func TestMemoryStoreTenancyCRUD(t *testing.T) {
@@ -124,6 +125,122 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 	}
 	if err := store.DeleteOrganization(ctx); err != nil {
 		t.Fatalf("delete organization: %v", err)
+	}
+}
+
+func TestMemoryStoreListTenancyConnectorsUnscopedWithoutLimit(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	workspaceBCtx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-b"})
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace-a: %v", err)
+	}
+	if err := store.UpsertWorkspace(workspaceBCtx, TenancyWorkspace{WorkspaceID: "workspace-b", DisplayName: "Workspace B", Slug: "workspace-b"}); err != nil {
+		t.Fatalf("upsert workspace-b: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+		t.Fatalf("upsert project-a: %v", err)
+	}
+	if err := store.UpsertProject(workspaceBCtx, TenancyProject{WorkspaceID: "workspace-b", ProjectID: "project-b", Name: "Project B", Slug: "project-b"}); err != nil {
+		t.Fatalf("upsert project-b: %v", err)
+	}
+
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-a",
+		ConnectorID: "github-a",
+		Type:        domain.ConnectorTypeGitHub,
+		DisplayName: "GitHub A",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{WorkspaceID: "workspace-a", ProjectID: "project-a", ConnectorID: "github-a", HealthStatus: "healthy"}); err != nil {
+		t.Fatalf("upsert connector a: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(workspaceBCtx, TenancyConnector{
+		WorkspaceID: "workspace-b",
+		ProjectID:   "project-b",
+		ConnectorID: "github-b",
+		Type:        domain.ConnectorTypeGitHub,
+		DisplayName: "GitHub B",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{WorkspaceID: "workspace-b", ProjectID: "project-b", ConnectorID: "github-b", HealthStatus: "healthy"}); err != nil {
+		t.Fatalf("upsert connector b: %v", err)
+	}
+
+	connectors, err := store.ListTenancyConnectorsUnscoped(context.Background(), domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		t.Fatalf("list unscoped connectors: %v", err)
+	}
+	if len(connectors) != 2 {
+		t.Fatalf("expected both connectors without limit, got %+v", connectors)
+	}
+}
+
+func TestMemoryStoreConnectorSecretEnvelopeCRUD(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	rotatedAt := time.Now().UTC().Truncate(time.Second)
+	rotationDueAt := rotatedAt.Add(24 * time.Hour)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "github",
+		Type:        domain.ConnectorTypeGitHub,
+		DisplayName: "GitHub",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "github", HealthStatus: "healthy"}); err != nil {
+		t.Fatalf("upsert connector: %v", err)
+	}
+
+	envelope := TenancyConnectorSecretEnvelope{
+		WorkspaceID:     "workspace-a",
+		ProjectID:       "project-1",
+		ConnectorID:     "github",
+		SecretName:      "webhook_secret",
+		EnvelopeVersion: 1,
+		Envelope: secretstore.Envelope{
+			Version:    1,
+			Algorithm:  secretstore.AlgorithmAES256GCM,
+			KeyVersion: "v1",
+			Nonce:      []byte("123456789012"),
+			Ciphertext: []byte("ciphertext"),
+		},
+		SecretRefID:   "vault://secret/v1",
+		RotatedAt:     rotatedAt,
+		RotationDueAt: &rotationDueAt,
+	}
+	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, envelope); err != nil {
+		t.Fatalf("upsert connector secret envelope: %v", err)
+	}
+
+	got, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "github", "webhook_secret")
+	if err != nil {
+		t.Fatalf("get connector secret envelope: %v", err)
+	}
+	if got.SecretRefID != "vault://secret/v1" || got.Envelope.KeyVersion != "v1" {
+		t.Fatalf("unexpected connector secret envelope: %+v", got)
+	}
+
+	got.Envelope.Nonce[0] = 'X'
+	reloaded, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "github", "webhook_secret")
+	if err != nil {
+		t.Fatalf("reload connector secret envelope: %v", err)
+	}
+	if string(reloaded.Envelope.Nonce) != "123456789012" {
+		t.Fatalf("expected stored nonce copy to remain unchanged, got %q", string(reloaded.Envelope.Nonce))
 	}
 }
 

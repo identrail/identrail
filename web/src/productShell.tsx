@@ -994,8 +994,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
           return;
         }
 
-        const manualSessionAllowed = isManualSessionEntryEnabled() || !isOIDCEnabled();
-        if (activeSession.authMode === 'manual' && !manualSessionAllowed) {
+        if (activeSession.authMode === 'manual' && !isManualSessionEntryEnabled()) {
           clearProductSession();
           setReason('manual_auth_disabled');
           setAuthenticated(false);
@@ -1054,7 +1053,7 @@ export function ProductLoginPage() {
   const nextPath = normalizeValue(query.get('next') ?? '');
   const existing = useMemo(() => readProductSession(), []);
   const oidcEnabled = isOIDCEnabled();
-  const manualEntryEnabled = isManualSessionEntryEnabled() || !oidcEnabled;
+  const manualEntryEnabled = isManualSessionEntryEnabled();
 
   const [tenantID, setTenantID] = useState(existing?.tenantID ?? 'default');
   const [workspaceID, setWorkspaceID] = useState(existing?.workspaceID ?? 'default');

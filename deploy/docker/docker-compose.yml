@@ -66,6 +66,15 @@ services:
       dockerfile: deploy/docker/Dockerfile.web
       args:
         VITE_IDENTRAIL_API_URL: "${VITE_IDENTRAIL_API_URL:-http://localhost:8080}"
+        VITE_ALLOW_MANUAL_PRODUCT_SESSION: "${VITE_ALLOW_MANUAL_PRODUCT_SESSION:-false}"
+        VITE_OIDC_ISSUER_URL: "${VITE_OIDC_ISSUER_URL:-}"
+        VITE_OIDC_CLIENT_ID: "${VITE_OIDC_CLIENT_ID:-}"
+        VITE_OIDC_SCOPE: "${VITE_OIDC_SCOPE:-}"
+        VITE_OIDC_REDIRECT_URI: "${VITE_OIDC_REDIRECT_URI:-}"
+        VITE_OIDC_POST_LOGOUT_REDIRECT_URI: "${VITE_OIDC_POST_LOGOUT_REDIRECT_URI:-}"
+        VITE_OIDC_TENANT_CLAIM: "${VITE_OIDC_TENANT_CLAIM:-}"
+        VITE_OIDC_WORKSPACE_CLAIM: "${VITE_OIDC_WORKSPACE_CLAIM:-}"
+        VITE_OIDC_ROLES_CLAIM: "${VITE_OIDC_ROLES_CLAIM:-}"
         NGINX_CONF: default.local.conf
     image: identrail/web:local
     container_name: identrail-web
