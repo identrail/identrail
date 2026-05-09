@@ -471,6 +471,66 @@ func TestServiceListFindingsFiltered(t *testing.T) {
 	if len(scanOnly) != 1 || scanOnly[0].ID != "f1" {
 		t.Fatalf("unexpected findings for scan/type: %+v", scanOnly)
 	}
+
+	limited, err := svc.ListFindingsFiltered(defaultScopeContext(), 1, FindingsFilter{SortBy: "created_at", SortDesc: true})
+	if err != nil {
+		t.Fatalf("list findings with limit: %v", err)
+	}
+	if len(limited) != 1 || limited[0].ID != "f3" {
+		t.Fatalf("expected service to enforce limit and keep newest first, got %+v", limited)
+	}
+
+	defaultOrdered, err := svc.ListFindingsFiltered(defaultScopeContext(), 1, FindingsFilter{})
+	if err != nil {
+		t.Fatalf("list findings with default sort: %v", err)
+	}
+	if len(defaultOrdered) != 1 || defaultOrdered[0].ID != "f3" {
+		t.Fatalf("expected default filtered order to remain newest-first, got %+v", defaultOrdered)
+	}
+
+	offsetWindow, err := svc.ListFindingsFiltered(defaultScopeContext(), 2, FindingsFilter{
+		SortBy:   "created_at",
+		SortDesc: true,
+		Offset:   1,
+	})
+	if err != nil {
+		t.Fatalf("list findings with offset: %v", err)
+	}
+	if len(offsetWindow) == 0 || offsetWindow[0].ID != "f2" {
+		t.Fatalf("expected offset to be applied before paging window, got %+v", offsetWindow)
+	}
+}
+
+func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testing.T) {
+	store := db.NewMemoryStore()
+	base := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 5001; i++ {
+		scan, err := store.CreateScan(defaultScopeContext(), "aws", base.Add(time.Duration(i)*time.Minute))
+		if err != nil {
+			t.Fatalf("create scan %d: %v", i, err)
+		}
+		severity := domain.SeverityLow
+		if i == 0 {
+			severity = domain.SeverityCritical
+		}
+		if err := store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{{
+			ID:        fmt.Sprintf("finding-%04d", i),
+			Type:      domain.FindingOwnerless,
+			Severity:  severity,
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}}); err != nil {
+			t.Fatalf("upsert finding %d: %v", i, err)
+		}
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	items, err := svc.ListFindingsFiltered(defaultScopeContext(), 10, FindingsFilter{Severity: "critical"})
+	if err != nil {
+		t.Fatalf("list critical findings: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "finding-0000" {
+		t.Fatalf("expected oldest critical finding to be returned, got %+v", items)
+	}
 }
 
 func TestServiceGetFinding(t *testing.T) {
@@ -1507,20 +1567,62 @@ func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 	}
 }
 
-func TestServiceEnqueueScanQueueFull(t *testing.T) {
+func TestServiceEnqueueScanRejectsDuplicatePendingScan(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
 	svc.ScanQueueMaxPending = 1
 	if _, err := svc.EnqueueScan(defaultScopeContext()); err != nil {
 		t.Fatalf("enqueue first scan: %v", err)
 	}
-	if _, err := svc.EnqueueScan(defaultScopeContext()); !errors.Is(err, ErrScanQueueFull) {
-		t.Fatalf("expected scan queue full error, got %v", err)
+	if _, err := svc.EnqueueScan(defaultScopeContext()); !errors.Is(err, ErrScanInProgress) {
+		t.Fatalf("expected scan in-progress error, got %v", err)
+	}
+}
+
+func TestServiceEnqueueScanConcurrentRespectsDuplicateGuard(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.ScanQueueMaxPending = 1
+
+	const workers = 12
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var successCount int32
+	var inProgressCount int32
+	var unexpectedErrCount int32
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := svc.EnqueueScan(defaultScopeContext())
+			switch {
+			case err == nil:
+				atomic.AddInt32(&successCount, 1)
+			case errors.Is(err, ErrScanInProgress):
+				atomic.AddInt32(&inProgressCount, 1)
+			default:
+				atomic.AddInt32(&unexpectedErrCount, 1)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if unexpectedErrCount != 0 {
+		t.Fatalf("expected no unexpected enqueue errors, got %d", unexpectedErrCount)
+	}
+	if successCount != 1 {
+		t.Fatalf("expected exactly one successful enqueue, got %d", successCount)
+	}
+	if inProgressCount != workers-1 {
+		t.Fatalf("expected %d in-progress responses, got %d", workers-1, inProgressCount)
 	}
 }
 
 func TestServiceEnqueueScanConcurrentRespectsQueueLimit(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
-	svc.ScanQueueMaxPending = 1
+	svc.ScanQueueMaxPending = 3
 
 	const workers = 12
 	start := make(chan struct{})
@@ -1552,11 +1654,11 @@ func TestServiceEnqueueScanConcurrentRespectsQueueLimit(t *testing.T) {
 	if unexpectedErrCount != 0 {
 		t.Fatalf("expected no unexpected enqueue errors, got %d", unexpectedErrCount)
 	}
-	if successCount != 1 {
-		t.Fatalf("expected exactly one successful enqueue, got %d", successCount)
+	if successCount != 3 {
+		t.Fatalf("expected exactly three successful enqueues, got %d", successCount)
 	}
-	if queueFullCount != workers-1 {
-		t.Fatalf("expected %d queue-full responses, got %d", workers-1, queueFullCount)
+	if queueFullCount != workers-3 {
+		t.Fatalf("expected %d queue-full responses, got %d", workers-3, queueFullCount)
 	}
 }
 
@@ -1606,27 +1708,26 @@ func TestServiceQueuedScanBurstProcessing(t *testing.T) {
 		Findings: []domain.Finding{{ID: "f-burst", Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now}},
 	}}, "aws")
 	svc.Now = func() time.Time { return now }
-	svc.ScanQueueMaxPending = 100
 
 	const queued = 40
 	for i := 0; i < queued; i++ {
 		if _, err := svc.EnqueueScan(defaultScopeContext()); err != nil {
 			t.Fatalf("enqueue burst scan %d: %v", i, err)
 		}
-	}
-	processedCount := 0
-	for {
 		processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
 		if err != nil {
 			t.Fatalf("process burst queue: %v", err)
 		}
 		if !processed {
-			break
+			t.Fatalf("expected queued burst scan %d to be processed", i)
 		}
-		processedCount++
 	}
-	if processedCount != queued {
-		t.Fatalf("expected %d processed scans, got %d", queued, processedCount)
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process drained queue: %v", err)
+	}
+	if processed {
+		t.Fatal("expected no queued scan after sequential burst processing")
 	}
 	scans, err := store.ListScans(defaultScopeContext(), 1000)
 	if err != nil {

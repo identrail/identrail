@@ -384,6 +384,70 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 	return record, nil
 }
 
+// CreateQueuedScanIfNoPending inserts one queued scan only when no queued/running scan exists.
+func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("begin queued scan transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	normalizedProvider := strings.TrimSpace(provider)
+	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
+		return ScanRecord{}, fmt.Errorf("lock scan queue: %w", err)
+	}
+
+	var pending int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND provider = $3
+		   AND status IN ('queued', 'running')`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedProvider,
+	).Scan(&pending); err != nil {
+		return ScanRecord{}, fmt.Errorf("count pending scans: %w", err)
+	}
+	if pending > 0 {
+		return ScanRecord{}, ErrPendingScanExists
+	}
+
+	record := ScanRecord{
+		ID:          uuid.NewString(),
+		TenantID:    scope.TenantID,
+		WorkspaceID: scope.WorkspaceID,
+		Provider:    normalizedProvider,
+		Status:      "queued",
+		StartedAt:   queuedAt.UTC(),
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO scans (id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, 0, NULL)`,
+		record.ID,
+		record.TenantID,
+		record.WorkspaceID,
+		record.Provider,
+		record.Status,
+		record.StartedAt,
+	); err != nil {
+		return ScanRecord{}, fmt.Errorf("insert queued scan: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ScanRecord{}, fmt.Errorf("commit queued scan transaction: %w", err)
+	}
+	return record, nil
+}
+
 // ClaimNextQueuedScan atomically claims one queued scan for execution.
 func (p *PostgresStore) ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)
@@ -995,6 +1059,105 @@ func (p *PostgresStore) ListFindings(ctx context.Context, limit int) ([]domain.F
 	}
 	defer rows.Close()
 	return findingsFromSQLRows(rows)
+}
+
+// ListFindingsFiltered returns one filtered findings page with stable persistence-level ordering.
+func (p *PostgresStore) ListFindingsFiltered(ctx context.Context, filter FindingListFilter) ([]domain.Finding, error) {
+	normalized := NormalizeFindingListFilter(filter)
+	if normalized.ScanID != "" {
+		if err := p.ensureScanInScope(ctx, normalized.ScanID); err != nil {
+			return nil, err
+		}
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	args := []any{scope.TenantID, scope.WorkspaceID}
+	conditions := []string{
+		"s.tenant_id = $1",
+		"s.workspace_id = $2",
+	}
+	nextArg := 3
+	if normalized.ScanID != "" {
+		conditions = append(conditions, fmt.Sprintf("f.scan_id = $%d", nextArg))
+		args = append(args, normalized.ScanID)
+		nextArg++
+	}
+	if normalized.FindingID != "" {
+		conditions = append(conditions, fmt.Sprintf("f.finding_id = $%d", nextArg))
+		args = append(args, normalized.FindingID)
+		nextArg++
+	}
+	if normalized.Severity != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(f.severity) = $%d", nextArg))
+		args = append(args, normalized.Severity)
+		nextArg++
+	}
+	if normalized.Type != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(f.type) = $%d", nextArg))
+		args = append(args, normalized.Type)
+		nextArg++
+	}
+	evalTimePos := nextArg
+	args = append(args, normalized.Now)
+	nextArg++
+	triageStatusExpr := fmt.Sprintf(`CASE
+		WHEN ts.status = 'suppressed' AND ts.suppression_expires_at IS NOT NULL AND ts.suppression_expires_at <= $%d THEN 'open'
+		ELSE COALESCE(NULLIF(ts.status, ''), 'open')
+	END`, evalTimePos)
+	if normalized.LifecycleStatus != "" {
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", triageStatusExpr, nextArg))
+		args = append(args, normalized.LifecycleStatus)
+		nextArg++
+	}
+	if normalized.Assignee != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(COALESCE(ts.assignee, '')) = $%d", nextArg))
+		args = append(args, normalized.Assignee)
+		nextArg++
+	}
+
+	query := fmt.Sprintf(
+		`SELECT
+			f.scan_id,
+			f.finding_id,
+			f.type,
+			f.severity,
+			f.title,
+			f.human_summary,
+			f.path,
+			f.evidence,
+			COALESCE(f.remediation, ''),
+			f.created_at,
+			%s AS triage_status,
+			COALESCE(ts.assignee, ''),
+			ts.suppression_expires_at,
+			ts.updated_at,
+			COALESCE(ts.updated_by, '')
+		FROM findings f
+		JOIN scans s ON s.id = f.scan_id
+		LEFT JOIN finding_triage_states ts
+		  ON ts.tenant_id = s.tenant_id
+		 AND ts.workspace_id = s.workspace_id
+		 AND ts.finding_id = f.finding_id
+		WHERE %s
+		ORDER BY %s
+		OFFSET $%d
+		LIMIT $%d`,
+		triageStatusExpr,
+		strings.Join(conditions, " AND "),
+		findingOrderClause(normalized.SortBy, normalized.SortDesc),
+		nextArg,
+		nextArg+1,
+	)
+	args = append(args, normalized.Offset, normalized.Limit+1)
+	rows, err := p.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query filtered findings: %w", err)
+	}
+	defer rows.Close()
+	return findingsWithTriageFromSQLRows(rows, normalized.Now)
 }
 
 // ListFindingsAll returns all findings for current scope ordered by recency.
@@ -3148,6 +3311,111 @@ func findingsFromSQLRows(rows rowsScanner) ([]domain.Finding, error) {
 		return nil, fmt.Errorf("finding rows: %w", err)
 	}
 	return result, nil
+}
+
+func findingsWithTriageFromSQLRows(rows rowsScanner, now time.Time) ([]domain.Finding, error) {
+	result := []domain.Finding{}
+	for rows.Next() {
+		var row struct {
+			ScanID               string
+			FindingID            string
+			Type                 string
+			Severity             string
+			Title                string
+			HumanSummary         string
+			Path                 []byte
+			Evidence             []byte
+			Remediation          string
+			CreatedAt            time.Time
+			TriageStatus         string
+			TriageAssignee       string
+			SuppressionExpiresAt sql.NullTime
+			TriageUpdatedAt      sql.NullTime
+			TriageUpdatedBy      string
+		}
+		if err := rows.Scan(
+			&row.ScanID,
+			&row.FindingID,
+			&row.Type,
+			&row.Severity,
+			&row.Title,
+			&row.HumanSummary,
+			&row.Path,
+			&row.Evidence,
+			&row.Remediation,
+			&row.CreatedAt,
+			&row.TriageStatus,
+			&row.TriageAssignee,
+			&row.SuppressionExpiresAt,
+			&row.TriageUpdatedAt,
+			&row.TriageUpdatedBy,
+		); err != nil {
+			return nil, fmt.Errorf("filtered finding row: %w", err)
+		}
+		finding := domain.Finding{
+			ScanID:       row.ScanID,
+			ID:           row.FindingID,
+			Type:         domain.FindingType(row.Type),
+			Severity:     domain.FindingSeverity(row.Severity),
+			Title:        row.Title,
+			HumanSummary: row.HumanSummary,
+			Remediation:  row.Remediation,
+			CreatedAt:    row.CreatedAt,
+			Triage: domain.FindingTriage{
+				Status:    domain.FindingLifecycleStatus(row.TriageStatus),
+				Assignee:  row.TriageAssignee,
+				UpdatedBy: row.TriageUpdatedBy,
+			},
+		}
+		if row.SuppressionExpiresAt.Valid {
+			value := row.SuppressionExpiresAt.Time.UTC()
+			finding.Triage.SuppressionExpiresAt = &value
+		}
+		if row.TriageUpdatedAt.Valid {
+			value := row.TriageUpdatedAt.Time.UTC()
+			finding.Triage.UpdatedAt = &value
+		}
+		finding.Triage = NormalizeFindingTriage(finding.Triage, now)
+		if len(row.Path) > 0 {
+			if err := json.Unmarshal(row.Path, &finding.Path); err != nil {
+				return nil, fmt.Errorf("decode filtered finding path: %w", err)
+			}
+		}
+		if len(row.Evidence) > 0 {
+			if err := json.Unmarshal(row.Evidence, &finding.Evidence); err != nil {
+				return nil, fmt.Errorf("decode filtered finding evidence: %w", err)
+			}
+		}
+		result = append(result, finding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("filtered finding rows: %w", err)
+	}
+	return result, nil
+}
+
+func findingOrderClause(sortBy string, desc bool) string {
+	direction := "ASC"
+	if desc {
+		direction = "DESC"
+	}
+	switch sortBy {
+	case "severity":
+		return fmt.Sprintf(`CASE LOWER(f.severity)
+			WHEN 'critical' THEN 5
+			WHEN 'high' THEN 4
+			WHEN 'medium' THEN 3
+			WHEN 'low' THEN 2
+			WHEN 'info' THEN 1
+			ELSE 0
+		END %s, f.scan_id %s, f.finding_id %s`, direction, direction, direction)
+	case "type":
+		return fmt.Sprintf("LOWER(f.type) %s, f.scan_id %s, f.finding_id %s", direction, direction, direction)
+	case "title":
+		return fmt.Sprintf("LOWER(f.title) %s, f.scan_id %s, f.finding_id %s", direction, direction, direction)
+	default:
+		return fmt.Sprintf("f.created_at %s, f.scan_id %s, f.finding_id %s", direction, direction, direction)
+	}
 }
 
 func ensureRowsAffected(result sql.Result) error {

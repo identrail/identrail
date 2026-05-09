@@ -312,6 +312,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			Type:            strings.TrimSpace(c.Query("type")),
 			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
 			Assignee:        strings.TrimSpace(c.Query("assignee")),
+			SortBy:          sortBy,
+			SortDesc:        sortDesc,
+			Offset:          offset,
 		})
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -322,8 +325,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list findings"})
 			return
 		}
-		sortFindings(items, sortBy, sortDesc)
-		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
+		c.JSON(http.StatusOK, paginatedItemsResponseWithBaseOffset(items, offset, limit))
 	})
 
 	v1.GET("/findings/summary", func(c *gin.Context) {
@@ -683,6 +685,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		scan, err := svc.EnqueueScan(c.Request.Context())
 		if err != nil {
 			metrics.ScanFailureTotal.Inc()
+			if errors.Is(err, ErrScanInProgress) {
+				c.JSON(http.StatusConflict, gin.H{"error": "scan already in progress"})
+				return
+			}
 			if errors.Is(err, ErrScanQueueFull) {
 				c.JSON(http.StatusTooManyRequests, gin.H{"error": "scan queue is full"})
 				return
@@ -1848,6 +1854,20 @@ func paginatedItemsResponse[T any](items []T, offset int, limit int) gin.H {
 	if next != "" {
 		response["next_cursor"] = next
 	}
+	return response
+}
+
+func paginatedItemsResponseWithBaseOffset[T any](items []T, baseOffset int, limit int) gin.H {
+	page, next := pageWithCursor(items, 0, limit)
+	response := gin.H{"items": page}
+	if next == "" {
+		return response
+	}
+	nextPageOffset, err := strconv.Atoi(next)
+	if err != nil {
+		return response
+	}
+	response["next_cursor"] = strconv.Itoa(baseOffset + nextPageOffset)
 	return response
 }
 

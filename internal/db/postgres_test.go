@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,6 +259,115 @@ func TestPostgresStoreListScansDefaultsNonPositiveLimitToOneHundred(t *testing.T
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListFindingsFiltered(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{
+		"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at",
+		"triage_status", "assignee", "suppression_expires_at", "updated_at", "updated_by",
+	}).AddRow(
+		"scan-1", "finding-1", "ownerless_identity", "critical", "Ownerless", "summary", []byte("[\"a\"]"), []byte("{\"x\":1}"), "fix", now,
+		"ack", "secops", nil, now, "subject:user-1",
+	)
+	mock.ExpectQuery("SELECT\\s+f\\.scan_id,").
+		WithArgs("default", "default", "critical", sqlmock.AnyArg(), 0, 11).
+		WillReturnRows(rows)
+
+	items, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		Severity: "critical",
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("list filtered findings failed: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "finding-1" {
+		t.Fatalf("unexpected filtered findings: %+v", items)
+	}
+	if items[0].Triage.Status != domain.FindingLifecycleAck || items[0].Triage.Assignee != "secops" {
+		t.Fatalf("unexpected triage payload: %+v", items[0].Triage)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListFindingsFilteredByScanAndLifecycle(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM scans
+			WHERE id = $1
+			  AND tenant_id = $2
+			  AND workspace_id = $3
+		)`)).
+		WithArgs("scan-1", "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	rows := sqlmock.NewRows([]string{
+		"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at",
+		"triage_status", "assignee", "suppression_expires_at", "updated_at", "updated_by",
+	}).AddRow(
+		"scan-1", "finding-2", "secret_exposure", "high", "Secret", "summary", []byte("null"), []byte("null"), "", now,
+		"suppressed", "secops", now.Add(-time.Minute), now, "subject:user-2",
+	)
+	mock.ExpectQuery("SELECT\\s+f\\.scan_id,").
+		WithArgs("default", "default", "scan-1", sqlmock.AnyArg(), "open", "secops", 0, 2).
+		WillReturnRows(rows)
+
+	items, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{
+		ScanID:          "scan-1",
+		LifecycleStatus: "open",
+		Assignee:        "secops",
+		Limit:           1,
+		Now:             now,
+	})
+	if err != nil {
+		t.Fatalf("list filtered findings by scan failed: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "finding-2" {
+		t.Fatalf("unexpected filtered findings: %+v", items)
+	}
+	if items[0].Triage.Status != domain.FindingLifecycleOpen {
+		t.Fatalf("expected expired suppression to normalize to open, got %+v", items[0].Triage)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestFindingOrderClause(t *testing.T) {
+	tests := []struct {
+		sortBy string
+		desc   bool
+		want   string
+	}{
+		{sortBy: "created_at", desc: false, want: "f.created_at ASC, f.scan_id ASC, f.finding_id ASC"},
+		{sortBy: "severity", desc: true, want: "END DESC, f.scan_id DESC, f.finding_id DESC"},
+		{sortBy: "type", desc: false, want: "LOWER(f.type) ASC, f.scan_id ASC, f.finding_id ASC"},
+		{sortBy: "title", desc: true, want: "LOWER(f.title) DESC, f.scan_id DESC, f.finding_id DESC"},
+	}
+	for _, tc := range tests {
+		if got := findingOrderClause(tc.sortBy, tc.desc); !strings.Contains(got, tc.want) {
+			t.Fatalf("findingOrderClause(%q, %t) = %q, want substring %q", tc.sortBy, tc.desc, got, tc.want)
+		}
 	}
 }
 
@@ -847,6 +957,65 @@ func TestPostgresStoreCreateQueuedScanWithinLimit(t *testing.T) {
 
 	if _, err := store.CreateQueuedScanWithinLimit(defaultScopeContext(), "aws", now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
 		t.Fatalf("expected ErrQueueLimitReached, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCreateQueuedScanIfNoPending(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("SELECT pg_advisory_xact_lock").
+		WithArgs("scan-queue:default:default:aws").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND provider = $3
+		   AND status IN ('queued', 'running')`)).
+		WithArgs("default", "default", "aws").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO scans (id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, 0, NULL)`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "aws", "queued", now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	queued, err := store.CreateQueuedScanIfNoPending(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create queued scan without pending duplicate failed: %v", err)
+	}
+	if queued.Status != "queued" || queued.Provider != "aws" {
+		t.Fatalf("unexpected queued scan result %+v", queued)
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("SELECT pg_advisory_xact_lock").
+		WithArgs("scan-queue:default:default:aws").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND provider = $3
+		   AND status IN ('queued', 'running')`)).
+		WithArgs("default", "default", "aws").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectRollback()
+
+	if _, err := store.CreateQueuedScanIfNoPending(defaultScopeContext(), "aws", now.Add(time.Minute)); !errors.Is(err, ErrPendingScanExists) {
+		t.Fatalf("expected ErrPendingScanExists, got %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
