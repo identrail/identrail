@@ -115,6 +115,7 @@ App-mode feature flags are supported runtime configuration for API and worker pr
 - `IDENTRAIL_CONNECTOR_SECRET_KEYS`
   - Format: `version:base64-encoded-32-byte-key`, separated by commas or semicolons for rotation keysets.
   - The last key in the list is used for new connector secret envelopes; earlier versions remain available for decrypting existing envelopes during rotation.
+  - Required when `IDENTRAIL_APP_MODE_CONNECTORS_ENABLED=true` and `IDENTRAIL_DATABASE_URL` is configured.
   - If unset, the API uses an ephemeral in-memory key intended only for local/test connector state.
 - `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED` (default: `false`; set `true` in durable connector deployments so startup fails if `IDENTRAIL_CONNECTOR_SECRET_KEYS` is missing)
 

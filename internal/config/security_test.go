@@ -842,6 +842,30 @@ func TestValidateSecurityAcceptsAppModeConfig(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsConnectorPersistenceWithoutSecretKeys(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:             map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		DatabaseURL:              "postgres://identrail:test@localhost:5432/identrail",
+		AppModeEnabled:           true,
+		AppModeConnectorsEnabled: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected connector secret key requirement when db-backed connector mode is enabled")
+	}
+}
+
+func TestValidateSecurityAllowsDatabaseModeWithoutConnectorSecretKeysWhenConnectorsDisabled(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key-12345678901234567890": {"read"},
+		},
+		DatabaseURL: "postgres://identrail:test@localhost:5432/identrail",
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected database mode without connectors to be valid, got %v", err)
+	}
+}
+
 func TestStartupDiagnosticsIncludesAppModeSummary(t *testing.T) {
 	cfg := Config{
 		AppModeEnabled:            true,

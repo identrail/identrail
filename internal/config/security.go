@@ -123,6 +123,11 @@ func ValidateSecurity(cfg Config) error {
 	if cfg.AppModeConnectorsEnabled && !cfg.AppModeEnabled {
 		return fmt.Errorf("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED requires IDENTRAIL_APP_MODE_ENABLED=true")
 	}
+	if cfg.AppModeConnectorsEnabled &&
+		strings.TrimSpace(cfg.DatabaseURL) != "" &&
+		strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
+		return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_APP_MODE_CONNECTORS_ENABLED=true and IDENTRAIL_DATABASE_URL is configured")
+	}
 	if cfg.AppModeSchedulerEnabled && !cfg.AppModeEnabled {
 		return fmt.Errorf("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED requires IDENTRAIL_APP_MODE_ENABLED=true")
 	}
