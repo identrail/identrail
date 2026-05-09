@@ -656,9 +656,9 @@ func sortFilteredFindings(items []domain.Finding, sortBy string, desc bool) {
 		case "severity":
 			cmp = compareFindingInts(findingSeverityOrder(left.Severity), findingSeverityOrder(right.Severity))
 		case "type":
-			cmp = compareFindingStrings(string(left.Type), string(right.Type))
+			cmp = compareFindingStrings(strings.ToLower(string(left.Type)), strings.ToLower(string(right.Type)))
 		case "title":
-			cmp = compareFindingStrings(left.Title, right.Title)
+			cmp = compareFindingStrings(strings.ToLower(left.Title), strings.ToLower(right.Title))
 		default:
 			cmp = compareFindingTimes(left.CreatedAt, right.CreatedAt)
 		}

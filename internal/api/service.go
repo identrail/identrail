@@ -1032,6 +1032,12 @@ func (s *Service) ResolveActiveWorkspace(ctx context.Context, subject string, wo
 // ListFindingsFiltered returns findings with optional scan/type/severity filters.
 func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter FindingsFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
+	sortBy := strings.TrimSpace(filter.SortBy)
+	sortDesc := filter.SortDesc
+	if sortBy == "" {
+		// Preserve historical service behavior: default findings order is newest-first.
+		sortDesc = true
+	}
 	items, err := s.Store.ListFindingsFiltered(ctx, db.FindingListFilter{
 		ScanID:          filter.ScanID,
 		FindingID:       filter.FindingID,
@@ -1039,10 +1045,10 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 		Type:            filter.Type,
 		LifecycleStatus: filter.LifecycleStatus,
 		Assignee:        filter.Assignee,
-		SortBy:          filter.SortBy,
-		SortDesc:        filter.SortDesc,
+		SortBy:          sortBy,
+		SortDesc:        sortDesc,
 		Limit:           limit,
-		Offset:          0,
+		Offset:          filter.Offset,
 		Now:             s.Now().UTC(),
 	})
 	if err != nil {

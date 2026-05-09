@@ -266,8 +266,8 @@ func TestMemoryStoreListFindingsFiltered(t *testing.T) {
 func TestSortFilteredFindingsOrders(t *testing.T) {
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 	base := []domain.Finding{
-		{ScanID: "scan-2", ID: "finding-b", Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "Zulu", CreatedAt: now},
-		{ScanID: "scan-1", ID: "finding-a", Severity: domain.SeverityCritical, Type: domain.FindingOwnerless, Title: "Alpha", CreatedAt: now.Add(-time.Minute)},
+		{ScanID: "scan-2", ID: "finding-b", Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "zulu", CreatedAt: now},
+		{ScanID: "scan-1", ID: "finding-a", Severity: domain.SeverityCritical, Type: domain.FindingOwnerless, Title: "alpha", CreatedAt: now.Add(-time.Minute)},
 		{ScanID: "scan-1", ID: "finding-c", Severity: domain.SeverityCritical, Type: domain.FindingOwnerless, Title: "Beta", CreatedAt: now.Add(2 * time.Minute)},
 	}
 
@@ -285,7 +285,7 @@ func TestSortFilteredFindingsOrders(t *testing.T) {
 
 	byTitle := append([]domain.Finding(nil), base...)
 	sortFilteredFindings(byTitle, "title", false)
-	if byTitle[0].Title != "Alpha" || byTitle[1].Title != "Beta" {
+	if byTitle[0].Title != "alpha" || byTitle[1].Title != "Beta" {
 		t.Fatalf("unexpected title sort order: %+v", byTitle)
 	}
 

@@ -479,6 +479,26 @@ func TestServiceListFindingsFiltered(t *testing.T) {
 	if len(limited) != 1 || limited[0].ID != "f3" {
 		t.Fatalf("expected service to enforce limit and keep newest first, got %+v", limited)
 	}
+
+	defaultOrdered, err := svc.ListFindingsFiltered(defaultScopeContext(), 1, FindingsFilter{})
+	if err != nil {
+		t.Fatalf("list findings with default sort: %v", err)
+	}
+	if len(defaultOrdered) != 1 || defaultOrdered[0].ID != "f3" {
+		t.Fatalf("expected default filtered order to remain newest-first, got %+v", defaultOrdered)
+	}
+
+	offsetWindow, err := svc.ListFindingsFiltered(defaultScopeContext(), 2, FindingsFilter{
+		SortBy:   "created_at",
+		SortDesc: true,
+		Offset:   1,
+	})
+	if err != nil {
+		t.Fatalf("list findings with offset: %v", err)
+	}
+	if len(offsetWindow) == 0 || offsetWindow[0].ID != "f2" {
+		t.Fatalf("expected offset to be applied before paging window, got %+v", offsetWindow)
+	}
 }
 
 func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testing.T) {
