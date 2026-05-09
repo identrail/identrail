@@ -1089,8 +1089,12 @@ export function ProductLoginPage() {
 
     return () => {
       document.title = previousTitle;
-      if (description && previousDescription !== null) {
-        description.setAttribute('content', previousDescription);
+      if (description) {
+        if (previousDescription === null) {
+          description.removeAttribute('content');
+        } else {
+          description.setAttribute('content', previousDescription);
+        }
       }
       if (robotsWasNew) {
         robots.remove();
