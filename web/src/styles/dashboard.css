@@ -3111,7 +3111,10 @@
   letter-spacing: 0;
 }
 
-html[data-theme='light'] body {
+/* Scoped to the dashboard canvas — marketing also runs in
+ * data-theme='light' so an unscoped `body` rule here would paint
+ * the dashboard's gradient onto every public page. */
+html[data-theme='light'] .idt-app-shell-screen {
   background:
     radial-gradient(circle at 78% -18%, rgba(76, 105, 164, 0.16), transparent 40%),
     radial-gradient(circle at 8% 14%, rgba(90, 122, 183, 0.11), transparent 30%),
@@ -3574,7 +3577,9 @@ html[data-theme='light'] .idt-footer-trust-links a {
 }
 
 /* Light-mode redesign pass: stronger contrast, cleaner surfaces, better readability */
-html[data-theme='light'] body {
+/* Scoped to the dashboard canvas; see note at the first
+ * `html[data-theme='light'] .idt-app-shell-screen` block above. */
+html[data-theme='light'] .idt-app-shell-screen {
   background:
     radial-gradient(circle at 82% -12%, rgba(73, 106, 169, 0.2), transparent 42%),
     radial-gradient(circle at 8% 20%, rgba(111, 141, 193, 0.14), transparent 34%),
@@ -5724,7 +5729,9 @@ html[data-theme='light'] .idt-source-diagnostics span {
   border-radius: 8px;
 }
 
-html[data-theme='light'] body {
+/* Scoped to the dashboard canvas; see note at the first
+ * `html[data-theme='light'] .idt-app-shell-screen` block above. */
+html[data-theme='light'] .idt-app-shell-screen {
   background:
     linear-gradient(rgba(16, 30, 28, 0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(16, 30, 28, 0.035) 1px, transparent 1px),
@@ -6259,7 +6266,9 @@ html[data-theme='light'] {
   --idt-shadow: var(--idt-z-shadow);
 }
 
-html[data-theme='light'] body {
+/* Scoped to the dashboard canvas; see note at the first
+ * `html[data-theme='light'] .idt-app-shell-screen` block above. */
+html[data-theme='light'] .idt-app-shell-screen {
   background:
     linear-gradient(90deg, rgba(20, 24, 34, 0.035) 1px, transparent 1px),
     linear-gradient(rgba(20, 24, 34, 0.026) 1px, transparent 1px),
@@ -7915,7 +7924,9 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 /* Remove decorative background grid lines from the ZITADEL-style pass. */
-html[data-theme='light'] body {
+/* Scoped to the dashboard canvas; see note at the first
+ * `html[data-theme='light'] .idt-app-shell-screen` block above. */
+html[data-theme='light'] .idt-app-shell-screen {
   background: #ffffff;
 }
 
