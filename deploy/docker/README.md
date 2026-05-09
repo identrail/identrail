@@ -6,6 +6,7 @@
 - `Dockerfile.web`: builds dashboard web image
   - production builds use the strict nginx CSP by default; Compose passes `NGINX_CONF=default.local.conf` for localhost API access.
 - `docker-compose.yml`: local single-host stack
+- `docker-compose.prod.example.yml`: least-privilege hardening override for production-style deployments
 - `.env.example`: environment template
 
 ## Quick Start
@@ -26,6 +27,10 @@ Manual setup:
    - for live k8s collection: set `IDENTRAIL_K8S_SOURCE=kubectl`
    - optional context override: `IDENTRAIL_KUBE_CONTEXT`
 3. `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build`
+
+Production-style hardening example:
+
+- `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml --env-file deploy/docker/.env up -d --build`
 
 ## Verify
 ### Production notes

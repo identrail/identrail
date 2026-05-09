@@ -1,38 +1,300 @@
-# Publish least-privilege production deployment examples
+# Least-Privilege Production Deployment Examples
 
-This document turns issue #901 into a concrete production-control work item for Identrail maintainers and operators.
+This guide publishes concrete production examples for issue #901 so operators can deploy Identrail with tightly scoped privileges and verify the control end to end.
 
-## Problem
-## Why this matters
-Secure deployment defaults reduce operator error and privilege sprawl.
+## Scope
 
-## Current partial state
-Some least-privilege IAM/K8s templates exist, but complete production reference deployments are incomplete.
+The examples cover:
 
-## Priority
-Medium
+- Kubernetes baseline with restricted pod/container security settings.
+- Optional Kubernetes read-only RBAC for cluster scanning.
+- NetworkPolicy and TLS examples.
+- Helm values overrides for least-privilege defaults.
+- Docker Compose hardening for single-host deployments.
+- Postgres role separation for migration vs runtime workloads.
+- Smoke tests that prove the deployment is functioning without ad-hoc privilege grants.
 
-## Minimal MVP
-Create hardened deploy examples for Kubernetes/Helm/compose with SA bindings, NetworkPolicy, TLS, DB role grants, and secret-manager references.
+## 1) Kubernetes Baseline (Manifest Deployment)
 
-## Acceptance criteria
-- Example deploy passes with documented least privileges.
-- Security-sensitive roles are explicitly enumerated.
-- Deployment smoke test works with no ad-hoc permissions.
+The shipped manifests already enforce key container-level controls in:
 
-## Implementation contract
-- Keep the change tenant-aware and workspace-aware.
-- Preserve existing API compatibility unless the issue explicitly requires a safer default.
-- Emit audit evidence for security-sensitive allow, deny, retry, reject, and recovery paths.
-- Avoid storing raw secrets, tokens, webhook payload secrets, or credential material.
-- Add deterministic tests for both accepted and rejected behavior before closing follow-up implementation work.
+- `deploy/kubernetes/api-deployment.yaml`
+- `deploy/kubernetes/worker-deployment.yaml`
+- `deploy/kubernetes/migration-job.yaml`
 
-## Review checklist
-- The control has a clear owner-facing configuration path.
-- Unsafe defaults fail closed or produce an explicit operator warning.
-- Acceptance criteria from issue #901 are covered by tests, docs, or both.
-- PR validation summary states which checks were run.
+Those files set:
 
-## Tracking
-- GitHub issue: #901
-- Control slug: least-privilege-deploy
+- `runAsNonRoot: true`
+- `allowPrivilegeEscalation: false`
+- `readOnlyRootFilesystem: true`
+- `capabilities.drop: ["ALL"]`
+
+### Optional RBAC for Kubernetes Scan Collection
+
+If you run with `IDENTRAIL_K8S_SOURCE=kubectl`, attach a read-only role instead of cluster-admin:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: identrail-scanner
+  namespace: identrail
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: identrail-scanner-readonly
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "serviceaccounts", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: identrail-scanner-readonly
+subjects:
+  - kind: ServiceAccount
+    name: identrail-scanner
+    namespace: identrail
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: identrail-scanner-readonly
+```
+
+### NetworkPolicy Example (Default-Deny + Explicit Allows)
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: identrail-default-deny
+  namespace: identrail
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: identrail-api-ingress
+  namespace: identrail
+spec:
+  podSelector:
+    matchLabels:
+      app: identrail-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: identrail-egress-db-and-dns
+  namespace: identrail
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: identrail
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+```
+
+### TLS Example
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: identrail
+  namespace: identrail
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["identrail.example.com"]
+      secretName: identrail-tls
+  rules:
+    - host: identrail.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: identrail-api
+                port:
+                  number: 8080
+```
+
+## 2) Helm Least-Privilege Overrides
+
+Use the chart at `deploy/helm/identrail` with an override file:
+
+```yaml
+api:
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+worker:
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+serviceAccount:
+  create: true
+  name: identrail-scanner
+
+secret:
+  create: false
+  existingSecret: identrail-secrets
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: identrail.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: identrail-tls
+      hosts:
+        - identrail.example.com
+```
+
+Install:
+
+```bash
+helm upgrade --install identrail deploy/helm/identrail \
+  -n identrail --create-namespace \
+  -f /path/to/least-privilege-values.yaml
+```
+
+## 3) Docker Compose Hardening Example
+
+For single-host production-style runs, use a hardened override:
+
+```yaml
+services:
+  api:
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    user: "65532:65532"
+    environment:
+      IDENTRAIL_RUN_MIGRATIONS: "false"
+
+  worker:
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    user: "65532:65532"
+    environment:
+      IDENTRAIL_RUN_MIGRATIONS: "false"
+```
+
+Run with:
+
+```bash
+docker compose \
+  -f deploy/docker/docker-compose.yml \
+  -f deploy/docker/docker-compose.prod.example.yml \
+  --env-file deploy/docker/.env \
+  up -d
+```
+
+## 4) Postgres Role Separation Example
+
+Use one high-privilege role for migrations and a reduced runtime role for API/worker:
+
+```sql
+CREATE ROLE identrail_migrator LOGIN PASSWORD 'replace-strong-password';
+CREATE ROLE identrail_runtime LOGIN PASSWORD 'replace-strong-password';
+
+GRANT CONNECT ON DATABASE identrail TO identrail_runtime;
+GRANT USAGE ON SCHEMA public TO identrail_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO identrail_runtime;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO identrail_runtime;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO identrail_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO identrail_runtime;
+```
+
+Operational pattern:
+
+1. Run migration job with `IDENTRAIL_DATABASE_URL` bound to `identrail_migrator`.
+2. Run API/worker with `IDENTRAIL_DATABASE_URL` bound to `identrail_runtime`.
+3. Keep `IDENTRAIL_RUN_MIGRATIONS=false` for long-running API/worker pods.
+
+## 5) Smoke Tests
+
+Run these checks after deployment:
+
+```bash
+# Service account permissions are read-only (or none if k8s scan is disabled).
+kubectl auth can-i --as=system:serviceaccount:identrail:identrail-scanner --list
+
+# Pods are healthy and running.
+kubectl -n identrail get pods
+kubectl -n identrail get deploy
+
+# API readiness is up.
+kubectl -n identrail port-forward svc/identrail-api 8080:8080 &
+curl -fsS http://127.0.0.1:8080/readyz
+
+# NetworkPolicy objects are present.
+kubectl -n identrail get networkpolicy
+
+# Runtime DB role cannot perform DDL (expected permission denied).
+psql "$IDENTRAIL_RUNTIME_DATABASE_URL" -c "CREATE TABLE identrail_runtime_should_fail(id int);"
+```
+
+If any step requires adding broad privileges, stop and tighten the role/policy before go-live.

@@ -10,6 +10,8 @@
 - `api-service.yaml`
 - `worker-deployment.yaml`
 - `ingress.example.yaml`
+- `rbac-scanner-readonly.example.yaml`
+- `network-policy.example.yaml`
 
 ## Quick Start
 
@@ -26,6 +28,9 @@
    - `kubectl apply -f deploy/kubernetes/worker-deployment.yaml`
 5. Optional ingress:
    - `kubectl apply -f deploy/kubernetes/ingress.example.yaml`
+6. Optional least-privilege hardening examples:
+   - `kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml`
+   - `kubectl apply -f deploy/kubernetes/network-policy.example.yaml`
 
 Notes:
 - Default manifest profile is production-oriented and fails fast on fixture collectors (`IDENTRAIL_REQUIRE_LIVE_SOURCES=true`).
