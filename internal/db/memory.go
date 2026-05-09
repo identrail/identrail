@@ -138,6 +138,30 @@ func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider 
 	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
 }
 
+// CreateQueuedScanIfNoPending persists one queued scan only when no queued/running scan exists.
+func (m *MemoryStore) CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	normalizedProvider := strings.TrimSpace(provider)
+	for _, record := range m.scans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		if record.Status == "queued" || record.Status == "running" {
+			return ScanRecord{}, ErrPendingScanExists
+		}
+	}
+	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
+}
+
 // ClaimNextQueuedScan moves one queued scan to running for execution.
 func (m *MemoryStore) ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error) {
 	m.mu.Lock()

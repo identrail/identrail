@@ -685,6 +685,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		scan, err := svc.EnqueueScan(c.Request.Context())
 		if err != nil {
 			metrics.ScanFailureTotal.Inc()
+			if errors.Is(err, ErrScanInProgress) {
+				c.JSON(http.StatusConflict, gin.H{"error": "scan already in progress"})
+				return
+			}
 			if errors.Is(err, ErrScanQueueFull) {
 				c.JSON(http.StatusTooManyRequests, gin.H{"error": "scan queue is full"})
 				return

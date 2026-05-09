@@ -437,6 +437,14 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	}
 	firstScanID := postBody.Scan.ID
 
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process first queued scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected first queued scan to be processed")
+	}
+
 	postReq2 := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	postW2 := httptest.NewRecorder()
 	r.ServeHTTP(postW2, postReq2)
@@ -452,14 +460,13 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	if postBody2.Scan.ID == "" {
 		t.Fatal("expected second scan id in post response")
 	}
-	for i := 0; i < 2; i++ {
-		processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
-		if err != nil {
-			t.Fatalf("process queued scan: %v", err)
-		}
-		if !processed {
-			t.Fatalf("expected queued scan %d to be processed", i+1)
-		}
+
+	processed, err = svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process second queued scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected second queued scan to be processed")
 	}
 
 	findingsReq := httptest.NewRequest(http.MethodGet, "/v1/findings", nil)
@@ -787,7 +794,7 @@ func TestRouterRepoScanEnqueueSucceedsWhenExecutionLockIsHeld(t *testing.T) {
 	}
 }
 
-func TestRouterScanQueueBackpressure(t *testing.T) {
+func TestRouterScanDuplicateGuard(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
@@ -805,8 +812,8 @@ func TestRouterScanQueueBackpressure(t *testing.T) {
 	secondReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	secondW := httptest.NewRecorder()
 	r.ServeHTTP(secondW, secondReq)
-	if secondW.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected queue backpressure 429, got %d", secondW.Code)
+	if secondW.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate guard 409, got %d", secondW.Code)
 	}
 }
 
@@ -2696,7 +2703,7 @@ func TestRouterErrorEnvelopeForCommonStatuses(t *testing.T) {
 	queueFullReq.Header.Set("X-API-Key", "write-key")
 	queueFullW := httptest.NewRecorder()
 	securedRouter.ServeHTTP(queueFullW, queueFullReq)
-	assertErrorEnvelope(t, queueFullW, http.StatusTooManyRequests)
+	assertErrorEnvelope(t, queueFullW, http.StatusConflict)
 }
 
 func TestRouterPaginationHelpers(t *testing.T) {

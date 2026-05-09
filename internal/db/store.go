@@ -33,6 +33,9 @@ type FindingSummaryCounts struct {
 // ErrQueueLimitReached indicates a bounded queue has no remaining capacity.
 var ErrQueueLimitReached = errors.New("queue limit reached")
 
+// ErrPendingScanExists indicates one queued or running scan already exists for the provider scope.
+var ErrPendingScanExists = errors.New("pending scan already exists")
+
 // ErrPendingRepoScanExists indicates the target repository already has a queued or running scan.
 var ErrPendingRepoScanExists = errors.New("pending repo scan exists")
 var authzOwnerTeamPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
@@ -1165,6 +1168,7 @@ type Store interface {
 	CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error)
 	CreateQueuedScan(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error)
 	CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error)
+	CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error)
 	ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error)
 	ClaimNextQueuedScanAnyScope(ctx context.Context, provider string) (ScanRecord, error)
 	CountQueuedScans(ctx context.Context, provider string) (int, error)

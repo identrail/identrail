@@ -738,6 +738,35 @@ func TestMemoryStoreCreateQueuedScanWithinLimit(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCreateQueuedScanIfNoPending(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+
+	first, err := store.CreateQueuedScanIfNoPending(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create queued scan without pending duplicate: %v", err)
+	}
+	if first.Status != "queued" {
+		t.Fatalf("expected queued status, got %q", first.Status)
+	}
+
+	if _, err := store.CreateQueuedScanIfNoPending(defaultScopeContext(), "aws", now.Add(time.Minute)); !errors.Is(err, ErrPendingScanExists) {
+		t.Fatalf("expected ErrPendingScanExists, got %v", err)
+	}
+
+	if err := store.CompleteScan(defaultScopeContext(), first.ID, "completed", now.Add(2*time.Minute), 1, 1, ""); err != nil {
+		t.Fatalf("complete first queued scan: %v", err)
+	}
+
+	second, err := store.CreateQueuedScanIfNoPending(defaultScopeContext(), "aws", now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("create queued scan after completion: %v", err)
+	}
+	if second.Status != "queued" {
+		t.Fatalf("expected queued status for second scan, got %q", second.Status)
+	}
+}
+
 func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)

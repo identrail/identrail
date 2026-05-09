@@ -964,6 +964,65 @@ func TestPostgresStoreCreateQueuedScanWithinLimit(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreCreateQueuedScanIfNoPending(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("SELECT pg_advisory_xact_lock").
+		WithArgs("scan-queue:default:default:aws").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND provider = $3
+		   AND status IN ('queued', 'running')`)).
+		WithArgs("default", "default", "aws").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO scans (id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, 0, NULL)`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "aws", "queued", now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	queued, err := store.CreateQueuedScanIfNoPending(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create queued scan without pending duplicate failed: %v", err)
+	}
+	if queued.Status != "queued" || queued.Provider != "aws" {
+		t.Fatalf("unexpected queued scan result %+v", queued)
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec("SELECT pg_advisory_xact_lock").
+		WithArgs("scan-queue:default:default:aws").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND provider = $3
+		   AND status IN ('queued', 'running')`)).
+		WithArgs("default", "default", "aws").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectRollback()
+
+	if _, err := store.CreateQueuedScanIfNoPending(defaultScopeContext(), "aws", now.Add(time.Minute)); !errors.Is(err, ErrPendingScanExists) {
+		t.Fatalf("expected ErrPendingScanExists, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreRequiresScopeContext(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {

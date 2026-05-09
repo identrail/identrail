@@ -304,13 +304,25 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	ctx = s.scopeContext(ctx)
 	maxPending := s.ScanQueueMaxPending
 	if maxPending <= 0 {
-		maxPending = defaultScanQueueMaxPending
+		maxPending = 1
 	}
-	record, err := s.Store.CreateQueuedScanWithinLimit(ctx, s.Provider, s.Now().UTC(), maxPending)
-	if err != nil {
+
+	var (
+		record db.ScanRecord
+		err    error
+	)
+	if maxPending == 1 {
+		record, err = s.Store.CreateQueuedScanIfNoPending(ctx, s.Provider, s.Now().UTC())
+		if errors.Is(err, db.ErrPendingScanExists) {
+			return db.ScanRecord{}, ErrScanInProgress
+		}
+	} else {
+		record, err = s.Store.CreateQueuedScanWithinLimit(ctx, s.Provider, s.Now().UTC(), maxPending)
 		if errors.Is(err, db.ErrQueueLimitReached) {
 			return db.ScanRecord{}, ErrScanQueueFull
 		}
+	}
+	if err != nil {
 		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
 	}
 	queuedCount, err := s.Store.CountQueuedScans(ctx, s.Provider)
