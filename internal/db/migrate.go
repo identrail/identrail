@@ -20,6 +20,31 @@ const (
 	migrationLedgerCutoverVersion = "000015"
 )
 
+var legacyShippedCutoverMigrations = map[string]struct{}{
+	"000015_db_constraints_guardrails.up.sql":               {},
+	"000015_tenancy_connector_rls_scope_enforcement.up.sql": {},
+	"000015_tenancy_connector_rls_scope_guardrails.up.sql":  {},
+}
+
+var grandfatheredDuplicateMigrationsBySuffix = map[string]map[string]map[string]struct{}{
+	".up.sql": {
+		"000015": {
+			"000015_async_job_queue.up.sql":                         {},
+			"000015_db_constraints_guardrails.up.sql":               {},
+			"000015_tenancy_connector_rls_scope_enforcement.up.sql": {},
+			"000015_tenancy_connector_rls_scope_guardrails.up.sql":  {},
+		},
+	},
+	".down.sql": {
+		"000015": {
+			"000015_async_job_queue.down.sql":                         {},
+			"000015_db_constraints_guardrails.down.sql":               {},
+			"000015_tenancy_connector_rls_scope_enforcement.down.sql": {},
+			"000015_tenancy_connector_rls_scope_guardrails.down.sql":  {},
+		},
+	},
+}
+
 // ApplyMigrations runs all *.up.sql files in lexical order.
 func (p *PostgresStore) ApplyMigrations(ctx context.Context, dir string) error {
 	if p == nil || p.db == nil {
@@ -152,6 +177,9 @@ func migrationFiles(dir string) ([]string, error) {
 		return nil, err
 	}
 	sort.Strings(files)
+	if err := validateUniqueMigrationVersions(files, ".up.sql"); err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
@@ -161,6 +189,9 @@ func downMigrationFiles(dir string) ([]string, error) {
 		return nil, err
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(files)))
+	if err := validateUniqueMigrationVersions(files, ".down.sql"); err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
@@ -278,7 +309,7 @@ func seedLegacyMigrationLedger(ctx context.Context, db *sql.DB, files []string) 
 			_ = tx.Rollback()
 			return err
 		}
-		if version >= migrationLedgerCutoverVersion {
+		if !shouldSeedLegacyMigration(filename, version) {
 			continue
 		}
 		if _, err := tx.ExecContext(
@@ -330,6 +361,48 @@ func relationExists(ctx context.Context, db *sql.DB, relation string) (bool, err
 		return false, nil
 	}
 	return strings.TrimSpace(relationName.String) != "", nil
+}
+
+func validateUniqueMigrationVersions(files []string, suffix string) error {
+	filesByVersion := make(map[string][]string, len(files))
+	for _, file := range files {
+		version, err := migrationVersion(file)
+		if err != nil {
+			return err
+		}
+		filesByVersion[version] = append(filesByVersion[version], filepath.Base(file))
+	}
+
+	allowedByVersion, hasSuffixAllowlist := grandfatheredDuplicateMigrationsBySuffix[suffix]
+	for version, names := range filesByVersion {
+		if len(names) <= 1 {
+			continue
+		}
+		if !hasSuffixAllowlist {
+			return fmt.Errorf("duplicate migration version %s in %s", version, strings.Join(names, ", "))
+		}
+		allowedNames, allowedVersion := allowedByVersion[version]
+		if !allowedVersion {
+			return fmt.Errorf("duplicate migration version %s in %s", version, strings.Join(names, ", "))
+		}
+		for _, name := range names {
+			if _, ok := allowedNames[name]; !ok {
+				return fmt.Errorf("duplicate migration version %s includes non-grandfathered migration %s", version, name)
+			}
+		}
+	}
+	return nil
+}
+
+func shouldSeedLegacyMigration(filename string, version string) bool {
+	if version < migrationLedgerCutoverVersion {
+		return true
+	}
+	if version > migrationLedgerCutoverVersion {
+		return false
+	}
+	_, ok := legacyShippedCutoverMigrations[filename]
+	return ok
 }
 
 func upFilenameForDown(downFilename string) string {

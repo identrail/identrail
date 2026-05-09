@@ -40,17 +40,36 @@ func TestMigrationFiles(t *testing.T) {
 	}
 }
 
-func TestMigrationFilesAllowDuplicateVersions(t *testing.T) {
+func TestMigrationFilesRejectDuplicateVersions(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "0001_init.up.sql"), []byte("SELECT 1;"), 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "0001_add.up.sql"), []byte("SELECT 2;"), 0o600)
 
+	_, err := migrationFiles(dir)
+	if err == nil {
+		t.Fatal("expected duplicate migration version error")
+	}
+}
+
+func TestMigrationFilesAllowGrandfatheredDuplicateVersion(t *testing.T) {
+	dir := t.TempDir()
+	for _, filename := range []string{
+		"000015_async_job_queue.up.sql",
+		"000015_db_constraints_guardrails.up.sql",
+		"000015_tenancy_connector_rls_scope_enforcement.up.sql",
+		"000015_tenancy_connector_rls_scope_guardrails.up.sql",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, filename), []byte("SELECT 1;"), 0o600); err != nil {
+			t.Fatalf("write migration: %v", err)
+		}
+	}
+
 	files, err := migrationFiles(dir)
 	if err != nil {
-		t.Fatalf("migrationFiles failed: %v", err)
+		t.Fatalf("expected grandfathered duplicate version to be allowed: %v", err)
 	}
-	if len(files) != 2 {
-		t.Fatalf("expected 2 files, got %d", len(files))
+	if len(files) != 4 {
+		t.Fatalf("expected 4 files, got %d", len(files))
 	}
 }
 
@@ -60,6 +79,21 @@ func TestUpFilenameForDown(t *testing.T) {
 	}
 	if got := upFilenameForDown("unexpected.sql"); got != "unexpected.sql" {
 		t.Fatalf("expected passthrough for non-down migration filenames, got %s", got)
+	}
+}
+
+func TestShouldSeedLegacyMigration(t *testing.T) {
+	if !shouldSeedLegacyMigration("000014_connector_secret_envelopes.up.sql", "000014") {
+		t.Fatal("expected pre-cutover migrations to be seeded")
+	}
+	if !shouldSeedLegacyMigration("000015_db_constraints_guardrails.up.sql", "000015") {
+		t.Fatal("expected released cutover migration to be seeded")
+	}
+	if shouldSeedLegacyMigration("000015_async_job_queue.up.sql", "000015") {
+		t.Fatal("expected async job migration to remain pending")
+	}
+	if shouldSeedLegacyMigration("000016_future_migration.up.sql", "000016") {
+		t.Fatal("expected post-cutover migration to remain pending")
 	}
 }
 
