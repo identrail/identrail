@@ -136,6 +136,6 @@ func NewMetrics() *Metrics {
 			Subsystem: "authz_policy",
 			Name:      "decisions_by_version_total",
 			Help:      "Total policy decisions grouped by policy version and decision metadata.",
-		}, []string{"policy_set_id", "policy_version", "policy_source", "rollout_mode", "allowed"}),
+		}, []string{"policy_version", "policy_source", "rollout_mode", "allowed"}),
 	}
 }
