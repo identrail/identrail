@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/identrail/identrail/internal/db"
 )
 
 func TestValidateSecurityRejectsNoAPIKeys(t *testing.T) {
@@ -107,6 +109,17 @@ func TestValidateSecurityRejectsInvalidConnectorSecretKeys(t *testing.T) {
 	}
 	if err := ValidateSecurity(cfg); err == nil {
 		t.Fatal("expected invalid connector secret keys error")
+	}
+}
+
+func TestValidateSecurityRequiresConnectorSecretKeysWhenEnabled(t *testing.T) {
+	cfg := Config{
+		APIKeys:                     []string{"reader", "writer"},
+		WriteAPIKeys:                []string{"writer"},
+		ConnectorSecretKeysRequired: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_CONNECTOR_SECRET_KEYS") {
+		t.Fatalf("expected missing connector secret keys error, got %v", err)
 	}
 }
 
@@ -227,6 +240,30 @@ func TestValidateSecurityRejectsInvalidScopedKeyScope(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsMalformedAPIKeyScopesEnv(t *testing.T) {
+	cfg := Config{
+		apiKeyScopesError: "entry 1 must use key:scope1,scope2 format",
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_API_KEY_SCOPES") {
+		t.Fatalf("expected malformed api key scopes error, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidBooleanEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "sometimes")
+	cfg := Load()
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_WORKER_RUN_NOW") {
+		t.Fatalf("expected invalid boolean env error, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidDurationEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "soon")
+	cfg := Load()
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_SCAN_INTERVAL") {
+		t.Fatalf("expected invalid duration env error, got %v", err)
+	}
+}
 func TestValidateSecurityAcceptsScopedKeyTenantWorkspaceBindings(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes: map[string][]string{
@@ -282,12 +319,118 @@ func TestValidateSecurityRejectsInvalidDefaultWorkspaceID(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsPlaceholderDefaultTenantID(t *testing.T) {
+	cfg := Config{
+		APIKeys:         []string{"reader", "writer", "reader-key-12345678901234567890"},
+		WriteAPIKeys:    []string{"writer"},
+		DefaultTenantID: "replace-tenant-id",
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected placeholder default tenant id error")
+	}
+}
+
+func TestValidateSecurityRejectsPlaceholderDefaultWorkspaceID(t *testing.T) {
+	cfg := Config{
+		APIKeys:            []string{"reader", "writer", "reader-key-12345678901234567890"},
+		WriteAPIKeys:       []string{"writer"},
+		DefaultWorkspaceID: "replace-workspace-id",
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected placeholder default workspace id error")
+	}
+}
+
 func TestValidateSecurityRejectsScopedKeyWithoutValidScope(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes: map[string][]string{"key1": {""}},
 	}
 	if err := ValidateSecurity(cfg); err == nil {
 		t.Fatal("expected empty scope error")
+	}
+}
+
+func TestValidateSecurityRejectsScopeBindingsWithoutScopedKeys(t *testing.T) {
+	cfg := Config{
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected scoped key bindings to require scoped keys")
+	}
+}
+
+func TestValidateSecurityRejectsScopeBindingsForUnknownKey(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"writer-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected unknown scope binding key to be rejected")
+	}
+}
+
+func TestValidateSecurityRejectsScopeBindingConflictsWithLegacyMetadata(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read", "tenant:tenant-a", "workspace:workspace-a"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-b", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected scope binding conflict to be rejected")
+	}
+}
+
+func TestValidateSecurityRejectsScopedKeysWithoutBindingsWhenBindingsEnabled(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+			"writer-key": {"write"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected scoped keys without bindings to be rejected")
+	}
+}
+
+func TestValidateSecurityRejectsInvalidScopeBindingTenantID(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "bad tenant", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected invalid scope binding tenant id to be rejected")
+	}
+}
+
+func TestValidateSecurityAcceptsScopeBindings(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key": {"read"},
+			"writer-key": {"read", "write"},
+		},
+		APIKeyScopeBindings: map[string]db.Scope{
+			"reader-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+			"writer-key": {TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected valid scope bindings, got %v", err)
 	}
 }
 
@@ -627,6 +770,25 @@ func TestSecurityWarningsShortAPIKey(t *testing.T) {
 	}
 }
 
+func TestSecurityWarningsPostgresRLSEnforcementDisabled(t *testing.T) {
+	cfg := Config{
+		APIKeys:             []string{"reader-key-12345678901234567890"},
+		WriteAPIKeys:        []string{"reader-key-12345678901234567890"},
+		PostgresRLSEnforced: false,
+	}
+	warnings := SecurityWarnings(cfg)
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "row-level scope enforcement is disabled") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected postgres rls warning, got %+v", warnings)
+	}
+}
+
 func TestValidateSecurityAppModeRolloutRequiresToggle(t *testing.T) {
 	cfg := Config{
 		APIKeys:              []string{"reader"},
@@ -677,6 +839,30 @@ func TestValidateSecurityAcceptsAppModeConfig(t *testing.T) {
 	}
 	if err := ValidateSecurity(cfg); err != nil {
 		t.Fatalf("expected app mode config to be valid, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsConnectorPersistenceWithoutSecretKeys(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:             map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		DatabaseURL:              "postgres://identrail:test@localhost:5432/identrail",
+		AppModeEnabled:           true,
+		AppModeConnectorsEnabled: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected connector secret key requirement when db-backed connector mode is enabled")
+	}
+}
+
+func TestValidateSecurityAllowsDatabaseModeWithoutConnectorSecretKeysWhenConnectorsDisabled(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"reader-key-12345678901234567890": {"read"},
+		},
+		DatabaseURL: "postgres://identrail:test@localhost:5432/identrail",
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected database mode without connectors to be valid, got %v", err)
 	}
 }
 

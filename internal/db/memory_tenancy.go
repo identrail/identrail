@@ -89,6 +89,11 @@ func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 			delete(m.connStates, key)
 		}
 	}
+	for secretKey, secret := range m.connSecrets {
+		if secret.TenantID == scope.TenantID {
+			delete(m.connSecrets, secretKey)
+		}
+	}
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -221,6 +226,11 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 		if connector.TenantID == scope.TenantID && connector.WorkspaceID == normalizedWorkspaceID {
 			delete(m.connectors, connectorKey)
 			delete(m.connStates, connectorKey)
+		}
+	}
+	for secretKey, secret := range m.connSecrets {
+		if secret.TenantID == scope.TenantID && secret.WorkspaceID == normalizedWorkspaceID {
+			delete(m.connSecrets, secretKey)
 		}
 	}
 	m.mu.Unlock()
@@ -484,6 +494,11 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 			delete(m.connStates, connectorKey)
 		}
 	}
+	for secretKey, secret := range m.connSecrets {
+		if secret.TenantID == scope.TenantID && secret.WorkspaceID == resolvedWorkspaceID && secret.ProjectID == projectID {
+			delete(m.connSecrets, secretKey)
+		}
+	}
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -628,12 +643,115 @@ func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID str
 	return connectors, nil
 }
 
+// ListTenancyConnectorsUnscoped returns connectors across all scopes for internal webhook dispatch.
+func (m *MemoryStore) ListTenancyConnectorsUnscoped(_ context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	normalizedType := domain.ConnectorType(strings.ToLower(strings.TrimSpace(string(connectorType))))
+	capacity := len(m.connectors)
+	if limit > 0 && limit < capacity {
+		capacity = limit
+	}
+	connectors := make([]TenancyConnectorWithState, 0, capacity)
+	for key, connector := range m.connectors {
+		if normalizedType != "" && connector.Type != normalizedType {
+			continue
+		}
+		state := m.connStates[key]
+		state.Metadata = cloneMetadataMap(state.Metadata)
+		connectors = append(connectors, TenancyConnectorWithState{Connector: connector, State: state})
+	}
+	sort.Slice(connectors, func(i, j int) bool {
+		return connectors[i].Connector.UpdatedAt.After(connectors[j].Connector.UpdatedAt)
+	})
+	if limit > 0 && len(connectors) > limit {
+		connectors = connectors[:limit]
+	}
+	return connectors, nil
+}
+
+// UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.
+func (m *MemoryStore) UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return err
+	}
+	connectorKey := tenancyConnectorKey(
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+	)
+	if _, exists := m.connectors[connectorKey]; !exists {
+		return ErrNotFound
+	}
+	secretKey := tenancyConnectorSecretKey(
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.SecretName,
+	)
+	if existing, exists := m.connSecrets[secretKey]; exists {
+		normalized.CreatedAt = existing.CreatedAt
+	}
+	m.connSecrets[secretKey] = normalized
+	return nil
+}
+
+// GetTenancyConnectorSecretEnvelope loads one encrypted connector secret envelope.
+func (m *MemoryStore) GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, err
+	}
+	key := tenancyConnectorSecretKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), strings.TrimSpace(secretName))
+	secret, exists := m.connSecrets[key]
+	if !exists {
+		return TenancyConnectorSecretEnvelope{}, ErrNotFound
+	}
+	secret.Envelope.Nonce = append([]byte(nil), secret.Envelope.Nonce...)
+	secret.Envelope.Ciphertext = append([]byte(nil), secret.Envelope.Ciphertext...)
+	return secret, nil
+}
+
 func tenancyConnectorKey(tenantID string, workspaceID string, projectID string, connectorID string) string {
 	return tenancyCompositeKey(
 		strings.TrimSpace(tenantID),
 		strings.TrimSpace(workspaceID),
 		strings.TrimSpace(projectID),
 		strings.TrimSpace(connectorID),
+	)
+}
+
+func tenancyConnectorSecretKey(tenantID string, workspaceID string, projectID string, connectorID string, secretName string) string {
+	return tenancyCompositeKey(
+		strings.TrimSpace(tenantID),
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+		strings.TrimSpace(secretName),
 	)
 }
 
