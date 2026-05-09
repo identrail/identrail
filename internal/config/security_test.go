@@ -854,15 +854,15 @@ func TestValidateSecurityRejectsConnectorPersistenceWithoutSecretKeys(t *testing
 	}
 }
 
-func TestValidateSecurityRejectsDatabaseModeWithoutConnectorSecretKeys(t *testing.T) {
+func TestValidateSecurityAllowsDatabaseModeWithoutConnectorSecretKeysWhenConnectorsDisabled(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes: map[string][]string{
 			"reader-key-12345678901234567890": {"read"},
 		},
 		DatabaseURL: "postgres://identrail:test@localhost:5432/identrail",
 	}
-	if err := ValidateSecurity(cfg); err == nil {
-		t.Fatal("expected connector secret key requirement in database mode")
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected database mode without connectors to be valid, got %v", err)
 	}
 }
 
