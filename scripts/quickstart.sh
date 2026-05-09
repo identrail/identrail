@@ -29,8 +29,10 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 if [[ ! -f "${ENV_FILE}" ]]; then
-  cp "${ENV_EXAMPLE}" "${ENV_FILE}"
+  install -m 0600 "${ENV_EXAMPLE}" "${ENV_FILE}"
   echo "Created ${ENV_FILE} from template."
+else
+  chmod 0600 "${ENV_FILE}"
 fi
 
 upsert_env() {
@@ -55,6 +57,7 @@ upsert_env() {
     }
   ' "${ENV_FILE}" >"${tmp_file}"
   mv "${tmp_file}" "${ENV_FILE}"
+  chmod 0600 "${ENV_FILE}"
 }
 
 read_env() {
@@ -179,7 +182,8 @@ echo "Web: ${WEB_URL}"
 echo "Scan ID: ${SCAN_ID}"
 echo
 echo "Read findings:"
-echo "curl -sS \"${FINDINGS_URL}\" -H \"X-API-Key: ${READ_KEY}\" | python3 -m json.tool"
+echo "READ_KEY=\$(awk -F= '/^IDENTRAIL_API_KEYS=/ { split(\$2, keys, \",\"); print keys[1]; exit }' deploy/docker/.env)"
+echo "curl -sS \"${FINDINGS_URL}\" -H \"X-API-Key: \${READ_KEY}\" | python3 -m json.tool"
 echo
 echo "When done:"
 echo "docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env down"
