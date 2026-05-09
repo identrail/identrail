@@ -247,10 +247,11 @@ type AsyncAuditSink struct {
 	closeOnce sync.Once
 	closeCh   chan struct{}
 
-	mu       sync.Mutex
-	closed   bool
-	writeErr error
-	closeErr error
+	mu           sync.Mutex
+	closed       bool
+	writeErr     error
+	closeErr     error
+	onWriteError func(error)
 }
 
 // NewAsyncAuditSink wraps a sink with a bounded in-memory queue.
@@ -275,7 +276,11 @@ func NewAsyncAuditSink(sink AuditSink, buffer int) *AsyncAuditSink {
 				if a.writeErr == nil {
 					a.writeErr = err
 				}
+				onErr := a.onWriteError
 				a.mu.Unlock()
+				if onErr != nil {
+					onErr(err)
+				}
 			}
 		}
 		for {
@@ -294,6 +299,16 @@ func NewAsyncAuditSink(sink AuditSink, buffer int) *AsyncAuditSink {
 			}
 		}
 	}()
+	return a
+}
+
+// WithWriteErrorHandler sets a callback invoked each time the background goroutine
+// fails to deliver an event to the downstream sink. Use it to log forwarding errors
+// immediately instead of waiting for Close to surface them.
+func (a *AsyncAuditSink) WithWriteErrorHandler(fn func(error)) *AsyncAuditSink {
+	a.mu.Lock()
+	a.onWriteError = fn
+	a.mu.Unlock()
 	return a
 }
 
