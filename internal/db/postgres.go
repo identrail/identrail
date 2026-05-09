@@ -997,6 +997,105 @@ func (p *PostgresStore) ListFindings(ctx context.Context, limit int) ([]domain.F
 	return findingsFromSQLRows(rows)
 }
 
+// ListFindingsFiltered returns one filtered findings page with stable persistence-level ordering.
+func (p *PostgresStore) ListFindingsFiltered(ctx context.Context, filter FindingListFilter) ([]domain.Finding, error) {
+	normalized := NormalizeFindingListFilter(filter)
+	if normalized.ScanID != "" {
+		if err := p.ensureScanInScope(ctx, normalized.ScanID); err != nil {
+			return nil, err
+		}
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	args := []any{scope.TenantID, scope.WorkspaceID}
+	conditions := []string{
+		"s.tenant_id = $1",
+		"s.workspace_id = $2",
+	}
+	nextArg := 3
+	if normalized.ScanID != "" {
+		conditions = append(conditions, fmt.Sprintf("f.scan_id = $%d", nextArg))
+		args = append(args, normalized.ScanID)
+		nextArg++
+	}
+	if normalized.FindingID != "" {
+		conditions = append(conditions, fmt.Sprintf("f.finding_id = $%d", nextArg))
+		args = append(args, normalized.FindingID)
+		nextArg++
+	}
+	if normalized.Severity != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(f.severity) = $%d", nextArg))
+		args = append(args, normalized.Severity)
+		nextArg++
+	}
+	if normalized.Type != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(f.type) = $%d", nextArg))
+		args = append(args, normalized.Type)
+		nextArg++
+	}
+	evalTimePos := nextArg
+	args = append(args, normalized.Now)
+	nextArg++
+	triageStatusExpr := fmt.Sprintf(`CASE
+		WHEN ts.status = 'suppressed' AND ts.suppression_expires_at IS NOT NULL AND ts.suppression_expires_at <= $%d THEN 'open'
+		ELSE COALESCE(NULLIF(ts.status, ''), 'open')
+	END`, evalTimePos)
+	if normalized.LifecycleStatus != "" {
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", triageStatusExpr, nextArg))
+		args = append(args, normalized.LifecycleStatus)
+		nextArg++
+	}
+	if normalized.Assignee != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(COALESCE(ts.assignee, '')) = $%d", nextArg))
+		args = append(args, normalized.Assignee)
+		nextArg++
+	}
+
+	query := fmt.Sprintf(
+		`SELECT
+			f.scan_id,
+			f.finding_id,
+			f.type,
+			f.severity,
+			f.title,
+			f.human_summary,
+			f.path,
+			f.evidence,
+			COALESCE(f.remediation, ''),
+			f.created_at,
+			%s AS triage_status,
+			COALESCE(ts.assignee, ''),
+			ts.suppression_expires_at,
+			ts.updated_at,
+			COALESCE(ts.updated_by, '')
+		FROM findings f
+		JOIN scans s ON s.id = f.scan_id
+		LEFT JOIN finding_triage_states ts
+		  ON ts.tenant_id = s.tenant_id
+		 AND ts.workspace_id = s.workspace_id
+		 AND ts.finding_id = f.finding_id
+		WHERE %s
+		ORDER BY %s
+		OFFSET $%d
+		LIMIT $%d`,
+		triageStatusExpr,
+		strings.Join(conditions, " AND "),
+		findingOrderClause(normalized.SortBy, normalized.SortDesc),
+		nextArg,
+		nextArg+1,
+	)
+	args = append(args, normalized.Offset, normalized.Limit+1)
+	rows, err := p.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query filtered findings: %w", err)
+	}
+	defer rows.Close()
+	return findingsWithTriageFromSQLRows(rows, normalized.Now)
+}
+
 // ListFindingsAll returns all findings for current scope ordered by recency.
 func (p *PostgresStore) ListFindingsAll(ctx context.Context) ([]domain.Finding, error) {
 	scope, err := RequireScope(ctx)
@@ -3150,7 +3249,7 @@ func findingsFromSQLRows(rows rowsScanner) ([]domain.Finding, error) {
 	return result, nil
 }
 
-func findingsWithTriageFromSQLRows(rows *sql.Rows, now time.Time) ([]domain.Finding, error) {
+func findingsWithTriageFromSQLRows(rows rowsScanner, now time.Time) ([]domain.Finding, error) {
 	result := []domain.Finding{}
 	for rows.Next() {
 		var row struct {

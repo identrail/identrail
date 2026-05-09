@@ -1042,7 +1042,7 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 		SortBy:          filter.SortBy,
 		SortDesc:        filter.SortDesc,
 		Limit:           limit,
-		Offset:          filter.Offset,
+		Offset:          0,
 		Now:             s.Now().UTC(),
 	})
 	if err != nil {
