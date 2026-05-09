@@ -9,7 +9,7 @@ WHERE status = 'succeeded';
 
 ALTER TABLE scans
     ADD CONSTRAINT scans_status_valid
-        CHECK (status IN ('queued', 'running', 'completed', 'failed')) NOT VALID,
+        CHECK (status IN ('queued', 'running', 'completed', 'succeeded', 'failed')) NOT VALID,
     ADD CONSTRAINT scans_asset_count_non_negative
         CHECK (asset_count >= 0) NOT VALID,
     ADD CONSTRAINT scans_finding_count_non_negative
@@ -31,7 +31,7 @@ WHERE status = 'succeeded';
 
 ALTER TABLE repo_scans
     ADD CONSTRAINT repo_scans_status_valid
-        CHECK (status IN ('queued', 'running', 'completed', 'failed')) NOT VALID,
+        CHECK (status IN ('queued', 'running', 'completed', 'succeeded', 'failed')) NOT VALID,
     ADD CONSTRAINT repo_scans_commits_scanned_non_negative
         CHECK (commits_scanned >= 0) NOT VALID,
     ADD CONSTRAINT repo_scans_files_scanned_non_negative

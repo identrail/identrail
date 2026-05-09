@@ -367,7 +367,7 @@ func TestFifteenthMigrationContainsDatabaseConstraintGuardrails(t *testing.T) {
 	text := string(content)
 	required := []string{
 		"ADD CONSTRAINT scans_status_valid",
-		"CHECK (status IN ('queued', 'running', 'completed', 'failed'))",
+		"CHECK (status IN ('queued', 'running', 'completed', 'succeeded', 'failed'))",
 		"ADD CONSTRAINT repo_scans_commits_scanned_non_negative",
 		"ADD CONSTRAINT findings_finding_id_non_empty",
 		"ADD CONSTRAINT repo_findings_finding_id_non_empty",
