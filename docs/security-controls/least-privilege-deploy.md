@@ -128,7 +128,13 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    - ports:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
         - protocol: TCP
           port: 443
 ```
@@ -190,7 +196,7 @@ worker:
       drop: ["ALL"]
 
 serviceAccount:
-  create: true
+  create: false
   name: identrail-scanner
 
 secret:
@@ -211,11 +217,14 @@ ingress:
         - identrail.example.com
 ```
 
-If this Helm deployment uses `IDENTRAIL_K8S_SOURCE=kubectl`, apply the read-only RBAC binding before install:
+If this Helm deployment uses `IDENTRAIL_K8S_SOURCE=kubectl`, create the namespace and apply the read-only RBAC bundle before install:
 
 ```bash
+kubectl create namespace identrail --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
 ```
+
+`deploy/kubernetes/rbac-scanner-readonly.example.yaml` creates `ServiceAccount/identrail-scanner`, so keep `serviceAccount.create: false` when using this flow.
 
 Install:
 

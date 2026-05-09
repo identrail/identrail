@@ -31,7 +31,8 @@ Manual setup:
 
 Production-style hardening example:
 
-- `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml --env-file deploy/docker/.env up -d --build`
+- `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml --env-file deploy/docker/.env run --rm migrations`
+- `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml --env-file deploy/docker/.env up -d --build api worker web`
 
 ## Verify
 ### Production notes
