@@ -14,6 +14,7 @@ import (
 
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 // ErrNotFound indicates the requested record does not exist.
@@ -22,6 +23,18 @@ var ErrNotFound = errors.New("record not found")
 // ErrScopeRequired indicates tenant/workspace scope must be provided in context.
 var ErrScopeRequired = errors.New("scope is required")
 
+// FindingSummaryCounts captures aggregate finding counters for one scoped workspace.
+type FindingSummaryCounts struct {
+	Total      int
+	BySeverity map[string]int
+	ByType     map[string]int
+}
+
+// ErrQueueLimitReached indicates a bounded queue has no remaining capacity.
+var ErrQueueLimitReached = errors.New("queue limit reached")
+
+// ErrPendingRepoScanExists indicates the target repository already has a queued or running scan.
+var ErrPendingRepoScanExists = errors.New("pending repo scan exists")
 var authzOwnerTeamPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var tenancySlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -374,6 +387,22 @@ type TenancyConnectorState struct {
 type TenancyConnectorWithState struct {
 	Connector TenancyConnector      `json:"connector"`
 	State     TenancyConnectorState `json:"state"`
+}
+
+// TenancyConnectorSecretEnvelope stores one encrypted connector secret envelope.
+type TenancyConnectorSecretEnvelope struct {
+	TenantID        string               `json:"tenant_id"`
+	WorkspaceID     string               `json:"workspace_id"`
+	ProjectID       string               `json:"project_id"`
+	ConnectorID     string               `json:"connector_id"`
+	SecretName      string               `json:"secret_name"`
+	EnvelopeVersion int                  `json:"envelope_version"`
+	Envelope        secretstore.Envelope `json:"envelope"`
+	SecretRefID     string               `json:"secret_ref_id,omitempty"`
+	RotatedAt       time.Time            `json:"rotated_at"`
+	RotationDueAt   *time.Time           `json:"rotation_due_at,omitempty"`
+	CreatedAt       time.Time            `json:"created_at"`
+	UpdatedAt       time.Time            `json:"updated_at"`
 }
 
 // NormalizeScanEventLevel validates and normalizes event levels.
@@ -921,6 +950,72 @@ func NormalizeTenancyConnectorStateForWrite(state TenancyConnectorState) (Tenanc
 	return normalized, nil
 }
 
+// NormalizeTenancyConnectorSecretEnvelopeForWrite validates one connector secret envelope record.
+func NormalizeTenancyConnectorSecretEnvelopeForWrite(secret TenancyConnectorSecretEnvelope) (TenancyConnectorSecretEnvelope, error) {
+	normalized := secret
+	normalized.TenantID = strings.TrimSpace(secret.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(secret.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.ProjectID = strings.TrimSpace(secret.ProjectID)
+	if normalized.ProjectID == "" {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("project id is required")
+	}
+	normalized.ConnectorID = strings.TrimSpace(secret.ConnectorID)
+	if normalized.ConnectorID == "" {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("connector id is required")
+	}
+	normalized.SecretName = strings.TrimSpace(secret.SecretName)
+	if normalized.SecretName == "" {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("secret name is required")
+	}
+	if normalized.EnvelopeVersion <= 0 {
+		normalized.EnvelopeVersion = 1
+	}
+	normalized.Envelope.Version = normalized.EnvelopeVersion
+	normalized.Envelope.Algorithm = strings.TrimSpace(secret.Envelope.Algorithm)
+	normalized.Envelope.KeyVersion = strings.TrimSpace(secret.Envelope.KeyVersion)
+	normalized.Envelope.Nonce = append([]byte(nil), secret.Envelope.Nonce...)
+	normalized.Envelope.Ciphertext = append([]byte(nil), secret.Envelope.Ciphertext...)
+	if normalized.Envelope.Algorithm != secretstore.AlgorithmAES256GCM {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("invalid connector secret envelope algorithm")
+	}
+	if normalized.Envelope.KeyVersion == "" {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("connector secret envelope key version is required")
+	}
+	if len(normalized.Envelope.Nonce) != 12 {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("connector secret envelope nonce is invalid")
+	}
+	if len(normalized.Envelope.Ciphertext) == 0 {
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("connector secret envelope ciphertext is required")
+	}
+	normalized.SecretRefID = strings.TrimSpace(secret.SecretRefID)
+	if normalized.RotationDueAt != nil {
+		due := normalized.RotationDueAt.UTC()
+		normalized.RotationDueAt = &due
+	}
+	if normalized.RotatedAt.IsZero() {
+		normalized.RotatedAt = time.Now().UTC()
+	} else {
+		normalized.RotatedAt = normalized.RotatedAt.UTC()
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = normalized.RotatedAt
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.RotatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
 func cloneMetadataMap(metadata map[string]any) map[string]any {
 	if len(metadata) == 0 {
 		return map[string]any{}
@@ -1069,7 +1164,9 @@ func NormalizeFindingTriage(triage domain.FindingTriage, now time.Time) domain.F
 type Store interface {
 	CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error)
 	CreateQueuedScan(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error)
+	CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error)
 	ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error)
+	ClaimNextQueuedScanAnyScope(ctx context.Context, provider string) (ScanRecord, error)
 	CountQueuedScans(ctx context.Context, provider string) (int, error)
 	GetScan(ctx context.Context, scanID string) (ScanRecord, error)
 	CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error
@@ -1083,8 +1180,9 @@ type Store interface {
 	ListFindingTriageEvents(ctx context.Context, findingID string, limit int) ([]FindingTriageEvent, error)
 	ListScans(ctx context.Context, limit int) ([]ScanRecord, error)
 	ListFindings(ctx context.Context, limit int) ([]domain.Finding, error)
-	ListFindingsFiltered(ctx context.Context, filter FindingListFilter) ([]domain.Finding, error)
+	ListFindingsAll(ctx context.Context) ([]domain.Finding, error)
 	ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error)
+	GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
 	GetAuthzEntityAttributes(ctx context.Context, entityKind string, entityType string, entityID string) (AuthzEntityAttributes, error)
 	UpsertAuthzRelationship(ctx context.Context, relationship AuthzRelationship) error
@@ -1117,13 +1215,19 @@ type Store interface {
 	UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error
 	GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error)
 	ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
+	ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
+	UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error
+	GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error)
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error
 	ListScanEvents(ctx context.Context, scanID string, limit int) ([]ScanEvent, error)
+	SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error)
 	CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error)
 	CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
+	CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error)
+	ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (RepoScanRecord, error)
 	CountQueuedRepoScans(ctx context.Context) (int, error)
 	CountPendingRepoScansByRepository(ctx context.Context, repository string) (int, error)
 	RequeueRepoScan(ctx context.Context, repoScanID string) error
