@@ -52,7 +52,7 @@ export IDENTRAIL_ADMIN_KEY="<admin-key-from-.env>"
 If you are using the web dashboard:
 - Preferred: sign in through OIDC (`/app/login`) so API credentials and scope come from the identity provider session.
 - Manual workspace entry is disabled by default for production-safe deployments.
-- Demo-only local override: set `VITE_ALLOW_MANUAL_PRODUCT_SESSION=true` to temporarily allow manual tenant/workspace entry.
+- Demo-only local override: set `VITE_ALLOW_MANUAL_PRODUCT_SESSION=true` in `deploy/docker/.env`, then rebuild the web image so Vite receives the flag at build time (for example: `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build web`).
 
 ## 4. Health and Auth Smoke Checks
 
