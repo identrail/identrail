@@ -12,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+
+	"github.com/identrail/identrail/internal/textutil"
 )
 
 const maxAWSPolicyPages = 100
@@ -60,7 +62,7 @@ func NewSDKIAMAPIFromAssumeRole(ctx context.Context, region string, profile stri
 	}
 	options := []func(*stscreds.AssumeRoleOptions){
 		func(options *stscreds.AssumeRoleOptions) {
-			options.RoleSessionName = firstNonEmptySDKString(strings.TrimSpace(sessionName), "identrail-recurring-scan")
+			options.RoleSessionName = textutil.FirstNonEmpty(strings.TrimSpace(sessionName), "identrail-recurring-scan")
 		},
 	}
 	if trimmedExternalID := strings.TrimSpace(externalID); trimmedExternalID != "" {
@@ -89,15 +91,6 @@ func loadSDKConfig(ctx context.Context, region string, profile string) (awsv2.Co
 // NewSDKIAMAPIFromClient creates an IAMAPI from a provided IAM SDK client.
 func NewSDKIAMAPIFromClient(client IAMSDKClient) IAMAPI {
 	return &SDKIAMAPI{client: client}
-}
-
-func firstNonEmptySDKString(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 // ListRoles returns one page of roles enriched with inline and managed policy documents.

@@ -16,14 +16,15 @@ func TestRunWithCancelledContext(t *testing.T) {
 	cancel()
 
 	cfg := config.Config{
-		LogLevel:       "info",
-		ServiceName:    "identrail-test",
-		Provider:       "aws",
-		ScanInterval:   10 * time.Millisecond,
-		WorkerRunNow:   false,
-		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
-		APIKeys:        []string{"test-read"},
-		WriteAPIKeys:   []string{"test-read"},
+		AllowMemoryStore: true,
+		LogLevel:         "info",
+		ServiceName:      "identrail-test",
+		Provider:         "aws",
+		ScanInterval:     10 * time.Millisecond,
+		WorkerRunNow:     false,
+		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -37,14 +38,15 @@ func TestRunFailsWhenStartupScanCannotReadFixtures(t *testing.T) {
 	defer cancel()
 
 	cfg := config.Config{
-		LogLevel:       "info",
-		ServiceName:    "identrail-test",
-		Provider:       "aws",
-		ScanInterval:   10 * time.Millisecond,
-		WorkerRunNow:   true,
-		AWSFixturePath: []string{"/path/does/not/exist.json"},
-		APIKeys:        []string{"test-read"},
-		WriteAPIKeys:   []string{"test-read"},
+		AllowMemoryStore: true,
+		LogLevel:         "info",
+		ServiceName:      "identrail-test",
+		Provider:         "aws",
+		ScanInterval:     10 * time.Millisecond,
+		WorkerRunNow:     true,
+		AWSFixturePath:   []string{"/path/does/not/exist.json"},
+		APIKeys:          []string{"test-read"},
+		WriteAPIKeys:     []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -101,6 +103,7 @@ func TestRunWithCancelledContextAndRepoWorkerEnabled(t *testing.T) {
 	cancel()
 
 	cfg := config.Config{
+		AllowMemoryStore:       true,
 		LogLevel:               "info",
 		ServiceName:            "identrail-test",
 		Provider:               "aws",
@@ -152,6 +155,52 @@ func TestRunFailsWhenWorkerRepoStartupScanTargetIsInvalid(t *testing.T) {
 	}
 }
 
+func TestWithTimeoutIfNoneAddsDeadline(t *testing.T) {
+	ctx, cancel := withTimeoutIfNone(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected timeout helper to add a deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 || remaining > 500*time.Millisecond {
+		t.Fatalf("unexpected timeout window: %v", remaining)
+	}
+}
+
+func TestWithTimeoutIfNonePreservesExistingDeadline(t *testing.T) {
+	parent, parentCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer parentCancel()
+	parentDeadline, _ := parent.Deadline()
+
+	ctx, cancel := withTimeoutIfNone(parent, 250*time.Millisecond)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected existing parent deadline to be preserved")
+	}
+	if !deadline.Equal(parentDeadline) {
+		t.Fatalf("expected deadline %v, got %v", parentDeadline, deadline)
+	}
+}
+
+func TestWithJobTimeoutWrapsQueueProcessing(t *testing.T) {
+	wrapped := withJobTimeout(func(ctx context.Context) (bool, error) {
+		_, ok := ctx.Deadline()
+		return ok, nil
+	}, 250*time.Millisecond)
+
+	processed, err := wrapped(context.Background())
+	if err != nil {
+		t.Fatalf("wrapped queue process returned error: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected wrapped queue process to receive a deadline")
+	}
+}
+
 func TestProcessAPIQueueBatchReturnsErrorWhenProcessingFails(t *testing.T) {
 	scanErrors := 0
 	repoErrors := 0
@@ -185,5 +234,40 @@ func TestProcessAPIQueueBatchReturnsNilWhenNoFailures(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+func TestProcessAPIQueueBatchRepoFailuresContinueWithinBatch(t *testing.T) {
+	repoCalls := 0
+	repoErrors := 0
+
+	err := processAPIQueueBatch(
+		context.Background(),
+		3,
+		func(context.Context) (bool, error) { return false, nil },
+		func(context.Context) (bool, error) {
+			repoCalls++
+			if repoCalls == 1 {
+				return true, errors.New("repo-a failed")
+			}
+			if repoCalls == 2 {
+				return true, nil
+			}
+			return false, nil
+		},
+		nil,
+		func(error) { repoErrors++ },
+	)
+	if err == nil {
+		t.Fatal("expected queue batch error")
+	}
+	if repoCalls < 2 {
+		t.Fatalf("expected repo queue to continue after first failure, got %d calls", repoCalls)
+	}
+	if repoErrors != 1 {
+		t.Fatalf("expected one repo error callback, got %d", repoErrors)
+	}
+	if !strings.Contains(err.Error(), "api queue batch failed for 1 job(s)") {
+		t.Fatalf("unexpected queue batch error: %v", err)
 	}
 }

@@ -828,6 +828,42 @@ func (p *PostgresStore) ListTenancyConnectors(ctx context.Context, workspaceID s
 	return p.listTenancyConnectorRows(ctx, scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), "", string(connectorType), limit)
 }
 
+// ListTenancyConnectorsUnscoped returns connectors across all scopes for internal webhook dispatch.
+func (p *PostgresStore) ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	query := `SELECT
+		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
+		     c.secret_provider, c.secret_ref_id, c.secret_ref_version, c.secret_last_rotated_at,
+		     c.config_checksum, c.last_sync_at, c.created_at, c.updated_at,
+		     COALESCE(s.health_status, 'unknown'), s.sync_cursor, s.last_successful_sync_at,
+		     s.last_error_code, s.last_error_message, COALESCE(s.metadata, '{}'::jsonb), s.observed_at, s.updated_at
+		 FROM tenancy_connectors c
+		 LEFT JOIN tenancy_connector_states s
+		   ON s.tenant_id = c.tenant_id
+		  AND s.workspace_id = c.workspace_id
+		  AND s.project_id = c.project_id
+		  AND s.connector_id = c.connector_id`
+	args := make([]any, 0, 2)
+	nextArg := 1
+	if trimmedType := strings.ToLower(strings.TrimSpace(string(connectorType))); trimmedType != "" {
+		query += fmt.Sprintf(" WHERE c.type = $%d", nextArg)
+		args = append(args, trimmedType)
+		nextArg++
+	}
+	query += " ORDER BY c.updated_at DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", nextArg)
+		args = append(args, limit)
+	}
+
+	// Intentionally bypass scoped wrappers to allow webhook lookup across tenant/workspace boundaries.
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query unscoped tenancy connectors: %w", err)
+	}
+	defer rows.Close()
+	return scanTenancyConnectorRows(rows)
+}
+
 func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int) ([]TenancyConnectorWithState, error) {
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,
@@ -868,6 +904,10 @@ func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID s
 		return nil, fmt.Errorf("query tenancy connectors: %w", err)
 	}
 	defer rows.Close()
+	return scanTenancyConnectorRows(rows)
+}
+
+func scanTenancyConnectorRows(rows rowsScanner) ([]TenancyConnectorWithState, error) {
 	results := []TenancyConnectorWithState{}
 	for rows.Next() {
 		var item TenancyConnectorWithState
@@ -942,4 +982,122 @@ func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID s
 		results = append(results, item)
 	}
 	return results, rows.Err()
+}
+
+// UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.
+func (p *PostgresStore) UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return err
+	}
+	_, err = p.execContext(
+		ctx,
+		`INSERT INTO tenancy_connector_secret_envelopes (
+		     tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+		     algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, $13, $14, $15)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, secret_name) DO UPDATE
+		 SET envelope_version = EXCLUDED.envelope_version,
+		     algorithm = EXCLUDED.algorithm,
+		     key_version = EXCLUDED.key_version,
+		     nonce = EXCLUDED.nonce,
+		     ciphertext = EXCLUDED.ciphertext,
+		     secret_ref_id = EXCLUDED.secret_ref_id,
+		     rotated_at = EXCLUDED.rotated_at,
+		     rotation_due_at = EXCLUDED.rotation_due_at,
+		     updated_at = EXCLUDED.updated_at`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.SecretName,
+		normalized.EnvelopeVersion,
+		normalized.Envelope.Algorithm,
+		normalized.Envelope.KeyVersion,
+		normalized.Envelope.Nonce,
+		normalized.Envelope.Ciphertext,
+		normalized.SecretRefID,
+		normalized.RotatedAt,
+		normalized.RotationDueAt,
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("upsert connector secret envelope: %w", err)
+	}
+	return nil
+}
+
+// GetTenancyConnectorSecretEnvelope loads one encrypted connector secret envelope by name.
+func (p *PostgresStore) GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`SELECT tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+		        algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 FROM tenancy_connector_secret_envelopes
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND secret_name = $5`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+		strings.TrimSpace(secretName),
+	)
+	var item TenancyConnectorSecretEnvelope
+	var secretRefID sql.NullString
+	var rotationDueAt sql.NullTime
+	if err := row.Scan(
+		&item.TenantID,
+		&item.WorkspaceID,
+		&item.ProjectID,
+		&item.ConnectorID,
+		&item.SecretName,
+		&item.EnvelopeVersion,
+		&item.Envelope.Algorithm,
+		&item.Envelope.KeyVersion,
+		&item.Envelope.Nonce,
+		&item.Envelope.Ciphertext,
+		&secretRefID,
+		&item.RotatedAt,
+		&rotationDueAt,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyConnectorSecretEnvelope{}, ErrNotFound
+		}
+		return TenancyConnectorSecretEnvelope{}, fmt.Errorf("query connector secret envelope: %w", err)
+	}
+	item.Envelope.Version = item.EnvelopeVersion
+	item.SecretRefID = secretRefID.String
+	if rotationDueAt.Valid {
+		due := rotationDueAt.Time.UTC()
+		item.RotationDueAt = &due
+	}
+	return item, nil
 }

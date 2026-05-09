@@ -13,6 +13,18 @@ function read(rel) {
 
 function parseAppRoutes(src) {
   const routes = new Set();
+
+  // Identify routes that exist purely to 301-redirect a legacy URL
+  // (`element={<Navigate ... />}`). These should NOT appear in
+  // PRERENDER_ROUTES — they are handled by static 301 rules in
+  // web/vercel.json so we don't ship empty redirect HTML to indexers.
+  const redirectPaths = new Set();
+  const redirectRegex = /<Route\s+path="([^"]+)"\s+element=\{<Navigate\b/g;
+  let r;
+  while ((r = redirectRegex.exec(src)) !== null) {
+    redirectPaths.add(r[1]);
+  }
+
   const routeRegex = /<Route\s+path="([^"]+)"/g;
   let m;
   while ((m = routeRegex.exec(src)) !== null) {
@@ -24,6 +36,9 @@ function parseAppRoutes(src) {
       continue;
     }
     if (route === '/app' || route.startsWith('/app/')) {
+      continue;
+    }
+    if (redirectPaths.has(route)) {
       continue;
     }
     routes.add(route);
