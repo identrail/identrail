@@ -799,6 +799,7 @@ func TestRouterScanDuplicateGuard(t *testing.T) {
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
+	svc.ScanQueueMaxPending = 1
 	r := NewRouter(logger, metrics, svc, RouterOptions{})
 
 	firstReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
@@ -811,8 +812,8 @@ func TestRouterScanDuplicateGuard(t *testing.T) {
 	secondReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	secondW := httptest.NewRecorder()
 	r.ServeHTTP(secondW, secondReq)
-	if secondW.Code != http.StatusConflict {
-		t.Fatalf("expected duplicate guard 409, got %d", secondW.Code)
+	if secondW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected queue guard 429, got %d", secondW.Code)
 	}
 }
 
