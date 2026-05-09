@@ -128,6 +128,9 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
 ```
 
 ### TLS Example
@@ -208,6 +211,12 @@ ingress:
         - identrail.example.com
 ```
 
+If this Helm deployment uses `IDENTRAIL_K8S_SOURCE=kubectl`, apply the read-only RBAC binding before install:
+
+```bash
+kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
+```
+
 Install:
 
 ```bash
@@ -277,10 +286,6 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO identrail_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE identrail_migrator IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO identrail_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE identrail_migrator IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO identrail_runtime;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO identrail_runtime;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO identrail_runtime;
 ```
 
