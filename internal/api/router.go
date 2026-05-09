@@ -325,7 +325,6 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list findings"})
 			return
 		}
-		sortFindings(items, sortBy, sortDesc)
 		c.JSON(http.StatusOK, paginatedItemsResponseWithBaseOffset(items, offset, limit))
 	})
 

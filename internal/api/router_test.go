@@ -989,6 +989,97 @@ func TestRouterFindingsPaginationFilterDeterminism(t *testing.T) {
 	}
 }
 
+func TestRouterFindingsPaginationCreatedAtTieAcrossScansNoDuplicates(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 10, 15, 0, 0, time.UTC)
+
+	scanA, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+
+	// Choose finding IDs so router-side tie-breaking by ID would disagree with
+	// store ordering by scan_id if findings are re-sorted after applying offset.
+	idA := "a-id"
+	idB := "z-id"
+	if scanA.ID < scanB.ID {
+		idA = "z-id"
+		idB = "a-id"
+	}
+
+	if err := store.UpsertFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: idA, Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "same-time", CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("seed findings for scan A: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: idB, Severity: domain.SeverityHigh, Type: domain.FindingRiskyTrustPolicy, Title: "same-time", CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("seed findings for scan B: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{RateLimitRPM: 10000, RateLimitBurst: 1000})
+
+	baseQuery := "/v1/findings?sort_by=created_at&sort_order=desc&limit=1"
+	pageOneReq := httptest.NewRequest(http.MethodGet, baseQuery, nil)
+	pageOneW := httptest.NewRecorder()
+	r.ServeHTTP(pageOneW, pageOneReq)
+	if pageOneW.Code != http.StatusOK {
+		t.Fatalf("expected findings page one 200, got %d body=%s", pageOneW.Code, pageOneW.Body.String())
+	}
+	var pageOneBody struct {
+		Items      []domain.Finding `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(pageOneW.Body.Bytes(), &pageOneBody); err != nil {
+		t.Fatalf("decode findings page one: %v", err)
+	}
+	if len(pageOneBody.Items) != 1 {
+		t.Fatalf("expected one finding on page one, got %+v", pageOneBody.Items)
+	}
+	if pageOneBody.NextCursor == "" {
+		t.Fatal("expected findings page one next_cursor")
+	}
+
+	pageTwoReq := httptest.NewRequest(http.MethodGet, baseQuery+"&cursor="+pageOneBody.NextCursor, nil)
+	pageTwoW := httptest.NewRecorder()
+	r.ServeHTTP(pageTwoW, pageTwoReq)
+	if pageTwoW.Code != http.StatusOK {
+		t.Fatalf("expected findings page two 200, got %d body=%s", pageTwoW.Code, pageTwoW.Body.String())
+	}
+	var pageTwoBody struct {
+		Items      []domain.Finding `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(pageTwoW.Body.Bytes(), &pageTwoBody); err != nil {
+		t.Fatalf("decode findings page two: %v", err)
+	}
+	if len(pageTwoBody.Items) != 1 {
+		t.Fatalf("expected one finding on page two, got %+v", pageTwoBody.Items)
+	}
+	if pageTwoBody.NextCursor != "" {
+		t.Fatalf("expected no further cursor after second finding, got %q", pageTwoBody.NextCursor)
+	}
+	if pageOneBody.Items[0].ID == pageTwoBody.Items[0].ID {
+		t.Fatalf("expected unique findings across pages, got duplicate %q", pageOneBody.Items[0].ID)
+	}
+
+	want := map[string]struct{}{idA: {}, idB: {}}
+	if _, ok := want[pageOneBody.Items[0].ID]; !ok {
+		t.Fatalf("unexpected page one finding ID %q", pageOneBody.Items[0].ID)
+	}
+	if _, ok := want[pageTwoBody.Items[0].ID]; !ok {
+		t.Fatalf("unexpected page two finding ID %q", pageTwoBody.Items[0].ID)
+	}
+}
+
 func TestRouterSupportsScansSortParameters(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
