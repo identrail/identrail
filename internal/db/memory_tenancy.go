@@ -671,6 +671,11 @@ func (m *MemoryStore) ListTenancyConnectorsUnscoped(_ context.Context, connector
 	return connectors, nil
 }
 
+// ListAllTenancyConnectorsByType returns connectors across all scopes for internal runtime matching.
+func (m *MemoryStore) ListAllTenancyConnectorsByType(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	return m.ListTenancyConnectorsUnscoped(ctx, connectorType, limit)
+}
+
 // UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.
 func (m *MemoryStore) UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error {
 	m.mu.Lock()

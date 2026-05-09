@@ -5,6 +5,9 @@ import "github.com/prometheus/client_golang/prometheus"
 // Metrics bundles Prometheus instruments used by API and workers.
 type Metrics struct {
 	ScanRunsTotal                          prometheus.Counter
+	ScanEnqueueTotal                       prometheus.Counter
+	ScanEnqueueFailureTotal                prometheus.Counter
+	ScanEnqueueDurationMS                  prometheus.Histogram
 	ScanSuccessTotal                       prometheus.Counter
 	ScanFailureTotal                       prometheus.Counter
 	ScanPartialTotal                       prometheus.Counter
@@ -42,7 +45,26 @@ func NewMetrics() *Metrics {
 			Namespace: "identrail",
 			Subsystem: "scan",
 			Name:      "runs_total",
-			Help:      "Total number of scan runs.",
+			Help:      "Total number of scan executions.",
+		}),
+		ScanEnqueueTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "scan",
+			Name:      "enqueue_total",
+			Help:      "Total number of scan enqueue requests.",
+		}),
+		ScanEnqueueFailureTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "scan",
+			Name:      "enqueue_failure_total",
+			Help:      "Total number of failed scan enqueue requests.",
+		}),
+		ScanEnqueueDurationMS: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "identrail",
+			Subsystem: "scan",
+			Name:      "enqueue_duration_milliseconds",
+			Help:      "Duration of scan enqueue requests in milliseconds.",
+			Buckets:   []float64{10, 25, 50, 100, 250, 500, 1000},
 		}),
 		ScanSuccessTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
@@ -136,6 +158,6 @@ func NewMetrics() *Metrics {
 			Subsystem: "authz_policy",
 			Name:      "decisions_by_version_total",
 			Help:      "Total policy decisions grouped by policy version and decision metadata.",
-		}, []string{"policy_set_id", "policy_version", "policy_source", "rollout_mode", "allowed"}),
+		}, []string{"policy_version", "policy_source", "rollout_mode", "allowed"}),
 	}
 }

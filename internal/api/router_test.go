@@ -2339,6 +2339,32 @@ func TestRouterEmitsAuditLog(t *testing.T) {
 	}
 }
 
+func TestRequestErrorLogFieldsUseSanitizedContext(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	ctx = audit.WithCorrelationID(ctx, "req-123")
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/scans", nil).WithContext(ctx)
+	c.Set("auth.api_key", "super-secret-api-key")
+
+	fields := requestErrorLogFields(c, nil, "enqueue_scan", zap.String("scan_id", "scan-1"))
+	byKey := map[string]zap.Field{}
+	for _, field := range fields {
+		byKey[field.Key] = field
+		if strings.Contains(field.String, "super-secret-api-key") {
+			t.Fatalf("raw api key leaked in log field %q", field.Key)
+		}
+	}
+	for _, key := range []string{"component", "operation", "request_id", "tenant_id", "workspace_id", "actor", "scan_id"} {
+		if _, exists := byKey[key]; !exists {
+			t.Fatalf("expected log field %q in %+v", key, fields)
+		}
+	}
+	if byKey["actor"].String == "api_key:super-secret-api-key" {
+		t.Fatal("expected actor to use a fingerprint instead of the raw api key")
+	}
+}
+
 func TestRouterWritesAuditSink(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

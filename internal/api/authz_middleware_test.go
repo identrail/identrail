@@ -259,7 +259,6 @@ func TestRequireCentralPolicyMiddlewareDeniesWhenRoutePolicyMissing(t *testing.T
 		t.Fatalf("expected 403 when route policy is missing, got %d", w.Code)
 	}
 	if got := testutil.ToFloat64(metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(
-		defaultCentralPolicySetID,
 		"1",
 		"persisted_active_version",
 		db.AuthzPolicyRolloutModeDisabled,

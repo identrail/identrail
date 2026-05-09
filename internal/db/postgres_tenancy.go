@@ -864,6 +864,11 @@ func (p *PostgresStore) ListTenancyConnectorsUnscoped(ctx context.Context, conne
 	return scanTenancyConnectorRows(rows)
 }
 
+// ListAllTenancyConnectorsByType returns connectors across all scopes for internal runtime matching.
+func (p *PostgresStore) ListAllTenancyConnectorsByType(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	return p.ListTenancyConnectorsUnscoped(ctx, connectorType, limit)
+}
+
 func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int) ([]TenancyConnectorWithState, error) {
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,

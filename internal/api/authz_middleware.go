@@ -257,7 +257,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 		if !exists {
 			decision := denyDecision(PolicyStageDefaultDeny, "route authorization policy missing")
 			input := policyInputForMissingRoutePolicy(c, fullPath, normalizedWriteKeys, scopedKeys)
-			recordPolicyDecisionMetric(metrics, runtimePolicy.PolicySetID, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision.Allowed)
+			recordPolicyDecisionMetric(metrics, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision.Allowed)
 			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
@@ -289,7 +289,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
 			return
 		}
-		recordPolicyDecisionMetric(metrics, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
+		recordPolicyDecisionMetric(metrics, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
 
 		if runtimePolicy.Rollout.Mode == db.AuthzPolicyRolloutModeShadow &&
 			targeted &&
@@ -412,13 +412,9 @@ func policyDecisionsDiverge(current PolicyDecision, candidate PolicyDecision) bo
 	return current.Allowed != candidate.Allowed || current.Stage != candidate.Stage
 }
 
-func recordPolicyDecisionMetric(metrics *telemetry.Metrics, policySetID string, version int, source string, rolloutMode string, allowed bool) {
+func recordPolicyDecisionMetric(metrics *telemetry.Metrics, version int, source string, rolloutMode string, allowed bool) {
 	if metrics == nil || metrics.AuthzPolicyDecisionsByVersionTotal == nil {
 		return
-	}
-	set := strings.TrimSpace(policySetID)
-	if set == "" {
-		set = defaultCentralPolicySetID
 	}
 	versionLabel := "built_in"
 	if version > 0 {
@@ -436,7 +432,7 @@ func recordPolicyDecisionMetric(metrics *telemetry.Metrics, policySetID string, 
 	if allowed {
 		allowedLabel = "true"
 	}
-	metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(set, versionLabel, sourceLabel, modeLabel, allowedLabel).Inc()
+	metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(versionLabel, sourceLabel, modeLabel, allowedLabel).Inc()
 }
 
 func setAuthzDecisionContext(c *gin.Context, policySetID string, policyVersion int, policySource string, rolloutMode string, decision PolicyDecision, input PolicyInput, fingerprinter *audit.Fingerprinter) {
