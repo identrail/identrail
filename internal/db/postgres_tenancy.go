@@ -907,7 +907,7 @@ func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID s
 	return scanTenancyConnectorRows(rows)
 }
 
-func scanTenancyConnectorRows(rows *sql.Rows) ([]TenancyConnectorWithState, error) {
+func scanTenancyConnectorRows(rows rowsScanner) ([]TenancyConnectorWithState, error) {
 	results := []TenancyConnectorWithState{}
 	for rows.Next() {
 		var item TenancyConnectorWithState
