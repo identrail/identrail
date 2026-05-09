@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/providers"
 )
 
 // FixtureOption customizes fixture collector behavior.
@@ -72,12 +72,12 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 
 		var role IAMRole
 		if err := json.Unmarshal(payload, &role); err != nil {
-			return nil, fmt.Errorf("decode fixture %s: %w", path, err)
+			continue
 		}
 
 		sourceID := strings.TrimSpace(role.ARN)
 		if sourceID == "" {
-			return nil, fmt.Errorf("fixture %s missing role arn", path)
+			continue
 		}
 		if _, exists := seen[sourceID]; exists {
 			continue
@@ -90,6 +90,9 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 			Collected: collectedAt,
 		})
 		seen[sourceID] = struct{}{}
+	}
+	if len(assets) == 0 {
+		return nil, fmt.Errorf("no valid fixture assets found")
 	}
 
 	return assets, nil

@@ -3,6 +3,7 @@ package repoexposure
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,10 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 const testSecretValue = "ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234"
+
+func testGitHubToken() string {
+	return strings.Join([]string{"ghp", "_0123456789abcdef0123456789abcdef0123"}, "")
+}
 
 func TestScanRepositoryDetectsSecretInCommitHistory(t *testing.T) {
 	repoPath, firstCommit := initTestRepoWithHistorySecret(t)
@@ -103,6 +108,78 @@ func TestScanRepositoryHonorsMaxFindings(t *testing.T) {
 	}
 	if !result.Truncated {
 		t.Fatal("expected truncated result")
+	}
+}
+
+func TestScanRepositoryRedactsMultipleSecretsAndSkipsMalformedHeadFiles(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-q")
+
+	combinedSecretLine := "AWS_SECRET_ACCESS_KEY=" + testSecretValue + " GITHUB_TOKEN=" + testGitHubToken() + "\n"
+	if err := os.WriteFile(filepath.Join(repo, "secrets.env"), []byte(combinedSecretLine), 0o600); err != nil {
+		t.Fatalf("write secrets fixture: %v", err)
+	}
+
+	workflowDir := filepath.Join(repo, ".github", "workflows")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("create workflow fixture dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workflowDir, "oversized.yml"), []byte(strings.Repeat("a", maxFileSizeBytes+1)), 0o600); err != nil {
+		t.Fatalf("write oversized workflow fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workflowDir, "binary.yml"), []byte{0xff, 0xfe, 0xfd}, 0o600); err != nil {
+		t.Fatalf("write binary workflow fixture: %v", err)
+	}
+
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "add mixed secret + malformed workflow fixtures")
+
+	scanner := NewScanner(nil,
+		WithHistoryLimit(10),
+		WithMaxFindings(20),
+		WithNow(func() time.Time { return time.Date(2026, 3, 17, 16, 0, 0, 0, time.UTC) }),
+	)
+
+	result, err := scanner.ScanRepository(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("scan repository failed: %v", err)
+	}
+	if result.FilesScanned != 0 {
+		t.Fatalf("expected malformed HEAD files to be skipped, got files_scanned=%d", result.FilesScanned)
+	}
+
+	secretFindings := make([]domain.Finding, 0, len(result.Findings))
+	for _, finding := range result.Findings {
+		if finding.Type == domain.FindingSecretExposure {
+			secretFindings = append(secretFindings, finding)
+		}
+	}
+	if len(secretFindings) < 2 {
+		t.Fatalf("expected multiple secret findings from one line, got %+v", secretFindings)
+	}
+
+	rawGitHubToken := testGitHubToken()
+	for _, finding := range secretFindings {
+		redacted, _ := finding.Evidence["redacted_line_snip"].(string)
+		if strings.Contains(redacted, testSecretValue) || strings.Contains(redacted, rawGitHubToken) {
+			t.Fatalf("expected redacted line snippet to remove all secret values, got %q", redacted)
+		}
+		if rawStored, _ := finding.Evidence["raw_secret_stored"].(bool); rawStored {
+			t.Fatalf("raw_secret_stored must remain false for finding %+v", finding)
+		}
+	}
+
+	repeat, err := scanner.ScanRepository(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("second scan repository failed: %v", err)
+	}
+	if len(repeat.Findings) != len(result.Findings) {
+		t.Fatalf("expected deterministic finding count, got first=%d second=%d", len(result.Findings), len(repeat.Findings))
+	}
+	for idx := range result.Findings {
+		if result.Findings[idx].ID != repeat.Findings[idx].ID {
+			t.Fatalf("expected deterministic finding ordering, mismatch at index %d first=%s second=%s", idx, result.Findings[idx].ID, repeat.Findings[idx].ID)
+		}
 	}
 }
 
@@ -198,6 +275,25 @@ func TestPrepareRepositoryRejectsInsecureHTTPRepositoryURL(t *testing.T) {
 }
 
 func TestValidateCloneURL(t *testing.T) {
+	originalLookup := repositoryHostLookupIPs
+	repositoryHostLookupIPs = func(_ context.Context, host string) ([]net.IP, error) {
+		switch host {
+		case "github.com":
+			return []net.IP{net.ParseIP("140.82.112.3")}, nil
+		case "example.com":
+			return []net.IP{net.ParseIP("93.184.216.34")}, nil
+		case "127.0.0.1.nip.io":
+			return []net.IP{net.ParseIP("127.0.0.1")}, nil
+		case "10.0.0.8.nip.io":
+			return []net.IP{net.ParseIP("10.0.0.8")}, nil
+		default:
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+	}
+	t.Cleanup(func() {
+		repositoryHostLookupIPs = originalLookup
+	})
+
 	tests := []struct {
 		name      string
 		target    string
@@ -208,6 +304,26 @@ func TestValidateCloneURL(t *testing.T) {
 		{name: "git scp form", target: "git@github.com:owner/repo.git"},
 		{name: "insecure http", target: "http://github.com/owner/repo.git", expectErr: true},
 		{name: "unsupported file scheme", target: "file:///tmp/repo.git", expectErr: true},
+		{name: "credentials in https url", target: "https://token@example.com/owner/repo.git", expectErr: true},
+		{name: "credentials in ssh url", target: "ssh://git:password@example.com/owner/repo.git", expectErr: true},
+		{name: "loopback ip host", target: "https://127.0.0.1/owner/repo.git", expectErr: true},
+		{name: "private ip host", target: "https://10.0.0.8/owner/repo.git", expectErr: true},
+		{name: "shared address ip host", target: "https://100.64.0.1/owner/repo.git", expectErr: true},
+		{name: "link-local ip host", target: "https://169.254.169.254/owner/repo.git", expectErr: true},
+		{name: "multicast ip host", target: "https://224.0.0.1/owner/repo.git", expectErr: true},
+		{name: "unspecified ip host", target: "https://0.0.0.0/owner/repo.git", expectErr: true},
+		{name: "localhost host", target: "ssh://git@localhost/owner/repo.git", expectErr: true},
+		{name: "scp localhost host", target: "git@localhost:owner/repo.git", expectErr: true},
+		{name: "scp host without user", target: "10.0.0.8:owner/repo.git", expectErr: true},
+		{name: "localhost fqdn host", target: "ssh://git@localhost./owner/repo.git", expectErr: true},
+		{name: "scp bracketed ipv6 loopback host", target: "git@[::1]:owner/repo.git", expectErr: true},
+		{name: "scoped ipv6 link-local host", target: "ssh://git@[fe80::1%25lo]/owner/repo.git", expectErr: true},
+		{name: "decimal loopback host", target: "ssh://git@2130706433/owner/repo.git", expectErr: true},
+		{name: "hex loopback host", target: "ssh://git@0x7f000001/owner/repo.git", expectErr: true},
+		{name: "octal dotted loopback host", target: "ssh://git@0177.0.0.1/owner/repo.git", expectErr: true},
+		{name: "short dotted loopback host", target: "ssh://git@127.1/owner/repo.git", expectErr: true},
+		{name: "hostname resolving to loopback", target: "https://127.0.0.1.nip.io/owner/repo.git", expectErr: true},
+		{name: "hostname resolving to private ip", target: "https://10.0.0.8.nip.io/owner/repo.git", expectErr: true},
 	}
 
 	for _, tc := range tests {
