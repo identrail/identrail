@@ -23,7 +23,27 @@ func TestValidateMetricLabelsAllowsBoundedLabels(t *testing.T) {
 }
 
 func TestValidateMetricLabelsRejectsHighCardinalityLabels(t *testing.T) {
-	for _, label := range []string{"request_id", "tenant_id", "workspace_id", "user_id", "api_key", "repository", "scan_id", "trace_id", "correlation_id", "commit_sha", "repo_url", "policy_set_id"} {
+	for _, label := range []string{
+		"request_id",
+		"tenant_id",
+		"workspace_id",
+		"user_id",
+		"api_key",
+		"api_token",
+		"auth_token",
+		"access_token",
+		"bearer_token",
+		"email_address",
+		"user_email",
+		"repository",
+		"repository_url",
+		"scan_id",
+		"trace_id",
+		"correlation_id",
+		"commit_sha",
+		"repo_url",
+		"policy_set_id",
+	} {
 		if err := ValidateMetricLabels("test_metric", label); err == nil {
 			t.Fatalf("expected %q to be rejected", label)
 		}
