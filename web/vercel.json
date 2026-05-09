@@ -3,146 +3,79 @@
     {
       "source": "/",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, no-cache, must-revalidate"
-        },
-        {
-          "key": "CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Pragma",
-          "value": "no-cache"
-        },
-        {
-          "key": "Expires",
-          "value": "0"
-        }
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" },
+        { "key": "Pragma", "value": "no-cache" },
+        { "key": "Expires", "value": "0" }
       ]
     },
     {
       "source": "/index.html",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, no-cache, must-revalidate"
-        },
-        {
-          "key": "CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Pragma",
-          "value": "no-cache"
-        },
-        {
-          "key": "Expires",
-          "value": "0"
-        }
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" },
+        { "key": "Pragma", "value": "no-cache" },
+        { "key": "Expires", "value": "0" }
       ]
     },
     {
       "source": "/((?!assets/|favicon.ico|favicon-16.png|favicon-32.png|favicon-64.png|apple-touch-icon.png|identrail-logo.png|robots.txt|sitemap.xml|security.txt|\\.well-known/security.txt).*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, no-cache, must-revalidate"
-        },
-        {
-          "key": "CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Pragma",
-          "value": "no-cache"
-        },
-        {
-          "key": "Expires",
-          "value": "0"
-        }
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" },
+        { "key": "Pragma", "value": "no-cache" },
+        { "key": "Expires", "value": "0" }
       ]
     },
     {
       "source": "/(.*)\\.html",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, no-cache, must-revalidate"
-        },
-        {
-          "key": "CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Vercel-CDN-Cache-Control",
-          "value": "no-store"
-        },
-        {
-          "key": "Pragma",
-          "value": "no-cache"
-        },
-        {
-          "key": "Expires",
-          "value": "0"
-        }
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" },
+        { "key": "CDN-Cache-Control", "value": "no-store" },
+        { "key": "Vercel-CDN-Cache-Control", "value": "no-store" },
+        { "key": "Pragma", "value": "no-cache" },
+        { "key": "Expires", "value": "0" }
       ]
     },
     {
       "source": "/assets/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     },
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "Strict-Transport-Security",
-          "value": "max-age=63072000; includeSubDomains; preload"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "Content-Security-Policy",
-          "value": "frame-ancestors 'none'"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
-        }
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
       ]
     }
   ],
   "routes": [
-    {
-      "handle": "filesystem"
-    },
+    { "handle": "filesystem" },
+
+    { "src": "^/features/?$",                       "status": 301, "headers": { "Location": "/product" } },
+    { "src": "^/features/aws/?$",                   "status": 301, "headers": { "Location": "/product" } },
+    { "src": "^/features/kubernetes/?$",            "status": 301, "headers": { "Location": "/product" } },
+    { "src": "^/features/git-scanner/?$",           "status": 301, "headers": { "Location": "/product" } },
+    { "src": "^/features/trust-graph/?$",           "status": 301, "headers": { "Location": "/product" } },
+
+    { "src": "^/solutions/?$",                      "status": 301, "headers": { "Location": "/for/security-teams" } },
+    { "src": "^/solutions/aws/?$",                  "status": 301, "headers": { "Location": "/for/security-teams" } },
+    { "src": "^/solutions/multi-cloud/?$",          "status": 301, "headers": { "Location": "/for/security-teams" } },
+    { "src": "^/solutions/security-teams/?$",       "status": 301, "headers": { "Location": "/for/security-teams" } },
+    { "src": "^/solutions/kubernetes/?$",           "status": 301, "headers": { "Location": "/for/platform-engineering" } },
+    { "src": "^/solutions/platform-engineering/?$", "status": 301, "headers": { "Location": "/for/platform-engineering" } },
+
+    { "src": "^/read-only-scan/?$",                 "status": 301, "headers": { "Location": "/demo" } },
+    { "src": "^/roi-assessment/?$",                 "status": 301, "headers": { "Location": "/demo" } },
+    { "src": "^/deployment-models/?$",              "status": 301, "headers": { "Location": "/pricing" } },
+
     {
       "src": "/((?!assets/|favicon.ico|favicon-16.png|favicon-32.png|favicon-64.png|apple-touch-icon.png|identrail-logo.png|robots.txt|sitemap.xml|security.txt|\\.well-known/security.txt).*)",
       "dest": "/index.html"

@@ -5,21 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src __IDENTRAIL_CONNECT_SRC__; frame-src https://www.youtube.com https://youtube.com https://calendly.com https://assets.calendly.com; media-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+      content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src __IDENTRAIL_CONNECT_SRC__; frame-src https://www.youtube.com https://youtube.com https://calendly.com https://assets.calendly.com; media-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
     />
+    <meta name="theme-color" content="#fbfaf6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0d" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Identrail is the open-core machine identity security platform for AWS IAM, Kubernetes RBAC, and Git repository exposure."
+      content="Identrail traces every path a machine identity can take to your data — across AWS IAM, Kubernetes, GitHub Actions and OIDC — and shows how to close the dangerous ones safely. Open-core."
     />
     <meta
       name="keywords"
-      content="machine identity security,AWS NHI security,Kubernetes machine identity,non-human identity management,trust graph"
+      content="machine identity security, non-human identity, NHI, AWS IAM, Kubernetes RBAC, OIDC, trust graph, least privilege, open-core security"
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Geist:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
@@ -27,7 +30,7 @@
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="shortcut icon" href="/favicon.ico" />
-    <title>Identrail | Machine Identities, Fully Visible. Risks, Fully Controlled.</title>
+    <title>Identrail — Trace every machine identity. Close the dangerous paths safely.</title>
   </head>
   <body>
     <div id="root"></div>

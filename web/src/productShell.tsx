@@ -1,5 +1,7 @@
 import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+// dashboard.css is intentionally imported from web/src/main.tsx, not here.
+// See the comment in main.tsx for the prerender-script reason.
 import {
   apiClient,
   type AWSConnectionStatus,
