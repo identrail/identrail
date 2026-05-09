@@ -2329,6 +2329,31 @@ func setAuditActorOnRequestContext(c *gin.Context, fingerprinter *audit.Fingerpr
 	c.Request = c.Request.WithContext(audit.WithActor(c.Request.Context(), actor))
 }
 
+func requestErrorLogFields(c *gin.Context, fingerprinter *audit.Fingerprinter, operation string, fields ...zap.Field) []zap.Field {
+	base := []zap.Field{
+		zap.String("component", "api"),
+		zap.String("operation", operation),
+	}
+	if c == nil {
+		return append(base, fields...)
+	}
+	scope := db.ScopeFromContext(c.Request.Context())
+	requestID := ""
+	if id, ok := audit.CorrelationIDFromContext(c.Request.Context()); ok {
+		requestID = id
+	}
+	base = append(base,
+		zap.String("request_id", requestID),
+		zap.String("method", c.Request.Method),
+		zap.String("path", c.Request.URL.Path),
+		zap.String("route", c.FullPath()),
+		zap.String("tenant_id", scope.TenantID),
+		zap.String("workspace_id", scope.WorkspaceID),
+		zap.String("actor", triageActorFromContext(c, fingerprinter)),
+	)
+	return append(base, fields...)
+}
+
 func readAPIKey(c *gin.Context) string {
 	return strings.TrimSpace(c.GetHeader("X-API-Key"))
 }
