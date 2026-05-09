@@ -1521,6 +1521,10 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           description: Scan already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
