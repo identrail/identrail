@@ -11,9 +11,9 @@
   color-scheme: light;
 
   /* Type scale — based on a 1.25 minor-third ratio anchored at 16px body */
-  --font-display: 'Inter Tight', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SFMono-Regular', 'Menlo', monospace;
+  --font-display: 'Geist', 'Inter Tight', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-body: 'Geist', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'SFMono-Regular', 'Menlo', monospace;
 
   --text-2xs: 0.6875rem;   /* 11 */
   --text-xs:  0.75rem;     /* 12 */

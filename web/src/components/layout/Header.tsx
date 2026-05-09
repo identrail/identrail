@@ -3,7 +3,6 @@ import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Logo } from '../ui/Logo';
 import { LinkButton } from '../ui/Button';
 import { MenuIcon, XCloseIcon } from '../ui/Icon';
-import { ThemeToggle } from './ThemeToggle';
 import { PRIMARY_NAV } from '../../siteConfig';
 
 const FOCUSABLE_SELECTOR = [
@@ -133,7 +132,6 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
           </nav>
 
           <div className="site-header-cta">
-            <ThemeToggle className="is-desktop" />
             <Link to="/app/login" className="btn btn-ghost btn-sm is-desktop">
               Sign in
             </Link>
@@ -190,7 +188,6 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
             <LinkButton to="/demo" variant="primary" size="lg" block>
               Book a demo
             </LinkButton>
-            <ThemeToggle />
           </div>
         </div>
       ) : null}

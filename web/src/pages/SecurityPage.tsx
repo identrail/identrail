@@ -30,7 +30,7 @@ const POSTURE = [
     bullets: [
       'Hosted on AWS in our customer’s choice of US or EU region (Team), or a private region (Enterprise).',
       'All inter-service traffic is mTLS. All data at rest is encrypted with envelope encryption.',
-      'Infrastructure-as-code; every change is reviewed by Cubic and Codex before merge in addition to human review.'
+      'Infrastructure-as-code; every change passes signed-commit, test, security, and human-review gates before merge.'
     ]
   }
 ];

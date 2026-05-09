@@ -1,5 +1,6 @@
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { PageHero } from '../components/ui/PageHero';
+import { BlogHeroVisual } from '../components/ui/HeroVisuals';
 import { ArrowLink } from '../components/ui/Button';
 import { Section } from '../components/ui/Section';
 import { CtaBanner } from '../components/CtaBanner';
@@ -18,6 +19,7 @@ export function BlogPage() {
         eyebrow="Blog"
         title="Field notes on machine identity, written by people who do this for a living."
         lede="Practical guides and operating-model essays for the security and platform engineers actually responsible for non-human identities. No vendor fluff."
+        visual={<BlogHeroVisual />}
       />
 
       <Section variant="tight">

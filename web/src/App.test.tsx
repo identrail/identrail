@@ -188,7 +188,7 @@ describe('App dashboard surface', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Sign in to the Identrail app shell/i
+        name: /Sign in to Identrail/i
       })
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
@@ -221,7 +221,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
   });
 
@@ -264,7 +264,7 @@ describe('App dashboard surface', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Your session expired/i)).toBeInTheDocument();
   });
 
@@ -343,7 +343,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/callback?code=code-1&state=wrong-state');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('reason=state_mismatch');
     expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
@@ -385,7 +385,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/callback?code=code-1&state=state-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('reason=callback_error');
     expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
@@ -426,7 +426,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/callback?code=code-2&state=state-2');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('reason=callback_error');
     expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
@@ -516,7 +516,7 @@ describe('App dashboard surface', () => {
     setCurrentPath('/app/logout');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
   });
 

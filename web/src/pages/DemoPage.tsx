@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { PageHero } from '../components/ui/PageHero';
+import { DemoHeroVisual } from '../components/ui/HeroVisuals';
 import { ArrowLink, LinkButton } from '../components/ui/Button';
 import { Section } from '../components/ui/Section';
 import { CheckIcon } from '../components/ui/Icon';
@@ -98,6 +99,7 @@ export function DemoPage() {
           </h1>
         }
         lede="Two ways in. Talk to the founder for a guided walkthrough, or run a free read-only scan against your environment and skip the meeting."
+        visual={<DemoHeroVisual />}
       />
 
       <Section variant="tight">

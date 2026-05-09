@@ -1,4 +1,5 @@
 import { PageHero } from '../components/ui/PageHero';
+import { DocsHeroVisual } from '../components/ui/HeroVisuals';
 import { LinkButton } from '../components/ui/Button';
 import { Section, SectionHeader } from '../components/ui/Section';
 import { Pill } from '../components/ui/Pill';
@@ -13,6 +14,7 @@ export function DocsPage() {
         eyebrow="Documentation"
         title="Documentation lives next to the code."
         lede="Until docs.identrail.com lands, the source of truth is the docs/ folder of the public repo. Below is the curated entry-point list — start with Quickstart and work down."
+        visual={<DocsHeroVisual />}
         actions={
           <>
             <LinkButton to={DOCKER_REPO_URL} variant="primary" size="lg" external>

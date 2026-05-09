@@ -19,32 +19,17 @@ import './styles/tokens.css';
 import './styles/dashboard.css';
 import './styles.css';
 
-const THEME_STORAGE_KEY = 'identrail-theme';
-const VALID_THEMES = ['light', 'dark'] as const;
-type Theme = (typeof VALID_THEMES)[number];
-
-function readStoredTheme(): Theme | null {
-  try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return VALID_THEMES.includes(stored as Theme) ? (stored as Theme) : null;
-  } catch {
-    return null;
-  }
-}
-
 function applyInitialTheme() {
   if (typeof window === 'undefined') {
     return;
   }
 
-  const stored = readStoredTheme();
-  if (stored) {
-    document.documentElement.dataset.theme = stored;
-    return;
+  document.documentElement.dataset.theme = 'light';
+  try {
+    window.localStorage.removeItem('identrail-theme');
+  } catch {
+    // ignored: storage may be unavailable in private mode
   }
-
-  // No stored preference — let the OS preference drive via the
-  // `prefers-color-scheme` block in tokens.css. Don't set data-theme.
 }
 
 applyInitialTheme();

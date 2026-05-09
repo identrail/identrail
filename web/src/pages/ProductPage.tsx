@@ -1,4 +1,5 @@
 import { PageHero } from '../components/ui/PageHero';
+import { ProductHeroVisual } from '../components/ui/HeroVisuals';
 import { LinkButton, ArrowLink } from '../components/ui/Button';
 import { ArrowRightIcon, GitHubIcon, GraphIcon, ShieldIcon, CheckIcon } from '../components/ui/Icon';
 import { Pill } from '../components/ui/Pill';
@@ -70,6 +71,7 @@ export function ProductPage() {
           </h1>
         }
         lede="Identrail does the three things every team is currently stitching together with scripts and CSVs: see every identity, prioritise the ones that can reach something dangerous, and remediate without breaking production."
+        visual={<ProductHeroVisual />}
         actions={
           <>
             <LinkButton to="/demo" variant="primary" size="lg">
@@ -92,13 +94,7 @@ export function ProductPage() {
           {PILLARS.map((p, i) => (
             <article
               key={p.eyebrow}
-              className="card card-loose"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 'var(--space-12)',
-                alignItems: 'center'
-              }}
+              className="card card-loose split-card"
             >
               <div>
                 <Pill variant="accent">{`0${i + 1} · ${p.eyebrow}`}</Pill>
