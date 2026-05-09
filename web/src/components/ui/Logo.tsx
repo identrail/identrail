@@ -45,17 +45,17 @@ type LogoProps = {
 export function Logo({ noLink, className }: LogoProps) {
   const inner = (
     <>
-      <LogoMark size={26} className="idt-logo-mark" />
+      <LogoMark size={26} className="site-logo-mark" />
       <span>{SITE_NAME}</span>
     </>
   );
 
   if (noLink) {
-    return <span className={['idt-logo', className].filter(Boolean).join(' ')}>{inner}</span>;
+    return <span className={['site-logo', className].filter(Boolean).join(' ')}>{inner}</span>;
   }
 
   return (
-    <Link to="/" className={['idt-logo', className].filter(Boolean).join(' ')} aria-label={`${SITE_NAME} home`}>
+    <Link to="/" className={['site-logo', className].filter(Boolean).join(' ')} aria-label={`${SITE_NAME} home`}>
       {inner}
     </Link>
   );

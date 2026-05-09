@@ -46,25 +46,27 @@ export function DemoPage() {
       return;
     }
 
-    // The challenge field is the free-text "what are you trying to figure out?"
-    // box; we prefix the visitor's name + role so the inbound lead is
-    // immediately useful when read by a human. Capped at 2000 chars to
-    // match the server-side MAX_CHALLENGE_LENGTH enforced in
-    // web/api/leads.ts (PR #895).
-    const challenge = [
+    // The visitor's name + role + free-text context goes into `scan_goal`
+    // (a real, forwarded lead field). Critically: we do NOT touch the
+    // `challenge` field — web/api/leads.ts treats any non-empty `challenge`
+    // as a honeypot/bot submission and short-circuits with HTTP 202 without
+    // forwarding the lead to the webhook (web/api/leads.ts ~line 228, PR #895).
+    //
+    // Capped at 600 chars to match server-side MAX_SCAN_GOAL_LENGTH.
+    const scanGoal = [
       name ? `From: ${name}${role ? ` (${role})` : ''}` : null,
       context || null
     ]
       .filter(Boolean)
       .join('\n')
-      .slice(0, 2000);
+      .slice(0, 600);
 
     try {
       await apiClient.submitLeadCapture({
         email,
         environment: 'demo-form',
         company: company || undefined,
-        challenge: challenge || undefined,
+        scan_goal: scanGoal || undefined,
         source: 'demo-page',
         page_path: typeof window !== 'undefined' ? window.location.pathname : '/demo'
       });

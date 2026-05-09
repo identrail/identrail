@@ -116,11 +116,11 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
-      <header className={['idt-header', scrolled ? 'is-scrolled' : ''].filter(Boolean).join(' ')}>
-        <div className="idt-header-inner">
+      <header className={['site-header', scrolled ? 'is-scrolled' : ''].filter(Boolean).join(' ')}>
+        <div className="site-header-inner">
           <Logo />
 
-          <nav className="idt-nav" aria-label="Primary">
+          <nav className="site-nav" aria-label="Primary">
             {PRIMARY_NAV.map((item) => (
               <NavLink
                 key={item.to}
@@ -132,7 +132,7 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
             ))}
           </nav>
 
-          <div className="idt-header-cta">
+          <div className="site-header-cta">
             <ThemeToggle className="is-desktop" />
             <Link to="/app/login" className="btn btn-ghost btn-sm is-desktop">
               Sign in
@@ -143,7 +143,7 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
             <button
               ref={triggerRef}
               type="button"
-              className="idt-header-mobile-toggle"
+              className="site-header-mobile-toggle"
               onClick={() => setMenuOpen(true)}
               aria-expanded={menuOpen}
               aria-controls="mobile-menu"
@@ -158,17 +158,17 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
       {menuOpen ? (
         <div
           ref={mobileMenuRef}
-          className="idt-mobile-menu"
+          className="site-mobile-menu"
           id="mobile-menu"
           role="dialog"
           aria-modal="true"
           aria-label="Menu"
         >
-          <div className="idt-mobile-menu-head">
+          <div className="site-mobile-menu-head">
             <Logo />
             <button
               type="button"
-              className="idt-header-mobile-toggle"
+              className="site-header-mobile-toggle"
               onClick={() => setMenuOpen(false)}
               aria-label="Close menu"
               style={{ display: 'inline-flex' }}
@@ -186,7 +186,7 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
               Sign in
             </Link>
           </nav>
-          <div className="idt-mobile-menu-foot">
+          <div className="site-mobile-menu-foot">
             <LinkButton to="/demo" variant="primary" size="lg" block>
               Book a demo
             </LinkButton>

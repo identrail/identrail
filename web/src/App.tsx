@@ -48,7 +48,7 @@ export function RoutedSite() {
   const isDashboard = location.pathname.startsWith('/app');
 
   return (
-    <div className="idt-site">
+    <div className="site-shell">
       {!isDashboard ? <Header /> : null}
 
       <main id="main-content">

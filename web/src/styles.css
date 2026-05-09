@@ -183,7 +183,7 @@ strong, b { color: var(--text-primary); font-weight: var(--weight-semibold); }
 main { display: block; }
 
 /* --- 4. Header + nav ----------------------------------------------------- */
-.idt-header {
+.site-header {
   position: sticky;
   top: 0;
   z-index: 40;
@@ -193,9 +193,9 @@ main { display: block; }
   border-bottom: 1px solid transparent;
   transition: border-color var(--motion-base) var(--ease-out);
 }
-.idt-header.is-scrolled { border-bottom-color: var(--border-subtle); }
+.site-header.is-scrolled { border-bottom-color: var(--border-subtle); }
 
-.idt-header-inner {
+.site-header-inner {
   max-width: var(--shell-wide);
   margin-inline: auto;
   padding: var(--space-3) var(--shell-gutter);
@@ -206,7 +206,7 @@ main { display: block; }
   min-height: 64px;
 }
 
-.idt-logo {
+.site-logo {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -216,11 +216,11 @@ main { display: block; }
   letter-spacing: -0.025em;
   color: var(--text-primary);
 }
-.idt-logo:hover { color: var(--text-primary); }
-.idt-logo-mark { width: 26px; height: 26px; display: inline-block; }
+.site-logo:hover { color: var(--text-primary); }
+.site-logo-mark { width: 26px; height: 26px; display: inline-block; }
 
-.idt-nav { display: flex; gap: var(--space-1); justify-content: center; }
-.idt-nav a {
+.site-nav { display: flex; gap: var(--space-1); justify-content: center; }
+.site-nav a {
   display: inline-flex;
   align-items: center;
   padding: var(--space-2) var(--space-3);
@@ -230,12 +230,12 @@ main { display: block; }
   color: var(--text-secondary);
   transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
-.idt-nav a:hover { color: var(--text-primary); background: var(--btn-ghost-bg-hover); }
-.idt-nav a.is-active { color: var(--text-primary); }
+.site-nav a:hover { color: var(--text-primary); background: var(--btn-ghost-bg-hover); }
+.site-nav a.is-active { color: var(--text-primary); }
 
-.idt-header-cta { display: flex; align-items: center; gap: var(--space-2); }
+.site-header-cta { display: flex; align-items: center; gap: var(--space-2); }
 
-.idt-header-mobile-toggle {
+.site-header-mobile-toggle {
   display: none;
   width: 40px;
   height: 40px;
@@ -244,14 +244,14 @@ main { display: block; }
   border-radius: var(--radius-sm);
   color: var(--text-primary);
 }
-.idt-header-mobile-toggle:hover { background: var(--btn-ghost-bg-hover); }
+.site-header-mobile-toggle:hover { background: var(--btn-ghost-bg-hover); }
 
 @media (max-width: 920px) {
-  .idt-nav, .idt-header-cta .is-desktop { display: none; }
-  .idt-header-mobile-toggle { display: inline-flex; }
+  .site-nav, .site-header-cta .is-desktop { display: none; }
+  .site-header-mobile-toggle { display: inline-flex; }
 }
 
-.idt-mobile-menu {
+.site-mobile-menu {
   position: fixed;
   inset: 0;
   background: var(--bg-canvas);
@@ -261,15 +261,15 @@ main { display: block; }
   padding: var(--space-4) var(--shell-gutter);
   overflow-y: auto;
 }
-.idt-mobile-menu-head {
+.site-mobile-menu-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
 }
-.idt-mobile-menu nav { display: flex; flex-direction: column; padding: var(--space-6) 0; }
-.idt-mobile-menu nav a {
+.site-mobile-menu nav { display: flex; flex-direction: column; padding: var(--space-6) 0; }
+.site-mobile-menu nav a {
   padding: var(--space-3) 0;
   font-family: var(--font-display);
   font-size: var(--text-2xl);
@@ -278,27 +278,27 @@ main { display: block; }
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-subtle);
 }
-.idt-mobile-menu-foot { display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-6); }
+.site-mobile-menu-foot { display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-6); }
 
 /* --- 5. Footer ----------------------------------------------------------- */
-.idt-footer {
+.site-footer {
   margin-top: var(--space-32);
   padding: var(--space-16) 0 var(--space-8);
   background: var(--bg-soft);
   border-top: 1px solid var(--border-subtle);
 }
-.idt-footer-grid {
+.site-footer-grid {
   display: grid;
   grid-template-columns: 1.4fr repeat(4, 1fr);
   gap: var(--space-12);
   margin-bottom: var(--space-12);
 }
 @media (max-width: 880px) {
-  .idt-footer-grid { grid-template-columns: 1fr 1fr; gap: var(--space-8); }
-  .idt-footer-brand { grid-column: 1 / -1; }
+  .site-footer-grid { grid-template-columns: 1fr 1fr; gap: var(--space-8); }
+  .site-footer-brand { grid-column: 1 / -1; }
 }
-.idt-footer-brand p { font-size: var(--text-sm); max-width: 36ch; margin-top: var(--space-3); }
-.idt-footer-col h4 {
+.site-footer-brand p { font-size: var(--text-sm); max-width: 36ch; margin-top: var(--space-3); }
+.site-footer-col h4 {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   letter-spacing: var(--tracking-eyebrow);
@@ -307,11 +307,11 @@ main { display: block; }
   font-weight: 500;
   margin-bottom: var(--space-4);
 }
-.idt-footer-col ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-.idt-footer-col a { color: var(--text-secondary); font-size: var(--text-sm); }
-.idt-footer-col a:hover { color: var(--text-primary); }
+.site-footer-col ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.site-footer-col a { color: var(--text-secondary); font-size: var(--text-sm); }
+.site-footer-col a:hover { color: var(--text-primary); }
 
-.idt-footer-bottom {
+.site-footer-bottom {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
@@ -322,8 +322,8 @@ main { display: block; }
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
-.idt-footer-social { display: flex; gap: var(--space-2); }
-.idt-footer-social a {
+.site-footer-social { display: flex; gap: var(--space-2); }
+.site-footer-social a {
   width: 32px;
   height: 32px;
   display: inline-flex;
@@ -333,7 +333,7 @@ main { display: block; }
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
 }
-.idt-footer-social a:hover { color: var(--text-primary); border-color: var(--border-default); background: var(--bg-surface); }
+.site-footer-social a:hover { color: var(--text-primary); border-color: var(--border-default); background: var(--bg-surface); }
 
 /* --- 6. Buttons + links -------------------------------------------------- */
 .btn {
@@ -1176,6 +1176,6 @@ code {
 }
 
 @media print {
-  .idt-header, .idt-footer, .cta-banner { display: none; }
+  .site-header, .site-footer, .cta-banner { display: none; }
   body { background: white; color: black; }
 }

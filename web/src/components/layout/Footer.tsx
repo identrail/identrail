@@ -20,15 +20,15 @@ const SOCIAL_LINKS = [
 export function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer className="idt-footer" role="contentinfo">
+    <footer className="site-footer" role="contentinfo">
       <div className="container">
-        <div className="idt-footer-grid">
-          <div className="idt-footer-brand">
+        <div className="site-footer-grid">
+          <div className="site-footer-brand">
             <Logo />
             <p>{SHORT_DESCRIPTION}</p>
           </div>
           {FOOTER_NAV.map((col) => (
-            <div className="idt-footer-col" key={col.heading}>
+            <div className="site-footer-col" key={col.heading}>
               <h4>{col.heading}</h4>
               <ul>
                 {col.links.map((link) =>
@@ -49,12 +49,12 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="idt-footer-bottom">
+        <div className="site-footer-bottom">
           <div>
             © {year} Identrail, Inc. · Apache 2.0 open core ·{' '}
             <Link to="/responsible-disclosure">Responsible disclosure</Link>
           </div>
-          <ul className="idt-footer-social" aria-label="Social media">
+          <ul className="site-footer-social" aria-label="Social media">
             {SOCIAL_LINKS.map((s) => (
               <li key={s.href} style={{ listStyle: 'none' }}>
                 <a href={s.href} target="_blank" rel="noopener noreferrer" aria-label={s.label}>
