@@ -257,7 +257,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 		if !exists {
 			decision := denyDecision(PolicyStageDefaultDeny, "route authorization policy missing")
 			input := policyInputForMissingRoutePolicy(c, fullPath, normalizedWriteKeys, scopedKeys)
-			recordPolicyDecisionMetric(metrics, runtimePolicy.PolicySetID, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision.Allowed)
+			recordPolicyDecisionMetric(metrics, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision.Allowed)
 			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
