@@ -11,7 +11,7 @@ body:
         Thanks for reporting a bug.
 
         Do not use this template for security vulnerabilities.
-        Use private reporting instead: https://github.com/Oluwatobi-Mustapha/identrail/security/advisories/new
+        Use private reporting instead: https://github.com/identrail/identrail/security/advisories/new
 
   - type: checkboxes
     id: preflight
@@ -48,7 +48,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: Example: v1.0.0, main commit SHA, container tag
+      description: "Example: v1.0.0, main commit SHA, container tag"
       placeholder: v1.0.0
     validations:
       required: true

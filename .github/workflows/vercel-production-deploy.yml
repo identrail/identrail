@@ -74,16 +74,13 @@ jobs:
           set -euo pipefail
           if [ -z "${VITE_IDENTRAIL_API_URL}" ]; then
             echo "Missing vars.VITE_IDENTRAIL_API_URL."
-            echo "Skipping Vercel env upsert for VITE_IDENTRAIL_API_URL."
-            echo "Set this GitHub Actions variable to keep Vercel env synchronized from Actions."
-            echo "has_api_url=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "Set this GitHub Actions variable before production deploys."
+            exit 1
           fi
           echo "has_api_url=true" >> "$GITHUB_OUTPUT"
 
       - name: Upsert Vercel env VITE_IDENTRAIL_API_URL
         if: steps.normalize-token.outputs.has_token == 'true' && steps.check-api-url.outputs.has_api_url == 'true'
-        continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
