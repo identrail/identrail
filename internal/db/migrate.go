@@ -311,7 +311,14 @@ func migrationLedgerNeedsBackfill(ctx context.Context, db *sql.DB) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	return hasLegacySchema, nil
+	if !hasLegacySchema {
+		return false, nil
+	}
+	hasFullPreCutoverSchema, err := relationExists(ctx, db, "tenancy_connector_secret_envelopes")
+	if err != nil {
+		return false, err
+	}
+	return hasFullPreCutoverSchema, nil
 }
 
 func relationExists(ctx context.Context, db *sql.DB, relation string) (bool, error) {

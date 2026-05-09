@@ -61,6 +61,111 @@ func TestUpFilenameForDown(t *testing.T) {
 	}
 }
 
+func TestMigrationLedgerNeedsBackfill(t *testing.T) {
+	t.Run("ledger already populated", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock: %v", err)
+		}
+		defer db.Close()
+
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM schema_migrations`)).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+		needsBackfill, err := migrationLedgerNeedsBackfill(context.Background(), db)
+		if err != nil {
+			t.Fatalf("migrationLedgerNeedsBackfill failed: %v", err)
+		}
+		if needsBackfill {
+			t.Fatal("expected no backfill when ledger already contains rows")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet expectations: %v", err)
+		}
+	})
+
+	t.Run("no legacy schema", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock: %v", err)
+		}
+		defer db.Close()
+
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM schema_migrations`)).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_regclass($1)::text`)).
+			WithArgs("scans").
+			WillReturnRows(sqlmock.NewRows([]string{"to_regclass"}).AddRow(nil))
+
+		needsBackfill, err := migrationLedgerNeedsBackfill(context.Background(), db)
+		if err != nil {
+			t.Fatalf("migrationLedgerNeedsBackfill failed: %v", err)
+		}
+		if needsBackfill {
+			t.Fatal("expected no backfill when legacy schema is absent")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet expectations: %v", err)
+		}
+	})
+
+	t.Run("legacy schema without full pre-cutover marker", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock: %v", err)
+		}
+		defer db.Close()
+
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM schema_migrations`)).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_regclass($1)::text`)).
+			WithArgs("scans").
+			WillReturnRows(sqlmock.NewRows([]string{"to_regclass"}).AddRow("scans"))
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_regclass($1)::text`)).
+			WithArgs("tenancy_connector_secret_envelopes").
+			WillReturnRows(sqlmock.NewRows([]string{"to_regclass"}).AddRow(nil))
+
+		needsBackfill, err := migrationLedgerNeedsBackfill(context.Background(), db)
+		if err != nil {
+			t.Fatalf("migrationLedgerNeedsBackfill failed: %v", err)
+		}
+		if needsBackfill {
+			t.Fatal("expected no backfill when pre-cutover marker is missing")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet expectations: %v", err)
+		}
+	})
+
+	t.Run("full pre-cutover schema present", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock: %v", err)
+		}
+		defer db.Close()
+
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*) FROM schema_migrations`)).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_regclass($1)::text`)).
+			WithArgs("scans").
+			WillReturnRows(sqlmock.NewRows([]string{"to_regclass"}).AddRow("scans"))
+		mock.ExpectQuery(regexp.QuoteMeta(`SELECT to_regclass($1)::text`)).
+			WithArgs("tenancy_connector_secret_envelopes").
+			WillReturnRows(sqlmock.NewRows([]string{"to_regclass"}).AddRow("tenancy_connector_secret_envelopes"))
+
+		needsBackfill, err := migrationLedgerNeedsBackfill(context.Background(), db)
+		if err != nil {
+			t.Fatalf("migrationLedgerNeedsBackfill failed: %v", err)
+		}
+		if !needsBackfill {
+			t.Fatal("expected backfill when full pre-cutover schema marker is present")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet expectations: %v", err)
+		}
+	})
+}
+
 func expectEnsureMigrationLedger(mock sqlmock.Sqlmock) {
 	mock.ExpectExec(regexp.QuoteMeta(`CREATE TABLE IF NOT EXISTS schema_migrations`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
