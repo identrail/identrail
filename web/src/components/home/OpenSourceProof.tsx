@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLink } from '../ui/Button';
 import { GitHubIcon, StarIcon } from '../ui/Icon';
-import { GITHUB_REPO, GITHUB_REPO_NAME, GITHUB_REPO_OWNER } from '../../siteConfig';
+import { CONTRIBUTING_URL, GITHUB_REPO, GITHUB_REPO_NAME, GITHUB_REPO_OWNER, RELEASES_URL } from '../../siteConfig';
 
 type GitHubMeta = {
   stars: number | null;
@@ -43,7 +43,7 @@ function writeCache(data: GitHubMeta) {
  *
  * No fabricated logos, no fabricated quotes — instead, the strongest honest
  * proof we have today: the public repo metrics, the deployment posture,
- * and the review surface (every line is read by Cubic and Codex). Falls
+ * and the review surface (source, releases and contribution checks). Falls
  * back gracefully when the GitHub API is unavailable.
  */
 export function OpenSourceProof() {
@@ -84,31 +84,25 @@ export function OpenSourceProof() {
     <section className="section-tight">
       <div className="container">
         <div
-          style={{
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-xl)',
-            padding: 'var(--space-10)',
-            background: 'var(--bg-surface)'
-          }}
+          className="open-source-proof"
         >
           <div className="row-between" style={{ marginBottom: 'var(--space-8)' }}>
             <div>
               <span className="t-eyebrow">Built in the open</span>
               <h2 className="t-h3 u-mt-3" style={{ maxWidth: '24ch' }}>
-                Every line of Identrail is reviewed before it ships.
+                Public source, public releases, inspectable controls.
               </h2>
               <p className="t-body u-mt-3" style={{ maxWidth: '52ch' }}>
-                The whole platform — connectors, graph engine, policy simulator — is Apache 2.0 on GitHub. Every
-                pull request is read by{' '}
-                <a href="https://cubic.dev" target="_blank" rel="noopener noreferrer">
-                  Cubic
-                </a>{' '}
-                and OpenAI Codex before merge. No hidden services, no agent that calls home, no closed core.
+                The platform is Apache 2.0 on GitHub: connectors, graph engine, policy simulator and deployment
+                assets. Buyers can inspect the control plane instead of trusting a black box.
               </p>
             </div>
             <div className="row" style={{ gap: 'var(--space-3)' }}>
               <ArrowLink to={GITHUB_REPO} external>
                 <GitHubIcon size={14} /> View the repo
+              </ArrowLink>
+              <ArrowLink to={RELEASES_URL} external>
+                Releases
               </ArrowLink>
             </div>
           </div>
@@ -130,10 +124,22 @@ export function OpenSourceProof() {
               <dd style={{ fontSize: 'clamp(1.4rem, 1rem + 1vw, 2rem)' }}>Apache 2.0</dd>
             </div>
             <div className="stat">
-              <dt>AI code reviewers</dt>
-              <dd style={{ fontSize: 'clamp(1.4rem, 1rem + 1vw, 2rem)' }}>Cubic + Codex</dd>
+              <dt>Merge checks</dt>
+              <dd style={{ fontSize: 'clamp(1.4rem, 1rem + 1vw, 2rem)' }}>DCO + CI</dd>
             </div>
           </dl>
+
+          <div className="open-source-checks" aria-label="Open-source proof checks">
+            <a href={GITHUB_REPO} target="_blank" rel="noopener noreferrer">
+              Source available
+            </a>
+            <a href={CONTRIBUTING_URL} target="_blank" rel="noopener noreferrer">
+              Signed commits
+            </a>
+            <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+              Versioned releases
+            </a>
+          </div>
         </div>
       </div>
     </section>

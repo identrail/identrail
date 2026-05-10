@@ -397,6 +397,111 @@ func TestMemoryStoreGetFindingWithoutScanIDReturnsLatestMatch(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListFindingMetasByScan(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	ctx := defaultScopeContext()
+	scanA, err := store.CreateScan(ctx, "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(ctx, "aws", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+	if err := store.UpsertFindings(ctx, scanA.ID, []domain.Finding{
+		{ID: "f1", ScanID: scanA.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(time.Second)},
+		{ID: "f2", ScanID: scanA.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical, CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert findings for scan A: %v", err)
+	}
+	if err := store.UpsertFindings(ctx, scanB.ID, []domain.Finding{
+		{ID: "f3", ScanID: scanB.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now.Add(3 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert findings for scan B: %v", err)
+	}
+	metas, err := store.ListFindingMetasByScan(ctx, scanA.ID)
+	if err != nil {
+		t.Fatalf("list finding metas by scan: %v", err)
+	}
+	if len(metas) != 2 {
+		t.Fatalf("expected 2 finding metas, got %+v", metas)
+	}
+	if _, err := store.ListFindingMetasByScan(ctx, "missing-scan"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing scan, got %v", err)
+	}
+}
+
+func TestMemoryStoreListFindingsByScanAndIDs(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	ctx := defaultScopeContext()
+	scan, err := store.CreateScan(ctx, "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertFindings(ctx, scan.ID, []domain.Finding{
+		{ID: "f1", ScanID: scan.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(time.Second)},
+		{ID: "f2", ScanID: scan.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical, CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+	selected, err := store.ListFindingsByScanAndIDs(ctx, scan.ID, []string{"f2", " ", "f2", "missing", "f1"})
+	if err != nil {
+		t.Fatalf("list findings by scan and ids: %v", err)
+	}
+	if len(selected) != 2 || selected[0].ID != "f2" || selected[1].ID != "f1" {
+		t.Fatalf("unexpected selected findings: %+v", selected)
+	}
+}
+
+func TestMemoryStoreListFindingTrendCounts(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	ctx := defaultScopeContext()
+	scanA, err := store.CreateScan(ctx, "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	scanB, err := store.CreateScan(ctx, "aws", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+	if err := store.UpsertFindings(ctx, scanA.ID, []domain.Finding{
+		{ID: "f1", ScanID: scanA.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(time.Second)},
+		{ID: "f2", ScanID: scanA.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical, CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert findings for scan A: %v", err)
+	}
+	if err := store.UpsertFindings(ctx, scanB.ID, []domain.Finding{
+		{ID: "f3", ScanID: scanB.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now.Add(3 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert findings for scan B: %v", err)
+	}
+
+	trend, err := store.ListFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "", "")
+	if err != nil {
+		t.Fatalf("list finding trend counts: %v", err)
+	}
+	if len(trend) != 3 {
+		t.Fatalf("expected 3 trend rows (high+critical for A, low for B), got %+v", trend)
+	}
+
+	filteredTrend, err := store.ListFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "critical", "escalation_path")
+	if err != nil {
+		t.Fatalf("list filtered finding trend counts: %v", err)
+	}
+	if len(filteredTrend) != 2 {
+		t.Fatalf("expected 2 filtered trend rows (one per scan), got %+v", filteredTrend)
+	}
+	if filteredTrend[0].ScanID != scanA.ID || filteredTrend[0].Severity != "critical" || filteredTrend[0].TotalCount != 1 {
+		t.Fatalf("unexpected matching filtered trend row: %+v", filteredTrend[0])
+	}
+	if filteredTrend[1].ScanID != scanB.ID || filteredTrend[1].TotalCount != 0 {
+		t.Fatalf("unexpected empty filtered trend row: %+v", filteredTrend[1])
+	}
+}
+
 func TestMemoryStoreIdentityAndRelationshipFilters(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

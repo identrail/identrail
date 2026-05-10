@@ -8,21 +8,25 @@ import { STACK } from '../../siteConfig';
  * recognition row.
  */
 export function StackStrip() {
+  const rail = [...STACK, ...STACK, ...STACK];
+
   return (
-    <section className="section-tight">
-      <div className="container">
-        <div className="logo-strip">
-          <div className="logo-strip-eyebrow">Reviewed across your identity stack</div>
-          <ul className="logo-grid" aria-label="Stacks Identrail covers">
-            {STACK.map((s) => (
-              <li key={s.id}>
+    <section className="section-tight stack-strip-section">
+      <div className="logo-strip">
+        <div className="logo-strip-eyebrow">Reviewed across your identity stack</div>
+        <div className="logo-rail" aria-label="Stacks Identrail covers">
+          <ul className="logo-rail-track">
+            {rail.map((s, index) => (
+              <li key={`${s.id}-${index}`} aria-hidden={index >= STACK.length}>
                 <a
                   href={s.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={`${s.name} — ${s.category}`}
+                  tabIndex={index >= STACK.length ? -1 : undefined}
+                  title={`${s.name} - ${s.category}`}
                 >
-                  <img src={s.logo} alt={s.name} loading="lazy" />
+                  <img src={s.logo} alt={index < STACK.length ? s.name : ''} loading="lazy" />
+                  <span>{s.name}</span>
                 </a>
               </li>
             ))}

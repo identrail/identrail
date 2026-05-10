@@ -103,6 +103,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
 		metrics.ScanRunsTotal,
+		metrics.ScanEnqueueTotal,
+		metrics.ScanEnqueueFailureTotal,
+		metrics.ScanEnqueueDurationMS,
 		metrics.ScanSuccessTotal,
 		metrics.ScanFailureTotal,
 		metrics.ScanPartialTotal,
@@ -211,6 +214,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	var authzStore db.Store
 	if svc != nil {
 		authzStore = svc.Store
+		svc.Metrics = metrics
 	}
 
 	v1 := r.Group("/v1")
@@ -675,16 +679,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.POST("/scans", func(c *gin.Context) {
 		start := time.Now()
-		metrics.ScanRunsTotal.Inc()
-		metrics.ScanInFlight.Inc()
-		defer metrics.ScanInFlight.Dec()
+		metrics.ScanEnqueueTotal.Inc()
 		defer func() {
-			metrics.ScanDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+			metrics.ScanEnqueueDurationMS.Observe(float64(time.Since(start).Milliseconds()))
 		}()
 
 		scan, err := svc.EnqueueScan(c.Request.Context())
 		if err != nil {
-			metrics.ScanFailureTotal.Inc()
+			metrics.ScanEnqueueFailureTotal.Inc()
 			if errors.Is(err, ErrScanInProgress) {
 				c.JSON(http.StatusConflict, gin.H{"error": "scan already in progress"})
 				return
@@ -693,7 +695,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusTooManyRequests, gin.H{"error": "scan queue is full"})
 				return
 			}
-			logger.Error("enqueue scan", telemetry.ZapError(err))
+			logger.Error("enqueue scan", requestErrorLogFields(c, opts.AuditFingerprinter, "enqueue_scan", telemetry.ZapError(err))...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue scan"})
 			return
 		}
@@ -740,7 +742,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusTooManyRequests, gin.H{"error": "repo scan queue is full"})
 				return
 			}
-			logger.Error("enqueue repo scan", telemetry.ZapError(err))
+			logger.Error("enqueue repo scan", requestErrorLogFields(c, opts.AuditFingerprinter, "enqueue_repo_scan", telemetry.ZapError(err))...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue repo scan"})
 			return
 		}
@@ -2583,6 +2585,31 @@ func actionAuditActorFromContext(c *gin.Context, fingerprinter *audit.Fingerprin
 		}
 	}
 	return "unknown"
+}
+
+func requestErrorLogFields(c *gin.Context, fingerprinter *audit.Fingerprinter, operation string, fields ...zap.Field) []zap.Field {
+	base := []zap.Field{
+		zap.String("component", "api"),
+		zap.String("operation", operation),
+	}
+	if c == nil {
+		return append(base, fields...)
+	}
+	scope := db.ScopeFromContext(c.Request.Context())
+	requestID := ""
+	if id, ok := audit.CorrelationIDFromContext(c.Request.Context()); ok {
+		requestID = id
+	}
+	base = append(base,
+		zap.String("request_id", requestID),
+		zap.String("method", c.Request.Method),
+		zap.String("path", c.Request.URL.Path),
+		zap.String("route", c.FullPath()),
+		zap.String("tenant_id", scope.TenantID),
+		zap.String("workspace_id", scope.WorkspaceID),
+		zap.String("actor", triageActorFromContext(c, fingerprinter)),
+	)
+	return append(base, fields...)
 }
 
 func readAPIKey(c *gin.Context) string {

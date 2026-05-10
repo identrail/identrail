@@ -238,6 +238,114 @@ func (m *MultiAuditSink) Close() error {
 	return firstErr
 }
 
+// AsyncAuditSink decouples request-path audit writes from slower downstream sinks.
+type AsyncAuditSink struct {
+	sink   AuditSink
+	events chan AuditEvent
+	wg     sync.WaitGroup
+
+	closeOnce sync.Once
+	closeCh   chan struct{}
+
+	mu           sync.Mutex
+	closed       bool
+	writeErr     error
+	closeErr     error
+	onWriteError func(error)
+}
+
+// NewAsyncAuditSink wraps a sink with a bounded in-memory queue.
+func NewAsyncAuditSink(sink AuditSink, buffer int) *AsyncAuditSink {
+	if sink == nil {
+		sink = NopAuditSink{}
+	}
+	if buffer <= 0 {
+		buffer = 256
+	}
+	a := &AsyncAuditSink{
+		sink:    sink,
+		events:  make(chan AuditEvent, buffer),
+		closeCh: make(chan struct{}),
+	}
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		writeEvent := func(event AuditEvent) {
+			if err := a.sink.Write(context.Background(), event); err != nil {
+				a.mu.Lock()
+				if a.writeErr == nil {
+					a.writeErr = err
+				}
+				onErr := a.onWriteError
+				a.mu.Unlock()
+				if onErr != nil {
+					onErr(err)
+				}
+			}
+		}
+		for {
+			select {
+			case event := <-a.events:
+				writeEvent(event)
+			case <-a.closeCh:
+				for {
+					select {
+					case event := <-a.events:
+						writeEvent(event)
+					default:
+						return
+					}
+				}
+			}
+		}
+	}()
+	return a
+}
+
+// WithWriteErrorHandler sets a callback invoked each time the background goroutine
+// fails to deliver an event to the downstream sink. Use it to log forwarding errors
+// immediately instead of waiting for Close to surface them.
+func (a *AsyncAuditSink) WithWriteErrorHandler(fn func(error)) *AsyncAuditSink {
+	a.mu.Lock()
+	a.onWriteError = fn
+	a.mu.Unlock()
+	return a
+}
+
+func (a *AsyncAuditSink) Write(ctx context.Context, event AuditEvent) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		return fmt.Errorf("async audit sink closed")
+	}
+	select {
+	case a.events <- event:
+		return nil
+	default:
+		return fmt.Errorf("async audit sink queue full")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (a *AsyncAuditSink) Close() error {
+	a.closeOnce.Do(func() {
+		a.mu.Lock()
+		a.closed = true
+		a.mu.Unlock()
+		close(a.closeCh)
+		a.wg.Wait()
+		a.closeErr = a.sink.Close()
+	})
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	err := a.writeErr
+	if a.closeErr != nil && err == nil {
+		err = a.closeErr
+	}
+	return err
+}
+
 // Fingerprinter produces keyed HMAC-SHA256 fingerprints for audit identifiers.
 type Fingerprinter struct {
 	key []byte

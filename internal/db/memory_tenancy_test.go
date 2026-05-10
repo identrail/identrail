@@ -336,6 +336,113 @@ func TestMemoryStoreDeleteWorkspaceCascadesWithPaddedWorkspaceID(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListAllTenancyConnectorsByType(t *testing.T) {
+	store := NewMemoryStore()
+	ctxA := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	ctxB := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	seedProject := func(t *testing.T, ctx context.Context, workspaceID string, projectID string) {
+		t.Helper()
+		scope, err := RequireScope(ctx)
+		if err != nil {
+			t.Fatalf("require scope: %v", err)
+		}
+		if err := store.UpsertOrganization(ctx, TenancyOrganization{
+			DisplayName: "Tenant " + scope.TenantID,
+			Slug:        scope.TenantID,
+		}); err != nil {
+			t.Fatalf("upsert organization: %v", err)
+		}
+		if err := store.UpsertWorkspace(ctx, TenancyWorkspace{
+			WorkspaceID: workspaceID,
+			DisplayName: "Workspace " + workspaceID,
+			Slug:        workspaceID,
+		}); err != nil {
+			t.Fatalf("upsert workspace: %v", err)
+		}
+		if err := store.UpsertProject(ctx, TenancyProject{
+			WorkspaceID: workspaceID,
+			ProjectID:   projectID,
+			Name:        "Project " + projectID,
+			Slug:        projectID,
+		}); err != nil {
+			t.Fatalf("upsert project: %v", err)
+		}
+	}
+
+	seedProject(t, ctxA, "workspace-a", "project-a")
+	seedProject(t, ctxB, "workspace-b", "project-b")
+
+	now := time.Now().UTC()
+	if err := store.UpsertTenancyConnector(ctxA, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-a",
+		ConnectorID: "github-a",
+		Type:        domain.ConnectorTypeGitHub,
+		DisplayName: "GitHub A",
+		Status:      domain.ConnectorStatusActive,
+		UpdatedAt:   now.Add(-time.Minute),
+	}, TenancyConnectorState{
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-a",
+		ConnectorID:  "github-a",
+		HealthStatus: "healthy",
+	}); err != nil {
+		t.Fatalf("upsert github connector a: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctxB, TenancyConnector{
+		WorkspaceID: "workspace-b",
+		ProjectID:   "project-b",
+		ConnectorID: "github-b",
+		Type:        domain.ConnectorTypeGitHub,
+		DisplayName: "GitHub B",
+		Status:      domain.ConnectorStatusActive,
+		UpdatedAt:   now,
+	}, TenancyConnectorState{
+		WorkspaceID:  "workspace-b",
+		ProjectID:    "project-b",
+		ConnectorID:  "github-b",
+		HealthStatus: "healthy",
+	}); err != nil {
+		t.Fatalf("upsert github connector b: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctxA, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-a",
+		ConnectorID: "aws-a",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "AWS A",
+		Status:      domain.ConnectorStatusActive,
+		UpdatedAt:   now,
+	}, TenancyConnectorState{
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-a",
+		ConnectorID:  "aws-a",
+		HealthStatus: "healthy",
+	}); err != nil {
+		t.Fatalf("upsert aws connector: %v", err)
+	}
+
+	connectors, err := store.ListAllTenancyConnectorsByType(context.Background(), domain.ConnectorTypeGitHub, 10)
+	if err != nil {
+		t.Fatalf("list all github connectors: %v", err)
+	}
+	if len(connectors) != 2 {
+		t.Fatalf("expected two github connectors, got %+v", connectors)
+	}
+	if connectors[0].Connector.ConnectorID != "github-b" || connectors[1].Connector.ConnectorID != "github-a" {
+		t.Fatalf("expected connectors ordered by recency, got %+v", connectors)
+	}
+
+	unlimited, err := store.ListAllTenancyConnectorsByType(context.Background(), domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		t.Fatalf("list all github connectors without limit: %v", err)
+	}
+	if len(unlimited) != 2 {
+		t.Fatalf("expected unlimited query to return both github connectors, got %+v", unlimited)
+	}
+}
+
 func TestMemoryStoreProjectReadsCloneArchivedPointer(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

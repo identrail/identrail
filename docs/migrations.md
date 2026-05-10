@@ -48,18 +48,22 @@ Current sequence in `migrations/`:
 2. `000002_scan_events` - scan lifecycle event stream
 3. `000003_repo_scans` - repo scan persistence tables
 4. `000004_performance_indexes` - baseline performance indexes
-5. `000005_async_job_queue` - queued scan execution tables/paths
-6. `000005_finding_workflow_maturity` - finding triage workflow maturity fields
-7. `000006_tenant_workspace_scope` - tenant/workspace scope columns and guards
-8. `000007_scope_guardrails_for_triage` - triage scope hardening
-9. `000008_postgres_rls_scope_guardrails` - Postgres RLS scope controls
-10. `000009_authz_abac_rebac_data` - central authz ABAC/REBAC data model
-11. `000010_authz_policy_lifecycle_controls` - policy lifecycle primitives
-12. `000011_authz_policy_rollout_staged_controls` - staged rollout controls
-13. `000012_tenancy_core_entities` - organization/workspace/member/project tenancy core
-14. `000013_connectors_state_scan_policies` - connector instances, connector runtime state, and scan policy persistence with scoped foreign-key integrity
-15. `000014_connector_secret_envelopes` - encrypted connector secret envelopes with scoped connector foreign keys and rotation index metadata
+5. `000005_finding_workflow_maturity` - finding triage workflow maturity fields
+6. `000006_tenant_workspace_scope` - tenant/workspace scope columns and guards
+7. `000007_scope_guardrails_for_triage` - triage scope hardening
+8. `000008_postgres_rls_scope_guardrails` - Postgres RLS scope controls
+9. `000009_authz_abac_rebac_data` - central authz ABAC/REBAC data model
+10. `000010_authz_policy_lifecycle_controls` - policy lifecycle primitives
+11. `000011_authz_policy_rollout_staged_controls` - staged rollout controls
+12. `000012_tenancy_core_entities` - organization/workspace/member/project tenancy core
+13. `000013_connectors_state_scan_policies` - connector instances, connector runtime state, and scan policy persistence with scoped foreign-key integrity
+14. `000014_connector_secret_envelopes` - encrypted connector secret envelopes with scoped connector foreign keys and rotation index metadata
+15. `000015_async_job_queue` - queued scan execution tables/paths
+16. `000015_db_constraints_guardrails` - database status, identifier, and non-negative counter constraints
+17. `000015_tenancy_connector_rls_scope_enforcement` - enforced tenant/workspace row-level security policies
+18. `000015_tenancy_connector_rls_scope_guardrails` - additive tenant/workspace row-level security guardrails
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.
 - Duplicate numeric prefixes are historical and preserved to avoid reordering risk.
+- Numeric migration versions are unique and tracked in `schema_migrations`.

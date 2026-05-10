@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PageHero } from '../components/ui/PageHero';
+import { PricingHeroVisual } from '../components/ui/HeroVisuals';
 import { LinkButton } from '../components/ui/Button';
 import { Section, SectionHeader } from '../components/ui/Section';
 import { CtaBanner } from '../components/CtaBanner';
@@ -183,6 +184,7 @@ export function PricingPage() {
         eyebrow="Pricing"
         title="Honest pricing for an open-core security tool."
         lede="Free if you self-host. Cheap if you don't. Custom only when scope genuinely requires it."
+        visual={<PricingHeroVisual />}
         actions={
           <div className="row" style={{ gap: 'var(--space-4)' }}>
             {/*

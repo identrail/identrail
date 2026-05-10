@@ -2,10 +2,12 @@ package repoexposure
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -139,34 +141,35 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 	seen := map[string]struct{}{}
 	truncated := false
 
-	for _, commit := range commits {
-		if err := ctx.Err(); err != nil {
-			return ScanResult{}, err
-		}
-		patch, patchErr := s.git(ctx, location, "show", "--no-color", "--unified=0", "--format=", commit)
-		if patchErr != nil {
-			return ScanResult{}, fmt.Errorf("scan commit %s: %w", commit, patchErr)
-		}
-		for _, added := range parseAddedLines(patch) {
-			secretFindings := detectSecretFindings(location.Display, commit, added.Path, added.Line, added.Text, started)
-			for _, finding := range secretFindings {
-				if _, exists := seen[finding.ID]; exists {
-					continue
-				}
-				seen[finding.ID] = struct{}{}
-				findings = append(findings, finding)
-				if len(findings) >= s.maxFindings {
-					truncated = true
-					break
-				}
+	logArgs := []string{"log", "--all", "--max-count", strconv.Itoa(s.historyLimit), "--no-color", "--unified=0", "--format=commit:%H", "-p"}
+	historyReader, waitLog, logErr := s.gitStream(ctx, location, logArgs...)
+	if logErr != nil {
+		return ScanResult{}, fmt.Errorf("scan commit history: %w", logErr)
+	}
+	scanErr := scanHistoryLines(ctx, historyReader, func(added addedLine) bool {
+		secretFindings := detectSecretFindings(location.Display, added.Commit, added.Path, added.Line, added.Text, started)
+		for _, finding := range secretFindings {
+			if _, exists := seen[finding.ID]; exists {
+				continue
 			}
-			if truncated {
-				break
+			seen[finding.ID] = struct{}{}
+			findings = append(findings, finding)
+			if len(findings) >= s.maxFindings {
+				truncated = true
+				return false
 			}
 		}
-		if truncated {
-			break
-		}
+		return true
+	})
+	waitErr := waitLog()
+	if ctx.Err() != nil {
+		return ScanResult{}, ctx.Err()
+	}
+	if scanErr != nil && !truncated {
+		return ScanResult{}, fmt.Errorf("scan commit history: %w", scanErr)
+	}
+	if waitErr != nil && !truncated {
+		return ScanResult{}, fmt.Errorf("scan commit history: %w", waitErr)
 	}
 
 	filesScanned := 0
@@ -308,17 +311,128 @@ func (s *Scanner) git(ctx context.Context, repo repositoryLocation, args ...stri
 	return output, nil
 }
 
+// gitStream starts a git command and returns a streaming reader for its stdout.
+// The caller must call the returned wait function to release process resources.
+func (s *Scanner) gitStream(ctx context.Context, repo repositoryLocation, args ...string) (io.ReadCloser, func() error, error) {
+	var invocation []string
+	if repo.Bare {
+		invocation = append([]string{"--git-dir", repo.Path}, args...)
+	} else {
+		invocation = append([]string{"-C", repo.Path}, args...)
+	}
+	cmd := exec.CommandContext(ctx, "git", invocation...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	wait := func() error {
+		_ = stdout.Close()
+		if err := cmd.Wait(); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if msg := strings.TrimSpace(stderr.String()); msg != "" {
+				return fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
+			}
+			return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		}
+		return nil
+	}
+	return stdout, wait, nil
+}
+
+// scanHistoryLines streams git log -p output from r, calling fn for each added line.
+// fn should return true to continue processing or false to stop early.
+// ctx cancellation is checked before each line and causes an early return.
+func scanHistoryLines(ctx context.Context, r io.Reader, fn func(addedLine) bool) error {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+
+	currentCommit := ""
+	currentPath := ""
+	currentLine := 0
+	inHunk := false
+
+	for sc.Scan() {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "commit:"):
+			currentCommit = strings.TrimSpace(strings.TrimPrefix(line, "commit:"))
+			currentPath = ""
+			currentLine = 0
+			inHunk = false
+		case strings.HasPrefix(line, "diff --git "):
+			currentPath = parseDiffPath(line)
+			currentLine = 0
+			inHunk = false
+		case strings.HasPrefix(line, "@@ "):
+			match := hunkHeaderPattern.FindStringSubmatch(line)
+			if len(match) != 2 {
+				inHunk = false
+				continue
+			}
+			parsed, err := strconv.Atoi(match[1])
+			if err != nil || parsed < 1 {
+				inHunk = false
+				continue
+			}
+			currentLine = parsed
+			inHunk = true
+		default:
+			if !inHunk {
+				continue
+			}
+			if strings.HasPrefix(line, "+") {
+				if strings.HasPrefix(line, "+++") {
+					continue
+				}
+				if currentPath != "" && currentLine > 0 {
+					if !fn(addedLine{
+						Commit: currentCommit,
+						Path:   currentPath,
+						Line:   currentLine,
+						Text:   strings.TrimSpace(strings.TrimPrefix(line, "+")),
+					}) {
+						return nil
+					}
+				}
+				currentLine++
+				continue
+			}
+			if strings.HasPrefix(line, " ") {
+				currentLine++
+				continue
+			}
+		}
+	}
+	return sc.Err()
+}
+
 type addedLine struct {
-	Path string
-	Line int
-	Text string
+	Commit string
+	Path   string
+	Line   int
+	Text   string
 }
 
 func parseAddedLines(patch []byte) []addedLine {
+	return parseHistoryAddedLines(patch)
+}
+
+func parseHistoryAddedLines(patch []byte) []addedLine {
 	scanner := bufio.NewScanner(strings.NewReader(string(patch)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	lines := []addedLine{}
 
+	currentCommit := ""
 	currentPath := ""
 	currentLine := 0
 	inHunk := false
@@ -326,6 +440,11 @@ func parseAddedLines(patch []byte) []addedLine {
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		case strings.HasPrefix(line, "commit:"):
+			currentCommit = strings.TrimSpace(strings.TrimPrefix(line, "commit:"))
+			currentPath = ""
+			currentLine = 0
+			inHunk = false
 		case strings.HasPrefix(line, "diff --git "):
 			currentPath = parseDiffPath(line)
 			currentLine = 0
@@ -353,9 +472,10 @@ func parseAddedLines(patch []byte) []addedLine {
 				}
 				if currentPath != "" && currentLine > 0 {
 					lines = append(lines, addedLine{
-						Path: currentPath,
-						Line: currentLine,
-						Text: strings.TrimSpace(strings.TrimPrefix(line, "+")),
+						Commit: currentCommit,
+						Path:   currentPath,
+						Line:   currentLine,
+						Text:   strings.TrimSpace(strings.TrimPrefix(line, "+")),
 					})
 				}
 				currentLine++

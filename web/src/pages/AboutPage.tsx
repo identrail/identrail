@@ -1,4 +1,5 @@
 import { PageHero } from '../components/ui/PageHero';
+import { CompanyHeroVisual } from '../components/ui/HeroVisuals';
 import { ArrowLink } from '../components/ui/Button';
 import { Section, SectionHeader } from '../components/ui/Section';
 import { CtaBanner } from '../components/CtaBanner';
@@ -40,6 +41,7 @@ export function AboutPage() {
           </h1>
         }
         lede="A founder note, the principles we build under, and an honest read on where we are today."
+        visual={<CompanyHeroVisual />}
       />
 
       <Section>
@@ -154,8 +156,8 @@ export function AboutPage() {
                 pen-test history yet, public when it lands.
               </li>
               <li>
-                <strong style={{ color: 'var(--text-primary)' }}>Code review:</strong> every PR is read by Cubic
-                and OpenAI Codex before merge, in addition to human review.
+                <strong style={{ color: 'var(--text-primary)' }}>Code review:</strong> every PR must pass signed
+                commits, tests, security checks, and human review before merge.
               </li>
             </ul>
           </div>

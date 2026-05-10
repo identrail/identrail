@@ -15,16 +15,18 @@ import (
 
 // MemoryStore is a concurrency-safe in-memory persistence adapter.
 type MemoryStore struct {
-	mu           sync.RWMutex
-	scans        map[string]ScanRecord
-	scanIDs      []string
-	findings     map[string]domain.Finding
-	triageStates map[string]FindingTriageState
-	triageEvents map[string][]FindingTriageEvent
-	events       map[string][]ScanEvent
-	repoScans    map[string]RepoScanRecord
-	repoScanIDs  []string
-	repoFindings map[string]domain.Finding
+	mu             sync.RWMutex
+	scans          map[string]ScanRecord
+	scanIDs        []string
+	findings       map[string]domain.Finding
+	scanFindings   map[string][]string
+	triageStates   map[string]FindingTriageState
+	triageEvents   map[string][]FindingTriageEvent
+	events         map[string][]ScanEvent
+	repoScans      map[string]RepoScanRecord
+	repoScanIDs    []string
+	repoFindings   map[string]domain.Finding
+	repoFindingIDs map[string][]string
 
 	rawAssets     map[string]providers.RawAsset
 	authzAttrs    map[string]AuthzEntityAttributes
@@ -50,15 +52,17 @@ type MemoryStore struct {
 // NewMemoryStore initializes an empty in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		scans:        map[string]ScanRecord{},
-		scanIDs:      []string{},
-		findings:     map[string]domain.Finding{},
-		triageStates: map[string]FindingTriageState{},
-		triageEvents: map[string][]FindingTriageEvent{},
-		events:       map[string][]ScanEvent{},
-		repoScans:    map[string]RepoScanRecord{},
-		repoScanIDs:  []string{},
-		repoFindings: map[string]domain.Finding{},
+		scans:          map[string]ScanRecord{},
+		scanIDs:        []string{},
+		findings:       map[string]domain.Finding{},
+		scanFindings:   map[string][]string{},
+		triageStates:   map[string]FindingTriageState{},
+		triageEvents:   map[string][]FindingTriageEvent{},
+		events:         map[string][]ScanEvent{},
+		repoScans:      map[string]RepoScanRecord{},
+		repoScanIDs:    []string{},
+		repoFindings:   map[string]domain.Finding{},
+		repoFindingIDs: map[string][]string{},
 
 		rawAssets:     map[string]providers.RawAsset{},
 		authzAttrs:    map[string]AuthzEntityAttributes{},
@@ -79,6 +83,90 @@ func NewMemoryStore() *MemoryStore {
 		policies:      map[string]domain.Policy{},
 		relationships: map[string]domain.Relationship{},
 		permissions:   map[string]providers.PermissionTuple{},
+	}
+}
+
+func appendUniqueID(items []string, id string) []string {
+	for _, existing := range items {
+		if existing == id {
+			return items
+		}
+	}
+	return append(items, id)
+}
+
+func sortFindingsForQuery(items []domain.Finding, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch strings.ToLower(strings.TrimSpace(sortBy)) {
+		case "severity":
+			cmp = compareMemoryInt(severityRank(left.Severity), severityRank(right.Severity))
+		case "type":
+			cmp = compareMemoryString(string(left.Type), string(right.Type))
+		case "title":
+			cmp = compareMemoryString(left.Title, right.Title)
+		default:
+			cmp = compareMemoryTime(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareMemoryString(left.ID, right.ID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func compareMemoryTime(left time.Time, right time.Time) int {
+	switch {
+	case left.Before(right):
+		return -1
+	case left.After(right):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareMemoryString(left string, right string) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareMemoryInt(left int, right int) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func severityRank(severity domain.FindingSeverity) int {
+	switch severity {
+	case domain.SeverityCritical:
+		return 5
+	case domain.SeverityHigh:
+		return 4
+	case domain.SeverityMedium:
+		return 3
+	case domain.SeverityLow:
+		return 2
+	case domain.SeverityInfo:
+		return 1
+	default:
+		return 0
 	}
 }
 
@@ -310,6 +398,7 @@ func (m *MemoryStore) UpsertFindings(ctx context.Context, scanID string, finding
 		finding.ScanID = scanID
 		key := scanID + "|" + finding.ID
 		m.findings[key] = finding
+		m.scanFindings[scanID] = appendUniqueID(m.scanFindings[scanID], key)
 	}
 	return nil
 }
@@ -638,9 +727,11 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 		return nil, ErrNotFound
 	}
 
-	result := []domain.Finding{}
-	for _, finding := range m.findings {
-		if finding.ScanID != scanID {
+	keys := m.scanFindings[scanID]
+	result := make([]domain.Finding, 0, len(keys))
+	for _, key := range keys {
+		finding, exists := m.findings[key]
+		if !exists {
 			continue
 		}
 		result = append(result, finding)
@@ -790,6 +881,117 @@ func (m *MemoryStore) GetFinding(ctx context.Context, findingID string, scanID s
 		return latest, nil
 	}
 	return domain.Finding{}, ErrNotFound
+}
+
+// ListFindingMetasByScan returns lightweight finding metadata for one scan.
+func (m *MemoryStore) ListFindingMetasByScan(ctx context.Context, scanID string) ([]FindingMeta, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scan, exists := m.scans[scanID]
+	if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+		return nil, ErrNotFound
+	}
+	keys := m.scanFindings[scanID]
+	metas := make([]FindingMeta, 0, len(keys))
+	for _, key := range keys {
+		finding, exists := m.findings[key]
+		if !exists {
+			continue
+		}
+		metas = append(metas, FindingMeta{
+			ID:        finding.ID,
+			ScanID:    finding.ScanID,
+			Severity:  string(finding.Severity),
+			Type:      string(finding.Type),
+			CreatedAt: finding.CreatedAt,
+		})
+	}
+	return metas, nil
+}
+
+// ListFindingsByScanAndIDs returns detailed findings for one scan and ID set.
+func (m *MemoryStore) ListFindingsByScanAndIDs(ctx context.Context, scanID string, findingIDs []string) ([]domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scan, exists := m.scans[scanID]
+	if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+		return nil, ErrNotFound
+	}
+	result := make([]domain.Finding, 0, len(findingIDs))
+	seen := map[string]struct{}{}
+	for _, findingID := range findingIDs {
+		normalizedID := strings.TrimSpace(findingID)
+		if normalizedID == "" {
+			continue
+		}
+		if _, exists := seen[normalizedID]; exists {
+			continue
+		}
+		seen[normalizedID] = struct{}{}
+		finding, exists := m.findings[scanID+"|"+normalizedID]
+		if !exists {
+			continue
+		}
+		result = append(result, finding)
+	}
+	return result, nil
+}
+
+// ListFindingTrendCounts aggregates findings by scan and severity.
+func (m *MemoryStore) ListFindingTrendCounts(ctx context.Context, scanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalizedSeverity := strings.ToLower(strings.TrimSpace(severity))
+	normalizedType := strings.ToLower(strings.TrimSpace(findingType))
+	result := make([]FindingTrendCount, 0, len(scanIDs))
+	for _, scanID := range scanIDs {
+		scan, exists := m.scans[scanID]
+		if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+			continue
+		}
+		counts := map[string]int{}
+		for _, key := range m.scanFindings[scanID] {
+			finding, exists := m.findings[key]
+			if !exists {
+				continue
+			}
+			if normalizedSeverity != "" && strings.ToLower(string(finding.Severity)) != normalizedSeverity {
+				continue
+			}
+			if normalizedType != "" && strings.ToLower(string(finding.Type)) != normalizedType {
+				continue
+			}
+			counts[string(finding.Severity)]++
+		}
+		if len(counts) == 0 {
+			result = append(result, FindingTrendCount{ScanID: scanID, StartedAt: scan.StartedAt})
+			continue
+		}
+		for severityKey, count := range counts {
+			result = append(result, FindingTrendCount{
+				ScanID:     scanID,
+				StartedAt:  scan.StartedAt,
+				Severity:   severityKey,
+				TotalCount: count,
+			})
+		}
+	}
+	return result, nil
 }
 
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
@@ -1711,6 +1913,7 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 		finding.ScanID = repoScanID
 		key := repoScanID + "|" + finding.ID
 		m.repoFindings[key] = finding
+		m.repoFindingIDs[repoScanID] = appendUniqueID(m.repoFindingIDs[repoScanID], key)
 	}
 	return nil
 }
@@ -1761,25 +1964,36 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
 
 	result := make([]domain.Finding, 0, len(m.repoFindings))
-	for _, finding := range m.repoFindings {
-		record, exists := m.repoScans[finding.ScanID]
-		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
-			continue
+	if repoScanID != "" {
+		for _, key := range m.repoFindingIDs[repoScanID] {
+			finding, exists := m.repoFindings[key]
+			if !exists {
+				continue
+			}
+			if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
+				continue
+			}
+			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
+				continue
+			}
+			result = append(result, finding)
 		}
-		if repoScanID != "" && finding.ScanID != repoScanID {
-			continue
+	} else {
+		for _, finding := range m.repoFindings {
+			record, exists := m.repoScans[finding.ScanID]
+			if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+				continue
+			}
+			if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
+				continue
+			}
+			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
+				continue
+			}
+			result = append(result, finding)
 		}
-		if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
-			continue
-		}
-		if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
-			continue
-		}
-		result = append(result, finding)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.After(result[j].CreatedAt)
-	})
+	sortFindingsForQuery(result, "created_at", true)
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]
 	}

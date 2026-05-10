@@ -53,11 +53,10 @@ export type NavLink = { to: string; label: string; external?: boolean };
 
 export const PRIMARY_NAV: readonly NavLink[] = [
   { to: '/product', label: 'Product' },
-  { to: '/for/security-teams', label: 'Solutions' },
-  { to: '/pricing', label: 'Pricing' },
   { to: '/docs', label: 'Docs' },
-  { to: '/blog', label: 'Blog' },
-  { to: '/about', label: 'Company' }
+  { to: '/about', label: 'Company' },
+  { to: '/pricing', label: 'Pricing' },
+  { to: '/blog', label: 'Blog' }
 ] as const;
 
 export const FOOTER_NAV: readonly { heading: string; links: readonly NavLink[] }[] = [
