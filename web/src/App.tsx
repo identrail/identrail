@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
+import { applyTheme, resolveInitialTheme, toggleTheme, type ThemeMode } from './lib/theme';
 import { useRouteSeo } from './lib/useRouteSeo';
 
 import { HomePage } from './pages/HomePage';
@@ -46,10 +48,15 @@ export function RoutedSite() {
   useRouteSeo();
   const location = useLocation();
   const isDashboard = location.pathname.startsWith('/app');
+  const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
 
   return (
     <div className="site-shell">
-      {!isDashboard ? <Header /> : null}
+      {!isDashboard ? <Header theme={theme} onToggleTheme={() => setTheme((current) => toggleTheme(current))} /> : null}
 
       <main id="main-content">
         <Routes>

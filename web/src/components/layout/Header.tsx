@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Logo } from '../ui/Logo';
 import { LinkButton } from '../ui/Button';
-import { MenuIcon, XCloseIcon } from '../ui/Icon';
+import { MenuIcon, MoonIcon, SunIcon, XCloseIcon } from '../ui/Icon';
+import { type ThemeMode } from '../../lib/theme';
 import { PRIMARY_NAV } from '../../siteConfig';
 
 const FOCUSABLE_SELECTOR = [
@@ -21,12 +22,22 @@ const FOCUSABLE_SELECTOR = [
  * preserved as a back-compat shim for any caller that still passes
  * `navLinks` / `githubRepo` from the legacy App.tsx — they are ignored.
  */
-export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: string }>; githubRepo?: string }) {
+export function Header({
+  theme,
+  onToggleTheme
+}: {
+  theme: ThemeMode;
+  onToggleTheme: () => void;
+  navLinks?: ReadonlyArray<{ to: string; label: string }>;
+  githubRepo?: string;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const location = useLocation();
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const toggleLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  const ThemeIcon = theme === 'dark' ? SunIcon : MoonIcon;
 
   // Close menu on route change.
   useEffect(() => {
@@ -132,6 +143,15 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
           </nav>
 
           <div className="site-header-cta">
+            <button
+              type="button"
+              className="site-theme-toggle is-desktop"
+              onClick={onToggleTheme}
+              aria-label={toggleLabel}
+              title={toggleLabel}
+            >
+              <ThemeIcon />
+            </button>
             <Link to="/app/login" className="btn btn-ghost btn-sm is-desktop">
               Sign in
             </Link>
@@ -185,6 +205,10 @@ export function Header(_props?: { navLinks?: ReadonlyArray<{ to: string; label: 
             </Link>
           </nav>
           <div className="site-mobile-menu-foot">
+            <button type="button" className="site-theme-toggle" onClick={onToggleTheme} aria-label={toggleLabel}>
+              <ThemeIcon />
+              <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+            </button>
             <LinkButton to="/demo" variant="primary" size="lg" block>
               Book a demo
             </LinkButton>
