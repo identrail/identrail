@@ -248,6 +248,8 @@ func writeSimulationAuditEvent(logger *zap.Logger, sink audit.AuditSink, fingerp
 	event := audit.AuditEvent{
 		Timestamp:     time.Now().UTC(),
 		Kind:          "api_request",
+		Component:     "api",
+		Category:      "simulation",
 		Actor:         actor,
 		CorrelationID: correlationID,
 		Method:        "SIMULATE",
@@ -260,7 +262,7 @@ func writeSimulationAuditEvent(logger *zap.Logger, sink audit.AuditSink, fingerp
 	if apiKey := authContextString(c, "auth.api_key"); apiKey != "" {
 		event.APIKeyID = fingerprintAPIKeyWith(fingerprinter, apiKey)
 	}
-	if err := sink.Write(ctx, event); err != nil {
+	if err := sink.Write(ctx, audit.NormalizeEvent(ctx, event)); err != nil {
 		logger.Warn("authz simulation audit write failed", telemetry.ZapError(err))
 	}
 }

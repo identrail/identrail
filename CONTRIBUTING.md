@@ -18,24 +18,24 @@ Good contributions include:
 ## Ways to Contribute
 
 - **Open an issue** to report a bug, request a feature, or suggest an improvement.
-  
+
 - **Pick up an existing issue** if you want to contribute code, documentation, tests, or cleanup work.
 
 - **Report bugs clearly** by including reproduction steps, expected behavior, actual behavior, environment details, and any relevant logs or screenshots.
-  
+
 - **Link pull requests to issues** by starting your PR description with a closing keyword and issue number, such as `Fixes #500`, `Closes #500`, or `Resolves #500`. This automatically connects the PR to the related issue and helps keep project tracking clean.
-  
+
 - **Propose enhancements** with a clear problem statement, why it matters, and a suggested approach if you have one.
-  
+
 - **Submit focused pull requests** that address one issue or improvement at a time. Include tests and documentation updates when relevant.
-  
+
 - **Improve documentation and runbooks** whenever behavior, setup steps, operations, or troubleshooting guidance changes.
 
-  
+
 ## Before You Start
 
 Prerequisites:
-- Go `1.25.8` (see `go.mod`)
+- Go `1.25.9` (see `go.mod`)
 - Node.js `24` for `web/`
 - Docker for local Compose and image validation
 - PostgreSQL (or Docker) for integration test flows
@@ -176,7 +176,7 @@ Use GitHub private vulnerability reporting for this repository. If unavailable, 
 
 Be respectful and constructive in all interactions.
 
-A dedicated `CODE_OF_CONDUCT.md` may be added separately. Until then, maintain professional and inclusive communication in issues, discussions, and PR reviews.
+See [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) for contributor behavior expectations in issues, discussions, and PR reviews.
 
 ## License
 

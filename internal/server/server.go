@@ -85,7 +85,11 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 			_ = logger.Sync()
 			return Bootstrap{}, fmt.Errorf("initialize audit forward sink: %w", sinkErr)
 		}
-		auditSinks = append(auditSinks, forwardSink)
+		asyncSink := audit.NewAsyncAuditSink(forwardSink, 256)
+		asyncSink.WithWriteErrorHandler(func(err error) {
+			logger.Warn("audit forward delivery failed", telemetry.ZapError(err))
+		})
+		auditSinks = append(auditSinks, asyncSink)
 	}
 	auditSink := audit.AuditSink(audit.NopAuditSink{})
 	if len(auditSinks) == 1 {
@@ -122,20 +126,21 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 	}
 
 	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
-		APIKeys:            cfg.APIKeys,
-		WriteAPIKeys:       cfg.WriteAPIKeys,
-		APIKeyScopes:       cfg.APIKeyScopes,
-		OIDCTokenVerifier:  tokenVerifier,
-		OIDCWriteScopes:    cfg.OIDCWriteScopes,
-		RateLimitRPM:       cfg.RateLimitRPM,
-		RateLimitBurst:     cfg.RateLimitBurst,
-		MetricsAPIKey:      cfg.MetricsAPIKey,
-		AuditSink:          auditSink,
-		AuditFingerprinter: auditFingerprinter,
-		TrustedProxies:     cfg.TrustedProxies,
-		CORSAllowedOrigins: cfg.CORSAllowedOrigins,
-		DefaultTenantID:    cfg.DefaultTenantID,
-		DefaultWorkspaceID: cfg.DefaultWorkspaceID,
+		APIKeys:              cfg.APIKeys,
+		WriteAPIKeys:         cfg.WriteAPIKeys,
+		APIKeyScopes:         cfg.APIKeyScopes,
+		APIKeyScopeBindings:  cfg.APIKeyScopeBindings,
+		OIDCTokenVerifier:    tokenVerifier,
+		OIDCWriteScopes:      cfg.OIDCWriteScopes,
+		RateLimitRPM:         cfg.RateLimitRPM,
+		RateLimitBurst:       cfg.RateLimitBurst,
+		AuditSink:            auditSink,
+		AuditFingerprinter:   auditFingerprinter,
+		TrustedProxies:       cfg.TrustedProxies,
+		CORSAllowedOrigins:   cfg.CORSAllowedOrigins,
+		DefaultTenantID:      cfg.DefaultTenantID,
+		DefaultWorkspaceID:   cfg.DefaultWorkspaceID,
+		RequireExplicitScope: cfg.RequireExplicitScope,
 	})
 	return Bootstrap{
 		Logger:        logger,
@@ -172,7 +177,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	}()
 	defer func() {
 		if bootstrap.AuditClose != nil {
-			_ = bootstrap.AuditClose()
+			if err := bootstrap.AuditClose(); err != nil {
+				bootstrap.Logger.Error("close audit sink", telemetry.ZapError(err))
+			}
 		}
 	}()
 	defer func() {

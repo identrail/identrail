@@ -24,3 +24,13 @@ func TestZapFieldHelpers(t *testing.T) {
 		t.Fatalf("unexpected error key: %q", f.Key)
 	}
 }
+
+func TestStandardLogFieldsAddsStableContext(t *testing.T) {
+	fields := StandardLogFields("api", "api_request", String("request_id", "req-1"))
+	if len(fields) != 3 {
+		t.Fatalf("expected three fields, got %d", len(fields))
+	}
+	if fields[0].Key != "component" || fields[1].Key != "operation" || fields[2].Key != "request_id" {
+		t.Fatalf("unexpected field keys: %+v", fields)
+	}
+}

@@ -1,0 +1,7 @@
+ALTER TABLE scans
+	ADD COLUMN IF NOT EXISTS trace_parent TEXT,
+	ADD COLUMN IF NOT EXISTS trace_state TEXT;
+
+ALTER TABLE repo_scans
+	ADD COLUMN IF NOT EXISTS trace_parent TEXT,
+	ADD COLUMN IF NOT EXISTS trace_state TEXT;
