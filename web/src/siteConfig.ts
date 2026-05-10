@@ -9,9 +9,9 @@
 export const SITE_URL = 'https://www.identrail.com';
 export const SITE_NAME = 'Identrail';
 
-export const TAGLINE = 'Trace every machine identity. Close the dangerous paths safely.';
+export const TAGLINE = 'See every machine identity path. Fix the risky ones safely.';
 export const SHORT_DESCRIPTION =
-  'Identrail traces every path a machine identity can take to your data - across AWS IAM, Kubernetes, GitHub Actions and OIDC - and shows how to close the dangerous ones safely.';
+  'Identrail shows how AWS IAM, Kubernetes, and GitHub OIDC paths reach sensitive systems, then gives teams the safest fix.';
 
 export const GITHUB_ORG = 'https://github.com/identrail';
 export const GITHUB_REPO = 'https://github.com/identrail/identrail';

@@ -1,6 +1,23 @@
 import type { ReactNode } from 'react';
 
 const pathSteps = ['GitHub OIDC', 'AWS IAM IdP', 'billing-prod role', 'PostgreSQL ledger'];
+const evidenceRows = [
+  {
+    label: '01',
+    title: 'GitHub OIDC token verified',
+    detail: 'repo: payments-api / deploy-production.yml'
+  },
+  {
+    label: '02',
+    title: 'AssumeRole path detected',
+    detail: 'sts:AssumeRole reaches billing-prod in 4 hops'
+  },
+  {
+    label: '03',
+    title: 'Safe fix simulated',
+    detail: 'Restrict subject claim without workload breakage'
+  }
+];
 
 function WindowChrome({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -28,10 +45,15 @@ export function ProductHeroVisual() {
           <div className="hero-visual-main">
             <div className="hero-visual-row">
               <div>
-                <span className="hero-visual-kicker">Production workspace</span>
-                <h3>Reachable risk path</h3>
+                <span className="hero-visual-kicker">Live trust path</span>
+                <h3>billing-prod is reachable</h3>
               </div>
               <span className="hero-visual-badge is-danger">Critical</span>
+            </div>
+            <div className="hero-visual-meta" aria-label="Risk path summary">
+              <span>4 hops</span>
+              <span>Owner matched</span>
+              <span>Fix simulated</span>
             </div>
             <div className="hero-path" aria-label="Resolved trust path">
               {pathSteps.map((step, index) => (
@@ -45,11 +67,24 @@ export function ProductHeroVisual() {
               <div className="hero-visual-metric">
                 <span>Owner</span>
                 <strong>payments-api</strong>
+                <small>Platform / production</small>
               </div>
               <div className="hero-visual-metric">
                 <span>Fix</span>
                 <strong>Restrict subject claim</strong>
+                <small>Safe in simulation</small>
               </div>
+            </div>
+            <div className="hero-evidence-list" aria-label="Evidence trail">
+              {evidenceRows.map((row) => (
+                <article key={row.label}>
+                  <span>{row.label}</span>
+                  <div>
+                    <strong>{row.title}</strong>
+                    <small>{row.detail}</small>
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
         </div>

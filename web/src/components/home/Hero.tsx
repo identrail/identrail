@@ -20,13 +20,12 @@ export function HomeHero() {
               Open core · Apache 2.0
             </Pill>
             <h1 className="u-mt-4">
-              Trace every machine identity.<br />
-              <em>Close the dangerous paths</em> safely.
+              See every machine identity path.<br />
+              <em>Fix the risky ones</em> safely.
             </h1>
             <p className="t-lede">
-              Identrail follows how AWS roles, Kubernetes service accounts, GitHub OIDC and trust
-              policies can reach your data — and shows the smallest, safest fix for the people who
-              own each step of the path.
+              Identrail shows how AWS IAM, Kubernetes, and GitHub OIDC paths reach sensitive
+              systems, then gives each team the safest fix.
             </p>
             <div className="home-hero-actions">
               <LinkButton to="/demo" variant="primary" size="lg">

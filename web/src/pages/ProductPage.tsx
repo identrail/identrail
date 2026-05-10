@@ -62,15 +62,16 @@ export function ProductPage() {
   return (
     <>
       <PageHero
+        className="page-hero-product"
         eyebrow="Product"
         title={
           <h1>
-            One platform for machine identity
+            See every machine identity path.
             <br />
-            <span style={{ color: 'var(--text-muted)' }}>discovery, detection and rollout-safe control.</span>
+            <span style={{ color: 'var(--text-muted)' }}>Fix the ones that matter.</span>
           </h1>
         }
-        lede="Identrail does the three things every team is currently stitching together with scripts and CSVs: see every identity, prioritise the ones that can reach something dangerous, and remediate without breaking production."
+        lede="Identrail maps reachable access across AWS IAM, Kubernetes, and GitHub OIDC, then shows the safest fix before you ship it."
         visual={<ProductHeroVisual />}
         actions={
           <>
