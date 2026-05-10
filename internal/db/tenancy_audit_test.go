@@ -56,8 +56,26 @@ func TestTenancyStoreEmitsAuditEventsWithoutSecrets(t *testing.T) {
 		if event.CorrelationID == "" {
 			t.Fatalf("expected correlation id, got %+v", event)
 		}
-		if event.Actor != "subject:test-user" {
-			t.Fatalf("expected actor, got %+v", event)
+		if event.Actor == "subject:test-user" {
+			t.Fatalf("expected sanitized actor, got %+v", event)
+		}
+		if !strings.HasPrefix(event.Actor, "subject:fnv64a:") {
+			t.Fatalf("expected hashed actor format, got %+v", event)
+		}
+		if event.ResourceID == "tenant-a" || event.ResourceID == "workspace-a" {
+			t.Fatalf("expected sanitized resource id, got %+v", event)
+		}
+		if !strings.HasPrefix(event.ResourceID, "fnv64a:") {
+			t.Fatalf("expected hashed resource id, got %+v", event)
+		}
+		if event.TenantID == "tenant-a" || event.WorkspaceID == "workspace-a" {
+			t.Fatalf("expected sanitized scope ids, got %+v", event)
+		}
+		if strings.TrimSpace(event.TenantID) != "" && !strings.HasPrefix(event.TenantID, "fnv64a:") {
+			t.Fatalf("expected hashed tenant scope id, got %+v", event)
+		}
+		if strings.TrimSpace(event.WorkspaceID) != "" && !strings.HasPrefix(event.WorkspaceID, "fnv64a:") {
+			t.Fatalf("expected hashed workspace scope id, got %+v", event)
 		}
 	}
 

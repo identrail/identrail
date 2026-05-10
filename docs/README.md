@@ -34,6 +34,11 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AuthZ rollout lifecycle: `authz-policy-rollout-runbook.md`
 - Security hardening guidance: `security-hardening.md`
 
+## Auth and identity foundation
+
+- Architecture and contracts: `auth/README.md`
+- The twelve-PR delivery sequence: `auth/12-pr-plan.md`
+
 ## API and developer track
 
 - API contract (OpenAPI): `openapi-v1.yaml`

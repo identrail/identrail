@@ -19,6 +19,8 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
 - This value should be the public HTTPS base URL of the Identrail API service (not the website URL).
 - Typical value shape: `https://api.<your-domain>`
 - If the API is served from the same domain via reverse proxy, use that public API base path.
+- Configure the API deployment with `IDENTRAIL_CORS_ALLOWED_ORIGINS` set to the web app origin when the frontend and API use different origins.
+- The default Vercel CSP allows `https://api.identrail.io`; update `connect-src` when using a custom API host.
 
 ### Where to configure it
 
@@ -29,7 +31,7 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
    - `Project` -> `Settings` -> `Environment Variables`
    - Add `VITE_IDENTRAIL_API_URL` for Production (and Preview if needed)
 
-If GitHub Actions variable is missing, workflow upsert is skipped. Deploy may still succeed when Vercel already has the env var set manually.
+If the GitHub Actions variable is missing, the production deploy workflow fails before deployment so the web app cannot ship without an explicit API URL.
 
 ## `site/` (legacy Next.js marketing surface)
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=Identrail database migrations
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=identrail
+Group=identrail
+EnvironmentFile=/etc/identrail/identrail.env
+WorkingDirectory=/opt/identrail
+ExecStart=/usr/bin/env IDENTRAIL_RUN_MIGRATIONS=true IDENTRAIL_RUN_MIGRATIONS_ONLY=true /usr/local/bin/identrail-server
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/identrail
+LimitNOFILE=65535

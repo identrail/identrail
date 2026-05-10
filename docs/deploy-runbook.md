@@ -19,18 +19,28 @@ Portable deployment profiles:
 ## 1) Pre-Deploy Checklist
 
 - Confirm `IDENTRAIL_DATABASE_URL` points to target environment.
+- Confirm `IDENTRAIL_ALLOW_MEMORY_STORE=false`; only disposable local runs should opt into in-memory persistence.
+- Confirm production collectors use live sources:
+  - `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`
+  - AWS: `IDENTRAIL_AWS_SOURCE=sdk`
+  - Kubernetes: `IDENTRAIL_K8S_SOURCE=kubectl`
 - Confirm migrations path is correct (`IDENTRAIL_MIGRATIONS_DIR`).
 - Confirm shared API/worker config keeps `IDENTRAIL_RUN_MIGRATIONS=false`.
 - Confirm lock backend for deployment shape:
   - single instance: `IDENTRAIL_LOCK_BACKEND=inmemory` or `auto`
   - multi-instance: `IDENTRAIL_LOCK_BACKEND=postgres`
   - set `IDENTRAIL_LOCK_NAMESPACE` to isolate lock domains between environments
-- Confirm API auth is configured:
-  - legacy: `IDENTRAIL_API_KEYS` (+ `IDENTRAIL_WRITE_API_KEYS`)
-  - scoped: `IDENTRAIL_API_KEY_SCOPES`
+- Confirm API auth is configured (OIDC or API keys); if using API keys, configure exactly one mode unless a deliberate migration requires overlap:
+  - scoped mode: `IDENTRAIL_API_KEY_SCOPES`
+  - legacy mode: `IDENTRAIL_API_KEYS` plus `IDENTRAIL_WRITE_API_KEYS`
 - Confirm default request scope values for non-claim/non-header contexts:
   - `IDENTRAIL_DEFAULT_TENANT_ID`
   - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
+- Confirm production APIs reject fallback scope:
+  - `IDENTRAIL_REQUIRE_EXPLICIT_SCOPE=true`
+- Confirm durable connector secret storage:
+  - `IDENTRAIL_CONNECTOR_SECRET_KEYS`
+  - `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true`
 - Confirm OIDC claim mapping when OIDC is enabled:
   - `IDENTRAIL_OIDC_TENANT_CLAIM`
   - `IDENTRAIL_OIDC_WORKSPACE_CLAIM`
@@ -50,6 +60,8 @@ Portable deployment profiles:
   - `IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES`
   - `IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF`
   - optional `IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET`
+- Confirm audit pseudonymization uses a keyed fingerprint:
+  - `IDENTRAIL_AUDIT_FINGERPRINT_SECRET`
 - If worker repo scans are enabled, confirm:
   - `IDENTRAIL_WORKER_REPO_SCAN_ENABLED=true`
   - `IDENTRAIL_WORKER_REPO_SCAN_TARGETS` has intended repositories
@@ -85,12 +97,34 @@ Portable deployment profiles:
 
 ## 3) Rollback Sequence
 
+Before any migration or rollback, capture a fresh Postgres backup or managed database
+snapshot for the target environment and record where the artifact can be restored from.
+
 1. Stop worker to avoid new writes during rollback.
 2. Roll back API to previous image.
 3. If schema rollback is required, apply matching down migration manually.
 4. Re-run health checks and one scan smoke test.
 
-## 4) Key Rotation
+## 4) Postgres Backup and Restore
+
+1. Configure recurring managed Postgres backups or scheduled `pg_dump` jobs for every
+   non-local environment.
+2. Before deploys that include migrations, run an explicit backup:
+   - `pg_dump --format=custom --file identrail-$(date +%Y%m%d%H%M%S).dump "$IDENTRAIL_DATABASE_URL"`
+3. Store backup artifacts in encrypted storage with access limited to operators who can
+   restore production data.
+4. Test restore drills on a non-production database at least once per release cycle:
+   - `createdb identrail_restore_test`
+   - `pg_restore --clean --if-exists --dbname identrail_restore_test identrail-<timestamp>.dump`
+5. After restore, verify:
+   - migrations table is present and at the expected version
+   - `GET /healthz` succeeds against the restored database
+   - one read-only findings query returns expected data
+6. Document recovery objectives for each environment:
+   - RPO: maximum acceptable data loss window
+   - RTO: maximum acceptable time to restore service
+
+## 5) Key Rotation
 
 1. Add new keys/scoped keys to environment.
 2. Deploy services.
@@ -98,14 +132,14 @@ Portable deployment profiles:
 4. Remove old keys.
 5. Deploy again.
 
-## 5) Alert Webhook Verification
+## 6) Alert Webhook Verification
 
 1. Trigger a scan that emits `high` or `critical` finding.
 2. Confirm webhook receiver gets payload.
 3. Confirm `X-Identrail-Signature` validation if secret is configured.
 4. If receiver is temporarily failing, confirm retries are visible in receiver logs.
 
-## 6) Incident Clues
+## 7) Incident Clues
 
 - For API activity trace: check audit log sink (`IDENTRAIL_AUDIT_LOG_FILE`).
 - For scan lifecycle: check `/v1/scans/:scan_id/events`.
