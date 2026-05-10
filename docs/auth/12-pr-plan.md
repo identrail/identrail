@@ -208,7 +208,7 @@ PR 5 (frontend auth)                 │
 **Pages.**
 - `/signin` and `/signup` are the same component, copy variants. Primary "Continue with GitHub" links to `/auth/login` or `/auth/signup`. Secondary "Continue with email" uses the same path with a hint. Footer link to `/why-no-passwords`.
 - `/auth/callback` is a branded loading state. Calls `GET /v1/me`, routes based on response.
-- `/app/account/security` lists active sessions (IP, UA, location, last seen, "current" badge), revoke per session, revoke all others. Last 30 auth events.
+- `/app/account/security` lists active sessions (IP, UA, location, last seen, "current" badge), revoke per session, revoke all others. The per-user auth-events feed is deferred to PR 12, which adds both the queryable read endpoint and the UI that consumes it; PR 5 leaves a labelled placeholder slot on the page that PR 12 wires up.
 
 **Manual mode visibility.** Frontend reads `GET /v1/auth/config`. If the backend says manual mode is enabled, the manual form renders alongside the OAuth options with a "Dev Mode" banner. Otherwise it does not render.
 
@@ -505,7 +505,7 @@ PR 5 (frontend auth)                 │
 
 **JIT fallback.** SAML user lands before SCIM has synced them: create user with default role from SAML attributes, audit warning.
 
-**Auth audit log UI.** Filter by user, action, time range, outcome. CSV export gated by `entitlements.audit_export_enabled`.
+**Auth audit log UI.** Org-admin view filterable by user, action, time range, outcome, with CSV export gated by `entitlements.audit_export_enabled`. The same PR ships the per-user feed at `/app/account/security` (the placeholder slot left by PR 5) backed by `GET /v1/me/auth-events?limit=30`. The query is authenticated against the calling session and scoped to that user's events only. Backing the feed requires a queryable persistence path for `audit.AuditEvent` records of `Action LIKE 'auth.%'`; the simplest implementation is to add an `audit_events` Postgres sink alongside the existing file/HTTP sinks and read from it. The migration that adds the `audit_events` table ships in this PR's `000021_org_entitlements.up.sql` migration to keep PR 12's schema work in one place.
 
 **Org-admin session management.** All active sessions across the org. Filter and revoke.
 

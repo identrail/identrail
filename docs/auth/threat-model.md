@@ -15,7 +15,7 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 3. `SameSite=Lax`. The cookie does not ride along with cross-site POSTs by default.
 4. The cookie value is opaque (an ID, not a token with claims). Possession of the cookie still requires the server's `sessions` row to exist and not be revoked.
 5. Sessions are server-side and revocable. An admin or the user can kill a session immediately from `/app/account/security`.
-6. Every authenticated request emits an audit event with IP and user agent. A session used from a suspicious second IP shows up in the user's "recent sign-ins" log.
+6. Every authenticated request emits an audit event with IP and user agent through the existing `audit.AuditEvent` pipeline. A queryable read path over those events lands in PR 12 (the audit log UI), at which point a session used from a suspicious second IP becomes visible to the user as part of the per-user audit feed. PR 5 displays sessions only and leaves the feed as a placeholder until PR 12 wires it up.
 
 **What we accept.** A determined attacker with persistent malware on the user's machine can replay the cookie until the session expires or is revoked. This is true of every cookie-based auth system. We mitigate the blast radius (revocation, audit visibility, idle timeout) rather than try to defeat the threat.
 

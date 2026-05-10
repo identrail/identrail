@@ -133,6 +133,7 @@ Session context includes `current_org_id`, `current_workspace_id`, and `current_
 | GET | `/v1/me/sessions` | PR 2 |
 | DELETE | `/v1/me/sessions/:id` | PR 2 |
 | POST | `/v1/me/sessions/revoke-others` | PR 2 |
+| GET | `/v1/me/auth-events` | PR 12 |
 | POST | `/auth/logout` | PR 2 |
 | GET | `/v1/auth/config` | PR 4 |
 
