@@ -98,9 +98,10 @@ Transition events:
 | active | scan or health failure | degraded |
 | degraded | next scan or health succeeds | active |
 | degraded | 6+ hours since last success | disconnected |
-| any | `disabled` set true | flag flips; lifecycle status unchanged |
+| pending, active, or degraded | `disabled` set true | flag flips; lifecycle status unchanged |
 | disabled (flag) | `disabled` cleared | flag flips; lifecycle status unchanged |
-| any | user disconnect | disconnected; row stays in place for audit (see "Disconnect Semantics" below) |
+| disconnected | `disabled` set true | rejected with 409; the connector must be reconnected first |
+| any | user disconnect | disconnected; the API also clears `disabled` to false in the same write so the disconnected-and-not-disabled invariant holds. The row stays in place for audit (see "Disconnect Semantics" below) |
 
 Every transition emits an audit event: `connector.<provider>.state.<from>_to_<to>` for lifecycle changes, `connector.<provider>.disabled.set` and `connector.<provider>.disabled.cleared` for the flag. Each event includes the reason (last error code, last error message).
 

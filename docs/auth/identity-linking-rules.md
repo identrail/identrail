@@ -77,7 +77,7 @@ Invitations are emailed to a specific address. The acceptance flow:
 2. Link goes to `/app/invite/<token>`.
 3. If the invitee is not signed in, they go through normal signup or sign-in first, then return to the invite.
 4. Once authenticated, the server checks: does the invitee's authenticated email (from their session, via `users.primary_email` or a `user_identities.email` with `email_verified=true`) match the invitation's target email?
-5. If yes, the invite is accepted. If no, the invite stays pending and the invitee sees: "This invitation was sent to <other email>. Sign in with that email to accept it."
+5. If yes, the invite is accepted. If no, the invite stays pending and the invitee sees: "This invitation was sent to `<other email>`. Sign in with that email to accept it."
 
 This stops the case where Mallory steals an invite link emailed to Alice and accepts it from Mallory's own account.
 
@@ -125,7 +125,7 @@ If the OIDC token does not include `email_verified`, the email is treated as unv
 | `auth.identity.unlink.refused` | User tried to remove their last identity |
 | `auth.identity.conflict` | Sign-in attempt produced an identity that points at a different user than the active session |
 | `auth.invitation.accepted.email_mismatch` | Invitation accept attempted with wrong email |
-| `auth.domain.auto_join.suggested` | User saw the "Join <Org>?" prompt |
+| `auth.domain.auto_join.suggested` | User saw the "Join `<Org>`?" prompt |
 | `auth.domain.auto_join.declined` | User saw the prompt and clicked away |
 | `auth.domain.auto_join.accepted` | User saw the prompt and clicked Join |
 
@@ -140,7 +140,7 @@ All events flow through the existing audit pipeline with `Kind="action"` and the
 | Sign in via GitHub when that GitHub identity is already linked to a different `users.id`. | 409 Conflict, audit event `auth.identity.conflict`. |
 | Unlink the only `user_identities` row. | 400 Bad Request, audit event `auth.identity.unlink.refused`. |
 | Accept an invite while signed in as a different email. | Invite stays pending. UI explains. Audit event recorded. |
-| Auto-join enabled on a verified domain. New user signs up with that domain. | Sees "Join <Org>?" prompt. Does not silently join. |
+| Auto-join enabled on a verified domain. New user signs up with that domain. | Sees "Join `<Org>`?" prompt. Does not silently join. |
 | Verified-domain TXT record removed by domain owner. | `verified_at` clears. Auto-join offering stops. |
 | OIDC token without `email_verified`. | Email is treated as unverified. No matching against pending invitations. |
 | GitHub identity with no verified primary email. | Sign-in succeeds (GitHub `sub` is the identity), no email is recorded on `user_identities`. |

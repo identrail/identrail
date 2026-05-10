@@ -83,7 +83,7 @@ PR 5 (frontend auth)                 │
 **Schema (migration `000017_users_and_sessions`).**
 - `users(id UUID PK, primary_email CITEXT UNIQUE, display_name, avatar_url, status, created_at, updated_at, deleted_at NULL)`.
 - `user_identities(id UUID PK, user_id FK, provider TEXT, subject TEXT, email CITEXT, raw_claims JSONB, last_authenticated_at, created_at, UNIQUE(provider, subject))`.
-- `sessions(id BYTEA PK, user_id FK ON DELETE CASCADE, current_org_id, current_workspace_id, auth_method, ip INET, user_agent, idle_expires_at, absolute_expires_at, revoked_at NULL, created_at)`.
+- `sessions(id BYTEA PK, user_id FK ON DELETE CASCADE, current_org_id, current_workspace_id, auth_method, ip INET, user_agent, idle_expires_at, absolute_expires_at, last_seen_at, revoked_at NULL, created_at)`. `last_seen_at` is bumped to `NOW()` on every authenticated request alongside `idle_expires_at`; powers the "last seen" display on the account/security page.
 - `tenancy_workspace_members.user_uuid UUID NULL` added next to existing `user_id`.
 - Indexes per the cookie/session spec.
 
@@ -254,7 +254,7 @@ PR 5 (frontend auth)                 │
 
 **Acceptance.** ConnectorsListPage renders empty state when no connectors. PRs 7 through 9 import from `internal/connectors` and `web/src/components/connector` without writing duplicate code.
 
-**Rollback.** Feature flag `VITE_FEATURE_CONNECTORS_V2=false` hides the new connectors page.
+**Rollback.** Backend flag `IDENTRAIL_FEATURE_CONNECTORS_V2=false` returns the new `/v1/connectors*` endpoints to 404. Frontend flag `VITE_FEATURE_CONNECTORS_V2=false` hides the new connectors page. Both default off; turning them on is what activates this PR.
 
 ---
 
@@ -298,7 +298,7 @@ PR 5 (frontend auth)                 │
 
 **Acceptance.** New user signs up, runs onboarding, connects AWS, sees first scan finding within 5 minutes. IAM policy passes a least-privilege smell test. Permission preview shows every action with a reason.
 
-**Rollback.** Feature flag `VITE_FEATURE_CONNECTOR_AWS=false` hides the connect button.
+**Rollback.** Backend flag `IDENTRAIL_FEATURE_CONNECTOR_AWS=false` returns `/v1/connectors/aws*` endpoints to 404. Frontend flag `VITE_FEATURE_CONNECTOR_AWS=false` hides the connect button.
 
 ---
 
@@ -336,7 +336,7 @@ PR 5 (frontend auth)                 │
 
 **Acceptance.** User installs Identrail GitHub App on their org. Scanning starts on selected repos within 60 seconds. `installation.deleted` webhook removes connector cleanly. GHES users with PAT can connect.
 
-**Rollback.** Feature flag `VITE_FEATURE_CONNECTOR_GITHUB_V2=false` falls back to legacy flow.
+**Rollback.** Backend flag `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=false` returns the new `/v1/connectors/github*` and `/auth/webhooks/github` endpoints to 404 (legacy `internal/api/github_connect.go` paths stay). Frontend flag `VITE_FEATURE_CONNECTOR_GITHUB_V2=false` falls back to the legacy connect UI.
 
 ---
 
@@ -374,7 +374,7 @@ PR 5 (frontend auth)                 │
 
 **Acceptance.** User installs agent on a real cluster in under 2 minutes. Heartbeat observable within 30 seconds. API disconnect revokes agent credential within one heartbeat cycle.
 
-**Rollback.** Feature flag `VITE_FEATURE_CONNECTOR_K8S=false` hides the connect button.
+**Rollback.** Backend flag `IDENTRAIL_FEATURE_CONNECTOR_K8S=false` returns `/v1/connectors/k8s*` endpoints to 404 (the agent's heartbeat and enroll endpoints share the same flag). Frontend flag `VITE_FEATURE_CONNECTOR_K8S=false` hides the connect button.
 
 ---
 
@@ -387,7 +387,7 @@ PR 5 (frontend auth)                 │
 - `web/src/components/onboarding/Stepper.tsx`, `SkipForNow.tsx`.
 - `internal/api/onboarding/handler.go`.
 - `internal/db/onboarding_state.go`.
-- `migrations/000020_onboarding_state.up.sql` (small auxiliary table).
+- `migrations/000020_onboarding_state.up.sql` and `.down.sql` (small auxiliary table).
 - Routes registered in `App.tsx`.
 
 **Five steps.** Each at its own URL, resumable on refresh.
@@ -412,7 +412,7 @@ PR 5 (frontend auth)                 │
 
 **Acceptance.** New user from a brand-new GitHub account: signup to first AWS finding visible in under 5 minutes, single tab. This is the demo-able SaaS path.
 
-**Rollback.** Feature flag `VITE_FEATURE_ONBOARDING_WIZARD=false` falls back to dashboard with no onboarding.
+**Rollback.** Backend flag `IDENTRAIL_FEATURE_ONBOARDING_WIZARD=false` returns `/v1/onboarding/*` endpoints to 404. Frontend flag `VITE_FEATURE_ONBOARDING_WIZARD=false` falls back to the dashboard with no onboarding (user manually creates org and workspace via settings).
 
 ---
 
@@ -470,7 +470,7 @@ PR 5 (frontend auth)                 │
 - `internal/api/audit/export.go` (CSV export, license-gated).
 - `internal/scheduler/cleanup_jobs.go` (extended with deletion grace job).
 - `internal/license/entitlements.go`.
-- `migrations/000021_org_entitlements.up.sql`.
+- `migrations/000021_org_entitlements.up.sql` and `.down.sql`.
 - `web/src/pages/admin/AuditLogPage.tsx`, `OrgSessionsPage.tsx`.
 - `web/src/pages/account/DeleteAccountPage.tsx`.
 

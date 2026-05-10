@@ -6,7 +6,7 @@ The rule that drives every example below: domain references are always config-dr
 
 ## Core Session and Identity
 
-These four variables are required regardless of which auth driver is active (WorkOS, generic OIDC, or manual). Self-hosted operators set them just as cloud deployments do.
+The two variables marked `Required` in the table below apply regardless of which auth driver is active (WorkOS, generic OIDC, or manual). Self-hosted operators set them just as cloud deployments do. The other two are optional knobs covered in the same table for completeness: `IDENTRAIL_SESSION_KEY_PREVIOUS` is only set during a key rotation, and `IDENTRAIL_AUTH_MANUAL_MODE` defaults to `false`.
 
 | Variable | Default | Validation | Adds in |
 | --- | --- | --- | --- |
@@ -74,6 +74,11 @@ Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` pat
 | --- | --- | --- |
 | `IDENTRAIL_FEATURE_NEW_AUTH` | `false` | PR 2 |
 | `IDENTRAIL_FEATURE_WORKOS_LOGIN` | `false` | PR 4 |
+| `IDENTRAIL_FEATURE_CONNECTORS_V2` | `false` | PR 6 |
+| `IDENTRAIL_FEATURE_CONNECTOR_AWS` | `false` | PR 7 |
+| `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2` | `false` | PR 8 |
+| `IDENTRAIL_FEATURE_CONNECTOR_K8S` | `false` | PR 9 |
+| `IDENTRAIL_FEATURE_ONBOARDING_WIZARD` | `false` | PR 10 |
 | `IDENTRAIL_FEATURE_SSO_ADMIN` | `false` | PR 11 |
 | `IDENTRAIL_FEATURE_SCIM` | `false` | PR 12 |
 | `IDENTRAIL_FEATURE_ENTITLEMENTS` | `false` | PR 12 |
@@ -83,6 +88,8 @@ Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` pat
 | `VITE_FEATURE_CONNECTOR_GITHUB_V2` | `false` | PR 8 |
 | `VITE_FEATURE_CONNECTOR_K8S` | `false` | PR 9 |
 | `VITE_FEATURE_ONBOARDING_WIZARD` | `false` | PR 10 |
+
+The pattern: each user-facing PR ships paired flags. The backend flag (`IDENTRAIL_FEATURE_*`) gates the API endpoints; the frontend flag (`VITE_FEATURE_*`) gates the UI surface. Both default off, and turning them on activates the PR's behavior. Either can be flipped to `false` independently for partial rollback.
 
 ## Existing Variables (Not Touched)
 
@@ -113,4 +120,4 @@ Failure in any pass refuses to start the server. The error message names the var
 
 Production secrets (`IDENTRAIL_SESSION_KEY`, all WorkOS keys, the email provider key, GitHub App private key) live in Vercel's environment variable storage scoped to the Production environment. Preview and Development environments have their own values pointing at WorkOS test environments and a sandbox database.
 
-Self-hosted operators set the same variables in `deploy/docker/.env` or their Helm `values.yaml`. The `.env.example` and `values.yaml` files document each variable with the same definitions as this doc.
+Self-hosted operators set the same variables in `deploy/docker/.env` or their Helm `values.yaml`. The implementation PRs (4, 7, 8, 9, 11) add each new variable to `deploy/docker/.env.example` and `deploy/helm/identrail/values.yaml` in the same commit that introduces it, with the definitions used here. PR 1 does not modify those files; it only documents the contract they will follow.
