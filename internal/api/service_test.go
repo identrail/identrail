@@ -61,6 +61,18 @@ type completionContextStore struct {
 	lastRepoScanCompletionCtxErr error
 }
 
+type failingAnyScopeDepthStore struct {
+	*db.MemoryStore
+}
+
+func (s *failingAnyScopeDepthStore) CountQueuedScansAnyScope(context.Context, string) (int, error) {
+	return 0, errors.New("count queued scans any scope failed")
+}
+
+func (s *failingAnyScopeDepthStore) CountQueuedRepoScansAnyScope(context.Context) (int, error) {
+	return 0, errors.New("count queued repo scans any scope failed")
+}
+
 func (s *completionContextStore) CompleteScan(
 	ctx context.Context,
 	scanID string,
@@ -1513,6 +1525,29 @@ func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	}
 }
 
+func TestServiceCountQueuedScansForDepthReturnsZeroWhenAnyScopeCountFails(t *testing.T) {
+	store := &failingAnyScopeDepthStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{}, "aws")
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 10, 11, 30, 0, 0, time.UTC)
+
+	if _, err := store.CreateQueuedScanWithinLimit(scopedCtx, "aws", now, 5); err != nil {
+		t.Fatalf("create queued scan: %v", err)
+	}
+	scopedCount, err := store.CountQueuedScans(scopedCtx, "aws")
+	if err != nil {
+		t.Fatalf("count queued scans in scope: %v", err)
+	}
+	if scopedCount != 1 {
+		t.Fatalf("expected one scoped queued scan, got %d", scopedCount)
+	}
+
+	queuedCount := svc.countQueuedScansForDepth(scopedCtx, "aws")
+	if queuedCount != 0 {
+		t.Fatalf("expected depth 0 when any-scope count fails, got %d", queuedCount)
+	}
+}
+
 func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC)
@@ -1785,6 +1820,29 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	}
 	if stored.Status != "succeeded" || stored.CommitsScanned != 25 {
 		t.Fatalf("unexpected processed repo scan record: %+v", stored)
+	}
+}
+
+func TestServiceCountQueuedRepoScansForDepthReturnsZeroWhenAnyScopeCountFails(t *testing.T) {
+	store := &failingAnyScopeDepthStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{}, "aws")
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 10, 11, 45, 0, 0, time.UTC)
+
+	if _, err := store.CreateQueuedRepoScanWithinLimit(scopedCtx, "owner/repo", 50, 200, now, 5); err != nil {
+		t.Fatalf("create queued repo scan: %v", err)
+	}
+	scopedCount, err := store.CountQueuedRepoScans(scopedCtx)
+	if err != nil {
+		t.Fatalf("count queued repo scans in scope: %v", err)
+	}
+	if scopedCount != 1 {
+		t.Fatalf("expected one scoped queued repo scan, got %d", scopedCount)
+	}
+
+	queuedCount := svc.countQueuedRepoScansForDepth(scopedCtx)
+	if queuedCount != 0 {
+		t.Fatalf("expected depth 0 when any-scope repo count fails, got %d", queuedCount)
 	}
 }
 
