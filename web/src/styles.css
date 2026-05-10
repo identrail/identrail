@@ -9276,8 +9276,8 @@ html[data-theme='light'] .idt-hero,
 
 .idt-hero-grid {
   width: min(100% - 3rem, 1760px);
-  grid-template-columns: minmax(340px, 0.64fr) minmax(760px, 1.36fr);
-  gap: clamp(2rem, 3.4vw, 4rem);
+  grid-template-columns: minmax(340px, 0.6fr) minmax(760px, 1.4fr);
+  gap: clamp(3rem, 4.8vw, 5.6rem);
   min-height: 800px;
 }
 
@@ -9313,12 +9313,12 @@ html[data-theme='light'] .idt-hero,
   min-height: 800px;
   margin-top: 0;
   overflow: hidden;
-  transform: translateX(clamp(-3.75rem, calc(1.75rem - 4.5vw), -1.8rem));
+  transform: translateX(clamp(-0.75rem, calc(1.4vw - 0.8rem), 1.15rem));
 }
 
 @media (min-width: 1440px) {
   .idt-hero-product-stage {
-    transform: translateX(clamp(-7.5rem, calc(4rem - 9vw), -4.75rem));
+    transform: translateX(clamp(0.85rem, 2.2vw, 2.8rem));
   }
 }
 
@@ -11163,4 +11163,377 @@ html[data-theme='light'] .idt-tour-screen-head > span {
   .idt-tour-simulation code {
     font-size: 0.66rem;
   }
+}
+
+/* Premium interaction and scrollbar polish. */
+:root {
+  --idt-hover-duration: 220ms;
+  --idt-hover-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --idt-hover-arrow-size: 0.46rem;
+  --idt-hover-arrow-shift: 0.42rem;
+}
+
+html[data-theme='light'],
+html[data-theme='light'] body {
+  scrollbar-width: thin;
+  scrollbar-color: #b6bfcd #f6f8fc;
+}
+
+html[data-theme='light']::-webkit-scrollbar,
+html[data-theme='light'] body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html[data-theme='light']::-webkit-scrollbar-track,
+html[data-theme='light'] body::-webkit-scrollbar-track {
+  background: #f6f8fc;
+}
+
+html[data-theme='light']::-webkit-scrollbar-thumb,
+html[data-theme='light'] body::-webkit-scrollbar-thumb {
+  border: 2px solid #f6f8fc;
+  border-radius: 999px;
+  background: #b6bfcd;
+}
+
+html[data-theme='light']::-webkit-scrollbar-thumb:hover,
+html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
+  background: #98a3b3;
+}
+
+.idt-btn,
+.idt-header-demo,
+.idt-header-utility,
+.idt-nav a,
+.idt-inline-link,
+.idt-footer-links a,
+.idt-footer-trust-links a,
+.idt-final-cta-link,
+.idt-footer-super-cta,
+.idt-hero-proof-pill {
+  position: relative;
+  transition:
+    transform var(--idt-hover-duration) var(--idt-hover-ease),
+    box-shadow var(--idt-hover-duration) var(--idt-hover-ease),
+    border-color var(--idt-hover-duration) var(--idt-hover-ease),
+    background-color var(--idt-hover-duration) var(--idt-hover-ease),
+    color var(--idt-hover-duration) var(--idt-hover-ease),
+    opacity var(--idt-hover-duration) var(--idt-hover-ease);
+}
+
+.idt-btn,
+.idt-header-demo,
+.idt-final-cta-link,
+.idt-footer-super-cta,
+.idt-hero-proof-pill {
+  padding-right: 2.75rem;
+}
+
+.idt-header-utility,
+.idt-nav a,
+.idt-inline-link,
+.idt-footer-links a,
+.idt-footer-trust-links a {
+  padding-right: 1.05rem;
+}
+
+.idt-btn::after,
+.idt-header-demo::after,
+.idt-header-utility::after,
+.idt-nav a::before,
+.idt-inline-link::after,
+.idt-footer-links a::after,
+.idt-footer-trust-links a::after,
+.idt-final-cta-link::after,
+.idt-footer-super-cta::after,
+.idt-hero-proof-pill::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: var(--idt-hover-arrow-size);
+  height: var(--idt-hover-arrow-size);
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(calc(-1 * var(--idt-hover-arrow-shift)), -50%, 0) rotate(45deg);
+  transition:
+    opacity var(--idt-hover-duration) var(--idt-hover-ease),
+    transform var(--idt-hover-duration) var(--idt-hover-ease);
+}
+
+.idt-btn::after,
+.idt-header-demo::after,
+.idt-final-cta-link::after,
+.idt-footer-super-cta::after,
+.idt-hero-proof-pill::after {
+  right: 1.1rem;
+}
+
+.idt-header-utility::after,
+.idt-inline-link::after,
+.idt-footer-links a::after,
+.idt-footer-trust-links a::after {
+  right: 0.12rem;
+}
+
+.idt-nav a::before {
+  right: -0.05rem;
+}
+
+.idt-btn:hover,
+.idt-btn:focus-visible,
+.idt-header-demo:hover,
+.idt-header-demo:focus-visible,
+.idt-header-utility:hover,
+.idt-header-utility:focus-visible,
+.idt-nav a:hover,
+.idt-nav a:focus-visible,
+.idt-inline-link:hover,
+.idt-inline-link:focus-visible,
+.idt-footer-links a:hover,
+.idt-footer-links a:focus-visible,
+.idt-footer-trust-links a:hover,
+.idt-footer-trust-links a:focus-visible,
+.idt-final-cta-link:hover,
+.idt-final-cta-link:focus-visible,
+.idt-footer-super-cta:hover,
+.idt-footer-super-cta:focus-visible,
+.idt-hero-proof-pill:hover,
+.idt-hero-proof-pill:focus-visible {
+  transform: translateY(-1px);
+}
+
+.idt-btn:hover::after,
+.idt-btn:focus-visible::after,
+.idt-header-demo:hover::after,
+.idt-header-demo:focus-visible::after,
+.idt-header-utility:hover::after,
+.idt-header-utility:focus-visible::after,
+.idt-nav a:hover::before,
+.idt-nav a:focus-visible::before,
+.idt-inline-link:hover::after,
+.idt-inline-link:focus-visible::after,
+.idt-footer-links a:hover::after,
+.idt-footer-links a:focus-visible::after,
+.idt-footer-trust-links a:hover::after,
+.idt-footer-trust-links a:focus-visible::after,
+.idt-final-cta-link:hover::after,
+.idt-final-cta-link:focus-visible::after,
+.idt-footer-super-cta:hover::after,
+.idt-footer-super-cta:focus-visible::after,
+.idt-hero-proof-pill:hover::after,
+.idt-hero-proof-pill:focus-visible::after {
+  opacity: 0.9;
+  transform: translate3d(0, -50%, 0) rotate(45deg);
+}
+
+.idt-btn:hover,
+.idt-btn:focus-visible,
+.idt-header-demo:hover,
+.idt-header-demo:focus-visible {
+  box-shadow: 0 16px 30px rgba(17, 24, 39, 0.14);
+}
+
+.idt-header-utility:hover,
+.idt-header-utility:focus-visible,
+.idt-nav a:hover,
+.idt-nav a:focus-visible,
+.idt-inline-link:hover,
+.idt-inline-link:focus-visible,
+.idt-footer-links a:hover,
+.idt-footer-links a:focus-visible,
+.idt-footer-trust-links a:hover,
+.idt-footer-trust-links a:focus-visible {
+  color: #0f172a;
+}
+
+.idt-brand,
+.idt-social-link,
+.idt-logo-cloud-track .idt-logo-cloud-item {
+  transition:
+    transform var(--idt-hover-duration) var(--idt-hover-ease),
+    box-shadow var(--idt-hover-duration) var(--idt-hover-ease),
+    opacity var(--idt-hover-duration) var(--idt-hover-ease),
+    border-color var(--idt-hover-duration) var(--idt-hover-ease),
+    background-color var(--idt-hover-duration) var(--idt-hover-ease);
+}
+
+.idt-brand:hover,
+.idt-brand:focus-visible {
+  transform: translateY(-1px);
+}
+
+.idt-social-link:hover,
+.idt-social-link:focus-visible {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.12);
+}
+
+.idt-logo-cloud-track .idt-logo-cloud-item:hover {
+  transform: translateY(-1px);
+  opacity: 0.96;
+}
+
+@supports selector(article:has(a)) {
+  .idt-card:has(a, button),
+  .idt-pricing-card:has(a, button) {
+    position: relative;
+    transition:
+      transform var(--idt-hover-duration) var(--idt-hover-ease),
+      box-shadow var(--idt-hover-duration) var(--idt-hover-ease),
+      border-color var(--idt-hover-duration) var(--idt-hover-ease),
+      background-color var(--idt-hover-duration) var(--idt-hover-ease);
+  }
+
+  .idt-card:has(a, button)::after,
+  .idt-pricing-card:has(a, button)::after {
+    content: '';
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 0.52rem;
+    height: 0.52rem;
+    border-top: 1.5px solid currentColor;
+    border-right: 1.5px solid currentColor;
+    color: rgba(15, 23, 42, 0.6);
+    opacity: 0;
+    transform: translate3d(-0.32rem, 0, 0) rotate(45deg);
+    transition:
+      opacity var(--idt-hover-duration) var(--idt-hover-ease),
+      transform var(--idt-hover-duration) var(--idt-hover-ease);
+  }
+
+  .idt-card:has(a, button):hover,
+  .idt-card:has(a, button):focus-within,
+  .idt-pricing-card:has(a, button):hover,
+  .idt-pricing-card:has(a, button):focus-within {
+    transform: translateY(-3px);
+    border-color: rgba(94, 114, 148, 0.22);
+    box-shadow: 0 22px 44px rgba(15, 23, 42, 0.1);
+    background: rgba(255, 255, 255, 0.96);
+  }
+
+  .idt-card:has(a, button):hover::after,
+  .idt-card:has(a, button):focus-within::after,
+  .idt-pricing-card:has(a, button):hover::after,
+  .idt-pricing-card:has(a, button):focus-within::after {
+    opacity: 0.85;
+    transform: translate3d(0, 0, 0) rotate(45deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-btn,
+  .idt-header-demo,
+  .idt-header-utility,
+  .idt-nav a,
+  .idt-inline-link,
+  .idt-footer-links a,
+  .idt-footer-trust-links a,
+  .idt-final-cta-link,
+  .idt-footer-super-cta,
+  .idt-hero-proof-pill,
+  .idt-brand,
+  .idt-social-link,
+  .idt-logo-cloud-track .idt-logo-cloud-item,
+  .idt-card,
+  .idt-pricing-card {
+    transition: none;
+  }
+
+  .idt-btn::after,
+  .idt-header-demo::after,
+  .idt-header-utility::after,
+  .idt-nav a::before,
+  .idt-inline-link::after,
+  .idt-footer-links a::after,
+  .idt-footer-trust-links a::after,
+  .idt-final-cta-link::after,
+  .idt-footer-super-cta::after,
+  .idt-hero-proof-pill::after,
+  .idt-card:has(a, button)::after,
+  .idt-pricing-card:has(a, button)::after {
+    transition: none;
+  }
+
+  .idt-btn:hover,
+  .idt-btn:focus-visible,
+  .idt-header-demo:hover,
+  .idt-header-demo:focus-visible,
+  .idt-header-utility:hover,
+  .idt-header-utility:focus-visible,
+  .idt-nav a:hover,
+  .idt-nav a:focus-visible,
+  .idt-inline-link:hover,
+  .idt-inline-link:focus-visible,
+  .idt-footer-links a:hover,
+  .idt-footer-links a:focus-visible,
+  .idt-footer-trust-links a:hover,
+  .idt-footer-trust-links a:focus-visible,
+  .idt-final-cta-link:hover,
+  .idt-final-cta-link:focus-visible,
+  .idt-footer-super-cta:hover,
+  .idt-footer-super-cta:focus-visible,
+  .idt-hero-proof-pill:hover,
+  .idt-hero-proof-pill:focus-visible,
+  .idt-brand:hover,
+  .idt-brand:focus-visible,
+  .idt-social-link:hover,
+  .idt-social-link:focus-visible,
+  .idt-logo-cloud-track .idt-logo-cloud-item:hover,
+  .idt-card:has(a, button):hover,
+  .idt-card:has(a, button):focus-within,
+  .idt-pricing-card:has(a, button):hover,
+  .idt-pricing-card:has(a, button):focus-within {
+    transform: none;
+  }
+}
+
+html[data-theme='light'] .idt-btn:hover,
+html[data-theme='light'] .idt-btn:focus-visible,
+html[data-theme='light'] .idt-header-demo:hover,
+html[data-theme='light'] .idt-header-demo:focus-visible,
+html[data-theme='light'] .idt-header-utility:hover,
+html[data-theme='light'] .idt-header-utility:focus-visible,
+html[data-theme='light'] .idt-nav a:hover,
+html[data-theme='light'] .idt-nav a:focus-visible,
+html[data-theme='light'] .idt-inline-link:hover,
+html[data-theme='light'] .idt-inline-link:focus-visible,
+html[data-theme='light'] .idt-footer-links a:hover,
+html[data-theme='light'] .idt-footer-links a:focus-visible,
+html[data-theme='light'] .idt-footer-trust-links a:hover,
+html[data-theme='light'] .idt-footer-trust-links a:focus-visible,
+html[data-theme='light'] .idt-final-cta-link:hover,
+html[data-theme='light'] .idt-final-cta-link:focus-visible,
+html[data-theme='light'] .idt-footer-super-cta:hover,
+html[data-theme='light'] .idt-footer-super-cta:focus-visible,
+html[data-theme='light'] .idt-hero-proof-pill:hover,
+html[data-theme='light'] .idt-hero-proof-pill:focus-visible {
+  transform: translateY(-1px);
+}
+
+html[data-theme='light'] .idt-btn:hover::after,
+html[data-theme='light'] .idt-btn:focus-visible::after,
+html[data-theme='light'] .idt-header-demo:hover::after,
+html[data-theme='light'] .idt-header-demo:focus-visible::after,
+html[data-theme='light'] .idt-header-utility:hover::after,
+html[data-theme='light'] .idt-header-utility:focus-visible::after,
+html[data-theme='light'] .idt-nav a:hover::before,
+html[data-theme='light'] .idt-nav a:focus-visible::before,
+html[data-theme='light'] .idt-inline-link:hover::after,
+html[data-theme='light'] .idt-inline-link:focus-visible::after,
+html[data-theme='light'] .idt-footer-links a:hover::after,
+html[data-theme='light'] .idt-footer-links a:focus-visible::after,
+html[data-theme='light'] .idt-footer-trust-links a:hover::after,
+html[data-theme='light'] .idt-footer-trust-links a:focus-visible::after,
+html[data-theme='light'] .idt-final-cta-link:hover::after,
+html[data-theme='light'] .idt-final-cta-link:focus-visible::after,
+html[data-theme='light'] .idt-footer-super-cta:hover::after,
+html[data-theme='light'] .idt-footer-super-cta:focus-visible::after,
+html[data-theme='light'] .idt-hero-proof-pill:hover::after,
+html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
+  opacity: 0.9;
+  transform: translate3d(0, -50%, 0) rotate(45deg);
 }
