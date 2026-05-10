@@ -158,13 +158,13 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: default
         - ipBlock:
-            cidr: 0.0.0.0/0
+            cidr: 203.0.113.0/24
       ports:
         - protocol: TCP
           port: 443
 ```
 
-If Postgres runs outside the `identrail` namespace (or outside the cluster), change the `5432` egress destination to the correct namespace/IP allowlist and omit the `identrail-postgres-ingress` policy.
+If Postgres runs outside the `identrail` namespace (or outside the cluster), change the `5432` egress destination to the correct namespace/IP allowlist and omit the `identrail-postgres-ingress` policy. Replace `203.0.113.0/24` with the explicit HTTPS egress CIDRs you actually require (for example, corporate proxy/NAT or a managed egress gateway), and avoid broad allowlists like `0.0.0.0/0`.
 
 ### TLS Example
 
@@ -249,6 +249,8 @@ Create namespace + scanner RBAC/ServiceAccount first (required because migration
 ```bash
 kubectl create namespace identrail --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
+# Create identrail-secrets (or an ExternalSecret with the same name) before Helm install.
+kubectl apply -f deploy/kubernetes/secret.example.yaml # after replacing placeholder values
 ```
 
 Install:

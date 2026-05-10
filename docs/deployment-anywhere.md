@@ -35,14 +35,16 @@ Use this for managed cluster deployment.
    - `kubectl apply -f deploy/kubernetes/namespace.yaml`
    - `kubectl apply -f deploy/kubernetes/configmap.yaml`
 2. Create secret from `deploy/kubernetes/secret.example.yaml` (fill real values first).
-3. Apply scanner service account and read-only RBAC:
-   - `kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml`
-4. Apply workloads:
+3. Apply workloads:
    - `kubectl apply -f deploy/kubernetes/api-deployment.yaml`
    - `kubectl apply -f deploy/kubernetes/api-service.yaml`
    - `kubectl apply -f deploy/kubernetes/worker-deployment.yaml`
-5. Optional ingress:
+4. Optional ingress:
    - `kubectl apply -f deploy/kubernetes/ingress.example.yaml`
+5. Optional: enable in-cluster Kubernetes scan collection:
+   - `kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml`
+   - `kubectl -n identrail patch deployment identrail-api --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
+   - `kubectl -n identrail patch deployment identrail-worker --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
 
 ## 3) Kubernetes Helm
 
