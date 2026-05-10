@@ -2,8 +2,8 @@
  * Route → meta map.
  *
  * Used by:
- *  - web/scripts/prerender-routes.ts (build-time, source of truth for static HTML)
- *  - web/src/lib/useRouteSeo.ts      (runtime, updates title/meta on SPA navigation)
+ * - web/scripts/prerender-routes.ts (build-time, source of truth for static HTML)
+ * - web/src/lib/useRouteSeo.ts      (runtime, updates title/meta on SPA navigation)
  *
  * Keep entries in sync with web/prerender-routes.ts. Untracked routes fall
  * back to the entry for "/".
@@ -23,49 +23,49 @@ export const DEFAULT_KEYWORDS =
 
 export const ROUTE_META: Record<string, RouteMeta> = {
   '/': {
-    title: 'Identrail — Trace every machine identity. Close the dangerous paths safely.',
+    title: 'Identrail - Trace every machine identity. Close the dangerous paths safely.',
     description:
-      'Identrail traces how AWS roles, Kubernetes service accounts, GitHub OIDC and trust policies can reach your data — and shows the smallest, safest fix. Open core under Apache 2.0.',
+      'Identrail traces how AWS roles, Kubernetes service accounts, GitHub OIDC and trust policies can reach your data - and shows the smallest, safest fix. Open core under Apache 2.0.',
     keywords: DEFAULT_KEYWORDS
   },
   '/product': {
-    title: 'Product — One platform for machine identity discovery, detection, and rollout-safe control | Identrail',
+    title: 'Product - One platform for machine identity discovery, detection, and rollout-safe control | Identrail',
     description:
-      'Discover every machine identity, detect the paths that matter, and remediate without breaking production. Trust graph, simulator, operator surface — explained.',
+      'Discover every machine identity, detect the paths that matter, and remediate without breaking production. Trust graph, simulator, operator surface - explained.',
     schemaType: 'Product'
   },
   '/integrations': {
-    title: 'Integrations — AWS, Kubernetes, GitHub, OIDC, Terraform | Identrail',
+    title: 'Integrations - AWS, Kubernetes, GitHub, OIDC, Terraform | Identrail',
     description:
       'Every system Identrail watches today, with status (GA, Beta, Roadmap) and a one-line summary of what each connector resolves into the trust graph.'
   },
   '/for/security-teams': {
-    title: 'For Security Teams — Triage by what an identity can actually reach | Identrail',
+    title: 'For Security Teams - Triage by what an identity can actually reach | Identrail',
     description:
       'A trust-graph-grounded queue, evidence-shipped findings, and exportable proof of least privilege. Built for the people who own the security backlog.'
   },
   '/for/platform-engineering': {
-    title: 'For Platform Engineering — Tighten machine identity without breaking production | Identrail',
+    title: 'For Platform Engineering - Tighten machine identity without breaking production | Identrail',
     description:
       'Policy simulation against the last 30 days of activity, named blast radius, three rollout gates and one-click rollback. Built to be operated by the team that owns the resource.'
   },
   '/pricing': {
-    title: 'Pricing — Open source, Team, Enterprise | Identrail',
+    title: 'Pricing - Open source, Team, Enterprise | Identrail',
     description:
       'Free if you self-host. $19/user/mo for hosted Team. Custom for Enterprise. Honest pricing for an open-core security tool.'
   },
   '/demo': {
-    title: 'Demo — See your first trust path in under ten minutes | Identrail',
+    title: 'Demo - See your first trust path in under ten minutes | Identrail',
     description:
       'Two ways in: free read-only risk scan or a 15-minute walkthrough with the founder. No card, no agent, no write access.'
   },
   '/docs': {
-    title: 'Docs — Identrail documentation hub',
+    title: 'Docs - Identrail documentation hub',
     description:
       'Quickstart, deployment, integrations, and operational documentation for the Identrail open-core machine identity platform.'
   },
   '/blog': {
-    title: 'Blog — Field notes on machine identity | Identrail',
+    title: 'Blog - Field notes on machine identity | Identrail',
     description:
       'Practical guides and operating-model essays for security and platform engineers responsible for non-human identities.'
   },
@@ -80,18 +80,18 @@ export const ROUTE_META: Record<string, RouteMeta> = {
       'Find a security issue? Tell us privately at security@identrail.com. We acknowledge in 72 hours, fix on a defined window, and publicly credit reporters.'
   },
   '/about': {
-    title: 'About — Identrail',
+    title: 'About - Identrail',
     description:
       'Why Identrail exists, what we build under, and an honest read on where we are today. Founder note from Oluwatobi Mustapha.',
     schemaType: 'AboutPage'
   },
   '/enterprise': {
-    title: 'Enterprise — Private deployment, procurement, named support | Identrail',
+    title: 'Enterprise - Private deployment, procurement, named support | Identrail',
     description:
       'Identrail for organisations with procurement, audit, and air-gap requirements. Three deployment models, full security review, named TAM.'
   },
   '/faq': {
-    title: 'FAQ — Identrail',
+    title: 'FAQ - Identrail',
     description:
       'Straight answers on the product, security posture, compliance, and pricing. No marketing hedge.'
   },

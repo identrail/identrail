@@ -7,32 +7,20 @@ type LogoMarkProps = {
 };
 
 /**
- * Identrail glyph — two converging trails terminating at a single node.
+ * Identrail glyph - two converging trails terminating at a single node.
  * Reads as identity (multiple sources) → trail (path) → resource (one node).
  */
 export function LogoMark({ size = 26, className }: LogoMarkProps) {
   return (
-    <svg
+    <img
+      src="/identrail-logo-official.jpeg"
       width={size}
       height={size}
-      viewBox="0 0 32 32"
-      fill="none"
       className={className}
-      role="img"
-      aria-label={`${SITE_NAME} mark`}
-    >
-      <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" fill="currentColor" opacity="0.06" />
-      <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" stroke="currentColor" strokeOpacity="0.18" />
-      <circle cx="9" cy="9" r="2.4" fill="currentColor" />
-      <circle cx="9" cy="23" r="2.4" fill="currentColor" />
-      <circle cx="23" cy="16" r="3" fill="currentColor" />
-      <path
-        d="M11 9 L20 16 M11 23 L20 16"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
+      alt=""
+      aria-hidden="true"
+      decoding="async"
+    />
   );
 }
 

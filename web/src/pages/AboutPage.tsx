@@ -9,7 +9,7 @@ const PRINCIPLES = [
   {
     title: 'The graph is the surface.',
     body:
-      'You should never have to leave the trust graph to do anything important. Find a finding, click into the path, simulate the fix, route it to an owner — same surface, no exports.'
+      'You should never have to leave the trust graph to do anything important. Find a finding, click into the path, simulate the fix, route it to an owner - same surface, no exports.'
   },
   {
     title: 'Read-only until proven otherwise.',
@@ -19,7 +19,7 @@ const PRINCIPLES = [
   {
     title: 'Open beats opaque.',
     body:
-      'The detection logic, the simulator, the connectors — all of it is in the public repo. If a buyer cannot read the source of a security tool, they cannot trust it. We chose Apache 2.0 on purpose.'
+      'The detection logic, the simulator, the connectors - all of it is in the public repo. If a buyer cannot read the source of a security tool, they cannot trust it. We chose Apache 2.0 on purpose.'
   },
   {
     title: 'Severity must be earned.',
@@ -49,7 +49,7 @@ export function AboutPage() {
           <div>
             <span className="t-eyebrow">A note from the founder</span>
             <p className="t-body-lg u-mt-6" style={{ maxWidth: '60ch' }}>
-              I have spent my career inside cloud IAM systems — at the level where you debug an
+              I have spent my career inside cloud IAM systems - at the level where you debug an
               `sts:AssumeRole` chain by hand and still wonder if you missed a hop. The honest truth is
               that almost nobody knows what their non-human identities can reach. They have signals, they
               have detections, they have queues full of findings. What they do not have is a clear,
@@ -63,7 +63,7 @@ export function AboutPage() {
               attention budget for theoretical risk anymore.
             </p>
             <p className="t-body-lg u-mt-4" style={{ maxWidth: '60ch' }}>
-              We are early. We are building in public. If any of this resonates, talk to us — by email, on
+              We are early. We are building in public. If any of this resonates, talk to us - by email, on
               Discord, or on the repo. The product gets better when the people who care about it tell us
               where it is wrong.
             </p>
@@ -82,9 +82,7 @@ export function AboutPage() {
               </ArrowLink>
             </div>
           </div>
-          <div className="founder-portrait" aria-hidden="true">
-            {FOUNDER.initials}
-          </div>
+          <img className="founder-portrait" src={FOUNDER.portrait} alt={FOUNDER.name} loading="lazy" decoding="async" />
         </div>
       </Section>
 
@@ -92,7 +90,7 @@ export function AboutPage() {
         <SectionHeader
           eyebrow="The team"
           title="Founder-led, building in the open."
-          lede="Identrail is currently a small founding team — disciplined, opinionated, and shipping. We will name the next hires here as they join."
+          lede="Identrail is currently a small founding team - disciplined, opinionated, and shipping. We will name the next hires here as they join."
         />
         <div className="grid grid-2">
           <article className="card card-loose">
@@ -189,7 +187,7 @@ export function AboutPage() {
 
       <CtaBanner
         title="Talk to the founder."
-        body="If you are a security or platform engineer dealing with machine-identity sprawl, we want to hear from you — even if you are not buying."
+        body="If you are a security or platform engineer dealing with machine-identity sprawl, we want to hear from you - even if you are not buying."
         primary={{ label: 'Book 15 minutes', to: '/demo' }}
         secondary={{ label: 'Email Oluwatobi', to: `mailto:${COMPANY.contactEmail}` }}
       />

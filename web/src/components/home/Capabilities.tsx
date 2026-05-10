@@ -6,14 +6,14 @@ const CAPABILITIES = [
     eyebrow: '01 · Discover',
     title: 'Every identity, every path, in one graph.',
     body:
-      'Connect read-only to AWS, Kubernetes, GitHub Actions and your OIDC providers. Identrail builds a single trust graph that links every machine identity to every resource it can reach — including the hops in between.',
+      'Connect read-only to AWS, Kubernetes, GitHub Actions and your OIDC providers. Identrail builds a single trust graph that links every machine identity to every resource it can reach - including the hops in between.',
     cta: { label: 'See the connectors', to: '/integrations' }
   },
   {
     eyebrow: '02 · Detect',
     title: 'Severity tied to actual blast radius.',
     body:
-      'Findings are scored on the data they can reach, not on signature counts. A trust path to your billing database is not the same as a path to a feature flag — and Identrail tells you which is which.',
+      'Findings are scored on the data they can reach, not on signature counts. A trust path to your billing database is not the same as a path to a feature flag - and Identrail tells you which is which.',
     cta: { label: 'Threat model', to: '/security' }
   },
   {

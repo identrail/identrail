@@ -11,7 +11,7 @@ export const SITE_NAME = 'Identrail';
 
 export const TAGLINE = 'Trace every machine identity. Close the dangerous paths safely.';
 export const SHORT_DESCRIPTION =
-  'Identrail traces every path a machine identity can take to your data — across AWS IAM, Kubernetes, GitHub Actions and OIDC — and shows how to close the dangerous ones safely.';
+  'Identrail traces every path a machine identity can take to your data - across AWS IAM, Kubernetes, GitHub Actions and OIDC - and shows how to close the dangerous ones safely.';
 
 export const GITHUB_ORG = 'https://github.com/identrail';
 export const GITHUB_REPO = 'https://github.com/identrail/identrail';
@@ -32,6 +32,7 @@ export const FOUNDER = {
   name: 'Oluwatobi Mustapha',
   shortName: 'Oluwatobi',
   initials: 'OM',
+  portrait: '/founders/oluwatobi-mustapha.jpeg',
   title: 'Founder & CEO',
   pitch: 'Cloud IAM Security Engineer · Non-Human Identity · OSS Contributor',
   linkedin: 'https://www.linkedin.com/in/oluwatobimustapha',
@@ -134,8 +135,8 @@ export const STACK: readonly StackEntry[] = [
 ] as const;
 
 /**
- * Legacy alias map. Existing pages and tests still import { siteLinks } —
- * keeping a small alias preserves them while we move callers to the named
+ * Legacy alias map. Existing pages and tests still import { siteLinks }.
+ * Keeping a small alias preserves them while we move callers to the named
  * exports above.
  */
 export const siteLinks = {

@@ -9,7 +9,7 @@ import { COMPANY } from '../siteConfig';
 const PROCUREMENT = [
   {
     title: 'Mutual NDA',
-    body: 'Standard MNDA template, or yours — we sign first round same week.'
+    body: 'Standard MNDA template, or yours - we sign first round same week.'
   },
   {
     title: 'Security review',
@@ -22,7 +22,7 @@ const PROCUREMENT = [
   },
   {
     title: 'MSA / DPA / SLA',
-    body: 'Custom contracting on commercial, data processing, and uptime terms — drafted by counsel both sides can read.'
+    body: 'Custom contracting on commercial, data processing, and uptime terms - drafted by counsel both sides can read.'
   },
   {
     title: 'Insurance',
@@ -144,7 +144,7 @@ export function EnterprisePage() {
 
       <CtaBanner
         title="Bring procurement in early."
-        body="If you're starting an evaluation, send us your security questionnaire and the scope you want to pilot — we'll come back inside one business day."
+        body="If you're starting an evaluation, send us your security questionnaire and the scope you want to pilot - we'll come back inside one business day."
         primary={{ label: 'Email Enterprise', to: `mailto:${COMPANY.contactEmail}?subject=Enterprise%20enquiry` }}
         secondary={{ label: 'Read security posture', to: '/security' }}
       />

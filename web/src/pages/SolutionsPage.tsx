@@ -22,7 +22,7 @@ const SOLUTIONS: Record<'security-teams' | 'platform-engineering', Solution> = {
       eyebrow: 'For security teams',
       title: 'Spend the queue on what can actually reach something.',
       lede:
-        'Identrail gives security teams a single, evidence-grounded view of every machine identity in the environment — and ranks findings by what they can actually reach, not by signature volume.'
+        'Identrail gives security teams a single, evidence-grounded view of every machine identity in the environment - and ranks findings by what they can actually reach, not by signature volume.'
     },
     pain: {
       title: 'Before vs. after Identrail.',
@@ -34,7 +34,7 @@ const SOLUTIONS: Record<'security-teams' | 'platform-engineering', Solution> = {
       ],
       after: [
         'One trust graph, one severity scoring, one queue with named owners.',
-        'Path-grounded severity — "high" means it can reach data, money, or control.',
+        'Path-grounded severity - "high" means it can reach data, money, or control.',
         'Policy simulator answers blast-radius questions in seconds, with workload names.',
         'Audit-ready evidence packets export with one click.'
       ]
@@ -44,7 +44,7 @@ const SOLUTIONS: Record<'security-teams' | 'platform-engineering', Solution> = {
         eyebrow: 'Triage',
         title: 'Queue ranked by reachable impact.',
         body:
-          'Findings are sorted by what each identity can actually reach — sensitive data, billing, control planes — not by raw detection counts. Most teams cut their open queue by 60–80% in the first week.'
+          'Findings are sorted by what each identity can actually reach - sensitive data, billing, control planes - not by raw detection counts. Most teams cut their open queue by 60–80% in the first week.'
       },
       {
         eyebrow: 'Evidence',
@@ -68,7 +68,7 @@ const SOLUTIONS: Record<'security-teams' | 'platform-engineering', Solution> = {
       eyebrow: 'For platform engineering',
       title: 'Tighten machine identity without breaking production.',
       lede:
-        'Identrail is built to be operated by the people who actually own the resource — with policy simulation, named blast radius, and rollout gates. So security can ask for the change, and platform can ship it safely.'
+        'Identrail is built to be operated by the people who actually own the resource - with policy simulation, named blast radius, and rollout gates. So security can ask for the change, and platform can ship it safely.'
     },
     pain: {
       title: 'Before vs. after Identrail.',
@@ -81,8 +81,8 @@ const SOLUTIONS: Record<'security-teams' | 'platform-engineering', Solution> = {
       after: [
         'Every recommendation is pre-simulated against the last 30 days of activity.',
         'Workloads that would lose access are named, not counted.',
-        'Ownership is auto-derived from tags, repos, namespaces — no chase.',
-        'Dry-run, canary, enforce — three rollout gates with one-click rollback.'
+        'Ownership is auto-derived from tags, repos, namespaces - no chase.',
+        'Dry-run, canary, enforce - three rollout gates with one-click rollback.'
       ]
     },
     capabilities: [
@@ -102,7 +102,7 @@ const SOLUTIONS: Record<'security-teams' | 'platform-engineering', Solution> = {
         eyebrow: 'Own',
         title: 'The same trust graph, available to your team.',
         body:
-          'Findings route to the resource owner with the safe fix pre-staged. Operators see the same surface security sees — the conversation is "we both look at the same path", not "let me forward you a CSV".'
+          'Findings route to the resource owner with the safe fix pre-staged. Operators see the same surface security sees - the conversation is "we both look at the same path", not "let me forward you a CSV".'
       }
     ],
     closingPrompt:
@@ -149,7 +149,7 @@ export function SolutionDetailPage({ slug }: { slug?: string }) {
                   key={b}
                   style={{ display: 'grid', gridTemplateColumns: '20px 1fr', gap: 'var(--space-3)' }}
                 >
-                  <span style={{ color: 'var(--text-faint)', marginTop: 4 }}>—</span>
+                  <span style={{ color: 'var(--text-faint)', marginTop: 4 }}>•</span>
                   <span style={{ color: 'var(--text-secondary)' }}>{b}</span>
                 </li>
               ))}

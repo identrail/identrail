@@ -35,9 +35,7 @@ export function FounderQuote() {
               </ArrowLink>
             </div>
           </div>
-          <div className="founder-portrait" aria-hidden="true">
-            {FOUNDER.initials}
-          </div>
+          <img className="founder-portrait" src={FOUNDER.portrait} alt={FOUNDER.name} loading="lazy" decoding="async" />
         </div>
       </div>
     </section>

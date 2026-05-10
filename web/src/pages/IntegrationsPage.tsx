@@ -107,7 +107,7 @@ export function IntegrationsPage() {
       <PageHero
         eyebrow="Integrations"
         title="Every system Identrail watches today."
-        lede="Each connector is read-only by default. New integrations land in the open-source repo first, then in the hosted product. Need a stack we don't list yet? Open an issue or talk to us — we prioritise based on real demand."
+        lede="Each connector is read-only by default. New integrations land in the open-source repo first, then in the hosted product. Need a stack we don't list yet? Open an issue or talk to us - we prioritise based on real demand."
         actions={
           <>
             <LinkButton to="/demo" variant="primary" size="lg">

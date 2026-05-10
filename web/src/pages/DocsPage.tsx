@@ -13,7 +13,7 @@ export function DocsPage() {
       <PageHero
         eyebrow="Documentation"
         title="Documentation lives next to the code."
-        lede="Until docs.identrail.com lands, the source of truth is the docs/ folder of the public repo. Below is the curated entry-point list — start with Quickstart and work down."
+        lede="Until docs.identrail.com lands, the source of truth is the docs/ folder of the public repo. Below is the curated entry-point list - start with Quickstart and work down."
         visual={<DocsHeroVisual />}
         actions={
           <>
@@ -75,7 +75,7 @@ export function DocsPage() {
 
       <CtaBanner
         title="A real docs site is on the way."
-        body="docs.identrail.com is coming together. In the meantime, the GitHub README and docs/ folder are the source of truth — they always reflect what's actually in the latest release."
+        body="docs.identrail.com is coming together. In the meantime, the GitHub README and docs/ folder are the source of truth - they always reflect what's actually in the latest release."
         primary={{ label: 'View the repo', to: GITHUB_REPO }}
         secondary={{ label: 'Talk to us', to: '/demo' }}
       />

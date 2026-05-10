@@ -20,7 +20,7 @@ const PROCESS = [
     step: '03',
     title: 'We triage, scope, and fix',
     body:
-      'For confirmed issues, we agree on a fix window — typically 14 days for high severity, 30 days for medium. You get visibility into the work.'
+      'For confirmed issues, we agree on a fix window - typically 14 days for high severity, 30 days for medium. You get visibility into the work.'
   },
   {
     step: '04',

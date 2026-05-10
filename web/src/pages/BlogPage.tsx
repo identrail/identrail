@@ -49,7 +49,7 @@ export function BlogPage() {
 
       <CtaBanner
         title="Want this in your inbox?"
-        body="A short, high-signal note when we publish — usually once or twice a month. Unsubscribe whenever."
+        body="A short, high-signal note when we publish - usually once or twice a month. Unsubscribe whenever."
         primary={{ label: 'Talk to the founder', to: '/about' }}
         secondary={{ label: 'Read the source', to: 'https://github.com/identrail/identrail' }}
       />

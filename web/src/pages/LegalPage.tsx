@@ -26,16 +26,16 @@ const DOCS: Record<LegalKind, LegalDoc> = {
         <h2>Data we collect</h2>
         <ul>
           <li>
-            <strong>Account data</strong> — name, work email, employer, role. Used to authenticate you, contact you
+            <strong>Account data</strong> - name, work email, employer, role. Used to authenticate you, contact you
             about service updates, and bill you when applicable.
           </li>
           <li>
-            <strong>Usage data</strong> — page views and product events, processed via Google Analytics 4 and
+            <strong>Usage data</strong> - page views and product events, processed via Google Analytics 4 and
             PostHog with IP-truncation enabled. Used to understand which features matter and which pages need
             rewriting.
           </li>
           <li>
-            <strong>Tenant data</strong> — the trust-graph metadata you connect to Identrail (identities, roles,
+            <strong>Tenant data</strong> - the trust-graph metadata you connect to Identrail (identities, roles,
             policies, RBAC bindings). Stored in your tenant only. Not used to train any model.
           </li>
         </ul>
@@ -158,7 +158,7 @@ const DOCS: Record<LegalKind, LegalDoc> = {
         <h2>Data subject requests</h2>
         <p>
           Email <a href="mailto:privacy@identrail.com">privacy@identrail.com</a> with the subject line "Data
-          request" — we respond within 30 days.
+          request" - we respond within 30 days.
         </p>
       </>
     )

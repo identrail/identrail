@@ -10,7 +10,7 @@ export function NotFoundPage() {
         That page took a trust path we don't recognise.
       </h1>
       <p className="t-lede u-mt-4" style={{ maxWidth: '52ch' }}>
-        The URL you followed isn't here — it may have moved during the redesign. Try one of the entry points
+        The URL you followed isn't here - it may have moved during the redesign. Try one of the entry points
         below, or head home.
       </p>
       <div className="row u-mt-8">

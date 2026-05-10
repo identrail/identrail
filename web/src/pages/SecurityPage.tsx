@@ -10,7 +10,7 @@ const POSTURE = [
     eyebrow: 'Data handling',
     title: 'Identrail does not store the contents of your secrets.',
     bullets: [
-      'Scans hash credential material at the edge — the secret value never leaves your environment.',
+      'Scans hash credential material at the edge - the secret value never leaves your environment.',
       'Connector credentials are encrypted at rest with AES-256 and rotated on a 90-day cadence.',
       'Findings, evidence, and metadata are deleted on request within 30 days; immediately for hosted Team customers via the in-app control.'
     ]
@@ -65,7 +65,7 @@ export function SecurityPage() {
         <SectionHeader
           eyebrow="Compliance posture"
           title="Honest status, by line item."
-          lede="If a status here matters to a buyer in your org and is not where they need it to be, talk to us — we'd rather hear that early than late."
+          lede="If a status here matters to a buyer in your org and is not where they need it to be, talk to us - we'd rather hear that early than late."
         />
         <table className="compare">
           <thead>
@@ -129,7 +129,7 @@ export function SecurityPage() {
             <h3 className="t-h3 u-mt-3">Every detection is in the open repo.</h3>
             <p className="t-body u-mt-3">
               Closed-source security tools ask you to trust their detections. We ask you to read them. The full
-              detection surface — connectors, rules, simulator — is on GitHub.
+              detection surface - connectors, rules, simulator - is on GitHub.
             </p>
             <div className="card-foot">
               <ArrowLink to={GITHUB_REPO} external>
@@ -141,8 +141,7 @@ export function SecurityPage() {
             <span className="t-eyebrow">Vulnerability handling</span>
             <h3 className="t-h3 u-mt-3">Disclose privately, get triage in 72h.</h3>
             <p className="t-body u-mt-3">
-              We coordinate disclosure publicly and credit reporters. The full process — triage, fix, advisory
-              — is on the responsible-disclosure page.
+              We coordinate disclosure publicly and credit reporters. The full process - triage, fix, advisory - is on the responsible-disclosure page.
             </p>
             <div className="card-foot">
               <ArrowLink to="/responsible-disclosure">Responsible disclosure</ArrowLink>
