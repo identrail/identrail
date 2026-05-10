@@ -82,8 +82,8 @@ PR 5 (frontend auth)                 │
 
 **Schema (migration `000017_users_and_sessions`).**
 - `users(id UUID PK, primary_email CITEXT UNIQUE, display_name, avatar_url, status, created_at, updated_at, deleted_at NULL)`.
-- `user_identities(id UUID PK, user_id FK, provider TEXT, subject TEXT, email CITEXT, raw_claims JSONB, last_authenticated_at, created_at, UNIQUE(provider, subject))`.
-- `sessions(id BYTEA PK, user_id FK ON DELETE CASCADE, current_org_id, current_workspace_id, auth_method, ip INET, user_agent, idle_expires_at, absolute_expires_at, last_seen_at, revoked_at NULL, created_at)`. `last_seen_at` is bumped to `NOW()` on every authenticated request alongside `idle_expires_at`; powers the "last seen" display on the account/security page.
+- `user_identities(id UUID PK, user_id FK, provider TEXT, subject TEXT, email CITEXT, email_verified BOOLEAN NOT NULL DEFAULT FALSE, raw_claims JSONB, last_authenticated_at, created_at, UNIQUE(provider, subject))`.
+- `sessions(id BYTEA PK, user_id FK ON DELETE CASCADE, current_org_id, current_workspace_id, current_project_id, auth_method, ip INET, user_agent, idle_expires_at, absolute_expires_at, last_seen_at, revoked_at NULL, created_at)`. `last_seen_at` is bumped to `NOW()` on every authenticated request alongside `idle_expires_at`; powers the "last seen" display on the account/security page.
 - `tenancy_workspace_members.user_uuid UUID NULL` added next to existing `user_id`.
 - Indexes per the cookie/session spec.
 
@@ -97,7 +97,7 @@ PR 5 (frontend auth)                 │
 - Tests across all of the above.
 
 **New endpoints.**
-- `GET /v1/me` returns the current user, org, workspace, and role.
+- `GET /v1/me` returns the current user, org, workspace, project, and role.
 - `GET /v1/me/sessions` lists active sessions for the current user (id, ip, user_agent, created_at, last_seen_at, idle_expires_at, current flag).
 - `DELETE /v1/me/sessions/:id` revokes one session by id (the current session can be revoked here; the response then clears the cookie too, equivalent to logout).
 - `POST /v1/me/sessions/revoke-others` revokes every session for the current user except the one making the call.
@@ -237,12 +237,13 @@ PR 5 (frontend auth)                 │
 - `internal/api/service.go` (ListConnectors, GetConnector, GetConnectorHealth).
 - `web/src/components/connector/ConnectorStatusBadge.tsx`, `ConnectorErrorPanel.tsx` (new).
 - `web/src/pages/ConnectorsListPage.tsx` (new, route `/app/{tenant}/{workspace}/connectors`).
-- `migrations/000019_connector_disabled_flag.up.sql` and `.down.sql` (new). Adds `disabled BOOLEAN NOT NULL DEFAULT FALSE` to `tenancy_connectors`. Does not modify the existing `status` CHECK constraint.
+- `migrations/000019_connector_disabled_flag.up.sql` and `.down.sql` (new). Adds `disabled BOOLEAN NOT NULL DEFAULT FALSE` and `config JSONB NOT NULL DEFAULT '{}'::jsonb` to `tenancy_connectors`. Does not modify the existing `status` CHECK constraint.
 
 **Schema (migration `000019_connector_disabled_flag`).**
 - `tenancy_connectors.disabled BOOLEAN NOT NULL DEFAULT FALSE`. Backfills as `false` for existing rows.
+- `tenancy_connectors.config JSONB NOT NULL DEFAULT '{}'::jsonb`. Holds provider-specific non-secret configuration (for example GHES base URL or selected repo IDs).
 
-**Contract.** See `connector-foundation.md` for the full Provider interface, the lifecycle status state machine, the `disabled` flag rules, the error taxonomy, and the heartbeat job rules. Lifecycle status values are limited to the four already in the existing schema (`pending`, `active`, `degraded`, `disconnected`); the foundation does not widen that constraint. The transient `validating` step lives in-process only.
+**Contract.** See `connector-foundation.md` for the full Provider interface, the lifecycle status state machine, the `disabled` flag rules, the error taxonomy, and the heartbeat job rules. Lifecycle status values are limited to the four already in the existing schema (`pending`, `active`, `degraded`, `disconnected`); the foundation does not widen that constraint. The transient `validating` step lives in-process only. Connector handlers are project-scoped via session context (`current_project_id`), even though the route prefix remains `/v1/connectors/*`.
 
 **New endpoints.** `GET /v1/connectors`, `GET /v1/connectors/:id`, `GET /v1/connectors/:id/health`, `DELETE /v1/connectors/:id`, `POST /v1/connectors/:id/disable`, `POST /v1/connectors/:id/enable`.
 
@@ -444,7 +445,7 @@ PR 5 (frontend auth)                 │
 
 **Group to role mapping.** Stored on `identity_connections.group_role_map` JSONB. UI shows WorkOS-reported groups with role dropdowns. Auto-suggestions from common patterns. Unmapped groups default to `viewer` with a warning.
 
-**Email sending.** Provider configurable (default Resend). Branded HTML and plaintext templates. 100 invites per org per hour.
+**Email sending.** Provider configurable (default empty/disabled until configured). Branded HTML and plaintext templates. 100 invites per org per hour.
 
 **New env vars.** `IDENTRAIL_EMAIL_PROVIDER`, `IDENTRAIL_EMAIL_API_KEY`, `IDENTRAIL_EMAIL_FROM_ADDRESS`.
 

@@ -89,7 +89,7 @@ Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` pat
 | `VITE_FEATURE_CONNECTOR_K8S` | `false` | PR 9 |
 | `VITE_FEATURE_ONBOARDING_WIZARD` | `false` | PR 10 |
 
-The pattern: each user-facing PR ships paired flags. The backend flag (`IDENTRAIL_FEATURE_*`) gates the API endpoints; the frontend flag (`VITE_FEATURE_*`) gates the UI surface. Both default off, and turning them on activates the PR's behavior. Either can be flipped to `false` independently for partial rollback.
+The common pattern is paired flags for UI-backed features: the backend flag (`IDENTRAIL_FEATURE_*`) gates API endpoints and the frontend flag (`VITE_FEATURE_*`) gates the UI surface. Both default off, and turning them on activates the PR's behavior. Backend-only capabilities may expose only an `IDENTRAIL_FEATURE_*` flag.
 
 ## Existing Variables (Not Touched)
 

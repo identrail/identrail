@@ -179,7 +179,7 @@ The heartbeat job is idempotent and rate-limited to prevent floods if many conne
 
 ## Per-Connector Storage
 
-The shared `tenancy_connectors` table holds the row that represents each connector. Provider-specific configuration lives in `config JSONB`. Sensitive credentials live in `tenancy_connector_secret_envelopes`, encrypted at rest.
+The shared `tenancy_connectors` table holds the row that represents each connector. Provider-specific non-secret configuration lives in `tenancy_connectors.config` (`JSONB`). Sensitive credentials live in `tenancy_connector_secret_envelopes`, encrypted at rest.
 
 `tenancy_connectors` columns relevant here:
 
@@ -189,11 +189,12 @@ The shared `tenancy_connectors` table holds the row that represents each connect
 | `type` | `aws`, `kubernetes`, `github` (existing CHECK constraint). |
 | `status` | One of `pending`, `active`, `degraded`, `disconnected` (existing CHECK constraint). |
 | `disabled` | `BOOLEAN NOT NULL DEFAULT FALSE`. Added in PR 6 as a separate column from `status`. |
+| `config` | `JSONB NOT NULL DEFAULT '{}'::jsonb`. Added in PR 6 for provider-specific non-secret settings (for example GHES base URL, selected repo IDs, or kubeconfig mode). |
 | `display_name` | User-facing label. |
 | `config_checksum` | Used to detect config changes. |
 | `created_at`, `updated_at` | Lifecycle timestamps. |
 
-PR 6's only schema change to `tenancy_connectors` is adding the `disabled` column. The existing `status` CHECK is unchanged. The existing FK on `(tenant_id, workspace_id, project_id)` to `tenancy_projects` and the existing indexes stay as they are.
+PR 6's schema change to `tenancy_connectors` adds two columns: `disabled` and `config`. The existing `status` CHECK is unchanged. The existing FK on `(tenant_id, workspace_id, project_id)` to `tenancy_projects` and the existing indexes stay as they are.
 
 `tenancy_connector_states` is the existing health-metadata table (note the plural). It holds `health_status`, `sync_cursor`, `last_successful_sync_at`, `last_error_code`, `last_error_message`, and `metadata`. PR 6 reuses it as-is. The `Health()` implementation reads and writes this table; the heartbeat job updates it on every probe.
 

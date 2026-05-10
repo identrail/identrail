@@ -154,6 +154,8 @@ Every endpoint we plan to add across all twelve PRs. Routes ship in the PR noted
 
 ### Connectors
 
+Connector endpoints are project-scoped. The route shape stays flat (`/v1/connectors/*`), but every handler resolves `(tenant_id, workspace_id, project_id)` from the authenticated session context, including `sessions.current_project_id`. Requests without an active project context fail fast.
+
 | Method | Path | Adds in |
 | --- | --- | --- |
 | GET | `/v1/connectors` | PR 6 |
@@ -178,6 +180,7 @@ Every endpoint we plan to add across all twelve PRs. Routes ship in the PR noted
 
 | Method | Path | Adds in |
 | --- | --- | --- |
+| GET | `/v1/orgs/:id/sso` | PR 11 |
 | POST | `/v1/orgs/:id/sso/connection` | PR 11 |
 | POST | `/v1/orgs/:id/sso/portal-session` | PR 11 |
 | POST | `/v1/orgs/:id/sso/test` | PR 11 |
@@ -208,7 +211,7 @@ The new auth and connector endpoints set explicit rate limits. PR 4 implements t
 | `POST /auth/logout` | 100 / minute | session |
 | `POST /auth/webhooks/*` | 60 / minute | IP (signature checked first) |
 | `POST /v1/onboarding/*` | 30 / minute | session |
-| `POST /v1/connectors/*` (creates) | 20 / minute | org |
+| `POST /v1/connectors/*` (creates) | 20 / minute | project |
 | `POST /v1/invitations` | 100 / hour | org |
 | `GET /v1/me`, `GET /v1/me/*` | 600 / minute | session |
 | `DELETE /v1/me/sessions/:id`, `POST /v1/me/sessions/revoke-others` | 30 / minute | session |
