@@ -106,6 +106,30 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: identrail-postgres-ingress
+  namespace: identrail
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - identrail-api
+                  - identrail-worker
+                  - identrail-migrations
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: identrail-egress-db-and-dns
   namespace: identrail
 spec:
@@ -138,6 +162,8 @@ spec:
         - protocol: TCP
           port: 443
 ```
+
+If Postgres runs outside the `identrail` namespace (or outside the cluster), change the `5432` egress destination to the correct namespace/IP allowlist and omit the `identrail-postgres-ingress` policy.
 
 ### TLS Example
 
