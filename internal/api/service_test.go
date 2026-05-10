@@ -17,6 +17,7 @@ import (
 	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type fakeScanner struct {
@@ -45,14 +46,30 @@ type fakeRepoExecutor struct {
 	result repoexposure.ScanResult
 	err    error
 	target string
+	runCtx context.Context
 }
 
-func (f *fakeRepoExecutor) ScanRepository(_ context.Context, target string) (repoexposure.ScanResult, error) {
+func (f *fakeRepoExecutor) ScanRepository(ctx context.Context, target string) (repoexposure.ScanResult, error) {
 	f.target = target
+	f.runCtx = ctx
 	if f.err != nil {
 		return repoexposure.ScanResult{}, f.err
 	}
 	return f.result, nil
+}
+
+type traceCapturingScanner struct {
+	result app.ScanResult
+	err    error
+	runCtx context.Context
+}
+
+func (s *traceCapturingScanner) Run(ctx context.Context) (app.ScanResult, error) {
+	s.runCtx = ctx
+	if s.err != nil {
+		return app.ScanResult{}, s.err
+	}
+	return s.result, nil
 }
 
 type completionContextStore struct {
@@ -1486,6 +1503,18 @@ func TestServiceRunRepoScanPersistedFailureUsesFreshContextForTerminalWrite(t *t
 	}
 }
 
+func remoteTraceContext(ctx context.Context) (context.Context, trace.TraceID) {
+	traceID, _ := trace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
+	spanID, _ := trace.SpanIDFromHex("00f067aa0ba902b7")
+	spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+		Remote:     true,
+	})
+	return trace.ContextWithRemoteSpanContext(ctx, spanContext), traceID
+}
+
 func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 20, 8, 0, 0, 0, time.UTC)
@@ -1522,6 +1551,39 @@ func TestServiceEnqueueScanAndProcessQueue(t *testing.T) {
 	}
 	if processed {
 		t.Fatal("expected no more queued scans")
+	}
+}
+
+func TestServiceProcessNextQueuedScanContinuesEnqueuedTraceContext(t *testing.T) {
+	store := db.NewMemoryStore()
+	scanner := &traceCapturingScanner{result: app.ScanResult{Assets: 1}}
+	svc := NewService(store, scanner, "aws")
+	enqueueCtx, expectedTraceID := remoteTraceContext(defaultScopeContext())
+
+	record, err := svc.EnqueueScan(enqueueCtx)
+	if err != nil {
+		t.Fatalf("enqueue scan: %v", err)
+	}
+	if record.TraceParent == "" {
+		t.Fatal("expected queued scan record to persist traceparent")
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process queued scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+	if scanner.runCtx == nil {
+		t.Fatal("expected scanner context capture")
+	}
+	spanContext := trace.SpanContextFromContext(scanner.runCtx)
+	if !spanContext.IsValid() {
+		t.Fatal("expected valid span context in scanner run context")
+	}
+	if spanContext.TraceID() != expectedTraceID {
+		t.Fatalf("expected trace id %s, got %s", expectedTraceID.String(), spanContext.TraceID().String())
 	}
 }
 
@@ -1820,6 +1882,49 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	}
 	if stored.Status != "succeeded" || stored.CommitsScanned != 25 {
 		t.Fatalf("unexpected processed repo scan record: %+v", stored)
+	}
+}
+
+func TestServiceProcessNextQueuedRepoScanContinuesEnqueuedTraceContext(t *testing.T) {
+	store := db.NewMemoryStore()
+	repoExecutor := &fakeRepoExecutor{
+		result: repoexposure.ScanResult{
+			Repository:     "owner/repo",
+			CommitsScanned: 5,
+			FilesScanned:   1,
+		},
+	}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		return repoExecutor
+	}
+
+	enqueueCtx, expectedTraceID := remoteTraceContext(defaultScopeContext())
+	record, err := svc.EnqueueRepoScan(enqueueCtx, RepoScanRequest{Repository: "owner/repo"})
+	if err != nil {
+		t.Fatalf("enqueue repo scan: %v", err)
+	}
+	if record.TraceParent == "" {
+		t.Fatal("expected queued repo scan record to persist traceparent")
+	}
+
+	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process queued repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued repo scan to be processed")
+	}
+	if repoExecutor.runCtx == nil {
+		t.Fatal("expected repo executor context capture")
+	}
+	spanContext := trace.SpanContextFromContext(repoExecutor.runCtx)
+	if !spanContext.IsValid() {
+		t.Fatal("expected valid span context in repo executor run context")
+	}
+	if spanContext.TraceID() != expectedTraceID {
+		t.Fatalf("expected trace id %s, got %s", expectedTraceID.String(), spanContext.TraceID().String())
 	}
 }
 

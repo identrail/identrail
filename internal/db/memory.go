@@ -191,7 +191,10 @@ func (m *MemoryStore) CreateQueuedScan(ctx context.Context, provider string, que
 	if err != nil {
 		return ScanRecord{}, err
 	}
-	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
+	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.scans[record.ID] = record
+	return record, nil
 }
 
 // CreateQueuedScanWithinLimit persists one queued scan request only when pending capacity remains.
@@ -223,7 +226,10 @@ func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider 
 	if queued >= maxPending {
 		return ScanRecord{}, ErrQueueLimitReached
 	}
-	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
+	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.scans[record.ID] = record
+	return record, nil
 }
 
 // CreateQueuedScanIfNoPending persists one queued scan only when no queued/running scan exists.
@@ -247,7 +253,10 @@ func (m *MemoryStore) CreateQueuedScanIfNoPending(ctx context.Context, provider 
 			return ScanRecord{}, ErrPendingScanExists
 		}
 	}
-	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
+	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.scans[record.ID] = record
+	return record, nil
 }
 
 // ClaimNextQueuedScan moves one queued scan to running for execution.
@@ -1704,7 +1713,10 @@ func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository strin
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), "queued", historyLimit, maxFindings, queuedAt), nil
+	record := m.createRepoScanLocked(scope, strings.TrimSpace(repository), "queued", historyLimit, maxFindings, queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.repoScans[record.ID] = record
+	return record, nil
 }
 
 // CreateQueuedRepoScanWithinLimit persists one queued repository scan only when the target is idle and queue capacity remains.
@@ -1735,7 +1747,10 @@ func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repos
 	if queued >= maxPending {
 		return RepoScanRecord{}, ErrQueueLimitReached
 	}
-	return m.createRepoScanLocked(scope, normalizedRepository, "queued", historyLimit, maxFindings, queuedAt), nil
+	record := m.createRepoScanLocked(scope, normalizedRepository, "queued", historyLimit, maxFindings, queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.repoScans[record.ID] = record
+	return record, nil
 }
 
 // ClaimNextQueuedRepoScan moves one queued repository scan to running for execution.

@@ -360,21 +360,24 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 	if queued >= maxPending {
 		return ScanRecord{}, ErrQueueLimitReached
 	}
+	traceParent, traceState := QueueTraceContextFromContext(ctx)
 
 	row := tx.QueryRowContext(
 		ctx,
 		`INSERT INTO scans (
-			id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message
+			id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message, trace_parent, trace_state
 		)
-		VALUES ($1, $2, $3, $4, 'queued', $5, NULL, 0, 0, NULL)
-		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')`,
+		VALUES ($1, $2, $3, $4, 'queued', $5, NULL, 0, 0, NULL, NULLIF($6, ''), NULLIF($7, ''))
+		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), COALESCE(trace_parent, ''), COALESCE(trace_state, '')`,
 		uuid.NewString(),
 		scope.TenantID,
 		scope.WorkspaceID,
 		normalizedProvider,
 		queuedAt.UTC(),
+		traceParent,
+		traceState,
 	)
-	record, err := scanScanRecord(row)
+	record, err := scanQueuedScanRecord(row)
 	if err != nil {
 		return ScanRecord{}, fmt.Errorf("insert queued scan: %w", err)
 	}
@@ -429,16 +432,19 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 		Status:      "queued",
 		StartedAt:   queuedAt.UTC(),
 	}
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO scans (id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message)
-		 VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, 0, NULL)`,
+		`INSERT INTO scans (id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message, trace_parent, trace_state)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, 0, NULL, NULLIF($7, ''), NULLIF($8, ''))`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
 		record.Provider,
 		record.Status,
 		record.StartedAt,
+		record.TraceParent,
+		record.TraceState,
 	); err != nil {
 		return ScanRecord{}, fmt.Errorf("insert queued scan: %w", err)
 	}
@@ -478,7 +484,7 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		    error_message = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
 	args := []any{strings.TrimSpace(provider)}
 	if scope != nil {
 		query = `WITH next_scan AS (
@@ -498,35 +504,19 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		    error_message = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, '')`
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID, strings.TrimSpace(provider)}
 	}
 	row := p.queryRowContext(ctx, query, args...)
 	if scope == nil {
 		row = p.queryRowContextAnyScope(ctx, query, args...)
 	}
-	var record ScanRecord
-	var finishedAt sql.NullTime
-	if err := row.Scan(
-		&record.ID,
-		&record.TenantID,
-		&record.WorkspaceID,
-		&record.Provider,
-		&record.Status,
-		&record.StartedAt,
-		&finishedAt,
-		&record.AssetCount,
-		&record.FindingCount,
-		&record.ErrorMessage,
-	); err != nil {
+	record, err := scanQueuedScanRecord(row)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return ScanRecord{}, ErrNotFound
 		}
 		return ScanRecord{}, fmt.Errorf("claim queued scan: %w", err)
-	}
-	if finishedAt.Valid {
-		converted := finishedAt.Time.UTC()
-		record.FinishedAt = &converted
 	}
 	return record, nil
 }
@@ -2488,10 +2478,11 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
 	}
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8)`,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, trace_parent, trace_state)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, NULLIF($9, ''), NULLIF($10, ''))`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
@@ -2500,6 +2491,8 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 		record.StartedAt,
 		record.HistoryLimit,
 		record.MaxFindings,
+		record.TraceParent,
+		record.TraceState,
 	); err != nil {
 		return RepoScanRecord{}, fmt.Errorf("insert queued repo scan: %w", err)
 	}
@@ -2552,7 +2545,9 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.truncated,
 			COALESCE(r.error_message, ''),
 			r.history_limit,
-			r.max_findings_limit`
+			r.max_findings_limit,
+			COALESCE(r.trace_parent, ''),
+			COALESCE(r.trace_state, '')`
 	args := []any{}
 	if scope != nil {
 		query = `WITH next_repo_scan AS (
@@ -2585,14 +2580,16 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.truncated,
 			COALESCE(r.error_message, ''),
 			r.history_limit,
-			r.max_findings_limit`
+			r.max_findings_limit,
+			COALESCE(r.trace_parent, ''),
+			COALESCE(r.trace_state, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID}
 	}
 	row := p.queryRowContext(ctx, query, args...)
 	if scope == nil {
 		row = p.queryRowContextAnyScope(ctx, query, args...)
 	}
-	record, err := scanRepoScanRecord(row)
+	record, err := scanQueuedRepoScanRecord(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return RepoScanRecord{}, ErrNotFound
@@ -3292,6 +3289,39 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 	return record, nil
 }
 
+func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
+	var record RepoScanRecord
+	var finishedAt sql.NullTime
+	if err := scanner.Scan(
+		&record.ID,
+		&record.TenantID,
+		&record.WorkspaceID,
+		&record.Repository,
+		&record.Status,
+		&record.StartedAt,
+		&finishedAt,
+		&record.CommitsScanned,
+		&record.FilesScanned,
+		&record.FindingCount,
+		&record.Truncated,
+		&record.ErrorMessage,
+		&record.HistoryLimit,
+		&record.MaxFindings,
+		&record.TraceParent,
+		&record.TraceState,
+	); err != nil {
+		return RepoScanRecord{}, err
+	}
+	record.StartedAt = record.StartedAt.UTC()
+	record.TraceParent = strings.TrimSpace(record.TraceParent)
+	record.TraceState = strings.TrimSpace(record.TraceState)
+	if finishedAt.Valid {
+		converted := finishedAt.Time.UTC()
+		record.FinishedAt = &converted
+	}
+	return record, nil
+}
+
 func scanScanRecord(scanner scanner) (ScanRecord, error) {
 	var record ScanRecord
 	var finishedAt sql.NullTime
@@ -3310,6 +3340,35 @@ func scanScanRecord(scanner scanner) (ScanRecord, error) {
 		return ScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	if finishedAt.Valid {
+		finished := finishedAt.Time.UTC()
+		record.FinishedAt = &finished
+	}
+	return record, nil
+}
+
+func scanQueuedScanRecord(scanner scanner) (ScanRecord, error) {
+	var record ScanRecord
+	var finishedAt sql.NullTime
+	if err := scanner.Scan(
+		&record.ID,
+		&record.TenantID,
+		&record.WorkspaceID,
+		&record.Provider,
+		&record.Status,
+		&record.StartedAt,
+		&finishedAt,
+		&record.AssetCount,
+		&record.FindingCount,
+		&record.ErrorMessage,
+		&record.TraceParent,
+		&record.TraceState,
+	); err != nil {
+		return ScanRecord{}, err
+	}
+	record.StartedAt = record.StartedAt.UTC()
+	record.TraceParent = strings.TrimSpace(record.TraceParent)
+	record.TraceState = strings.TrimSpace(record.TraceState)
 	if finishedAt.Valid {
 		finished := finishedAt.Time.UTC()
 		record.FinishedAt = &finished

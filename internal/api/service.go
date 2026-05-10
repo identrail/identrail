@@ -20,6 +20,7 @@ import (
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
 	"github.com/identrail/identrail/internal/telemetry"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 const (
@@ -39,6 +40,8 @@ const (
 	scanLifecycleSucceeded = "succeeded"
 	scanLifecycleFailed    = "failed"
 )
+
+var queueTracePropagator = propagation.TraceContext{}
 
 // ScannerRunner is the scan execution dependency required by API service.
 type ScannerRunner interface {
@@ -318,6 +321,7 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 // EnqueueScan stores one queued scan request for asynchronous worker execution.
 func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	ctx = s.scopeContext(ctx)
+	ctx = withQueueTraceContext(ctx)
 	maxPending := s.ScanQueueMaxPending
 	if maxPending <= 0 {
 		maxPending = 1
@@ -375,6 +379,7 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
 	})
+	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	s.appendScanLifecycleEvent(recordScopeCtx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
 	s.appendScanEvent(recordScopeCtx, record.ID, db.ScanEventLevelInfo, "queued scan started", map[string]any{"provider": record.Provider})
 	_, runErr := s.runScanWithRecord(recordScopeCtx, record)
@@ -631,6 +636,7 @@ func (s *Service) RunRepoScan(ctx context.Context, request RepoScanRequest) (rep
 // EnqueueRepoScan stores one queued repository scan request for asynchronous worker execution.
 func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) (db.RepoScanRecord, error) {
 	ctx = s.scopeContext(ctx)
+	ctx = withQueueTraceContext(ctx)
 	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(request)
 	if err != nil {
 		return db.RepoScanRecord{}, err
@@ -671,6 +677,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
 	})
+	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	requeue := false
 	if s.Locker != nil {
 		release, ok := s.Locker.TryAcquire(ctx, s.lockKey("repo-scan:"+strings.ToLower(record.Repository)))
@@ -2015,6 +2022,33 @@ func (s *Service) lockKey(key string) string {
 
 func (s *Service) scopeContext(ctx context.Context) context.Context {
 	return db.WithDefaultScope(ctx, s.DefaultScope)
+}
+
+func withQueueTraceContext(ctx context.Context) context.Context {
+	carrier := propagation.MapCarrier{}
+	queueTracePropagator.Inject(ctx, carrier)
+	traceParent := strings.TrimSpace(carrier.Get("traceparent"))
+	traceState := strings.TrimSpace(carrier.Get("tracestate"))
+	if traceParent == "" && traceState == "" {
+		return ctx
+	}
+	return db.WithQueueTraceContext(ctx, traceParent, traceState)
+}
+
+func continueQueueTraceContext(ctx context.Context, traceParent string, traceState string) context.Context {
+	traceParent = strings.TrimSpace(traceParent)
+	traceState = strings.TrimSpace(traceState)
+	if traceParent == "" && traceState == "" {
+		return ctx
+	}
+	carrier := propagation.MapCarrier{}
+	if traceParent != "" {
+		carrier.Set("traceparent", traceParent)
+	}
+	if traceState != "" {
+		carrier.Set("tracestate", traceState)
+	}
+	return queueTracePropagator.Extract(ctx, carrier)
 }
 
 func (s *Service) terminalWriteContext(ctx context.Context) context.Context {

@@ -304,6 +304,42 @@ func TestSixteenthMigrationContainsFindingLookupIndexes(t *testing.T) {
 	}
 }
 
+func TestSeventeenthMigrationContainsQueueTraceContextColumns(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000017_queue_trace_context.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"ALTER TABLE scans",
+		"ADD COLUMN IF NOT EXISTS trace_parent TEXT",
+		"ADD COLUMN IF NOT EXISTS trace_state TEXT",
+		"ALTER TABLE repo_scans",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected queue trace context migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000017_queue_trace_context.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP COLUMN IF EXISTS trace_state",
+		"DROP COLUMN IF EXISTS trace_parent",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected queue trace context down migration item %q", item)
+		}
+	}
+}
+
 func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000013_connectors_state_scan_policies.up.sql")
 	content, err := os.ReadFile(path)

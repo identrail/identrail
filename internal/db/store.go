@@ -150,6 +150,8 @@ type ScanRecord struct {
 	AssetCount   int        `json:"asset_count"`
 	FindingCount int        `json:"finding_count"`
 	ErrorMessage string     `json:"error_message,omitempty"`
+	TraceParent  string     `json:"-"`
+	TraceState   string     `json:"-"`
 }
 
 // RepoScanRecord tracks persisted repository exposure scan metadata.
@@ -168,6 +170,8 @@ type RepoScanRecord struct {
 	ErrorMessage   string     `json:"error_message,omitempty"`
 	HistoryLimit   int        `json:"-"`
 	MaxFindings    int        `json:"-"`
+	TraceParent    string     `json:"-"`
+	TraceState     string     `json:"-"`
 }
 
 // ScanArtifacts contains raw and normalized scan outputs to persist idempotently.

@@ -747,12 +747,16 @@ func TestMemoryStoreApplyFindingTriageTransitionAtomic(t *testing.T) {
 func TestMemoryStoreScanQueueLifecycle(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
-	queued, err := store.CreateQueuedScan(defaultScopeContext(), "aws", now)
+	scopedCtx := WithQueueTraceContext(defaultScopeContext(), "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "congo=t61rcWkgMzE")
+	queued, err := store.CreateQueuedScan(scopedCtx, "aws", now)
 	if err != nil {
 		t.Fatalf("create queued scan: %v", err)
 	}
 	if queued.Status != "queued" {
 		t.Fatalf("expected queued status, got %q", queued.Status)
+	}
+	if queued.TraceParent == "" {
+		t.Fatal("expected queue traceparent to be persisted")
 	}
 	count, err := store.CountQueuedScans(defaultScopeContext(), "aws")
 	if err != nil {
@@ -767,6 +771,9 @@ func TestMemoryStoreScanQueueLifecycle(t *testing.T) {
 	}
 	if claimed.ID != queued.ID || claimed.Status != "running" {
 		t.Fatalf("unexpected claimed scan %+v", claimed)
+	}
+	if claimed.TraceParent == "" {
+		t.Fatal("expected claimed scan to retain queue traceparent")
 	}
 	if _, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound when queue is empty, got %v", err)
@@ -907,12 +914,16 @@ func TestMemoryStoreCreateQueuedScanIfNoPending(t *testing.T) {
 func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
-	queued, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo", 50, 80, now)
+	scopedCtx := WithQueueTraceContext(defaultScopeContext(), "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "congo=t61rcWkgMzE")
+	queued, err := store.CreateQueuedRepoScan(scopedCtx, "owner/repo", 50, 80, now)
 	if err != nil {
 		t.Fatalf("create queued repo scan: %v", err)
 	}
 	if queued.Status != "queued" {
 		t.Fatalf("expected queued status, got %q", queued.Status)
+	}
+	if queued.TraceParent == "" {
+		t.Fatal("expected queued repo scan traceparent to persist")
 	}
 	if queued.HistoryLimit != 50 || queued.MaxFindings != 80 {
 		t.Fatalf("expected queued limits retained, got %+v", queued)
@@ -940,6 +951,9 @@ func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	}
 	if claimed.ID != queued.ID || claimed.Status != "running" {
 		t.Fatalf("unexpected claimed repo scan %+v", claimed)
+	}
+	if claimed.TraceParent == "" {
+		t.Fatal("expected claimed repo scan to retain queue traceparent")
 	}
 	if err := store.RequeueRepoScan(defaultScopeContext(), claimed.ID); err != nil {
 		t.Fatalf("requeue repo scan: %v", err)
