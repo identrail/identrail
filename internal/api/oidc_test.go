@@ -42,13 +42,16 @@ func TestNewOIDCTokenVerifierValidation(t *testing.T) {
 	if _, err := NewOIDCTokenVerifier(context.Background(), "", "aud", "tenant_id", "workspace_id", "groups", "roles"); err == nil {
 		t.Fatal("expected missing issuer validation error")
 	}
+	if _, err := NewOIDCTokenVerifier(context.Background(), "http://issuer.example.com", "aud", "tenant_id", "workspace_id", "groups", "roles"); err == nil {
+		t.Fatal("expected insecure issuer scheme validation error")
+	}
 	if _, err := NewOIDCTokenVerifier(context.Background(), "https://issuer.example.com", "", "tenant_id", "workspace_id", "groups", "roles"); err == nil {
 		t.Fatal("expected missing audience validation error")
 	}
 }
 
 func TestNewOIDCTokenVerifierDiscoveryFailure(t *testing.T) {
-	srv := httptest.NewServer(http.NotFoundHandler())
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
 	defer srv.Close()
 
 	if _, err := NewOIDCTokenVerifier(context.Background(), srv.URL, "identrail", "tenant_id", "workspace_id", "groups", "roles"); err == nil {

@@ -182,6 +182,26 @@ func TestNewSDKIAMAPIFromAssumeRoleConstructsAdapter(t *testing.T) {
 	}
 }
 
+func TestNewSDKIAMAPIConstructors(t *testing.T) {
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+
+	api, err := NewSDKIAMAPI("us-west-2", "")
+	if err != nil {
+		t.Fatalf("construct default SDK IAM API: %v", err)
+	}
+	if api == nil {
+		t.Fatal("expected default SDK IAM API")
+	}
+
+	api, err = NewSDKIAMAPIWithContext(context.Background(), "us-west-2", "")
+	if err != nil {
+		t.Fatalf("construct contextual SDK IAM API: %v", err)
+	}
+	if api == nil {
+		t.Fatal("expected contextual SDK IAM API")
+	}
+}
+
 func TestDedupePermissionPolicies(t *testing.T) {
 	deduped := dedupePermissionPolicies([]IAMPermissionPolicy{
 		{Name: "a", Document: "{}"},

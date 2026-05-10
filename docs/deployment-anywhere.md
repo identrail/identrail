@@ -12,6 +12,8 @@ This guide standardizes deployment for five common targets:
 
 Use this for quick production-like environments on one host.
 
+The checked-in Compose file is optimized for local bootstrap. For production-like single-host use, adapt `deploy/docker/docker-compose.prod.example.yml` and set a TLS-enabled `IDENTRAIL_DATABASE_URL`, `VITE_IDENTRAIL_API_URL`, and `IDENTRAIL_CORS_ALLOWED_ORIGINS`.
+
 Fastest local bootstrap:
 - `make quickstart`
 
@@ -39,6 +41,12 @@ Use this for managed cluster deployment.
    - `kubectl apply -f deploy/kubernetes/worker-deployment.yaml`
 4. Optional ingress:
    - `kubectl apply -f deploy/kubernetes/ingress.example.yaml`
+5. Optional: enable in-cluster Kubernetes scan collection:
+   - `kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml`
+   - `kubectl -n identrail patch configmap identrail-config --type merge -p '{"data":{"IDENTRAIL_PROVIDER":"kubernetes","IDENTRAIL_K8S_SOURCE":"kubectl"}}'`
+   - `kubectl -n identrail patch deployment identrail-api --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
+   - `kubectl -n identrail patch deployment identrail-worker --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
+   - `kubectl -n identrail rollout restart deployment/identrail-api deployment/identrail-worker`
 
 ## 3) Kubernetes Helm
 
@@ -81,13 +89,16 @@ Use this where Kubernetes is not required.
 
 ## Notes
 
-- Current provider collection mode is fixture-based for deterministic scans.
-- AWS can now run in fixture mode or live SDK mode (`IDENTRAIL_AWS_SOURCE=sdk`).
-- Kubernetes can now run in fixture mode or live kubectl mode (`IDENTRAIL_K8S_SOURCE=kubectl`).
+- Docker Compose is the local fixture profile and keeps deterministic scans for first-run smoke tests.
+- Helm, raw Kubernetes, Terraform, and systemd examples are production-oriented profiles and set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`.
+- AWS production collection uses live SDK mode (`IDENTRAIL_AWS_SOURCE=sdk`); use fixture mode only with `IDENTRAIL_REQUIRE_LIVE_SOURCES=false` in local/non-production tests.
+- Kubernetes production collection uses live kubectl mode (`IDENTRAIL_K8S_SOURCE=kubectl`); use fixture mode only with `IDENTRAIL_REQUIRE_LIVE_SOURCES=false` in local/non-production tests.
 - Repository exposure scans can be run via CLI (`identrail repo-scan`) or API (`POST /v1/repo-scans`).
 - Optional continuous repo scanning can run from worker (`IDENTRAIL_WORKER_REPO_SCAN_ENABLED=true` + `IDENTRAIL_WORKER_REPO_SCAN_TARGETS`).
 - For tighter safety in shared environments, set `IDENTRAIL_REPO_SCAN_ALLOWLIST`.
 - For multi-instance API/worker deployments, use `IDENTRAIL_LOCK_BACKEND=postgres` (or `auto` with database mode).
 - For live AWS/Kubernetes scans, use least-privilege templates in `deploy/policies/`.
 - Use PostgreSQL in non-local deployments.
+- Configure recurring Postgres backups and run restore drills before treating an
+  environment as production-ready.
 - Set HTTPS endpoints for alert/audit forwarding in production.
