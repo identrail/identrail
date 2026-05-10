@@ -23,7 +23,7 @@ When a callback arrives and we cannot find a matching `(provider, subject)` row 
 `users.primary_email` is `UNIQUE`, which means we cannot persist two `users` rows with the same email. We resolve the collision deliberately rather than auto-linking:
 
 - The new `users` row is created with `primary_email = NULL`. The email captured from the IdP is stored on the new `user_identities` row (`user_identities.email`) for display and audit only.
-- The new user can claim the email later from `/app/account/security` by proving ownership: sign in with the original identity tied to that email and link the new identity, OR receive a verification email at the address and confirm. Both flows fold the new `user_identities` row under the existing `users` row instead of producing a second account.
+- The new user can claim the email later from `/app/account/security` by proving ownership through authenticated linking: sign in with the original identity tied to that email and link the new identity. This flow folds the new `user_identities` row under the existing `users` row instead of producing a second account.
 - This trades a small amount of UX friction for a clean security property: the schema cannot end up with two distinct users claiming the same canonical email.
 
 ## Rule 2: Email-claim equality alone is never proof
