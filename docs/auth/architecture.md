@@ -125,6 +125,8 @@ Every endpoint we plan to add across all twelve PRs. Routes ship in the PR noted
 
 ### Sessions and identity
 
+Session context includes `current_org_id`, `current_workspace_id`, and `current_project_id` so project-scoped APIs can resolve tenancy without implicit defaults.
+
 | Method | Path | Adds in |
 | --- | --- | --- |
 | GET | `/v1/me` | PR 2 |
@@ -167,6 +169,7 @@ Connector endpoints are project-scoped. The route shape stays flat (`/v1/connect
 | POST | `/v1/connectors/aws` | PR 7 |
 | POST | `/v1/connectors/aws/:id/validate` | PR 7 |
 | GET | `/v1/connectors/aws/:id/poll` | PR 7 |
+| POST | `/v1/connectors/aws/:id/refresh-policy` | PR 7 |
 | POST | `/v1/connectors/github` | PR 8 |
 | POST | `/v1/connectors/github/pat` | PR 8 |
 | POST | `/auth/webhooks/github` | PR 8 |

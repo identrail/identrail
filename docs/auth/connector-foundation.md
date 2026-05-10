@@ -169,8 +169,10 @@ A scheduled job runs every 5 minutes and calls `Health()` on every connector in 
 | Condition | Action |
 | --- | --- |
 | Connector active, health succeeds | No transition. Update `last_successful_sync_at`. |
-| Connector active, health fails | Transition to `degraded`. Record error. |
+| Connector active, health fails with code `auth_failed` or `permission_denied` | Transition to `disconnected` immediately. Record error. |
+| Connector active, health fails with any other taxonomy code | Transition to `degraded`. Record error. |
 | Connector degraded, health succeeds | Transition to `active`. Clear last error. |
+| Connector degraded, health fails with code `auth_failed` or `permission_denied` | Transition to `disconnected` immediately. Record error. |
 | Connector degraded, > 6 hours since `last_successful_sync_at` | Transition to `disconnected`. Notify admins. |
 | Connector disconnected | No probing. Heartbeat skips this connector. |
 | Connector disabled (flag) | No probing. Heartbeat skips this connector. |

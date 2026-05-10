@@ -369,6 +369,8 @@ PR 5 (frontend auth)                 │
 
 **New endpoints.** `POST /v1/connectors/k8s`, `POST /v1/connectors/k8s/enroll` (agent-facing), `POST /v1/connectors/k8s/heartbeat` (agent-facing), `POST /v1/connectors/k8s/kubeconfig`.
 
+`/v1/connectors/k8s/enroll` and `/v1/connectors/k8s/heartbeat` are explicitly non-browser machine-to-machine routes. They are authenticated with enrollment/agent credentials, and they are exempt from browser-only CSRF header checks (`Origin` and `Sec-Fetch-Site`) that apply to interactive cookie-backed endpoints.
+
 **Out of scope.** Public OCI registry publication of the Helm chart. Real-time admission webhook integration. eBPF runtime detection.
 
 **Tests.** Enrollment token: single-use, expiry, tampering rejected. Heartbeat updates state. `helm lint` passes. ClusterRole programmatic check that no secrets, pods/exec, or mutating verbs are granted. End-to-end with `kind` (Kubernetes-in-Docker).
@@ -433,7 +435,22 @@ PR 5 (frontend auth)                 │
 - `web/src/pages/admin/SSOAdminPage.tsx`, `DomainsPage.tsx`, `InvitationsPage.tsx`.
 - `web/src/components/admin/AdminPortalLaunchButton.tsx`, `RecoveryCodesModal.tsx`.
 
-**New endpoints.** Per architecture doc.
+**New endpoints.**
+- `GET /v1/orgs/:id/sso`
+- `POST /v1/orgs/:id/sso/connection`
+- `POST /v1/orgs/:id/sso/portal-session`
+- `POST /v1/orgs/:id/sso/test`
+- `POST /v1/orgs/:id/sso/enforce`
+- `POST /v1/orgs/:id/sso/relink-all`
+- `POST /v1/orgs/:id/sso/recovery-codes`
+- `POST /v1/orgs/:id/sso/recovery-codes/use`
+- `POST /v1/orgs/:id/domains`
+- `POST /v1/orgs/:id/domains/:domain_id/verify`
+- `DELETE /v1/orgs/:id/domains/:domain_id`
+- `POST /v1/invitations`
+- `GET /v1/me/invitations`
+- `POST /v1/invitations/:id/accept`
+- `DELETE /v1/invitations/:id`
 
 **Verified domain flow.** Claim, generate `verification_token`, user adds DNS TXT record, backend polls or user clicks Verify, backend marks verified. SSO-required only enforceable on verified domains.
 
