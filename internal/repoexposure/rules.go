@@ -141,35 +141,45 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 	if normalized == "" {
 		return nil
 	}
-	findings := []domain.Finding{}
+	type detectedSecret struct {
+		rule  secretRule
+		match string
+	}
+	detected := make([]detectedSecret, 0, len(secretRules))
+	sanitizedLine := normalized
 	for _, rule := range secretRules {
 		match := rule.Pattern.FindString(normalized)
 		if strings.TrimSpace(match) == "" {
 			continue
 		}
-		sanitized := redactMatch(normalized, match)
-		fingerprint := hashSHA256(match)
-		id := hashDeterministicID("repo-secret", repo, commit, path, strconv.Itoa(line), rule.ID, fingerprint)
+		detected = append(detected, detectedSecret{rule: rule, match: match})
+		sanitizedLine = redactMatch(sanitizedLine, match)
+	}
+
+	findings := make([]domain.Finding, 0, len(detected))
+	for _, item := range detected {
+		fingerprint := hashSHA256(item.match)
+		id := hashDeterministicID("repo-secret", repo, commit, path, strconv.Itoa(line), item.rule.ID, fingerprint)
 		findings = append(findings, domain.Finding{
 			ID:           "finding:" + id,
 			Type:         domain.FindingSecretExposure,
-			Severity:     rule.Severity,
-			Title:        rule.Title,
-			HumanSummary: rule.Summary,
+			Severity:     item.rule.Severity,
+			Title:        item.rule.Title,
+			HumanSummary: item.rule.Summary,
 			Path:         []string{path},
 			Evidence: map[string]any{
 				"repository":          repo,
 				"commit":              commit,
 				"file_path":           path,
 				"line_number":         line,
-				"detector":            rule.ID,
+				"detector":            item.rule.ID,
 				"secret_fingerprint":  fingerprint,
-				"redacted_line_snip":  sanitized,
+				"redacted_line_snip":  sanitizedLine,
 				"history_source":      "commit_diff",
 				"raw_secret_stored":   false,
 				"secret_value_masked": true,
 			},
-			Remediation: rule.Remediation,
+			Remediation: item.rule.Remediation,
 			CreatedAt:   detectedAt,
 		})
 	}

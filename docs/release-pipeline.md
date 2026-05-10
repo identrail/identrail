@@ -8,15 +8,16 @@ Identrail release automation is defined in:
 - Tag push: `v*.*.*` (for example `v1.2.3`)
 - Manual dispatch with:
   - `tag` (required)
-  - `web_api_url` (optional override for web image build)
   - `publish_images` (optional boolean; default `false` for manual dispatch)
 
 ## Required Configuration
 
-- Set repository variable `IDENTRAIL_WEB_API_URL` to the public HTTPS API base URL
-  used by production web builds (for example `https://api.identrail.io`).
-- For manual runs with `publish_images=true`, you can override this with the `web_api_url` dispatch input.
+- Keep the versioned `VITE_IDENTRAIL_API_URL` value in `deploy/docker/release-web.env`.
+  This public HTTPS API base URL is baked into release web images.
 - For manual runs with `publish_images=false`, image configuration is not required.
+- Manual image backfills for historical tags that predate `deploy/docker/release-web.env`
+  use the legacy release URL recorded by the workflow and attach that source in
+  `release-web-build.txt`.
 
 ## What the Pipeline Publishes
 
@@ -26,7 +27,8 @@ Identrail release automation is defined in:
    - `ghcr.io/<owner>/identrail-api:<tag>`
    - `ghcr.io/<owner>/identrail-worker:<tag>`
    - `ghcr.io/<owner>/identrail-web:<tag>`
-4. Auto-generated GitHub Release notes.
+4. Image digests and web build input metadata.
+5. Auto-generated GitHub Release notes.
 
 ## Image Tag Rules
 
@@ -49,5 +51,4 @@ If a SemVer tag already exists but no GitHub Release was published (for example 
 2. Set:
    - `tag=v1.0.0`
    - `publish_images=false` (binary/checksum-only backfill), or `true` if GHCR image publish is required.
-   - `web_api_url` only when `publish_images=true`.
 3. Run workflow and confirm release assets include archive files plus `checksums.txt`.

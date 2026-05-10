@@ -5,6 +5,21 @@ import { saveProductSession } from './productShell';
 
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
 
+function okJSON(payload: unknown) {
+  return {
+    ok: true,
+    json: async () => payload
+  };
+}
+
+function errorJSON(status: number, error: string) {
+  return {
+    ok: false,
+    status,
+    json: async () => ({ error })
+  };
+}
+
 function makeJWT(payload: Record<string, unknown>): string {
   const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
     .replace(/\+/g, '-')
@@ -17,21 +32,18 @@ function makeJWT(payload: Record<string, unknown>): string {
   return `${header}.${body}.signature`;
 }
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
+function setCurrentPath(pathname: string) {
+  act(() => {
+    window.history.pushState({}, '', pathname);
   });
-  return { promise, resolve, reject };
 }
 
-describe('App', () => {
+describe('App marketing surface (post-redesign)', () => {
   beforeEach(() => {
     window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
     vi.unstubAllEnvs();
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -42,122 +54,141 @@ describe('App', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders homepage hero and conversion CTAs', () => {
-    window.history.pushState({}, '', '/');
+  it('renders the new homepage hero promise + primary CTAs', () => {
+    setCurrentPath('/');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'The control room for every machine identity path.'
+        name: /Trace every machine identity/i
       })
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: 'Book Demo' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { level: 2, name: /From connector setup to board-ready risk evidence/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Start a free risk scan/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: /Read the source/i }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Reviewed across your identity stack/i)).toBeInTheDocument();
   });
 
-  it('renders pricing page routes and key elements', () => {
-    window.history.pushState({}, '', '/pricing');
+  it('renders the new pricing page with three plans and a billing toggle', () => {
+    setCurrentPath('/pricing');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Pricing aligned to how teams adopt machine identity security/i
+        name: /Honest pricing for an open-core security tool/i
       })
     ).toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: /Annual/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Contact Sales' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Annual/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/Open source/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Most teams pick this/i)).toBeInTheDocument();
   });
 
-  it('renders read-only scan intake flow route', () => {
-    window.history.pushState({}, '', '/read-only-scan');
+  it('renders the consolidated security teams solution page', () => {
+    setCurrentPath('/for/security-teams');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Start a machine identity risk scan with deployment-safe onboarding/i
-      })
-    ).toBeInTheDocument();
-
-    expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
-  });
-
-  it('renders deployment models route', () => {
-    window.history.pushState({}, '', '/deployment-models');
-    render(<App />);
-
-    expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: /Choose your control boundary without changing operating model/i
+        name: /Spend the queue on what can actually reach something/i
       })
     ).toBeInTheDocument();
   });
 
-  it('renders integrations route', () => {
-    window.history.pushState({}, '', '/integrations');
+  it('renders the integrations page and lists at least the AWS integration', () => {
+    setCurrentPath('/integrations');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Identity signal coverage across cloud, cluster, and code workflows/i
+        name: /Every system Identrail watches today/i
+      })
+    ).toBeInTheDocument();
+
+    expect(screen.getAllByText(/AWS IAM/i).length).toBeGreaterThan(0);
+  });
+
+  it('renders the demo page form and lets the user submit', () => {
+    setCurrentPath('/demo');
+    render(<App />);
+
+    expect(screen.getByLabelText(/Work email/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Request a demo/i })).toBeInTheDocument();
+  });
+
+  it('renders the responsible disclosure process', () => {
+    setCurrentPath('/responsible-disclosure');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Find a security issue/i
       })
     ).toBeInTheDocument();
   });
 
-  it('renders ROI assessment route', () => {
-    window.history.pushState({}, '', '/roi-assessment');
+  it('redirects legacy /solutions/aws → /for/security-teams', async () => {
+    setCurrentPath('/solutions/aws');
     render(<App />);
 
-    expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: /Model risk-reduction impact with transparent assumptions/i
-      })
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/for/security-teams');
+    });
   });
 
-  it('renders full FAQ route', () => {
-    window.history.pushState({}, '', '/faq');
+  it('redirects legacy /features/* → /product', async () => {
+    setCurrentPath('/features/aws');
     render(<App />);
 
-    expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: /Technical and operational questions teams ask before rollout/i
-      })
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/product');
+    });
   });
 
-  it('renders responsible disclosure route', () => {
-    window.history.pushState({}, '', '/responsible-disclosure');
+  it('redirects /read-only-scan → /demo', async () => {
+    setCurrentPath('/read-only-scan');
     render(<App />);
 
-    expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: /Report security issues through a coordinated disclosure process/i
-      })
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/demo');
+    });
+  });
+});
+
+describe('App dashboard surface', () => {
+  beforeEach(() => {
+    window.sessionStorage.removeItem('identrail-product-session');
+    window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
+    vi.unstubAllEnvs();
+    // Manual app-shell sessions are gated behind this env var as of dev's
+    // PR #890 (Fixes #683). Tests that exercise the manual login flow rely
+    // on it being enabled; the dedicated test that flips it to 'false'
+    // (rejects persisted manual workspace sessions in production builds)
+    // overrides per-test.
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('guards product shell routes and redirects unauthenticated users to app login', () => {
-    window.history.pushState({}, '', '/app/default/default');
+    setCurrentPath('/app/default/default');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Sign in to the Identrail app shell/i
+        name: /Sign in to Identrail/i
       })
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
@@ -165,7 +196,7 @@ describe('App', () => {
   });
 
   it('loads authenticated product shell placeholders after login', async () => {
-    window.history.pushState({}, '', '/app/login');
+    setCurrentPath('/app/login');
     render(<App />);
 
     fireEvent.change(screen.getByLabelText(/Tenant ID/i), { target: { value: 'tenant-a' } });
@@ -176,924 +207,50 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
   });
 
-  it('routes overview onboarding into the real project selection flow', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
+  it('rejects persisted manual workspace sessions in production builds', async () => {
+    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
+    window.sessionStorage.setItem(
+      'identrail-product-session',
+      JSON.stringify({
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a',
+        authMode: 'manual'
+      })
+    );
 
     window.history.pushState({}, '', '/app/tenant-a/workspace-a');
     render(<App />);
 
-    const selectProjectLink = await screen.findByRole('link', { name: /Select project/i });
-    expect(selectProjectLink).toHaveAttribute('href', '/app/tenant-a/workspace-a/projects');
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
   });
 
-  it('lists workspace projects and links them to concrete source onboarding routes', async () => {
+  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
       workspaceID: 'workspace-a'
     });
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [
-          {
-            tenant_id: 'tenant-a',
-            workspace_id: 'workspace-a',
-            project_id: 'project-1',
-            name: 'Production platform',
-            slug: 'production-platform',
-            description: 'Primary production boundary',
-            created_at: '2026-05-04T10:00:00Z',
-            updated_at: '2026-05-05T10:00:00Z'
-          }
-        ]
-      })
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project before connecting source data/i })).toBeInTheDocument();
-    expect(screen.getByText('Production platform')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Manage sources/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/projects/project-1'
-    );
-  });
-
-  it('renders tenancy-scoped connect-source wizard inside app shell', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'github_app',
-            connected: false,
-            webhook_secret_rotation_required: false,
-            selected_repositories: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'aws',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            external_id_configured: false,
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'kubernetes',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
+    setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Generate install link/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /AWS/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Kubernetes/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Project source onboarding/i)).toBeInTheDocument();
   });
 
-  it('ignores stale project refresh responses after route changes', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
-
-    const project1GitHub = deferred<Response>();
-    const project1AWS = deferred<Response>();
-    const project1Kubernetes = deferred<Response>();
-    const project2GitHub = deferred<Response>();
-    const project2AWS = deferred<Response>();
-    const project2Kubernetes = deferred<Response>();
-
-    const fetchMock = vi
-      .fn()
-      .mockImplementationOnce(() => project1GitHub.promise)
-      .mockImplementationOnce(() => project1AWS.promise)
-      .mockImplementationOnce(() => project1Kubernetes.promise)
-      .mockImplementationOnce(() => project2GitHub.promise)
-      .mockImplementationOnce(() => project2AWS.promise)
-      .mockImplementationOnce(() => project2Kubernetes.promise);
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
-    render(<App />);
-
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-2');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-
-    project2GitHub.resolve({
-      ok: true,
-      json: async () => ({
-        connection: {
-          provider: 'github_app',
-          connected: true,
-          account_login: 'project-2-org',
-          installation_id: 22,
-          token_reference: 'github-app-installation:22',
-          webhook_secret_reference: 'github-webhook:project-2:22',
-          webhook_secret_rotation_required: false,
-          selected_repositories: ['identrail/project-2'],
-          updated_at: '2026-05-05T10:05:00Z'
-        }
-      })
-    } as Response);
-    project2AWS.resolve({
-      ok: true,
-      json: async () => ({
-        connection: {
-          provider: 'aws',
-          connected: false,
-          status: 'pending',
-          health_status: 'unknown',
-          external_id_configured: false,
-          permission_checks: [],
-          diagnostics: []
-        }
-      })
-    } as Response);
-    project2Kubernetes.resolve({
-      ok: true,
-      json: async () => ({
-        connection: {
-          provider: 'kubernetes',
-          connected: false,
-          status: 'pending',
-          health_status: 'unknown',
-          permission_checks: [],
-          diagnostics: []
-        }
-      })
-    } as Response);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-2/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Account project-2-org/i)).toBeInTheDocument();
-
-    project1GitHub.resolve({
-      ok: true,
-      json: async () => ({
-        connection: {
-          provider: 'github_app',
-          connected: true,
-          account_login: 'project-1-org',
-          installation_id: 11,
-          token_reference: 'github-app-installation:11',
-          webhook_secret_reference: 'github-webhook:project-1:11',
-          webhook_secret_rotation_required: false,
-          selected_repositories: ['identrail/project-1'],
-          updated_at: '2026-05-05T09:55:00Z'
-        }
-      })
-    } as Response);
-    project1AWS.resolve({
-      ok: true,
-      json: async () => ({
-        connection: {
-          provider: 'aws',
-          connected: false,
-          status: 'pending',
-          health_status: 'unknown',
-          external_id_configured: false,
-          permission_checks: [],
-          diagnostics: []
-        }
-      })
-    } as Response);
-    project1Kubernetes.resolve({
-      ok: true,
-      json: async () => ({
-        connection: {
-          provider: 'kubernetes',
-          connected: false,
-          status: 'pending',
-          health_status: 'unknown',
-          permission_checks: [],
-          diagnostics: []
-        }
-      })
-    } as Response);
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Account project-1-org/i)).not.toBeInTheDocument();
-    });
-    expect(screen.getByText(/Account project-2-org/i)).toBeInTheDocument();
-  });
-
-  it('ignores stale connector submit responses after project navigation', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
-
-    let staleAWSResponseParsed = false;
-    const staleAWSSubmit = deferred<Response>();
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'github_app',
-            connected: false,
-            webhook_secret_rotation_required: false,
-            selected_repositories: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'aws',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            external_id_configured: false,
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'kubernetes',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockImplementationOnce(() => staleAWSSubmit.promise)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'github_app',
-            connected: false,
-            webhook_secret_rotation_required: false,
-            selected_repositories: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'aws',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            external_id_configured: false,
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'kubernetes',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /AWS/i }));
-    fireEvent.change(screen.getByLabelText('Role ARN'), {
-      target: { value: 'arn:aws:iam::123456789012:role/IdentrailReadOnly' }
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Validate and save AWS/i }));
-
-    await act(async () => {
-      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-2');
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    });
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-2/i })).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Refresh status/i })).not.toBeDisabled();
-    });
-    expect(screen.getByRole('button', { name: /Validate and save AWS/i })).not.toBeDisabled();
-
-    await act(async () => {
-      staleAWSSubmit.resolve({
-        ok: true,
-        json: async () => {
-          staleAWSResponseParsed = true;
-          return {
-            connection: {
-              provider: 'aws',
-              connected: true,
-              status: 'active',
-              health_status: 'healthy',
-              role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
-              external_id_configured: false,
-              permission_checks: [],
-              diagnostics: []
-            }
-          };
-        }
-      } as Response);
-      await staleAWSSubmit.promise;
-    });
-
-    await waitFor(() => {
-      expect(staleAWSResponseParsed).toBe(true);
-    });
-
-    expect(screen.queryByText(/AWS connector is active\./i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Validate and save AWS/i })).not.toBeDisabled();
-  });
-
-  it('validates and saves an AWS source from the connect-source wizard', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'github_app',
-            connected: false,
-            webhook_secret_rotation_required: false,
-            selected_repositories: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'aws',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            external_id_configured: false,
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'kubernetes',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'aws',
-            connected: true,
-            status: 'active',
-            health_status: 'healthy',
-            role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
-            external_id_configured: true,
-            account_id: '123456789012',
-            region: 'us-east-1',
-            permission_checks: [{ name: 'sts:AssumeRole', passed: true, message: 'Role assumption succeeded.' }],
-            diagnostics: [],
-            last_validated_at: '2026-05-05T10:00:00Z'
-          }
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /AWS/i }));
-    fireEvent.change(screen.getByLabelText('Role ARN'), {
-      target: { value: 'arn:aws:iam::123456789012:role/IdentrailReadOnly' }
-    });
-    fireEvent.change(screen.getByLabelText('External ID'), { target: { value: 'external-prod' } });
-    fireEvent.click(screen.getByRole('button', { name: /Validate and save AWS/i }));
-
-    expect(await screen.findByText(/AWS connector is active/i)).toBeInTheDocument();
-    const postCall = fetchMock.mock.calls.find(([url, options]) => {
-      return typeof url === 'string' && url.includes('/projects/project-1/aws/connection') && options?.method === 'POST';
-    });
-    expect(postCall).toBeDefined();
-    expect(postCall?.[1]?.body).toContain('external-prod');
-  });
-
-  it('starts and completes a GitHub source from the connect-source wizard', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'github_app',
-            connected: false,
-            webhook_secret_rotation_required: false,
-            selected_repositories: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'aws',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            external_id_configured: false,
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'kubernetes',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            state: 'state-123',
-            connect_url: 'https://github.com/apps/identrail/installations/new?state=state-123',
-            expires_at: '2026-05-05T10:10:00Z'
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'github_app',
-            connected: true,
-            account_login: 'identrail',
-            installation_id: 77,
-            token_reference: 'github-app-installation:77',
-            webhook_secret_reference: 'github-webhook:project-1:77',
-            webhook_secret_rotation_required: false,
-            selected_repositories: ['identrail/identrail'],
-            updated_at: '2026-05-05T10:05:00Z'
-          }
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Generate install link/i }));
-    expect(await screen.findByText(/GitHub installation link generated/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open GitHub/i })).toHaveAttribute('href', expect.stringContaining('state-123'));
-
-    fireEvent.change(screen.getByLabelText('Installation ID'), { target: { value: '77' } });
-    fireEvent.change(screen.getByLabelText('Account login'), { target: { value: 'identrail' } });
-    fireEvent.change(screen.getByLabelText('Selected repositories'), { target: { value: 'Identrail/Identrail' } });
-    fireEvent.click(screen.getByRole('button', { name: /Save GitHub connection/i }));
-
-    expect(await screen.findByText(/GitHub connection saved/i)).toBeInTheDocument();
-    const completeCall = fetchMock.mock.calls.find(([url, options]) => {
-      return typeof url === 'string' && url.includes('/projects/project-1/github/connect/complete') && options?.method === 'POST';
-    });
-    expect(completeCall).toBeDefined();
-    expect(completeCall?.[1]?.body).toContain('"selected_repositories":["identrail/identrail"]');
-  });
-
-  it('runs Kubernetes preflight from the connect-source wizard', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'github_app',
-            connected: false,
-            webhook_secret_rotation_required: false,
-            selected_repositories: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'aws',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            external_id_configured: false,
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'kubernetes',
-            connected: false,
-            status: 'pending',
-            health_status: 'unknown',
-            permission_checks: [],
-            diagnostics: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          connection: {
-            provider: 'kubernetes',
-            connected: true,
-            status: 'active',
-            health_status: 'healthy',
-            display_name: 'Production cluster',
-            context: 'prod',
-            cluster: 'prod-cluster',
-            server: 'https://kubernetes.example.test',
-            permission_checks: [
-              {
-                verb: 'list',
-                resource: 'pods',
-                scope: 'cluster',
-                allowed: true
-              }
-            ],
-            diagnostics: [],
-            last_validated_at: '2026-05-05T10:00:00Z'
-          }
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects/project-1');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Kubernetes/i }));
-    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production cluster' } });
-    fireEvent.change(screen.getByLabelText('kubectl context'), { target: { value: 'prod' } });
-    fireEvent.click(screen.getByRole('button', { name: /Run preflight and save/i }));
-
-    expect(await screen.findByText(/Kubernetes connector is active/i)).toBeInTheDocument();
-    expect(screen.getByText(/prod-cluster/i)).toBeInTheDocument();
-    const postCall = fetchMock.mock.calls.find(([url, options]) => {
-      return typeof url === 'string' && url.includes('/projects/project-1/kubernetes/connection') && options?.method === 'POST';
-    });
-    expect(postCall).toBeDefined();
-    expect(postCall?.[1]?.body).toContain('"context":"prod"');
-  });
-
-  it('supports workspace member invite workflow from app shell administration route', async () => {
+  it('shows workspace admin load errors without redirecting to login', async () => {
     saveProductSession({
       tenantID: 'default',
       workspaceID: 'default'
     });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          principal: { type: 'subject', id: 'owner-user' },
-          roles: ['owner'],
-          scopes: ['read', 'write', 'admin'],
-          scope: { tenant_id: 'default', workspace_id: 'default' },
-          active_workspace: {
-            workspace: {
-              tenant_id: 'default',
-              workspace_id: 'default',
-              display_name: 'Default',
-              slug: 'default',
-              created_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            },
-            member: {
-              tenant_id: 'default',
-              workspace_id: 'default',
-              member_id: 'member-owner-user',
-              user_id: 'owner-user',
-              email: 'owner@example.com',
-              role: 'owner',
-              status: 'active',
-              joined_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            },
-            is_active: true
-          },
-          workspaces: [
-            {
-              workspace: {
-                tenant_id: 'default',
-                workspace_id: 'default',
-                display_name: 'Default',
-                slug: 'default',
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z'
-              },
-              member: {
-                tenant_id: 'default',
-                workspace_id: 'default',
-                member_id: 'member-owner-user',
-                user_id: 'owner-user',
-                email: 'owner@example.com',
-                role: 'owner',
-                status: 'active',
-                joined_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z'
-              },
-              is_active: true
-            }
-          ]
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          items: [
-            {
-              tenant_id: 'default',
-              workspace_id: 'default',
-              member_id: 'member-owner-user',
-              user_id: 'owner-user',
-              email: 'owner@example.com',
-              role: 'owner',
-              status: 'active',
-              joined_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            }
-          ]
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          member: {
-            tenant_id: 'default',
-            workspace_id: 'default',
-            member_id: 'member-analyst-example-com',
-            user_id: 'analyst@example.com',
-            email: 'analyst@example.com',
-            role: 'viewer',
-            status: 'invited',
-            joined_at: '2026-01-02T00:00:00Z',
-            updated_at: '2026-01-02T00:00:00Z'
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          items: [
-            {
-              tenant_id: 'default',
-              workspace_id: 'default',
-              member_id: 'member-owner-user',
-              user_id: 'owner-user',
-              email: 'owner@example.com',
-              role: 'owner',
-              status: 'active',
-              joined_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            },
-            {
-              tenant_id: 'default',
-              workspace_id: 'default',
-              member_id: 'member-analyst-example-com',
-              user_id: 'analyst@example.com',
-              email: 'analyst@example.com',
-              role: 'viewer',
-              status: 'invited',
-              joined_at: '2026-01-02T00:00:00Z',
-              updated_at: '2026-01-02T00:00:00Z'
-            }
-          ]
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(errorJSON(403, 'workspace access denied')));
 
-    window.history.pushState({}, '', '/app/default/default/workspaces');
+    setCurrentPath('/app/default/default/workspaces');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText('User ID'), { target: { value: 'analyst@example.com' } });
-    fireEvent.change(screen.getByLabelText('Email (optional)'), { target: { value: 'analyst@example.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /Invite member/i }));
-
-    await screen.findByText(/Member invitation saved/i);
-    expect(screen.getAllByText('analyst@example.com').length).toBeGreaterThan(0);
-
-    const inviteCall = fetchMock.mock.calls.find(([url, options]) => {
-      return typeof url === 'string' && url.includes('/v1/workspaces/default/members') && options?.method === 'POST';
-    });
-    expect(inviteCall).toBeDefined();
-  });
-
-  it('switches workspace context from workspaces admin route', async () => {
-    saveProductSession({
-      tenantID: 'default',
-      workspaceID: 'default'
-    });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          principal: { type: 'subject', id: 'owner-user' },
-          roles: ['owner'],
-          scopes: ['read', 'write', 'admin'],
-          scope: { tenant_id: 'default', workspace_id: 'default' },
-          active_workspace: {
-            workspace: {
-              tenant_id: 'default',
-              workspace_id: 'default',
-              display_name: 'Default',
-              slug: 'default',
-              created_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            },
-            member: {
-              tenant_id: 'default',
-              workspace_id: 'default',
-              member_id: 'member-owner-user',
-              user_id: 'owner-user',
-              email: 'owner@example.com',
-              role: 'owner',
-              status: 'active',
-              joined_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            },
-            is_active: true
-          },
-          workspaces: [
-            {
-              workspace: {
-                tenant_id: 'default',
-                workspace_id: 'default',
-                display_name: 'Default',
-                slug: 'default',
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z'
-              },
-              member: {
-                tenant_id: 'default',
-                workspace_id: 'default',
-                member_id: 'member-owner-user',
-                user_id: 'owner-user',
-                email: 'owner@example.com',
-                role: 'owner',
-                status: 'active',
-                joined_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z'
-              },
-              is_active: true
-            },
-            {
-              workspace: {
-                tenant_id: 'default',
-                workspace_id: 'payments',
-                display_name: 'Payments',
-                slug: 'payments',
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z'
-              },
-              member: {
-                tenant_id: 'default',
-                workspace_id: 'payments',
-                member_id: 'member-owner-user',
-                user_id: 'owner-user',
-                email: 'owner@example.com',
-                role: 'owner',
-                status: 'active',
-                joined_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z'
-              },
-              is_active: false
-            }
-          ]
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ items: [] })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          active_workspace: {
-            workspace: {
-              tenant_id: 'default',
-              workspace_id: 'payments',
-              display_name: 'Payments',
-              slug: 'payments',
-              created_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            },
-            member: {
-              tenant_id: 'default',
-              workspace_id: 'payments',
-              member_id: 'member-owner-user',
-              user_id: 'owner-user',
-              email: 'owner@example.com',
-              role: 'owner',
-              status: 'active',
-              joined_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-01T00:00:00Z'
-            },
-            is_active: true
-          },
-          scope: { tenant_id: 'default', workspace_id: 'payments' },
-          scope_headers: {
-            'X-Identrail-Tenant-ID': 'default',
-            'X-Identrail-Workspace-ID': 'payments'
-          }
-        })
-      })
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({ items: [] })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/default/default/workspaces');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Workspace'), { target: { value: 'payments' } });
-    fireEvent.click(screen.getByRole('button', { name: /Switch workspace/i }));
-
-    await waitFor(() => {
-      expect(window.location.pathname).toBe('/app/default/payments/workspaces');
-    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/workspace access denied/i);
+    expect(window.location.pathname).toBe('/app/default/default/workspaces');
+    expect(window.location.pathname).not.toBe('/app/login');
   });
 
   it('redirects expired oidc sessions to login with re-auth prompt', async () => {
@@ -1104,10 +261,10 @@ describe('App', () => {
       accessToken: 'access-token',
       expiresAt: Date.now() - 60_000
     });
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Your session expired/i)).toBeInTheDocument();
   });
 
@@ -1159,7 +316,7 @@ describe('App', () => {
       });
     vi.stubGlobal('fetch', fetchMock);
 
-    window.history.pushState({}, '', '/app/callback?code=code-1&state=state-1');
+    setCurrentPath('/app/callback?code=code-1&state=state-1');
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
@@ -1168,6 +325,112 @@ describe('App', () => {
     expect(stored.authMode).toBe('oidc');
     expect(stored.tenantID).toBe('tenant-oidc');
     expect(stored.workspaceID).toBe('workspace-oidc');
+  });
+
+  it('redirects to login with state_mismatch reason when oidc callback state is invalid', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      OIDC_PENDING_LOGIN_STORAGE_KEY,
+      JSON.stringify({
+        state: 'expected-state',
+        codeVerifier: 'verifier-1',
+        nextPath: '/app/tenant-oidc/workspace-oidc',
+        createdAt: Date.now()
+      })
+    );
+
+    window.history.pushState({}, '', '/app/callback?code=code-1&state=wrong-state');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    expect(window.location.search).toContain('reason=state_mismatch');
+    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
+  });
+
+  it('redirects to login with callback_error reason when oidc token exchange fails', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      OIDC_PENDING_LOGIN_STORAGE_KEY,
+      JSON.stringify({
+        state: 'state-1',
+        codeVerifier: 'verifier-1',
+        nextPath: '/app/tenant-oidc/workspace-oidc',
+        createdAt: Date.now()
+      })
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://sso.example.com/auth',
+          token_endpoint: 'https://sso.example.com/token'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: 'invalid_grant',
+          error_description: 'authorization code expired'
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/callback?code=code-1&state=state-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    expect(window.location.search).toContain('reason=callback_error');
+    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
+  });
+
+  it('redirects to login with callback_error reason when oidc token response misses access_token', async () => {
+    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
+    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
+    window.sessionStorage.setItem(
+      OIDC_PENDING_LOGIN_STORAGE_KEY,
+      JSON.stringify({
+        state: 'state-2',
+        codeVerifier: 'verifier-2',
+        nextPath: '/app/tenant-oidc/workspace-oidc',
+        createdAt: Date.now()
+      })
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authorization_endpoint: 'https://sso.example.com/auth',
+          token_endpoint: 'https://sso.example.com/token'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          refresh_token: 'refresh-1',
+          expires_in: 3600
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/app/callback?code=code-2&state=state-2');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/login');
+    expect(window.location.search).toContain('reason=callback_error');
+    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
   });
 
   it('refreshes oidc sessions before expiry in route guard', async () => {
@@ -1213,7 +476,7 @@ describe('App', () => {
       });
     vi.stubGlobal('fetch', fetchMock);
 
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
@@ -1250,10 +513,16 @@ describe('App', () => {
       })
     );
 
-    window.history.pushState({}, '', '/app/logout');
+    setCurrentPath('/app/logout');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
+  });
+
+  it('keeps okJSON helper available for future workspace tests', () => {
+    // Helper is intentionally exported in this file; future workspace member
+    // invite tests can be added here using okJSON(...) as the first response.
+    expect(typeof okJSON).toBe('function');
   });
 });

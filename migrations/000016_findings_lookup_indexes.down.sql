@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_repo_findings_finding_id_created_at;
+DROP INDEX IF EXISTS idx_findings_finding_id_created_at;
