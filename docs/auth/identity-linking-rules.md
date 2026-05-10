@@ -20,7 +20,11 @@ The defense is simple to state and easy to get wrong: **email match is not proof
 
 When a callback arrives and we cannot find a matching `(provider, subject)` row in `user_identities`, we treat it as a brand-new user. We never look up existing users by email at this stage, regardless of whether the new identity carries an `email_verified` claim.
 
-If `users.primary_email` already exists for someone else, we still create a separate user. Two different identities pointing at "the same" email become two separate Identrail accounts. The user can merge or link them later, on their terms, while authenticated.
+`users.primary_email` is `UNIQUE`, which means we cannot persist two `users` rows with the same email. We resolve the collision deliberately rather than auto-linking:
+
+- The new `users` row is created with `primary_email = NULL`. The email captured from the IdP is stored on the new `user_identities` row (`user_identities.email`) for display and audit only.
+- The new user can claim the email later from `/app/account/security` by proving ownership: sign in with the original identity tied to that email and link the new identity, OR receive a verification email at the address and confirm. Both flows fold the new `user_identities` row under the existing `users` row instead of producing a second account.
+- This trades a small amount of UX friction for a clean security property: the schema cannot end up with two distinct users claiming the same canonical email.
 
 ## Rule 2: Email-claim equality alone is never proof
 
@@ -83,7 +87,7 @@ This stops the case where Mallory steals an invite link emailed to Alice and acc
 
 ## Rule 7: Email change does not propagate identity ownership
 
-If a user changes their `primary_email` (a future feature, not in PR 1 through 12), the change is purely cosmetic. It does not affect:
+`primary_email` can change in two ways inside the planned PR set: a user-initiated change from inside Identrail (out of scope for PR 1 through 12), and an IdP-driven change delivered via the `user.email_changed` webhook PR 4 handles. Both updates write to `users.primary_email` through the same code path and follow the same rule below: the change is purely cosmetic for relationship ownership. It does not affect:
 
 - Which `user_identities` rows belong to them.
 - Whether they can be invited to a different org tomorrow under the new email.

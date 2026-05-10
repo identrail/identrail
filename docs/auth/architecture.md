@@ -69,7 +69,7 @@ Stages:
 
 1. Add `user_uuid UUID NULL` in PR 2. New writes populate both `user_id` and `user_uuid`.
 2. PR 4 (WorkOS login) populates `user_uuid` for every new sign-in.
-3. A backfill job copies `user_uuid` for existing rows by joining `user_identities.subject` to legacy `user_id`.
+3. A backfill job copies `user_uuid` for existing rows by joining on the `(provider, subject)` pair, not `subject` alone. Subjects can collide across IdPs (Google `sub=12345` and Microsoft `sub=12345` are unrelated humans), so the backfill needs the provider too. For each org, the backfill resolves provider from the org's currently-configured OIDC issuer (the common case is one IdP per org); rows that match more than one `user_identities` row are left for manual reconciliation rather than auto-linked. Audit log records every backfill mapping for traceability.
 4. After we observe zero non-UUID reads in production telemetry for at least four weeks, a separate migration drops `user_id` and renames `user_uuid` to `user_id`.
 
 This avoids a destabilizing column-type migration on a live production table. Existing self-host users keep working through every stage.

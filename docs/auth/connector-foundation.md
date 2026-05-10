@@ -95,9 +95,11 @@ Transition events:
 | --- | --- | --- |
 | pending | credentials submitted, Validate succeeds | active |
 | pending | credentials submitted, Validate fails | disconnected |
-| active | scan or health failure | degraded |
+| active | scan or health failure with code `auth_failed` or `permission_denied` | disconnected (immediate; the credentials are revoked or scope-broken, not transiently degraded) |
+| active | scan or health failure with any other taxonomy code | degraded |
 | degraded | next scan or health succeeds | active |
 | degraded | 6+ hours since last success | disconnected |
+| degraded | scan or health failure with code `auth_failed` or `permission_denied` | disconnected (escalates immediately) |
 | pending, active, or degraded | `disabled` set true | flag flips; lifecycle status unchanged |
 | disabled (flag) | `disabled` cleared | flag flips; lifecycle status unchanged |
 | disconnected | `disabled` set true | rejected with 409; the connector must be reconnected first |

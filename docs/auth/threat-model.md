@@ -28,7 +28,7 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 1. `state` is HMAC-signed with `IDENTRAIL_SESSION_KEY`. A tampered state fails verification.
 2. `state` is single-use. The first successful exchange marks it consumed; any later use is rejected.
 3. `state` has a 10-minute TTL. Old captures are useless.
-4. `state` carries the originating session ID (or a "no-session" marker for fresh signups). The callback rejects mismatches.
+4. `state` is a fresh random nonce. It never contains the session ID, the user ID, or any other identifier that would leak into IdP logs, browser history, or referer headers. The server stores `(nonce, expected_user_id_or_null, expected_session_id_or_null, created_at)` in a small `oauth_states` table at the moment the redirect is issued, and the callback handler exchanges the nonce for the stored row. Rows are single-use and expire after 10 minutes.
 
 ## Session Fixation
 
@@ -43,7 +43,7 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 **Defenses.**
 
 1. `SameSite=Lax` on the session cookie. The browser does not attach the cookie to cross-site state-changing requests by default. This alone blocks the most common CSRF shapes (forms posted from a malicious page).
-2. Origin and `Sec-Fetch-Site` checks on every state-changing endpoint. Requests where `Sec-Fetch-Site` is anything other than `same-origin` are rejected. Requests whose `Origin` header (or `Referer` when `Origin` is missing) does not match `IDENTRAIL_PUBLIC_BASE_URL` are rejected. This stops same-site-but-cross-subdomain scripted attacks that `SameSite=Lax` does not cover.
+2. Origin and `Sec-Fetch-Site` checks on the dashboard's internal JSON API endpoints (`/v1/*` excluding webhooks). Requests where `Sec-Fetch-Site` is anything other than `same-origin` are rejected, and requests whose `Origin` header (or `Referer` when `Origin` is missing) does not match `IDENTRAIL_PUBLIC_BASE_URL` are rejected. This stops same-site-but-cross-subdomain scripted attacks that `SameSite=Lax` does not cover. The OAuth callback (`/auth/callback`) is exempt because it is cross-site by protocol design and uses its own state-nonce check; webhook endpoints (`/auth/webhooks/*`) are exempt for the same reason and use HMAC verification instead.
 3. A double-submit CSRF token is issued for the HTML form flows that use a POST (the manual-mode dev login form is the only one in the planned PR set). The token is signed with `IDENTRAIL_SESSION_KEY` and validated server-side.
 4. Webhook endpoints (`/auth/webhooks/*`) require an HMAC signature, not a cookie. They reject anything missing the signature.
 
