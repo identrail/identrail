@@ -1,7 +1,5 @@
 import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-// dashboard.css is intentionally imported from web/src/main.tsx, not here.
-// See the comment in main.tsx for the prerender-script reason.
 import {
   apiClient,
   type AWSConnectionStatus,
@@ -1066,53 +1064,6 @@ export function ProductLoginPage() {
   const reason = normalizeValue(query.get('reason') ?? '');
   const signedOut = normalizeValue(query.get('signed_out') ?? '') === '1';
 
-  useEffect(() => {
-    const previousTitle = document.title;
-    const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-    const previousDescription = description?.getAttribute('content') ?? null;
-    const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]') ?? document.createElement('meta');
-    const robotsWasNew = !robots.parentElement;
-    const previousRobots = robots.getAttribute('content');
-    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]') ?? document.createElement('link');
-    const canonicalWasNew = !canonical.parentElement;
-    const previousCanonical = canonical.getAttribute('href');
-
-    document.title = 'Sign in | Identrail';
-    description?.setAttribute('content', 'Sign in to your Identrail workspace.');
-    robots.setAttribute('name', 'robots');
-    robots.setAttribute('content', 'noindex,nofollow');
-    canonical.setAttribute('rel', 'canonical');
-    canonical.setAttribute('href', `${window.location.origin}/app/login`);
-
-    if (robotsWasNew) document.head.appendChild(robots);
-    if (canonicalWasNew) document.head.appendChild(canonical);
-
-    return () => {
-      document.title = previousTitle;
-      if (description) {
-        if (previousDescription === null) {
-          description.removeAttribute('content');
-        } else {
-          description.setAttribute('content', previousDescription);
-        }
-      }
-      if (robotsWasNew) {
-        robots.remove();
-      } else if (previousRobots === null) {
-        robots.removeAttribute('content');
-      } else {
-        robots.setAttribute('content', previousRobots);
-      }
-      if (canonicalWasNew) {
-        canonical.remove();
-      } else if (previousCanonical === null) {
-        canonical.removeAttribute('href');
-      } else {
-        canonical.setAttribute('href', previousCanonical);
-      }
-    };
-  }, []);
-
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const normalizedTenantID = normalizeValue(tenantID);
@@ -1152,9 +1103,9 @@ export function ProductLoginPage() {
   return (
     <section className="idt-app-shell-screen">
       <article className="idt-app-panel">
-        <p className="idt-app-kicker">Workspace access</p>
-        <h1>Sign in to Identrail</h1>
-        <p>Continue to your workspace with your organisation's single sign-on link.</p>
+        <p className="idt-app-kicker">Product access</p>
+        <h1>Sign in to the Identrail app shell</h1>
+        <p>Authenticate and restore tenant/workspace session scope before entering the app route boundary.</p>
 
         {signedOut ? <p role="status">Signed out successfully.</p> : null}
         {reason ? <p role="status">{loginReasonMessage(reason)}</p> : null}
@@ -1196,7 +1147,7 @@ export function ProductLoginPage() {
           </form>
         ) : (
           <p className="idt-app-alert">
-            Direct workspace entry is disabled on this deployment. Use your SSO link, or contact hello@identrail.com if your workspace is not ready yet.
+            Manual workspace entry is disabled for this deployment. Use single sign-on to establish tenant and workspace access.
           </p>
         )}
       </article>

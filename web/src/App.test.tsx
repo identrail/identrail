@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { resolveBootstrapTheme, THEME_STORAGE_KEY } from './lib/theme';
 import { saveProductSession } from './productShell';
 
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
@@ -39,12 +38,10 @@ function setCurrentPath(pathname: string) {
   });
 }
 
-describe('App marketing surface (post-redesign)', () => {
+describe('App', () => {
   beforeEach(() => {
     window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
-    window.localStorage.removeItem(THEME_STORAGE_KEY);
-    document.documentElement.removeAttribute('data-theme');
     vi.unstubAllEnvs();
     vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
     vi.restoreAllMocks();
@@ -57,154 +54,114 @@ describe('App marketing surface (post-redesign)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the new homepage hero promise + primary CTAs', () => {
+  it('renders homepage hero and conversion CTAs', () => {
     setCurrentPath('/');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /See every machine identity path/i
+        name: /Every machine identity path/i
       })
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: /Start a free risk scan/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: /Read the source/i }).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Reviewed across your identity stack/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Book Demo/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole('heading', { level: 2, name: /From connector setup to evidence-ready remediation/i })
+    ).toBeInTheDocument();
   });
 
-  it('restores the dark mode switcher and persists the selected theme', () => {
-    setCurrentPath('/');
-    render(<App />);
-
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
-
-    const toggle = screen.getByRole('button', { name: /switch to dark mode/i });
-    fireEvent.click(toggle);
-
-    expect(document.documentElement.dataset.theme).toBe('dark');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
-    expect(screen.getByRole('button', { name: /switch to light mode/i })).toBeInTheDocument();
-  });
-
-  it('bootstraps app routes in light mode before react applies route effects', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
-
-    expect(resolveBootstrapTheme('/app/login')).toBe('light');
-    expect(resolveBootstrapTheme('/')).toBe('dark');
-  });
-
-  it('renders the new pricing page with three plans and a billing toggle', () => {
+  it('renders pricing page routes and key elements', () => {
     setCurrentPath('/pricing');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Honest pricing for an open-core security tool/i
+        name: /Pricing aligned to how teams adopt machine identity security/i
       })
     ).toBeInTheDocument();
 
-    expect(screen.getByRole('radio', { name: /Annual/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/Open source/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Most teams pick this/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Annual/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Contact Sales' })).toBeInTheDocument();
   });
 
-  it('renders the consolidated security teams solution page', () => {
-    setCurrentPath('/for/security-teams');
+  it('renders read-only scan intake flow route', () => {
+    setCurrentPath('/read-only-scan');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Spend the queue on what can actually reach something/i
+        name: /Start a machine identity risk scan with deployment-safe onboarding/i
+      })
+    ).toBeInTheDocument();
+
+    expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
+
+  it('renders deployment models route', () => {
+    setCurrentPath('/deployment-models');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Choose your control boundary without changing operating model/i
       })
     ).toBeInTheDocument();
   });
 
-  it('renders the integrations page and lists at least the AWS integration', () => {
+  it('renders integrations route', () => {
     setCurrentPath('/integrations');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Every system Identrail watches today/i
+        name: /Identity signal coverage across cloud, cluster, and code workflows/i
       })
     ).toBeInTheDocument();
-
-    expect(screen.getAllByText(/AWS IAM/i).length).toBeGreaterThan(0);
   });
 
-  it('renders the demo page form and lets the user submit', () => {
-    setCurrentPath('/demo');
+  it('renders ROI assessment route', () => {
+    setCurrentPath('/roi-assessment');
     render(<App />);
 
-    expect(screen.getByLabelText(/Work email/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Request a demo/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Model risk-reduction impact with transparent assumptions/i
+      })
+    ).toBeInTheDocument();
   });
 
-  it('renders the responsible disclosure process', () => {
+  it('renders full FAQ route', () => {
+    setCurrentPath('/faq');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Technical and operational questions teams ask before rollout/i
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('renders responsible disclosure route', () => {
     setCurrentPath('/responsible-disclosure');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Find a security issue/i
+        name: /Report security issues through a coordinated disclosure process/i
       })
     ).toBeInTheDocument();
-  });
-
-  it('redirects legacy /solutions/aws → /for/security-teams', async () => {
-    setCurrentPath('/solutions/aws');
-    render(<App />);
-
-    await waitFor(() => {
-      expect(window.location.pathname).toBe('/for/security-teams');
-    });
-  });
-
-  it('redirects legacy /features/* → /product', async () => {
-    setCurrentPath('/features/aws');
-    render(<App />);
-
-    await waitFor(() => {
-      expect(window.location.pathname).toBe('/product');
-    });
-  });
-
-  it('redirects /read-only-scan → /demo', async () => {
-    setCurrentPath('/read-only-scan');
-    render(<App />);
-
-    await waitFor(() => {
-      expect(window.location.pathname).toBe('/demo');
-    });
-  });
-});
-
-describe('App dashboard surface', () => {
-  beforeEach(() => {
-    window.sessionStorage.removeItem('identrail-product-session');
-    window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
-    window.localStorage.removeItem(THEME_STORAGE_KEY);
-    document.documentElement.removeAttribute('data-theme');
-    vi.unstubAllEnvs();
-    // Manual app-shell sessions are gated behind this env var as of dev's
-    // PR #890 (Fixes #683). Tests that exercise the manual login flow rely
-    // on it being enabled; the dedicated test that flips it to 'false'
-    // (rejects persisted manual workspace sessions in production builds)
-    // overrides per-test.
-    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
 
   it('guards product shell routes and redirects unauthenticated users to app login', () => {
@@ -214,20 +171,11 @@ describe('App dashboard surface', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Sign in to Identrail/i
+        name: /Sign in to the Identrail app shell/i
       })
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('next=%2Fapp%2Fdefault%2Fdefault');
-  });
-
-  it('keeps the dashboard shell on light mode even when marketing has a saved dark preference', () => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
-    setCurrentPath('/app/login');
-    render(<App />);
-
-    expect(document.documentElement.dataset.theme).toBe('light');
-    expect(screen.getByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
   });
 
   it('loads authenticated product shell placeholders after login', async () => {
@@ -256,7 +204,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
     expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
   });
 
@@ -270,6 +218,495 @@ describe('App dashboard surface', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
     expect(await screen.findByText(/Project source onboarding/i)).toBeInTheDocument();
+  });
+
+  it('supports workspace member invite workflow from app shell administration route', async () => {
+    saveProductSession({
+      tenantID: 'default',
+      workspaceID: 'default'
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'default' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              display_name: 'Default',
+              slug: 'default',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                display_name: 'Default',
+                slug: 'default',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                member_id: 'member-owner-user',
+                user_id: 'owner-user',
+                email: 'owner@example.com',
+                role: 'owner',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          member: {
+            tenant_id: 'default',
+            workspace_id: 'default',
+            member_id: 'member-analyst-example-com',
+            user_id: 'analyst@example.com',
+            email: 'analyst@example.com',
+            role: 'viewer',
+            status: 'invited',
+            joined_at: '2026-01-02T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z'
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-analyst-example-com',
+              user_id: 'analyst@example.com',
+              email: 'analyst@example.com',
+              role: 'viewer',
+              status: 'invited',
+              joined_at: '2026-01-02T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/default/default/workspaces');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('User ID'), { target: { value: 'analyst@example.com' } });
+    fireEvent.change(screen.getByLabelText('Email (optional)'), { target: { value: 'analyst@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /Invite member/i }));
+
+    await screen.findByText(/Member invitation saved/i);
+    expect(screen.getAllByText('analyst@example.com').length).toBeGreaterThan(0);
+
+    const inviteCall = fetchMock.mock.calls.find(([url, options]) => {
+      return typeof url === 'string' && url.includes('/v1/workspaces/default/members') && options?.method === 'POST';
+    });
+    expect(inviteCall).toBeDefined();
+  });
+
+  it('switches workspace context from workspaces admin route', async () => {
+    saveProductSession({
+      tenantID: 'default',
+      workspaceID: 'default'
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'default' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              display_name: 'Default',
+              slug: 'default',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                display_name: 'Default',
+                slug: 'default',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                member_id: 'member-owner-user',
+                user_id: 'owner-user',
+                email: 'owner@example.com',
+                role: 'owner',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            },
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                display_name: 'Payments',
+                slug: 'payments',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                member_id: 'member-owner-user',
+                user_id: 'owner-user',
+                email: 'owner@example.com',
+                role: 'owner',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: false
+            }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              display_name: 'Payments',
+              slug: 'payments',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          scope: { tenant_id: 'default', workspace_id: 'payments' },
+          scope_headers: {
+            'X-Identrail-Tenant-ID': 'default',
+            'X-Identrail-Workspace-ID': 'payments'
+          }
+        })
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({ items: [] })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/default/default/workspaces');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Workspace'), { target: { value: 'payments' } });
+    fireEvent.click(screen.getByRole('button', { name: /Switch workspace/i }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/app/default/payments/workspaces');
+    });
+  });
+
+  it('ignores stale workspace member responses after scope changes', async () => {
+    saveProductSession({
+      tenantID: 'default',
+      workspaceID: 'default'
+    });
+
+    let resolveInitialMembers: ((value: { ok: boolean; json: () => Promise<{ items: unknown[] }> }) => void) | undefined;
+    const initialMembersResponse = new Promise<{ ok: boolean; json: () => Promise<{ items: unknown[] }> }>((resolve) => {
+      resolveInitialMembers = resolve;
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'default' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              display_name: 'Default',
+              slug: 'default',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                display_name: 'Default',
+                slug: 'default',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                member_id: 'member-owner-user',
+                user_id: 'owner-user',
+                email: 'owner@example.com',
+                role: 'owner',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            },
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                display_name: 'Payments',
+                slug: 'payments',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                member_id: 'member-payments-user',
+                user_id: 'payments-user',
+                email: 'payments@example.com',
+                role: 'admin',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: false
+            }
+          ]
+        })
+      })
+      .mockImplementationOnce(() => initialMembersResponse)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'payments-user' },
+          roles: ['admin'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'payments' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              display_name: 'Payments',
+              slug: 'payments',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-payments-user',
+              user_id: 'payments-user',
+              email: 'payments@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                display_name: 'Payments',
+                slug: 'payments',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'payments',
+                member_id: 'member-payments-user',
+                user_id: 'payments-user',
+                email: 'payments@example.com',
+                role: 'admin',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-payments-user',
+              user_id: 'payments-user',
+              email: 'payments@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            }
+          ]
+        })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/default/default/workspaces');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    setCurrentPath('/app/default/payments/workspaces');
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(await screen.findByText('payments-user')).toBeInTheDocument();
+
+    resolveInitialMembers?.({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            tenant_id: 'default',
+            workspace_id: 'default',
+            member_id: 'member-owner-user',
+            user_id: 'owner-user',
+            email: 'owner@example.com',
+            role: 'owner',
+            status: 'active',
+            joined_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z'
+          }
+        ]
+      })
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('payments-user')).toBeInTheDocument();
+      expect(screen.queryByText('owner-user')).not.toBeInTheDocument();
+    });
   });
 
   it('shows workspace admin load errors without redirecting to login', async () => {
@@ -288,6 +725,105 @@ describe('App dashboard surface', () => {
     expect(window.location.pathname).not.toBe('/app/login');
   });
 
+  it('keeps existing member state when invite action fails', async () => {
+    saveProductSession({
+      tenantID: 'default',
+      workspaceID: 'default'
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'default' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              display_name: 'Default',
+              slug: 'default',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: [
+            {
+              workspace: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                display_name: 'Default',
+                slug: 'default',
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              member: {
+                tenant_id: 'default',
+                workspace_id: 'default',
+                member_id: 'member-owner-user',
+                user_id: 'owner-user',
+                email: 'owner@example.com',
+                role: 'owner',
+                status: 'active',
+                joined_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              },
+              is_active: true
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(
+        okJSON({
+          items: [
+            {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            }
+          ]
+        })
+      )
+      .mockResolvedValueOnce(errorJSON(500, 'invite rejected'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/default/default/workspaces');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(screen.getByText('owner-user')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('User ID'), { target: { value: 'analyst@example.com' } });
+    fireEvent.change(screen.getByLabelText('Email (optional)'), { target: { value: 'analyst@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /Invite member/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/invite rejected/i);
+    expect(screen.getByText('owner-user')).toBeInTheDocument();
+    expect(screen.queryByText('member-analyst-example-com')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/default/default/workspaces');
+  });
+
   it('redirects expired oidc sessions to login with re-auth prompt', async () => {
     saveProductSession({
       tenantID: 'tenant-a',
@@ -299,7 +835,7 @@ describe('App dashboard surface', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
     expect(await screen.findByText(/Your session expired/i)).toBeInTheDocument();
   });
 
@@ -378,7 +914,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/callback?code=code-1&state=wrong-state');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('reason=state_mismatch');
     expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
@@ -420,7 +956,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/callback?code=code-1&state=state-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('reason=callback_error');
     expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
@@ -461,7 +997,7 @@ describe('App dashboard surface', () => {
     window.history.pushState({}, '', '/app/callback?code=code-2&state=state-2');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('reason=callback_error');
     expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
@@ -551,13 +1087,7 @@ describe('App dashboard surface', () => {
     setCurrentPath('/app/logout');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
     expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
-  });
-
-  it('keeps okJSON helper available for future workspace tests', () => {
-    // Helper is intentionally exported in this file; future workspace member
-    // invite tests can be added here using okJSON(...) as the first response.
-    expect(typeof okJSON).toBe('function');
   });
 });

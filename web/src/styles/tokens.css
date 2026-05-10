@@ -1,324 +1,120 @@
-/**
- * Identrail design tokens — light-first.
- *
- * The naming is intentionally conservative: a small set of primitive scales
- * (gray, ink, indigo, red) are mapped onto a small set of semantic tokens
- * (surface, text, border, accent, danger). Components only consume the
- * semantic tokens. Themes only redefine the semantic tokens.
- */
-
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  /* Type scale — based on a 1.25 minor-third ratio anchored at 16px body */
-  --font-display: 'Geist', 'Inter Tight', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-body: 'Geist', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono', 'JetBrains Mono', 'SFMono-Regular', 'Menlo', monospace;
+  /* Primitive colors */
+  --color-neutral-950: #030303;
+  --color-neutral-925: #0b0b0d;
+  --color-neutral-900: #141416;
+  --color-neutral-100: #f5f7fb;
+  --color-neutral-300: #9ca3b2;
 
-  --text-2xs: 0.6875rem;   /* 11 */
-  --text-xs:  0.75rem;     /* 12 */
-  --text-sm:  0.875rem;    /* 14 */
-  --text-md:  1rem;        /* 16 */
-  --text-lg:  1.125rem;    /* 18 */
-  --text-xl:  1.375rem;    /* 22 */
-  --text-2xl: 1.75rem;     /* 28 */
-  --text-3xl: 2.25rem;     /* 36 */
-  --text-4xl: 3rem;        /* 48 */
-  --text-5xl: 3.75rem;     /* 60 */
-  --text-6xl: 4.5rem;      /* 72 */
+  --color-blue-100: #d7e3ff;
+  --color-blue-200: #c4d5fb;
+  --color-blue-300: #a7c0ff;
+  --color-blue-500-a12: rgba(215, 227, 255, 0.12);
+  --color-blue-600-a32: rgba(137, 169, 255, 0.32);
 
-  --leading-tight: 1.05;
-  --leading-snug: 1.2;
-  --leading-normal: 1.55;
-  --leading-loose: 1.7;
+  --color-line: rgba(245, 247, 251, 0.12);
+  --color-white-strong: rgba(255, 255, 255, 0.85);
+  --color-black-shadow: rgba(0, 0, 0, 0.34);
 
-  --tracking-tight: -0.025em;
-  --tracking-snug: -0.015em;
-  --tracking-normal: 0;
-  --tracking-wide: 0.04em;
-  --tracking-eyebrow: 0.12em;
+  --color-risk-high-fg: #ffaca7;
+  --color-risk-high-pill-fg: #ffb4b1;
+  --color-risk-high-pill-bg: rgba(255, 125, 125, 0.15);
 
-  --weight-regular: 400;
-  --weight-medium: 500;
-  --weight-semibold: 600;
-  --weight-bold: 700;
+  /* Typography */
+  --font-display: 'Barlow Semi Condensed', 'Space Grotesk', 'Inter', 'Segoe UI', sans-serif;
+  --font-nav: 'Geist', 'Inter', 'Segoe UI', sans-serif;
+  --font-body: 'Inter', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', 'Menlo', monospace;
 
-  /* Spacing — 4px base */
-  --space-0: 0;
-  --space-1: 0.25rem;     /* 4 */
-  --space-2: 0.5rem;      /* 8 */
-  --space-3: 0.75rem;     /* 12 */
-  --space-4: 1rem;        /* 16 */
-  --space-5: 1.25rem;     /* 20 */
-  --space-6: 1.5rem;      /* 24 */
-  --space-8: 2rem;        /* 32 */
-  --space-10: 2.5rem;     /* 40 */
-  --space-12: 3rem;       /* 48 */
-  --space-16: 4rem;       /* 64 */
-  --space-20: 5rem;       /* 80 */
-  --space-24: 6rem;       /* 96 */
-  --space-32: 8rem;       /* 128 */
-  --space-40: 10rem;      /* 160 */
+  /* Sizing + spacing */
+  --shell-max-width: 1200px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
 
-  /* Radius */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --radius-pill: 9999px;
-
-  /* Layout */
-  --shell-max: 1180px;
-  --shell-narrow: 760px;
-  --shell-wide: 1360px;
-  --shell-gutter: clamp(20px, 4vw, 40px);
-
-  /* Motion */
+  /* Motion + elevation */
   --motion-fast: 120ms;
-  --motion-base: 200ms;
-  --motion-slow: 360ms;
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --shadow-elevated: 0 10px 28px var(--color-black-shadow);
 
-  /* Primitive palette — light */
-  --c-paper: #fbfaf6;        /* warm off-white canvas */
-  --c-paper-2: #f4f2eb;      /* slight tint */
-  --c-white: #ffffff;
-  --c-ink: #0c0c10;
-  --c-ink-2: #1c1c22;
-  --c-gray-95: #25252c;
-  --c-gray-80: #44444c;
-  --c-gray-60: #6c6f76;
-  --c-gray-40: #9b9da4;
-  --c-gray-20: #d2d3d6;
-  --c-gray-10: #e6e6e2;
-  --c-gray-08: #efeee9;
-  --c-line: rgba(12, 12, 16, 0.10);
-  --c-line-strong: rgba(12, 12, 16, 0.18);
+  /* Semantic tokens */
+  --surface-canvas: var(--color-neutral-950);
+  --surface-elevated: var(--color-neutral-925);
+  --surface-soft: var(--color-neutral-900);
+  --text-primary: var(--color-neutral-100);
+  --text-muted: var(--color-neutral-300);
+  --border-subtle: var(--color-line);
+  --accent-primary: var(--color-blue-100);
+  --accent-soft: var(--color-blue-500-a12);
+  --glow-soft: var(--color-blue-600-a32);
+  --cta-primary: linear-gradient(120deg, #ffffff 0%, #e8edf7 100%);
+  --focus-ring: rgba(215, 227, 255, 0.72);
+  --severity-high-fg: var(--color-risk-high-fg);
+  --severity-high-pill-fg: var(--color-risk-high-pill-fg);
+  --severity-high-pill-bg: var(--color-risk-high-pill-bg);
 
-  --c-accent: #2f2eff;       /* electric indigo, low-saturation enough for light bg */
-  --c-accent-ink: #1816c4;   /* used for hover/active on light bg */
-  --c-accent-soft: rgba(47, 46, 255, 0.08);
-  --c-accent-line: rgba(47, 46, 255, 0.24);
-
-  --c-danger: #c43028;       /* risk-red, restrained */
-  --c-danger-soft: rgba(196, 48, 40, 0.08);
-  --c-danger-line: rgba(196, 48, 40, 0.32);
-  --c-danger-on: #ffffff;
-
-  --c-success: #1f7a4d;
-  --c-success-soft: rgba(31, 122, 77, 0.10);
-
-  --c-warning: #b07300;
-  --c-warning-soft: rgba(176, 115, 0, 0.10);
-
-  /* Semantic — light */
-  --bg-canvas: var(--c-paper);
-  --bg-surface: var(--c-white);
-  --bg-soft: var(--c-paper-2);
-  --bg-inverse: var(--c-ink);
-  --bg-code: #0e0e12;
-
-  --text-primary: var(--c-ink);
-  --text-secondary: var(--c-gray-80);
-  --text-muted: var(--c-gray-60);
-  --text-faint: var(--c-gray-40);
-  --text-inverse: var(--c-paper);
-  --text-on-accent: #ffffff;
-  --text-link: var(--c-accent);
-  --text-link-hover: var(--c-accent-ink);
-  --text-code: #f5f5f4;
-
-  --border-subtle: var(--c-line);
-  --border-default: var(--c-line-strong);
-  --border-strong: rgba(12, 12, 16, 0.32);
-  --border-accent: var(--c-accent-line);
-
-  --accent: var(--c-accent);
-  --accent-ink: var(--c-accent-ink);
-  --accent-soft: var(--c-accent-soft);
-
-  --danger: var(--c-danger);
-  --danger-soft: var(--c-danger-soft);
-  --danger-line: var(--c-danger-line);
-
-  /* Buttons */
-  --btn-primary-bg: var(--c-ink);
-  --btn-primary-bg-hover: #000000;
-  --btn-primary-fg: #ffffff;
-  --btn-secondary-bg: transparent;
-  --btn-secondary-fg: var(--c-ink);
-  --btn-secondary-border: var(--c-line-strong);
-  --btn-secondary-bg-hover: var(--c-gray-08);
-  --btn-ghost-fg: var(--c-ink);
-  --btn-ghost-bg-hover: var(--c-gray-08);
-
-  /* Focus */
-  --focus-ring: 0 0 0 3px rgba(47, 46, 255, 0.30);
-
-  /* Shadow — only used sparingly; we lean on borders */
-  --shadow-sm: 0 1px 2px rgba(12, 12, 16, 0.04), 0 0 0 1px var(--border-subtle);
-  --shadow-md: 0 8px 24px rgba(12, 12, 16, 0.06), 0 1px 2px rgba(12, 12, 16, 0.04);
-  --shadow-lg: 0 24px 60px rgba(12, 12, 16, 0.10), 0 2px 6px rgba(12, 12, 16, 0.04);
-
-  /* Selection */
-  --selection-bg: rgba(47, 46, 255, 0.18);
-  --selection-fg: var(--c-ink);
-
-  /* Legacy aliases — preserve so the dashboard CSS (web/src/styles/dashboard.css)
-     keeps rendering without being rewritten. New marketing CSS uses the
-     semantic names above. */
-  --idt-bg: var(--bg-canvas);
-  --idt-bg-elevated: var(--bg-surface);
-  --idt-bg-soft: var(--bg-soft);
+  /* Legacy aliases for gradual migration */
+  --idt-bg: var(--surface-canvas);
+  --idt-bg-elevated: var(--surface-elevated);
+  --idt-bg-soft: var(--surface-soft);
   --idt-text: var(--text-primary);
   --idt-text-muted: var(--text-muted);
   --idt-line: var(--border-subtle);
-  --idt-accent: var(--accent);
+  --idt-accent: var(--accent-primary);
   --idt-accent-soft: var(--accent-soft);
-  --idt-glow: var(--c-accent-line);
-  --idt-cta: var(--btn-primary-bg);
+  --idt-glow: var(--glow-soft);
+  --idt-cta: var(--cta-primary);
   --idt-display: var(--font-display);
-  --idt-nav-font: var(--font-body);
+  --idt-nav-font: var(--font-nav);
   --idt-body: var(--font-body);
   --idt-radius: var(--radius-md);
-  --idt-shell: var(--shell-max);
-  --idt-shadow: var(--shadow-md);
-  --focus-ring-color: var(--accent);
+  --idt-shell: var(--shell-max-width);
+  --idt-shadow: var(--shadow-elevated);
 }
 
-[data-theme='dark'] {
-  color-scheme: dark;
+:root[data-theme='light'] {
+  color-scheme: light;
 
-  --c-paper: #0a0a0d;
-  --c-paper-2: #0f0f13;
-  --c-white: #15151a;
-  --c-ink: #f5f4ef;
-  --c-ink-2: #ebeae5;
-  --c-gray-95: #d8d7d2;
-  --c-gray-80: #b6b5b0;
-  --c-gray-60: #8a8a85;
-  --c-gray-40: #5e5e5a;
-  --c-gray-20: #2c2c30;
-  --c-gray-10: #1d1d22;
-  --c-gray-08: #17171c;
-  --c-line: rgba(245, 244, 239, 0.10);
-  --c-line-strong: rgba(245, 244, 239, 0.18);
+  --color-neutral-950: #f3f6fb;
+  --color-neutral-925: #ffffff;
+  --color-neutral-900: #eef2f9;
+  --color-neutral-100: #0f1729;
+  --color-neutral-300: #44516a;
 
-  --c-accent: #8b8aff;
-  --c-accent-ink: #b6b5ff;
-  --c-accent-soft: rgba(139, 138, 255, 0.12);
-  --c-accent-line: rgba(139, 138, 255, 0.32);
+  --color-blue-100: #12203c;
+  --color-blue-200: #1f335d;
+  --color-blue-300: #304778;
+  --color-blue-500-a12: rgba(30, 55, 103, 0.09);
+  --color-blue-600-a32: rgba(48, 71, 120, 0.2);
 
-  --c-danger: #ff6b5b;
-  --c-danger-soft: rgba(255, 107, 91, 0.10);
-  --c-danger-line: rgba(255, 107, 91, 0.32);
+  --color-line: rgba(16, 26, 45, 0.14);
+  --color-white-strong: rgba(255, 255, 255, 0.95);
+  --color-black-shadow: rgba(10, 22, 43, 0.16);
 
-  --c-success: #4dbf86;
-  --c-success-soft: rgba(77, 191, 134, 0.12);
+  --color-risk-high-fg: #9f2222;
+  --color-risk-high-pill-fg: #b03232;
+  --color-risk-high-pill-bg: rgba(218, 103, 103, 0.16);
 
-  --c-warning: #e6b04a;
-  --c-warning-soft: rgba(230, 176, 74, 0.12);
-
-  --bg-canvas: var(--c-paper);
-  --bg-surface: var(--c-white);
-  --bg-soft: var(--c-paper-2);
-  --bg-inverse: var(--c-ink);
-  --bg-code: #07070a;
-
-  --text-primary: var(--c-ink);
-  --text-secondary: var(--c-gray-80);
-  --text-muted: var(--c-gray-60);
-  --text-faint: var(--c-gray-40);
-  --text-inverse: var(--c-paper);
-  --text-on-accent: #0a0a0d;
-  --text-link: var(--c-accent);
-  --text-link-hover: var(--c-accent-ink);
-
-  --border-subtle: var(--c-line);
-  --border-default: var(--c-line-strong);
-  --border-strong: rgba(245, 244, 239, 0.36);
-  --border-accent: var(--c-accent-line);
-
-  --btn-primary-bg: var(--c-ink);
-  --btn-primary-bg-hover: #ffffff;
-  --btn-primary-fg: #0a0a0d;
-  --btn-secondary-bg: transparent;
-  --btn-secondary-fg: var(--c-ink);
-  --btn-secondary-border: var(--c-line-strong);
-  --btn-secondary-bg-hover: var(--c-gray-10);
-  --btn-ghost-fg: var(--c-ink);
-  --btn-ghost-bg-hover: var(--c-gray-10);
-
-  --focus-ring: 0 0 0 3px rgba(139, 138, 255, 0.40);
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-subtle);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
-
-  --selection-bg: rgba(139, 138, 255, 0.30);
-  --selection-fg: var(--c-ink);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    color-scheme: dark;
-
-    --c-paper: #0a0a0d;
-    --c-paper-2: #0f0f13;
-    --c-white: #15151a;
-    --c-ink: #f5f4ef;
-    --c-ink-2: #ebeae5;
-    --c-gray-95: #d8d7d2;
-    --c-gray-80: #b6b5b0;
-    --c-gray-60: #8a8a85;
-    --c-gray-40: #5e5e5a;
-    --c-gray-20: #2c2c30;
-    --c-gray-10: #1d1d22;
-    --c-gray-08: #17171c;
-    --c-line: rgba(245, 244, 239, 0.10);
-    --c-line-strong: rgba(245, 244, 239, 0.18);
-
-    --c-accent: #8b8aff;
-    --c-accent-ink: #b6b5ff;
-    --c-accent-soft: rgba(139, 138, 255, 0.12);
-    --c-accent-line: rgba(139, 138, 255, 0.32);
-
-    --c-danger: #ff6b5b;
-    --c-danger-soft: rgba(255, 107, 91, 0.10);
-    --c-danger-line: rgba(255, 107, 91, 0.32);
-
-    --bg-canvas: var(--c-paper);
-    --bg-surface: var(--c-white);
-    --bg-soft: var(--c-paper-2);
-    --bg-inverse: var(--c-ink);
-    --bg-code: #07070a;
-
-    --text-primary: var(--c-ink);
-    --text-secondary: var(--c-gray-80);
-    --text-muted: var(--c-gray-60);
-    --text-faint: var(--c-gray-40);
-    --text-inverse: var(--c-paper);
-    --text-on-accent: #0a0a0d;
-
-    --border-subtle: var(--c-line);
-    --border-default: var(--c-line-strong);
-    --border-strong: rgba(245, 244, 239, 0.36);
-    --border-accent: var(--c-accent-line);
-
-    --btn-primary-bg: var(--c-ink);
-    --btn-primary-bg-hover: #ffffff;
-    --btn-primary-fg: #0a0a0d;
-    --btn-secondary-bg-hover: var(--c-gray-10);
-    --btn-ghost-bg-hover: var(--c-gray-10);
-
-    --focus-ring: 0 0 0 3px rgba(139, 138, 255, 0.40);
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-subtle);
-    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
-
-    --selection-bg: rgba(139, 138, 255, 0.30);
-  }
+  --surface-canvas: linear-gradient(180deg, #f5f8fc 0%, #edf2f9 100%);
+  --surface-elevated: #ffffff;
+  --surface-soft: #f2f5fb;
+  --text-primary: #111c31;
+  --text-muted: #4a5871;
+  --border-subtle: rgba(17, 29, 51, 0.16);
+  --accent-primary: #112141;
+  --accent-soft: rgba(40, 65, 112, 0.1);
+  --glow-soft: rgba(64, 92, 146, 0.2);
+  --cta-primary: linear-gradient(120deg, #0f1f3a 0%, #1a2d52 100%);
+  --focus-ring: rgba(36, 58, 102, 0.55);
 }

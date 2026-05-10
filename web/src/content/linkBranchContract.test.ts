@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FOOTER_NAV, siteLinks } from '../siteConfig';
+import { FOOTER_TRUST_LINKS } from '../components/layout/Footer';
+import { siteLinks } from '../siteConfig';
 import { TRUST_PROOF_LINKS } from './proofArtifacts';
 import { DOC_ENTRIES } from './resources';
 
@@ -42,11 +43,9 @@ describe('repo link branch contract', () => {
     }
   });
 
-  it('does not hardcode non-existent main branch links in footer nav', () => {
-    for (const column of FOOTER_NAV) {
-      for (const link of column.links) {
-        assertNoMainBranchLink(link.to);
-      }
+  it('does not hardcode non-existent main branch links in footer links', () => {
+    for (const link of FOOTER_TRUST_LINKS) {
+      assertNoMainBranchLink(link.to);
     }
   });
 
