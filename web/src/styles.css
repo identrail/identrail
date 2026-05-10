@@ -11455,9 +11455,7 @@ html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
   .idt-footer-trust-links a::after,
   .idt-final-cta-link::after,
   .idt-footer-super-cta::after,
-  .idt-hero-proof-pill::after,
-  .idt-card:has(a, button)::after,
-  .idt-pricing-card:has(a, button)::after {
+  .idt-hero-proof-pill::after {
     transition: none;
   }
 
@@ -11485,12 +11483,24 @@ html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
   .idt-brand:focus-visible,
   .idt-social-link:hover,
   .idt-social-link:focus-visible,
-  .idt-logo-cloud-track .idt-logo-cloud-item:hover,
-  .idt-card:has(a, button):hover,
-  .idt-card:has(a, button):focus-within,
-  .idt-pricing-card:has(a, button):hover,
-  .idt-pricing-card:has(a, button):focus-within {
+  .idt-logo-cloud-track .idt-logo-cloud-item:hover {
     transform: none;
+  }
+}
+
+@supports selector(article:has(a)) {
+  @media (prefers-reduced-motion: reduce) {
+    .idt-card:has(a, button)::after,
+    .idt-pricing-card:has(a, button)::after {
+      transition: none;
+    }
+
+    .idt-card:has(a, button):hover,
+    .idt-card:has(a, button):focus-within,
+    .idt-pricing-card:has(a, button):hover,
+    .idt-pricing-card:has(a, button):focus-within {
+      transform: none;
+    }
   }
 }
 
