@@ -23,8 +23,14 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	m.FindingsGenerated.Add(2)
 	m.ScanDurationMS.Observe(250)
 	m.RepoScanRunsTotal.Add(1)
+	m.RepoScanEnqueueTotal.Add(1)
+	m.RepoScanEnqueueFailureTotal.Add(1)
+	m.RepoScanEnqueueDurationMS.Observe(25)
+	m.RepoScanSuccessTotal.Add(1)
 	m.RepoScanFailureTotal.Add(1)
+	m.RepoScanTruncatedTotal.Add(1)
 	m.RepoScanDurationMS.Observe(300)
+	m.RepoFindingsGenerated.Add(4)
 	m.APIDeniedRequestsTotal.WithLabelValues("unauthorized", "auth").Add(1)
 	m.APIDeniedRequestsTotal.WithLabelValues("forbidden", "authz").Add(1)
 	m.APIDeniedRequestsTotal.WithLabelValues("rate_limited", "rate_limit").Add(1)
@@ -60,8 +66,23 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	if got := testutil.ToFloat64(m.RepoScanRunsTotal); got != 1 {
 		t.Fatalf("expected repo scan runs 1, got %v", got)
 	}
+	if got := testutil.ToFloat64(m.RepoScanEnqueueTotal); got != 1 {
+		t.Fatalf("expected repo scan enqueues 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.RepoScanEnqueueFailureTotal); got != 1 {
+		t.Fatalf("expected repo scan enqueue failures 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.RepoScanSuccessTotal); got != 1 {
+		t.Fatalf("expected repo scan successes 1, got %v", got)
+	}
 	if got := testutil.ToFloat64(m.RepoScanFailureTotal); got != 1 {
 		t.Fatalf("expected repo scan failures 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.RepoScanTruncatedTotal); got != 1 {
+		t.Fatalf("expected repo scan truncations 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.RepoFindingsGenerated); got != 4 {
+		t.Fatalf("expected repo findings generated 4, got %v", got)
 	}
 	for _, tc := range []struct {
 		kind   string

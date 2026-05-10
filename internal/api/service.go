@@ -708,30 +708,43 @@ func repoTargetContainsURLCredentials(target string) bool {
 
 func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RunRepoScanResult, error) {
 	ctx = s.scopeContext(ctx)
+	scanStarted := time.Now()
+	if s.Metrics != nil {
+		s.Metrics.RepoScanRunsTotal.Inc()
+		defer func() {
+			s.Metrics.RepoScanDurationMS.Observe(float64(time.Since(scanStarted).Milliseconds()))
+		}()
+	}
 	target := strings.TrimSpace(record.Repository)
 	if target == "" {
+		s.recordRepoScanExecutionFailure()
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
 	normalizedHistory, err := sanitizeRepoScanLimit(historyLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
 	if err != nil {
+		s.recordRepoScanExecutionFailure()
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, ErrInvalidRepoScanRequest.Error())
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
 	normalizedMaxFindings, err := sanitizeRepoScanLimit(maxFindings, s.RepoScanDefaultMaxFindings, s.RepoScanMaxFindingsLimit)
 	if err != nil {
+		s.recordRepoScanExecutionFailure()
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, ErrInvalidRepoScanRequest.Error())
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
 	if s.RepoScannerFactory == nil {
+		s.recordRepoScanExecutionFailure()
 		return RunRepoScanResult{}, fmt.Errorf("repo scanner factory is not configured")
 	}
 	result, err := s.RepoScannerFactory(normalizedHistory, normalizedMaxFindings).ScanRepository(ctx, target)
 	if err != nil {
+		s.recordRepoScanExecutionFailure()
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, err.Error())
 		return RunRepoScanResult{}, err
 	}
 	result.Findings = enrichFindings(result.Findings)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
+		s.recordRepoScanExecutionFailure()
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, err.Error())
 		return RunRepoScanResult{}, fmt.Errorf("persist repo findings: %w", err)
 	}
@@ -746,6 +759,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		result.Truncated,
 		"",
 	); err != nil {
+		s.recordRepoScanExecutionFailure()
 		return RunRepoScanResult{}, fmt.Errorf("complete repo scan: %w", err)
 	}
 	record.Status = "succeeded"
@@ -757,7 +771,20 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	record.Truncated = result.Truncated
 	record.HistoryLimit = normalizedHistory
 	record.MaxFindings = normalizedMaxFindings
+	if s.Metrics != nil {
+		s.Metrics.RepoScanSuccessTotal.Inc()
+		s.Metrics.RepoFindingsGenerated.Add(float64(len(result.Findings)))
+		if result.Truncated {
+			s.Metrics.RepoScanTruncatedTotal.Inc()
+		}
+	}
 	return RunRepoScanResult{RepoScan: record, Result: result}, nil
+}
+
+func (s *Service) recordRepoScanExecutionFailure() {
+	if s.Metrics != nil {
+		s.Metrics.RepoScanFailureTotal.Inc()
+	}
 }
 
 // ListRepoScans returns persisted repository scans.

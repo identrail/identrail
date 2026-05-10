@@ -41,6 +41,12 @@ Use this for managed cluster deployment.
    - `kubectl apply -f deploy/kubernetes/worker-deployment.yaml`
 4. Optional ingress:
    - `kubectl apply -f deploy/kubernetes/ingress.example.yaml`
+5. Optional: enable in-cluster Kubernetes scan collection:
+   - `kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml`
+   - `kubectl -n identrail patch configmap identrail-config --type merge -p '{"data":{"IDENTRAIL_PROVIDER":"kubernetes","IDENTRAIL_K8S_SOURCE":"kubectl"}}'`
+   - `kubectl -n identrail patch deployment identrail-api --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
+   - `kubectl -n identrail patch deployment identrail-worker --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
+   - `kubectl -n identrail rollout restart deployment/identrail-api deployment/identrail-worker`
 
 ## 3) Kubernetes Helm
 
