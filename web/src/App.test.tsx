@@ -64,7 +64,7 @@ describe('App marketing surface (post-redesign)', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Trace every machine identity/i
+        name: /See every machine identity path/i
       })
     ).toBeInTheDocument();
 

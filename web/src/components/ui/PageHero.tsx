@@ -6,6 +6,7 @@ type PageHeroProps = {
   lede?: ReactNode;
   actions?: ReactNode;
   visual?: ReactNode;
+  className?: string;
 };
 
 /**
@@ -13,9 +14,9 @@ type PageHeroProps = {
  * Distinguished from the Home hero by being more restrained and
  * left-aligned by default, with no decorative gradient.
  */
-export function PageHero({ eyebrow, title, lede, actions, visual }: PageHeroProps) {
+export function PageHero({ eyebrow, title, lede, actions, visual, className }: PageHeroProps) {
   return (
-    <section className={['page-hero', visual ? 'has-visual' : ''].filter(Boolean).join(' ')}>
+    <section className={['page-hero', visual ? 'has-visual' : '', className].filter(Boolean).join(' ')}>
       <div className="container">
         <div className="page-hero-inner">
           <div className="page-hero-copy">

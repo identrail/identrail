@@ -23,15 +23,15 @@ export const DEFAULT_KEYWORDS =
 
 export const ROUTE_META: Record<string, RouteMeta> = {
   '/': {
-    title: 'Identrail - Trace every machine identity. Close the dangerous paths safely.',
+    title: 'Identrail - See every machine identity path. Fix the risky ones safely.',
     description:
-      'Identrail traces how AWS roles, Kubernetes service accounts, GitHub OIDC and trust policies can reach your data - and shows the smallest, safest fix. Open core under Apache 2.0.',
+      'Identrail shows how AWS IAM, Kubernetes, and GitHub OIDC paths reach sensitive systems, then gives teams the safest fix. Open core under Apache 2.0.',
     keywords: DEFAULT_KEYWORDS
   },
   '/product': {
-    title: 'Product - One platform for machine identity discovery, detection, and rollout-safe control | Identrail',
+    title: 'Product - See every machine identity path and fix the risky ones | Identrail',
     description:
-      'Discover every machine identity, detect the paths that matter, and remediate without breaking production. Trust graph, simulator, operator surface - explained.',
+      'See every machine identity path, prioritise the risky ones, and simulate the safest fix before you ship it.',
     schemaType: 'Product'
   },
   '/integrations': {
