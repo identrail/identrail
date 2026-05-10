@@ -562,9 +562,11 @@ func (s *Service) recordQueueDepth(queue string, depth int) {
 
 func (s *Service) countQueuedScansForDepth(ctx context.Context, provider string) int {
 	if counter, ok := s.Store.(queuedScanDepthCounter); ok {
-		if count, err := counter.CountQueuedScansAnyScope(ctx, provider); err == nil {
-			return count
+		count, err := counter.CountQueuedScansAnyScope(ctx, provider)
+		if err != nil {
+			return 0
 		}
+		return count
 	}
 	count, err := s.Store.CountQueuedScans(ctx, provider)
 	if err != nil {
@@ -575,9 +577,11 @@ func (s *Service) countQueuedScansForDepth(ctx context.Context, provider string)
 
 func (s *Service) countQueuedRepoScansForDepth(ctx context.Context) int {
 	if counter, ok := s.Store.(queuedRepoScanDepthCounter); ok {
-		if count, err := counter.CountQueuedRepoScansAnyScope(ctx); err == nil {
-			return count
+		count, err := counter.CountQueuedRepoScansAnyScope(ctx)
+		if err != nil {
+			return 0
 		}
+		return count
 	}
 	count, err := s.Store.CountQueuedRepoScans(ctx)
 	if err != nil {
