@@ -597,9 +597,12 @@ function ProductHeroVisual() {
           </div>
           <div className="idt-product-hero-graph">
             <svg viewBox="0 0 440 290" aria-hidden="true" focusable="false">
-              <path className="is-muted" d="M58 74 C150 30 196 102 256 82 S350 48 396 94" />
-              <path className="is-risk" d="M84 94 C172 124 224 148 244 198 S304 246 366 226" />
-              <path className="is-safe" d="M78 200 C150 164 194 230 268 190" />
+              <path className="is-muted" d="M142 76 C208 64 248 124 308 116 S384 94 404 122" />
+              <path className="is-risk" d="M146 122 C214 142 255 172 284 212 S352 248 404 234" />
+              <path className="is-safe" d="M193 205 C222 190 248 180 286 178" />
+              <circle className="idt-graph-node is-risk" cx="146" cy="122" r="5" />
+              <circle className="idt-graph-node is-risk" cx="286" cy="178" r="5" />
+              <circle className="idt-graph-node is-risk" cx="404" cy="234" r="5" />
             </svg>
             <div className="idt-graph-pill is-github">
               <strong>GitHub OIDC</strong>

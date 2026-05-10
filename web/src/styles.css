@@ -31,6 +31,13 @@ a {
 
 .idt-site {
   min-height: 100vh;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+
+.idt-site > main {
+  flex: 1 0 auto;
 }
 
 .idt-shell {
@@ -3075,11 +3082,13 @@ body {
 
 .idt-footer {
   margin-top: 3rem;
+  background: #080f19;
 }
 
 .idt-footer-bar {
   background: #080f19;
   border-top: 1px solid rgba(156, 176, 212, 0.2);
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 .idt-footer-bar-row {
@@ -7906,8 +7915,13 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 /* Remove decorative background grid lines from the ZITADEL-style pass. */
+html,
+html[data-theme='light'] {
+  background: #080f19;
+}
+
 html[data-theme='light'] body {
-  background: #ffffff;
+  background: #080f19;
 }
 
 html[data-theme='light'] .idt-hero::before,
@@ -8098,6 +8112,7 @@ html[data-theme='light'] .idt-page-hero-rich::after,
     radial-gradient(circle at 46% 48%, rgba(253, 186, 116, 0.14), transparent 15rem),
     radial-gradient(circle at 78% 18%, rgba(25, 139, 92, 0.11), transparent 13rem),
     #fbfcff;
+  overflow: hidden;
 }
 
 .idt-product-hero-graph svg {
@@ -8129,6 +8144,19 @@ html[data-theme='light'] .idt-page-hero-rich::after,
   stroke-width: 3;
 }
 
+.idt-graph-node {
+  fill: #ffffff;
+  stroke: rgba(148, 163, 184, 0.6);
+  stroke-width: 1.5;
+}
+
+.idt-graph-node.is-risk {
+  fill: #111827;
+  stroke: rgba(255, 255, 255, 0.72);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 10px rgba(15, 23, 42, 0.18));
+}
+
 .idt-graph-pill {
   position: absolute;
   min-width: 146px;
@@ -8137,6 +8165,7 @@ html[data-theme='light'] .idt-page-hero-rich::after,
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.1);
+  z-index: 2;
 }
 
 .idt-graph-pill strong,
@@ -8162,18 +8191,18 @@ html[data-theme='light'] .idt-page-hero-rich::after,
 }
 
 .idt-graph-pill.is-aws {
-  top: 4.5rem;
-  right: 1.5rem;
+  top: 3.8rem;
+  right: 1.65rem;
 }
 
 .idt-graph-pill.is-k8s {
-  top: 11.6rem;
-  left: 8.6rem;
+  top: 8.6rem;
+  left: 7.9rem;
 }
 
 .idt-graph-pill.is-data {
-  right: 2.2rem;
-  bottom: 1.8rem;
+  right: 8.8rem;
+  bottom: 2.4rem;
 }
 
 .idt-graph-pill.is-data span,
@@ -8183,14 +8212,15 @@ html[data-theme='light'] .idt-page-hero-rich::after,
 
 .idt-product-evidence-card {
   position: absolute;
-  left: 1.3rem;
-  bottom: 1.25rem;
-  width: 210px;
+  left: 1.45rem;
+  bottom: 1.35rem;
+  width: 218px;
   padding: 0.85rem;
   border-radius: 8px;
   background: #101827;
   color: #e5edf7;
   box-shadow: 0 20px 44px rgba(15, 23, 42, 0.22);
+  z-index: 3;
 }
 
 .idt-product-evidence-card span,
@@ -8209,14 +8239,15 @@ html[data-theme='light'] .idt-page-hero-rich::after,
 
 .idt-product-hero-queue {
   position: absolute;
-  right: -0.5rem;
-  bottom: 1.2rem;
-  width: 190px;
+  right: 1.05rem;
+  bottom: 1.45rem;
+  width: 184px;
   padding: 0.9rem;
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 18px 46px rgba(15, 23, 42, 0.14);
+  z-index: 4;
 }
 
 .idt-product-hero-queue span,
