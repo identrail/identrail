@@ -24,7 +24,7 @@ const SCAN_STEPS = [
   {
     title: 'Get the report',
     body:
-      'Findings sorted by reachable resource sensitivity. Each finding includes the path, the evidence, the named owner, and the smallest safe fix — simulated against your last 30 days of activity.'
+      'Findings sorted by reachable resource sensitivity. Each finding includes the path, the evidence, the named owner, and the smallest safe fix - simulated against your last 30 days of activity.'
   }
 ];
 
@@ -49,7 +49,7 @@ export function DemoPage() {
 
     // The visitor's name + role + free-text context goes into `scan_goal`
     // (a real, forwarded lead field). Critically: we do NOT touch the
-    // `challenge` field — web/api/leads.ts treats any non-empty `challenge`
+    // `challenge` field - web/api/leads.ts treats any non-empty `challenge`
     // as a honeypot/bot submission and short-circuits with HTTP 202 without
     // forwarding the lead to the webhook (web/api/leads.ts ~line 228, PR #895).
     //
@@ -72,7 +72,7 @@ export function DemoPage() {
         page_path: typeof window !== 'undefined' ? window.location.pathname : '/demo'
       });
 
-      // Best-effort analytics — never block the success state on these.
+      // Best-effort analytics - never block the success state on these.
       if (typeof window !== 'undefined' && typeof window.posthog?.capture === 'function') {
         window.posthog.capture('demo_request_submitted', { source: 'demo-page' });
       }
@@ -162,7 +162,7 @@ export function DemoPage() {
               <h2 className="t-h3 u-mt-3">Book a 15-minute walkthrough.</h2>
               <p className="t-body u-mt-3">
                 {FOUNDER.shortName} runs every demo personally right now. Bring a stack diagram if you have
-                one — we'll use it.
+                one - we'll use it.
               </p>
 
               <form className="form u-mt-8" onSubmit={onSubmit}>
@@ -207,11 +207,11 @@ export function DemoPage() {
                   type="submit"
                   disabled={state.kind === 'submitting' || state.kind === 'ok'}
                 >
-                  {state.kind === 'submitting' ? 'Sending…' : state.kind === 'ok' ? 'Got it — talk soon' : 'Request a demo'}
+                  {state.kind === 'submitting' ? 'Sending…' : state.kind === 'ok' ? 'Got it - talk soon' : 'Request a demo'}
                 </button>
                 {state.kind === 'ok' ? (
                   <div className="form-status" role="status">
-                    <CheckIcon size={14} /> Thanks — we'll be in touch shortly.
+                    <CheckIcon size={14} /> Thanks - we'll be in touch shortly.
                   </div>
                 ) : null}
                 {state.kind === 'error' ? (

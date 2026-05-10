@@ -1,5 +1,5 @@
 /* =========================================================================
- * Identrail — global stylesheet
+ * Identrail - global stylesheet
  *
  * Sections:
  *   1. Reset + base
@@ -232,7 +232,7 @@ main { display: block; }
   color: var(--text-primary);
 }
 .site-logo:hover { color: var(--text-primary); }
-.site-logo-mark { width: 26px; height: 26px; display: inline-block; }
+.site-logo-mark { width: 26px; height: 26px; display: inline-block; object-fit: cover; border-radius: 8px; }
 
 .site-nav { display: flex; gap: var(--space-1); justify-content: center; }
 .site-nav a {
@@ -881,16 +881,13 @@ a.card:hover .card-arrow { transform: translateX(2px); }
   width: 200px;
   height: 200px;
   border-radius: var(--radius-xl);
-  background: linear-gradient(135deg, var(--c-accent-soft), var(--bg-soft));
   border: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-size: 4rem;
-  font-weight: 600;
-  color: var(--accent);
-  letter-spacing: -0.04em;
+  display: block;
+  object-fit: cover;
+  object-position: center top;
+  overflow: hidden;
+  background: var(--bg-soft);
+  box-shadow: var(--shadow-sm);
 }
 
 /* --- 11. Code + product illustration ----------------------------------- */

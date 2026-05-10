@@ -13,7 +13,7 @@ const STORAGE_KEY = 'identrail-github-meta-v1';
 const FRESHNESS_MS = 12 * 60 * 60 * 1000; // 12h cache so we don't burn the rate limit
 
 function fmt(n: number | null): string {
-  if (n === null) return '—';
+  if (n === null) return 'N/A';
   if (n < 1000) return String(n);
   return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
 }
@@ -41,7 +41,7 @@ function writeCache(data: GitHubMeta) {
 /**
  * Open-source proof bar.
  *
- * No fabricated logos, no fabricated quotes — instead, the strongest honest
+ * No fabricated logos, no fabricated quotes - instead, the strongest honest
  * proof we have today: the public repo metrics, the deployment posture,
  * and the review surface (source, releases and contribution checks). Falls
  * back gracefully when the GitHub API is unavailable.
@@ -72,7 +72,7 @@ export function OpenSourceProof() {
         writeCache(next);
       })
       .catch(() => {
-        // Silent — cells will render as "—" and the proof bar still works.
+        // Silent - cells will render as " - " and the proof bar still works.
       });
 
     return () => {

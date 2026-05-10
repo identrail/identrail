@@ -36,11 +36,11 @@ const PILLARS = [
     eyebrow: 'Simulation',
     title: 'See the smallest safe fix before you ship it.',
     body:
-      'Every recommendation runs through a policy simulator that replays recent activity against the proposed change. You see exactly which workloads — by name — would have lost access, and you can scope the fix down until none do.',
+      'Every recommendation runs through a policy simulator that replays recent activity against the proposed change. You see exactly which workloads - by name - would have lost access, and you can scope the fix down until none do.',
     bullets: [
       'Policy diff with annotated impact',
       'Workload-named blast radius, not just resource counts',
-      'Dry-run, canary, enforce — three rollout gates',
+      'Dry-run, canary, enforce - three rollout gates',
       'Rollback is one click and reverses cleanly'
     ]
   },
@@ -48,11 +48,11 @@ const PILLARS = [
     eyebrow: 'Operator surface',
     title: 'A console designed for the people who actually own the resource.',
     body:
-      'Findings route to the resource owner, not into a security queue. The operator surface is the same trust graph the security team sees — so the conversation is "we both look at the same path" instead of "let me forward you a CSV."',
+      'Findings route to the resource owner, not into a security queue. The operator surface is the same trust graph the security team sees - so the conversation is "we both look at the same path" instead of "let me forward you a CSV."',
     bullets: [
       'Auto-derived ownership from tags, repos, namespaces',
       'Per-finding playbook with the safe fix pre-staged',
-      'Slack, email, GitHub PR — no extra dashboard to learn',
+      'Slack, email, GitHub PR - no extra dashboard to learn',
       'Audit trail of who saw what, who fixed what, when'
     ]
   }

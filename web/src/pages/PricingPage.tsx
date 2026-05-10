@@ -141,7 +141,7 @@ const FAQ = [
   {
     q: 'Why is the hosted plan cheaper than other security tools?',
     a:
-      'Because the engine is open source. We are not amortising a private platform investment over every seat — we are charging for the part you genuinely benefit from outsourcing: hosting, hardening, scheduled scans, alerting, support. If you do not need any of those, the OSS edition is the same code, free.'
+      'Because the engine is open source. We are not amortising a private platform investment over every seat - we are charging for the part you genuinely benefit from outsourcing: hosting, hardening, scheduled scans, alerting, support. If you do not need any of those, the OSS edition is the same code, free.'
   },
   {
     q: 'Is there a free trial?',
@@ -259,7 +259,7 @@ export function PricingPage() {
         <SectionHeader
           eyebrow="Compare in detail"
           title="What's in each plan, line by line."
-          lede="If a row matters to you and is missing here, ask — we'll either explain or add it."
+          lede="If a row matters to you and is missing here, ask - we'll either explain or add it."
         />
         <table className="compare">
           <thead>
@@ -303,7 +303,7 @@ export function PricingPage() {
 
       <CtaBanner
         title="Start free. Upgrade when the team grows."
-        body="The fastest way to evaluate Identrail is the free risk scan — read-only, ten minutes, real findings against your environment."
+        body="The fastest way to evaluate Identrail is the free risk scan - read-only, ten minutes, real findings against your environment."
         primary={{ label: 'Start a free risk scan', to: '/demo' }}
         secondary={{ label: 'Talk to us about Enterprise', to: '/enterprise' }}
       />

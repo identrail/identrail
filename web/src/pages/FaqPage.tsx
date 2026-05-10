@@ -12,12 +12,12 @@ const GROUPS: Group[] = [
       {
         q: 'What does Identrail actually do?',
         a:
-          'Identrail builds a single trust graph of every machine identity in your environment — across AWS IAM, Kubernetes, GitHub Actions OIDC, and the data stores those identities can reach. It then surfaces the paths that resolve to sensitive data, ranks them by reachable impact, and shows the smallest safe fix for each one.'
+          'Identrail builds a single trust graph of every machine identity in your environment - across AWS IAM, Kubernetes, GitHub Actions OIDC, and the data stores those identities can reach. It then surfaces the paths that resolve to sensitive data, ranks them by reachable impact, and shows the smallest safe fix for each one.'
       },
       {
         q: 'Is it open source?',
         a:
-          'Yes. The full platform — connectors, graph engine, detection rules, policy simulator — is Apache 2.0 on GitHub. There is no closed core. The hosted Team and Enterprise plans run the same image you can self-host.'
+          'Yes. The full platform - connectors, graph engine, detection rules, policy simulator - is Apache 2.0 on GitHub. There is no closed core. The hosted Team and Enterprise plans run the same image you can self-host.'
       },
       {
         q: 'How long does the first scan take?',
@@ -32,12 +32,12 @@ const GROUPS: Group[] = [
       {
         q: 'Is the scan really read-only?',
         a:
-          'Yes. Connector setup uses scoped read credentials only — you can audit the exact IAM policies in the repo. Policy enforcement is a separate, opt-in surface that you have to deliberately turn on.'
+          'Yes. Connector setup uses scoped read credentials only - you can audit the exact IAM policies in the repo. Policy enforcement is a separate, opt-in surface that you have to deliberately turn on.'
       },
       {
         q: 'What data do you store?',
         a:
-          'Trust-graph metadata (identities, role chains, RBAC bindings, resource ARNs), findings, and remediation history. Secret values are hashed at the edge — Identrail never stores raw credential material.'
+          'Trust-graph metadata (identities, role chains, RBAC bindings, resource ARNs), findings, and remediation history. Secret values are hashed at the edge - Identrail never stores raw credential material.'
       },
       {
         q: 'Where is hosted data stored?',
@@ -77,7 +77,7 @@ const GROUPS: Group[] = [
       {
         q: 'How much does it cost?',
         a:
-          'Open-source self-host is free forever. Hosted Team is $19/user/mo (or $15 annual) with a three-user minimum. Enterprise is custom-scoped — see /pricing.'
+          'Open-source self-host is free forever. Hosted Team is $19/user/mo (or $15 annual) with a three-user minimum. Enterprise is custom-scoped - see /pricing.'
       },
       {
         q: 'Why is it cheaper than other security tools?',
@@ -87,7 +87,7 @@ const GROUPS: Group[] = [
       {
         q: 'Can we start on Open source and migrate to Team later?',
         a:
-          'Yes. The data shape is identical — your graph, findings, and history move forward without re-platforming.'
+          'Yes. The data shape is identical - your graph, findings, and history move forward without re-platforming.'
       }
     ]
   }
@@ -99,7 +99,7 @@ export function FaqPage() {
       <PageHero
         eyebrow="FAQ"
         title="Straight answers, no marketing hedge."
-        lede="If a question you care about is not here, send it to hello@identrail.com — we will answer and add it."
+        lede="If a question you care about is not here, send it to hello@identrail.com - we will answer and add it."
       />
       <Section variant="tight">
         <div className="stack stack-12">
