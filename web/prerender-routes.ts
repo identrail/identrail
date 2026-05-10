@@ -1,24 +1,24 @@
+/**
+ * Routes to render to static HTML at build time.
+ *
+ * Keep in sync with web/src/lib/seoMap.ts. Legacy paths
+ * (/features/*, /solutions/*, /roi-assessment, /read-only-scan,
+ * /deployment-models) intentionally do not appear here — they redirect
+ * via vercel.json and we don't want to ship empty redirect HTML to
+ * search indexers.
+ */
 export const PRERENDER_ROUTES = [
   '/',
   '/product',
-  '/features',
-  '/features/aws',
-  '/features/kubernetes',
-  '/features/git-scanner',
-  '/features/trust-graph',
-  '/solutions',
-  '/solutions/aws',
-  '/solutions/kubernetes',
-  '/solutions/multi-cloud',
-  '/solutions/platform-engineering',
-  '/solutions/security-teams',
+  '/integrations',
   '/pricing',
-  '/roi-assessment',
-  '/read-only-scan',
-  '/deployment-models',
   '/demo',
-  '/docs',
+  '/about',
+  '/security',
+  '/responsible-disclosure',
+  '/enterprise',
   '/faq',
+  '/docs',
   '/blog',
   '/blog/machine-identity-security-operating-model-2026',
   '/blog/aws-nhi-security-misconfigurations',
@@ -28,11 +28,8 @@ export const PRERENDER_ROUTES = [
   '/blog/least-privilege-evidence-for-non-human-identities',
   '/blog/rollout-safe-authorization-controls',
   '/blog/trust-graph-metrics-for-security-leaders',
-  '/security',
-  '/integrations',
-  '/responsible-disclosure',
-  '/about',
-  '/enterprise',
+  '/for/security-teams',
+  '/for/platform-engineering',
   '/privacy',
   '/terms',
   '/privacy-choices'

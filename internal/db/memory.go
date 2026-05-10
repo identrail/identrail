@@ -15,16 +15,18 @@ import (
 
 // MemoryStore is a concurrency-safe in-memory persistence adapter.
 type MemoryStore struct {
-	mu           sync.RWMutex
-	scans        map[string]ScanRecord
-	scanIDs      []string
-	findings     map[string]domain.Finding
-	triageStates map[string]FindingTriageState
-	triageEvents map[string][]FindingTriageEvent
-	events       map[string][]ScanEvent
-	repoScans    map[string]RepoScanRecord
-	repoScanIDs  []string
-	repoFindings map[string]domain.Finding
+	mu             sync.RWMutex
+	scans          map[string]ScanRecord
+	scanIDs        []string
+	findings       map[string]domain.Finding
+	scanFindings   map[string][]string
+	triageStates   map[string]FindingTriageState
+	triageEvents   map[string][]FindingTriageEvent
+	events         map[string][]ScanEvent
+	repoScans      map[string]RepoScanRecord
+	repoScanIDs    []string
+	repoFindings   map[string]domain.Finding
+	repoFindingIDs map[string][]string
 
 	rawAssets     map[string]providers.RawAsset
 	authzAttrs    map[string]AuthzEntityAttributes
@@ -40,6 +42,7 @@ type MemoryStore struct {
 	projects      map[string]TenancyProject
 	connectors    map[string]TenancyConnector
 	connStates    map[string]TenancyConnectorState
+	connSecrets   map[string]TenancyConnectorSecretEnvelope
 	identities    map[string]domain.Identity
 	policies      map[string]domain.Policy
 	relationships map[string]domain.Relationship
@@ -49,15 +52,17 @@ type MemoryStore struct {
 // NewMemoryStore initializes an empty in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		scans:        map[string]ScanRecord{},
-		scanIDs:      []string{},
-		findings:     map[string]domain.Finding{},
-		triageStates: map[string]FindingTriageState{},
-		triageEvents: map[string][]FindingTriageEvent{},
-		events:       map[string][]ScanEvent{},
-		repoScans:    map[string]RepoScanRecord{},
-		repoScanIDs:  []string{},
-		repoFindings: map[string]domain.Finding{},
+		scans:          map[string]ScanRecord{},
+		scanIDs:        []string{},
+		findings:       map[string]domain.Finding{},
+		scanFindings:   map[string][]string{},
+		triageStates:   map[string]FindingTriageState{},
+		triageEvents:   map[string][]FindingTriageEvent{},
+		events:         map[string][]ScanEvent{},
+		repoScans:      map[string]RepoScanRecord{},
+		repoScanIDs:    []string{},
+		repoFindings:   map[string]domain.Finding{},
+		repoFindingIDs: map[string][]string{},
 
 		rawAssets:     map[string]providers.RawAsset{},
 		authzAttrs:    map[string]AuthzEntityAttributes{},
@@ -73,10 +78,95 @@ func NewMemoryStore() *MemoryStore {
 		projects:      map[string]TenancyProject{},
 		connectors:    map[string]TenancyConnector{},
 		connStates:    map[string]TenancyConnectorState{},
+		connSecrets:   map[string]TenancyConnectorSecretEnvelope{},
 		identities:    map[string]domain.Identity{},
 		policies:      map[string]domain.Policy{},
 		relationships: map[string]domain.Relationship{},
 		permissions:   map[string]providers.PermissionTuple{},
+	}
+}
+
+func appendUniqueID(items []string, id string) []string {
+	for _, existing := range items {
+		if existing == id {
+			return items
+		}
+	}
+	return append(items, id)
+}
+
+func sortFindingsForQuery(items []domain.Finding, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch strings.ToLower(strings.TrimSpace(sortBy)) {
+		case "severity":
+			cmp = compareMemoryInt(severityRank(left.Severity), severityRank(right.Severity))
+		case "type":
+			cmp = compareMemoryString(string(left.Type), string(right.Type))
+		case "title":
+			cmp = compareMemoryString(left.Title, right.Title)
+		default:
+			cmp = compareMemoryTime(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareMemoryString(left.ID, right.ID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func compareMemoryTime(left time.Time, right time.Time) int {
+	switch {
+	case left.Before(right):
+		return -1
+	case left.After(right):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareMemoryString(left string, right string) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareMemoryInt(left int, right int) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func severityRank(severity domain.FindingSeverity) int {
+	switch severity {
+	case domain.SeverityCritical:
+		return 5
+	case domain.SeverityHigh:
+		return 4
+	case domain.SeverityMedium:
+		return 3
+	case domain.SeverityLow:
+		return 2
+	case domain.SeverityInfo:
+		return 1
+	default:
+		return 0
 	}
 }
 
@@ -101,7 +191,72 @@ func (m *MemoryStore) CreateQueuedScan(ctx context.Context, provider string, que
 	if err != nil {
 		return ScanRecord{}, err
 	}
-	return m.createScanLocked(scope, provider, "queued", queuedAt), nil
+	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.scans[record.ID] = record
+	return record, nil
+}
+
+// CreateQueuedScanWithinLimit persists one queued scan request only when pending capacity remains.
+func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	normalizedProvider := strings.TrimSpace(provider)
+	queued := 0
+	for _, record := range m.scans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if record.Status != "queued" {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		queued++
+	}
+	if queued >= maxPending {
+		return ScanRecord{}, ErrQueueLimitReached
+	}
+	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.scans[record.ID] = record
+	return record, nil
+}
+
+// CreateQueuedScanIfNoPending persists one queued scan only when no queued/running scan exists.
+func (m *MemoryStore) CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	normalizedProvider := strings.TrimSpace(provider)
+	for _, record := range m.scans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		if record.Status == "queued" || record.Status == "running" {
+			return ScanRecord{}, ErrPendingScanExists
+		}
+	}
+	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.scans[record.ID] = record
+	return record, nil
 }
 
 // ClaimNextQueuedScan moves one queued scan to running for execution.
@@ -113,12 +268,24 @@ func (m *MemoryStore) ClaimNextQueuedScan(ctx context.Context, provider string) 
 	if err != nil {
 		return ScanRecord{}, err
 	}
+	return m.claimNextQueuedScanLocked(&scope, provider)
+}
+
+// ClaimNextQueuedScanAnyScope moves one queued scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedScanAnyScope(_ context.Context, provider string) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedScanLocked(nil, provider)
+}
+
+func (m *MemoryStore) claimNextQueuedScanLocked(scope *Scope, provider string) (ScanRecord, error) {
 	normalizedProvider := strings.TrimSpace(provider)
 	found := false
 	var bestRecord ScanRecord
 	for _, scanID := range m.scanIDs {
 		record := m.scans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {
@@ -157,6 +324,25 @@ func (m *MemoryStore) CountQueuedScans(ctx context.Context, provider string) (in
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
+		if record.Status != "queued" {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
+// CountQueuedScansAnyScope returns queued scan count across all scopes for one provider.
+func (m *MemoryStore) CountQueuedScansAnyScope(_ context.Context, provider string) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	normalizedProvider := strings.TrimSpace(provider)
+	count := 0
+	for _, record := range m.scans {
 		if record.Status != "queued" {
 			continue
 		}
@@ -240,6 +426,7 @@ func (m *MemoryStore) UpsertFindings(ctx context.Context, scanID string, finding
 		finding.ScanID = scanID
 		key := scanID + "|" + finding.ID
 		m.findings[key] = finding
+		m.scanFindings[scanID] = appendUniqueID(m.scanFindings[scanID], key)
 	}
 	return nil
 }
@@ -413,6 +600,9 @@ func (m *MemoryStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, e
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -428,7 +618,7 @@ func (m *MemoryStore) ListScans(ctx context.Context, limit int) ([]ScanRecord, e
 	sort.Slice(records, func(i, j int) bool {
 		return records[i].StartedAt.After(records[j].StartedAt)
 	})
-	if limit > 0 && len(records) > limit {
+	if len(records) > limit {
 		records = records[:limit]
 	}
 	return records, nil
@@ -439,6 +629,9 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if limit <= 0 {
+		limit = 100
+	}
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -454,14 +647,272 @@ func (m *MemoryStore) ListFindings(ctx context.Context, limit int) ([]domain.Fin
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].CreatedAt.After(result[j].CreatedAt)
 	})
-	if limit > 0 && len(result) > limit {
+	if len(result) > limit {
 		result = result[:limit]
 	}
 	return result, nil
 }
 
+// ListFindingsFiltered returns findings after applying persistence-level filters and stable ordering.
+func (m *MemoryStore) ListFindingsFiltered(ctx context.Context, filter FindingListFilter) ([]domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalized := NormalizeFindingListFilter(filter)
+	if normalized.ScanID != "" {
+		scan, exists := m.scans[normalized.ScanID]
+		if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+			return nil, ErrNotFound
+		}
+	}
+	now := normalized.Now
+	result := make([]domain.Finding, 0, len(m.findings))
+	for _, finding := range m.findings {
+		scan, exists := m.scans[finding.ScanID]
+		if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+			continue
+		}
+		if normalized.ScanID != "" && finding.ScanID != normalized.ScanID {
+			continue
+		}
+		if normalized.FindingID != "" && finding.ID != normalized.FindingID {
+			continue
+		}
+		if normalized.Severity != "" && strings.ToLower(string(finding.Severity)) != normalized.Severity {
+			continue
+		}
+		if normalized.Type != "" && strings.ToLower(string(finding.Type)) != normalized.Type {
+			continue
+		}
+		finding.Triage = m.findingTriageForScopeLocked(scope, finding.ID, now)
+		if normalized.LifecycleStatus != "" && strings.ToLower(string(finding.Triage.Status)) != normalized.LifecycleStatus {
+			continue
+		}
+		if normalized.Assignee != "" && strings.ToLower(strings.TrimSpace(finding.Triage.Assignee)) != normalized.Assignee {
+			continue
+		}
+		result = append(result, finding)
+	}
+	sortFilteredFindings(result, normalized.SortBy, normalized.SortDesc)
+	if normalized.Offset >= len(result) {
+		return []domain.Finding{}, nil
+	}
+	end := normalized.Offset + normalized.Limit + 1
+	if end > len(result) {
+		end = len(result)
+	}
+	return append([]domain.Finding(nil), result[normalized.Offset:end]...), nil
+}
+
+// ListFindingsAll returns all findings for current scope ordered by recency.
+func (m *MemoryStore) ListFindingsAll(ctx context.Context) ([]domain.Finding, error) {
+	return m.ListFindings(ctx, 0)
+}
+
+// SummarizeFindings returns aggregate counters for current scope without materializing router-facing copies.
+func (m *MemoryStore) SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return FindingSummaryCounts{}, err
+	}
+	summary := FindingSummaryCounts{
+		BySeverity: map[string]int{},
+		ByType:     map[string]int{},
+	}
+	for _, finding := range m.findings {
+		record, exists := m.scans[finding.ScanID]
+		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		summary.Total++
+		summary.BySeverity[string(finding.Severity)]++
+		summary.ByType[string(finding.Type)]++
+	}
+	return summary, nil
+}
+
 // ListFindingsByScan returns latest findings first for one scan.
 func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scan, exists := m.scans[scanID]
+	if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+		return nil, ErrNotFound
+	}
+
+	keys := m.scanFindings[scanID]
+	result := make([]domain.Finding, 0, len(keys))
+	for _, key := range keys {
+		finding, exists := m.findings[key]
+		if !exists {
+			continue
+		}
+		result = append(result, finding)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+func (m *MemoryStore) findingTriageForScopeLocked(scope Scope, findingID string, now time.Time) domain.FindingTriage {
+	triage := domain.DefaultFindingTriage()
+	state, exists := m.triageStates[findingScopeKey(scope, strings.TrimSpace(findingID))]
+	if !exists {
+		return triage
+	}
+	updatedAt := state.UpdatedAt.UTC()
+	triage = domain.FindingTriage{
+		Status:               state.Status,
+		Assignee:             state.Assignee,
+		SuppressionExpiresAt: state.SuppressionExpiresAt,
+		UpdatedAt:            &updatedAt,
+		UpdatedBy:            state.UpdatedBy,
+	}
+	return NormalizeFindingTriage(triage, now)
+}
+
+func sortFilteredFindings(items []domain.Finding, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch sortBy {
+		case "severity":
+			cmp = compareFindingInts(findingSeverityOrder(left.Severity), findingSeverityOrder(right.Severity))
+		case "type":
+			cmp = compareFindingStrings(strings.ToLower(string(left.Type)), strings.ToLower(string(right.Type)))
+		case "title":
+			cmp = compareFindingStrings(strings.ToLower(left.Title), strings.ToLower(right.Title))
+		default:
+			cmp = compareFindingTimes(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareFindingStrings(left.ScanID, right.ScanID)
+		}
+		if cmp == 0 {
+			cmp = compareFindingStrings(left.ID, right.ID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func findingSeverityOrder(severity domain.FindingSeverity) int {
+	switch severity {
+	case domain.SeverityCritical:
+		return 5
+	case domain.SeverityHigh:
+		return 4
+	case domain.SeverityMedium:
+		return 3
+	case domain.SeverityLow:
+		return 2
+	case domain.SeverityInfo:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareFindingStrings(left string, right string) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareFindingInts(left int, right int) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareFindingTimes(left time.Time, right time.Time) int {
+	switch {
+	case left.Before(right):
+		return -1
+	case left.After(right):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// GetFinding returns one finding by id, optionally scoped to one scan id.
+func (m *MemoryStore) GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return domain.Finding{}, ErrNotFound
+	}
+	scanFilter := strings.TrimSpace(scanID)
+	var latest domain.Finding
+	found := false
+	for _, scanKey := range m.scanIDs {
+		record := m.scans[scanKey]
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if scanFilter != "" && scanKey != scanFilter {
+			continue
+		}
+		findingKey := scanKey + "|" + id
+		finding, exists := m.findings[findingKey]
+		if !exists {
+			continue
+		}
+		if scanFilter != "" {
+			return finding, nil
+		}
+		if !found || finding.CreatedAt.After(latest.CreatedAt) {
+			latest = finding
+			found = true
+		}
+	}
+	if found {
+		return latest, nil
+	}
+	return domain.Finding{}, ErrNotFound
+}
+
+// ListFindingMetasByScan returns lightweight finding metadata for one scan.
+func (m *MemoryStore) ListFindingMetasByScan(ctx context.Context, scanID string) ([]FindingMeta, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -473,19 +924,100 @@ func (m *MemoryStore) ListFindingsByScan(ctx context.Context, scanID string, lim
 	if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
 		return nil, ErrNotFound
 	}
+	keys := m.scanFindings[scanID]
+	metas := make([]FindingMeta, 0, len(keys))
+	for _, key := range keys {
+		finding, exists := m.findings[key]
+		if !exists {
+			continue
+		}
+		metas = append(metas, FindingMeta{
+			ID:        finding.ID,
+			ScanID:    finding.ScanID,
+			Severity:  string(finding.Severity),
+			Type:      string(finding.Type),
+			CreatedAt: finding.CreatedAt,
+		})
+	}
+	return metas, nil
+}
 
-	result := []domain.Finding{}
-	for _, finding := range m.findings {
-		if finding.ScanID != scanID {
+// ListFindingsByScanAndIDs returns detailed findings for one scan and ID set.
+func (m *MemoryStore) ListFindingsByScanAndIDs(ctx context.Context, scanID string, findingIDs []string) ([]domain.Finding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scan, exists := m.scans[scanID]
+	if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+		return nil, ErrNotFound
+	}
+	result := make([]domain.Finding, 0, len(findingIDs))
+	seen := map[string]struct{}{}
+	for _, findingID := range findingIDs {
+		normalizedID := strings.TrimSpace(findingID)
+		if normalizedID == "" {
+			continue
+		}
+		if _, exists := seen[normalizedID]; exists {
+			continue
+		}
+		seen[normalizedID] = struct{}{}
+		finding, exists := m.findings[scanID+"|"+normalizedID]
+		if !exists {
 			continue
 		}
 		result = append(result, finding)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.After(result[j].CreatedAt)
-	})
-	if limit > 0 && len(result) > limit {
-		result = result[:limit]
+	return result, nil
+}
+
+// ListFindingTrendCounts aggregates findings by scan and severity.
+func (m *MemoryStore) ListFindingTrendCounts(ctx context.Context, scanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalizedSeverity := strings.ToLower(strings.TrimSpace(severity))
+	normalizedType := strings.ToLower(strings.TrimSpace(findingType))
+	result := make([]FindingTrendCount, 0, len(scanIDs))
+	for _, scanID := range scanIDs {
+		scan, exists := m.scans[scanID]
+		if !exists || !MatchScope(scope, scan.TenantID, scan.WorkspaceID) {
+			continue
+		}
+		counts := map[string]int{}
+		for _, key := range m.scanFindings[scanID] {
+			finding, exists := m.findings[key]
+			if !exists {
+				continue
+			}
+			if normalizedSeverity != "" && strings.ToLower(string(finding.Severity)) != normalizedSeverity {
+				continue
+			}
+			if normalizedType != "" && strings.ToLower(string(finding.Type)) != normalizedType {
+				continue
+			}
+			counts[string(finding.Severity)]++
+		}
+		if len(counts) == 0 {
+			result = append(result, FindingTrendCount{ScanID: scanID, StartedAt: scan.StartedAt})
+			continue
+		}
+		for severityKey, count := range counts {
+			result = append(result, FindingTrendCount{
+				ScanID:     scanID,
+				StartedAt:  scan.StartedAt,
+				Severity:   severityKey,
+				TotalCount: count,
+			})
+		}
 	}
 	return result, nil
 }
@@ -1181,7 +1713,44 @@ func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository strin
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), "queued", historyLimit, maxFindings, queuedAt), nil
+	record := m.createRepoScanLocked(scope, strings.TrimSpace(repository), "queued", historyLimit, maxFindings, queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.repoScans[record.ID] = record
+	return record, nil
+}
+
+// CreateQueuedRepoScanWithinLimit persists one queued repository scan only when the target is idle and queue capacity remains.
+func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanRecord{}, err
+	}
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+	normalizedRepository := strings.TrimSpace(repository)
+	queued := 0
+	for _, record := range m.repoScans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if strings.EqualFold(record.Repository, normalizedRepository) && (record.Status == "queued" || record.Status == "running") {
+			return RepoScanRecord{}, ErrPendingRepoScanExists
+		}
+		if record.Status == "queued" {
+			queued++
+		}
+	}
+	if queued >= maxPending {
+		return RepoScanRecord{}, ErrQueueLimitReached
+	}
+	record := m.createRepoScanLocked(scope, normalizedRepository, "queued", historyLimit, maxFindings, queuedAt)
+	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
+	m.repoScans[record.ID] = record
+	return record, nil
 }
 
 // ClaimNextQueuedRepoScan moves one queued repository scan to running for execution.
@@ -1193,11 +1762,23 @@ func (m *MemoryStore) ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanReco
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
+	return m.claimNextQueuedRepoScanLocked(&scope)
+}
+
+// ClaimNextQueuedRepoScanAnyScope moves one queued repository scan to running across all tenant/workspace scopes.
+func (m *MemoryStore) ClaimNextQueuedRepoScanAnyScope(_ context.Context) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.claimNextQueuedRepoScanLocked(nil)
+}
+
+func (m *MemoryStore) claimNextQueuedRepoScanLocked(scope *Scope) (RepoScanRecord, error) {
 	var claimed RepoScanRecord
 	found := false
 	for _, scanID := range m.repoScanIDs {
 		record := m.repoScans[scanID]
-		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
 		if record.Status != "queued" {
@@ -1232,6 +1813,20 @@ func (m *MemoryStore) CountQueuedRepoScans(ctx context.Context) (int, error) {
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
+		if record.Status == "queued" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// CountQueuedRepoScansAnyScope returns queued repository scan count across all scopes.
+func (m *MemoryStore) CountQueuedRepoScansAnyScope(_ context.Context) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, record := range m.repoScans {
 		if record.Status == "queued" {
 			count++
 		}
@@ -1366,6 +1961,7 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 		finding.ScanID = repoScanID
 		key := repoScanID + "|" + finding.ID
 		m.repoFindings[key] = finding
+		m.repoFindingIDs[repoScanID] = appendUniqueID(m.repoFindingIDs[repoScanID], key)
 	}
 	return nil
 }
@@ -1416,25 +2012,36 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
 
 	result := make([]domain.Finding, 0, len(m.repoFindings))
-	for _, finding := range m.repoFindings {
-		record, exists := m.repoScans[finding.ScanID]
-		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
-			continue
+	if repoScanID != "" {
+		for _, key := range m.repoFindingIDs[repoScanID] {
+			finding, exists := m.repoFindings[key]
+			if !exists {
+				continue
+			}
+			if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
+				continue
+			}
+			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
+				continue
+			}
+			result = append(result, finding)
 		}
-		if repoScanID != "" && finding.ScanID != repoScanID {
-			continue
+	} else {
+		for _, finding := range m.repoFindings {
+			record, exists := m.repoScans[finding.ScanID]
+			if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+				continue
+			}
+			if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
+				continue
+			}
+			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
+				continue
+			}
+			result = append(result, finding)
 		}
-		if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
-			continue
-		}
-		if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
-			continue
-		}
-		result = append(result, finding)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.After(result[j].CreatedAt)
-	})
+	sortFindingsForQuery(result, "created_at", true)
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]
 	}

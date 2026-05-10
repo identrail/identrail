@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added the auth and connector architecture foundation under `docs/auth/`:
+  - decided on WorkOS for hosted login plus a dual-driver OIDC path for self-host
+  - documented the identity model, cookie and session spec, threat model, identity-linking rules, connector-foundation contract, environment-variables reference, and the canonical twelve-PR delivery sequence
+  - linked the new doc folder from the main documentation index
+- Refined the public website homepage presentation:
+  - adopted a Browserbase-style navigation rail with centered links and a black demo CTA
+  - updated the homepage product preview around Kubernetes, AWS IAM, and PostgreSQL evidence
+  - replaced static technology labels with a moving logo strip for reviewed stack coverage
 - Polished the public website header navigation and brand treatment:
   - renamed the primary navigation to Product, Docs, Company, Pricing, and Blog
   - removed dropdown chevrons from plain navigation links

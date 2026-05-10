@@ -10,6 +10,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/secretstore"
 )
 
 func TestPostgresStoreUpsertAndGetOrganizationScoped(t *testing.T) {
@@ -186,6 +187,130 @@ func TestPostgresStoreListTenancyConnectors(t *testing.T) {
 	if len(connectors) != 1 || connectors[0].Connector.ConnectorID != "aws-123456789012" {
 		t.Fatalf("unexpected connectors: %+v", connectors)
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListTenancyConnectorsUnscopedWithoutLimit(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "type", "display_name", "status",
+		"secret_provider", "secret_ref_id", "secret_ref_version", "secret_last_rotated_at",
+		"config_checksum", "last_sync_at", "created_at", "updated_at", "health_status", "sync_cursor",
+		"last_successful_sync_at", "last_error_code", "last_error_message", "metadata", "observed_at", "state_updated_at",
+	}).AddRow(
+		"tenant-a", "workspace-a", "project-1", "github-a", "github", "GitHub A", "active",
+		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
+		[]byte(`{"installation_id":101}`), now, now,
+	).AddRow(
+		"tenant-a", "workspace-b", "project-2", "github-b", "github", "GitHub B", "active",
+		nil, nil, nil, nil, nil, nil, now, now, "healthy", nil, nil, nil, nil,
+		[]byte(`{"installation_id":202}`), now, now,
+	)
+	mock.ExpectQuery(`(?s)SELECT.*FROM tenancy_connectors.*c\.type = \$1.*ORDER BY c\.updated_at DESC$`).
+		WithArgs("github").
+		WillReturnRows(rows)
+
+	connectors, err := store.ListTenancyConnectorsUnscoped(context.Background(), domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		t.Fatalf("list unscoped connectors: %v", err)
+	}
+	if len(connectors) != 2 {
+		t.Fatalf("expected both connectors without limit, got %+v", connectors)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreConnectorSecretEnvelopeCRUD(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Now().UTC()
+	due := now.Add(24 * time.Hour)
+
+	envelope := TenancyConnectorSecretEnvelope{
+		WorkspaceID:     "workspace-a",
+		ProjectID:       "project-1",
+		ConnectorID:     "github",
+		SecretName:      "webhook_secret",
+		EnvelopeVersion: 1,
+		Envelope: secretstore.Envelope{
+			Version:    1,
+			Algorithm:  secretstore.AlgorithmAES256GCM,
+			KeyVersion: "v1",
+			Nonce:      []byte("123456789012"),
+			Ciphertext: []byte("ciphertext"),
+		},
+		SecretRefID:   "vault://secret/v1",
+		RotatedAt:     now,
+		RotationDueAt: &due,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO tenancy_connector_secret_envelopes (
+		     tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+		     algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, $13, $14, $15)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, secret_name) DO UPDATE
+		 SET envelope_version = EXCLUDED.envelope_version,
+		     algorithm = EXCLUDED.algorithm,
+		     key_version = EXCLUDED.key_version,
+		     nonce = EXCLUDED.nonce,
+		     ciphertext = EXCLUDED.ciphertext,
+		     secret_ref_id = EXCLUDED.secret_ref_id,
+		     rotated_at = EXCLUDED.rotated_at,
+		     rotation_due_at = EXCLUDED.rotation_due_at,
+		     updated_at = EXCLUDED.updated_at`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "github", "webhook_secret", 1, secretstore.AlgorithmAES256GCM, "v1", []byte("123456789012"), []byte("ciphertext"), "vault://secret/v1", now, &due, now, now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, envelope); err != nil {
+		t.Fatalf("upsert connector secret envelope: %v", err)
+	}
+
+	rows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "secret_name", "envelope_version",
+		"algorithm", "key_version", "nonce", "ciphertext", "secret_ref_id", "rotated_at", "rotation_due_at", "created_at", "updated_at",
+	}).AddRow(
+		"tenant-a", "workspace-a", "project-1", "github", "webhook_secret", 1,
+		secretstore.AlgorithmAES256GCM, "v1", []byte("123456789012"), []byte("ciphertext"), "vault://secret/v1", now, due, now, now,
+	)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+		        algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 FROM tenancy_connector_secret_envelopes
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND secret_name = $5`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "github", "webhook_secret").
+		WillReturnRows(rows)
+
+	got, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "github", "webhook_secret")
+	if err != nil {
+		t.Fatalf("get connector secret envelope: %v", err)
+	}
+	if got.SecretRefID != "vault://secret/v1" || got.Envelope.Version != 1 {
+		t.Fatalf("unexpected connector secret envelope: %+v", got)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

@@ -35,6 +35,23 @@ Authorization policy lifecycle metrics:
 - `identrail_authz_policy_rollout_shadow_evaluation_errors_total`
 - `identrail_authz_policy_rollout_rollbacks_total`
 
+### Metric Cardinality Rules
+
+Prometheus labels must stay bounded and operationally meaningful.
+
+Allowed label examples:
+- Decision labels with small, controlled value sets: `allowed`, `outcome`, `reason`, `kind`.
+- Rollout labels controlled by configuration or code: `policy_source`, `policy_version`, `rollout_mode`.
+- Worker labels controlled by code constants: `queue`, `runner`, `source`.
+
+Forbidden label examples:
+- Request-scoped identifiers: `request_id`, trace IDs, correlation IDs.
+- Actor or credential identifiers: API keys, tokens, email addresses, user IDs, principals.
+- Tenant or workspace identifiers: `tenant_id`, `workspace_id`, workspace slugs.
+- Scan or repository identifiers: `scan_id`, repository names, repo URLs, commit SHAs.
+
+If a value is useful for incident triage but has unbounded cardinality, put it in structured logs or audit events instead of a Prometheus label. New metric vectors should call or test `telemetry.ValidateMetricLabels` for every label name before they are registered.
+
 ## Tracing
 
 - Scanner pipeline emits OpenTelemetry spans:

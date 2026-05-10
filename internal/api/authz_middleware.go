@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
-	"github.com/identrail/identrail/internal/stringutil"
 	"github.com/identrail/identrail/internal/telemetry"
 )
 
@@ -256,7 +255,11 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 		}
 		policy, exists := runtimePolicy.Registry.lookup(c.Request.Method, fullPath)
 		if !exists {
-			c.Next()
+			decision := denyDecision(PolicyStageDefaultDeny, "route authorization policy missing")
+			input := policyInputForMissingRoutePolicy(c, fullPath, normalizedWriteKeys, scopedKeys)
+			recordPolicyDecisionMetric(metrics, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision.Allowed)
+			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, runtimePolicy.Version, runtimePolicy.Source, runtimePolicy.RolloutMode, decision, input, fingerprinter)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
 
@@ -286,7 +289,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
 			return
 		}
-		recordPolicyDecisionMetric(metrics, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
+		recordPolicyDecisionMetric(metrics, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
 
 		if runtimePolicy.Rollout.Mode == db.AuthzPolicyRolloutModeShadow &&
 			targeted &&
@@ -322,6 +325,21 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 
 		c.Next()
 	}
+}
+
+func policyInputForMissingRoutePolicy(c *gin.Context, fullPath string, writeKeys []string, scopedKeys map[string][]string) PolicyInput {
+	method := ""
+	if c != nil && c.Request != nil {
+		method = c.Request.Method
+	}
+	input, err := buildPolicyInputFromGinContext(c, routePolicy{
+		Action:       routePolicyKey(method, fullPath),
+		ResourceType: "route",
+	}, writeKeys, scopedKeys, nil)
+	if err != nil {
+		return PolicyInput{}
+	}
+	return input
 }
 
 func shouldTargetRolloutRequest(rollout db.AuthzPolicyRollout, input PolicyInput) bool {
@@ -394,13 +412,9 @@ func policyDecisionsDiverge(current PolicyDecision, candidate PolicyDecision) bo
 	return current.Allowed != candidate.Allowed || current.Stage != candidate.Stage
 }
 
-func recordPolicyDecisionMetric(metrics *telemetry.Metrics, policySetID string, version int, source string, rolloutMode string, allowed bool) {
+func recordPolicyDecisionMetric(metrics *telemetry.Metrics, version int, source string, rolloutMode string, allowed bool) {
 	if metrics == nil || metrics.AuthzPolicyDecisionsByVersionTotal == nil {
 		return
-	}
-	set := strings.TrimSpace(policySetID)
-	if set == "" {
-		set = defaultCentralPolicySetID
 	}
 	versionLabel := "built_in"
 	if version > 0 {
@@ -418,7 +432,7 @@ func recordPolicyDecisionMetric(metrics *telemetry.Metrics, policySetID string, 
 	if allowed {
 		allowedLabel = "true"
 	}
-	metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(set, versionLabel, sourceLabel, modeLabel, allowedLabel).Inc()
+	metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(versionLabel, sourceLabel, modeLabel, allowedLabel).Inc()
 }
 
 func setAuthzDecisionContext(c *gin.Context, policySetID string, policyVersion int, policySource string, rolloutMode string, decision PolicyDecision, input PolicyInput, fingerprinter *audit.Fingerprinter) {
@@ -522,7 +536,10 @@ func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKey
 }
 
 func firstNonEmpty(primary string, fallback string) string {
-	return stringutil.FirstNonBlankTrimmed(primary, fallback)
+	if strings.TrimSpace(primary) != "" {
+		return strings.TrimSpace(primary)
+	}
+	return strings.TrimSpace(fallback)
 }
 
 func inferPrincipalType(c *gin.Context) string {
