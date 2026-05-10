@@ -317,6 +317,15 @@ func TestRouterCORSPreflightBypassesAuth(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(strings.ToLower(got), "x-api-key") {
 		t.Fatalf("expected allow headers to include x-api-key, got %q", got)
 	}
+	if got := strings.ToLower(w.Header().Get("Access-Control-Allow-Headers")); !strings.Contains(got, "traceparent") {
+		t.Fatalf("expected allow headers to include traceparent, got %q", got)
+	}
+	if got := strings.ToLower(w.Header().Get("Access-Control-Allow-Headers")); !strings.Contains(got, "tracestate") {
+		t.Fatalf("expected allow headers to include tracestate, got %q", got)
+	}
+	if got := strings.ToLower(w.Header().Get("Access-Control-Allow-Headers")); !strings.Contains(got, "baggage") {
+		t.Fatalf("expected allow headers to include baggage, got %q", got)
+	}
 }
 
 func TestRouterCORSSkipsUnlistedOrigin(t *testing.T) {

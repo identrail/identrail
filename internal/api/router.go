@@ -40,7 +40,7 @@ const (
 	rateLimiterCleanupTick = 256
 	defaultJSONBodyLimit   = int64(1 << 20)
 	corsAllowMethods       = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-	corsAllowHeaders       = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID"
+	corsAllowHeaders       = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID,traceparent,tracestate,baggage"
 	corsMaxAgeSeconds      = "600"
 	scopeRead              = "read"
 	scopeWrite             = "write"
