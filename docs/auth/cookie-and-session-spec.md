@@ -35,6 +35,7 @@ The cookie value is the session ID. The server stores SHA-256 of that ID as the 
 | `user_agent` | `TEXT NULL` | Client UA at session creation. |
 | `idle_expires_at` | `TIMESTAMPTZ NOT NULL` | Sliding renewal target. |
 | `absolute_expires_at` | `TIMESTAMPTZ NOT NULL` | Hard cap, no renewal past this. |
+| `last_seen_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | Updated to `NOW()` on every authenticated request, in the same UPDATE that bumps `idle_expires_at`. Powers the "last seen 2 minutes ago" display on the account/security page. |
 | `revoked_at` | `TIMESTAMPTZ NULL` | Set on logout or admin revocation. |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | Audit-friendly. |
 
@@ -78,7 +79,7 @@ The `currentSession` middleware runs on every request to `/v1/*`, `/auth/logout`
 4. SELECT the session row using the hash as the primary key. Compare with `subtle.ConstantTimeCompare`.
 5. Reject if `revoked_at IS NOT NULL`.
 6. Reject if `now() > idle_expires_at` or `now() > absolute_expires_at`.
-7. Update `idle_expires_at` (sliding renewal) in a single UPDATE. Done in the same transaction as the SELECT to avoid a TOCTOU race.
+7. Update `idle_expires_at` (sliding renewal) and `last_seen_at` (set to `NOW()`) in a single UPDATE. Done in the same transaction as the SELECT to avoid a TOCTOU race.
 8. Populate request context with `user_id`, `current_org_id`, `current_workspace_id`, `auth_method`, plus the `users` row joined in.
 
 Steps 4 through 7 are one query in practice: an UPDATE with RETURNING.

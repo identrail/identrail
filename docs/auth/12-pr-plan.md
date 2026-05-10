@@ -476,10 +476,14 @@ PR 5 (frontend auth)                 │
 
 **Schema (migration `000021_org_entitlements`).**
 - `org_entitlements(org_id PK, plan, max_connectors INT, max_scans_per_day INT, sso_enabled BOOL, scim_enabled BOOL, audit_export_enabled BOOL, expires_at NULL, updated_at)`. Free defaults: 1 connector, 100 scans per day, no SSO, no SCIM, no audit export. Ops set entitlements manually for early customers (no Stripe yet).
+- `scim_events_seen(event_id TEXT PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`. Idempotency log for WorkOS Directory Sync webhook deliveries. Cleanup job prunes rows older than 30 days.
 
 **SCIM handlers.** `users.created` upserts `users` + `user_identities` + `tenancy_workspace_members`. `users.updated` patches fields. `users.deleted` (or `active=false`) sets `users.status='deactivated'`, revokes all sessions, retains row. `groups.user_added` and `groups.user_removed` update membership.
 
-**Idempotency.** Each event has `externalId` stored on `user_identities.workos_external_id`. Replays no-op.
+**Idempotency.** Two distinct concepts kept separate:
+
+- **User mapping** (which Identrail user does this WorkOS event refer to?) uses the existing `user_identities` row keyed by `(provider, subject)` where `provider="workos"` and `subject` is the WorkOS user external id. No new column is needed; the unique constraint already enforces one row per (provider, subject) pair.
+- **Event-level deduplication** (have we already processed this exact webhook delivery?) uses the `scim_events_seen` table added by the migration above. Each WorkOS Directory Sync event carries a unique `event_id`; the handler inserts the id with `ON CONFLICT DO NOTHING` and skips processing if the insert was a no-op. A nightly cleanup job prunes rows older than 30 days.
 
 **JIT fallback.** SAML user lands before SCIM has synced them: create user with default role from SAML attributes, audit warning.
 

@@ -29,7 +29,7 @@ IDENTRAIL_SESSION_KEY=<64 hex chars from openssl rand -hex 32>
 | `IDENTRAIL_WORKOS_CLIENT_ID` | empty | Required when WorkOS is the active driver. Refuses to start if `IDENTRAIL_AUTH_MANUAL_MODE=true` and this is set. | PR 4 |
 | `IDENTRAIL_WORKOS_API_KEY` | empty | Required when `IDENTRAIL_WORKOS_CLIENT_ID` is set. Treated as a secret. | PR 4 |
 | `IDENTRAIL_WORKOS_WEBHOOK_SECRET` | empty | Required when WorkOS is configured. Used to verify webhook HMAC. | PR 4 |
-| `IDENTRAIL_WORKOS_ENVIRONMENT_ID` | empty | Required. Picks the WorkOS environment (test, staging, production). | PR 4 |
+| `IDENTRAIL_WORKOS_ENVIRONMENT_ID` | empty | Required when WorkOS is the active driver. Picks the WorkOS environment (test, staging, production). | PR 4 |
 
 Self-hosted operators leave all four WorkOS variables in this section empty. They still set the four core variables in the previous section, and they configure their OIDC issuer via the existing `IDENTRAIL_OIDC_*` variables.
 

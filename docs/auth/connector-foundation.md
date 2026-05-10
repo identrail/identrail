@@ -198,7 +198,7 @@ PR 6's only schema change to `tenancy_connectors` is adding the `disabled` colum
 
 Two reusable React components live in `web/src/components/connector/`:
 
-- `<ConnectorStatusBadge status={...} />` renders the colored pill for any of the six states. New states would require new badges; do not invent ad-hoc UI.
+- `<ConnectorStatusBadge lifecycleStatus={...} disabled={...} />` renders the colored pill for any of the four lifecycle statuses (`pending`, `active`, `degraded`, `disconnected`) and overlays a small "Paused" indicator when the `disabled` flag is set. New lifecycle statuses would require new badges; do not invent ad-hoc UI.
 - `<ConnectorErrorPanel code={...} message={...} />` renders the help text for any of the seven taxonomy codes plus the provider-supplied message. New codes would require new panels.
 
 Connectors-list page (`/app/{tenant}/{workspace}/connectors`) renders all connectors with the same layout, regardless of provider. Per-provider connect pages live at `/app/{tenant}/{workspace}/connectors/{type}/new` and use shared form components.
