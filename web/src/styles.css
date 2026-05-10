@@ -11537,3 +11537,28 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   opacity: 0.9;
   transform: translate3d(0, -50%, 0) rotate(45deg);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme='light'] .idt-btn:hover,
+  html[data-theme='light'] .idt-btn:focus-visible,
+  html[data-theme='light'] .idt-header-demo:hover,
+  html[data-theme='light'] .idt-header-demo:focus-visible,
+  html[data-theme='light'] .idt-header-utility:hover,
+  html[data-theme='light'] .idt-header-utility:focus-visible,
+  html[data-theme='light'] .idt-nav a:hover,
+  html[data-theme='light'] .idt-nav a:focus-visible,
+  html[data-theme='light'] .idt-inline-link:hover,
+  html[data-theme='light'] .idt-inline-link:focus-visible,
+  html[data-theme='light'] .idt-footer-links a:hover,
+  html[data-theme='light'] .idt-footer-links a:focus-visible,
+  html[data-theme='light'] .idt-footer-trust-links a:hover,
+  html[data-theme='light'] .idt-footer-trust-links a:focus-visible,
+  html[data-theme='light'] .idt-final-cta-link:hover,
+  html[data-theme='light'] .idt-final-cta-link:focus-visible,
+  html[data-theme='light'] .idt-footer-super-cta:hover,
+  html[data-theme='light'] .idt-footer-super-cta:focus-visible,
+  html[data-theme='light'] .idt-hero-proof-pill:hover,
+  html[data-theme='light'] .idt-hero-proof-pill:focus-visible {
+    transform: none;
+  }
+}
