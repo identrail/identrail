@@ -792,6 +792,38 @@ func TestMemoryStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCountQueuedScansAnyScope(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	otherScope := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	if _, err := store.CreateQueuedScan(defaultScopeContext(), "aws", now); err != nil {
+		t.Fatalf("create default aws queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScan(otherScope, "aws", now.Add(time.Minute)); err != nil {
+		t.Fatalf("create scoped aws queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScan(otherScope, "gcp", now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("create scoped gcp queued scan: %v", err)
+	}
+
+	awsCount, err := store.CountQueuedScansAnyScope(context.Background(), "aws")
+	if err != nil {
+		t.Fatalf("count queued scans any scope for aws: %v", err)
+	}
+	if awsCount != 2 {
+		t.Fatalf("expected queued aws count across scopes 2, got %d", awsCount)
+	}
+
+	totalCount, err := store.CountQueuedScansAnyScope(context.Background(), "")
+	if err != nil {
+		t.Fatalf("count queued scans any scope wildcard: %v", err)
+	}
+	if totalCount != 3 {
+		t.Fatalf("expected wildcard queued count across scopes 3, got %d", totalCount)
+	}
+}
+
 func TestMemoryStoreNonPositiveLimitsUseDefaultPageSize(t *testing.T) {
 	store := NewMemoryStore()
 	base := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
@@ -921,6 +953,27 @@ func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	}
 	if !requeued.StartedAt.After(claimed.StartedAt) {
 		t.Fatal("expected requeued repo scan to receive a fresh queue timestamp")
+	}
+}
+
+func TestMemoryStoreCountQueuedRepoScansAnyScope(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
+	otherScope := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo-a", 10, 20, now); err != nil {
+		t.Fatalf("create default queued repo scan: %v", err)
+	}
+	if _, err := store.CreateQueuedRepoScan(otherScope, "owner/repo-b", 10, 20, now.Add(time.Minute)); err != nil {
+		t.Fatalf("create scoped queued repo scan: %v", err)
+	}
+
+	count, err := store.CountQueuedRepoScansAnyScope(context.Background())
+	if err != nil {
+		t.Fatalf("count queued repo scans any scope: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected queued repo count across scopes 2, got %d", count)
 	}
 }
 

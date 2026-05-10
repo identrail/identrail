@@ -326,6 +326,25 @@ func (m *MemoryStore) CountQueuedScans(ctx context.Context, provider string) (in
 	return count, nil
 }
 
+// CountQueuedScansAnyScope returns queued scan count across all scopes for one provider.
+func (m *MemoryStore) CountQueuedScansAnyScope(_ context.Context, provider string) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	normalizedProvider := strings.TrimSpace(provider)
+	count := 0
+	for _, record := range m.scans {
+		if record.Status != "queued" {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
 func (m *MemoryStore) createScanLocked(scope Scope, provider string, status string, startedAt time.Time) ScanRecord {
 	normalizedScope := scope.Normalize()
 	record := ScanRecord{
@@ -1779,6 +1798,20 @@ func (m *MemoryStore) CountQueuedRepoScans(ctx context.Context) (int, error) {
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
+		if record.Status == "queued" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// CountQueuedRepoScansAnyScope returns queued repository scan count across all scopes.
+func (m *MemoryStore) CountQueuedRepoScansAnyScope(_ context.Context) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	count := 0
+	for _, record := range m.repoScans {
 		if record.Status == "queued" {
 			count++
 		}

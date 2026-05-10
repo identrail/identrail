@@ -56,6 +56,14 @@ type RepoScannerFactory func(historyLimit int, maxFindings int) RepoScanExecutor
 // AWSScannerFactory creates a scanner bound to one persisted AWS connector.
 type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
 
+type queuedScanDepthCounter interface {
+	CountQueuedScansAnyScope(ctx context.Context, provider string) (int, error)
+}
+
+type queuedRepoScanDepthCounter interface {
+	CountQueuedRepoScansAnyScope(ctx context.Context) (int, error)
+}
+
 // Service orchestrates scan execution and persistence.
 type Service struct {
 	Store          db.Store
@@ -333,10 +341,7 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	if err != nil {
 		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
 	}
-	queuedCount, err := s.Store.CountQueuedScans(ctx, s.Provider)
-	if err != nil {
-		queuedCount = 0
-	}
+	queuedCount := s.countQueuedScansForDepth(ctx, s.Provider)
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{"provider": s.Provider})
 	s.recordQueueDepth("scan", queuedCount)
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan queued for worker execution", map[string]any{
@@ -555,6 +560,32 @@ func (s *Service) recordQueueDepth(queue string, depth int) {
 	}
 }
 
+func (s *Service) countQueuedScansForDepth(ctx context.Context, provider string) int {
+	if counter, ok := s.Store.(queuedScanDepthCounter); ok {
+		if count, err := counter.CountQueuedScansAnyScope(ctx, provider); err == nil {
+			return count
+		}
+	}
+	count, err := s.Store.CountQueuedScans(ctx, provider)
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+func (s *Service) countQueuedRepoScansForDepth(ctx context.Context) int {
+	if counter, ok := s.Store.(queuedRepoScanDepthCounter); ok {
+		if count, err := counter.CountQueuedRepoScansAnyScope(ctx); err == nil {
+			return count
+		}
+	}
+	count, err := s.Store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
 func (s *Service) recordWorkerJob(queue string, outcome string) {
 	if s.Metrics != nil {
 		s.Metrics.WorkerJobsTotal.WithLabelValues(queue, outcome).Inc()
@@ -615,10 +646,7 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 			return db.RepoScanRecord{}, fmt.Errorf("enqueue repo scan: %w", err)
 		}
 	}
-	queuedCount, err := s.Store.CountQueuedRepoScans(ctx)
-	if err != nil {
-		queuedCount = 0
-	}
+	queuedCount := s.countQueuedRepoScansForDepth(ctx)
 	s.recordQueueDepth("repo_scan", queuedCount)
 	return record, nil
 }
