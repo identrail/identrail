@@ -222,7 +222,7 @@ worker:
       drop: ["ALL"]
 
 serviceAccount:
-  create: true
+  create: false
   name: identrail-scanner
 
 secret:
@@ -243,6 +243,13 @@ ingress:
         - identrail.example.com
 ```
 
+Create namespace + scanner RBAC/ServiceAccount first (required because migrations run as a `pre-install` hook):
+
+```bash
+kubectl create namespace identrail --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
+```
+
 Install:
 
 ```bash
@@ -251,13 +258,7 @@ helm upgrade --install identrail deploy/helm/identrail \
   -f /path/to/least-privilege-values.yaml
 ```
 
-If this Helm deployment uses `IDENTRAIL_K8S_SOURCE=kubectl`, apply the read-only RBAC bundle after install:
-
-```bash
-kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
-```
-
-If you need to pre-create `ServiceAccount/identrail-scanner` before Helm, use a separate override with `serviceAccount.create: false`.
+This least-privilege override intentionally sets `serviceAccount.create: false` and expects `ServiceAccount/identrail-scanner` to exist before Helm runs.
 
 ## 3) Docker Compose Hardening Example
 
