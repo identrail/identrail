@@ -16,8 +16,7 @@ spec:
       labels:
         app: identrail-worker
     spec:
-      serviceAccountName: identrail-scanner
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

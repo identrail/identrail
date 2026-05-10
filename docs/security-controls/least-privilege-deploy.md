@@ -24,8 +24,7 @@ The shipped manifests already enforce key container-level controls in:
 
 Those files set:
 
-- `serviceAccountName: identrail-scanner`
-- `automountServiceAccountToken: true`
+- `automountServiceAccountToken: false`
 - `runAsNonRoot: true`
 - `allowPrivilegeEscalation: false`
 - `readOnlyRootFilesystem: true`
@@ -33,10 +32,12 @@ Those files set:
 
 ### Optional RBAC for Kubernetes Scan Collection
 
-If you run with `IDENTRAIL_K8S_SOURCE=kubectl`, attach a read-only role instead of cluster-admin:
+If you run with `IDENTRAIL_K8S_SOURCE=kubectl`, attach read-only RBAC and then opt API/worker into scanner service-account token usage:
 
 ```bash
 kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
+kubectl -n identrail patch deployment identrail-api --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'
+kubectl -n identrail patch deployment identrail-worker --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'
 ```
 
 ```yaml
