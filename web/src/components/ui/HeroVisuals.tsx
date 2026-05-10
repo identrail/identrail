@@ -79,8 +79,10 @@ export function ProductHeroVisual() {
               {evidenceRows.map((row) => (
                 <article key={row.label}>
                   <span>{row.label}</span>
-                  <strong>{row.title}</strong>
-                  <small>{row.detail}</small>
+                  <div>
+                    <strong>{row.title}</strong>
+                    <small>{row.detail}</small>
+                  </div>
                 </article>
               ))}
             </div>
