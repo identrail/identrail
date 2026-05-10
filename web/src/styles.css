@@ -11343,10 +11343,13 @@ html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
 .idt-inline-link:hover,
 .idt-inline-link:focus-visible,
 .idt-footer-links a:hover,
-.idt-footer-links a:focus-visible,
+.idt-footer-links a:focus-visible {
+  color: #0f172a;
+}
+
 .idt-footer-trust-links a:hover,
 .idt-footer-trust-links a:focus-visible {
-  color: #0f172a;
+  color: rgba(255, 255, 255, 0.96);
 }
 
 .idt-brand,
