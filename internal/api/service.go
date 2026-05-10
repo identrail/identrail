@@ -56,6 +56,14 @@ type RepoScannerFactory func(historyLimit int, maxFindings int) RepoScanExecutor
 // AWSScannerFactory creates a scanner bound to one persisted AWS connector.
 type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
 
+type queuedScanDepthCounter interface {
+	CountQueuedScansAnyScope(ctx context.Context, provider string) (int, error)
+}
+
+type queuedRepoScanDepthCounter interface {
+	CountQueuedRepoScansAnyScope(ctx context.Context) (int, error)
+}
+
 // Service orchestrates scan execution and persistence.
 type Service struct {
 	Store          db.Store
@@ -333,11 +341,9 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	if err != nil {
 		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
 	}
-	queuedCount, err := s.Store.CountQueuedScans(ctx, s.Provider)
-	if err != nil {
-		queuedCount = 0
-	}
+	queuedCount := s.countQueuedScansForDepth(ctx, s.Provider)
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{"provider": s.Provider})
+	s.recordQueueDepth("scan", queuedCount)
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan queued for worker execution", map[string]any{
 		"provider":    s.Provider,
 		"queue_depth": queuedCount,
@@ -359,8 +365,10 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 	record, err := s.Store.ClaimNextQueuedScanAnyScope(ctx, s.Provider)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
+			s.recordQueueDepth("scan", 0)
 			return false, nil
 		}
+		s.recordWorkerJob("scan", "failure")
 		return false, fmt.Errorf("claim queued scan: %w", err)
 	}
 	recordScopeCtx := db.WithScope(ctx, db.Scope{
@@ -371,8 +379,11 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 	s.appendScanEvent(recordScopeCtx, record.ID, db.ScanEventLevelInfo, "queued scan started", map[string]any{"provider": record.Provider})
 	_, runErr := s.runScanWithRecord(recordScopeCtx, record)
 	if runErr != nil {
+		s.recordWorkerJob("scan", "failure")
+		s.recordWorkerDeadLetter("scan")
 		return true, runErr
 	}
+	s.recordWorkerJob("scan", "success")
 	return true, nil
 }
 
@@ -543,6 +554,56 @@ func (s *Service) activeAWSConnectionForScan(ctx context.Context) (AWSConnection
 	return AWSConnectionStatus{}, false, nil
 }
 
+func (s *Service) recordQueueDepth(queue string, depth int) {
+	if s.Metrics != nil {
+		s.Metrics.QueueDepth.WithLabelValues(queue).Set(float64(depth))
+	}
+}
+
+func (s *Service) countQueuedScansForDepth(ctx context.Context, provider string) int {
+	if counter, ok := s.Store.(queuedScanDepthCounter); ok {
+		if count, err := counter.CountQueuedScansAnyScope(ctx, provider); err == nil {
+			return count
+		}
+	}
+	count, err := s.Store.CountQueuedScans(ctx, provider)
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+func (s *Service) countQueuedRepoScansForDepth(ctx context.Context) int {
+	if counter, ok := s.Store.(queuedRepoScanDepthCounter); ok {
+		if count, err := counter.CountQueuedRepoScansAnyScope(ctx); err == nil {
+			return count
+		}
+	}
+	count, err := s.Store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+func (s *Service) recordWorkerJob(queue string, outcome string) {
+	if s.Metrics != nil {
+		s.Metrics.WorkerJobsTotal.WithLabelValues(queue, outcome).Inc()
+	}
+}
+
+func (s *Service) recordWorkerRequeue(queue string) {
+	if s.Metrics != nil {
+		s.Metrics.WorkerRequeuesTotal.WithLabelValues(queue).Inc()
+	}
+}
+
+func (s *Service) recordWorkerDeadLetter(runner string) {
+	if s.Metrics != nil {
+		s.Metrics.WorkerDeadLettersTotal.WithLabelValues(runner).Inc()
+	}
+}
+
 // ListFindings returns persisted findings.
 func (s *Service) ListFindings(ctx context.Context, limit int) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
@@ -585,6 +646,8 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 			return db.RepoScanRecord{}, fmt.Errorf("enqueue repo scan: %w", err)
 		}
 	}
+	queuedCount := s.countQueuedRepoScansForDepth(ctx)
+	s.recordQueueDepth("repo_scan", queuedCount)
 	return record, nil
 }
 
@@ -594,8 +657,10 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	record, err := s.Store.ClaimNextQueuedRepoScanAnyScope(ctx)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
+			s.recordQueueDepth("repo_scan", 0)
 			return false, nil
 		}
+		s.recordWorkerJob("repo_scan", "failure")
 		return false, fmt.Errorf("claim queued repo scan: %w", err)
 	}
 	recordScopeCtx := db.WithScope(ctx, db.Scope{
@@ -613,16 +678,22 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	}
 	if requeue {
 		if requeueErr := s.Store.RequeueRepoScan(recordScopeCtx, record.ID); requeueErr != nil && !errors.Is(requeueErr, db.ErrNotFound) {
+			s.recordWorkerJob("repo_scan", "failure")
 			return false, fmt.Errorf("requeue repo scan: %w", requeueErr)
 		}
+		s.recordWorkerJob("repo_scan", "requeued")
+		s.recordWorkerRequeue("repo_scan")
 		// A queued item was handled (requeued) even if this target is currently locked.
 		// Returning true lets the worker keep draining other queued targets in the same tick.
 		return true, nil
 	}
 	_, runErr := s.runRepoScanWithRecord(recordScopeCtx, record, record.HistoryLimit, record.MaxFindings)
 	if runErr != nil {
+		s.recordWorkerJob("repo_scan", "failure")
+		s.recordWorkerDeadLetter("repo_scan")
 		return true, runErr
 	}
+	s.recordWorkerJob("repo_scan", "success")
 	return true, nil
 }
 

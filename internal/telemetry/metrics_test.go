@@ -30,6 +30,11 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	m.RepoScanFailureTotal.Add(1)
 	m.RepoScanTruncatedTotal.Add(1)
 	m.RepoScanDurationMS.Observe(300)
+	m.QueueDepth.WithLabelValues("scan").Set(2)
+	m.WorkerJobsTotal.WithLabelValues("scan", "success").Add(1)
+	m.WorkerRequeuesTotal.WithLabelValues("repo_scan").Add(1)
+	m.WorkerDeadLettersTotal.WithLabelValues("api_queue").Add(1)
+	m.WorkerRetriesTotal.WithLabelValues("api_queue").Add(1)
 	m.RepoFindingsGenerated.Add(4)
 	m.APIDeniedRequestsTotal.WithLabelValues("unauthorized", "auth").Add(1)
 	m.APIDeniedRequestsTotal.WithLabelValues("forbidden", "authz").Add(1)
@@ -77,6 +82,21 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(m.RepoScanFailureTotal); got != 1 {
 		t.Fatalf("expected repo scan failures 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.QueueDepth.WithLabelValues("scan")); got != 2 {
+		t.Fatalf("expected scan queue depth 2, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.WorkerJobsTotal.WithLabelValues("scan", "success")); got != 1 {
+		t.Fatalf("expected worker scan successes 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.WorkerRequeuesTotal.WithLabelValues("repo_scan")); got != 1 {
+		t.Fatalf("expected repo scan requeues 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.WorkerDeadLettersTotal.WithLabelValues("api_queue")); got != 1 {
+		t.Fatalf("expected api queue dead letters 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.WorkerRetriesTotal.WithLabelValues("api_queue")); got != 1 {
+		t.Fatalf("expected api queue retries 1, got %v", got)
 	}
 	if got := testutil.ToFloat64(m.RepoScanTruncatedTotal); got != 1 {
 		t.Fatalf("expected repo scan truncations 1, got %v", got)

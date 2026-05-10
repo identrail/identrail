@@ -56,6 +56,8 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		return err
 	}
 	defer func() { _ = closeStore() }()
+	metrics := telemetry.NewMetrics()
+	svc.Metrics = metrics
 	svc.OnAlertError = func(alertErr error) {
 		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
 	}
@@ -143,9 +145,11 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			MaxAttempts:  defaultWorkerTriggerMaxAttempts,
 			RetryBackoff: defaultWorkerRetryBackoff,
 			OnDeadLetter: func(_ context.Context, err error) {
+				metrics.WorkerDeadLettersTotal.WithLabelValues("cloud").Inc()
 				logger.Error("cloud trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
 			},
 			OnError: func(_ context.Context, err error) {
+				metrics.WorkerRetriesTotal.WithLabelValues("cloud").Inc()
 				logger.Error("cloud runner iteration failed", telemetry.ZapError(err))
 			},
 		},
@@ -161,9 +165,11 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				MaxAttempts:  defaultWorkerTriggerMaxAttempts,
 				RetryBackoff: defaultWorkerRetryBackoff,
 				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("repo").Inc()
 					logger.Error("repo trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
 				},
 				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("repo").Inc()
 					logger.Error("repo runner iteration failed", telemetry.ZapError(err))
 				},
 			},
@@ -180,9 +186,11 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				MaxAttempts:  defaultWorkerQueueMaxAttempts,
 				RetryBackoff: defaultWorkerRetryBackoff,
 				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("api_queue").Inc()
 					logger.Error("api job queue trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
 				},
 				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("api_queue").Inc()
 					logger.Error("api queue runner iteration failed", telemetry.ZapError(err))
 				},
 			},

@@ -1119,6 +1119,35 @@ func TestPostgresStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreCountQueuedScansAnyScope(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	countRows := sqlmock.NewRows([]string{"count"}).AddRow(3)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE ($1 = '' OR provider = $1)
+		   AND status = 'queued'`)).
+		WithArgs("aws").
+		WillReturnRows(countRows)
+
+	count, err := store.CountQueuedScansAnyScope(context.Background(), "aws")
+	if err != nil {
+		t.Fatalf("count queued scans any scope: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("expected any-scope queued count 3, got %d", count)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -1220,6 +1249,33 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 
 	if err := store.RequeueRepoScan(defaultScopeContext(), claimed.ID); err != nil {
 		t.Fatalf("requeue repo scan failed: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCountQueuedRepoScansAnyScope(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	countRows := sqlmock.NewRows([]string{"count"}).AddRow(4)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM repo_scans
+		 WHERE status = 'queued'`)).
+		WillReturnRows(countRows)
+
+	count, err := store.CountQueuedRepoScansAnyScope(context.Background())
+	if err != nil {
+		t.Fatalf("count queued repo scans any scope: %v", err)
+	}
+	if count != 4 {
+		t.Fatalf("expected any-scope queued repo count 4, got %d", count)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -555,6 +555,22 @@ func (p *PostgresStore) CountQueuedScans(ctx context.Context, provider string) (
 	return count, nil
 }
 
+// CountQueuedScansAnyScope returns queued scan requests count across all scopes for one provider.
+func (p *PostgresStore) CountQueuedScansAnyScope(ctx context.Context, provider string) (int, error) {
+	var count int
+	if err := p.queryRowContextAnyScope(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM scans
+		 WHERE ($1 = '' OR provider = $1)
+		   AND status = 'queued'`,
+		strings.TrimSpace(provider),
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count queued scans any scope: %w", err)
+	}
+	return count, nil
+}
+
 // GetScan returns one scan by id.
 func (p *PostgresStore) GetScan(ctx context.Context, scanID string) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)
@@ -2604,6 +2620,20 @@ func (p *PostgresStore) CountQueuedRepoScans(ctx context.Context) (int, error) {
 		scope.WorkspaceID,
 	).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count queued repo scans: %w", err)
+	}
+	return count, nil
+}
+
+// CountQueuedRepoScansAnyScope returns queued repository scan requests count across all scopes.
+func (p *PostgresStore) CountQueuedRepoScansAnyScope(ctx context.Context) (int, error) {
+	var count int
+	if err := p.queryRowContextAnyScope(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM repo_scans
+		 WHERE status = 'queued'`,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count queued repo scans any scope: %w", err)
 	}
 	return count, nil
 }
