@@ -29,9 +29,9 @@ export const ROUTE_META: Record<string, RouteMeta> = {
     keywords: DEFAULT_KEYWORDS
   },
   '/product': {
-    title: 'Product - See every machine identity path and fix the risky ones | Identrail',
+    title: 'Product - Trace machine identity paths and fix the right step | Identrail',
     description:
-      'See every machine identity path, prioritise the risky ones, and simulate the safest fix before you ship it.',
+      'Trace how machine identities reach sensitive systems, identify the risky step, and ship the safest fix with confidence.',
     schemaType: 'Product'
   },
   '/integrations': {

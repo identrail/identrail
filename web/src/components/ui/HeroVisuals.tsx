@@ -1,23 +1,13 @@
 import type { ReactNode } from 'react';
 
-const pathSteps = ['GitHub OIDC', 'AWS IAM IdP', 'billing-prod role', 'PostgreSQL ledger'];
-const evidenceRows = [
-  {
-    label: '01',
-    title: 'GitHub OIDC token verified',
-    detail: 'repo: payments-api / deploy-production.yml'
-  },
-  {
-    label: '02',
-    title: 'AssumeRole path detected',
-    detail: 'sts:AssumeRole reaches billing-prod in 4 hops'
-  },
-  {
-    label: '03',
-    title: 'Safe fix simulated',
-    detail: 'Restrict subject claim without workload breakage'
-  }
-];
+const pathSteps = [
+  { label: 'Source', name: 'GitHub OIDC', meta: 'repo: payments-api' },
+  { label: 'Bridge', name: 'AWS role', meta: 'AssumeRole trusted' },
+  { label: 'Workload', name: 'billing-prod', meta: 'owner matched' },
+  { label: 'Target', name: 'PostgreSQL', meta: 'contains customer data' }
+] as const;
+
+const evidenceSignals = ['JWT claims verified', 'Trust policy matched', 'Safe fix simulated'] as const;
 
 function WindowChrome({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -36,54 +26,46 @@ export function ProductHeroVisual() {
   return (
     <div className="hero-visual hero-visual-product">
       <WindowChrome label="Product trust graph preview">
-        <div className="hero-visual-product-grid">
-          <aside className="hero-visual-nav" aria-hidden="true">
-            <span className="is-active">Trust graph</span>
+        <div className="hero-visual-product-stage">
+          <div className="hero-visual-row hero-visual-product-top">
+            <div>
+              <span className="hero-visual-kicker">Resolved trust path</span>
+              <h3>billing-prod is reachable</h3>
+            </div>
+            <span className="hero-visual-badge is-danger">Critical path</span>
+          </div>
+          <div className="hero-visual-meta hero-visual-meta-product" aria-label="Risk path summary">
+            <span>4 hops</span>
+            <span>Owner matched</span>
+            <span>Fix simulated</span>
+          </div>
+          <div className="hero-path hero-path-product" aria-label="Resolved trust path">
+            {pathSteps.map((step, index) => (
+              <div className="hero-path-node hero-path-node-product" key={step.name}>
+                <span>{step.label}</span>
+                <strong>{step.name}</strong>
+                <small>{step.meta}</small>
+                {index === 1 ? <i className="hero-path-pulse" aria-hidden="true" /> : null}
+              </div>
+            ))}
+          </div>
+          <div className="hero-product-summary">
+            <article className="hero-product-summary-card">
+              <span>Owner</span>
+              <strong>payments-api</strong>
+              <small>Platform team · production</small>
+            </article>
+            <article className="hero-product-summary-card">
+              <span>Safe fix</span>
+              <strong>Restrict subject claim</strong>
+              <small>Contains the path without workload breakage</small>
+            </article>
+          </div>
+          <div className="hero-product-proof" aria-label="Evidence signals">
             <span>Evidence</span>
-            <span>Policies</span>
-          </aside>
-          <div className="hero-visual-main">
-            <div className="hero-visual-row">
-              <div>
-                <span className="hero-visual-kicker">Live trust path</span>
-                <h3>billing-prod is reachable</h3>
-              </div>
-              <span className="hero-visual-badge is-danger">Critical</span>
-            </div>
-            <div className="hero-visual-meta" aria-label="Risk path summary">
-              <span>4 hops</span>
-              <span>Owner matched</span>
-              <span>Fix simulated</span>
-            </div>
-            <div className="hero-path" aria-label="Resolved trust path">
-              {pathSteps.map((step, index) => (
-                <div className="hero-path-node" key={step}>
-                  <span>{String(index + 1).padStart(2, '0')}</span>
-                  <strong>{step}</strong>
-                </div>
-              ))}
-            </div>
-            <div className="hero-visual-grid-2">
-              <div className="hero-visual-metric">
-                <span>Owner</span>
-                <strong>payments-api</strong>
-                <small>Platform / production</small>
-              </div>
-              <div className="hero-visual-metric">
-                <span>Fix</span>
-                <strong>Restrict subject claim</strong>
-                <small>Safe in simulation</small>
-              </div>
-            </div>
-            <div className="hero-evidence-list" aria-label="Evidence trail">
-              {evidenceRows.map((row) => (
-                <article key={row.label}>
-                  <span>{row.label}</span>
-                  <div>
-                    <strong>{row.title}</strong>
-                    <small>{row.detail}</small>
-                  </div>
-                </article>
+            <div>
+              {evidenceSignals.map((signal) => (
+                <b key={signal}>{signal}</b>
               ))}
             </div>
           </div>

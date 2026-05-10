@@ -1,7 +1,7 @@
 import { PageHero } from '../components/ui/PageHero';
 import { ProductHeroVisual } from '../components/ui/HeroVisuals';
 import { LinkButton, ArrowLink } from '../components/ui/Button';
-import { ArrowRightIcon, GitHubIcon, GraphIcon, ShieldIcon, CheckIcon } from '../components/ui/Icon';
+import { ArrowRightIcon, GraphIcon, ShieldIcon, CheckIcon } from '../components/ui/Icon';
 import { Pill } from '../components/ui/Pill';
 import { Section, SectionHeader } from '../components/ui/Section';
 import { CtaBanner } from '../components/CtaBanner';
@@ -66,20 +66,20 @@ export function ProductPage() {
         eyebrow="Product"
         title={
           <h1>
-            See every machine identity path.
+            Trace the path.
             <br />
-            <span style={{ color: 'var(--text-muted)' }}>Fix the ones that matter.</span>
+            <span style={{ color: 'var(--text-muted)' }}>Fix the right step.</span>
           </h1>
         }
-        lede="Identrail maps reachable access across AWS IAM, Kubernetes, and GitHub OIDC, then shows the safest fix before you ship it."
+        lede="Identrail shows how machine identities reach sensitive systems, who owns the risky step, and the safest fix to ship."
         visual={<ProductHeroVisual />}
         actions={
           <>
             <LinkButton to="/demo" variant="primary" size="lg">
               Start a free risk scan <ArrowRightIcon />
             </LinkButton>
-            <LinkButton to={GITHUB_REPO} variant="secondary" size="lg" external>
-              <GitHubIcon size={16} /> Read the source
+            <LinkButton to="/demo" variant="secondary" size="lg">
+              Book a demo
             </LinkButton>
           </>
         }
