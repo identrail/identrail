@@ -40,7 +40,7 @@ Identrail already has a tenancy model. The auth layer adds two new tables (`user
 - `tenancy_workspaces` - the workspace inside a tenant
 - `tenancy_workspace_members` - which user has which role in which workspace
 - `tenancy_projects` - project under a workspace
-- `tenancy_connectors` and `tenancy_connector_state` - the AWS, Kubernetes, GitHub connections
+- `tenancy_connectors` and `tenancy_connector_states` - the AWS, Kubernetes, GitHub connections
 - `tenancy_connector_secret_envelopes` - encrypted credentials
 
 ### New tables
@@ -242,7 +242,7 @@ The two security-critical sections live in their own docs:
 
 A flat list with defaults, validation, and the PR that introduces each variable lives in [`env-vars-reference.md`](./env-vars-reference.md).
 
-The most important rule: every domain reference is driven by `IDENTRAIL_PUBLIC_BASE_URL`. The doc never hardcodes `app.identrail.com`. Every example shows the env var with the production value, and the server refuses to start if `IDENTRAIL_PUBLIC_BASE_URL` is unset or invalid.
+The most important rule: every domain reference in code, config, and email templates reads from `IDENTRAIL_PUBLIC_BASE_URL` rather than a string literal. The docs use `https://app.identrail.com` as the canonical example throughout because we have to write something concrete down, but the production deployment derives that value from the env var. Code paths that hardcode the domain are caught in CI and rejected. The server refuses to start if `IDENTRAIL_PUBLIC_BASE_URL` is unset or invalid.
 
 ## Twelve-PR Sequence
 

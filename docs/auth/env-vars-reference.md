@@ -6,10 +6,12 @@ The rule that drives every example below: domain references are always config-dr
 
 ## Core Session and Identity
 
+These four variables are required regardless of which auth driver is active (WorkOS, generic OIDC, or manual). Self-hosted operators set them just as cloud deployments do.
+
 | Variable | Default | Validation | Adds in |
 | --- | --- | --- | --- |
-| `IDENTRAIL_PUBLIC_BASE_URL` | none | Required. Must parse as an absolute URL. Must be `https://` in any non-development build. Refuses to start if missing. | PR 2 |
-| `IDENTRAIL_SESSION_KEY` | none | Required. 32 bytes minimum (64 hex chars). Refuses to start if missing or shorter. | PR 2 |
+| `IDENTRAIL_PUBLIC_BASE_URL` | none | Required for any auth driver (WorkOS, OIDC, or manual). Must parse as an absolute URL. Must be `https://` in any non-development build. Refuses to start if missing. | PR 2 |
+| `IDENTRAIL_SESSION_KEY` | none | Required for any auth driver. 32 bytes minimum (64 hex chars). Refuses to start if missing or shorter. | PR 2 |
 | `IDENTRAIL_SESSION_KEY_PREVIOUS` | empty | Optional. Same format as `IDENTRAIL_SESSION_KEY`. Used during key rotation. | PR 2 |
 | `IDENTRAIL_AUTH_MANUAL_MODE` | `false` | Boolean. Mutually exclusive with `IDENTRAIL_WORKOS_CLIENT_ID`; setting both refuses to start. | PR 2 |
 
@@ -29,7 +31,7 @@ IDENTRAIL_SESSION_KEY=<64 hex chars from openssl rand -hex 32>
 | `IDENTRAIL_WORKOS_WEBHOOK_SECRET` | empty | Required when WorkOS is configured. Used to verify webhook HMAC. | PR 4 |
 | `IDENTRAIL_WORKOS_ENVIRONMENT_ID` | empty | Required. Picks the WorkOS environment (test, staging, production). | PR 4 |
 
-Self-hosted operators leave all four empty. They configure their OIDC issuer instead via the existing `IDENTRAIL_OIDC_*` variables.
+Self-hosted operators leave all four WorkOS variables in this section empty. They still set the four core variables in the previous section, and they configure their OIDC issuer via the existing `IDENTRAIL_OIDC_*` variables.
 
 ## Email
 

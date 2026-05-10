@@ -28,15 +28,19 @@ The cookie value is the session ID. The server stores SHA-256 of that ID as the 
 | --- | --- | --- |
 | `id` | `BYTEA PRIMARY KEY` | SHA-256 of the plaintext session ID. |
 | `user_id` | `UUID NOT NULL`, FK to `users(id) ON DELETE CASCADE` | The authenticated user. |
-| `current_org_id` | `UUID NULL` | The org context for this session. NULL during onboarding before org creation. |
-| `current_workspace_id` | `UUID NULL` | The workspace context, NULL similarly. |
+| `current_org_id` | `TEXT NULL` | The org context for this session. NULL during onboarding before org creation. Type matches existing `tenancy_organizations.tenant_id`. |
+| `current_workspace_id` | `TEXT NULL` | The workspace context. NULL similarly. Type matches existing `tenancy_workspaces.workspace_id`. |
 | `auth_method` | `TEXT NOT NULL` | One of `workos`, `oidc`, `manual`. Used by the SSO enforcement check. |
-| `ip` | `INET NULL` | Client IP at session creation. Updated on every request? No, only at creation; the audit log captures per-request IP. |
+| `ip` | `INET NULL` | Client IP at session creation. Not updated on every request; the audit log captures per-request IP. |
 | `user_agent` | `TEXT NULL` | Client UA at session creation. |
 | `idle_expires_at` | `TIMESTAMPTZ NOT NULL` | Sliding renewal target. |
 | `absolute_expires_at` | `TIMESTAMPTZ NOT NULL` | Hard cap, no renewal past this. |
 | `revoked_at` | `TIMESTAMPTZ NULL` | Set on logout or admin revocation. |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | Audit-friendly. |
+
+The session row also carries a compound foreign key on `(current_org_id, current_workspace_id)` referencing `tenancy_workspaces(tenant_id, workspace_id)` with `ON DELETE SET NULL`, so deleting a workspace clears the session pointer rather than orphaning it.
+
+`users.id` is a UUID inside the new `users` table. The existing tenancy tables use TEXT identifiers and stay unchanged. The bridge between the two is `user_identities.subject` (which holds the existing `tenancy_workspace_members.user_id` value during the strangler-fig migration described in the architecture doc).
 
 Indexes:
 
@@ -124,7 +128,8 @@ A job in the existing scheduler runs every hour and deletes session rows where `
 
 | Test | Expected |
 | --- | --- |
-| Tampered cookie value | 401, no DB row touched |
+| Malformed cookie value (invalid base64url) | 401, rejected before DB lookup |
+| Tampered cookie value (validly encoded but wrong bytes) | 401, no matching session row found |
 | Cookie present, no matching session row | 401 |
 | Session expired by idle timeout | 401, redirect to `/signin?return_to=...` |
 | Session expired by absolute timeout | 401, redirect to `/signin` (no return_to past 14d) |

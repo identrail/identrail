@@ -38,27 +38,29 @@ Five methods. Every method takes a context. Every method returns a typed error f
 
 ## Status State Machine
 
-A connector is always in exactly one state. The valid transitions are written down once and enforced by the foundation; specific connectors do not invent their own states.
+The state model has two parts that work together:
+
+1. A **lifecycle status** persisted in `tenancy_connectors.status`, which is one of `pending`, `active`, `degraded`, or `disconnected` at any moment. These are the four values the existing CHECK constraint already allows (see `migrations/000013_connectors_state_scan_policies.up.sql`), so PR 6 does not need to widen that constraint.
+2. A separate `disabled BOOLEAN NOT NULL DEFAULT FALSE` column added in PR 6, orthogonal to the lifecycle status. An admin pause sets this flag to true; resume clears it. The lifecycle status keeps its previous value while paused, which is why `disabled` is a flag and not a status.
+3. A **transient in-memory state** called `validating`. It is not persisted. While `Validate()` is running for a connector, in-process code remembers it is validating; if the process dies mid-validation, the row is still recorded as `pending` and the next attempt restarts cleanly.
+
+Specific connectors do not invent their own lifecycle values.
 
 ```
               create
                 │
                 ▼
             ┌────────┐
-            │pending │
+            │pending │ (also re-entered if a prior validation aborted)
             └───┬────┘
                 │ user provides credentials
+                │ (Validate runs in-process; transient "validating" state)
                 ▼
-            ┌──────────┐
-            │validating│
-            └────┬─────┘
-                 │ Validate succeeds
-                 ▼
             ┌────────┐
             │ active │ ◄───────┐
             └───┬────┘         │
                 │              │
-        scan or │              │ next scan succeeds
+        scan or │              │ next scan or health succeeds
         health  │              │
         fails   ▼              │
             ┌─────────┐        │
@@ -71,36 +73,36 @@ A connector is always in exactly one state. The valid transitions are written do
             │disconnected  │
             └──────────────┘
 
-(disabled is a separate side state, set by an admin pause from any
- state other than disconnected, returns to its prior state on resume.)
+The disabled flag is orthogonal to the diagram. It can be set or cleared
+on any row whose lifecycle status is pending, active, or degraded. It is
+not set on disconnected rows.
 ```
 
-State definitions:
+Lifecycle status definitions:
 
-| State | Meaning |
+| Status | Meaning |
 | --- | --- |
-| `pending` | Database row exists; no credentials yet. The user has not finished the connect flow. |
-| `validating` | Credentials received; Validate is running. Transient state, short-lived. |
+| `pending` | Database row exists; no credentials yet (or a previous validation aborted). The user has not finished the connect flow. |
 | `active` | Validated, scanning normally, last health check passed. |
 | `degraded` | Last scan or health check failed; credentials are still believed valid. Auto-recovers when the next attempt succeeds. |
 | `disconnected` | Credentials are invalid, revoked, or the provider has been unreachable for 6+ hours. Requires user action. |
-| `disabled` | An admin has paused the connector. Independent of the main pipeline; does not progress until enabled again. |
+
+The `disabled` flag is read alongside the lifecycle status. A connector with `status='active'` and `disabled=true` is treated as paused: heartbeat skips it, scheduled scans do not run, and the UI shows it as paused.
 
 Transition events:
 
 | From | Event | To |
 | --- | --- | --- |
-| pending | credentials submitted | validating |
-| validating | Validate succeeds | active |
-| validating | Validate fails | disconnected |
+| pending | credentials submitted, Validate succeeds | active |
+| pending | credentials submitted, Validate fails | disconnected |
 | active | scan or health failure | degraded |
 | degraded | next scan or health succeeds | active |
 | degraded | 6+ hours since last success | disconnected |
-| any (not disconnected) | admin disable | disabled |
-| disabled | admin enable | previous state (active by default) |
-| any | user disconnect | disconnected, then row marked deleted |
+| any | `disabled` set true | flag flips; lifecycle status unchanged |
+| disabled (flag) | `disabled` cleared | flag flips; lifecycle status unchanged |
+| any | user disconnect | disconnected; row stays in place for audit (see "Disconnect Semantics" below) |
 
-Every transition emits an audit event: `connector.<provider>.state.<from>_to_<to>`. The audit event includes the reason (last error code, last error message).
+Every transition emits an audit event: `connector.<provider>.state.<from>_to_<to>` for lifecycle changes, `connector.<provider>.disabled.set` and `connector.<provider>.disabled.cleared` for the flag. Each event includes the reason (last error code, last error message).
 
 ## Error Taxonomy
 
@@ -151,15 +153,16 @@ Every connector exposes the same health shape via `GET /v1/connectors/:id/health
 
 ## Heartbeat Job
 
-A scheduled job runs every 5 minutes and calls `Health()` on every connector in `active` or `degraded` state. The result drives state transitions per the state machine.
+A scheduled job runs every 5 minutes and calls `Health()` on every connector in `active` or `degraded` lifecycle status whose `disabled` flag is false. The result drives state transitions per the state machine.
 
 | Condition | Action |
 | --- | --- |
-| Connector active, health succeeds | No transition. Update `last_success_at`. |
+| Connector active, health succeeds | No transition. Update `last_successful_sync_at`. |
 | Connector active, health fails | Transition to `degraded`. Record error. |
 | Connector degraded, health succeeds | Transition to `active`. Clear last error. |
-| Connector degraded, > 6 hours since `last_success_at` | Transition to `disconnected`. Notify admins. |
+| Connector degraded, > 6 hours since `last_successful_sync_at` | Transition to `disconnected`. Notify admins. |
 | Connector disconnected | No probing. Heartbeat skips this connector. |
+| Connector disabled (flag) | No probing. Heartbeat skips this connector. |
 
 The heartbeat job is idempotent and rate-limited to prevent floods if many connectors fail simultaneously.
 
@@ -171,15 +174,17 @@ The shared `tenancy_connectors` table holds the row that represents each connect
 
 | Column | Notes |
 | --- | --- |
-| `id` | UUID primary key |
-| `tenant_id`, `workspace_id`, `project_id` | Scope ownership |
-| `type` | `aws`, `kubernetes`, `github`, future others |
-| `status` | One of the state-machine states |
-| `display_name` | User-facing label |
-| `config` | JSONB; per-provider, validated by the provider's Init |
-| `created_at`, `updated_at`, `disconnected_at` | Lifecycle timestamps |
+| `tenant_id`, `workspace_id`, `project_id`, `connector_id` | Compound primary key (existing schema). |
+| `type` | `aws`, `kubernetes`, `github` (existing CHECK constraint). |
+| `status` | One of `pending`, `active`, `degraded`, `disconnected` (existing CHECK constraint). |
+| `disabled` | `BOOLEAN NOT NULL DEFAULT FALSE`. Added in PR 6 as a separate column from `status`. |
+| `display_name` | User-facing label. |
+| `config_checksum` | Used to detect config changes. |
+| `created_at`, `updated_at` | Lifecycle timestamps. |
 
-`tenancy_connector_state` holds health metadata and is updated by the heartbeat job and by Scan completion.
+PR 6's only schema change to `tenancy_connectors` is adding the `disabled` column. The existing `status` CHECK is unchanged. The existing FK on `(tenant_id, workspace_id, project_id)` to `tenancy_projects` and the existing indexes stay as they are.
+
+`tenancy_connector_states` is the existing health-metadata table (note the plural). It holds `health_status`, `sync_cursor`, `last_successful_sync_at`, `last_error_code`, `last_error_message`, and `metadata`. PR 6 reuses it as-is. The `Health()` implementation reads and writes this table; the heartbeat job updates it on every probe.
 
 ## Frontend Contract
 
@@ -192,27 +197,30 @@ Connectors-list page (`/app/{tenant}/{workspace}/connectors`) renders all connec
 
 ## Disconnect Semantics
 
-User-initiated disconnect is destructive but recoverable. The flow:
+User-initiated disconnect tears down the upstream integration but keeps the local row for audit. The flow:
 
 1. User clicks Disconnect.
 2. Confirmation modal lists what will happen: "Identrail will stop scanning. Your AWS role / GitHub installation / agent will be removed if possible."
-3. On confirm, `Provider.Disconnect()` runs. It tears down what it can (deletes GitHub installation if we have permission, deletes the agent's enrollment record, clears webhook subscriptions).
-4. The `tenancy_connectors` row is marked `disconnected_at` and stays in place for audit. Scan history is retained.
-5. The same connector slug can be re-created later; this creates a new row, not a revival of the old one.
+3. On confirm, `Provider.Disconnect()` runs. It tears down what it can on the upstream provider (deletes GitHub installation if we have permission, deletes the agent's enrollment record, clears webhook subscriptions).
+4. The `tenancy_connectors` row's `status` is set to `disconnected`. The row stays in place for audit. Scan history is retained.
+5. The same `connector_id` slug can be re-created later by recording a new row with the same slug after the disconnected row is hard-deleted, or by reusing the existing row through an explicit "reconnect" flow that resets status to `pending`. PR 6 ships the disconnect path; reconnect lands with the per-provider PRs.
 
-Hard delete is admin-only and rare. It is a separate code path from disconnect.
+Hard delete is admin-only, separate from disconnect, and removes the row entirely along with cascaded `tenancy_connector_states` history. It is a destructive operation.
 
 ## Test Matrix (PR 6)
 
 | Test | Expected |
 | --- | --- |
-| State machine: every defined transition is reachable from `pending` | All paths covered |
-| State machine: undefined transition (e.g., active to validating) | Returns error, no state change |
+| State machine: every defined lifecycle transition is reachable from `pending` | All paths covered |
+| State machine: writing an unsupported lifecycle status to the DB | Returns error from the existing CHECK constraint |
+| `disabled` flag: setting and clearing on each lifecycle status | Flag flips, lifecycle status untouched |
+| `disabled` flag: heartbeat skips disabled connectors | Time-mocked test, no probe call |
 | Error taxonomy: each code maps to exactly one UI string | Snapshot test |
 | Health endpoint: returns 404 for non-existent connector | 404, no DB row touched |
-| Health endpoint: returns the right shape for each state | Schema test |
+| Health endpoint: returns the right shape for each lifecycle status | Schema test |
 | Heartbeat job: connector with no recent success transitions to disconnected after 6h | Time-mocked test |
-| ConnectorStatusBadge: renders all six states without prop errors | Storybook + visual snapshot |
+| Disconnect: row remains, status set to `disconnected`, upstream tear-down attempted | DB and provider mock assertions |
+| ConnectorStatusBadge: renders all four lifecycle statuses plus the disabled-flag overlay | Storybook + visual snapshot |
 | ConnectorErrorPanel: renders help text for all seven codes | Storybook + visual snapshot |
 
 ## What This Foundation Does Not Do

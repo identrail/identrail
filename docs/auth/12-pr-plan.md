@@ -225,15 +225,19 @@ PR 5 (frontend auth)                 │
 
 **Files.**
 - `internal/connectors/provider.go` (Provider interface).
-- `internal/connectors/status.go` (state machine constants and transition validator).
+- `internal/connectors/status.go` (lifecycle status constants and transition validator).
 - `internal/connectors/errors.go` (error taxonomy and codes).
 - `internal/connectors/health.go` (shared health-check helper).
 - `internal/api/router.go` (register `/v1/connectors`, `/v1/connectors/:id`, `/v1/connectors/:id/health`).
 - `internal/api/service.go` (ListConnectors, GetConnector, GetConnectorHealth).
 - `web/src/components/connector/ConnectorStatusBadge.tsx`, `ConnectorErrorPanel.tsx` (new).
 - `web/src/pages/ConnectorsListPage.tsx` (new, route `/app/{tenant}/{workspace}/connectors`).
+- `migrations/000019_connector_disabled_flag.up.sql` and `.down.sql` (new). Adds `disabled BOOLEAN NOT NULL DEFAULT FALSE` to `tenancy_connectors`. Does not modify the existing `status` CHECK constraint.
 
-**Contract.** See `connector-foundation.md` for the full Provider interface, the state machine, the error taxonomy, and the heartbeat job rules.
+**Schema (migration `000019_connector_disabled_flag`).**
+- `tenancy_connectors.disabled BOOLEAN NOT NULL DEFAULT FALSE`. Backfills as `false` for existing rows.
+
+**Contract.** See `connector-foundation.md` for the full Provider interface, the lifecycle status state machine, the `disabled` flag rules, the error taxonomy, and the heartbeat job rules. Lifecycle status values are limited to the four already in the existing schema (`pending`, `active`, `degraded`, `disconnected`); the foundation does not widen that constraint. The transient `validating` step lives in-process only.
 
 **New endpoints.** `GET /v1/connectors`, `GET /v1/connectors/:id`, `GET /v1/connectors/:id/health`, `DELETE /v1/connectors/:id`, `POST /v1/connectors/:id/disable`, `POST /v1/connectors/:id/enable`.
 
@@ -259,7 +263,8 @@ PR 5 (frontend auth)                 │
 - `internal/connectors/aws/iam_policy.go` (Go-embedded policy asset).
 - `internal/connectors/aws/validator.go` (sts:AssumeRole probe).
 - `deploy/connectors/aws/identrail-readonly.yaml` (CFN template, versioned).
-- `deploy/connectors/aws/policies/identrail-readonly-policy.json` (hand-curated minimum policy).
+- `deploy/connectors/aws/policies/identrail-readonly-policy.json` (strict JSON, no comments).
+- `deploy/connectors/aws/policies/identrail-readonly-policy.md` (per-action rationale, kept next to the JSON file).
 - `deploy/connectors/aws/policies/audit.go` (CI script that diffs IAM actions called in code against the policy file).
 - `web/src/pages/connectors/ConnectAWSPage.tsx`.
 - `web/src/components/connector/PermissionPreviewModal.tsx`.
@@ -276,7 +281,7 @@ PR 5 (frontend auth)                 │
 
 **New endpoints.** `POST /v1/connectors/aws`, `POST /v1/connectors/aws/:id/validate`, `GET /v1/connectors/aws/:id/poll`, `POST /v1/connectors/aws/:id/refresh-policy`.
 
-**IAM policy rules.** No `ReadOnlyAccess` blanket. Hand-curated minimum: `iam:Get*`, `iam:List*`, `iam:SimulatePrincipalPolicy`, `ec2:Describe*` (scoped), `s3:GetBucketPolicy`, `s3:GetBucketAcl`, `s3:GetBucketPublicAccessBlock`, `kms:DescribeKey`, `kms:GetKeyPolicy`. Inline JSON comments explain each block. `Resource: "*"` only where unavoidable, with rationale.
+**IAM policy rules.** No `ReadOnlyAccess` blanket. Hand-curated minimum: `iam:Get*`, `iam:List*`, `iam:SimulatePrincipalPolicy`, `ec2:Describe*` (scoped), `s3:GetBucketPolicy`, `s3:GetBucketAcl`, `s3:GetBucketPublicAccessBlock`, `kms:DescribeKey`, `kms:GetKeyPolicy`. The `.json` file is strict JSON (no comments, since AWS rejects them). Per-action rationale lives in a sibling `identrail-readonly-policy.md` and a `Sid` field per statement names the feature each block supports. `Resource: "*"` is used only where unavoidable, with the rationale captured in the sibling markdown.
 
 **CI policy audit.** Script greps Identrail's AWS SDK calls; diffs against policy. Fails CI when a new SDK call appears without a policy update.
 
