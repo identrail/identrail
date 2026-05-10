@@ -77,6 +77,8 @@ describe('App marketing surface (post-redesign)', () => {
     setCurrentPath('/');
     render(<App />);
 
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+
     const toggle = screen.getByRole('button', { name: /switch to dark mode/i });
     fireEvent.click(toggle);
 
@@ -210,6 +212,15 @@ describe('App dashboard surface', () => {
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('next=%2Fapp%2Fdefault%2Fdefault');
+  });
+
+  it('keeps the dashboard shell on light mode even when marketing has a saved dark preference', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    setCurrentPath('/app/login');
+    render(<App />);
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(screen.getByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
   });
 
   it('loads authenticated product shell placeholders after login', async () => {

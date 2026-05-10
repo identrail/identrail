@@ -2,7 +2,7 @@ export const THEME_STORAGE_KEY = 'identrail-theme';
 
 export type ThemeMode = 'dark' | 'light';
 
-function readStoredTheme(): ThemeMode | null {
+export function readStoredTheme(): ThemeMode | null {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -28,11 +28,13 @@ export function resolveInitialTheme(): ThemeMode {
   return 'light';
 }
 
-export function applyTheme(theme: ThemeMode) {
+export function setDocumentTheme(theme: ThemeMode) {
   if (typeof document !== 'undefined') {
     document.documentElement.dataset.theme = theme;
   }
+}
 
+export function persistTheme(theme: ThemeMode) {
   if (typeof window === 'undefined') {
     return;
   }
@@ -41,6 +43,13 @@ export function applyTheme(theme: ThemeMode) {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
     // ignored: storage may be unavailable in private mode
+  }
+}
+
+export function applyTheme(theme: ThemeMode, options?: { persist?: boolean }) {
+  setDocumentTheme(theme);
+  if (options?.persist) {
+    persistTheme(theme);
   }
 }
 

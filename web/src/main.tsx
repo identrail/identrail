@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
-import { applyTheme, resolveInitialTheme } from './lib/theme';
+import { setDocumentTheme, resolveInitialTheme } from './lib/theme';
 import './styles/tokens.css';
 // dashboard.css is loaded here (not lazily from productShell.tsx) because
 // the build-time prerender (web/scripts/prerender-routes.ts) runs via tsx,
@@ -21,7 +21,7 @@ import './styles/dashboard.css';
 import './styles.css';
 
 function applyInitialTheme() {
-  applyTheme(resolveInitialTheme());
+  setDocumentTheme(resolveInitialTheme());
 }
 
 applyInitialTheme();
