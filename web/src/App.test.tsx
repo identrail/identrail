@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { THEME_STORAGE_KEY } from './lib/theme';
+import { resolveBootstrapTheme, THEME_STORAGE_KEY } from './lib/theme';
 import { saveProductSession } from './productShell';
 
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
@@ -85,6 +85,13 @@ describe('App marketing surface (post-redesign)', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
     expect(screen.getByRole('button', { name: /switch to light mode/i })).toBeInTheDocument();
+  });
+
+  it('bootstraps app routes in light mode before react applies route effects', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+
+    expect(resolveBootstrapTheme('/app/login')).toBe('light');
+    expect(resolveBootstrapTheme('/')).toBe('dark');
   });
 
   it('renders the new pricing page with three plans and a billing toggle', () => {

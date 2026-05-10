@@ -28,6 +28,10 @@ export function resolveInitialTheme(): ThemeMode {
   return 'light';
 }
 
+export function resolveBootstrapTheme(pathname: string): ThemeMode {
+  return pathname.startsWith('/app') ? 'light' : resolveInitialTheme();
+}
+
 export function setDocumentTheme(theme: ThemeMode) {
   if (typeof document !== 'undefined') {
     document.documentElement.dataset.theme = theme;
