@@ -60,6 +60,51 @@ func TestFixtureCollectorErrors(t *testing.T) {
 	}
 }
 
+func TestFixtureCollectorSkipsMalformedRoleAndUnknownFixturesWhenValidRecordsExist(t *testing.T) {
+	dir := t.TempDir()
+
+	validSA := `{"kind":"ServiceAccount","metadata":{"name":"payments","namespace":"apps"}}`
+	validPod := `{"kind":"Pod","metadata":{"name":"payments-api-0","namespace":"apps"},"spec":{"serviceAccountName":"payments"}}`
+	malformed := `not-json`
+	badRole := `{"kind":"Role","metadata":{"namespace":"apps"},"rules":[{"apiGroups":[""],"resources":["secrets"],"verbs":["get"]}]}`
+	unknownKind := `{"kind":"Unknown","metadata":{"name":"ignored","namespace":"apps"}}`
+
+	if err := os.WriteFile(filepath.Join(dir, "01-sa.json"), []byte(validSA), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "02-malformed.json"), []byte(malformed), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "03-role-missing-name.json"), []byte(badRole), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "04-unknown.json"), []byte(unknownKind), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "05-pod.json"), []byte(validPod), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	collector := NewFixtureCollector([]string{dir})
+	assets, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("collect with partial malformed fixtures: %v", err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("expected two valid assets, got %d", len(assets))
+	}
+	got := map[string]struct{}{}
+	for _, asset := range assets {
+		got[asset.SourceID] = struct{}{}
+	}
+	if _, ok := got["k8s:sa:apps:payments"]; !ok {
+		t.Fatalf("expected service account asset to be retained, got %+v", assets)
+	}
+	if _, ok := got["k8s:pod:apps:payments-api-0"]; !ok {
+		t.Fatalf("expected pod asset to be retained, got %+v", assets)
+	}
+}
+
 func TestNormalizeKindAndSourceIDFor(t *testing.T) {
 	if got := normalizeKind("ServiceAccount"); got != "k8s_service_account" {
 		t.Fatalf("unexpected kind mapping: %q", got)

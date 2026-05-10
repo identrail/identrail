@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,21 @@ func (s *testRecordingAuditSink) Write(_ context.Context, event AuditEvent) erro
 }
 
 func (*testRecordingAuditSink) Close() error { return nil }
+
+type testErrorAuditSink struct {
+	writeErr error
+	closeErr error
+	events   []AuditEvent
+}
+
+func (s *testErrorAuditSink) Write(_ context.Context, event AuditEvent) error {
+	s.events = append(s.events, event)
+	return s.writeErr
+}
+
+func (s *testErrorAuditSink) Close() error {
+	return s.closeErr
+}
 
 func TestFileAuditSinkWritesJSONL(t *testing.T) {
 	dir := t.TempDir()
@@ -103,6 +119,45 @@ func TestMultiAuditSinkFanout(t *testing.T) {
 	}
 	if len(record.events) != 1 {
 		t.Fatalf("expected one event, got %d", len(record.events))
+	}
+}
+
+func TestAsyncAuditSinkFlushesAndCloses(t *testing.T) {
+	record := &testRecordingAuditSink{}
+	sink := NewAsyncAuditSink(record, 2)
+
+	if err := sink.Write(context.Background(), AuditEvent{Method: "GET", Path: "/v1/scans"}); err != nil {
+		t.Fatalf("queue first event: %v", err)
+	}
+	if err := sink.Write(context.Background(), AuditEvent{Method: "POST", Path: "/v1/findings"}); err != nil {
+		t.Fatalf("queue second event: %v", err)
+	}
+	if err := sink.Close(); err != nil {
+		t.Fatalf("close async audit sink: %v", err)
+	}
+	if len(record.events) != 2 {
+		t.Fatalf("expected flushed events, got %+v", record.events)
+	}
+	if err := sink.Write(context.Background(), AuditEvent{}); err == nil {
+		t.Fatal("expected write after close to fail")
+	}
+}
+
+func TestAsyncAuditSinkPropagatesWriteAndCloseErrors(t *testing.T) {
+	writeErr := errors.New("write failed")
+	closeErr := errors.New("close failed")
+	sink := NewAsyncAuditSink(&testErrorAuditSink{writeErr: writeErr, closeErr: closeErr}, 0)
+
+	if err := sink.Write(context.Background(), AuditEvent{Method: "GET", Path: "/v1/scans"}); err != nil {
+		t.Fatalf("queue event: %v", err)
+	}
+	if err := sink.Close(); !errors.Is(err, writeErr) {
+		t.Fatalf("expected write error precedence, got %v", err)
+	}
+
+	closeOnly := NewAsyncAuditSink(&testErrorAuditSink{closeErr: closeErr}, 1)
+	if err := closeOnly.Close(); !errors.Is(err, closeErr) {
+		t.Fatalf("expected close error, got %v", err)
 	}
 }
 

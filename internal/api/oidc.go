@@ -3,16 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-)
-
-const (
-	defaultOIDCTenantClaim    = "tenant_id"
-	defaultOIDCWorkspaceClaim = "workspace_id"
-	defaultOIDCGroupsClaim    = "groups"
-	defaultOIDCRolesClaim     = "roles"
+	"github.com/identrail/identrail/internal/config"
 )
 
 // OIDCTokenVerifier validates OIDC bearer tokens using issuer discovery and JWKS verification.
@@ -60,25 +55,28 @@ func NewOIDCTokenVerifier(
 	if issuer == "" {
 		return nil, fmt.Errorf("oidc issuer url is required")
 	}
+	if err := validateSecureOIDCIssuerURL(issuer); err != nil {
+		return nil, err
+	}
 	clientID := strings.TrimSpace(audience)
 	if clientID == "" {
 		return nil, fmt.Errorf("oidc audience is required")
 	}
 	tenantClaimName := strings.TrimSpace(tenantClaim)
 	if tenantClaimName == "" {
-		tenantClaimName = defaultOIDCTenantClaim
+		tenantClaimName = config.OIDCDefaultTenantClaim
 	}
 	workspaceClaimName := strings.TrimSpace(workspaceClaim)
 	if workspaceClaimName == "" {
-		workspaceClaimName = defaultOIDCWorkspaceClaim
+		workspaceClaimName = config.OIDCDefaultWorkspaceClaim
 	}
 	groupsClaimName := strings.TrimSpace(groupsClaim)
 	if groupsClaimName == "" {
-		groupsClaimName = defaultOIDCGroupsClaim
+		groupsClaimName = config.OIDCDefaultGroupsClaim
 	}
 	rolesClaimName := strings.TrimSpace(rolesClaim)
 	if rolesClaimName == "" {
-		rolesClaimName = defaultOIDCRolesClaim
+		rolesClaimName = config.OIDCDefaultRolesClaim
 	}
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
@@ -94,6 +92,23 @@ func NewOIDCTokenVerifier(
 		groupsClaim:    groupsClaimName,
 		rolesClaim:     rolesClaimName,
 	}, nil
+}
+
+func validateSecureOIDCIssuerURL(rawIssuer string) error {
+	parsed, err := url.Parse(strings.TrimSpace(rawIssuer))
+	if err != nil {
+		return fmt.Errorf("oidc issuer url is invalid: %w", err)
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return fmt.Errorf("oidc issuer url must use https")
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return fmt.Errorf("oidc issuer url host is required")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("oidc issuer url must not include userinfo")
+	}
+	return nil
 }
 
 // VerifyToken verifies one raw bearer token and extracts normalized claims.

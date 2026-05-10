@@ -5,6 +5,9 @@ import "github.com/prometheus/client_golang/prometheus"
 // Metrics bundles Prometheus instruments used by API and workers.
 type Metrics struct {
 	ScanRunsTotal                          prometheus.Counter
+	ScanEnqueueTotal                       prometheus.Counter
+	ScanEnqueueFailureTotal                prometheus.Counter
+	ScanEnqueueDurationMS                  prometheus.Histogram
 	ScanSuccessTotal                       prometheus.Counter
 	ScanFailureTotal                       prometheus.Counter
 	ScanPartialTotal                       prometheus.Counter
@@ -12,8 +15,21 @@ type Metrics struct {
 	ScanDurationMS                         prometheus.Histogram
 	FindingsGenerated                      prometheus.Counter
 	RepoScanRunsTotal                      prometheus.Counter
+	RepoScanEnqueueTotal                   prometheus.Counter
+	RepoScanEnqueueFailureTotal            prometheus.Counter
+	RepoScanEnqueueDurationMS              prometheus.Histogram
+	RepoScanSuccessTotal                   prometheus.Counter
 	RepoScanFailureTotal                   prometheus.Counter
+	RepoScanTruncatedTotal                 prometheus.Counter
 	RepoScanDurationMS                     prometheus.Histogram
+	ServiceAuthzDenialsTotal               *prometheus.CounterVec
+	RepoFindingsGenerated                  prometheus.Counter
+	QueueDepth                             *prometheus.GaugeVec
+	WorkerJobsTotal                        *prometheus.CounterVec
+	WorkerRequeuesTotal                    *prometheus.CounterVec
+	WorkerDeadLettersTotal                 *prometheus.CounterVec
+	WorkerRetriesTotal                     *prometheus.CounterVec
+	APIDeniedRequestsTotal                 *prometheus.CounterVec
 	AuthzPolicyShadowEvaluationsTotal      prometheus.Counter
 	AuthzPolicyShadowDivergencesTotal      prometheus.Counter
 	AuthzPolicyShadowEvaluationErrorsTotal prometheus.Counter
@@ -24,12 +40,43 @@ type Metrics struct {
 
 // NewMetrics initializes a dedicated registry-safe instrument set.
 func NewMetrics() *Metrics {
+	apiDeniedRequestsTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "identrail",
+		Subsystem: "api",
+		Name:      "denied_requests_total",
+		Help:      "Total API requests denied by bounded denial kind and source.",
+	}, []string{"kind", "source"})
+
+	apiDeniedRequestsTotal.WithLabelValues("unauthorized", "auth")
+	apiDeniedRequestsTotal.WithLabelValues("forbidden", "authz")
+	apiDeniedRequestsTotal.WithLabelValues("rate_limited", "rate_limit")
+	apiDeniedRequestsTotal.WithLabelValues("validation_denied", "validation")
+
 	return &Metrics{
 		ScanRunsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
 			Subsystem: "scan",
 			Name:      "runs_total",
-			Help:      "Total number of scan runs.",
+			Help:      "Total number of scan executions.",
+		}),
+		ScanEnqueueTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "scan",
+			Name:      "enqueue_total",
+			Help:      "Total number of scan enqueue requests.",
+		}),
+		ScanEnqueueFailureTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "scan",
+			Name:      "enqueue_failure_total",
+			Help:      "Total number of failed scan enqueue requests.",
+		}),
+		ScanEnqueueDurationMS: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "identrail",
+			Subsystem: "scan",
+			Name:      "enqueue_duration_milliseconds",
+			Help:      "Duration of scan enqueue requests in milliseconds.",
+			Buckets:   []float64{10, 25, 50, 100, 250, 500, 1000},
 		}),
 		ScanSuccessTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
@@ -72,13 +119,44 @@ func NewMetrics() *Metrics {
 			Namespace: "identrail",
 			Subsystem: "repo_scan",
 			Name:      "runs_total",
-			Help:      "Total number of repository exposure scans.",
+			Help:      "Total number of repository exposure scan executions.",
+		}),
+		RepoScanEnqueueTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_scan",
+			Name:      "enqueue_total",
+			Help:      "Total number of repository scan enqueue requests.",
+		}),
+		RepoScanEnqueueFailureTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_scan",
+			Name:      "enqueue_failure_total",
+			Help:      "Total number of failed repository scan enqueue requests.",
+		}),
+		RepoScanEnqueueDurationMS: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_scan",
+			Name:      "enqueue_duration_milliseconds",
+			Help:      "Duration of repository scan enqueue requests in milliseconds.",
+			Buckets:   []float64{10, 25, 50, 100, 250, 500, 1000},
+		}),
+		RepoScanSuccessTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_scan",
+			Name:      "success_total",
+			Help:      "Total number of successful repository exposure scans.",
 		}),
 		RepoScanFailureTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
 			Subsystem: "repo_scan",
 			Name:      "failure_total",
 			Help:      "Total number of failed repository exposure scans.",
+		}),
+		RepoScanTruncatedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_scan",
+			Name:      "truncated_total",
+			Help:      "Total number of repository exposure scans that reached configured scan limits.",
 		}),
 		RepoScanDurationMS: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "identrail",
@@ -87,6 +165,49 @@ func NewMetrics() *Metrics {
 			Help:      "Duration of repository exposure scans in milliseconds.",
 			Buckets:   []float64{100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000},
 		}),
+		ServiceAuthzDenialsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "authz",
+			Name:      "service_denials_total",
+			Help:      "Total service-layer authorization denials outside central policy middleware.",
+		}, []string{"action", "resource_type"}),
+		RepoFindingsGenerated: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_analysis",
+			Name:      "findings_generated_total",
+			Help:      "Number of findings generated by repository exposure scans.",
+		}),
+		QueueDepth: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "identrail",
+			Subsystem: "queue",
+			Name:      "depth",
+			Help:      "Current queued job depth by bounded queue name.",
+		}, []string{"queue"}),
+		WorkerJobsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "jobs_total",
+			Help:      "Total worker queue jobs processed by bounded queue name and outcome.",
+		}, []string{"queue", "outcome"}),
+		WorkerRequeuesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "requeues_total",
+			Help:      "Total queued jobs requeued by bounded queue name.",
+		}, []string{"queue"}),
+		WorkerDeadLettersTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "dead_letters_total",
+			Help:      "Total worker jobs or scheduled triggers that exhausted retries by bounded runner name.",
+		}, []string{"runner"}),
+		WorkerRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "worker",
+			Name:      "retries_total",
+			Help:      "Total worker retryable failures by bounded runner name.",
+		}, []string{"runner"}),
+		APIDeniedRequestsTotal: apiDeniedRequestsTotal,
 		AuthzPolicyShadowEvaluationsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
 			Subsystem: "authz_policy_rollout",
@@ -122,6 +243,6 @@ func NewMetrics() *Metrics {
 			Subsystem: "authz_policy",
 			Name:      "decisions_by_version_total",
 			Help:      "Total policy decisions grouped by policy version and decision metadata.",
-		}, []string{"policy_set_id", "policy_version", "policy_source", "rollout_mode", "allowed"}),
+		}, []string{"policy_version", "policy_source", "rollout_mode", "allowed"}),
 	}
 }
