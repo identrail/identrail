@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { resolveBootstrapTheme, THEME_STORAGE_KEY } from './lib/theme';
 import { saveProductSession } from './productShell';
 
 const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
@@ -42,6 +43,8 @@ describe('App marketing surface (post-redesign)', () => {
   beforeEach(() => {
     window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    document.documentElement.removeAttribute('data-theme');
     vi.unstubAllEnvs();
     vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
     vi.restoreAllMocks();
@@ -68,6 +71,27 @@ describe('App marketing surface (post-redesign)', () => {
     expect(screen.getAllByRole('link', { name: /Start a free risk scan/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: /Read the source/i }).length).toBeGreaterThan(0);
     expect(screen.getByText(/Reviewed across your identity stack/i)).toBeInTheDocument();
+  });
+
+  it('restores the dark mode switcher and persists the selected theme', () => {
+    setCurrentPath('/');
+    render(<App />);
+
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+
+    const toggle = screen.getByRole('button', { name: /switch to dark mode/i });
+    fireEvent.click(toggle);
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+    expect(screen.getByRole('button', { name: /switch to light mode/i })).toBeInTheDocument();
+  });
+
+  it('bootstraps app routes in light mode before react applies route effects', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+
+    expect(resolveBootstrapTheme('/app/login')).toBe('light');
+    expect(resolveBootstrapTheme('/')).toBe('dark');
   });
 
   it('renders the new pricing page with three plans and a billing toggle', () => {
@@ -164,6 +188,8 @@ describe('App dashboard surface', () => {
   beforeEach(() => {
     window.sessionStorage.removeItem('identrail-product-session');
     window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    document.documentElement.removeAttribute('data-theme');
     vi.unstubAllEnvs();
     // Manual app-shell sessions are gated behind this env var as of dev's
     // PR #890 (Fixes #683). Tests that exercise the manual login flow rely
@@ -193,6 +219,15 @@ describe('App dashboard surface', () => {
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/login');
     expect(window.location.search).toContain('next=%2Fapp%2Fdefault%2Fdefault');
+  });
+
+  it('keeps the dashboard shell on light mode even when marketing has a saved dark preference', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    setCurrentPath('/app/login');
+    render(<App />);
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(screen.getByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
   });
 
   it('loads authenticated product shell placeholders after login', async () => {

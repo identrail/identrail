@@ -23,6 +23,23 @@ export function ArrowRightIcon({ size = 16, ...rest }: IconProps) {
   );
 }
 
+export function SunIcon({ size = 16, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size, rest)}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.5M12 19v2.5M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2.5 12H5M19 12h2.5M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77" />
+    </svg>
+  );
+}
+
+export function MoonIcon({ size = 16, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size, rest)}>
+      <path d="M20 14.2A7.8 7.8 0 1 1 9.8 4 6.2 6.2 0 0 0 20 14.2Z" />
+    </svg>
+  );
+}
+
 export function CheckIcon({ size = 16, ...rest }: IconProps) {
   return (
     <svg {...baseProps(size, rest)}>

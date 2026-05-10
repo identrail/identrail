@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { resolveBootstrapTheme, setDocumentTheme } from './lib/theme';
 import './styles/tokens.css';
 // dashboard.css is loaded here (not lazily from productShell.tsx) because
 // the build-time prerender (web/scripts/prerender-routes.ts) runs via tsx,
@@ -20,16 +21,8 @@ import './styles/dashboard.css';
 import './styles.css';
 
 function applyInitialTheme() {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  document.documentElement.dataset.theme = 'light';
-  try {
-    window.localStorage.removeItem('identrail-theme');
-  } catch {
-    // ignored: storage may be unavailable in private mode
-  }
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
+  setDocumentTheme(resolveBootstrapTheme(pathname));
 }
 
 applyInitialTheme();
