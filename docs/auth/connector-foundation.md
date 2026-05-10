@@ -222,7 +222,9 @@ Hard delete is admin-only, separate from disconnect, and removes the row entirel
 | --- | --- |
 | State machine: every defined lifecycle transition is reachable from `pending` | All paths covered |
 | State machine: writing an unsupported lifecycle status to the DB | Returns error from the existing CHECK constraint |
-| `disabled` flag: setting and clearing on each lifecycle status | Flag flips, lifecycle status untouched |
+| `disabled` flag: setting and clearing on `pending`, `active`, or `degraded` | Flag flips, lifecycle status untouched |
+| `disabled` flag: setting `disabled=true` on a `disconnected` row | 409 response, flag unchanged, audit event records the rejection |
+| `disabled` flag: user disconnect on a row with `disabled=true` | Single write sets status to `disconnected` and clears the flag back to `false` |
 | `disabled` flag: heartbeat skips disabled connectors | Time-mocked test, no probe call |
 | Error taxonomy: each code maps to exactly one UI string | Snapshot test |
 | Health endpoint: returns 404 for non-existent connector | 404, no DB row touched |

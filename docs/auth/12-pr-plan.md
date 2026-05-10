@@ -44,7 +44,7 @@ PR 5 (frontend auth)                 │
 | 7 | AWS connector | `auth/07-connector-aws` | 2d | 6 |
 | 8 | GitHub connector | `auth/08-connector-github` | 1.5d | 6 |
 | 9 | Kubernetes connector | `auth/09-connector-kubernetes` | 3d | 6 |
-| 10 | Onboarding wizard | `auth/10-onboarding-wizard` | 2d | 5 + (7 or 8) |
+| 10 | Onboarding wizard | `auth/10-onboarding-wizard` | 2d | 5 + at least one of 7, 8, 9 |
 | 11 | Enterprise SSO admin | `auth/11-sso-admin` | 3d | 3, 4, 5 |
 | 12 | SCIM and hardening | `auth/12-scim-and-hardening` | 4d | 11 |
 
@@ -410,7 +410,7 @@ PR 5 (frontend auth)                 │
 
 **Tests.** Each step persists state. Refresh on any step routes back correctly. Skipping step 3 also skips step 4. Visual snapshots per step in light and dark. End-to-end happy path: signup, onboarding complete, dashboard, first finding visible.
 
-**Acceptance.** New user from a brand-new GitHub account: signup to first AWS finding visible in under 5 minutes, single tab. This is the demo-able SaaS path.
+**Acceptance.** New user from a brand-new GitHub account: signup to first finding visible in under 5 minutes, single tab. The connector type chosen in step 3 (AWS, GitHub, or Kubernetes) determines which path produces the finding; whichever PRs among 7, 8, 9 have shipped at the time PR 10 lands are the connectors the wizard can offer. The "first AWS finding" demo path is unblocked specifically once PR 7 ships alongside PR 10.
 
 **Rollback.** Backend flag `IDENTRAIL_FEATURE_ONBOARDING_WIZARD=false` returns `/v1/onboarding/*` endpoints to 404. Frontend flag `VITE_FEATURE_ONBOARDING_WIZARD=false` falls back to the dashboard with no onboarding (user manually creates org and workspace via settings).
 

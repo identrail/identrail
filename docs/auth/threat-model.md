@@ -42,9 +42,10 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 
 **Defenses.**
 
-1. `SameSite=Lax` on the session cookie. The browser does not attach the cookie to cross-site POSTs.
-2. State-changing endpoints require either a CSRF token (for HTML form posts) or `Content-Type: application/json` (for fetch/XHR), the same pattern Django and Rails use.
-3. Webhook endpoints (`/auth/webhooks/*`) require an HMAC signature, not a cookie. They reject anything missing the signature.
+1. `SameSite=Lax` on the session cookie. The browser does not attach the cookie to cross-site state-changing requests by default. This alone blocks the most common CSRF shapes (forms posted from a malicious page).
+2. Origin and `Sec-Fetch-Site` checks on every state-changing endpoint. Requests where `Sec-Fetch-Site` is anything other than `same-origin` are rejected. Requests whose `Origin` header (or `Referer` when `Origin` is missing) does not match `IDENTRAIL_PUBLIC_BASE_URL` are rejected. This stops same-site-but-cross-subdomain scripted attacks that `SameSite=Lax` does not cover.
+3. A double-submit CSRF token is issued for the HTML form flows that use a POST (the manual-mode dev login form is the only one in the planned PR set). The token is signed with `IDENTRAIL_SESSION_KEY` and validated server-side.
+4. Webhook endpoints (`/auth/webhooks/*`) require an HMAC signature, not a cookie. They reject anything missing the signature.
 
 ## Host-Header Injection in Email Links
 

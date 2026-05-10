@@ -73,16 +73,12 @@ If session creation fails (database unavailable), the response is HTTP 503 with 
 
 The `currentSession` middleware runs on every request to `/v1/*`, `/auth/logout`, and `/onboarding/*`. The flow:
 
-1. Read the cookie.
-2. Decode base64url. Reject malformed values.
-3. SHA-256 the bytes.
-4. SELECT the session row using the hash as the primary key. Compare with `subtle.ConstantTimeCompare`.
-5. Reject if `revoked_at IS NOT NULL`.
-6. Reject if `now() > idle_expires_at` or `now() > absolute_expires_at`.
-7. Update `idle_expires_at` (sliding renewal) and `last_seen_at` (set to `NOW()`) in a single UPDATE. Done in the same transaction as the SELECT to avoid a TOCTOU race.
-8. Populate request context with `user_id`, `current_org_id`, `current_workspace_id`, `auth_method`, plus the `users` row joined in.
-
-Steps 4 through 7 are one query in practice: an UPDATE with RETURNING.
+1. Read the cookie. If absent, the request is unauthenticated and proceeds (the route's own auth check decides what to do).
+2. Decode base64url. Reject malformed values without touching the database.
+3. SHA-256 the decoded bytes to produce the lookup key.
+4. Issue a single `UPDATE sessions SET idle_expires_at = LEAST(NOW() + INTERVAL '15 minutes', absolute_expires_at), last_seen_at = NOW() WHERE id = $1 AND revoked_at IS NULL AND idle_expires_at > NOW() AND absolute_expires_at > NOW() RETURNING ...`. The hash lookup against the `BYTEA PRIMARY KEY` is constant-time at the index layer, so an explicit application-side `subtle.ConstantTimeCompare` is unnecessary; the row either exists with the exact hash or it does not. The same query enforces all rejection conditions (revoked, idle expired, absolute expired) and updates the sliding renewal and `last_seen_at`. No SELECT-then-UPDATE TOCTOU window.
+5. If the UPDATE returned no row, reject the request with 401.
+6. Populate request context with `user_id`, `current_org_id`, `current_workspace_id`, `auth_method`, plus the `users` row joined in.
 
 ## Session Revocation
 
