@@ -196,7 +196,7 @@ worker:
       drop: ["ALL"]
 
 serviceAccount:
-  create: false
+  create: true
   name: identrail-scanner
 
 secret:
@@ -217,15 +217,6 @@ ingress:
         - identrail.example.com
 ```
 
-If this Helm deployment uses `IDENTRAIL_K8S_SOURCE=kubectl`, create the namespace and apply the read-only RBAC bundle before install:
-
-```bash
-kubectl create namespace identrail --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
-```
-
-`deploy/kubernetes/rbac-scanner-readonly.example.yaml` creates `ServiceAccount/identrail-scanner`, so keep `serviceAccount.create: false` when using this flow.
-
 Install:
 
 ```bash
@@ -233,6 +224,14 @@ helm upgrade --install identrail deploy/helm/identrail \
   -n identrail --create-namespace \
   -f /path/to/least-privilege-values.yaml
 ```
+
+If this Helm deployment uses `IDENTRAIL_K8S_SOURCE=kubectl`, apply the read-only RBAC bundle after install:
+
+```bash
+kubectl apply -f deploy/kubernetes/rbac-scanner-readonly.example.yaml
+```
+
+If you need to pre-create `ServiceAccount/identrail-scanner` before Helm, use a separate override with `serviceAccount.create: false`.
 
 ## 3) Docker Compose Hardening Example
 
@@ -271,7 +270,14 @@ docker compose \
   -f deploy/docker/docker-compose.prod.example.yml \
   -f deploy/docker/docker-compose.security.example.yml \
   --env-file deploy/docker/.env \
-  up -d
+  run --build --rm migrations
+
+docker compose \
+  -f deploy/docker/docker-compose.yml \
+  -f deploy/docker/docker-compose.prod.example.yml \
+  -f deploy/docker/docker-compose.security.example.yml \
+  --env-file deploy/docker/.env \
+  up -d --build api worker web
 ```
 
 ## 4) Postgres Role Separation Example
