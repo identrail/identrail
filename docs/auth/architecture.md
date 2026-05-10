@@ -32,7 +32,7 @@ This is the rule that prevents drift over time. If WorkOS releases a new feature
 
 ## Identity Model
 
-Identrail already has a tenancy model. The auth layer adds two new tables (`users`, `user_identities`) and reuses the rest.
+Identrail already has a tenancy model. The auth layer adds three new tables (`users`, `user_identities`, `sessions`) and reuses the rest.
 
 ### Existing tables (unchanged)
 
@@ -128,6 +128,9 @@ Every endpoint we plan to add across all twelve PRs. Routes ship in the PR noted
 | Method | Path | Adds in |
 | --- | --- | --- |
 | GET | `/v1/me` | PR 2 |
+| GET | `/v1/me/sessions` | PR 2 |
+| DELETE | `/v1/me/sessions/:id` | PR 2 |
+| POST | `/v1/me/sessions/revoke-others` | PR 2 |
 | POST | `/auth/logout` | PR 2 |
 | GET | `/v1/auth/config` | PR 4 |
 
@@ -208,16 +211,17 @@ The new auth and connector endpoints set explicit rate limits. PR 4 implements t
 | `POST /v1/connectors/*` (creates) | 20 / minute | org |
 | `POST /v1/invitations` | 100 / hour | org |
 | `GET /v1/me`, `GET /v1/me/*` | 600 / minute | session |
+| `DELETE /v1/me/sessions/:id`, `POST /v1/me/sessions/revoke-others` | 30 / minute | session |
 
 Limits are enforced server-side and emit metrics. Hitting a limit returns HTTP 429 with `Retry-After`.
 
 ## SSO Enforcement Guardrail
 
-Once an org enables SSO and turns on enforcement, all org members must sign in via the configured IdP. To prevent admins from locking themselves out, the enforcement toggle has one rule:
+Once an org enables SSO and turns on enforcement, all org members must sign in via the configured IdP. SSO can be SAML or OIDC depending on what the IdP exposes. To prevent admins from locking themselves out, the enforcement toggle has one rule:
 
-> The admin clicking "enforce SSO" must currently be authenticated via SAML against the same org.
+> The admin clicking "enforce SSO" must currently hold an active session whose `auth_method` was issued by that org's configured SSO connection (SAML or OIDC, whichever the connection uses).
 
-If the admin is currently authenticated via password, magic link, or any other method, the enforce request returns 403 with an explanatory message. The admin needs to sign out, sign back in via the IdP, and try again.
+If the admin is currently signed in via any other method (password OAuth, email OTP, manual mode), the enforce request returns 403 with an explanatory message. The admin signs out, signs back in through the IdP, and tries again.
 
 Enforcing SSO also generates eight single-use recovery codes (256-bit each, stored hashed) shown once to the admin. These can rescue the org if the IdP itself becomes unavailable.
 

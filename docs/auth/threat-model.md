@@ -84,7 +84,7 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 
 1. The "enforce SSO" toggle requires the toggling admin to currently be authenticated via the IdP. They cannot enforce something they have not proven works for them.
 2. Enforcing generates eight single-use recovery codes (256-bit each, stored as SHA-256 hashes). Shown once. The admin must save them before the toggle takes effect.
-3. A "test SSO" flow simulates a full SAML round-trip without persisting anything. Admins are nudged to use it before enforcement.
+3. A "test SSO" flow simulates a full IdP round-trip (SAML or OIDC, whichever the connection uses) without persisting anything. Admins are nudged to use it before enforcement.
 
 ## Identity-Linking Account Takeover
 

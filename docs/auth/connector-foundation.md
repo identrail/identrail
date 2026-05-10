@@ -137,7 +137,9 @@ Every connector exposes the same health shape via `GET /v1/connectors/:id/health
 ```json
 {
   "connector_id": "uuid",
-  "status": "active|degraded|disconnected|disabled|pending|validating",
+  "lifecycle_status": "pending|active|degraded|disconnected",
+  "disabled": false,
+  "validating": false,
   "last_success_at": "2026-05-10T14:23:01Z",
   "last_failure_at": "2026-05-10T14:18:00Z",
   "last_error": {
@@ -148,6 +150,12 @@ Every connector exposes the same health shape via `GET /v1/connectors/:id/health
   "next_scheduled_scan_at": "2026-05-10T15:00:00Z"
 }
 ```
+
+The three orthogonal pieces:
+
+- `lifecycle_status` is the persisted value from `tenancy_connectors.status`. One of four values that match the existing CHECK constraint.
+- `disabled` is the persisted boolean from the new `tenancy_connectors.disabled` column. True when an admin has paused the connector.
+- `validating` is true only while a `Provider.Validate()` call is currently in flight in this server process. It is reported here for UI feedback during the connect flow; it is not stored in the database.
 
 `last_error` is null if there has been no recent failure. `next_scheduled_scan_at` is null for connectors that scan only on demand.
 

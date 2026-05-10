@@ -96,13 +96,18 @@ PR 5 (frontend auth)                 │
 - `migrations/000017_users_and_sessions.up.sql` and `.down.sql`.
 - Tests across all of the above.
 
-**New endpoints.** `GET /v1/me`, `POST /auth/logout`.
+**New endpoints.**
+- `GET /v1/me` returns the current user, org, workspace, and role.
+- `GET /v1/me/sessions` lists active sessions for the current user (id, ip, user_agent, created_at, last_seen_at, idle_expires_at, current flag).
+- `DELETE /v1/me/sessions/:id` revokes one session by id (the current session can be revoked here; the response then clears the cookie too, equivalent to logout).
+- `POST /v1/me/sessions/revoke-others` revokes every session for the current user except the one making the call.
+- `POST /auth/logout` revokes the current session and clears the cookie.
 
 **Out of scope.** Login routes (PR 4). Frontend (PR 5). WorkOS (PR 4).
 
-**Tests.** Cookie tampering rejected. Expired or revoked session rejected within one request. FK cascade on user delete. Two browsers see independent rows. `IDENTRAIL_AUTH_MANUAL_MODE=true` plus `IDENTRAIL_WORKOS_CLIENT_ID` set refuses to start. `IDENTRAIL_PUBLIC_BASE_URL` missing or invalid refuses to start.
+**Tests.** Cookie tampering rejected. Expired or revoked session rejected within one request. FK cascade on user delete. Two browsers see independent rows. `IDENTRAIL_AUTH_MANUAL_MODE=true` plus `IDENTRAIL_WORKOS_CLIENT_ID` set refuses to start. `IDENTRAIL_PUBLIC_BASE_URL` missing or invalid refuses to start. Session-list endpoint scopes results to the calling user only. Revoking another user's session id returns 404 (no leakage of session existence). Revoking the current session via `DELETE /v1/me/sessions/:id` clears the cookie and behaves like logout. `revoke-others` keeps the calling session alive and revokes every other row for the same user.
 
-**Acceptance.** Existing OIDC and API key paths unchanged (regression tests pass). PR 4 can build on these primitives without modification.
+**Acceptance.** Existing OIDC and API key paths unchanged (regression tests pass). PR 4 can build on these primitives without modification. PR 5's `AccountSecurityPage` has the backend endpoints it needs to list and revoke sessions.
 
 **Rollback.** Feature flag `IDENTRAIL_FEATURE_NEW_AUTH=false` disables the new middleware. Old auth paths continue.
 
@@ -431,7 +436,7 @@ PR 5 (frontend auth)                 │
 
 **Verified domain flow.** Claim, generate `verification_token`, user adds DNS TXT record, backend polls or user clicks Verify, backend marks verified. SSO-required only enforceable on verified domains.
 
-**Enforcement guardrail.** The toggle requires the toggling admin to currently be authenticated via SAML against the same org. Otherwise 403. Per `threat-model.md` SSO Lockout section.
+**Enforcement guardrail.** The toggle requires the toggling admin to currently hold a session whose `auth_method` was issued by the org's own SSO connection (SAML or OIDC, whichever the connection uses). Otherwise 403. Per `threat-model.md` SSO Lockout section.
 
 **Force-relink job.** On enforce, async job lists all active sessions for org users, schedules invalidation 5 minutes in the future, emails users with re-auth link.
 
@@ -445,7 +450,7 @@ PR 5 (frontend auth)                 │
 
 **Out of scope.** SCIM (PR 12). Auth audit log UI (PR 12). Cross-org features.
 
-**Tests.** Verified domain flow (TXT absent vs present). SSO enforce toggle rejects non-SAML-authed admin. Recovery codes generated, single-use, hashed. Force-relink revokes sessions correctly. Test SSO simulates without persisting. Invitation email rendering. Group-to-role persistence.
+**Tests.** Verified domain flow (TXT absent vs present). SSO enforce toggle rejects an admin whose current session is not from the org's configured SSO connection. Recovery codes generated, single-use, hashed. Force-relink revokes sessions correctly. Test SSO simulates without persisting. Invitation email rendering. Group-to-role persistence.
 
 **Acceptance.** Admin signs up fresh org, enables SSO with test IdP, verifies domain, enforces SSO, invites colleague, colleague signs in via SSO with correct role. Recovery code can rescue locked-out admin.
 
