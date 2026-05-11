@@ -14,7 +14,7 @@ permissions:
 jobs:
   osv-pr:
     if: github.event_name == 'pull_request'
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@c51854704019a247608d928f370c98740469d4b5
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@9a498708959aeaef5ef730655706c5a1df1edbc2
     with:
       scan-args: |-
         --recursive
@@ -22,7 +22,7 @@ jobs:
 
   osv-default:
     if: github.event_name != 'pull_request'
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@c51854704019a247608d928f370c98740469d4b5
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2
     with:
       scan-args: |-
         --recursive

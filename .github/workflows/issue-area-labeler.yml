@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Apply area label from issue form
-        uses: actions/github-script@v9
+        uses: actions/github-script@v9.0.0
         with:
           script: |
             const issue = context.payload.issue;
