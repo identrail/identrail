@@ -70,10 +70,10 @@ export function Header({
 
         <div className={`idt-header-actions ${menuOpen ? 'is-open' : ''}`}>
           <Link to={siteLinks.signIn} className="idt-header-utility">
-            Login
+            Sign In
           </Link>
-          <Link to={siteLinks.app} className="idt-header-utility idt-header-signup" data-ab-slot="header_primary_cta">
-            Sign up
+          <Link to="/signup" className="idt-header-utility idt-header-signup" data-ab-slot="header_primary_cta">
+            Sign Up
           </Link>
           <Link to={siteLinks.requestDemo} className="idt-header-demo">
             Book Demo

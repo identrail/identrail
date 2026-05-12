@@ -342,6 +342,51 @@ func (p *PostgresStore) TouchSession(ctx context.Context, sessionIDHash []byte, 
 	return scanSessionWithUser(row)
 }
 
+// UpdateSessionContext persists the active tenancy context for one browser session.
+func (p *PostgresStore) UpdateSessionContext(ctx context.Context, userID string, sessionIDHash []byte, orgID string, workspaceID string, projectID string, now time.Time) (Session, error) {
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`WITH updated AS (
+		     UPDATE sessions
+		     SET current_org_id = NULLIF($3, ''),
+		         current_workspace_id = NULLIF($4, ''),
+		         current_project_id = NULLIF($5, ''),
+		         last_seen_at = $6::timestamptz
+		     WHERE user_id = NULLIF($1, '')::uuid
+		       AND id = $2
+		       AND revoked_at IS NULL
+		       AND idle_expires_at > $6::timestamptz
+		       AND absolute_expires_at > $6::timestamptz
+		     RETURNING *
+		   )
+		   SELECT `+sessionUserSelect+`
+		   FROM updated s
+		   JOIN users u ON u.id = s.user_id
+		   WHERE u.deleted_at IS NULL
+		     AND u.status = 'active'`,
+		strings.TrimSpace(userID),
+		sessionIDHash,
+		strings.TrimSpace(orgID),
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(projectID),
+		now.UTC(),
+	)
+	session, err := scanSessionWithUser(row)
+	if err != nil {
+		if isTenancyFKViolation(err) {
+			return Session{}, ErrNotFound
+		}
+		return Session{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.session.scope_update",
+		ResourceType: "session",
+		ResourceID:   sessionHashKey(session.ID),
+		Outcome:      "success",
+	})
+	return session, nil
+}
+
 // ListUserSessions returns active sessions for one user.
 func (p *PostgresStore) ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error) {
 	if limit <= 0 {

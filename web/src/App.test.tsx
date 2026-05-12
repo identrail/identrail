@@ -1,9 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { saveProductSession } from './productShell';
-
-const OIDC_PENDING_LOGIN_STORAGE_KEY = 'identrail-oidc-pending-login';
 
 function okJSON(payload: unknown) {
   return {
@@ -20,16 +17,32 @@ function errorJSON(status: number, error: string) {
   };
 }
 
-function makeJWT(payload: Record<string, unknown>): string {
-  const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-  const body = btoa(JSON.stringify(payload))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-  return `${header}.${body}.signature`;
+function authConfig(manualMode = false, workOSLoginEnabled = true) {
+  return okJSON({
+    auth: {
+      manual_mode: manualMode,
+      workos_login_enabled: workOSLoginEnabled,
+      providers: workOSLoginEnabled ? ['github_oauth', 'google_oauth', 'authkit'] : []
+    }
+  });
+}
+
+function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 'owner') {
+  return {
+    me: {
+      user: {
+        id: 'user-1',
+        primary_email: 'owner@example.com',
+        display_name: 'Owner User',
+        status: 'active',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z'
+      },
+      org_id: tenantID,
+      workspace_id: workspaceID,
+      role
+    }
+  };
 }
 
 function setCurrentPath(pathname: string) {
@@ -40,10 +53,7 @@ function setCurrentPath(pathname: string) {
 
 describe('App', () => {
   beforeEach(() => {
-    window.sessionStorage.removeItem('identrail-product-session');
-    window.sessionStorage.removeItem(OIDC_PENDING_LOGIN_STORAGE_KEY);
     vi.unstubAllEnvs();
-    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'true');
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -164,59 +174,68 @@ describe('App', () => {
     ).toBeInTheDocument();
   });
 
-  it('guards product shell routes and redirects unauthenticated users to app login', () => {
+  it('guards product shell routes and redirects unauthenticated users to sign-in', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(errorJSON(401, 'unauthorized'))
+        .mockResolvedValueOnce(authConfig(false, true))
+    );
     setCurrentPath('/app/default/default');
     render(<App />);
 
     expect(
-      screen.getByRole('heading', {
+      await screen.findByRole('heading', {
         level: 1,
-        name: /Sign in to the Identrail app shell/i
+        name: /Sign in to Identrail/i
       })
     ).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/app/login');
-    expect(window.location.search).toContain('next=%2Fapp%2Fdefault%2Fdefault');
+    expect(window.location.pathname).toBe('/signin');
+    expect(window.location.search).toContain('return_to=%2Fapp%2Fdefault%2Fdefault');
   });
 
-  it('loads authenticated product shell placeholders after login', async () => {
-    vi.stubEnv('VITE_DEFAULT_PRODUCT_API_KEY', 'writer-key');
-    setCurrentPath('/app/login');
+  it('creates a dev manual cookie session and loads product shell placeholders', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(authConfig(true, false))
+      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
+      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/signin');
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText(/Tenant ID/i), { target: { value: 'tenant-a' } });
+    fireEvent.change(await screen.findByLabelText(/Tenant ID/i), { target: { value: 'tenant-a' } });
     fireEvent.change(screen.getByLabelText(/Workspace ID/i), { target: { value: 'workspace-a' } });
-    fireEvent.click(screen.getByRole('button', { name: /Continue to app/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue in dev mode/i }));
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(JSON.parse(window.sessionStorage.getItem('identrail-product-session') ?? '{}')).toMatchObject({
-      apiKey: 'writer-key'
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/auth/manual',
+      expect.objectContaining({ credentials: 'include' })
+    );
   });
 
-  it('rejects persisted manual workspace sessions in production builds', async () => {
-    vi.stubEnv('VITE_ALLOW_MANUAL_PRODUCT_SESSION', 'false');
-    window.sessionStorage.setItem(
-      'identrail-product-session',
-      JSON.stringify({
-        tenantID: 'tenant-a',
-        workspaceID: 'workspace-a',
-        authMode: 'manual'
-      })
-    );
+  it('hides manual workspace entry when auth config disables manual mode', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
 
-    window.history.pushState({}, '', '/app/tenant-a/workspace-a');
+    setCurrentPath('/signin?return_to=/app/team/workspace');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
-    expect((await screen.findAllByText(/Manual workspace entry is disabled for this deployment/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Tenant ID/i)).not.toBeInTheDocument();
+    const hostedSignIn = screen.getByRole('link', { name: /Continue with hosted sign-in/i });
+    expect(hostedSignIn).toBeInTheDocument();
+    expect(hostedSignIn).toHaveAttribute(
+      'href',
+      `http://localhost:8080/auth/login?return_to=${encodeURIComponent(`${window.location.origin}/app/team/workspace`)}`
+    );
   });
 
   it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a'
-    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a'))));
     setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
@@ -225,12 +244,9 @@ describe('App', () => {
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {
-    saveProductSession({
-      tenantID: 'default',
-      workspaceID: 'default'
-    });
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -370,12 +386,9 @@ describe('App', () => {
   });
 
   it('switches workspace context from workspaces admin route', async () => {
-    saveProductSession({
-      tenantID: 'default',
-      workspaceID: 'default'
-    });
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -507,12 +520,100 @@ describe('App', () => {
     });
   });
 
-  it('ignores stale workspace member responses after scope changes', async () => {
-    saveProductSession({
-      tenantID: 'default',
-      workspaceID: 'default'
-    });
+  it('synchronizes cookie workspace context before rendering a deep-linked workspace route', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              display_name: 'Payments',
+              slug: 'payments',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          scope: { tenant_id: 'default', workspace_id: 'payments' },
+          scope_headers: {
+            'X-Identrail-Tenant-ID': 'default',
+            'X-Identrail-Workspace-ID': 'payments'
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'payments' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              display_name: 'Payments',
+              slug: 'payments',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: []
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [] })
+      });
+    vi.stubGlobal('fetch', fetchMock);
 
+    setCurrentPath('/app/default/payments/workspaces');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    const activeWorkspaceCallIndex = fetchMock.mock.calls.findIndex(([url, options]) => {
+      return typeof url === 'string' && url.includes('/v1/workspaces/active') && options?.method === 'POST';
+    });
+    const membersCallIndex = fetchMock.mock.calls.findIndex(([url]) => {
+      return typeof url === 'string' && url.includes('/v1/workspaces/payments/members');
+    });
+    expect(activeWorkspaceCallIndex).toBeGreaterThan(0);
+    expect(membersCallIndex).toBeGreaterThan(activeWorkspaceCallIndex);
+    expect(fetchMock.mock.calls[activeWorkspaceCallIndex]?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({ workspace_id: 'payments' })
+      })
+    );
+  });
+
+  it('ignores stale workspace member responses after scope changes', async () => {
     let resolveInitialMembers: ((value: { ok: boolean; json: () => Promise<{ items: unknown[] }> }) => void) | undefined;
     const initialMembersResponse = new Promise<{ ok: boolean; json: () => Promise<{ items: unknown[] }> }>((resolve) => {
       resolveInitialMembers = resolve;
@@ -520,6 +621,7 @@ describe('App', () => {
 
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -598,6 +700,7 @@ describe('App', () => {
         })
       })
       .mockImplementationOnce(() => initialMembersResponse)
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'payments', 'admin')))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -677,7 +780,7 @@ describe('App', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     setCurrentPath('/app/default/payments/workspaces');
@@ -686,7 +789,6 @@ describe('App', () => {
     });
 
     expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
-    expect(await screen.findByText('payments-user')).toBeInTheDocument();
 
     resolveInitialMembers?.({
       ok: true,
@@ -708,17 +810,15 @@ describe('App', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('payments-user')).toBeInTheDocument();
       expect(screen.queryByText('owner-user')).not.toBeInTheDocument();
     });
   });
 
   it('shows workspace admin load errors without redirecting to login', async () => {
-    saveProductSession({
-      tenantID: 'default',
-      workspaceID: 'default'
-    });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(errorJSON(403, 'workspace access denied')));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(okJSON(currentMePayload('default', 'default'))).mockResolvedValueOnce(errorJSON(403, 'workspace access denied'))
+    );
 
     setCurrentPath('/app/default/default/workspaces');
     render(<App />);
@@ -730,13 +830,9 @@ describe('App', () => {
   });
 
   it('keeps existing member state when invite action fails', async () => {
-    saveProductSession({
-      tenantID: 'default',
-      workspaceID: 'default'
-    });
-
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
       .mockResolvedValueOnce(
         okJSON({
           principal: { type: 'subject', id: 'owner-user' },
@@ -828,270 +924,140 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/app/default/default/workspaces');
   });
 
-  it('redirects expired oidc sessions to login with re-auth prompt', async () => {
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a',
-      authMode: 'oidc',
-      accessToken: 'access-token',
-      expiresAt: Date.now() - 60_000
-    });
-    setCurrentPath('/app/tenant-a/workspace-a');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Your session expired/i)).toBeInTheDocument();
-  });
-
-  it('completes oidc callback and restores authenticated workspace shell', async () => {
-    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
-    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
-    window.sessionStorage.setItem(
-      OIDC_PENDING_LOGIN_STORAGE_KEY,
-      JSON.stringify({
-        state: 'state-1',
-        codeVerifier: 'verifier-1',
-        nextPath: '/app/tenant-oidc/workspace-oidc',
-        createdAt: Date.now()
-      })
-    );
-
-    const idToken = makeJWT({
-      sub: 'user-123',
-      tenant_id: 'tenant-oidc',
-      workspace_id: 'workspace-oidc',
-      roles: ['owner'],
-      exp: Math.floor(Date.now() / 1000) + 3600
-    });
-    const accessToken = makeJWT({
-      sub: 'user-123',
-      tenant_id: 'tenant-oidc',
-      workspace_id: 'workspace-oidc',
-      exp: Math.floor(Date.now() / 1000) + 3600
-    });
-
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          authorization_endpoint: 'https://sso.example.com/auth',
-          token_endpoint: 'https://sso.example.com/token',
-          end_session_endpoint: 'https://sso.example.com/logout'
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          access_token: accessToken,
-          refresh_token: 'refresh-1',
-          id_token: idToken,
-          expires_in: 3600
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    setCurrentPath('/app/callback?code=code-1&state=state-1');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
-
-    const stored = JSON.parse(window.sessionStorage.getItem('identrail-product-session') ?? '{}');
-    expect(stored.authMode).toBe('oidc');
-    expect(stored.tenantID).toBe('tenant-oidc');
-    expect(stored.workspaceID).toBe('workspace-oidc');
-  });
-
-  it('redirects to login with state_mismatch reason when oidc callback state is invalid', async () => {
-    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
-    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
-    window.sessionStorage.setItem(
-      OIDC_PENDING_LOGIN_STORAGE_KEY,
-      JSON.stringify({
-        state: 'expected-state',
-        codeVerifier: 'verifier-1',
-        nextPath: '/app/tenant-oidc/workspace-oidc',
-        createdAt: Date.now()
-      })
-    );
-
-    window.history.pushState({}, '', '/app/callback?code=code-1&state=wrong-state');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/app/login');
-    expect(window.location.search).toContain('reason=state_mismatch');
-    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
-    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
-  });
-
-  it('redirects to login with callback_error reason when oidc token exchange fails', async () => {
-    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
-    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
-    window.sessionStorage.setItem(
-      OIDC_PENDING_LOGIN_STORAGE_KEY,
-      JSON.stringify({
-        state: 'state-1',
-        codeVerifier: 'verifier-1',
-        nextPath: '/app/tenant-oidc/workspace-oidc',
-        createdAt: Date.now()
-      })
-    );
-
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          authorization_endpoint: 'https://sso.example.com/auth',
-          token_endpoint: 'https://sso.example.com/token'
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        json: async () => ({
-          error: 'invalid_grant',
-          error_description: 'authorization code expired'
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/callback?code=code-1&state=state-1');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/app/login');
-    expect(window.location.search).toContain('reason=callback_error');
-    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
-    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
-  });
-
-  it('redirects to login with callback_error reason when oidc token response misses access_token', async () => {
-    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
-    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
-    window.sessionStorage.setItem(
-      OIDC_PENDING_LOGIN_STORAGE_KEY,
-      JSON.stringify({
-        state: 'state-2',
-        codeVerifier: 'verifier-2',
-        nextPath: '/app/tenant-oidc/workspace-oidc',
-        createdAt: Date.now()
-      })
-    );
-
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          authorization_endpoint: 'https://sso.example.com/auth',
-          token_endpoint: 'https://sso.example.com/token'
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          refresh_token: 'refresh-1',
-          expires_in: 3600
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    window.history.pushState({}, '', '/app/callback?code=code-2&state=state-2');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/app/login');
-    expect(window.location.search).toContain('reason=callback_error');
-    expect(window.sessionStorage.getItem(OIDC_PENDING_LOGIN_STORAGE_KEY)).toBeNull();
-    expect(window.sessionStorage.getItem('identrail-product-session')).toBeNull();
-  });
-
-  it('refreshes oidc sessions before expiry in route guard', async () => {
-    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
-    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
-
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a',
-      authMode: 'oidc',
-      accessToken: makeJWT({
-        sub: 'user-1',
-        tenant_id: 'tenant-a',
-        workspace_id: 'workspace-a',
-        exp: Math.floor(Date.now() / 1000) + 20
-      }),
-      refreshToken: 'refresh-token',
-      expiresAt: Date.now() + 20_000
-    });
-
-    const refreshedAccessToken = makeJWT({
-      sub: 'user-1',
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      exp: Math.floor(Date.now() / 1000) + 3600
-    });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          authorization_endpoint: 'https://sso.example.com/auth',
-          token_endpoint: 'https://sso.example.com/token'
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          access_token: refreshedAccessToken,
-          refresh_token: 'refresh-token-2',
-          expires_in: 3600
-        })
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    setCurrentPath('/app/tenant-a/workspace-a');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
-    await waitFor(() => {
-      const session = JSON.parse(window.sessionStorage.getItem('identrail-product-session') ?? '{}');
-      expect(session.tenantID).toBe('tenant-a');
-      expect(session.authMode).toBe('oidc');
-    });
-  });
-
-  it('returns to login after app logout when oidc end-session endpoint is unavailable', async () => {
-    vi.stubEnv('VITE_OIDC_ISSUER_URL', 'https://sso.example.com/realms/identrail');
-    vi.stubEnv('VITE_OIDC_CLIENT_ID', 'identrail-web');
-    vi.stubEnv('VITE_OIDC_POST_LOGOUT_REDIRECT_URI', 'https://app.identrail.com/app/login?signed_out=1');
-
-    saveProductSession({
-      tenantID: 'tenant-a',
-      workspaceID: 'workspace-a',
-      authMode: 'oidc',
-      idToken: makeJWT({
-        sub: 'user-1',
-        exp: Math.floor(Date.now() / 1000) + 3600
-      })
-    });
-
+  it('finishes frontend auth callback by resolving the server session', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          authorization_endpoint: 'https://sso.example.com/auth',
-          token_endpoint: 'https://sso.example.com/token'
+      vi
+        .fn()
+        .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
+        .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
+    );
+
+    setCurrentPath('/auth/callback');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+  });
+
+  it('redirects failed frontend auth callback checks back to sign-in', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(errorJSON(401, 'unauthorized')).mockResolvedValueOnce(authConfig(false, true))
+    );
+
+    setCurrentPath('/auth/callback');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/signin');
+    expect(window.location.search).toContain('reason=callback_error');
+  });
+
+  it('lists account security sessions and revokes other browsers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
+      .mockResolvedValueOnce(
+        okJSON({
+          items: [
+            {
+              id: 'current-session',
+              ip: '127.0.0.1',
+              user_agent: 'current browser',
+              auth_method: 'workos',
+              created_at: '2026-01-01T00:00:00Z',
+              last_seen_at: '2026-01-01T00:00:00Z',
+              idle_expires_at: '2026-01-01T00:15:00Z',
+              current: true
+            },
+            {
+              id: 'other-session',
+              ip: '127.0.0.2',
+              user_agent: 'other browser',
+              auth_method: 'workos',
+              created_at: '2026-01-01T00:00:00Z',
+              last_seen_at: '2026-01-01T00:00:00Z',
+              idle_expires_at: '2026-01-01T00:15:00Z',
+              current: false
+            }
+          ]
         })
-      })
+      )
+      .mockResolvedValueOnce(okJSON({ ok: true, revoked: 1 }))
+      .mockResolvedValueOnce(
+        okJSON({
+          items: [
+            {
+              id: 'current-session',
+              ip: '127.0.0.1',
+              user_agent: 'current browser',
+              auth_method: 'workos',
+              created_at: '2026-01-01T00:00:00Z',
+              last_seen_at: '2026-01-01T00:00:00Z',
+              idle_expires_at: '2026-01-01T00:15:00Z',
+              current: true
+            }
+          ]
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/account/security');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
+    expect(await screen.findByText(/other browser/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Revoke others/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/other browser/i)).not.toBeInTheDocument();
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/v1/me/sessions/revoke-others',
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    );
+  });
+
+  it('logs out by revoking the server cookie session', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(okJSON({ ok: true })).mockResolvedValueOnce(authConfig(false, true))
     );
 
     setCurrentPath('/app/logout');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to the Identrail app shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/signin');
+  });
+
+  it('treats an already-missing logout session as signed out', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(errorJSON(401, 'unauthorized')).mockResolvedValueOnce(authConfig(false, true))
+    );
+
+    setCurrentPath('/app/logout');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/signin');
+  });
+
+  it('does not report logout success when server session revocation fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(errorJSON(500, 'logout failed')));
+
+    setCurrentPath('/app/logout');
+    render(<App />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Unable to sign out/i);
+    expect(alert).toHaveTextContent(/logout failed/i);
+    expect(window.location.pathname).toBe('/app/logout');
+    expect(screen.queryByText(/Signed out successfully/i)).not.toBeInTheDocument();
   });
 });

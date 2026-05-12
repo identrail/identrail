@@ -129,6 +129,17 @@ func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("unexpected touched session context: %+v", touched)
 	}
 
+	mock.ExpectQuery("WITH updated AS").
+		WithArgs(userID, sessionHash[:], "tenant-a", "workspace-b", "", now.Add(2*time.Minute)).
+		WillReturnRows(postgresAuthSessionRows().AddRow(sessionHash[:], userID, "tenant-a", "workspace-b", nil, "manual", "203.0.113.10", "browser", now.Add(16*time.Minute), now.Add(24*time.Hour), now.Add(2*time.Minute), nil, now, userID, "alice@example.com", "Alice", "", "active", now, now, nil))
+	updatedSession, err := store.UpdateSessionContext(ctx, userID, sessionHash[:], "tenant-a", "workspace-b", "", now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("update session context: %v", err)
+	}
+	if updatedSession.CurrentWorkspaceID != "workspace-b" {
+		t.Fatalf("unexpected updated session context: %+v", updatedSession)
+	}
+
 	mock.ExpectQuery("FROM sessions s").
 		WithArgs(userID, now, 10).
 		WillReturnRows(postgresAuthSessionRows().AddRow(sessionHash[:], userID, "tenant-a", "workspace-a", nil, "manual", "203.0.113.10", "browser", now.Add(16*time.Minute), now.Add(24*time.Hour), now.Add(time.Minute), nil, now, userID, "alice@example.com", "Alice", "", "active", now, now, nil))

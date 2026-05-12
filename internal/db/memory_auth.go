@@ -160,6 +160,40 @@ func (m *MemoryStore) TouchSession(ctx context.Context, sessionIDHash []byte, no
 	return session, nil
 }
 
+// UpdateSessionContext persists the active tenancy context for one browser session.
+func (m *MemoryStore) UpdateSessionContext(ctx context.Context, userID string, sessionIDHash []byte, orgID string, workspaceID string, projectID string, now time.Time) (Session, error) {
+	m.mu.Lock()
+	key := sessionHashKey(sessionIDHash)
+	session, exists := m.sessions[key]
+	if !exists || session.UserID != strings.TrimSpace(userID) || session.RevokedAt != nil {
+		m.mu.Unlock()
+		return Session{}, ErrNotFound
+	}
+	if !session.IdleExpiresAt.After(now) || !session.AbsoluteExpiresAt.After(now) {
+		m.mu.Unlock()
+		return Session{}, ErrNotFound
+	}
+	user, exists := m.users[session.UserID]
+	if !exists || user.DeletedAt != nil || user.Status != "active" {
+		m.mu.Unlock()
+		return Session{}, ErrNotFound
+	}
+	session.CurrentOrgID = strings.TrimSpace(orgID)
+	session.CurrentWorkspaceID = strings.TrimSpace(workspaceID)
+	session.CurrentProjectID = strings.TrimSpace(projectID)
+	session.LastSeenAt = now.UTC()
+	session.User = &user
+	m.sessions[key] = session
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.session.scope_update",
+		ResourceType: "session",
+		ResourceID:   key,
+		Outcome:      "success",
+	})
+	return session, nil
+}
+
 // ListUserSessions returns active sessions for one user.
 func (m *MemoryStore) ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error) {
 	m.mu.RLock()

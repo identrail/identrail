@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
@@ -2000,6 +2001,18 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 	normalizedSubject := strings.TrimSpace(subject)
 	if normalizedSubject == "" {
 		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	if _, err := uuid.Parse(normalizedSubject); err == nil {
+		member, err := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, normalizedSubject)
+		if err != nil && !errors.Is(err, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, false, err
+		}
+		if err == nil {
+			if strings.ToLower(strings.TrimSpace(member.Status)) == "active" {
+				return member, true, nil
+			}
+			return member, true, nil
+		}
 	}
 	members, err := s.ListWorkspaceMembers(ctx, workspaceID, "", "", maxCursorFetchLimit)
 	if err != nil {

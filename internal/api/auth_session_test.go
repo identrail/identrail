@@ -118,6 +118,253 @@ func TestCurrentSessionMeAndSessionList(t *testing.T) {
 	}
 }
 
+func TestCookieBackedWorkspaceSwitchUpdatesSessionContext(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 12, 18, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	user, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "switcher@example.com",
+		DisplayName:  "Workspace Switcher",
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	scopeA := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeA, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	for _, workspaceID := range []string{"workspace-a", "workspace-b"} {
+		scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: workspaceID})
+		if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: workspaceID, DisplayName: workspaceID, Slug: workspaceID}); err != nil {
+			t.Fatalf("upsert workspace %s: %v", workspaceID, err)
+		}
+		role := "viewer"
+		if workspaceID == "workspace-a" {
+			role = "admin"
+		}
+		if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+			WorkspaceID: workspaceID,
+			MemberID:    "member-" + workspaceID,
+			UserID:      "switcher-subject",
+			UserUUID:    user.ID,
+			Email:       user.PrimaryEmail,
+			Role:        role,
+			Status:      "active",
+			JoinedAt:    now,
+			UpdatedAt:   now,
+		}); err != nil {
+			t.Fatalf("upsert workspace member %s: %v", workspaceID, err)
+		}
+	}
+
+	manager := sessionauth.Manager{Store: store, PublicBaseURL: "http://localhost:8080", Now: svc.Now}
+	cookieValue, _, err := manager.CreateSession(context.Background(), db.Session{
+		UserID:             user.ID,
+		CurrentOrgID:       "tenant-a",
+		CurrentWorkspaceID: "workspace-a",
+		AuthMethod:         "manual",
+		CreatedAt:          now,
+		LastSeenAt:         now,
+		IdleExpiresAt:      now.Add(sessionauth.IdleTimeout),
+		AbsoluteExpiresAt:  now.Add(sessionauth.AbsoluteTimeout),
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth: true,
+		PublicBaseURL:  "http://localhost:8080",
+		RateLimitRPM:   1000,
+		RateLimitBurst: 1000,
+	})
+
+	switchReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", strings.NewReader(`{"workspace_id":"workspace-b"}`))
+	switchReq.Header.Set("Content-Type", "application/json")
+	switchReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	switchResp := httptest.NewRecorder()
+	router.ServeHTTP(switchResp, switchReq)
+	if switchResp.Code != http.StatusOK {
+		t.Fatalf("expected workspace switch 200, got %d body=%s", switchResp.Code, switchResp.Body.String())
+	}
+	if !strings.Contains(switchResp.Body.String(), `"workspace_id":"workspace-b"`) {
+		t.Fatalf("expected switch response to target workspace-b, got %s", switchResp.Body.String())
+	}
+
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meResp := httptest.NewRecorder()
+	router.ServeHTTP(meResp, meReq)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected /v1/me 200 after switch, got %d body=%s", meResp.Code, meResp.Body.String())
+	}
+	if !strings.Contains(meResp.Body.String(), `"workspace_id":"workspace-b"`) || !strings.Contains(meResp.Body.String(), `"role":"viewer"`) {
+		t.Fatalf("expected session context to persist switched workspace, got %s", meResp.Body.String())
+	}
+}
+
+func TestManualLoginCreatesCookieBackedSessionWhenEnabled(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 12, 16, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth: true,
+		AuthManualMode: true,
+		PublicBaseURL:  "http://localhost:8080",
+		RateLimitRPM:   1000,
+		RateLimitBurst: 1000,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/manual", strings.NewReader(`{
+		"tenant_id":"tenant-a",
+		"workspace_id":"workspace-a",
+		"project_id":"project-a",
+		"email":"dev@example.com",
+		"display_name":"Dev User"
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected manual login 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Set-Cookie"), sessionauth.CookieName+"=") {
+		t.Fatalf("expected manual login to set session cookie, got %q", w.Header().Get("Set-Cookie"))
+	}
+	if !strings.Contains(w.Body.String(), `"redirect_to":"/app/tenant-a/workspace-a/projects/project-a"`) {
+		t.Fatalf("unexpected manual login body: %s", w.Body.String())
+	}
+
+	var sessionCookie *http.Cookie
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == sessionauth.CookieName {
+			sessionCookie = cookie
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("manual login did not return a parseable session cookie")
+	}
+
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(sessionCookie)
+	meW := httptest.NewRecorder()
+	router.ServeHTTP(meW, meReq)
+	if meW.Code != http.StatusOK {
+		t.Fatalf("expected cookie-backed /v1/me 200, got %d body=%s", meW.Code, meW.Body.String())
+	}
+	if !strings.Contains(meW.Body.String(), `"primary_email":"dev@example.com"`) ||
+		!strings.Contains(meW.Body.String(), `"org_id":"tenant-a"`) ||
+		!strings.Contains(meW.Body.String(), `"workspace_id":"workspace-a"`) ||
+		!strings.Contains(meW.Body.String(), `"project_id":"project-a"`) {
+		t.Fatalf("unexpected /v1/me body after manual login: %s", meW.Body.String())
+	}
+}
+
+func TestManualLoginRouteIsHiddenWhenManualModeDisabled(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth: true,
+		AuthManualMode: false,
+		PublicBaseURL:  "http://localhost:8080",
+		RateLimitRPM:   1000,
+		RateLimitBurst: 1000,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/manual", strings.NewReader(`{"tenant_id":"tenant-a","workspace_id":"workspace-a"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected disabled manual login route to be hidden, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestManualLoginRejectsInvalidRequests(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth: true,
+		AuthManualMode: true,
+		PublicBaseURL:  "http://localhost:8080",
+		RateLimitRPM:   1000,
+		RateLimitBurst: 1000,
+	})
+
+	for _, tt := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "malformed json",
+			body: `{"tenant_id":`,
+			want: "invalid manual login payload",
+		},
+		{
+			name: "missing workspace",
+			body: `{"tenant_id":"tenant-a"}`,
+			want: "tenant_id and workspace_id are required",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/auth/manual", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected manual login rejection 400, got %d body=%s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), tt.want) {
+				t.Fatalf("expected rejection body to contain %q, got %s", tt.want, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestUpsertManualUserSessionContextDefaultsAndUpdates(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 12, 17, 30, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.UpsertManualUserSessionContext(context.Background(), ManualLoginInput{
+		TenantID:    " Tenant!A ",
+		WorkspaceID: "Workspace A",
+	})
+	if err != nil {
+		t.Fatalf("manual context with defaults: %v", err)
+	}
+	if result.User.PrimaryEmail != "manual+tenant-a-workspace-a@local.identrail.test" {
+		t.Fatalf("unexpected default manual email: %q", result.User.PrimaryEmail)
+	}
+	if result.User.DisplayName != "Manual developer" {
+		t.Fatalf("unexpected default display name: %q", result.User.DisplayName)
+	}
+	if result.RedirectPath != "/app/Tenant%21A/Workspace%20A" {
+		t.Fatalf("unexpected redirect path: %q", result.RedirectPath)
+	}
+
+	updated, err := svc.UpsertManualUserSessionContext(context.Background(), ManualLoginInput{
+		TenantID:    "Tenant!A",
+		WorkspaceID: "Workspace A",
+		Email:       result.User.PrimaryEmail,
+		DisplayName: "Updated Manual User",
+	})
+	if err != nil {
+		t.Fatalf("manual context update: %v", err)
+	}
+	if updated.User.ID != result.User.ID {
+		t.Fatalf("expected manual update to keep user %q, got %q", result.User.ID, updated.User.ID)
+	}
+	if updated.User.DisplayName != "Updated Manual User" {
+		t.Fatalf("expected updated display name, got %q", updated.User.DisplayName)
+	}
+}
+
 func TestCurrentSessionMeAllowsScopelessOnboardingWithExplicitScopeRequired(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 12, 15, 0, 0, 0, time.UTC)

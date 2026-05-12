@@ -127,6 +127,10 @@ x-identrail-route-authorizations:
     action: me.write
     resource_type: session
   - method: POST
+    path: /auth/manual
+    action: auth.login
+    resource_type: session
+  - method: POST
     path: /v1/invitations
     action: enterprise.write
     resource_type: invitation
@@ -457,6 +461,52 @@ paths:
       responses:
         "302":
           description: Redirect to WorkOS AuthKit sign-up screen
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /auth/manual:
+    post:
+      tags: [Authorization]
+      summary: Create a dev/self-host manual session
+      operationId: createManualAuthSession
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, workspace_id]
+              properties:
+                tenant_id:
+                  type: string
+                workspace_id:
+                  type: string
+                project_id:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                display_name:
+                  type: string
+      responses:
+        "200":
+          description: Session cookie set for manual mode
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, redirect_to]
+                properties:
+                  ok:
+                    type: boolean
+                  redirect_to:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Manual mode is disabled for this deployment
+        "409":
+          $ref: "#/components/responses/Conflict"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
   /auth/callback:

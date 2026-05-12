@@ -11,9 +11,14 @@ import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
 import { BLOG_POSTS, DOC_ENTRIES, HOME_FAQ_ITEMS } from './content/resources';
+import { AccountSecurityPage } from './pages/AccountSecurityPage';
+import { AuthCallbackPage } from './pages/AuthCallbackPage';
+import { SignInPage } from './pages/SignInPage';
+import { SignUpPage } from './pages/SignUpPage';
+import { WhyNoPasswordsPage } from './pages/WhyNoPasswordsPage';
 import {
   ProductAppIndexRedirect,
-  ProductOIDCCallbackPage,
+  ProductAuthCallbackRedirectPage,
   ProductFindingsPage,
   ProductLoginPage,
   ProductLogoutPage,
@@ -3361,9 +3366,21 @@ export function RoutedSite() {
 
       <main id="main-content">
         <Routes>
+          <Route path="/signin" element={<SignInPage />} />
+          <Route path="/signup" element={<SignUpPage />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/why-no-passwords" element={<WhyNoPasswordsPage />} />
           <Route path="/app/login" element={<ProductLoginPage />} />
-          <Route path="/app/callback" element={<ProductOIDCCallbackPage />} />
+          <Route path="/app/callback" element={<ProductAuthCallbackRedirectPage />} />
           <Route path="/app/logout" element={<ProductLogoutPage />} />
+          <Route
+            path="/app/account/security"
+            element={
+              <RequireProductAuth>
+                <AccountSecurityPage />
+              </RequireProductAuth>
+            }
+          />
           <Route
             path="/app"
             element={
