@@ -432,6 +432,103 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	}
 }
 
+type failOnceQueuedRepoStore struct {
+	*db.MemoryStore
+	failuresRemaining int
+}
+
+func (s *failOnceQueuedRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
+	if s.failuresRemaining > 0 {
+		s.failuresRemaining--
+		return db.RepoScanRecord{}, errors.New("simulated enqueue failure")
+	}
+	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, historyLimit, maxFindings, queuedAt, maxPending)
+}
+
+func TestHandleGitHubWebhookRetryDeliveryAfterTransientEnqueueFailure(t *testing.T) {
+	baseStore := db.NewMemoryStore()
+	store := &failOnceQueuedRepoStore{
+		MemoryStore:       baseStore,
+		failuresRemaining: 1,
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	signature := githubWebhookSignature("persisted-secret", webhookPayload)
+	if _, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload); err == nil {
+		t.Fatal("expected first webhook delivery to fail due to transient enqueue error")
+	}
+
+	status, err := svc.GetGitHubConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get github connection after failed webhook: %v", err)
+	}
+	if status.LastWebhookDeliveryID != "" {
+		t.Fatalf("expected failed delivery to remain unrecorded, got last delivery %q", status.LastWebhookDeliveryID)
+	}
+
+	retry, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle retry webhook delivery: %v", err)
+	}
+	if retry.QueuedScans != 1 || retry.SkippedScans != 0 {
+		t.Fatalf("expected retry delivery to queue without replay skip, got %+v", retry)
+	}
+
+	scans, err := svc.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Fatalf("expected one queued repo scan after retry, got %d", len(scans))
+	}
+}
+
 func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")

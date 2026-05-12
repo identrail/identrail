@@ -448,16 +448,18 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 	scanTriggerEvent := githubWebhookTriggersScan(normalizedEventType)
 
 	for _, connection := range validConnections {
-		replayed := s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+		replayed := s.isGitHubWebhookReplay(connection, normalizedDeliveryID, now)
 		if replayed && scanTriggerEvent {
 			result.SkippedScans++
 			continue
 		}
 		if !scanTriggerEvent {
+			s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 			continue
 		}
 		if s.shouldThrottleGitHubWebhookScan(connection, repository, now) {
 			result.SkippedScans++
+			s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 			continue
 		}
 
@@ -470,11 +472,13 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 				errors.Is(err, ErrRepoTargetNotAllowed) ||
 				errors.Is(err, ErrInvalidRepoScanRequest) {
 				result.SkippedScans++
+				s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 				continue
 			}
 			return GitHubWebhookResult{}, err
 		}
 		result.QueuedScans++
+		s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 		s.recordGitHubWebhookQueuedScan(ctx, connection, repository, now)
 	}
 
@@ -513,7 +517,7 @@ func (s *Service) lookupGitHubConnectionsByRepository(repository string, install
 	return matches
 }
 
-func (s *Service) recordGitHubWebhookDelivery(ctx context.Context, connection githubProjectConnection, eventType string, deliveryID string, now time.Time) bool {
+func (s *Service) isGitHubWebhookReplay(connection githubProjectConnection, deliveryID string, now time.Time) bool {
 	replayWindow := s.githubWebhookReplayWindow()
 	cutoff := now.Add(-replayWindow)
 	connectionKey := githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)
@@ -543,9 +547,36 @@ func (s *Service) recordGitHubWebhookDelivery(ctx context.Context, connection gi
 		if seenAt, seen := s.githubWebhookSeen[replayKey]; seen && !seenAt.Before(cutoff) {
 			replayed = true
 		}
+	}
+	s.githubConnectMu.Unlock()
+	return replayed
+}
+
+func (s *Service) recordGitHubWebhookDelivery(ctx context.Context, connection githubProjectConnection, eventType string, deliveryID string, now time.Time) {
+	replayWindow := s.githubWebhookReplayWindow()
+	cutoff := now.Add(-replayWindow)
+	connectionKey := githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)
+	normalizedDeliveryID := strings.TrimSpace(deliveryID)
+
+	s.githubConnectMu.Lock()
+	if s.githubWebhookSeen == nil {
+		s.githubWebhookSeen = map[string]time.Time{}
+	}
+	for key, seenAt := range s.githubWebhookSeen {
+		if seenAt.Before(cutoff) {
+			delete(s.githubWebhookSeen, key)
+		}
+	}
+
+	if normalizedDeliveryID != "" {
+		replayKey := connectionKey + "::" + normalizedDeliveryID
 		s.githubWebhookSeen[replayKey] = now
 	}
 
+	current, exists := s.githubConnections[connectionKey]
+	if !exists {
+		current = connection
+	}
 	current.LastWebhookEventType = eventType
 	current.LastWebhookDeliveryID = normalizedDeliveryID
 	eventAt := now
@@ -555,7 +586,6 @@ func (s *Service) recordGitHubWebhookDelivery(ctx context.Context, connection gi
 	s.githubConnectMu.Unlock()
 
 	_ = s.persistGitHubConnection(ctx, current)
-	return replayed
 }
 
 func (s *Service) shouldThrottleGitHubWebhookScan(connection githubProjectConnection, repository string, now time.Time) bool {
