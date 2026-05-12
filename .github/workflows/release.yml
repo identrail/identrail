@@ -200,12 +200,14 @@ jobs:
     if: needs.prepare.outputs.publish_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: refs/tags/${{ needs.prepare.outputs.tag }}
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
@@ -226,8 +228,11 @@ jobs:
           base="ghcr.io/${owner}/identrail"
           tag="${{ needs.prepare.outputs.tag }}"
           publish_latest="${{ needs.prepare.outputs.publish_latest }}"
+          source_url="${{ github.server_url }}/${{ github.repository }}"
+          revision="$(git rev-parse HEAD)"
           release_web_env="deploy/docker/release-web.env"
           web_api_url_source="${release_web_env}"
+          backend_platforms="linux/amd64,linux/arm64"
 
           if [ ! -f "${release_web_env}" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
@@ -255,6 +260,11 @@ jobs:
             exit 1
           fi
 
+          if ! grep -Eq '^ARG[[:space:]]+TARGETARCH([[:space:]=]|$)' deploy/docker/Dockerfile.backend; then
+            echo "deploy/docker/Dockerfile.backend does not support TARGETARCH; publishing backend images for linux/amd64 only." >&2
+            backend_platforms="linux/amd64"
+          fi
+
           mkdir -p dist
           {
             printf 'VITE_IDENTRAIL_API_URL=%s\n' "${web_api_url}"
@@ -263,6 +273,10 @@ jobs:
 
           build_and_push() {
             local name="$1"
+            local title="$2"
+            local platforms="$3"
+            shift
+            shift
             shift
             local image="${base}-${name}"
             local args=("$@")
@@ -273,8 +287,13 @@ jobs:
             fi
 
             docker buildx build \
-              --platform linux/amd64,linux/arm64 \
+              --platform "${platforms}" \
               --push \
+              --label "org.opencontainers.image.source=${source_url}" \
+              --label "org.opencontainers.image.revision=${revision}" \
+              --label "org.opencontainers.image.licenses=Apache-2.0" \
+              --label "org.opencontainers.image.vendor=Identrail" \
+              --label "org.opencontainers.image.title=${title}" \
               "${tags[@]}" \
               "${args[@]}"
 
@@ -282,9 +301,35 @@ jobs:
             printf '%s\n' "${image}:${tag}@${digest}" >> dist/image-digests.txt
           }
 
-          build_and_push "api" -f deploy/docker/Dockerfile.backend --build-arg TARGET=server .
-          build_and_push "worker" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
-          build_and_push "web" -f deploy/docker/Dockerfile.web --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" .
+          build_server() {
+            local tags=("-t" "${base}:${tag}" "-t" "${base}-api:${tag}")
+            if [ "${publish_latest}" = "true" ]; then
+              tags+=("-t" "${base}:latest" "-t" "${base}-api:latest")
+            fi
+
+            docker buildx build \
+              --platform "${backend_platforms}" \
+              --push \
+              --label "org.opencontainers.image.source=${source_url}" \
+              --label "org.opencontainers.image.revision=${revision}" \
+              --label "org.opencontainers.image.licenses=Apache-2.0" \
+              --label "org.opencontainers.image.vendor=Identrail" \
+              --label "org.opencontainers.image.title=Identrail" \
+              --label "org.opencontainers.image.description=Identrail API server and machine identity engine" \
+              "${tags[@]}" \
+              -f deploy/docker/Dockerfile.backend \
+              --build-arg TARGET=server \
+              .
+
+            for image in "${base}" "${base}-api"; do
+              digest="$(docker buildx imagetools inspect "${image}:${tag}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+              printf '%s\n' "${image}:${tag}@${digest}" >> dist/image-digests.txt
+            done
+          }
+
+          build_server
+          build_and_push "worker" "Identrail Worker" "${backend_platforms}" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
+          build_and_push "web" "Identrail Web" "linux/amd64,linux/arm64" -f deploy/docker/Dockerfile.web --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" .
 
       - name: Upload image metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -301,7 +346,6 @@ jobs:
     if: needs.prepare.outputs.publish_images != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
       - name: Download release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -324,7 +368,6 @@ jobs:
     if: needs.prepare.outputs.publish_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
       - name: Download release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c

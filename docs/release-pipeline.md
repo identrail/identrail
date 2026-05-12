@@ -24,11 +24,26 @@ Identrail release automation is defined in:
 1. Cross-platform binaries (`cli`, `server`, `worker`) as archives.
 2. SHA-256 checksum manifest (`checksums.txt`).
 3. Container images to GHCR:
+   - `ghcr.io/<owner>/identrail:<tag>`
    - `ghcr.io/<owner>/identrail-api:<tag>`
    - `ghcr.io/<owner>/identrail-worker:<tag>`
    - `ghcr.io/<owner>/identrail-web:<tag>`
 4. Image digests and web build input metadata.
 5. Auto-generated GitHub Release notes.
+
+## Continuous Public Images
+
+The **Publish Container Images** workflow also publishes development images from
+every merge to `dev`:
+
+- `ghcr.io/identrail/identrail:dev`
+- `ghcr.io/identrail/identrail-api:dev`
+- `ghcr.io/identrail/identrail-worker:dev`
+- `ghcr.io/identrail/identrail-web:dev`
+
+Each run also publishes immutable SHA tags such as `sha-<12-char-sha>`. Use the
+`dev` tags for quick evaluation and SHA or release tags for repeatable
+deployments.
 
 ## Image Tag Rules
 

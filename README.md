@@ -40,6 +40,19 @@ Use it when you run AWS and/or Kubernetes workloads and want identity risk visib
 
 Prerequisites: Docker, Docker Compose, `curl`, `jq`.
 
+Use published images without building from source:
+
+```bash
+mkdir identrail-docker && cd identrail-docker
+curl -fsSLO https://raw.githubusercontent.com/identrail/identrail/dev/deploy/docker/docker-compose.public.yml
+docker compose -f docker-compose.public.yml up -d
+curl http://localhost:8080/healthz
+```
+
+Open `http://localhost:8081` for the web UI.
+
+For local development from a cloned repository:
+
 ```bash
 make quickstart
 ```

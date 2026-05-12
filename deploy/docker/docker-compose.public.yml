@@ -1,0 +1,83 @@
+# Public-image evaluation stack. This file pulls images from GHCR instead of
+# building local images from source.
+
+x-identrail-env: &identrail-env
+  IDENTRAIL_SERVICE_NAME: identrail
+  IDENTRAIL_LOG_LEVEL: "${IDENTRAIL_LOG_LEVEL:-info}"
+  IDENTRAIL_PROVIDER: "${IDENTRAIL_PROVIDER:-aws}"
+  IDENTRAIL_AWS_SOURCE: "${IDENTRAIL_AWS_SOURCE:-fixture}"
+  IDENTRAIL_AWS_REGION: "${IDENTRAIL_AWS_REGION:-us-east-1}"
+  IDENTRAIL_AWS_FIXTURES: /app/testdata/aws/role_with_policies.json,/app/testdata/aws/role_with_urlencoded_trust.json
+  IDENTRAIL_K8S_SOURCE: "${IDENTRAIL_K8S_SOURCE:-fixture}"
+  IDENTRAIL_K8S_FIXTURES: /app/testdata/kubernetes/service_account_payments.json,/app/testdata/kubernetes/cluster_role_cluster_admin.json,/app/testdata/kubernetes/role_binding_cluster_admin.json,/app/testdata/kubernetes/pod_payments.json
+  IDENTRAIL_DATABASE_URL: "postgres://identrail:${IDENTRAIL_POSTGRES_PASSWORD:-identrail-local-password}@postgres:5432/identrail?sslmode=disable"
+  IDENTRAIL_MIGRATIONS_DIR: /app/migrations
+  IDENTRAIL_API_KEYS: "${IDENTRAIL_API_KEYS:-identrail-local-read-key-change-me,identrail-local-write-key-change-me}"
+  IDENTRAIL_WRITE_API_KEYS: "${IDENTRAIL_WRITE_API_KEYS:-identrail-local-write-key-change-me}"
+  IDENTRAIL_CORS_ALLOWED_ORIGINS: "${IDENTRAIL_CORS_ALLOWED_ORIGINS:-http://localhost:8081}"
+  IDENTRAIL_SCAN_INTERVAL: "${IDENTRAIL_SCAN_INTERVAL:-15m}"
+  IDENTRAIL_WORKER_RUN_NOW: "${IDENTRAIL_WORKER_RUN_NOW:-true}"
+  IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED: "${IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED:-true}"
+  IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL: "${IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL:-2s}"
+  IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE: "${IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE:-5}"
+  IDENTRAIL_LOCK_BACKEND: auto
+  IDENTRAIL_LOCK_NAMESPACE: identrail
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: identrail-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: identrail
+      POSTGRES_USER: identrail
+      POSTGRES_PASSWORD: "${IDENTRAIL_POSTGRES_PASSWORD:-identrail-local-password}"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - identrail_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identrail -d identrail"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ghcr.io/identrail/identrail:${IDENTRAIL_IMAGE_TAG:-dev}
+    container_name: identrail-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *identrail-env
+      IDENTRAIL_HTTP_ADDR: ":8080"
+      IDENTRAIL_RUN_MIGRATIONS: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  worker:
+    image: ghcr.io/identrail/identrail-worker:${IDENTRAIL_IMAGE_TAG:-dev}
+    container_name: identrail-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      <<: *identrail-env
+      IDENTRAIL_RUN_MIGRATIONS: "false"
+
+  web:
+    image: ghcr.io/identrail/identrail-web:${IDENTRAIL_IMAGE_TAG:-dev}
+    container_name: identrail-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8081:8080"
+
+volumes:
+  identrail_pgdata:
