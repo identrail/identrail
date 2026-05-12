@@ -466,8 +466,11 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: connection.TenantID, WorkspaceID: connection.WorkspaceID})
 		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{Repository: repository})
 		if err != nil {
+			if errors.Is(err, ErrRepoScanQueueFull) {
+				result.SkippedScans++
+				continue
+			}
 			if errors.Is(err, ErrRepoScanInProgress) ||
-				errors.Is(err, ErrRepoScanQueueFull) ||
 				errors.Is(err, ErrRepoScanDisabled) ||
 				errors.Is(err, ErrRepoTargetNotAllowed) ||
 				errors.Is(err, ErrInvalidRepoScanRequest) {
