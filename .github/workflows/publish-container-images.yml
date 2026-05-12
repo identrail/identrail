@@ -1,0 +1,128 @@
+name: Publish Container Images
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to publish images from. Defaults to the selected branch."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-container-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and Publish GHCR Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Resolve image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          source_sha="$(git rev-parse HEAD)"
+          sha_tag="sha-${source_sha::12}"
+
+          echo "base=ghcr.io/${owner}/identrail" >> "${GITHUB_OUTPUT}"
+          echo "channel_tag=dev" >> "${GITHUB_OUTPUT}"
+          echo "sha_tag=${sha_tag}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
+          echo "web_api_url=http://localhost:8080" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base="${{ steps.meta.outputs.base }}"
+          channel_tag="${{ steps.meta.outputs.channel_tag }}"
+          sha_tag="${{ steps.meta.outputs.sha_tag }}"
+          source_url="${{ github.server_url }}/${{ github.repository }}"
+          revision="${{ steps.meta.outputs.source_sha }}"
+          backend_platforms="linux/amd64,linux/arm64"
+
+          if ! grep -Eq '^ARG[[:space:]]+TARGETARCH([[:space:]=]|$)' deploy/docker/Dockerfile.backend; then
+            echo "deploy/docker/Dockerfile.backend does not support TARGETARCH; publishing backend images for linux/amd64 only." >&2
+            backend_platforms="linux/amd64"
+          fi
+
+          common_labels=(
+            --label "org.opencontainers.image.source=${source_url}"
+            --label "org.opencontainers.image.revision=${revision}"
+            --label "org.opencontainers.image.licenses=Apache-2.0"
+            --label "org.opencontainers.image.vendor=Identrail"
+          )
+
+          docker buildx build \
+            --platform "${backend_platforms}" \
+            --push \
+            "${common_labels[@]}" \
+            --label "org.opencontainers.image.title=Identrail" \
+            --label "org.opencontainers.image.description=Identrail API server and machine identity engine" \
+            -t "${base}:${channel_tag}" \
+            -t "${base}:${sha_tag}" \
+            -t "${base}-api:${channel_tag}" \
+            -t "${base}-api:${sha_tag}" \
+            -f deploy/docker/Dockerfile.backend \
+            --build-arg TARGET=server \
+            .
+
+          docker buildx build \
+            --platform "${backend_platforms}" \
+            --push \
+            "${common_labels[@]}" \
+            --label "org.opencontainers.image.title=Identrail Worker" \
+            --label "org.opencontainers.image.description=Identrail background scan worker" \
+            -t "${base}-worker:${channel_tag}" \
+            -t "${base}-worker:${sha_tag}" \
+            -f deploy/docker/Dockerfile.backend \
+            --build-arg TARGET=worker \
+            .
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --push \
+            "${common_labels[@]}" \
+            --label "org.opencontainers.image.title=Identrail Web" \
+            --label "org.opencontainers.image.description=Identrail web dashboard for local image evaluation" \
+            -t "${base}-web:${channel_tag}" \
+            -t "${base}-web:${sha_tag}" \
+            -f deploy/docker/Dockerfile.web \
+            --build-arg "VITE_IDENTRAIL_API_URL=${{ steps.meta.outputs.web_api_url }}" \
+            --build-arg "VITE_ALLOW_MANUAL_PRODUCT_SESSION=true" \
+            --build-arg "VITE_DEFAULT_PRODUCT_API_KEY=identrail-local-write-key-change-me" \
+            --build-arg "NGINX_CONF=default.local.conf" \
+            .

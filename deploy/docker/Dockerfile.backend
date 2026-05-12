@@ -9,7 +9,9 @@ RUN go mod download
 COPY . .
 
 ARG TARGET=server
-RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath -ldflags="-s -w" -o /out/identrail ./cmd/${TARGET}
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:a9329520abc449e3b14d5bc3a6ffae065bdde0f02667fa10880c49b35c109fd1
