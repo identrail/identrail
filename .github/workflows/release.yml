@@ -226,6 +226,8 @@ jobs:
           base="ghcr.io/${owner}/identrail"
           tag="${{ needs.prepare.outputs.tag }}"
           publish_latest="${{ needs.prepare.outputs.publish_latest }}"
+          source_url="${{ github.server_url }}/${{ github.repository }}"
+          revision="$(git rev-parse HEAD)"
           release_web_env="deploy/docker/release-web.env"
           web_api_url_source="${release_web_env}"
 
@@ -263,6 +265,8 @@ jobs:
 
           build_and_push() {
             local name="$1"
+            local title="$2"
+            shift
             shift
             local image="${base}-${name}"
             local args=("$@")
@@ -275,6 +279,11 @@ jobs:
             docker buildx build \
               --platform linux/amd64,linux/arm64 \
               --push \
+              --label "org.opencontainers.image.source=${source_url}" \
+              --label "org.opencontainers.image.revision=${revision}" \
+              --label "org.opencontainers.image.licenses=Apache-2.0" \
+              --label "org.opencontainers.image.vendor=Identrail" \
+              --label "org.opencontainers.image.title=${title}" \
               "${tags[@]}" \
               "${args[@]}"
 
@@ -282,9 +291,35 @@ jobs:
             printf '%s\n' "${image}:${tag}@${digest}" >> dist/image-digests.txt
           }
 
-          build_and_push "api" -f deploy/docker/Dockerfile.backend --build-arg TARGET=server .
-          build_and_push "worker" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
-          build_and_push "web" -f deploy/docker/Dockerfile.web --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" .
+          build_server() {
+            local tags=("-t" "${base}:${tag}" "-t" "${base}-api:${tag}")
+            if [ "${publish_latest}" = "true" ]; then
+              tags+=("-t" "${base}:latest" "-t" "${base}-api:latest")
+            fi
+
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              --push \
+              --label "org.opencontainers.image.source=${source_url}" \
+              --label "org.opencontainers.image.revision=${revision}" \
+              --label "org.opencontainers.image.licenses=Apache-2.0" \
+              --label "org.opencontainers.image.vendor=Identrail" \
+              --label "org.opencontainers.image.title=Identrail" \
+              --label "org.opencontainers.image.description=Identrail API server and machine identity engine" \
+              "${tags[@]}" \
+              -f deploy/docker/Dockerfile.backend \
+              --build-arg TARGET=server \
+              .
+
+            for image in "${base}" "${base}-api"; do
+              digest="$(docker buildx imagetools inspect "${image}:${tag}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+              printf '%s\n' "${image}:${tag}@${digest}" >> dist/image-digests.txt
+            done
+          }
+
+          build_server
+          build_and_push "worker" "Identrail Worker" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
+          build_and_push "web" "Identrail Web" -f deploy/docker/Dockerfile.web --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" .
 
       - name: Upload image metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
