@@ -529,6 +529,17 @@ func isTenancyFKViolation(err error) bool {
 	return strings.Contains(err.Error(), "violates foreign key constraint")
 }
 
+func isTenancyUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var sqlStateErr interface{ SQLState() string }
+	if errors.As(err, &sqlStateErr) {
+		return sqlStateErr.SQLState() == "23505"
+	}
+	return strings.Contains(err.Error(), "violates unique constraint")
+}
+
 // GetProject returns one scoped project.
 func (p *PostgresStore) GetProject(ctx context.Context, workspaceID string, projectID string) (TenancyProject, error) {
 	scope, err := RequireScope(ctx)
@@ -719,6 +730,9 @@ func (p *PostgresStore) UpsertTenancyScanPolicy(ctx context.Context, policy Tena
 	)
 	if isTenancyFKViolation(err) {
 		return ErrNotFound
+	}
+	if isTenancyUniqueViolation(err) {
+		return ErrConflict
 	}
 	if err != nil {
 		return fmt.Errorf("upsert scan policy: %w", err)

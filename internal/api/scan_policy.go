@@ -51,10 +51,11 @@ func (s *Service) resolveScanPolicyStore() (scanPolicyStore, error) {
 
 // ListScanPolicies lists project-scoped scan policies.
 func (s *Service) ListScanPolicies(ctx context.Context, workspaceID string, projectID string, filter ScanPolicyListFilter) ([]db.TenancyScanPolicy, error) {
-	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
 		return nil, err
 	}
+	scopedCtx := db.WithScope(ctx, scope)
 	store, err := s.resolveScanPolicyStore()
 	if err != nil {
 		return nil, err
@@ -63,20 +64,21 @@ func (s *Service) ListScanPolicies(ctx context.Context, workspaceID string, proj
 	if err != nil {
 		return nil, err
 	}
-	return store.ListTenancyScanPolicies(ctx, project.WorkspaceID, project.ProjectID, triggerMode, filter.Enabled, filter.Limit)
+	return store.ListTenancyScanPolicies(scopedCtx, project.WorkspaceID, project.ProjectID, triggerMode, filter.Enabled, filter.Limit)
 }
 
 // GetScanPolicy returns one project-scoped scan policy by id.
 func (s *Service) GetScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (db.TenancyScanPolicy, error) {
-	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
 		return db.TenancyScanPolicy{}, err
 	}
+	scopedCtx := db.WithScope(ctx, scope)
 	store, err := s.resolveScanPolicyStore()
 	if err != nil {
 		return db.TenancyScanPolicy{}, err
 	}
-	return store.GetTenancyScanPolicy(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(policyID))
+	return store.GetTenancyScanPolicy(scopedCtx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(policyID))
 }
 
 // UpsertScanPolicy creates or updates one project-scoped scan policy.
@@ -85,6 +87,7 @@ func (s *Service) UpsertScanPolicy(ctx context.Context, workspaceID string, proj
 	if err != nil {
 		return db.TenancyScanPolicy{}, err
 	}
+	scopedCtx := db.WithScope(ctx, scope)
 	store, err := s.resolveScanPolicyStore()
 	if err != nil {
 		return db.TenancyScanPolicy{}, err
@@ -125,23 +128,24 @@ func (s *Service) UpsertScanPolicy(ctx context.Context, workspaceID string, proj
 	if err != nil {
 		return db.TenancyScanPolicy{}, ErrInvalidScanPolicyRequest
 	}
-	if err := store.UpsertTenancyScanPolicy(ctx, policy); err != nil {
+	if err := store.UpsertTenancyScanPolicy(scopedCtx, policy); err != nil {
 		return db.TenancyScanPolicy{}, err
 	}
-	return store.GetTenancyScanPolicy(ctx, policy.WorkspaceID, policy.ProjectID, policy.PolicyID)
+	return store.GetTenancyScanPolicy(scopedCtx, policy.WorkspaceID, policy.ProjectID, policy.PolicyID)
 }
 
 // DeleteScanPolicy removes one project-scoped scan policy by id.
 func (s *Service) DeleteScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error {
-	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
 		return err
 	}
+	scopedCtx := db.WithScope(ctx, scope)
 	store, err := s.resolveScanPolicyStore()
 	if err != nil {
 		return err
 	}
-	return store.DeleteTenancyScanPolicy(ctx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(policyID))
+	return store.DeleteTenancyScanPolicy(scopedCtx, project.WorkspaceID, project.ProjectID, strings.TrimSpace(policyID))
 }
 
 func normalizeScanTriggerMode(raw string, allowEmpty bool) (domain.ScanTriggerMode, error) {

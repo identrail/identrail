@@ -2905,6 +2905,15 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 		t.Fatalf("expected scan policy upsert 200, got %d body=%s", scanPolicyResp.Code, scanPolicyResp.Body.String())
 	}
 
+	duplicatePolicyNameResp := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/scan-policies", `{
+		"policy_id":"secondary",
+		"name":"Default policy",
+		"trigger_mode":"manual"
+	}`)
+	if duplicatePolicyNameResp.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate scan policy name 409, got %d body=%s", duplicatePolicyNameResp.Code, duplicatePolicyNameResp.Body.String())
+	}
+
 	listPoliciesResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/scan-policies?trigger_mode=scheduled&enabled=true", "")
 	if listPoliciesResp.Code != http.StatusOK {
 		t.Fatalf("expected scan policy list 200, got %d body=%s", listPoliciesResp.Code, listPoliciesResp.Body.String())

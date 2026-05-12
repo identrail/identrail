@@ -1001,6 +1001,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
   /v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies/{policy_id}:

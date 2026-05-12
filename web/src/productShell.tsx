@@ -2366,29 +2366,31 @@ export function ProductProjectDetailPage() {
 
     const nextConnections: SourceConnectionMap = {};
     const nextErrors: Partial<Record<SourceProvider, string>> = {};
-    const providers: SourceProvider[] = ['github', 'aws', 'kubernetes'];
+    const [githubResult, awsResult, kubernetesResult, scanPolicyResult] = results;
 
-    results.forEach((result, index) => {
-      const provider = providers[index];
-      if (!provider) {
-        return;
-      }
-      if (result.status === 'fulfilled') {
-        if (provider === 'github') {
-          nextConnections.github = result.value.connection as GitHubConnectionStatus;
-        } else if (provider === 'aws') {
-          nextConnections.aws = result.value.connection as AWSConnectionStatus;
-        } else {
-          nextConnections.kubernetes = result.value.connection as KubernetesConnectionStatus;
-        }
-        return;
-      }
-      nextErrors[provider] = result.reason instanceof Error ? result.reason.message : `Unable to load ${SOURCE_PROFILES[provider].name} status.`;
-    });
+    if (githubResult.status === 'fulfilled') {
+      nextConnections.github = githubResult.value.connection;
+    } else {
+      nextErrors.github =
+        githubResult.reason instanceof Error ? githubResult.reason.message : `Unable to load ${SOURCE_PROFILES.github.name} status.`;
+    }
+    if (awsResult.status === 'fulfilled') {
+      nextConnections.aws = awsResult.value.connection;
+    } else {
+      nextErrors.aws =
+        awsResult.reason instanceof Error ? awsResult.reason.message : `Unable to load ${SOURCE_PROFILES.aws.name} status.`;
+    }
+    if (kubernetesResult.status === 'fulfilled') {
+      nextConnections.kubernetes = kubernetesResult.value.connection;
+    } else {
+      nextErrors.kubernetes =
+        kubernetesResult.reason instanceof Error
+          ? kubernetesResult.reason.message
+          : `Unable to load ${SOURCE_PROFILES.kubernetes.name} status.`;
+    }
 
     setConnections(nextConnections);
     setSourceErrors(nextErrors);
-    const scanPolicyResult = results[3];
     if (scanPolicyResult?.status === 'fulfilled') {
       const items = scanPolicyResult.value.items ?? [];
       setScanPolicies(items);

@@ -1254,6 +1254,8 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 			case errors.Is(err, ErrInvalidScanPolicyRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan policy request"})
+			case errors.Is(err, db.ErrConflict):
+				c.JSON(http.StatusConflict, gin.H{"error": "scan policy conflicts with an existing policy"})
 			case errors.Is(err, ErrScanPolicyStoreUnavailable):
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan policy service unavailable"})
 			default:

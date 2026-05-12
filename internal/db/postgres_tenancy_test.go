@@ -13,6 +13,16 @@ import (
 	"github.com/identrail/identrail/internal/secretstore"
 )
 
+type testSQLStateError string
+
+func (e testSQLStateError) Error() string {
+	return string(e)
+}
+
+func (e testSQLStateError) SQLState() string {
+	return string(e)
+}
+
 func TestPostgresStoreUpsertAndGetOrganizationScoped(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -832,6 +842,52 @@ func TestPostgresStoreScanPolicyCRUD(t *testing.T) {
 
 	if err := store.DeleteTenancyScanPolicy(ctx, "workspace-a", "project-1", "default"); err != nil {
 		t.Fatalf("delete scan policy: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreScanPolicyDuplicateNameReturnsConflict(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	mock.ExpectExec("INSERT INTO tenancy_scan_policies").
+		WithArgs(
+			"tenant-a",
+			"workspace-a",
+			"project-1",
+			"secondary",
+			"Default policy",
+			true,
+			"manual",
+			"",
+			1,
+			500,
+			200,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnError(testSQLStateError("23505"))
+
+	err = store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "secondary",
+		Name:               "Default policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected duplicate scan policy name to return ErrConflict, got %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

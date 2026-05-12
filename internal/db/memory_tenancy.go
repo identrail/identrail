@@ -552,6 +552,18 @@ func (m *MemoryStore) UpsertTenancyScanPolicy(ctx context.Context, policy Tenanc
 		m.mu.Unlock()
 		return ErrNotFound
 	}
+	for existingKey, existing := range m.scanPolicies {
+		if existingKey == tenancyScanPolicyKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.PolicyID) {
+			continue
+		}
+		if existing.TenantID == normalized.TenantID &&
+			existing.WorkspaceID == normalized.WorkspaceID &&
+			existing.ProjectID == normalized.ProjectID &&
+			strings.EqualFold(existing.Name, normalized.Name) {
+			m.mu.Unlock()
+			return ErrConflict
+		}
+	}
 	key := tenancyScanPolicyKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.PolicyID)
 	if existing, exists := m.scanPolicies[key]; exists {
 		normalized.CreatedAt = existing.CreatedAt

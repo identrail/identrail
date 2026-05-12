@@ -341,6 +341,171 @@ func seedDefaultProject(t *testing.T, store db.Store, ctx context.Context, proje
 	}
 }
 
+func TestServiceScanPolicyCRUDAndDefaults(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	enabled := false
+	policy, err := svc.UpsertScanPolicy(ctx, "default", "project-1", ScanPolicyUpsertRequest{
+		PolicyID:           "default",
+		Name:               "Default policy",
+		Enabled:            &enabled,
+		TriggerMode:        "event",
+		MaxConcurrentScans: 2,
+	})
+	if err != nil {
+		t.Fatalf("upsert scan policy: %v", err)
+	}
+	if policy.Enabled || policy.TriggerMode != domain.ScanTriggerModeEvent {
+		t.Fatalf("unexpected scan policy state: %+v", policy)
+	}
+	if policy.HistoryLimit != defaultRepoScanHistoryLimit || policy.MaxFindings != defaultRepoScanMaxFindings {
+		t.Fatalf("expected default scan bounds, got history=%d findings=%d", policy.HistoryLimit, policy.MaxFindings)
+	}
+
+	reloaded, err := svc.GetScanPolicy(ctx, "default", "project-1", "default")
+	if err != nil {
+		t.Fatalf("get scan policy: %v", err)
+	}
+	if reloaded.PolicyID != "default" {
+		t.Fatalf("unexpected reloaded policy: %+v", reloaded)
+	}
+
+	disabled := false
+	filtered, err := svc.ListScanPolicies(ctx, "default", "project-1", ScanPolicyListFilter{
+		TriggerMode: "event",
+		Enabled:     &disabled,
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("list scan policies: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].PolicyID != "default" {
+		t.Fatalf("unexpected filtered policies: %+v", filtered)
+	}
+
+	if err := svc.DeleteScanPolicy(ctx, "default", "project-1", "default"); err != nil {
+		t.Fatalf("delete scan policy: %v", err)
+	}
+	if _, err := svc.GetScanPolicy(ctx, "default", "project-1", "default"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected deleted policy to return ErrNotFound, got %v", err)
+	}
+}
+
+func TestServiceScanPolicyUsesDefaultScopeForStoreCalls(t *testing.T) {
+	store := db.NewMemoryStore()
+	scopedCtx := defaultScopeContext()
+	seedDefaultProject(t, store, scopedCtx, "project-1")
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	policy, err := svc.UpsertScanPolicy(context.Background(), "default", "project-1", ScanPolicyUpsertRequest{
+		PolicyID:    "default",
+		Name:        "Default policy",
+		TriggerMode: "manual",
+	})
+	if err != nil {
+		t.Fatalf("upsert scan policy with default service scope: %v", err)
+	}
+	if policy.PolicyID != "default" {
+		t.Fatalf("unexpected policy from default scope upsert: %+v", policy)
+	}
+
+	if _, err := svc.GetScanPolicy(context.Background(), "default", "project-1", "default"); err != nil {
+		t.Fatalf("get scan policy with default service scope: %v", err)
+	}
+	policies, err := svc.ListScanPolicies(context.Background(), "default", "project-1", ScanPolicyListFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list scan policies with default service scope: %v", err)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("expected one scan policy with default service scope, got %+v", policies)
+	}
+	if err := svc.DeleteScanPolicy(context.Background(), "default", "project-1", "default"); err != nil {
+		t.Fatalf("delete scan policy with default service scope: %v", err)
+	}
+}
+
+func TestServiceScanPolicyDuplicateNameConflicts(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	if _, err := svc.UpsertScanPolicy(ctx, "default", "project-1", ScanPolicyUpsertRequest{
+		PolicyID:    "default",
+		Name:        "Default policy",
+		TriggerMode: "manual",
+	}); err != nil {
+		t.Fatalf("upsert first scan policy: %v", err)
+	}
+	if _, err := svc.UpsertScanPolicy(ctx, "default", "project-1", ScanPolicyUpsertRequest{
+		PolicyID:    "secondary",
+		Name:        "Default policy",
+		TriggerMode: "event",
+	}); !errors.Is(err, db.ErrConflict) {
+		t.Fatalf("expected duplicate scan policy name conflict, got %v", err)
+	}
+}
+
+func TestServiceScanPolicyValidation(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanMaxHistoryLimit = 100
+	svc.RepoScanMaxFindingsLimit = 50
+
+	cases := []struct {
+		name    string
+		request ScanPolicyUpsertRequest
+	}{
+		{
+			name: "scheduled policy requires cron",
+			request: ScanPolicyUpsertRequest{
+				PolicyID:    "scheduled",
+				Name:        "Scheduled",
+				TriggerMode: "scheduled",
+			},
+		},
+		{
+			name: "invalid trigger mode",
+			request: ScanPolicyUpsertRequest{
+				PolicyID:    "invalid-mode",
+				Name:        "Invalid mode",
+				TriggerMode: "always",
+			},
+		},
+		{
+			name: "history limit above configured maximum",
+			request: ScanPolicyUpsertRequest{
+				PolicyID:     "too-deep",
+				Name:         "Too deep",
+				TriggerMode:  "manual",
+				HistoryLimit: 101,
+			},
+		},
+		{
+			name: "max findings above configured maximum",
+			request: ScanPolicyUpsertRequest{
+				PolicyID:    "too-many-findings",
+				Name:        "Too many findings",
+				TriggerMode: "manual",
+				MaxFindings: 51,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := svc.UpsertScanPolicy(ctx, "default", "project-1", tc.request); !errors.Is(err, ErrInvalidScanPolicyRequest) {
+				t.Fatalf("expected ErrInvalidScanPolicyRequest, got %v", err)
+			}
+		})
+	}
+}
+
 func TestServiceRunScanLocked(t *testing.T) {
 	store := db.NewMemoryStore()
 	locker := scheduler.NewInMemoryLocker()

@@ -682,6 +682,18 @@ func TestMemoryStoreScanPolicyCRUD(t *testing.T) {
 		t.Fatalf("unexpected scan policy list payload: %+v", policies)
 	}
 
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "secondary",
+		Name:               "Default policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected duplicate scan policy name conflict, got %v", err)
+	}
+
 	if err := store.DeleteTenancyScanPolicy(ctx, "workspace-a", "project-1", "default"); err != nil {
 		t.Fatalf("delete scan policy: %v", err)
 	}

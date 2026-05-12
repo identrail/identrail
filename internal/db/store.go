@@ -23,6 +23,9 @@ var ErrNotFound = errors.New("record not found")
 // ErrScopeRequired indicates tenant/workspace scope must be provided in context.
 var ErrScopeRequired = errors.New("scope is required")
 
+// ErrConflict indicates the requested write conflicts with an existing record.
+var ErrConflict = errors.New("record conflict")
+
 // FindingSummaryCounts captures aggregate finding counters for one scoped workspace.
 type FindingSummaryCounts struct {
 	Total      int
