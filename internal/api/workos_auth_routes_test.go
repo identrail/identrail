@@ -117,6 +117,111 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	}
 }
 
+func TestWorkOSCallbackPreservesSelectedOrganization(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{PrimaryEmail: "multi@example.com", DisplayName: "Multi Org"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_multi",
+		Email:               "multi@example.com",
+		LastAuthenticatedAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	tenantA := db.WithScope(ctx, db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(tenantA, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed tenant a: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantA, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace a: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(tenantA, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		UserUUID:    user.ID,
+		Email:       "multi@example.com",
+		Role:        "admin",
+		Status:      "active",
+		JoinedAt:    now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed member a: %v", err)
+	}
+	tenantB := db.WithScope(ctx, db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	if err := store.UpsertOrganization(tenantB, db.TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("seed tenant b: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantB, db.TenancyWorkspace{WorkspaceID: "workspace-b", DisplayName: "Workspace B", Slug: "workspace-b"}); err != nil {
+		t.Fatalf("seed workspace b: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(tenantB, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-b",
+		MemberID:    "member-b",
+		UserID:      "subject-b",
+		UserUUID:    user.ID,
+		Email:       "multi@example.com",
+		Role:        "viewer",
+		Status:      "active",
+		JoinedAt:    now,
+	}); err != nil {
+		t.Fatalf("seed member b: %v", err)
+	}
+	workOS := &fakeWorkOSClient{
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_multi",
+				Email:         "multi@example.com",
+				EmailVerified: true,
+			},
+			OrganizationID:       "tenant-a",
+			AuthenticationMethod: "GitHubOAuth",
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil)
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, callbackReq)
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); got != "/app/tenant-a/workspace-a" {
+		t.Fatalf("expected selected organization redirect, got %q", got)
+	}
+	cookies := callbackResp.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected session cookie")
+	}
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(cookies[0])
+	meResp := httptest.NewRecorder()
+	router.ServeHTTP(meResp, meReq)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected me response 200, got %d body=%s", meResp.Code, meResp.Body.String())
+	}
+	if body := meResp.Body.String(); !strings.Contains(body, `"org_id":"tenant-a"`) || !strings.Contains(body, `"workspace_id":"workspace-a"`) {
+		t.Fatalf("expected session to preserve selected org context, got %s", body)
+	}
+}
+
 func TestWorkOSStartHandlesUnavailableServiceAndProvider(t *testing.T) {
 	routerWithoutService := NewRouter(zap.NewNop(), telemetry.NewMetrics(), nil, RouterOptions{
 		FeatureNewAuth:      true,

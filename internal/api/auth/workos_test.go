@@ -64,7 +64,7 @@ func TestWorkOSSDKClientAuthenticateWithCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authenticate with code: %v", err)
 	}
-	if authenticated.User.ID != "user_123" || authenticated.User.Email != "user@example.com" || authenticated.OrganizationID != "org_123" {
+	if authenticated.User.ID != "user_123" || authenticated.User.Email != "user@example.com" || authenticated.OrganizationID != "org_123" || authenticated.User.OrganizationID != "org_123" {
 		t.Fatalf("unexpected authentication: %+v", authenticated)
 	}
 	if len(authenticated.User.RawClaims) == 0 || !strings.Contains(string(authenticated.User.RawClaims), "user@example.com") {

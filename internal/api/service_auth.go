@@ -100,7 +100,7 @@ func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.Work
 		if saveIdentityErr != nil {
 			return WorkOSLoginResult{}, saveIdentityErr
 		}
-		return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: savedUser, Identity: savedIdentity})
+		return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: savedUser, Identity: savedIdentity}, profile.OrganizationID)
 	}
 	if !errors.Is(err, db.ErrNotFound) {
 		return WorkOSLoginResult{}, err
@@ -140,7 +140,7 @@ func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.Work
 	if err != nil {
 		return WorkOSLoginResult{}, err
 	}
-	return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: user, Identity: identity, NewUser: true})
+	return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: user, Identity: identity, NewUser: true}, profile.OrganizationID)
 }
 
 func (s *Service) DeactivateWorkOSUser(ctx context.Context, subject string) (int, error) {
@@ -213,8 +213,17 @@ func (s *Service) UpdateWorkOSUserEmail(ctx context.Context, subject string, ema
 	return nil
 }
 
-func (s *Service) decorateWorkOSLoginResult(ctx context.Context, result WorkOSLoginResult) (WorkOSLoginResult, error) {
-	member, err := s.Store.FindFirstWorkspaceMemberByUserUUID(ctx, result.User.ID)
+func (s *Service) decorateWorkOSLoginResult(ctx context.Context, result WorkOSLoginResult, selectedOrgID string) (WorkOSLoginResult, error) {
+	selectedOrgID = strings.TrimSpace(selectedOrgID)
+	var (
+		member db.TenancyWorkspaceMember
+		err    error
+	)
+	if selectedOrgID != "" {
+		member, err = s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, result.User.ID, selectedOrgID)
+	} else {
+		member, err = s.Store.FindFirstWorkspaceMemberByUserUUID(ctx, result.User.ID)
+	}
 	if err == nil {
 		result.CurrentOrgID = member.TenantID
 		result.CurrentWorkspace = member.WorkspaceID

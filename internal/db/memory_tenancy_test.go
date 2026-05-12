@@ -647,6 +647,69 @@ func TestMemoryStoreTenancyNotFoundAndListBranches(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreFindFirstWorkspaceMemberByUserUUID(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
+	userUUID := "11111111-1111-1111-1111-111111111111"
+	ctx := context.Background()
+	tenantA := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(tenantA, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert tenant a: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantA, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace a: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(tenantA, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		UserUUID:    userUUID,
+		Email:       "user@example.com",
+		Role:        "admin",
+		Status:      "active",
+		JoinedAt:    now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("upsert member a: %v", err)
+	}
+	tenantB := WithScope(ctx, Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	if err := store.UpsertOrganization(tenantB, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("upsert tenant b: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantB, TenancyWorkspace{WorkspaceID: "workspace-b", DisplayName: "Workspace B", Slug: "workspace-b"}); err != nil {
+		t.Fatalf("upsert workspace b: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(tenantB, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-b",
+		MemberID:    "member-b",
+		UserID:      "subject-b",
+		UserUUID:    userUUID,
+		Email:       "user@example.com",
+		Role:        "viewer",
+		Status:      "active",
+		JoinedAt:    now,
+	}); err != nil {
+		t.Fatalf("upsert member b: %v", err)
+	}
+
+	latest, err := store.FindFirstWorkspaceMemberByUserUUID(ctx, userUUID)
+	if err != nil {
+		t.Fatalf("find latest member: %v", err)
+	}
+	if latest.TenantID != "tenant-b" || latest.WorkspaceID != "workspace-b" {
+		t.Fatalf("expected newest membership, got %+v", latest)
+	}
+	selected, err := store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, userUUID, "tenant-a")
+	if err != nil {
+		t.Fatalf("find selected tenant member: %v", err)
+	}
+	if selected.TenantID != "tenant-a" || selected.WorkspaceID != "workspace-a" {
+		t.Fatalf("expected selected tenant membership, got %+v", selected)
+	}
+	if _, err := store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, userUUID, "tenant-missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing selected tenant to return ErrNotFound, got %v", err)
+	}
+}
+
 func TestMemoryStoreScanPolicyCRUD(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

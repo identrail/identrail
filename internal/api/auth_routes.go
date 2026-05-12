@@ -162,7 +162,11 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "login failed"})
 			return
 		}
-		result, err := svc.UpsertWorkOSUser(c.Request.Context(), authenticated.User)
+		profile := authenticated.User
+		if strings.TrimSpace(profile.OrganizationID) == "" {
+			profile.OrganizationID = authenticated.OrganizationID
+		}
+		result, err := svc.UpsertWorkOSUser(c.Request.Context(), profile)
 		if err != nil {
 			if errors.Is(err, ErrAuthIdentityConflict) {
 				c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})

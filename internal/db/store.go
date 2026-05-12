@@ -1747,6 +1747,7 @@ type Store interface {
 	RevokeOtherUserSessions(ctx context.Context, userID string, currentSessionIDHash []byte, revokedAt time.Time) (int, error)
 	RevokeAllUserSessions(ctx context.Context, userID string, revokedAt time.Time) (int, error)
 	FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error)
+	FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) (TenancyWorkspaceMember, error)
 	CreateInvitation(ctx context.Context, invitation Invitation) (Invitation, error)
 	GetInvitation(ctx context.Context, orgID string, invitationID string) (Invitation, error)
 	ListInvitations(ctx context.Context, orgID string, limit int) ([]Invitation, error)

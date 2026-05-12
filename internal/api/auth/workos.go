@@ -29,6 +29,7 @@ type WorkOSAuthenticationRequest struct {
 type WorkOSProfile struct {
 	ID                string          `json:"id"`
 	Email             string          `json:"email"`
+	OrganizationID    string          `json:"organization_id,omitempty"`
 	FirstName         string          `json:"first_name,omitempty"`
 	LastName          string          `json:"last_name,omitempty"`
 	EmailVerified     bool            `json:"email_verified"`
@@ -104,6 +105,7 @@ func (c *WorkOSSDKClient) AuthenticateWithCode(ctx context.Context, input WorkOS
 		User: WorkOSProfile{
 			ID:                response.User.ID,
 			Email:             response.User.Email,
+			OrganizationID:    response.OrganizationID,
 			FirstName:         response.User.FirstName,
 			LastName:          response.User.LastName,
 			EmailVerified:     response.User.EmailVerified,
