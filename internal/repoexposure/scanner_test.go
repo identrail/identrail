@@ -58,9 +58,18 @@ func TestScanRepositoryDetectsSecretInCommitHistory(t *testing.T) {
 	if got := evidence["commit"]; got != firstCommit {
 		t.Fatalf("expected first commit %q, got %v", firstCommit, got)
 	}
+	if secretFinding.Commit != firstCommit || secretFinding.FilePath == "" || secretFinding.LineNumber == 0 || secretFinding.Detector == "" {
+		t.Fatalf("expected structured repo metadata, got %+v", secretFinding)
+	}
 	redacted, _ := evidence["redacted_line_snip"].(string)
 	if strings.Contains(redacted, testSecretValue) {
 		t.Fatalf("expected redacted evidence, got %q", redacted)
+	}
+	if strings.Contains(secretFinding.LineSnippet, testSecretValue) {
+		t.Fatalf("expected redacted structured snippet, got %q", secretFinding.LineSnippet)
+	}
+	if secretFinding.LineSnippetRedacted == nil || !*secretFinding.LineSnippetRedacted {
+		t.Fatalf("expected structured redacted flag, got %+v", secretFinding.LineSnippetRedacted)
 	}
 	if rawStored, _ := evidence["raw_secret_stored"].(bool); rawStored {
 		t.Fatal("raw_secret_stored must be false")
@@ -86,6 +95,12 @@ func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
 		}
 		path, _ := finding.Evidence["file_path"].(string)
 		if strings.HasSuffix(path, "workflow.yml") {
+			if finding.Commit != "HEAD" || finding.FilePath == "" || finding.LineNumber == 0 || finding.Detector == "" || finding.LineSnippet == "" {
+				t.Fatalf("expected structured repo misconfig metadata, got %+v", finding)
+			}
+			if finding.LineSnippetRedacted == nil || *finding.LineSnippetRedacted {
+				t.Fatalf("expected non-redacted structured snippet flag, got %+v", finding.LineSnippetRedacted)
+			}
 			found = true
 			break
 		}

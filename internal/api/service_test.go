@@ -1427,13 +1427,25 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	svc.RepoScanAllowedTargets = []string{"owner/repo"}
 	svc.Now = func() time.Time { return time.Date(2026, 3, 17, 15, 0, 0, 0, time.UTC) }
 	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		redacted := true
 		return &fakeRepoExecutor{
 			result: repoexposure.ScanResult{
 				Repository:     "owner/repo",
 				CommitsScanned: historyLimit,
 				FilesScanned:   5,
 				Findings: []domain.Finding{
-					{ID: "rf-1", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, CreatedAt: time.Now().UTC()},
+					{
+						ID:                  "rf-1",
+						Type:                domain.FindingSecretExposure,
+						Severity:            domain.SeverityHigh,
+						Commit:              "abc123",
+						FilePath:            "config/app.env",
+						LineNumber:          7,
+						Detector:            "aws-access-key",
+						LineSnippet:         "AWS_ACCESS_KEY_ID=AKIA****",
+						LineSnippetRedacted: &redacted,
+						CreatedAt:           time.Now().UTC(),
+					},
 				},
 				Truncated: false,
 			},
@@ -1465,6 +1477,12 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	}
 	if len(findings) != 1 || findings[0].ID != "rf-1" {
 		t.Fatalf("unexpected persisted repo findings: %+v", findings)
+	}
+	if findings[0].Commit != "abc123" || findings[0].FilePath != "config/app.env" || findings[0].LineNumber != 7 || findings[0].Detector != "aws-access-key" {
+		t.Fatalf("expected persisted repo metadata, got %+v", findings[0])
+	}
+	if findings[0].LineSnippet != "AWS_ACCESS_KEY_ID=AKIA****" || findings[0].LineSnippetRedacted == nil || !*findings[0].LineSnippetRedacted {
+		t.Fatalf("expected persisted snippet metadata, got %+v", findings[0])
 	}
 }
 

@@ -2045,6 +2045,7 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 	}
 	for _, finding := range findings {
 		finding.ScanID = repoScanID
+		domain.NormalizeRepoFindingMetadata(&finding)
 		key := repoScanID + "|" + finding.ID
 		m.repoFindings[key] = finding
 		m.repoFindingIDs[repoScanID] = appendUniqueID(m.repoFindingIDs[repoScanID], key)
@@ -2110,6 +2111,7 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
 				continue
 			}
+			domain.NormalizeRepoFindingMetadata(&finding)
 			result = append(result, finding)
 		}
 	} else {
@@ -2124,6 +2126,7 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
 				continue
 			}
+			domain.NormalizeRepoFindingMetadata(&finding)
 			result = append(result, finding)
 		}
 	}
