@@ -51,6 +51,12 @@ curl http://localhost:8080/healthz
 
 Open `http://localhost:8081` for the web UI.
 
+`docker pull` by itself only downloads images into Docker; it does not create a
+project directory or the Compose file needed to start the full stack.
+
+The no-clone public quickstart keeps the API on `http://localhost:8080`; only
+the web and Postgres host ports are intended to be customized in that profile.
+
 For local development from a cloned repository:
 
 ```bash

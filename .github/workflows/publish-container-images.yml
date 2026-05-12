@@ -123,6 +123,5 @@ jobs:
             -f deploy/docker/Dockerfile.web \
             --build-arg "VITE_IDENTRAIL_API_URL=${{ steps.meta.outputs.web_api_url }}" \
             --build-arg "VITE_ALLOW_MANUAL_PRODUCT_SESSION=true" \
-            --build-arg "VITE_DEFAULT_PRODUCT_API_KEY=identrail-local-write-key-change-me" \
             --build-arg "NGINX_CONF=default.local.conf" \
             .
