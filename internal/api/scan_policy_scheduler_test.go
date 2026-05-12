@@ -208,6 +208,57 @@ func TestEnqueueDueScanPolicyCountsInProgressRepoTowardConcurrency(t *testing.T)
 	}
 }
 
+func TestEnqueueDueScanPolicyDoesNotCountDisallowedRepoTowardConcurrency(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a", "owner/repo-b"})
+	svc.RepoScanAllowedTargets = []string{"owner/repo-b"}
+
+	upsertTestScanPolicy(t, store, ctx, now.Add(-time.Hour), 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.PoliciesDue != 1 || result.PoliciesClaimed != 1 || result.SkippedScans != 1 || result.QueuedScans != 1 {
+		t.Fatalf("unexpected scheduler result: %+v", result)
+	}
+
+	count, err := store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		t.Fatalf("CountQueuedRepoScans returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("queued repo scans = %d, want 1", count)
+	}
+}
+
+func TestEnqueueDueScanPolicyCountsQueueFullTowardConcurrency(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a", "owner/repo-b"})
+	svc.RepoQueueMaxPending = 1
+	if _, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{Repository: "owner/already-queued"}); err != nil {
+		t.Fatalf("prequeue repo scan: %v", err)
+	}
+
+	upsertTestScanPolicy(t, store, ctx, now.Add(-time.Hour), 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.PoliciesDue != 1 || result.PoliciesClaimed != 1 || result.SkippedScans != 1 || result.QueuedScans != 0 {
+		t.Fatalf("unexpected scheduler result: %+v", result)
+	}
+
+	count, err := store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		t.Fatalf("CountQueuedRepoScans returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("queued repo scans = %d, want 1", count)
+	}
+}
+
 func TestDueScanPolicyTickHandlesNoHistoryAndInvalidCron(t *testing.T) {
 	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
 	policy := db.TenancyScanPolicy{
@@ -242,11 +293,26 @@ func TestIsExpectedScheduledRepoSkip(t *testing.T) {
 	if !isExpectedScheduledRepoSkip(errors.New("github app not connected")) {
 		t.Fatal("expected not-connected error to be treated as skip")
 	}
+	if !isExpectedScheduledRepoSkip(ErrRepoTargetNotAllowed) {
+		t.Fatal("expected ErrRepoTargetNotAllowed to be treated as skip")
+	}
 	if isExpectedScheduledRepoSkip(ErrInvalidRepoScanRequest) {
 		t.Fatal("expected invalid repo scan request to be treated as failure")
 	}
 	if isExpectedScheduledRepoSkip(errors.New("unrelated failure")) {
 		t.Fatal("expected unrelated error to be treated as non-skip")
+	}
+}
+
+func TestSkipConsumesPolicyConcurrency(t *testing.T) {
+	if !skipConsumesPolicyConcurrency(ErrRepoScanInProgress) {
+		t.Fatal("expected ErrRepoScanInProgress to consume policy concurrency")
+	}
+	if !skipConsumesPolicyConcurrency(ErrRepoScanQueueFull) {
+		t.Fatal("expected ErrRepoScanQueueFull to consume policy concurrency")
+	}
+	if skipConsumesPolicyConcurrency(ErrRepoTargetNotAllowed) {
+		t.Fatal("expected ErrRepoTargetNotAllowed to not consume policy concurrency")
 	}
 }
 

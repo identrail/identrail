@@ -119,7 +119,9 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 		if err != nil {
 			if isExpectedScheduledRepoSkip(err) {
 				result.SkippedScans++
-				processed++
+				if skipConsumesPolicyConcurrency(err) {
+					processed++
+				}
 				continue
 			}
 			return result, err
@@ -153,4 +155,9 @@ func isExpectedScheduledRepoSkip(err error) bool {
 		errors.Is(err, ErrRepoScanDisabled) ||
 		errors.Is(err, ErrRepoTargetNotAllowed) ||
 		strings.Contains(strings.ToLower(err.Error()), "not connected")
+}
+
+func skipConsumesPolicyConcurrency(err error) bool {
+	return errors.Is(err, ErrRepoScanInProgress) ||
+		errors.Is(err, ErrRepoScanQueueFull)
 }
