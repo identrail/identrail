@@ -29,6 +29,20 @@ Manual setup:
    - optional context override: `IDENTRAIL_KUBE_CONTEXT`
 3. `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build`
 
+## Public Images
+
+Identrail publishes public development images to GHCR from the `dev` branch:
+
+```bash
+docker pull ghcr.io/identrail/identrail-api:dev
+docker pull ghcr.io/identrail/identrail-worker:dev
+docker pull ghcr.io/identrail/identrail-web:dev
+```
+
+Release images are published as SemVer tags by the release pipeline, for example
+`ghcr.io/identrail/identrail-api:v1.0.0`. Prefer release or SHA tags for
+repeatable production deployments.
+
 Production-style hardening example:
 
 - `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml --env-file deploy/docker/.env run --build --rm migrations`

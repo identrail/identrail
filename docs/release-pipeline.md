@@ -30,6 +30,19 @@ Identrail release automation is defined in:
 4. Image digests and web build input metadata.
 5. Auto-generated GitHub Release notes.
 
+## Continuous Public Images
+
+The **Publish Container Images** workflow also publishes public development images
+from every merge to `dev`:
+
+- `ghcr.io/identrail/identrail-api:dev`
+- `ghcr.io/identrail/identrail-worker:dev`
+- `ghcr.io/identrail/identrail-web:dev`
+
+Each run also publishes immutable SHA tags such as `sha-<12-char-sha>`.
+Use the `dev` tags for quick evaluation and SHA or release tags for repeatable
+deployments.
+
 ## Image Tag Rules
 
 - Stable tags (`vX.Y.Z`) publish `<tag>` and `latest`.

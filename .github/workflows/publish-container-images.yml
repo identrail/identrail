@@ -1,0 +1,122 @@
+name: Publish Container Images
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to publish images from. Defaults to the selected branch."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-container-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and Publish GHCR Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Resolve image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          source_sha="$(git rev-parse HEAD)"
+          sha_tag="sha-${source_sha::12}"
+          channel_tag="dev"
+          release_web_env="deploy/docker/release-web.env"
+
+          if [ ! -f "${release_web_env}" ]; then
+            echo "Missing ${release_web_env}; cannot build the web image with a versioned API URL." >&2
+            exit 1
+          fi
+
+          web_api_url="$(
+            awk -F= '$1 == "VITE_IDENTRAIL_API_URL" {print substr($0, index($0, "=") + 1)}' "${release_web_env}" \
+              | tail -n1
+          )"
+
+          if [ -z "${web_api_url}" ]; then
+            echo "${release_web_env} must define VITE_IDENTRAIL_API_URL." >&2
+            exit 1
+          fi
+
+          if [[ ! "${web_api_url}" =~ ^https:// ]]; then
+            echo "VITE_IDENTRAIL_API_URL must start with https:// for public images: ${web_api_url}" >&2
+            exit 1
+          fi
+
+          echo "base=ghcr.io/${owner}/identrail" >> "${GITHUB_OUTPUT}"
+          echo "channel_tag=${channel_tag}" >> "${GITHUB_OUTPUT}"
+          echo "sha_tag=${sha_tag}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
+          echo "web_api_url=${web_api_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base="${{ steps.meta.outputs.base }}"
+          channel_tag="${{ steps.meta.outputs.channel_tag }}"
+          sha_tag="${{ steps.meta.outputs.sha_tag }}"
+          source_url="${{ github.server_url }}/${{ github.repository }}"
+          revision="${{ steps.meta.outputs.source_sha }}"
+
+          build_and_push() {
+            local name="$1"
+            local title="$2"
+            shift 2
+
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              --push \
+              --label "org.opencontainers.image.source=${source_url}" \
+              --label "org.opencontainers.image.revision=${revision}" \
+              --label "org.opencontainers.image.title=${title}" \
+              -t "${base}-${name}:${channel_tag}" \
+              -t "${base}-${name}:${sha_tag}" \
+              "$@"
+          }
+
+          build_and_push "api" "Identrail API" \
+            -f deploy/docker/Dockerfile.backend \
+            --build-arg TARGET=server \
+            .
+
+          build_and_push "worker" "Identrail Worker" \
+            -f deploy/docker/Dockerfile.backend \
+            --build-arg TARGET=worker \
+            .
+
+          build_and_push "web" "Identrail Web" \
+            -f deploy/docker/Dockerfile.web \
+            --build-arg "VITE_IDENTRAIL_API_URL=${{ steps.meta.outputs.web_api_url }}" \
+            .
