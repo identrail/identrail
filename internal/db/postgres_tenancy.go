@@ -419,7 +419,8 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 
 // FindFirstWorkspaceMemberByUserUUID returns the newest active workspace membership for one auth user.
 func (p *PostgresStore) FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error) {
-	row := p.queryRowContext(
+	// Internal login resolution must run before a tenant/workspace scope exists.
+	row := p.queryRowContextAnyScope(
 		ctx,
 		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
 		 FROM tenancy_workspace_members

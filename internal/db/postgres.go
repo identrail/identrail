@@ -286,6 +286,14 @@ func (p *PostgresStore) queryRowContextAnyScope(ctx context.Context, query strin
 	return p.db.QueryRowContext(ctx, query, args...)
 }
 
+func (p *PostgresStore) queryContextAnyScope(ctx context.Context, query string, args ...any) (rowsScanner, error) {
+	return p.db.QueryContext(ctx, query, args...)
+}
+
+func (p *PostgresStore) execContextAnyScope(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return p.db.ExecContext(ctx, query, args...)
+}
+
 func (p *PostgresStore) beginTx(ctx context.Context) (*sql.Tx, error) {
 	if !p.enforceScopeRLS {
 		return p.db.BeginTx(ctx, nil)
