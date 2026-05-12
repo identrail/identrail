@@ -82,12 +82,22 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 
 	scope := db.Scope{TenantID: policy.TenantID, WorkspaceID: policy.WorkspaceID}
 	scopedCtx := db.WithScope(ctx, scope)
-	status, err := s.GetGitHubConnection(scopedCtx, policy.WorkspaceID, policy.ProjectID)
-	if err != nil {
-		return ScanPolicyScheduleResult{}, err
-	}
 
 	result := ScanPolicyScheduleResult{}
+	claimed, err := store.ClaimTenancyScanPolicySchedule(scopedCtx, policy.WorkspaceID, policy.ProjectID, policy.PolicyID, scheduledAt, now)
+	if err != nil {
+		return result, err
+	}
+	if !claimed {
+		return ScanPolicyScheduleResult{SkippedScans: 1}, nil
+	}
+	result.PoliciesClaimed = 1
+
+	status, err := s.GetGitHubConnection(scopedCtx, policy.WorkspaceID, policy.ProjectID)
+	if err != nil {
+		return result, err
+	}
+
 	maxConcurrent := policy.MaxConcurrentScans
 	if maxConcurrent <= 0 {
 		maxConcurrent = 1
@@ -110,15 +120,6 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 		}
 		result.QueuedScans++
 	}
-
-	claimed, err := store.ClaimTenancyScanPolicySchedule(scopedCtx, policy.WorkspaceID, policy.ProjectID, policy.PolicyID, scheduledAt, now)
-	if err != nil {
-		return result, err
-	}
-	if !claimed {
-		return ScanPolicyScheduleResult{SkippedScans: 1}, nil
-	}
-	result.PoliciesClaimed = 1
 	return result, nil
 }
 
@@ -144,6 +145,5 @@ func isExpectedScheduledRepoSkip(err error) bool {
 		errors.Is(err, ErrRepoScanQueueFull) ||
 		errors.Is(err, ErrRepoScanDisabled) ||
 		errors.Is(err, ErrRepoTargetNotAllowed) ||
-		errors.Is(err, ErrInvalidRepoScanRequest) ||
 		strings.Contains(strings.ToLower(err.Error()), "not connected")
 }

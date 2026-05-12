@@ -102,7 +102,7 @@ func TestEnqueueDueScanPoliciesSkipsWhenNoConnection(t *testing.T) {
 	}
 }
 
-func TestEnqueueDueScanPoliciesDoesNotAdvanceTickOnQueueFailure(t *testing.T) {
+func TestEnqueueDueScanPoliciesReturnsQueueErrorAfterClaim(t *testing.T) {
 	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
 	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{""})
 	connection := svc.githubConnections[githubConnectionKey("default", "default", "project-1")]
@@ -120,8 +120,9 @@ func TestEnqueueDueScanPoliciesDoesNotAdvanceTickOnQueueFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTenancyScanPolicy returned error: %v", err)
 	}
-	if policy.LastScheduledAt != nil {
-		t.Fatalf("last scheduled tick was advanced despite enqueue failure: %v", policy.LastScheduledAt)
+	wantScheduledAt := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	if policy.LastScheduledAt == nil || !policy.LastScheduledAt.Equal(wantScheduledAt) {
+		t.Fatalf("expected tick to be claimed as %s, got %v", wantScheduledAt, policy.LastScheduledAt)
 	}
 
 	count, err := store.CountQueuedRepoScans(ctx)
@@ -166,6 +167,9 @@ func TestIsExpectedScheduledRepoSkip(t *testing.T) {
 	}
 	if !isExpectedScheduledRepoSkip(errors.New("github app not connected")) {
 		t.Fatal("expected not-connected error to be treated as skip")
+	}
+	if isExpectedScheduledRepoSkip(ErrInvalidRepoScanRequest) {
+		t.Fatal("expected invalid repo scan request to be treated as failure")
 	}
 	if isExpectedScheduledRepoSkip(errors.New("unrelated failure")) {
 		t.Fatal("expected unrelated error to be treated as non-skip")
