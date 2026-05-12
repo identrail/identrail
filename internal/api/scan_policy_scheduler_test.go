@@ -110,7 +110,7 @@ func TestEnqueueDueScanPoliciesDoesNotAdvanceTickOnQueueFailure(t *testing.T) {
 	svc.githubConnections[githubConnectionKey("default", "default", "project-1")] = connection
 
 	createdAt := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
-	upsertTestScanPolicy(t, store, createdAt, 1)
+	upsertTestScanPolicy(t, store, ctx, createdAt, 1)
 
 	if _, err := svc.EnqueueDueScanPolicies(ctx); err == nil || !errors.Is(err, ErrInvalidRepoScanRequest) {
 		t.Fatalf("expected invalid repo scan request error, got %v", err)
