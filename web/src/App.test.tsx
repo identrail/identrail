@@ -188,7 +188,7 @@ describe('App', () => {
     expect(
       await screen.findByRole('heading', {
         level: 1,
-        name: /Sign in to Identrail/i
+        name: /Log in to Identrail/i
       })
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe('/signin');
@@ -224,9 +224,9 @@ describe('App', () => {
     setCurrentPath('/signin?return_to=/app/team/workspace');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/Tenant ID/i)).not.toBeInTheDocument();
-    const hostedSignIn = screen.getByRole('link', { name: /Continue with hosted sign-in/i });
+    const hostedSignIn = screen.getByRole('link', { name: /Continue with Google/i });
     expect(hostedSignIn).toBeInTheDocument();
     expect(hostedSignIn).toHaveAttribute(
       'href',
@@ -949,7 +949,7 @@ describe('App', () => {
     setCurrentPath('/auth/callback');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/signin');
     expect(window.location.search).toContain('reason=callback_error');
   });
@@ -1029,7 +1029,7 @@ describe('App', () => {
     setCurrentPath('/app/logout');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
     expect(window.location.pathname).toBe('/signin');
   });
@@ -1043,7 +1043,7 @@ describe('App', () => {
     setCurrentPath('/app/logout');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
     expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
     expect(window.location.pathname).toBe('/signin');
   });

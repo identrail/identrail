@@ -3341,6 +3341,8 @@ export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
   const isProductShellRoute = location.pathname.startsWith('/app');
+  const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
+  const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup';
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'light';
@@ -3352,12 +3354,12 @@ export function RoutedSite() {
   }, []);
 
   return (
-    <div className="idt-site">
+    <div className={`idt-site ${isAuthChoiceRoute ? 'idt-site-auth' : ''}`}>
       <a className="idt-skip" href="#main-content">
         Skip to content
       </a>
 
-      {!isProductShellRoute ? (
+      {!isProductShellRoute && !isAuthChoiceRoute ? (
         <Header
           navLinks={NAV_LINKS}
           githubRepo={GITHUB_REPO}
@@ -3435,7 +3437,7 @@ export function RoutedSite() {
         </Routes>
       </main>
 
-      {!isProductShellRoute ? (
+      {!isProductShellRoute && !isAuthChoiceRoute ? (
         <>
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
         </>
