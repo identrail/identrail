@@ -179,6 +179,7 @@ describe('App', () => {
   });
 
   it('loads authenticated product shell placeholders after login', async () => {
+    vi.stubEnv('VITE_DEFAULT_PRODUCT_API_KEY', 'writer-key');
     setCurrentPath('/app/login');
     render(<App />);
 
@@ -188,6 +189,9 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(JSON.parse(window.sessionStorage.getItem('identrail-product-session') ?? '{}')).toMatchObject({
+      apiKey: 'writer-key'
+    });
   });
 
   it('rejects persisted manual workspace sessions in production builds', async () => {

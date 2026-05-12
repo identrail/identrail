@@ -23,6 +23,7 @@ type ProductSession = {
   workspaceID: string;
   projectID?: string;
   authMode?: ProductSessionAuthMode;
+  apiKey?: string;
   accessToken?: string;
   refreshToken?: string;
   idToken?: string;
@@ -169,6 +170,10 @@ function isOIDCEnabled(): boolean {
 function isManualSessionEntryEnabled(): boolean {
   const enabled = normalizeValue(import.meta.env.VITE_ALLOW_MANUAL_PRODUCT_SESSION ?? '').toLowerCase();
   return enabled === 'true';
+}
+
+function readDefaultManualAPIKey(): string {
+  return normalizeValue(import.meta.env.VITE_DEFAULT_PRODUCT_API_KEY ?? '');
 }
 
 async function loadOIDCDiscovery(config: OIDCConfig): Promise<OIDCDiscoveryDocument> {
@@ -503,6 +508,7 @@ function readProductSession(): ProductSession | null {
     const accessToken = normalizeValue(inMemoryTokens.accessToken ?? '') || undefined;
     const refreshToken = normalizeValue(inMemoryTokens.refreshToken ?? '') || undefined;
     const idToken = normalizeValue(inMemoryTokens.idToken ?? '') || undefined;
+    const apiKey = normalizeValue(parsed.apiKey ?? '') || undefined;
     const subject = normalizeValue(parsed.subject ?? '') || undefined;
     const expiresAtRaw = Number(parsed.expiresAt ?? 0);
     const roles = Array.isArray(parsed.roles)
@@ -516,6 +522,7 @@ function readProductSession(): ProductSession | null {
       workspaceID,
       projectID: normalizeValue(parsed.projectID ?? '') || undefined,
       authMode,
+      apiKey,
       accessToken,
       refreshToken,
       idToken,
@@ -749,6 +756,7 @@ function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
   return {
     tenantID: scope.tenantID,
     workspaceID: scope.workspaceID,
+    apiKey: session?.apiKey,
     bearerToken: session?.accessToken
   };
 }
@@ -1065,6 +1073,7 @@ export function ProductLoginPage() {
   const [tenantID, setTenantID] = useState(existing?.tenantID ?? 'default');
   const [workspaceID, setWorkspaceID] = useState(existing?.workspaceID ?? 'default');
   const [projectID, setProjectID] = useState(existing?.projectID ?? '');
+  const [apiKey, setAPIKey] = useState(existing?.apiKey ?? readDefaultManualAPIKey());
   const [oidcError, setOIDCError] = useState('');
   const [oidcLoading, setOIDCLoading] = useState(false);
 
@@ -1083,6 +1092,7 @@ export function ProductLoginPage() {
       tenantID: normalizedTenantID,
       workspaceID: normalizedWorkspaceID,
       projectID: normalizeValue(projectID) || undefined,
+      apiKey: normalizeValue(apiKey) || undefined,
       authMode: 'manual'
     };
     saveProductSession(session);
@@ -1143,6 +1153,15 @@ export function ProductLoginPage() {
             <label>
               Workspace ID
               <input value={workspaceID} onChange={(event) => setWorkspaceID(event.target.value)} required />
+            </label>
+            <label>
+              API key
+              <input
+                autoComplete="off"
+                type="password"
+                value={apiKey}
+                onChange={(event) => setAPIKey(event.target.value)}
+              />
             </label>
             <label>
               Project ID (optional)

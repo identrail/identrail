@@ -17,7 +17,8 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
 
 jobs:
   prepare:
@@ -199,10 +200,6 @@ jobs:
     if: needs.prepare.outputs.publish_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -235,6 +232,7 @@ jobs:
           revision="$(git rev-parse HEAD)"
           release_web_env="deploy/docker/release-web.env"
           web_api_url_source="${release_web_env}"
+          backend_platforms="linux/amd64,linux/arm64"
 
           if [ ! -f "${release_web_env}" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
@@ -262,6 +260,11 @@ jobs:
             exit 1
           fi
 
+          if ! grep -Eq '^ARG[[:space:]]+TARGETARCH([[:space:]=]|$)' deploy/docker/Dockerfile.backend; then
+            echo "deploy/docker/Dockerfile.backend does not support TARGETARCH; publishing backend images for linux/amd64 only." >&2
+            backend_platforms="linux/amd64"
+          fi
+
           mkdir -p dist
           {
             printf 'VITE_IDENTRAIL_API_URL=%s\n' "${web_api_url}"
@@ -271,6 +274,8 @@ jobs:
           build_and_push() {
             local name="$1"
             local title="$2"
+            local platforms="$3"
+            shift
             shift
             shift
             local image="${base}-${name}"
@@ -282,7 +287,7 @@ jobs:
             fi
 
             docker buildx build \
-              --platform linux/amd64,linux/arm64 \
+              --platform "${platforms}" \
               --push \
               --label "org.opencontainers.image.source=${source_url}" \
               --label "org.opencontainers.image.revision=${revision}" \
@@ -303,7 +308,7 @@ jobs:
             fi
 
             docker buildx build \
-              --platform linux/amd64,linux/arm64 \
+              --platform "${backend_platforms}" \
               --push \
               --label "org.opencontainers.image.source=${source_url}" \
               --label "org.opencontainers.image.revision=${revision}" \
@@ -323,8 +328,8 @@ jobs:
           }
 
           build_server
-          build_and_push "worker" "Identrail Worker" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
-          build_and_push "web" "Identrail Web" -f deploy/docker/Dockerfile.web --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" .
+          build_and_push "worker" "Identrail Worker" "${backend_platforms}" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
+          build_and_push "web" "Identrail Web" "linux/amd64,linux/arm64" -f deploy/docker/Dockerfile.web --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" .
 
       - name: Upload image metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -341,9 +346,6 @@ jobs:
     if: needs.prepare.outputs.publish_images != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
-
     steps:
       - name: Download release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -366,9 +368,6 @@ jobs:
     if: needs.prepare.outputs.publish_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
-
     steps:
       - name: Download release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c

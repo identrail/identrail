@@ -63,7 +63,10 @@ docker compose -f deploy/docker/docker-compose.public.yml up -d
 
 The public stack starts Postgres, API, worker, and web without building from
 source. Open `http://localhost:8081` for the web UI and use
-`http://localhost:8080` for the API.
+`http://localhost:8080` for the API. The `dev` web image pre-fills the local
+write API key from this Compose profile so the no-build dashboard can call the
+API immediately; change the Compose API keys and build your own web image for
+non-local deployments.
 
 Supporting images are published for multi-service deployments:
 
