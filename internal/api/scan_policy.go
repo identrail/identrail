@@ -31,13 +31,15 @@ type ScanPolicyUpsertRequest struct {
 type ScanPolicyListFilter struct {
 	TriggerMode string
 	Enabled     *bool
+	SortBy      string
+	SortDesc    bool
 	Limit       int
 }
 
 type scanPolicyStore interface {
 	UpsertTenancyScanPolicy(ctx context.Context, policy db.TenancyScanPolicy) error
 	GetTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (db.TenancyScanPolicy, error)
-	ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, limit int) ([]db.TenancyScanPolicy, error)
+	ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, sortBy string, sortDesc bool, limit int) ([]db.TenancyScanPolicy, error)
 	DeleteTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error
 }
 
@@ -64,7 +66,7 @@ func (s *Service) ListScanPolicies(ctx context.Context, workspaceID string, proj
 	if err != nil {
 		return nil, err
 	}
-	return store.ListTenancyScanPolicies(scopedCtx, project.WorkspaceID, project.ProjectID, triggerMode, filter.Enabled, filter.Limit)
+	return store.ListTenancyScanPolicies(scopedCtx, project.WorkspaceID, project.ProjectID, triggerMode, filter.Enabled, filter.SortBy, filter.SortDesc, filter.Limit)
 }
 
 // GetScanPolicy returns one project-scoped scan policy by id.

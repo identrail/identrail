@@ -125,3 +125,30 @@ func TestNormalizeTenancyScanPolicyForWriteCanonicalizes(t *testing.T) {
 		t.Fatalf("timestamps were not normalized to UTC: created=%s updated=%s", got.CreatedAt.Location(), got.UpdatedAt.Location())
 	}
 }
+
+func TestNormalizeTenancyScanPolicyForWriteDefaultsManualPolicy(t *testing.T) {
+	got, err := NormalizeTenancyScanPolicyForWrite(TenancyScanPolicy{
+		TenantID:    "tenant",
+		WorkspaceID: "workspace",
+		ProjectID:   "project",
+		PolicyID:    "manual",
+		Name:        "Manual scan",
+		Cron:        "0 * * * *",
+	})
+	if err != nil {
+		t.Fatalf("NormalizeTenancyScanPolicyForWrite() error = %v", err)
+	}
+
+	if got.TriggerMode != domain.ScanTriggerModeManual {
+		t.Fatalf("TriggerMode = %q, want %q", got.TriggerMode, domain.ScanTriggerModeManual)
+	}
+	if got.Cron != "" {
+		t.Fatalf("Cron = %q, want empty cron for manual policy", got.Cron)
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("timestamps were not defaulted: created=%s updated=%s", got.CreatedAt, got.UpdatedAt)
+	}
+	if !got.UpdatedAt.Equal(got.CreatedAt) {
+		t.Fatalf("UpdatedAt = %s, want CreatedAt %s", got.UpdatedAt, got.CreatedAt)
+	}
+}

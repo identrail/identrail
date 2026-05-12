@@ -603,8 +603,8 @@ func (m *MemoryStore) GetTenancyScanPolicy(ctx context.Context, workspaceID stri
 	return policy, nil
 }
 
-// ListTenancyScanPolicies returns scoped policies ordered by most recent update.
-func (m *MemoryStore) ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, limit int) ([]TenancyScanPolicy, error) {
+// ListTenancyScanPolicies returns scoped policies ordered before limiting.
+func (m *MemoryStore) ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, sortBy string, sortDesc bool, limit int) ([]TenancyScanPolicy, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -635,7 +635,28 @@ func (m *MemoryStore) ListTenancyScanPolicies(ctx context.Context, workspaceID s
 		policies = append(policies, policy)
 	}
 	sort.SliceStable(policies, func(i, j int) bool {
-		return policies[i].UpdatedAt.After(policies[j].UpdatedAt)
+		left := policies[i]
+		right := policies[j]
+		var cmp int
+		switch sortBy {
+		case "policy_id":
+			cmp = compareMemoryString(left.PolicyID, right.PolicyID)
+		case "name":
+			cmp = compareMemoryString(left.Name, right.Name)
+		case "trigger_mode":
+			cmp = compareMemoryString(string(left.TriggerMode), string(right.TriggerMode))
+		case "updated_at":
+			cmp = left.UpdatedAt.Compare(right.UpdatedAt)
+		default:
+			cmp = left.CreatedAt.Compare(right.CreatedAt)
+		}
+		if cmp == 0 {
+			return compareMemoryString(left.PolicyID, right.PolicyID) < 0
+		}
+		if sortDesc {
+			return cmp > 0
+		}
+		return cmp < 0
 	})
 	if len(policies) > limit {
 		policies = policies[:limit]

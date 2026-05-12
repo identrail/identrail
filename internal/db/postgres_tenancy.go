@@ -796,8 +796,8 @@ func (p *PostgresStore) GetTenancyScanPolicy(ctx context.Context, workspaceID st
 	return policy, nil
 }
 
-// ListTenancyScanPolicies returns scoped scan policies ordered by most recent update.
-func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, limit int) ([]TenancyScanPolicy, error) {
+// ListTenancyScanPolicies returns scoped scan policies ordered before limiting.
+func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, sortBy string, sortDesc bool, limit int) ([]TenancyScanPolicy, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -827,7 +827,22 @@ func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID
 		args = append(args, *enabled)
 		nextArg++
 	}
-	query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d", nextArg)
+	sortColumn := "created_at"
+	switch sortBy {
+	case "policy_id":
+		sortColumn = "policy_id"
+	case "name":
+		sortColumn = "name"
+	case "trigger_mode":
+		sortColumn = "trigger_mode"
+	case "updated_at":
+		sortColumn = "updated_at"
+	}
+	sortDirection := "ASC"
+	if sortDesc {
+		sortDirection = "DESC"
+	}
+	query += fmt.Sprintf(" ORDER BY %s %s, policy_id ASC LIMIT $%d", sortColumn, sortDirection, nextArg)
 	args = append(args, limit)
 
 	rows, err := p.queryContext(ctx, query, args...)

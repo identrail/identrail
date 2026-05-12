@@ -1215,6 +1215,8 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		items, err := svc.ListScanPolicies(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), ScanPolicyListFilter{
 			TriggerMode: triggerMode,
 			Enabled:     enabled,
+			SortBy:      sortBy,
+			SortDesc:    sortDesc,
 			Limit:       pageFetchLimit(offset, limit),
 		})
 		if err != nil {
@@ -1885,7 +1887,7 @@ func sortScanPolicies(items []db.TenancyScanPolicy, sortBy string, desc bool) {
 			cmp = compareTime(left.CreatedAt, right.CreatedAt)
 		}
 		if cmp == 0 {
-			cmp = compareString(left.PolicyID, right.PolicyID)
+			return compareString(left.PolicyID, right.PolicyID) < 0
 		}
 		if desc {
 			return cmp > 0

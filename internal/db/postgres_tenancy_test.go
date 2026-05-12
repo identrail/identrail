@@ -802,7 +802,7 @@ func TestPostgresStoreScanPolicyCRUD(t *testing.T) {
 		WillReturnRows(listRows)
 
 	enabled := true
-	listed, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", domain.ScanTriggerModeScheduled, &enabled, 20)
+	listed, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", domain.ScanTriggerModeScheduled, &enabled, "created_at", false, 20)
 	if err != nil {
 		t.Fatalf("list scan policies: %v", err)
 	}

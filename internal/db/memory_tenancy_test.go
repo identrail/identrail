@@ -674,7 +674,7 @@ func TestMemoryStoreScanPolicyCRUD(t *testing.T) {
 	}
 
 	enabled := true
-	policies, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", domain.ScanTriggerModeScheduled, &enabled, 20)
+	policies, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", domain.ScanTriggerModeScheduled, &enabled, "created_at", false, 20)
 	if err != nil {
 		t.Fatalf("list scan policies: %v", err)
 	}

@@ -2714,8 +2714,9 @@ export function ProductProjectDetailPage() {
         historyLimit: String(policy.history_limit),
         maxFindings: String(policy.max_findings)
       });
-      setSuccessMessage('Scan policy saved.');
-      void refreshConnections(true);
+	      setSuccessMessage('Scan policy saved.');
+	      setPolicySaving(false);
+	      void refreshConnections(true);
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
@@ -2743,8 +2744,9 @@ export function ProductProjectDetailPage() {
       if (isStaleRequestSequence(requestSequence)) {
         return;
       }
-      setSuccessMessage(`Scan policy ${normalizedPolicyID} deleted.`);
-      void refreshConnections(true);
+	      setSuccessMessage(`Scan policy ${normalizedPolicyID} deleted.`);
+	      setPolicyDeletingID('');
+	      void refreshConnections(true);
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
