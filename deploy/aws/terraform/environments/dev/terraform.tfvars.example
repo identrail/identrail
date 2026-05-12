@@ -1,0 +1,14 @@
+aws_region  = "us-east-1"
+environment = "dev"
+name_prefix = "identrail"
+
+# Keep false until the API hosting stack and rollback runbook are ready.
+create_foundation_resources = false
+
+create_runtime_secret = true
+log_retention_days    = 30
+
+tags = {
+  Project = "identrail"
+  Stage   = "auth-rollout"
+}

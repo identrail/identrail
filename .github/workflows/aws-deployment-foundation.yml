@@ -1,0 +1,124 @@
+name: AWS Deployment Foundation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/aws-deployment-foundation.yml'
+      - 'deploy/aws/**'
+      - 'docs/aws-deployment-foundation.md'
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/workflows/aws-deployment-foundation.yml'
+      - 'deploy/aws/**'
+      - 'docs/aws-deployment-foundation.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-deployment-foundation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IDENTRAIL_AWS_REGION: ${{ vars.AWS_REGION }}
+      IDENTRAIL_AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive deploy/aws/terraform
+
+      - name: Terraform Init
+        working-directory: deploy/aws/terraform
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: deploy/aws/terraform
+        run: terraform validate
+
+      - name: Configure AWS credentials
+        if: github.repository == 'identrail/identrail' && github.ref == 'refs/heads/dev'
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws_region="$(printf '%s' "${IDENTRAIL_AWS_REGION}" | tr -d '[:space:]')"
+          if [ -z "${aws_region}" ]; then
+            echo "Missing repository variable AWS_REGION."
+            exit 1
+          fi
+          if [[ ! "${aws_region}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "AWS_REGION must be an AWS region such as us-east-1."
+            exit 1
+          fi
+          aws_role_arn="$(printf '%s' "${IDENTRAIL_AWS_ROLE_ARN}" | tr -d '[:space:]')"
+          if [ -z "${aws_role_arn}" ]; then
+            echo "Missing repository secret AWS_ROLE_ARN."
+            exit 1
+          fi
+          if [[ ! "${aws_role_arn}" =~ ^arn:aws:iam::[0-9]{12}:role/.+$ ]]; then
+            echo "AWS_ROLE_ARN must look like arn:aws:iam::<account-id>:role/<role-name>."
+            exit 1
+          fi
+          echo "::add-mask::${aws_role_arn}"
+
+          token_response="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
+          oidc_token="$(jq -r '.value // empty' <<< "${token_response}")"
+          if [ -z "${oidc_token}" ]; then
+            echo "GitHub did not return an OIDC token."
+            exit 1
+          fi
+
+          credentials="$(
+            aws sts assume-role-with-web-identity \
+              --role-arn "${aws_role_arn}" \
+              --role-session-name "identrail-aws-foundation-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --web-identity-token "${oidc_token}" \
+              --duration-seconds 900 \
+              --query 'Credentials' \
+              --output json
+          )"
+          access_key_id="$(jq -r '.AccessKeyId' <<< "${credentials}")"
+          secret_access_key="$(jq -r '.SecretAccessKey' <<< "${credentials}")"
+          session_token="$(jq -r '.SessionToken' <<< "${credentials}")"
+          echo "::add-mask::${access_key_id}"
+          echo "::add-mask::${secret_access_key}"
+          echo "::add-mask::${session_token}"
+          {
+            echo "AWS_ACCESS_KEY_ID=${access_key_id}"
+            echo "AWS_SECRET_ACCESS_KEY=${secret_access_key}"
+            echo "AWS_SESSION_TOKEN=${session_token}"
+            echo "AWS_REGION=${aws_region}"
+            echo "AWS_DEFAULT_REGION=${aws_region}"
+          } >> "$GITHUB_ENV"
+
+      - name: Terraform Plan
+        if: github.repository == 'identrail/identrail' && github.ref == 'refs/heads/dev'
+        working-directory: deploy/aws/terraform
+        run: |
+          terraform plan \
+            -refresh=false \
+            -input=false \
+            -var-file=environments/dev/terraform.tfvars.example \
+            -var="aws_region=${AWS_REGION}"
+
+      - name: Skip AWS Plan Outside Dev
+        if: github.repository != 'identrail/identrail' || github.ref != 'refs/heads/dev'
+        run: echo "Skipping AWS plan because OIDC trust is scoped to identrail/identrail dev."

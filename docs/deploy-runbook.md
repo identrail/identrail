@@ -8,6 +8,7 @@ Portable deployment profiles:
 - Linux VM/systemd: `deploy/systemd/`
 - Guide: `docs/deployment-anywhere.md`
 - AWS OIDC deployment role: `docs/aws-oidc-deployment.md`
+- AWS deployment foundation: `docs/aws-deployment-foundation.md`
 - Operator readiness: `docs/operator-readiness.md`
 - Troubleshooting playbook: `docs/troubleshooting.md`
 - Incident workflow: `docs/incident-response.md`
