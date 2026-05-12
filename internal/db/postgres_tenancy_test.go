@@ -918,7 +918,7 @@ func TestPostgresStoreScheduledScanPolicyListAndClaim(t *testing.T) {
 		 FROM tenancy_scan_policies
 		 WHERE enabled = TRUE
 		   AND trigger_mode IN ($1, $2)
-		 ORDER BY created_at ASC, policy_id ASC
+		 ORDER BY created_at ASC, tenant_id ASC, workspace_id ASC, project_id ASC, policy_id ASC
 		 LIMIT $3 OFFSET $4`)).
 		WithArgs("scheduled", "hybrid", 100, 25).
 		WillReturnRows(rows)

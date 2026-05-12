@@ -717,6 +717,15 @@ func (m *MemoryStore) ListScheduledTenancyScanPolicies(ctx context.Context, limi
 		if cmp := left.CreatedAt.Compare(right.CreatedAt); cmp != 0 {
 			return cmp < 0
 		}
+		if cmp := compareMemoryString(left.TenantID, right.TenantID); cmp != 0 {
+			return cmp < 0
+		}
+		if cmp := compareMemoryString(left.WorkspaceID, right.WorkspaceID); cmp != 0 {
+			return cmp < 0
+		}
+		if cmp := compareMemoryString(left.ProjectID, right.ProjectID); cmp != 0 {
+			return cmp < 0
+		}
 		return compareMemoryString(left.PolicyID, right.PolicyID) < 0
 	})
 	if offset >= len(policies) {
