@@ -112,7 +112,12 @@ jobs:
       - name: Terraform Plan
         if: github.repository == 'identrail/identrail' && github.ref == 'refs/heads/dev'
         working-directory: deploy/aws/terraform
-        run: terraform plan -refresh=false -input=false -var-file=environments/dev/terraform.tfvars.example
+        run: |
+          terraform plan \
+            -refresh=false \
+            -input=false \
+            -var-file=environments/dev/terraform.tfvars.example \
+            -var="aws_region=${AWS_REGION}"
 
       - name: Skip AWS Plan Outside Dev
         if: github.repository != 'identrail/identrail' || github.ref != 'refs/heads/dev'
