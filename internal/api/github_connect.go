@@ -125,21 +125,23 @@ type githubConnectState struct {
 }
 
 type githubProjectConnection struct {
-	TenantID               string
-	WorkspaceID            string
-	ProjectID              string
-	AccountLogin           string
-	InstallationID         int64
-	TokenReference         string
-	WebhookSecretReference string
-	WebhookSecretEnvelope  secretstore.Envelope
-	WebhookSecretRotatedAt time.Time
-	SelectedRepositories   []string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	LastWebhookEventType   string
-	LastWebhookDeliveryID  string
-	LastWebhookEventAt     *time.Time
+	TenantID                  string
+	WorkspaceID               string
+	ProjectID                 string
+	AccountLogin              string
+	InstallationID            int64
+	TokenReference            string
+	WebhookSecretReference    string
+	WebhookSecretEnvelope     secretstore.Envelope
+	WebhookSecretRotatedAt    time.Time
+	SelectedRepositories      []string
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+	LastWebhookEventType      string
+	LastWebhookDeliveryID     string
+	LastWebhookEventAt        *time.Time
+	LastWebhookScanRepository string
+	LastWebhookScanQueuedAt   *time.Time
 }
 
 type githubWebhookEnvelope struct {
@@ -442,13 +444,25 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 	}
 
 	now := s.Now().UTC()
-	s.recordGitHubWebhookDelivery(ctx, validConnections, normalizedEventType, strings.TrimSpace(deliveryID), now)
-
-	if !githubWebhookTriggersScan(normalizedEventType) {
-		return result, nil
-	}
+	normalizedDeliveryID := strings.TrimSpace(deliveryID)
+	scanTriggerEvent := githubWebhookTriggersScan(normalizedEventType)
 
 	for _, connection := range validConnections {
+		replayed := s.isGitHubWebhookReplay(connection, normalizedDeliveryID, now)
+		if replayed && scanTriggerEvent {
+			result.SkippedScans++
+			continue
+		}
+		if !scanTriggerEvent {
+			s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+			continue
+		}
+		if s.shouldThrottleGitHubWebhookScan(connection, repository, now) {
+			result.SkippedScans++
+			s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+			continue
+		}
+
 		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: connection.TenantID, WorkspaceID: connection.WorkspaceID})
 		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{Repository: repository})
 		if err != nil {
@@ -458,11 +472,14 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 				errors.Is(err, ErrRepoTargetNotAllowed) ||
 				errors.Is(err, ErrInvalidRepoScanRequest) {
 				result.SkippedScans++
+				s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 				continue
 			}
 			return GitHubWebhookResult{}, err
 		}
 		result.QueuedScans++
+		s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+		s.recordGitHubWebhookQueuedScan(ctx, connection, repository, now)
 	}
 
 	return result, nil
@@ -500,27 +517,151 @@ func (s *Service) lookupGitHubConnectionsByRepository(repository string, install
 	return matches
 }
 
-func (s *Service) recordGitHubWebhookDelivery(ctx context.Context, connections []githubProjectConnection, eventType string, deliveryID string, now time.Time) {
+func (s *Service) isGitHubWebhookReplay(connection githubProjectConnection, deliveryID string, now time.Time) bool {
+	replayWindow := s.githubWebhookReplayWindow()
+	cutoff := now.Add(-replayWindow)
+	connectionKey := githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)
+	normalizedDeliveryID := strings.TrimSpace(deliveryID)
+
 	s.githubConnectMu.Lock()
-	updated := make([]githubProjectConnection, 0, len(connections))
-	for _, connection := range connections {
-		key := githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)
-		current, exists := s.githubConnections[key]
-		if !exists {
-			continue
+	if s.githubWebhookSeen == nil {
+		s.githubWebhookSeen = map[string]time.Time{}
+	}
+	for key, seenAt := range s.githubWebhookSeen {
+		if seenAt.Before(cutoff) {
+			delete(s.githubWebhookSeen, key)
 		}
-		current.LastWebhookEventType = eventType
-		current.LastWebhookDeliveryID = deliveryID
-		eventAt := now
-		current.LastWebhookEventAt = &eventAt
-		current.UpdatedAt = now
-		s.githubConnections[key] = current
-		updated = append(updated, current)
+	}
+
+	current, exists := s.githubConnections[connectionKey]
+	if !exists {
+		current = connection
+	}
+
+	replayed := false
+	if normalizedDeliveryID != "" {
+		if strings.EqualFold(strings.TrimSpace(current.LastWebhookDeliveryID), normalizedDeliveryID) {
+			if current.LastWebhookEventAt != nil && !current.LastWebhookEventAt.UTC().Before(cutoff) {
+				replayed = true
+			}
+		}
+		replayKey := connectionKey + "::" + normalizedDeliveryID
+		if seenAt, seen := s.githubWebhookSeen[replayKey]; seen && !seenAt.Before(cutoff) {
+			replayed = true
+		}
 	}
 	s.githubConnectMu.Unlock()
-	for _, connection := range updated {
-		_ = s.persistGitHubConnection(ctx, connection)
+	return replayed
+}
+
+func (s *Service) recordGitHubWebhookDelivery(ctx context.Context, connection githubProjectConnection, eventType string, deliveryID string, now time.Time) {
+	replayWindow := s.githubWebhookReplayWindow()
+	cutoff := now.Add(-replayWindow)
+	connectionKey := githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)
+	normalizedDeliveryID := strings.TrimSpace(deliveryID)
+
+	s.githubConnectMu.Lock()
+	if s.githubWebhookSeen == nil {
+		s.githubWebhookSeen = map[string]time.Time{}
 	}
+	for key, seenAt := range s.githubWebhookSeen {
+		if seenAt.Before(cutoff) {
+			delete(s.githubWebhookSeen, key)
+		}
+	}
+
+	if normalizedDeliveryID != "" {
+		replayKey := connectionKey + "::" + normalizedDeliveryID
+		s.githubWebhookSeen[replayKey] = now
+	}
+
+	current, exists := s.githubConnections[connectionKey]
+	if !exists {
+		current = connection
+	}
+	current.LastWebhookEventType = eventType
+	current.LastWebhookDeliveryID = normalizedDeliveryID
+	eventAt := now
+	current.LastWebhookEventAt = &eventAt
+	current.UpdatedAt = now
+	s.githubConnections[connectionKey] = current
+	s.githubConnectMu.Unlock()
+
+	_ = s.persistGitHubConnection(ctx, current)
+}
+
+func (s *Service) shouldThrottleGitHubWebhookScan(connection githubProjectConnection, repository string, now time.Time) bool {
+	burstWindow := s.githubWebhookBurstWindow()
+	normalizedRepository := normalizeGitHubRepository(repository)
+	if burstWindow <= 0 || normalizedRepository == "" {
+		return false
+	}
+	connectionKey := githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)
+	queueKey := connectionKey + "::" + normalizedRepository
+	cutoff := now.Add(-burstWindow)
+
+	s.githubConnectMu.Lock()
+	defer s.githubConnectMu.Unlock()
+	if s.githubWebhookLastQueued == nil {
+		s.githubWebhookLastQueued = map[string]time.Time{}
+	}
+	for key, queuedAt := range s.githubWebhookLastQueued {
+		if queuedAt.Before(cutoff) {
+			delete(s.githubWebhookLastQueued, key)
+		}
+	}
+	if queuedAt, exists := s.githubWebhookLastQueued[queueKey]; exists && now.Sub(queuedAt) < burstWindow {
+		return true
+	}
+	current, exists := s.githubConnections[connectionKey]
+	if !exists || current.LastWebhookScanQueuedAt == nil {
+		return false
+	}
+	if normalizeGitHubRepository(current.LastWebhookScanRepository) != normalizedRepository {
+		return false
+	}
+	return now.Sub(current.LastWebhookScanQueuedAt.UTC()) < burstWindow
+}
+
+func (s *Service) recordGitHubWebhookQueuedScan(ctx context.Context, connection githubProjectConnection, repository string, now time.Time) {
+	normalizedRepository := normalizeGitHubRepository(repository)
+	if normalizedRepository == "" {
+		return
+	}
+	connectionKey := githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)
+	queueKey := connectionKey + "::" + normalizedRepository
+
+	s.githubConnectMu.Lock()
+	if s.githubWebhookLastQueued == nil {
+		s.githubWebhookLastQueued = map[string]time.Time{}
+	}
+	s.githubWebhookLastQueued[queueKey] = now
+	current, exists := s.githubConnections[connectionKey]
+	if !exists {
+		current = connection
+	}
+	current.LastWebhookScanRepository = normalizedRepository
+	queuedAt := now
+	current.LastWebhookScanQueuedAt = &queuedAt
+	current.UpdatedAt = now
+	s.githubConnections[connectionKey] = current
+	s.githubConnectMu.Unlock()
+
+	_ = s.persistGitHubConnection(ctx, current)
+}
+
+func (s *Service) githubWebhookReplayWindow() time.Duration {
+	if s != nil && s.GitHubWebhookReplayWindow > 0 {
+		return s.GitHubWebhookReplayWindow
+	}
+	return defaultGitHubWebhookReplayWindow
+}
+
+func (s *Service) githubWebhookBurstWindow() time.Duration {
+	if s != nil && s.GitHubWebhookBurstWindow > 0 {
+		return s.GitHubWebhookBurstWindow
+	}
+	return defaultGitHubWebhookBurstWindow
 }
 
 func (s *Service) requireScopedProject(ctx context.Context, workspaceID string, projectID string) (db.TenancyProject, db.Scope, error) {
@@ -636,18 +777,22 @@ func (s *Service) persistGitHubConnection(ctx context.Context, connection github
 		WorkspaceID: connection.WorkspaceID,
 	})
 	metadata := map[string]any{
-		"provider":                  "github_app",
-		"account_login":             connection.AccountLogin,
-		"installation_id":           connection.InstallationID,
-		"token_reference":           connection.TokenReference,
-		"webhook_secret_reference":  connection.WebhookSecretReference,
-		"selected_repositories":     append([]string(nil), connection.SelectedRepositories...),
-		"last_webhook_event_type":   connection.LastWebhookEventType,
-		"last_webhook_delivery_id":  connection.LastWebhookDeliveryID,
-		"webhook_secret_rotated_at": rotatedAt.Format(time.RFC3339Nano),
+		"provider":                     "github_app",
+		"account_login":                connection.AccountLogin,
+		"installation_id":              connection.InstallationID,
+		"token_reference":              connection.TokenReference,
+		"webhook_secret_reference":     connection.WebhookSecretReference,
+		"selected_repositories":        append([]string(nil), connection.SelectedRepositories...),
+		"last_webhook_event_type":      connection.LastWebhookEventType,
+		"last_webhook_delivery_id":     connection.LastWebhookDeliveryID,
+		"last_webhook_scan_repository": normalizeGitHubRepository(connection.LastWebhookScanRepository),
+		"webhook_secret_rotated_at":    rotatedAt.Format(time.RFC3339Nano),
 	}
 	if connection.LastWebhookEventAt != nil {
 		metadata["last_webhook_event_at"] = connection.LastWebhookEventAt.UTC().Format(time.RFC3339Nano)
+	}
+	if connection.LastWebhookScanQueuedAt != nil {
+		metadata["last_webhook_scan_queued_at"] = connection.LastWebhookScanQueuedAt.UTC().Format(time.RFC3339Nano)
 	}
 	connector := db.TenancyConnector{
 		TenantID:            connection.TenantID,
@@ -719,26 +864,29 @@ func (s *Service) githubConnectionFromStored(ctx context.Context, item db.Tenanc
 		return githubProjectConnection{}, fmt.Errorf("github connector installation id is missing")
 	}
 	lastWebhookEventAt := metadataTime(metadata, "last_webhook_event_at")
+	lastWebhookScanQueuedAt := metadataTime(metadata, "last_webhook_scan_queued_at")
 	rotatedAt := secret.RotatedAt
 	if rotatedAt.IsZero() {
 		rotatedAt = metadataTime(metadata, "webhook_secret_rotated_at")
 	}
 	return githubProjectConnection{
-		TenantID:               item.Connector.TenantID,
-		WorkspaceID:            item.Connector.WorkspaceID,
-		ProjectID:              item.Connector.ProjectID,
-		AccountLogin:           metadataString(metadata, "account_login"),
-		InstallationID:         installationID,
-		TokenReference:         metadataString(metadata, "token_reference"),
-		WebhookSecretReference: firstNonEmptyString(metadataString(metadata, "webhook_secret_reference"), secret.SecretRefID),
-		WebhookSecretEnvelope:  secret.Envelope,
-		WebhookSecretRotatedAt: rotatedAt,
-		SelectedRepositories:   metadataStringSlice(metadata, "selected_repositories"),
-		CreatedAt:              item.Connector.CreatedAt,
-		UpdatedAt:              item.Connector.UpdatedAt,
-		LastWebhookEventType:   metadataString(metadata, "last_webhook_event_type"),
-		LastWebhookDeliveryID:  metadataString(metadata, "last_webhook_delivery_id"),
-		LastWebhookEventAt:     timePtr(lastWebhookEventAt),
+		TenantID:                  item.Connector.TenantID,
+		WorkspaceID:               item.Connector.WorkspaceID,
+		ProjectID:                 item.Connector.ProjectID,
+		AccountLogin:              metadataString(metadata, "account_login"),
+		InstallationID:            installationID,
+		TokenReference:            metadataString(metadata, "token_reference"),
+		WebhookSecretReference:    firstNonEmptyString(metadataString(metadata, "webhook_secret_reference"), secret.SecretRefID),
+		WebhookSecretEnvelope:     secret.Envelope,
+		WebhookSecretRotatedAt:    rotatedAt,
+		SelectedRepositories:      metadataStringSlice(metadata, "selected_repositories"),
+		CreatedAt:                 item.Connector.CreatedAt,
+		UpdatedAt:                 item.Connector.UpdatedAt,
+		LastWebhookEventType:      metadataString(metadata, "last_webhook_event_type"),
+		LastWebhookDeliveryID:     metadataString(metadata, "last_webhook_delivery_id"),
+		LastWebhookEventAt:        timePtr(lastWebhookEventAt),
+		LastWebhookScanRepository: normalizeGitHubRepository(metadataString(metadata, "last_webhook_scan_repository")),
+		LastWebhookScanQueuedAt:   timePtr(lastWebhookScanQueuedAt),
 	}, nil
 }
 

@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Hardened GitHub webhook-triggered scan orchestration with dedupe and storm controls:
+  - replayed webhook deliveries are now treated idempotently and skipped before queueing duplicate repo scans
+  - rapid repeated webhook triggers for the same project/repository now honor a burst window to suppress scan storms
+  - persisted webhook status metadata now records last queued scan repository/timestamp for stable throttling behavior
 - Added public Docker image publishing and no-build evaluation docs:
   - publishes `ghcr.io/identrail/identrail` as the primary pullable server image
   - keeps worker, web, and API alias images for multi-service deployments
