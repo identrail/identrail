@@ -168,6 +168,8 @@ var validIdentityConnectionTypes = map[string]struct{}{
 	"directory_sync": {},
 }
 
+const DefaultScanMaxRetryCount = 3
+
 var validIdentityConnectionStatuses = map[string]struct{}{
 	"pending":  {},
 	"active":   {},
@@ -176,18 +178,24 @@ var validIdentityConnectionStatuses = map[string]struct{}{
 
 // ScanRecord tracks persisted scan execution metadata.
 type ScanRecord struct {
-	ID           string     `json:"id"`
-	TenantID     string     `json:"-"`
-	WorkspaceID  string     `json:"-"`
-	Provider     string     `json:"provider"`
-	Status       string     `json:"status"`
-	StartedAt    time.Time  `json:"started_at"`
-	FinishedAt   *time.Time `json:"finished_at,omitempty"`
-	AssetCount   int        `json:"asset_count"`
-	FindingCount int        `json:"finding_count"`
-	ErrorMessage string     `json:"error_message,omitempty"`
-	TraceParent  string     `json:"-"`
-	TraceState   string     `json:"-"`
+	ID              string     `json:"id"`
+	TenantID        string     `json:"-"`
+	WorkspaceID     string     `json:"-"`
+	Provider        string     `json:"provider"`
+	Status          string     `json:"status"`
+	StartedAt       time.Time  `json:"started_at"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	AssetCount      int        `json:"asset_count"`
+	FindingCount    int        `json:"finding_count"`
+	ErrorMessage    string     `json:"error_message,omitempty"`
+	RetryCount      int        `json:"retry_count"`
+	MaxRetryCount   int        `json:"max_retry_count"`
+	FailureCategory string     `json:"failure_category,omitempty"`
+	NextRetryAt     *time.Time `json:"next_retry_at,omitempty"`
+	DeadLettered    bool       `json:"dead_lettered"`
+	DeadLetteredAt  *time.Time `json:"dead_lettered_at,omitempty"`
+	TraceParent     string     `json:"-"`
+	TraceState      string     `json:"-"`
 }
 
 // RepoScanRecord tracks persisted repository exposure scan metadata.
@@ -1687,6 +1695,8 @@ type Store interface {
 	CountQueuedScans(ctx context.Context, provider string) (int, error)
 	GetScan(ctx context.Context, scanID string) (ScanRecord, error)
 	CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error
+	ScheduleScanRetry(ctx context.Context, scanID string, queuedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string, nextRetryAt time.Time) error
+	DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string) error
 	UpsertArtifacts(ctx context.Context, scanID string, artifacts ScanArtifacts) error
 	UpsertFindings(ctx context.Context, scanID string, findings []domain.Finding) error
 	GetFindingTriageState(ctx context.Context, findingID string) (FindingTriageState, error)

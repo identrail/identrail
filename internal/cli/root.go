@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -58,6 +59,7 @@ func BuildRootCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	root.PersistentFlags().StringVar(&stateFile, "state-file", defaultStateFile, "Path to local findings state file")
 
 	root.AddCommand(buildScanCmd(cfg, out, &stateFile))
+	root.AddCommand(buildScanReplayCmd(cfg, out))
 	root.AddCommand(buildFindingsCmd(out, &stateFile))
 	root.AddCommand(buildRepoScanCmd(out))
 	root.AddCommand(buildAuthzCmd(cfg, out))
@@ -153,6 +155,88 @@ func buildFindingsCmd(out io.Writer, stateFile *string) *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
+	return cmd
+}
+
+func buildScanReplayCmd(cfg config.Config, out io.Writer) *cobra.Command {
+	var (
+		apiURL       string
+		apiKey       string
+		tenantID     string
+		workspaceID  string
+		scanID       string
+		timeout      time.Duration
+		outputFormat string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "scan-replay",
+		Short: "Replay one failed or dead-lettered scan through the API queue",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if strings.TrimSpace(scanID) == "" {
+				return fmt.Errorf("--scan-id is required")
+			}
+			formatter, err := parseOutputFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			replayURL := strings.TrimRight(strings.TrimSpace(apiURL), "/") + "/v1/scans/" + url.PathEscape(strings.TrimSpace(scanID)) + "/replay"
+			if strings.TrimSpace(apiURL) == "" {
+				return fmt.Errorf("--api-url is required")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, replayURL, nil)
+			if err != nil {
+				return fmt.Errorf("build replay request: %w", err)
+			}
+			if normalizedKey := strings.TrimSpace(apiKey); normalizedKey != "" {
+				req.Header.Set("X-API-Key", normalizedKey)
+			}
+			if normalizedTenant := strings.TrimSpace(tenantID); normalizedTenant != "" {
+				req.Header.Set("X-Identrail-Tenant-ID", normalizedTenant)
+			}
+			if normalizedWorkspace := strings.TrimSpace(workspaceID); normalizedWorkspace != "" {
+				req.Header.Set("X-Identrail-Workspace-ID", normalizedWorkspace)
+			}
+
+			resp, err := (&http.Client{Timeout: timeout}).Do(req)
+			if err != nil {
+				return fmt.Errorf("replay request failed: %w", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				var apiErr scanReplayCLIErrorResponse
+				if err := json.NewDecoder(resp.Body).Decode(&apiErr); err == nil && strings.TrimSpace(apiErr.Error) != "" {
+					return fmt.Errorf("replay request failed: %s (status %d)", strings.TrimSpace(apiErr.Error), resp.StatusCode)
+				}
+				return fmt.Errorf("replay request failed with status %d", resp.StatusCode)
+			}
+
+			var response scanReplayCLIResponse
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+				return fmt.Errorf("decode replay response: %w", err)
+			}
+
+			switch formatter {
+			case outputJSON:
+				return writeJSON(out, response)
+			default:
+				return renderScanReplayOutput(out, strings.TrimSpace(scanID), response)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&apiURL, "api-url", defaultCLIAPIURL(), "Identrail API base URL")
+	cmd.Flags().StringVar(&apiKey, "api-key", strings.TrimSpace(os.Getenv("IDENTRAIL_API_KEY")), "API key used for replay request")
+	cmd.Flags().StringVar(&tenantID, "tenant-id", strings.TrimSpace(cfg.DefaultTenantID), "Tenant scope header for replay request")
+	cmd.Flags().StringVar(&workspaceID, "workspace-id", strings.TrimSpace(cfg.DefaultWorkspaceID), "Workspace scope header for replay request")
+	cmd.Flags().StringVar(&scanID, "scan-id", "", "Failed or dead-lettered scan ID to replay")
+	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "HTTP timeout for replay request")
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
 	return cmd
 }
@@ -355,6 +439,19 @@ func renderAuthzRollbackOutput(out io.Writer, response authzPolicyRollbackCLIRes
 	return err
 }
 
+func renderScanReplayOutput(out io.Writer, sourceScanID string, response scanReplayCLIResponse) error {
+	_, err := fmt.Fprintf(
+		out,
+		"Replay queued: source_scan=%s replay_scan=%s provider=%s status=%s retry_count=%d\n",
+		sourceScanID,
+		strings.TrimSpace(response.Scan.ID),
+		strings.TrimSpace(response.Scan.Provider),
+		strings.TrimSpace(response.Scan.Status),
+		response.Scan.RetryCount,
+	)
+	return err
+}
+
 type authzPolicyRollbackCLIRequest struct {
 	PolicySetID   string `json:"policy_set_id"`
 	TargetVersion int    `json:"target_version"`
@@ -372,6 +469,22 @@ type authzPolicyRollbackCLIResponse struct {
 }
 
 type authzPolicyRollbackCLIErrorResponse struct {
+	Error string `json:"error"`
+}
+
+type scanReplayCLIResponse struct {
+	Scan scanReplayCLIRecord `json:"scan"`
+}
+
+type scanReplayCLIRecord struct {
+	ID           string `json:"id"`
+	Provider     string `json:"provider"`
+	Status       string `json:"status"`
+	RetryCount   int    `json:"retry_count"`
+	DeadLettered bool   `json:"dead_lettered"`
+}
+
+type scanReplayCLIErrorResponse struct {
 	Error string `json:"error"`
 }
 

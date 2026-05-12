@@ -84,6 +84,11 @@ x-identrail-route-authorizations:
     path: /v1/scans
     action: scans.run
     resource_type: scan
+  - method: POST
+    path: /v1/scans/{scan_id}/replay
+    action: scans.replay
+    resource_type: scan
+    resource_id_param: scan_id
   - method: GET
     path: /v1/repo-scans
     action: repo_scans.read
@@ -347,6 +352,9 @@ x-identrail-action-role-grants:
     - write
     - admin
   scans.run:
+    - write
+    - admin
+  scans.replay:
     - write
     - admin
   tenancy.read:
@@ -2147,6 +2155,43 @@ paths:
           $ref: "#/components/responses/InternalServerError"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/scans/{scan_id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Scans]
+      summary: Replay a failed or dead-lettered scan
+      operationId: replayScan
+      parameters:
+        - in: path
+          name: scan_id
+          required: true
+          schema: { type: string }
+      responses:
+        "202":
+          description: Replay scan enqueued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan:
+                    $ref: "#/components/schemas/ScanRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/scans/{scan_id}/diff:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -3574,6 +3619,18 @@ components:
         asset_count: { type: integer }
         finding_count: { type: integer }
         error_message: { type: string }
+        retry_count: { type: integer }
+        max_retry_count: { type: integer }
+        failure_category: { type: string }
+        next_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+        dead_lettered: { type: boolean }
+        dead_lettered_at:
+          type: string
+          format: date-time
+          nullable: true
     ScanEvent:
       type: object
       properties:

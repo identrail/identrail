@@ -652,6 +652,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/scans/:scan_id/diff", Action: policyActionScansRead, ResourceType: "scan_diff", ResourceIDParam: "scan_id"},
 		{Method: http.MethodGet, Path: "/v1/scans/:scan_id/events", Action: policyActionScansRead, ResourceType: "scan_event", ResourceIDParam: "scan_id"},
 		{Method: http.MethodPost, Path: "/v1/scans", Action: policyActionScansRun, ResourceType: "scan"},
+		{Method: http.MethodPost, Path: "/v1/scans/:scan_id/replay", Action: policyActionScansReplay, ResourceType: "scan", ResourceIDParam: "scan_id"},
 		{Method: http.MethodGet, Path: "/v1/repo-scans", Action: policyActionRepoScansRead, ResourceType: "repo_scan"},
 		{Method: http.MethodGet, Path: "/v1/repo-scans/:repo_scan_id", Action: policyActionRepoScansRead, ResourceType: "repo_scan", ResourceIDParam: "repo_scan_id"},
 		{Method: http.MethodGet, Path: "/v1/repo-findings", Action: policyActionRepoScansRead, ResourceType: "repo_finding"},

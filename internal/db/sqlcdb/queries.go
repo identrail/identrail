@@ -17,14 +17,20 @@ func New(db *sql.DB) *Queries {
 }
 
 type ScanRow struct {
-	ID           string
-	Provider     string
-	Status       string
-	StartedAt    time.Time
-	FinishedAt   *time.Time
-	AssetCount   int
-	FindingCount int
-	ErrorMessage string
+	ID              string
+	Provider        string
+	Status          string
+	StartedAt       time.Time
+	FinishedAt      *time.Time
+	AssetCount      int
+	FindingCount    int
+	ErrorMessage    string
+	RetryCount      int
+	MaxRetryCount   int
+	FailureCategory string
+	NextRetryAt     *time.Time
+	DeadLettered    bool
+	DeadLetteredAt  *time.Time
 }
 
 type FindingRow struct {
@@ -79,11 +85,11 @@ func (q *Queries) GetScan(ctx context.Context, scanID string) (ScanRow, error) {
 	var row ScanRow
 	err := q.db.QueryRowContext(
 		ctx,
-		`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 WHERE id = $1`,
 		scanID,
-	).Scan(&row.ID, &row.Provider, &row.Status, &row.StartedAt, &row.FinishedAt, &row.AssetCount, &row.FindingCount, &row.ErrorMessage)
+	).Scan(&row.ID, &row.Provider, &row.Status, &row.StartedAt, &row.FinishedAt, &row.AssetCount, &row.FindingCount, &row.ErrorMessage, &row.RetryCount, &row.MaxRetryCount, &row.FailureCategory, &row.NextRetryAt, &row.DeadLettered, &row.DeadLetteredAt)
 	if err != nil {
 		return ScanRow{}, err
 	}
@@ -93,7 +99,7 @@ func (q *Queries) GetScan(ctx context.Context, scanID string) (ScanRow, error) {
 func (q *Queries) ListScans(ctx context.Context, limit int) ([]ScanRow, error) {
 	rows, err := q.db.QueryContext(
 		ctx,
-		`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 ORDER BY started_at DESC
 		 LIMIT $1`,
@@ -107,7 +113,7 @@ func (q *Queries) ListScans(ctx context.Context, limit int) ([]ScanRow, error) {
 	result := []ScanRow{}
 	for rows.Next() {
 		var row ScanRow
-		if err := rows.Scan(&row.ID, &row.Provider, &row.Status, &row.StartedAt, &row.FinishedAt, &row.AssetCount, &row.FindingCount, &row.ErrorMessage); err != nil {
+		if err := rows.Scan(&row.ID, &row.Provider, &row.Status, &row.StartedAt, &row.FinishedAt, &row.AssetCount, &row.FindingCount, &row.ErrorMessage, &row.RetryCount, &row.MaxRetryCount, &row.FailureCategory, &row.NextRetryAt, &row.DeadLettered, &row.DeadLetteredAt); err != nil {
 			return nil, err
 		}
 		result = append(result, row)

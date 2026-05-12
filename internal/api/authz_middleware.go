@@ -23,6 +23,7 @@ const (
 	policyActionGraphRead       = "graph.read"
 	policyActionScansRead       = "scans.read"
 	policyActionScansRun        = "scans.run"
+	policyActionScansReplay     = "scans.replay"
 	policyActionRepoScansRead   = "repo_scans.read"
 	policyActionRepoScansRun    = "repo_scans.run"
 	policyActionAuthzSimulate   = "authz.policies.simulate"
@@ -77,6 +78,7 @@ func defaultRouteActionRoleGrants() map[string][]string {
 		policyActionGraphRead:       readRoles,
 		policyActionScansRead:       readRoles,
 		policyActionScansRun:        writeRoles,
+		policyActionScansReplay:     writeRoles,
 		policyActionRepoScansRead:   readRoles,
 		policyActionRepoScansRun:    writeRoles,
 		policyActionAuthzSimulate:   {scopeAdmin},
@@ -107,6 +109,7 @@ func defaultRouteActionABACPolicies() map[string]abacActionPolicy {
 		policyActionGraphRead:       passThroughPolicy,
 		policyActionScansRead:       passThroughPolicy,
 		policyActionScansRun:        passThroughPolicy,
+		policyActionScansReplay:     passThroughPolicy,
 		policyActionRepoScansRead:   passThroughPolicy,
 		policyActionRepoScansRun:    passThroughPolicy,
 		policyActionAuthzSimulate:   passThroughPolicy,

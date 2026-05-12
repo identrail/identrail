@@ -231,7 +231,7 @@ func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider 
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
-		if record.Status != "queued" {
+		if record.Status != "queued" || record.DeadLettered {
 			continue
 		}
 		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
@@ -263,6 +263,9 @@ func (m *MemoryStore) CreateQueuedScanIfNoPending(ctx context.Context, provider 
 			continue
 		}
 		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		if record.DeadLettered {
 			continue
 		}
 		if record.Status == "queued" || record.Status == "running" {
@@ -304,10 +307,13 @@ func (m *MemoryStore) claimNextQueuedScanLocked(scope *Scope, provider string) (
 		if scope != nil && !MatchScope(*scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
-		if record.Status != "queued" {
+		if record.Status != "queued" || record.DeadLettered {
 			continue
 		}
 		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		if record.NextRetryAt != nil && record.NextRetryAt.After(time.Now().UTC()) {
 			continue
 		}
 		if !found || record.StartedAt.Before(bestRecord.StartedAt) {
@@ -321,6 +327,8 @@ func (m *MemoryStore) claimNextQueuedScanLocked(scope *Scope, provider string) (
 	bestRecord.Status = "running"
 	bestRecord.FinishedAt = nil
 	bestRecord.ErrorMessage = ""
+	bestRecord.FailureCategory = ""
+	bestRecord.NextRetryAt = nil
 	m.scans[bestRecord.ID] = bestRecord
 	return bestRecord, nil
 }
@@ -340,7 +348,7 @@ func (m *MemoryStore) CountQueuedScans(ctx context.Context, provider string) (in
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			continue
 		}
-		if record.Status != "queued" {
+		if record.Status != "queued" || record.DeadLettered {
 			continue
 		}
 		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
@@ -359,7 +367,7 @@ func (m *MemoryStore) CountQueuedScansAnyScope(_ context.Context, provider strin
 	normalizedProvider := strings.TrimSpace(provider)
 	count := 0
 	for _, record := range m.scans {
-		if record.Status != "queued" {
+		if record.Status != "queued" || record.DeadLettered {
 			continue
 		}
 		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
@@ -373,12 +381,13 @@ func (m *MemoryStore) CountQueuedScansAnyScope(_ context.Context, provider strin
 func (m *MemoryStore) createScanLocked(scope Scope, provider string, status string, startedAt time.Time) ScanRecord {
 	normalizedScope := scope.Normalize()
 	record := ScanRecord{
-		ID:          uuid.NewString(),
-		TenantID:    normalizedScope.TenantID,
-		WorkspaceID: normalizedScope.WorkspaceID,
-		Provider:    strings.TrimSpace(provider),
-		Status:      strings.TrimSpace(status),
-		StartedAt:   startedAt.UTC(),
+		ID:            uuid.NewString(),
+		TenantID:      normalizedScope.TenantID,
+		WorkspaceID:   normalizedScope.WorkspaceID,
+		Provider:      strings.TrimSpace(provider),
+		Status:        strings.TrimSpace(status),
+		StartedAt:     startedAt.UTC(),
+		MaxRetryCount: DefaultScanMaxRetryCount,
 	}
 	m.scans[record.ID] = record
 	m.scanIDs = append(m.scanIDs, record.ID)
@@ -420,6 +429,65 @@ func (m *MemoryStore) CompleteScan(ctx context.Context, scanID string, status st
 	record.AssetCount = assetCount
 	record.FindingCount = findingCount
 	record.ErrorMessage = errorMessage
+	record.FailureCategory = ""
+	record.NextRetryAt = nil
+	record.DeadLettered = false
+	record.DeadLetteredAt = nil
+	m.scans[scanID] = record
+	return nil
+}
+
+// ScheduleScanRetry moves a failed scan attempt back to queued state with backoff metadata.
+func (m *MemoryStore) ScheduleScanRetry(ctx context.Context, scanID string, queuedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string, nextRetryAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	record, exists := m.scans[scanID]
+	if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		return ErrNotFound
+	}
+	record.Status = "queued"
+	record.StartedAt = queuedAt.UTC()
+	record.FinishedAt = nil
+	record.ErrorMessage = errorMessage
+	record.RetryCount = retryCount
+	record.MaxRetryCount = maxRetryCount
+	record.FailureCategory = strings.TrimSpace(failureCategory)
+	retryAt := nextRetryAt.UTC()
+	record.NextRetryAt = &retryAt
+	record.DeadLettered = false
+	record.DeadLetteredAt = nil
+	m.scans[scanID] = record
+	return nil
+}
+
+// DeadLetterScan marks a failed queued scan as operator-replayable.
+func (m *MemoryStore) DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	record, exists := m.scans[scanID]
+	if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		return ErrNotFound
+	}
+	finished := finishedAt.UTC()
+	record.Status = "failed"
+	record.FinishedAt = &finished
+	record.ErrorMessage = errorMessage
+	record.RetryCount = retryCount
+	record.MaxRetryCount = maxRetryCount
+	record.FailureCategory = strings.TrimSpace(failureCategory)
+	record.NextRetryAt = nil
+	record.DeadLettered = true
+	record.DeadLetteredAt = &finished
 	m.scans[scanID] = record
 	return nil
 }

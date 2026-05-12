@@ -31,6 +31,8 @@ const (
 	defaultRepoScanHistoryMax        = 5000
 	defaultRepoScanFindingsMax       = 1000
 	defaultScanQueueMaxPending       = 25
+	defaultScanRetryBaseDelay        = 30 * time.Second
+	defaultScanRetryMaxDelay         = 15 * time.Minute
 	defaultRepoQueueMaxPending       = 100
 	defaultGitHubWebhookReplayWindow = 24 * time.Hour
 	defaultGitHubWebhookBurstWindow  = 30 * time.Second
@@ -43,6 +45,22 @@ const (
 	scanLifecyclePartial   = "partial"
 	scanLifecycleSucceeded = "succeeded"
 	scanLifecycleFailed    = "failed"
+)
+
+const (
+	scanFailureStageConnectorSetup  = "connector_setup"
+	scanFailureStageExecution       = "execution"
+	scanFailureStageArtifactsStore  = "artifacts_persist"
+	scanFailureStageFindingsStore   = "findings_persist"
+	scanFailureStageFinalize        = "finalize"
+	scanFailureCategoryConnector    = "connector_setup"
+	scanFailureCategoryProviderAuth = "provider_auth"
+	scanFailureCategoryThrottle     = "provider_throttle"
+	scanFailureCategoryTransient    = "provider_transient"
+	scanFailureCategoryConfig       = "provider_configuration"
+	scanFailureCategoryExecution    = "provider_execution"
+	scanFailureCategoryPersistence  = "persistence"
+	scanFailureCategoryFinalize     = "finalization"
 )
 
 var queueTracePropagator = propagation.TraceContext{}
@@ -265,6 +283,9 @@ var ErrScanInProgress = errors.New("scan already in progress")
 // ErrScanQueueFull is returned when queued scan requests exceed configured capacity.
 var ErrScanQueueFull = errors.New("scan queue is full")
 
+// ErrScanReplayUnavailable is returned when a scan cannot be replayed into the queue.
+var ErrScanReplayUnavailable = errors.New("scan replay is unavailable")
+
 // ErrInvalidScanDiffBaseline is returned when previous_scan_id is incompatible.
 var ErrInvalidScanDiffBaseline = errors.New("invalid scan diff baseline")
 
@@ -368,6 +389,61 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	return record, nil
 }
 
+// ReplayScan re-enqueues one failed or dead-lettered scan as a fresh queued scan.
+func (s *Service) ReplayScan(ctx context.Context, scanID string) (db.ScanRecord, error) {
+	ctx = s.scopeContext(ctx)
+	source, err := s.Store.GetScan(ctx, scanID)
+	if err != nil {
+		return db.ScanRecord{}, err
+	}
+	if !source.DeadLettered && source.Status != scanLifecycleFailed {
+		return db.ScanRecord{}, ErrScanReplayUnavailable
+	}
+
+	maxPending := s.ScanQueueMaxPending
+	if maxPending <= 0 {
+		maxPending = 1
+	}
+
+	var replay db.ScanRecord
+	if maxPending == 1 {
+		replay, err = s.Store.CreateQueuedScanIfNoPending(ctx, source.Provider, s.Now().UTC())
+		if errors.Is(err, db.ErrPendingScanExists) {
+			return db.ScanRecord{}, ErrScanInProgress
+		}
+	} else {
+		replay, err = s.Store.CreateQueuedScanWithinLimit(ctx, source.Provider, s.Now().UTC(), maxPending)
+		if errors.Is(err, db.ErrQueueLimitReached) {
+			return db.ScanRecord{}, ErrScanQueueFull
+		}
+	}
+	if err != nil {
+		return db.ScanRecord{}, fmt.Errorf("replay scan: %w", err)
+	}
+
+	queuedCount := s.countQueuedScansForDepth(ctx, source.Provider)
+	s.appendScanEvent(ctx, source.ID, db.ScanEventLevelInfo, "scan replay queued", map[string]any{
+		"replay_scan_id": replay.ID,
+		"provider":       source.Provider,
+	})
+	s.appendScanLifecycleEvent(ctx, replay.ID, scanLifecycleQueued, map[string]any{
+		"provider":           replay.Provider,
+		"replayed_from_scan": source.ID,
+		"source_dead_letter": source.DeadLettered,
+		"source_status":      source.Status,
+		"failure_category":   source.FailureCategory,
+	})
+	s.appendScanEvent(ctx, replay.ID, db.ScanEventLevelInfo, "scan replay queued from failed scan", map[string]any{
+		"source_scan_id":   source.ID,
+		"source_status":    source.Status,
+		"failure_category": source.FailureCategory,
+		"queue_depth":      queuedCount,
+		"queue_limit":      maxPending,
+	})
+	s.recordQueueDepth("scan", queuedCount)
+	return replay, nil
+}
+
 // ProcessNextQueuedScan claims and executes one queued scan. It returns false when no job is available.
 func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 	ctx = s.scopeContext(ctx)
@@ -394,10 +470,9 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	s.appendScanLifecycleEvent(recordScopeCtx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
 	s.appendScanEvent(recordScopeCtx, record.ID, db.ScanEventLevelInfo, "queued scan started", map[string]any{"provider": record.Provider})
-	_, runErr := s.runScanWithRecord(recordScopeCtx, record)
+	_, runErr := s.runScanWithRecord(recordScopeCtx, record, true)
 	if runErr != nil {
 		s.recordWorkerJob("scan", "failure")
-		s.recordWorkerDeadLetter("scan")
 		return true, runErr
 	}
 	s.recordWorkerJob("scan", "success")
@@ -421,10 +496,10 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{"provider": s.Provider})
 	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleRunning, map[string]any{"provider": s.Provider})
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan started", map[string]any{"provider": s.Provider})
-	return s.runScanWithRecord(ctx, record)
+	return s.runScanWithRecord(ctx, record, false)
 }
 
-func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (RunScanResult, error) {
+func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord, allowRetry bool) (RunScanResult, error) {
 	ctx = s.scopeContext(ctx)
 	scanStarted := time.Now()
 	if s.Metrics != nil {
@@ -437,18 +512,22 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}
 	scanner, err := s.scannerForScan(ctx, record)
 	if err != nil {
-		s.recordScanExecutionFailure()
-		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
-		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while preparing provider connector", map[string]any{"error": err.Error()})
-		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
+		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageConnectorSetup, 0, 0, err, "scan failed while preparing provider connector"); handleErr != nil {
+			return RunScanResult{}, handleErr
+		}
+		if allowRetry {
+			return RunScanResult{}, nil
+		}
 		return RunScanResult{}, err
 	}
 	result, err := scanner.Run(ctx)
 	if err != nil {
-		s.recordScanExecutionFailure()
-		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
-		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed during collection/analysis", map[string]any{"error": err.Error()})
-		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
+		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageExecution, 0, 0, err, "scan failed during collection/analysis"); handleErr != nil {
+			return RunScanResult{}, handleErr
+		}
+		if allowRetry {
+			return RunScanResult{}, nil
+		}
 		return RunScanResult{}, err
 	}
 	result.Findings = enrichFindings(result.Findings)
@@ -469,27 +548,34 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 		Permissions:   result.Permissions,
 		Relationships: result.Relationships,
 	}); err != nil {
-		s.recordScanExecutionFailure()
-		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
-		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting artifacts", map[string]any{"error": err.Error()})
-		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
+		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageArtifactsStore, result.Assets, 0, err, "scan failed while persisting artifacts"); handleErr != nil {
+			return RunScanResult{}, handleErr
+		}
+		if allowRetry {
+			return RunScanResult{}, nil
+		}
 		return RunScanResult{}, fmt.Errorf("persist artifacts: %w", err)
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "artifacts persisted", map[string]any{"raw_assets": len(result.RawAssets), "identities": len(result.Bundle.Identities)})
 
 	if err := s.Store.UpsertFindings(ctx, record.ID, result.Findings); err != nil {
-		s.recordScanExecutionFailure()
-		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
-		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting findings", map[string]any{"error": err.Error()})
-		_ = s.completeScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
+		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageFindingsStore, result.Assets, 0, err, "scan failed while persisting findings"); handleErr != nil {
+			return RunScanResult{}, handleErr
+		}
+		if allowRetry {
+			return RunScanResult{}, nil
+		}
 		return RunScanResult{}, fmt.Errorf("persist findings: %w", err)
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "findings persisted", map[string]any{"findings": len(result.Findings)})
 
 	if err := s.completeScanTerminal(ctx, record.ID, "succeeded", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
-		s.recordScanExecutionFailure()
-		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{"error": err.Error()})
-		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
+		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageFinalize, result.Assets, len(result.Findings), err, "scan failed while finalizing scan record"); handleErr != nil {
+			return RunScanResult{}, handleErr
+		}
+		if allowRetry {
+			return RunScanResult{}, nil
+		}
 		return RunScanResult{}, fmt.Errorf("complete scan record: %w", err)
 	}
 
@@ -526,10 +612,156 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 	}, nil
 }
 
+func (s *Service) handleScanFailure(
+	ctx context.Context,
+	record db.ScanRecord,
+	allowRetry bool,
+	stage string,
+	assetCount int,
+	findingCount int,
+	failure error,
+	eventMessage string,
+) error {
+	now := s.Now().UTC()
+	policy := classifyScanFailure(stage, failure)
+	metadata := map[string]any{
+		"error":            failure.Error(),
+		"failure_category": policy.Category,
+		"failure_stage":    stage,
+		"retryable":        allowRetry && policy.Retryable,
+		"retry_count":      record.RetryCount,
+		"max_retry_count":  effectiveScanRetryLimit(record),
+		"dead_lettered":    false,
+		"asset_count":      assetCount,
+		"finding_count":    findingCount,
+	}
+
+	s.recordScanExecutionFailure()
+	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, metadata)
+
+	if !allowRetry {
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, eventMessage, metadata)
+		return s.completeScanTerminal(ctx, record.ID, scanLifecycleFailed, now, assetCount, findingCount, failure.Error())
+	}
+
+	maxRetryCount := effectiveScanRetryLimit(record)
+	if policy.Retryable && record.RetryCount < maxRetryCount {
+		nextRetryCount := record.RetryCount + 1
+		nextRetryAt := now.Add(scanRetryBackoff(nextRetryCount))
+		metadata["retry_count"] = nextRetryCount
+		metadata["next_retry_at"] = nextRetryAt.Format(time.RFC3339Nano)
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, eventMessage, metadata)
+		if err := s.scheduleScanRetry(ctx, record.ID, now, nextRetryCount, maxRetryCount, policy.Category, failure.Error(), nextRetryAt); err != nil {
+			return err
+		}
+		s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{
+			"provider":           record.Provider,
+			"retry_count":        nextRetryCount,
+			"max_retry_count":    maxRetryCount,
+			"next_retry_at":      nextRetryAt.Format(time.RFC3339Nano),
+			"failure_category":   policy.Category,
+			"requeued_for_retry": true,
+		})
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan requeued with backoff", map[string]any{
+			"retry_count":      nextRetryCount,
+			"max_retry_count":  maxRetryCount,
+			"next_retry_at":    nextRetryAt.Format(time.RFC3339Nano),
+			"failure_category": policy.Category,
+		})
+		s.recordWorkerRequeue("scan")
+		return nil
+	}
+
+	metadata["dead_lettered"] = true
+	metadata["retryable"] = false
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, eventMessage, metadata)
+	if err := s.deadLetterQueuedScan(ctx, record.ID, now, record.RetryCount, maxRetryCount, policy.Category, failure.Error()); err != nil {
+		return err
+	}
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan moved to dead-letter queue", map[string]any{
+		"retry_count":      record.RetryCount,
+		"max_retry_count":  maxRetryCount,
+		"failure_category": policy.Category,
+		"dead_lettered":    true,
+	})
+	s.recordWorkerDeadLetter("scan")
+	return nil
+}
+
 func (s *Service) recordScanExecutionFailure() {
 	if s.Metrics != nil {
 		s.Metrics.ScanFailureTotal.Inc()
 	}
+}
+
+type scanFailurePolicy struct {
+	Category  string
+	Retryable bool
+}
+
+func classifyScanFailure(stage string, failure error) scanFailurePolicy {
+	if failure == nil {
+		return scanFailurePolicy{Category: scanFailureCategoryExecution}
+	}
+	message := strings.ToLower(strings.TrimSpace(failure.Error()))
+	switch stage {
+	case scanFailureStageArtifactsStore, scanFailureStageFindingsStore:
+		return scanFailurePolicy{Category: scanFailureCategoryPersistence}
+	case scanFailureStageFinalize:
+		return scanFailurePolicy{Category: scanFailureCategoryFinalize}
+	}
+	if containsFailureToken(message, "rate limit", "too many requests", "throttle", "throttl") {
+		return scanFailurePolicy{Category: scanFailureCategoryThrottle, Retryable: true}
+	}
+	if containsFailureToken(message, "access denied", "forbidden", "unauthorized", "expired token", "invalid credentials", "assume role", "permission denied") {
+		return scanFailurePolicy{Category: scanFailureCategoryProviderAuth}
+	}
+	if containsFailureToken(message, "timeout", "deadline exceeded", "temporary", "temporarily", "connection reset", "connection refused", "i/o timeout", "eof", "service unavailable", "unavailable") {
+		return scanFailurePolicy{Category: scanFailureCategoryTransient, Retryable: true}
+	}
+	if containsFailureToken(message, "invalid", "malformed", "unsupported", "not configured", "missing", "not found", "nil scanner") {
+		return scanFailurePolicy{Category: scanFailureCategoryConfig}
+	}
+	if stage == scanFailureStageConnectorSetup {
+		return scanFailurePolicy{Category: scanFailureCategoryConnector}
+	}
+	return scanFailurePolicy{Category: scanFailureCategoryExecution, Retryable: true}
+}
+
+func containsFailureToken(message string, values ...string) bool {
+	for _, value := range values {
+		if strings.Contains(message, strings.ToLower(strings.TrimSpace(value))) {
+			return true
+		}
+	}
+	return false
+}
+
+func effectiveScanRetryLimit(record db.ScanRecord) int {
+	if record.MaxRetryCount < 0 {
+		return 0
+	}
+	if record.MaxRetryCount == 0 {
+		return db.DefaultScanMaxRetryCount
+	}
+	return record.MaxRetryCount
+}
+
+func scanRetryBackoff(retryCount int) time.Duration {
+	if retryCount <= 0 {
+		return defaultScanRetryBaseDelay
+	}
+	backoff := defaultScanRetryBaseDelay
+	for attempt := 1; attempt < retryCount; attempt++ {
+		backoff *= 2
+		if backoff >= defaultScanRetryMaxDelay {
+			return defaultScanRetryMaxDelay
+		}
+	}
+	if backoff > defaultScanRetryMaxDelay {
+		return defaultScanRetryMaxDelay
+	}
+	return backoff
 }
 
 func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (ScannerRunner, error) {
@@ -2113,6 +2345,47 @@ func (s *Service) completeScanTerminal(
 		return err
 	}
 	return s.Store.CompleteScan(s.terminalWriteContext(ctx), scanID, status, finishedAt, assetCount, findingCount, errorMessage)
+}
+
+func (s *Service) scheduleScanRetry(
+	ctx context.Context,
+	scanID string,
+	queuedAt time.Time,
+	retryCount int,
+	maxRetryCount int,
+	failureCategory string,
+	errorMessage string,
+	nextRetryAt time.Time,
+) error {
+	writeCtx := ctx
+	if shouldRetryTerminalWrite(ctx.Err()) {
+		writeCtx = s.terminalWriteContext(ctx)
+	}
+	err := s.Store.ScheduleScanRetry(writeCtx, scanID, queuedAt, retryCount, maxRetryCount, failureCategory, errorMessage, nextRetryAt)
+	if !shouldRetryTerminalWrite(err) {
+		return err
+	}
+	return s.Store.ScheduleScanRetry(s.terminalWriteContext(ctx), scanID, queuedAt, retryCount, maxRetryCount, failureCategory, errorMessage, nextRetryAt)
+}
+
+func (s *Service) deadLetterQueuedScan(
+	ctx context.Context,
+	scanID string,
+	finishedAt time.Time,
+	retryCount int,
+	maxRetryCount int,
+	failureCategory string,
+	errorMessage string,
+) error {
+	writeCtx := ctx
+	if shouldRetryTerminalWrite(ctx.Err()) {
+		writeCtx = s.terminalWriteContext(ctx)
+	}
+	err := s.Store.DeadLetterScan(writeCtx, scanID, finishedAt, retryCount, maxRetryCount, failureCategory, errorMessage)
+	if !shouldRetryTerminalWrite(err) {
+		return err
+	}
+	return s.Store.DeadLetterScan(s.terminalWriteContext(ctx), scanID, finishedAt, retryCount, maxRetryCount, failureCategory, errorMessage)
 }
 
 func (s *Service) completeRepoScanTerminal(

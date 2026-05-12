@@ -366,6 +366,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.POST("/scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
+		v1.POST("/scans/:scan_id/replay", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
+		})
 		v1.PATCH("/findings/:finding_id/triage", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
@@ -770,6 +773,43 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			}
 			logger.Error("enqueue scan", requestErrorLogFields(c, opts.AuditFingerprinter, "enqueue_scan", telemetry.ZapError(err))...)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue scan"})
+			return
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"scan": scan,
+		})
+	})
+
+	v1.POST("/scans/:scan_id/replay", func(c *gin.Context) {
+		start := time.Now()
+		metrics.ScanEnqueueTotal.Inc()
+		defer func() {
+			metrics.ScanEnqueueDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+		}()
+
+		scanID, ok := requiredUUIDParam(c, c.Param("scan_id"), "scan_id")
+		if !ok {
+			metrics.ScanEnqueueFailureTotal.Inc()
+			return
+		}
+
+		scan, err := svc.ReplayScan(c.Request.Context(), scanID)
+		if err != nil {
+			metrics.ScanEnqueueFailureTotal.Inc()
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
+			case errors.Is(err, ErrScanReplayUnavailable):
+				c.JSON(http.StatusConflict, gin.H{"error": "scan cannot be replayed"})
+			case errors.Is(err, ErrScanInProgress):
+				c.JSON(http.StatusConflict, gin.H{"error": "scan already in progress"})
+			case errors.Is(err, ErrScanQueueFull):
+				c.JSON(http.StatusTooManyRequests, gin.H{"error": "scan queue is full"})
+			default:
+				logger.Error("replay scan", requestErrorLogFields(c, opts.AuditFingerprinter, "replay_scan", telemetry.ZapError(err))...)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to replay scan"})
+			}
 			return
 		}
 

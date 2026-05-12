@@ -376,7 +376,7 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 			id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message, trace_parent, trace_state
 		)
 		VALUES ($1, $2, $3, $4, 'queued', $5, NULL, 0, 0, NULL, NULLIF($6, ''), NULLIF($7, ''))
-		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), COALESCE(trace_parent, ''), COALESCE(trace_state, '')`,
+		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at, COALESCE(trace_parent, ''), COALESCE(trace_state, '')`,
 		uuid.NewString(),
 		scope.TenantID,
 		scope.WorkspaceID,
@@ -433,12 +433,13 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 	}
 
 	record := ScanRecord{
-		ID:          uuid.NewString(),
-		TenantID:    scope.TenantID,
-		WorkspaceID: scope.WorkspaceID,
-		Provider:    normalizedProvider,
-		Status:      "queued",
-		StartedAt:   queuedAt.UTC(),
+		ID:            uuid.NewString(),
+		TenantID:      scope.TenantID,
+		WorkspaceID:   scope.WorkspaceID,
+		Provider:      normalizedProvider,
+		Status:        "queued",
+		StartedAt:     queuedAt.UTC(),
+		MaxRetryCount: DefaultScanMaxRetryCount,
 	}
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	if _, err := tx.ExecContext(
@@ -482,6 +483,8 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 			FROM scans
 			WHERE provider = $1
 			  AND status = 'queued'
+			  AND dead_lettered = FALSE
+			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
 			ORDER BY started_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
@@ -489,10 +492,12 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		UPDATE scans AS s
 		SET status = 'running',
 		    finished_at = NULL,
-		    error_message = NULL
+		    error_message = NULL,
+		    failure_category = NULL,
+		    next_retry_at = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), s.retry_count, s.max_retry_count, COALESCE(s.failure_category, ''), s.next_retry_at, s.dead_lettered, s.dead_lettered_at, COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
 	args := []any{strings.TrimSpace(provider)}
 	if scope != nil {
 		query = `WITH next_scan AS (
@@ -502,6 +507,8 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 			  AND workspace_id = $2
 			  AND provider = $3
 			  AND status = 'queued'
+			  AND dead_lettered = FALSE
+			  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
 			ORDER BY started_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
@@ -509,10 +516,12 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		UPDATE scans AS s
 		SET status = 'running',
 		    finished_at = NULL,
-		    error_message = NULL
+		    error_message = NULL,
+		    failure_category = NULL,
+		    next_retry_at = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
+		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), s.retry_count, s.max_retry_count, COALESCE(s.failure_category, ''), s.next_retry_at, s.dead_lettered, s.dead_lettered_at, COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID, strings.TrimSpace(provider)}
 	}
 	row := p.queryRowContext(ctx, query, args...)
@@ -543,7 +552,8 @@ func (p *PostgresStore) CountQueuedScans(ctx context.Context, provider string) (
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND ($3 = '' OR provider = $3)
-		   AND status = 'queued'`,
+		   AND status = 'queued'
+		   AND dead_lettered = FALSE`,
 		scope.TenantID,
 		scope.WorkspaceID,
 		strings.TrimSpace(provider),
@@ -561,7 +571,8 @@ func (p *PostgresStore) CountQueuedScansAnyScope(ctx context.Context, provider s
 		`SELECT COUNT(*)
 		 FROM scans
 		 WHERE ($1 = '' OR provider = $1)
-		   AND status = 'queued'`,
+		   AND status = 'queued'
+		   AND dead_lettered = FALSE`,
 		strings.TrimSpace(provider),
 	).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count queued scans any scope: %w", err)
@@ -577,7 +588,7 @@ func (p *PostgresStore) GetScan(ctx context.Context, scanID string) (ScanRecord,
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		`SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 WHERE id = $1
 		   AND tenant_id = $2
@@ -605,7 +616,7 @@ func (p *PostgresStore) CompleteScan(ctx context.Context, scanID string, status 
 	result, err := p.execContext(
 		ctx,
 		`UPDATE scans
-		 SET status=$2, finished_at=$3, asset_count=$4, finding_count=$5, error_message=$6
+		 SET status=$2, finished_at=$3, asset_count=$4, finding_count=$5, error_message=$6, failure_category = NULL, next_retry_at = NULL, dead_lettered = FALSE, dead_lettered_at = NULL
 		 WHERE id=$1
 		   AND tenant_id=$7
 		   AND workspace_id=$8`,
@@ -620,6 +631,86 @@ func (p *PostgresStore) CompleteScan(ctx context.Context, scanID string, status 
 	)
 	if err != nil {
 		return fmt.Errorf("complete scan: %w", err)
+	}
+	if err := ensureRowsAffected(result); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ScheduleScanRetry moves a failed scan attempt back into the queue with delay metadata.
+func (p *PostgresStore) ScheduleScanRetry(ctx context.Context, scanID string, queuedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string, nextRetryAt time.Time) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(
+		ctx,
+		`UPDATE scans
+		 SET status = 'queued',
+		     started_at = $2,
+		     finished_at = NULL,
+		     error_message = $3,
+		     retry_count = $4,
+		     max_retry_count = $5,
+		     failure_category = NULLIF($6, ''),
+		     next_retry_at = $7,
+		     dead_lettered = FALSE,
+		     dead_lettered_at = NULL
+		 WHERE id = $1
+		   AND tenant_id = $8
+		   AND workspace_id = $9`,
+		scanID,
+		queuedAt.UTC(),
+		nullableString(errorMessage),
+		retryCount,
+		maxRetryCount,
+		strings.TrimSpace(failureCategory),
+		nextRetryAt.UTC(),
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("schedule scan retry: %w", err)
+	}
+	if err := ensureRowsAffected(result); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeadLetterScan marks a failed queued scan as operator-replayable.
+func (p *PostgresStore) DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(
+		ctx,
+		`UPDATE scans
+		 SET status = 'failed',
+		     finished_at = $2,
+		     error_message = $3,
+		     retry_count = $4,
+		     max_retry_count = $5,
+		     failure_category = NULLIF($6, ''),
+		     next_retry_at = NULL,
+		     dead_lettered = TRUE,
+		     dead_lettered_at = $2
+		 WHERE id = $1
+		   AND tenant_id = $7
+		   AND workspace_id = $8`,
+		scanID,
+		finishedAt.UTC(),
+		nullableString(errorMessage),
+		retryCount,
+		maxRetryCount,
+		strings.TrimSpace(failureCategory),
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("dead-letter scan: %w", err)
 	}
 	if err := ensureRowsAffected(result); err != nil {
 		return err
@@ -1022,6 +1113,7 @@ func (p *PostgresStore) ListScans(ctx context.Context, limit int) ([]ScanRecord,
 	rows, err := p.queryContext(
 		ctx,
 		`SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+		 , retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -3241,12 +3333,13 @@ func (p *PostgresStore) createScanWithStatus(ctx context.Context, provider strin
 		return ScanRecord{}, err
 	}
 	record := ScanRecord{
-		ID:          uuid.NewString(),
-		TenantID:    scope.TenantID,
-		WorkspaceID: scope.WorkspaceID,
-		Provider:    strings.TrimSpace(provider),
-		Status:      strings.TrimSpace(status),
-		StartedAt:   startedAt.UTC(),
+		ID:            uuid.NewString(),
+		TenantID:      scope.TenantID,
+		WorkspaceID:   scope.WorkspaceID,
+		Provider:      strings.TrimSpace(provider),
+		Status:        strings.TrimSpace(status),
+		StartedAt:     startedAt.UTC(),
+		MaxRetryCount: DefaultScanMaxRetryCount,
 	}
 	_, err = p.execContext(
 		ctx,
@@ -3333,6 +3426,9 @@ func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 func scanScanRecord(scanner scanner) (ScanRecord, error) {
 	var record ScanRecord
 	var finishedAt sql.NullTime
+	var failureCategory sql.NullString
+	var nextRetryAt sql.NullTime
+	var deadLetteredAt sql.NullTime
 	if err := scanner.Scan(
 		&record.ID,
 		&record.TenantID,
@@ -3344,13 +3440,31 @@ func scanScanRecord(scanner scanner) (ScanRecord, error) {
 		&record.AssetCount,
 		&record.FindingCount,
 		&record.ErrorMessage,
+		&record.RetryCount,
+		&record.MaxRetryCount,
+		&failureCategory,
+		&nextRetryAt,
+		&record.DeadLettered,
+		&deadLetteredAt,
 	); err != nil {
 		return ScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.FailureCategory = strings.TrimSpace(failureCategory.String)
+	if record.MaxRetryCount <= 0 {
+		record.MaxRetryCount = DefaultScanMaxRetryCount
+	}
 	if finishedAt.Valid {
 		finished := finishedAt.Time.UTC()
 		record.FinishedAt = &finished
+	}
+	if nextRetryAt.Valid {
+		retryAt := nextRetryAt.Time.UTC()
+		record.NextRetryAt = &retryAt
+	}
+	if deadLetteredAt.Valid {
+		deadLettered := deadLetteredAt.Time.UTC()
+		record.DeadLetteredAt = &deadLettered
 	}
 	return record, nil
 }
@@ -3358,6 +3472,9 @@ func scanScanRecord(scanner scanner) (ScanRecord, error) {
 func scanQueuedScanRecord(scanner scanner) (ScanRecord, error) {
 	var record ScanRecord
 	var finishedAt sql.NullTime
+	var failureCategory sql.NullString
+	var nextRetryAt sql.NullTime
+	var deadLetteredAt sql.NullTime
 	if err := scanner.Scan(
 		&record.ID,
 		&record.TenantID,
@@ -3369,17 +3486,35 @@ func scanQueuedScanRecord(scanner scanner) (ScanRecord, error) {
 		&record.AssetCount,
 		&record.FindingCount,
 		&record.ErrorMessage,
+		&record.RetryCount,
+		&record.MaxRetryCount,
+		&failureCategory,
+		&nextRetryAt,
+		&record.DeadLettered,
+		&deadLetteredAt,
 		&record.TraceParent,
 		&record.TraceState,
 	); err != nil {
 		return ScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.FailureCategory = strings.TrimSpace(failureCategory.String)
+	if record.MaxRetryCount <= 0 {
+		record.MaxRetryCount = DefaultScanMaxRetryCount
+	}
 	record.TraceParent = strings.TrimSpace(record.TraceParent)
 	record.TraceState = strings.TrimSpace(record.TraceState)
 	if finishedAt.Valid {
 		finished := finishedAt.Time.UTC()
 		record.FinishedAt = &finished
+	}
+	if nextRetryAt.Valid {
+		retryAt := nextRetryAt.Time.UTC()
+		record.NextRetryAt = &retryAt
+	}
+	if deadLetteredAt.Valid {
+		deadLettered := deadLetteredAt.Time.UTC()
+		record.DeadLetteredAt = &deadLettered
 	}
 	return record, nil
 }
