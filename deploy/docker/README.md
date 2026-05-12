@@ -32,7 +32,44 @@ Manual setup:
 
 ## Public Images
 
-For a no-build evaluation path, pull the main Identrail image:
+`docker pull` only downloads an image into Docker's image store. It does not
+create a project folder, `.env` file, or runnable multi-service stack on disk.
+
+For a no-clone, no-build evaluation path, download the published Compose file
+and run it directly:
+
+```bash
+mkdir identrail-docker && cd identrail-docker
+curl -fsSLO https://raw.githubusercontent.com/identrail/identrail/dev/deploy/docker/docker-compose.public.yml
+docker compose -f docker-compose.public.yml up -d
+```
+
+Then verify it with:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+Open `http://localhost:8081` for the web UI, use **Continue in dev mode**, and
+the stack will create a disposable local session against the API container.
+
+If you want to customize the image tag, local secrets, or ports before running:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/identrail/identrail/dev/deploy/docker/.env.public.example
+cp .env.public.example .env
+docker compose -f docker-compose.public.yml --env-file .env up -d
+```
+
+If `5432` or `8081` are already in use on your machine, set
+`IDENTRAIL_POSTGRES_PORT` or `IDENTRAIL_WEB_PORT` in the downloaded `.env`
+file before starting the stack. If you change `IDENTRAIL_WEB_PORT`, update
+`IDENTRAIL_CORS_ALLOWED_ORIGINS` to the matching `http://localhost:<port>`
+value too. The public web image is published against `http://localhost:8080`
+for the API, so the no-clone quickstart keeps the API port fixed on `8080`.
+
+You can still pull the main image directly when you want to inspect or run just
+the API server:
 
 ```bash
 docker pull ghcr.io/identrail/identrail:dev
@@ -55,7 +92,7 @@ Then verify it with:
 curl http://localhost:8080/healthz
 ```
 
-To run the full local stack from public images:
+To run the full local stack from public images from a cloned repository:
 
 ```bash
 docker compose -f deploy/docker/docker-compose.public.yml up -d
@@ -63,10 +100,10 @@ docker compose -f deploy/docker/docker-compose.public.yml up -d
 
 The public stack starts Postgres, API, worker, and web without building from
 source. Open `http://localhost:8081` for the web UI and use
-`http://localhost:8080` for the API. The `dev` web image pre-fills the local
-write API key from this Compose profile so the no-build dashboard can call the
-API immediately; change the Compose API keys and build your own web image for
-non-local deployments.
+`http://localhost:8080` for the API. The public profile enables the new auth
+flow in local-only manual mode, so the dashboard can establish a disposable
+session without any hosted identity provider. For anything beyond localhost
+evaluation, rotate the example secrets and disable manual mode.
 
 Supporting images are published for multi-service deployments:
 

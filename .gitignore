@@ -10,6 +10,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!deploy/docker/.env.public.example
 *.pem
 *.key
 *.crt

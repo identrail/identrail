@@ -22,6 +22,10 @@ x-identrail-env: &identrail-env
   IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE: "${IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE:-5}"
   IDENTRAIL_LOCK_BACKEND: auto
   IDENTRAIL_LOCK_NAMESPACE: identrail
+  IDENTRAIL_FEATURE_NEW_AUTH: "${IDENTRAIL_FEATURE_NEW_AUTH:-true}"
+  IDENTRAIL_AUTH_MANUAL_MODE: "${IDENTRAIL_AUTH_MANUAL_MODE:-true}"
+  IDENTRAIL_PUBLIC_BASE_URL: "${IDENTRAIL_PUBLIC_BASE_URL:-http://localhost:8080}"
+  IDENTRAIL_SESSION_KEY: "${IDENTRAIL_SESSION_KEY:-identrail-local-session-key-for-evaluation-only-change-before-sharing}"
 
 services:
   postgres:
@@ -33,7 +37,7 @@ services:
       POSTGRES_USER: identrail
       POSTGRES_PASSWORD: "${IDENTRAIL_POSTGRES_PASSWORD:-identrail-local-password}"
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${IDENTRAIL_POSTGRES_PORT:-5432}:5432"
     volumes:
       - identrail_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -77,7 +81,7 @@ services:
       api:
         condition: service_started
     ports:
-      - "127.0.0.1:8081:8080"
+      - "127.0.0.1:${IDENTRAIL_WEB_PORT:-8081}:8080"
 
 volumes:
   identrail_pgdata:
