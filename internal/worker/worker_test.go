@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestRunWithCancelledContext(t *testing.T) {
@@ -269,5 +271,40 @@ func TestProcessAPIQueueBatchRepoFailuresContinueWithinBatch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "api queue batch failed for 1 job(s)") {
 		t.Fatalf("unexpected queue batch error: %v", err)
+	}
+}
+
+func TestWorkerAutomationMetricLabelsAreBounded(t *testing.T) {
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{name: "source scheduled", got: workerAutomationSourceLabel(" scheduled "), want: "scheduled"},
+		{name: "source unknown", got: workerAutomationSourceLabel("workspace-a"), want: "other"},
+		{name: "connector aws", got: workerAutomationConnectorLabel(" AWS "), want: "aws"},
+		{name: "connector unknown", got: workerAutomationConnectorLabel("owner/repo"), want: "other"},
+		{name: "outcome requeued", got: workerAutomationOutcomeLabel(" requeued "), want: "requeued"},
+		{name: "outcome unknown", got: workerAutomationOutcomeLabel("custom"), want: "other"},
+	}
+	for _, tc := range tests {
+		if tc.got != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+func TestRecordWorkerAutomationRun(t *testing.T) {
+	metrics := telemetry.NewMetrics()
+
+	recordWorkerAutomationRun(metrics, "scheduled", "aws", "succeeded")
+	recordWorkerAutomationRun(metrics, "scheduled", "kubernetes", "partial")
+	recordWorkerAutomationRun(nil, "scheduled", "aws", "failed")
+
+	if got := testutil.ToFloat64(metrics.AutomationRunsTotal.WithLabelValues("scheduled", "aws", "succeeded")); got != 1 {
+		t.Fatalf("scheduled aws succeeded metric = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(metrics.AutomationRunsTotal.WithLabelValues("scheduled", "kubernetes", "partial")); got != 1 {
+		t.Fatalf("scheduled kubernetes partial metric = %v, want 1", got)
 	}
 }

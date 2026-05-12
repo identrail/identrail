@@ -355,21 +355,9 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	ctx = s.scopeContext(ctx)
 	ctx = withQueueTraceContext(ctx)
-	enqueueStarted := time.Now()
-	if s.Metrics != nil {
-		s.Metrics.ScanEnqueueTotal.Inc()
-		defer func() {
-			s.Metrics.ScanEnqueueDurationMS.Observe(float64(time.Since(enqueueStarted).Milliseconds()))
-		}()
-	}
 	maxPending := s.ScanQueueMaxPending
 	if maxPending <= 0 {
 		maxPending = 1
-	}
-	recordEnqueueFailure := func() {
-		if s.Metrics != nil {
-			s.Metrics.ScanEnqueueFailureTotal.Inc()
-		}
 	}
 
 	var (
@@ -379,18 +367,15 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 	if maxPending == 1 {
 		record, err = s.Store.CreateQueuedScanIfNoPending(ctx, s.Provider, s.Now().UTC())
 		if errors.Is(err, db.ErrPendingScanExists) {
-			recordEnqueueFailure()
 			return db.ScanRecord{}, ErrScanInProgress
 		}
 	} else {
 		record, err = s.Store.CreateQueuedScanWithinLimit(ctx, s.Provider, s.Now().UTC(), maxPending)
 		if errors.Is(err, db.ErrQueueLimitReached) {
-			recordEnqueueFailure()
 			return db.ScanRecord{}, ErrScanQueueFull
 		}
 	}
 	if err != nil {
-		recordEnqueueFailure()
 		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
 	}
 	queuedCount := s.countQueuedScansForDepth(ctx, s.Provider)
@@ -1003,21 +988,8 @@ func (s *Service) RunRepoScan(ctx context.Context, request RepoScanRequest) (rep
 func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) (db.RepoScanRecord, error) {
 	ctx = s.scopeContext(ctx)
 	ctx = withQueueTraceContext(ctx)
-	enqueueStarted := time.Now()
-	if s.Metrics != nil {
-		s.Metrics.RepoScanEnqueueTotal.Inc()
-		defer func() {
-			s.Metrics.RepoScanEnqueueDurationMS.Observe(float64(time.Since(enqueueStarted).Milliseconds()))
-		}()
-	}
-	recordEnqueueFailure := func() {
-		if s.Metrics != nil {
-			s.Metrics.RepoScanEnqueueFailureTotal.Inc()
-		}
-	}
 	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
 	if err != nil {
-		recordEnqueueFailure()
 		return db.RepoScanRecord{}, err
 	}
 	maxPending := s.RepoQueueMaxPending
@@ -1028,13 +1000,10 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	if err != nil {
 		switch {
 		case errors.Is(err, db.ErrPendingRepoScanExists):
-			recordEnqueueFailure()
 			return db.RepoScanRecord{}, ErrRepoScanInProgress
 		case errors.Is(err, db.ErrQueueLimitReached):
-			recordEnqueueFailure()
 			return db.RepoScanRecord{}, ErrRepoScanQueueFull
 		default:
-			recordEnqueueFailure()
 			return db.RepoScanRecord{}, fmt.Errorf("enqueue repo scan: %w", err)
 		}
 	}
