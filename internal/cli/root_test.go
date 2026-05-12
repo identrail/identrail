@@ -241,6 +241,118 @@ func TestExecuteAuthzRollbackJSON(t *testing.T) {
 	}
 }
 
+func TestExecuteScanReplayTable(t *testing.T) {
+	cfg := config.Config{DefaultTenantID: "default", DefaultWorkspaceID: "default"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST request, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/scans/scan-123/replay" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-API-Key")); got != "admin-key" {
+			t.Fatalf("expected api key header, got %q", got)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-Identrail-Tenant-ID")); got != "tenant-a" {
+			t.Fatalf("expected tenant header, got %q", got)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-Identrail-Workspace-ID")); got != "workspace-a" {
+			t.Fatalf("expected workspace header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(scanReplayCLIResponse{
+			Scan: scanReplayCLIRecord{
+				ID:           "replay-456",
+				Provider:     "aws",
+				Status:       "queued",
+				RetryCount:   0,
+				DeadLettered: false,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"scan-replay",
+		"--api-url", server.URL,
+		"--api-key", "admin-key",
+		"--tenant-id", "tenant-a",
+		"--workspace-id", "workspace-a",
+		"--scan-id", "scan-123",
+		"--output", "table",
+	}, &out)
+	if err != nil {
+		t.Fatalf("scan replay failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "Replay queued: source_scan=scan-123 replay_scan=replay-456 provider=aws status=queued retry_count=0") {
+		t.Fatalf("expected table replay output, got %q", out.String())
+	}
+}
+
+func TestExecuteScanReplayJSON(t *testing.T) {
+	cfg := config.Config{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(scanReplayCLIResponse{
+			Scan: scanReplayCLIRecord{
+				ID:           "replay-789",
+				Provider:     "aws",
+				Status:       "queued",
+				RetryCount:   2,
+				DeadLettered: false,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"scan-replay",
+		"--api-url", server.URL,
+		"--scan-id", "scan-456",
+		"--output", "json",
+	}, &out)
+	if err != nil {
+		t.Fatalf("scan replay failed: %v", err)
+	}
+
+	var response scanReplayCLIResponse
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatalf("decode cli json output: %v", err)
+	}
+	if response.Scan.ID != "replay-789" || response.Scan.RetryCount != 2 {
+		t.Fatalf("unexpected replay response: %+v", response)
+	}
+}
+
+func TestExecuteScanReplayErrors(t *testing.T) {
+	cfg := config.Config{}
+	var out bytes.Buffer
+
+	if err := Execute(cfg, []string{"scan-replay"}, &out); err == nil {
+		t.Fatal("expected missing scan-id validation error")
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(scanReplayCLIErrorResponse{Error: "scan replay is unavailable"})
+	}))
+	defer server.Close()
+
+	err := Execute(cfg, []string{
+		"scan-replay",
+		"--api-url", server.URL,
+		"--scan-id", "scan-999",
+	}, &out)
+	if err == nil {
+		t.Fatal("expected replay API error")
+	}
+	if !strings.Contains(err.Error(), "scan replay is unavailable") {
+		t.Fatalf("unexpected replay error: %v", err)
+	}
+}
+
 func TestExecuteAuthzRollbackValidation(t *testing.T) {
 	cfg := config.Config{}
 	var out bytes.Buffer
@@ -414,6 +526,15 @@ func TestSeveritySortRank(t *testing.T) {
 
 func compareSeverityForTest(left domain.FindingSeverity, right domain.FindingSeverity) int {
 	return severitySortRank(left) - severitySortRank(right)
+}
+
+func TestFormatOptionalInt(t *testing.T) {
+	if got := formatOptionalInt(nil); got != "none" {
+		t.Fatalf("expected none for nil int, got %q", got)
+	}
+	if got := formatOptionalInt(intPointerForCLITest(7)); got != "7" {
+		t.Fatalf("expected rendered int 7, got %q", got)
+	}
 }
 
 func intPointerForCLITest(value int) *int {
