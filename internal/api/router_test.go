@@ -422,13 +422,24 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.RepoScanAllowedTargets = []string{"owner/repo"}
 	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		redacted := true
 		return &fakeRepoExecutor{
 			result: repoexposure.ScanResult{
 				Repository:     "owner/repo",
 				CommitsScanned: historyLimit,
 				FilesScanned:   2,
 				Findings: []domain.Finding{
-					{ID: "repo-f1", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh},
+					{
+						ID:                  "repo-f1",
+						Type:                domain.FindingSecretExposure,
+						Severity:            domain.SeverityHigh,
+						Commit:              "abc123",
+						FilePath:            "config/app.env",
+						LineNumber:          3,
+						Detector:            "aws-access-key",
+						LineSnippet:         "AWS_ACCESS_KEY_ID=AKIA****",
+						LineSnippetRedacted: &redacted,
+					},
 				},
 			},
 		}
@@ -651,6 +662,21 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	r.ServeHTTP(repoFindingsW, repoFindingsReq)
 	if repoFindingsW.Code != http.StatusOK {
 		t.Fatalf("expected repo findings 200, got %d", repoFindingsW.Code)
+	}
+	var repoFindingsBody struct {
+		Items []domain.Finding `json:"items"`
+	}
+	if err := json.Unmarshal(repoFindingsW.Body.Bytes(), &repoFindingsBody); err != nil {
+		t.Fatalf("decode repo findings body: %v", err)
+	}
+	if len(repoFindingsBody.Items) != 1 {
+		t.Fatalf("expected one repo finding, got %+v", repoFindingsBody)
+	}
+	if repoFindingsBody.Items[0].FilePath != "config/app.env" || repoFindingsBody.Items[0].LineNumber != 3 || repoFindingsBody.Items[0].Detector != "aws-access-key" {
+		t.Fatalf("expected structured repo findings response, got %+v", repoFindingsBody.Items[0])
+	}
+	if repoFindingsBody.Items[0].LineSnippetRedacted == nil || !*repoFindingsBody.Items[0].LineSnippetRedacted {
+		t.Fatalf("expected structured redaction flag in response, got %+v", repoFindingsBody.Items[0].LineSnippetRedacted)
 	}
 
 	scansPageOneReq := httptest.NewRequest(http.MethodGet, "/v1/scans?limit=1", nil)

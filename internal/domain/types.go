@@ -128,17 +128,23 @@ type Relationship struct {
 
 // Finding is a typed risk detected by the analysis engine.
 type Finding struct {
-	ID           string          `json:"id"`
-	ScanID       string          `json:"scan_id"`
-	Type         FindingType     `json:"type"`
-	Severity     FindingSeverity `json:"severity"`
-	Title        string          `json:"title"`
-	HumanSummary string          `json:"human_summary"`
-	Path         []string        `json:"path,omitempty"`
-	Evidence     map[string]any  `json:"evidence,omitempty"`
-	Remediation  string          `json:"remediation"`
-	CreatedAt    time.Time       `json:"created_at"`
-	Triage       FindingTriage   `json:"triage,omitzero"`
+	ID                  string          `json:"id"`
+	ScanID              string          `json:"scan_id"`
+	Type                FindingType     `json:"type"`
+	Severity            FindingSeverity `json:"severity"`
+	Title               string          `json:"title"`
+	HumanSummary        string          `json:"human_summary"`
+	Path                []string        `json:"path,omitempty"`
+	Commit              string          `json:"commit,omitempty"`
+	FilePath            string          `json:"file_path,omitempty"`
+	LineNumber          int             `json:"line_number,omitempty"`
+	Detector            string          `json:"detector,omitempty"`
+	LineSnippet         string          `json:"line_snippet,omitempty"`
+	LineSnippetRedacted *bool           `json:"line_snippet_redacted,omitempty"`
+	Evidence            map[string]any  `json:"evidence,omitempty"`
+	Remediation         string          `json:"remediation"`
+	CreatedAt           time.Time       `json:"created_at"`
+	Triage              FindingTriage   `json:"triage,omitzero"`
 }
 
 // OwnershipSignal tracks ownership hints and confidence.

@@ -624,6 +624,55 @@ func TestMemoryStoreRepoScanLifecycle(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListRepoFindingsDoesNotMutateLegacyStoredEvidence(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 17, 14, 0, 0, 0, time.UTC)
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+
+	legacyFinding := domain.Finding{
+		ScanID:       repoScan.ID,
+		ID:           "rf-legacy",
+		Type:         domain.FindingSecretExposure,
+		Severity:     domain.SeverityHigh,
+		Title:        "secret",
+		HumanSummary: "summary",
+		Evidence: map[string]any{
+			"commit":             "abc123",
+			"file_path":          "config/app.env",
+			"line_number":        7,
+			"detector":           "aws-access-key",
+			"redacted_line_snip": "AWS_ACCESS_KEY_ID=AKIA****",
+		},
+		CreatedAt: now,
+	}
+	key := repoScan.ID + "|" + legacyFinding.ID
+	store.repoFindings[key] = legacyFinding
+	store.repoFindingIDs[repoScan.ID] = []string{key}
+
+	listed, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: repoScan.ID}, 10)
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected one listed finding, got %+v", listed)
+	}
+	if listed[0].LineSnippet != "AWS_ACCESS_KEY_ID=AKIA****" {
+		t.Fatalf("expected normalized line snippet, got %+v", listed[0])
+	}
+
+	stored := store.repoFindings[key]
+	if _, exists := stored.Evidence["line_snippet"]; exists {
+		t.Fatalf("expected stored legacy evidence to stay unchanged, got %+v", stored.Evidence)
+	}
+	if _, exists := stored.Evidence["line_snippet_redacted"]; exists {
+		t.Fatalf("expected stored legacy evidence redaction flag to stay unchanged, got %+v", stored.Evidence)
+	}
+}
+
 func TestMemoryStoreRepoScanErrors(t *testing.T) {
 	store := NewMemoryStore()
 	if _, err := store.GetRepoScan(defaultScopeContext(), "missing"); err == nil {

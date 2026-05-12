@@ -2915,6 +2915,7 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 			continue
 		}
 		seenRepoFindings[finding.ID] = struct{}{}
+		domain.NormalizeRepoFindingMetadata(&finding)
 		pathJSON, pathErr := json.Marshal(finding.Path)
 		if pathErr != nil {
 			return fmt.Errorf("marshal repo finding path: %w", pathErr)
@@ -3089,6 +3090,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 				return nil, fmt.Errorf("decode repo finding evidence: %w", err)
 			}
 		}
+		domain.NormalizeRepoFindingMetadata(&finding)
 		result = append(result, finding)
 	}
 	if err := rows.Err(); err != nil {

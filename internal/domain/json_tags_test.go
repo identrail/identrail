@@ -8,16 +8,23 @@ import (
 )
 
 func TestFindingJSONUsesSnakeCaseFields(t *testing.T) {
+	redacted := true
 	finding := Finding{
-		ID:           "f-1",
-		ScanID:       "scan-1",
-		Type:         FindingRiskyTrustPolicy,
-		Severity:     SeverityHigh,
-		Title:        "title",
-		HumanSummary: "summary",
-		Path:         []string{"node-a", "node-b"},
-		Remediation:  "fix",
-		CreatedAt:    time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC),
+		ID:                  "f-1",
+		ScanID:              "scan-1",
+		Type:                FindingSecretExposure,
+		Severity:            SeverityHigh,
+		Title:               "title",
+		HumanSummary:        "summary",
+		Path:                []string{"app.env"},
+		Commit:              "abc123",
+		FilePath:            "app.env",
+		LineNumber:          12,
+		Detector:            "aws-access-key",
+		LineSnippet:         "AWS_ACCESS_KEY_ID=AKIA****",
+		LineSnippetRedacted: &redacted,
+		Remediation:         "fix",
+		CreatedAt:           time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC),
 	}
 
 	payload, err := json.Marshal(finding)
@@ -25,7 +32,7 @@ func TestFindingJSONUsesSnakeCaseFields(t *testing.T) {
 		t.Fatalf("marshal finding: %v", err)
 	}
 	text := string(payload)
-	for _, expected := range []string{`"id"`, `"scan_id"`, `"human_summary"`, `"created_at"`} {
+	for _, expected := range []string{`"id"`, `"scan_id"`, `"human_summary"`, `"created_at"`, `"file_path"`, `"line_number"`, `"line_snippet_redacted"`} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("expected field %s in %s", expected, text)
 		}

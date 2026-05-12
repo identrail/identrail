@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Enriched repo findings with stable remediation metadata:
+  - exposed `commit`, `file_path`, `line_number`, `detector`, `line_snippet`, and `line_snippet_redacted` in scanner and API finding payloads
+  - normalized persisted repo finding evidence so existing rows read back without a storage migration
+  - documented the repo-finding contract for API clients and operator workflows
 - Hardened GitHub webhook-triggered scan orchestration with dedupe and storm controls:
   - replayed webhook deliveries are now treated idempotently and skipped before queueing duplicate repo scans
   - rapid repeated webhook triggers for the same project/repository now honor a burst window to suppress scan storms

@@ -46,6 +46,7 @@ Read APIs:
 - `GET /v1/repo-scans/:repo_scan_id`
 - `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
 - list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
+- repo finding responses expose stable location fields when available: `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, and `line_snippet_redacted`
 
 ## What It Scans
 
@@ -77,6 +78,7 @@ Read APIs:
 - Evidence keeps only:
   - detector name
   - commit/path/line context
+  - line snippet (redacted for secret findings)
   - secret fingerprint (SHA-256)
   - redacted line snippets
 - Findings are deterministic and deduplicated by stable IDs/fingerprints.

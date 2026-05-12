@@ -12,6 +12,12 @@ export type Finding = {
   title: string;
   human_summary: string;
   path?: string[];
+  commit?: string;
+  file_path?: string;
+  line_number?: number;
+  detector?: string;
+  line_snippet?: string;
+  line_snippet_redacted?: boolean;
   evidence?: Record<string, unknown>;
   remediation: string;
   created_at: string;
