@@ -132,7 +132,8 @@ func dueScanPolicyTick(policy db.TenancyScanPolicy, now time.Time) (time.Time, b
 	} else {
 		after = after.Add(-time.Minute)
 	}
-	return schedule.LatestAfter(after, now)
+	tick, ok := schedule.LatestAfter(after, now)
+	return tick, ok, nil
 }
 
 func isExpectedScheduledRepoSkip(err error) bool {
