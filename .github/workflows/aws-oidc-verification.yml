@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 10
     env:
       IDENTRAIL_AWS_REGION: ${{ vars.AWS_REGION }}
-      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      IDENTRAIL_AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     steps:
       - name: Validate GitHub AWS configuration
         id: config
@@ -41,14 +41,16 @@ jobs:
             echo "AWS_REGION must be an AWS region such as us-east-1."
             exit 1
           fi
-          if [ -z "${AWS_ROLE_ARN}" ]; then
+          aws_role_arn="$(printf '%s' "${IDENTRAIL_AWS_ROLE_ARN}" | tr -d '[:space:]')"
+          if [ -z "${aws_role_arn}" ]; then
             echo "Missing repository secret AWS_ROLE_ARN."
             exit 1
           fi
-          if [[ ! "${AWS_ROLE_ARN}" =~ ^arn:aws:iam::([0-9]{12}):role/(.+)$ ]]; then
+          if [[ ! "${aws_role_arn}" =~ ^arn:aws:iam::([0-9]{12}):role/(.+)$ ]]; then
             echo "AWS_ROLE_ARN must look like arn:aws:iam::<account-id>:role/<role-name>."
             exit 1
           fi
+          echo "::add-mask::${aws_role_arn}"
           account_id="${BASH_REMATCH[1]}"
           role_resource="${BASH_REMATCH[2]}"
           role_name="${role_resource##*/}"
@@ -59,6 +61,7 @@ jobs:
           {
             echo "AWS_REGION=${aws_region}"
             echo "AWS_DEFAULT_REGION=${aws_region}"
+            echo "AWS_ROLE_ARN=${aws_role_arn}"
           } >> "$GITHUB_ENV"
 
       - name: Assume AWS deployment role
