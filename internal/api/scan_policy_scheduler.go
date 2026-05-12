@@ -158,5 +158,6 @@ func isExpectedScheduledRepoSkip(err error) bool {
 }
 
 func skipConsumesPolicyConcurrency(err error) bool {
-	return errors.Is(err, ErrRepoScanInProgress)
+	return errors.Is(err, ErrRepoScanInProgress) ||
+		errors.Is(err, ErrRepoScanQueueFull)
 }
