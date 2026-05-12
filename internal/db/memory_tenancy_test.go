@@ -47,6 +47,7 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-1",
 		UserID:      "user-1",
+		UserUUID:    "00000000-0000-0000-0000-000000000001",
 		Email:       "user@example.com",
 		Role:        "admin",
 		Status:      "active",
@@ -60,6 +61,16 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 	}
 	if len(members) != 1 || members[0].MemberID != "member-1" {
 		t.Fatalf("unexpected members: %+v", members)
+	}
+	memberByUser, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", "00000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get workspace member by user uuid: %v", err)
+	}
+	if memberByUser.MemberID != "member-1" {
+		t.Fatalf("unexpected member by user uuid: %+v", memberByUser)
+	}
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", "00000000-0000-0000-0000-000000000002"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing workspace member by user uuid to return ErrNotFound, got %v", err)
 	}
 
 	if err := store.UpsertProject(ctx, TenancyProject{

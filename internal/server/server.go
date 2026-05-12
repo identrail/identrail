@@ -141,6 +141,8 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		DefaultTenantID:      cfg.DefaultTenantID,
 		DefaultWorkspaceID:   cfg.DefaultWorkspaceID,
 		RequireExplicitScope: cfg.RequireExplicitScope,
+		FeatureNewAuth:       cfg.FeatureNewAuth,
+		PublicBaseURL:        cfg.PublicBaseURL,
 	})
 	return Bootstrap{
 		Logger:        logger,

@@ -76,6 +76,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "")
 	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "")
+	t.Setenv("IDENTRAIL_FEATURE_NEW_AUTH", "")
+	t.Setenv("IDENTRAIL_PUBLIC_BASE_URL", "")
+	t.Setenv("IDENTRAIL_SESSION_KEY", "")
+	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "")
+	t.Setenv("IDENTRAIL_AUTH_MANUAL_MODE", "")
+	t.Setenv("IDENTRAIL_WORKOS_CLIENT_ID", "")
 	t.Setenv("IDENTRAIL_OIDC_TENANT_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_GROUPS_CLAIM", "")
@@ -277,6 +283,24 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RequireExplicitScope {
 		t.Fatal("expected explicit scope requirement false by default")
 	}
+	if cfg.FeatureNewAuth {
+		t.Fatal("expected new auth feature disabled by default")
+	}
+	if cfg.PublicBaseURL != "" {
+		t.Fatalf("expected empty public base url by default, got %q", cfg.PublicBaseURL)
+	}
+	if cfg.SessionKey != "" {
+		t.Fatalf("expected empty session key by default, got %q", cfg.SessionKey)
+	}
+	if cfg.SessionKeyPrevious != "" {
+		t.Fatalf("expected empty previous session key by default, got %q", cfg.SessionKeyPrevious)
+	}
+	if cfg.AuthManualMode {
+		t.Fatal("expected manual auth mode disabled by default")
+	}
+	if cfg.WorkOSClientID != "" {
+		t.Fatalf("expected empty WorkOS client id by default, got %q", cfg.WorkOSClientID)
+	}
 	if cfg.OIDCIssuerURL != "" {
 		t.Fatalf("expected empty oidc issuer by default, got %q", cfg.OIDCIssuerURL)
 	}
@@ -367,6 +391,12 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "tenant-prod")
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "workspace-blue")
 	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "true")
+	t.Setenv("IDENTRAIL_FEATURE_NEW_AUTH", "true")
+	t.Setenv("IDENTRAIL_PUBLIC_BASE_URL", "https://app.identrail.example")
+	t.Setenv("IDENTRAIL_SESSION_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	t.Setenv("IDENTRAIL_AUTH_MANUAL_MODE", "true")
+	t.Setenv("IDENTRAIL_WORKOS_CLIENT_ID", "client_123")
 	t.Setenv("IDENTRAIL_OIDC_ISSUER_URL", "https://iam.example.com/realms/identrail")
 	t.Setenv("IDENTRAIL_OIDC_AUDIENCE", "identrail-api")
 	t.Setenv("IDENTRAIL_OIDC_WRITE_SCOPES", "identrail.write,identrail.admin")
@@ -576,6 +606,24 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if !cfg.RequireExplicitScope {
 		t.Fatal("expected explicit scope requirement true")
+	}
+	if !cfg.FeatureNewAuth {
+		t.Fatal("expected new auth feature enabled from env")
+	}
+	if cfg.PublicBaseURL != "https://app.identrail.example" {
+		t.Fatalf("unexpected public base url: %q", cfg.PublicBaseURL)
+	}
+	if cfg.SessionKey != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("unexpected session key: %q", cfg.SessionKey)
+	}
+	if cfg.SessionKeyPrevious != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("unexpected previous session key: %q", cfg.SessionKeyPrevious)
+	}
+	if !cfg.AuthManualMode {
+		t.Fatal("expected manual auth mode enabled from env")
+	}
+	if cfg.WorkOSClientID != "client_123" {
+		t.Fatalf("unexpected WorkOS client id: %q", cfg.WorkOSClientID)
 	}
 	if cfg.OIDCIssuerURL != "https://iam.example.com/realms/identrail" {
 		t.Fatalf("unexpected oidc issuer url: %q", cfg.OIDCIssuerURL)

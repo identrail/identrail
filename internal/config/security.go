@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -207,6 +209,22 @@ func ValidateSecurity(cfg Config) error {
 		}
 		if err := validateOIDCClaimName("IDENTRAIL_OIDC_ROLES_CLAIM", rolesClaim); err != nil {
 			return err
+		}
+	}
+	if cfg.AuthManualMode && strings.TrimSpace(cfg.WorkOSClientID) != "" {
+		return fmt.Errorf("IDENTRAIL_AUTH_MANUAL_MODE=true cannot be combined with IDENTRAIL_WORKOS_CLIENT_ID")
+	}
+	if cfg.FeatureNewAuth {
+		if err := validatePublicBaseURL(cfg.PublicBaseURL); err != nil {
+			return err
+		}
+		if err := validateSessionKey("IDENTRAIL_SESSION_KEY", cfg.SessionKey); err != nil {
+			return err
+		}
+		if strings.TrimSpace(cfg.SessionKeyPrevious) != "" {
+			if err := validateSessionKey("IDENTRAIL_SESSION_KEY_PREVIOUS", cfg.SessionKeyPrevious); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -508,7 +526,7 @@ func ValidateSecurity(cfg Config) error {
 	if lockBackend == "postgres" && strings.TrimSpace(cfg.DatabaseURL) == "" {
 		return fmt.Errorf("IDENTRAIL_LOCK_BACKEND=postgres requires IDENTRAIL_DATABASE_URL")
 	}
-	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 && oidcIssuer == "" {
+	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 && oidcIssuer == "" && !cfg.FeatureNewAuth {
 		return fmt.Errorf("no authentication configured: set API keys or OIDC configuration")
 	}
 	// Placeholder validation follows the active API key mode.
@@ -538,6 +556,44 @@ func ValidateSecurity(cfg Config) error {
 		if _, err := netip.ParseAddr(normalized); err != nil {
 			return fmt.Errorf("invalid IDENTRAIL_TRUSTED_PROXIES entry %q: %w", normalized, err)
 		}
+	}
+	return nil
+}
+
+func validatePublicBaseURL(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fmt.Errorf("IDENTRAIL_PUBLIC_BASE_URL is required when IDENTRAIL_FEATURE_NEW_AUTH=true")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("IDENTRAIL_PUBLIC_BASE_URL must be an absolute URL")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		host := strings.ToLower(parsed.Hostname())
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return nil
+		}
+	}
+	return fmt.Errorf("IDENTRAIL_PUBLIC_BASE_URL must use https outside local development")
+}
+
+func validateSessionKey(envName string, raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fmt.Errorf("%s is required when IDENTRAIL_FEATURE_NEW_AUTH=true", envName)
+	}
+	if decoded, err := hex.DecodeString(trimmed); err == nil {
+		if len(decoded) < 32 {
+			return fmt.Errorf("%s must contain at least 32 bytes of key material", envName)
+		}
+		return nil
+	}
+	if len([]byte(trimmed)) < 32 {
+		return fmt.Errorf("%s must contain at least 32 bytes of key material", envName)
 	}
 	return nil
 }

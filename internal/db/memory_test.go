@@ -831,6 +831,31 @@ func TestMemoryStoreCountQueuedScansAnyScope(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreClaimNextQueuedScanAnyScope(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	otherScope := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	if _, err := store.CreateQueuedScan(defaultScopeContext(), "aws", now.Add(time.Minute)); err != nil {
+		t.Fatalf("create default aws queued scan: %v", err)
+	}
+	first, err := store.CreateQueuedScan(otherScope, "aws", now)
+	if err != nil {
+		t.Fatalf("create earlier scoped aws queued scan: %v", err)
+	}
+
+	claimed, err := store.ClaimNextQueuedScanAnyScope(context.Background(), "aws")
+	if err != nil {
+		t.Fatalf("claim queued scan any scope: %v", err)
+	}
+	if claimed.ID != first.ID || claimed.TenantID != "tenant-b" || claimed.Status != "running" {
+		t.Fatalf("unexpected claimed scan across scopes: %+v", claimed)
+	}
+	if _, err := store.ClaimNextQueuedScanAnyScope(context.Background(), "gcp"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for empty provider queue, got %v", err)
+	}
+}
+
 func TestMemoryStoreNonPositiveLimitsUseDefaultPageSize(t *testing.T) {
 	store := NewMemoryStore()
 	base := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
@@ -988,6 +1013,47 @@ func TestMemoryStoreCountQueuedRepoScansAnyScope(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("expected queued repo count across scopes 2, got %d", count)
+	}
+}
+
+func TestMemoryStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
+
+	first, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-a", 10, 20, now, 1)
+	if err != nil {
+		t.Fatalf("create queued repo scan within limit: %v", err)
+	}
+	if first.Status != "queued" || first.HistoryLimit != 10 || first.MaxFindings != 20 {
+		t.Fatalf("unexpected queued repo scan within limit: %+v", first)
+	}
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-b", 10, 20, now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
+		t.Fatalf("expected repo queue limit to be reached, got %v", err)
+	}
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-a", 10, 20, now.Add(2*time.Minute), 2); !errors.Is(err, ErrPendingRepoScanExists) {
+		t.Fatalf("expected duplicate pending repo scan to be rejected, got %v", err)
+	}
+}
+
+func TestMemoryStoreClaimNextQueuedRepoScanAnyScope(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
+	otherScope := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	first, err := store.CreateQueuedRepoScan(otherScope, "owner/repo-b", 10, 20, now)
+	if err != nil {
+		t.Fatalf("create earlier scoped queued repo scan: %v", err)
+	}
+	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo-a", 10, 20, now.Add(time.Minute)); err != nil {
+		t.Fatalf("create default queued repo scan: %v", err)
+	}
+
+	claimed, err := store.ClaimNextQueuedRepoScanAnyScope(context.Background())
+	if err != nil {
+		t.Fatalf("claim queued repo scan any scope: %v", err)
+	}
+	if claimed.ID != first.ID || claimed.TenantID != "tenant-b" || claimed.Status != "running" {
+		t.Fatalf("unexpected claimed repo scan across scopes: %+v", claimed)
 	}
 }
 

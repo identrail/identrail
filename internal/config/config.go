@@ -45,6 +45,8 @@ const (
 	defaultOIDCWorkspaceClaim          = OIDCDefaultWorkspaceClaim
 	defaultOIDCGroupsClaim             = OIDCDefaultGroupsClaim
 	defaultOIDCRolesClaim              = OIDCDefaultRolesClaim
+	defaultFeatureNewAuth              = false
+	defaultAuthManualMode              = false
 	defaultAppModeEnabled              = false
 	defaultAppModeConnectorsEnabled    = false
 	defaultAppModeSchedulerEnabled     = false
@@ -145,6 +147,12 @@ type Config struct {
 	OIDCWorkspaceClaim          string
 	OIDCGroupsClaim             string
 	OIDCRolesClaim              string
+	FeatureNewAuth              bool
+	PublicBaseURL               string
+	SessionKey                  string
+	SessionKeyPrevious          string
+	AuthManualMode              bool
+	WorkOSClientID              string
 	AppModeEnabled              bool
 	AppModeConnectorsEnabled    bool
 	AppModeSchedulerEnabled     bool
@@ -267,6 +275,12 @@ func Load() Config {
 		OIDCWorkspaceClaim:          getEnv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", defaultOIDCWorkspaceClaim),
 		OIDCGroupsClaim:             getEnv("IDENTRAIL_OIDC_GROUPS_CLAIM", defaultOIDCGroupsClaim),
 		OIDCRolesClaim:              getEnv("IDENTRAIL_OIDC_ROLES_CLAIM", defaultOIDCRolesClaim),
+		FeatureNewAuth:              boolEnv("IDENTRAIL_FEATURE_NEW_AUTH", defaultFeatureNewAuth),
+		PublicBaseURL:               getEnv("IDENTRAIL_PUBLIC_BASE_URL", ""),
+		SessionKey:                  getEnv("IDENTRAIL_SESSION_KEY", ""),
+		SessionKeyPrevious:          getEnv("IDENTRAIL_SESSION_KEY_PREVIOUS", ""),
+		AuthManualMode:              boolEnv("IDENTRAIL_AUTH_MANUAL_MODE", defaultAuthManualMode),
+		WorkOSClientID:              getEnv("IDENTRAIL_WORKOS_CLIENT_ID", ""),
 		AppModeEnabled:              boolEnv("IDENTRAIL_APP_MODE_ENABLED", defaultAppModeEnabled),
 		AppModeConnectorsEnabled:    boolEnv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", defaultAppModeConnectorsEnabled),
 		AppModeSchedulerEnabled:     boolEnv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", defaultAppModeSchedulerEnabled),

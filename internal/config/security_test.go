@@ -25,6 +25,70 @@ func TestValidateSecurityAcceptsOIDCWithoutAPIKeys(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityAcceptsSessionAuthWithoutAPIKeys(t *testing.T) {
+	cfg := Config{
+		FeatureNewAuth: true,
+		PublicBaseURL:  "https://app.example.com",
+		SessionKey:     strings.Repeat("a", 64),
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected session auth to be valid without api keys, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsInvalidSessionAuthConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{
+			name: "missing public base url",
+			cfg: Config{
+				FeatureNewAuth: true,
+				SessionKey:     strings.Repeat("a", 64),
+			},
+			want: "IDENTRAIL_PUBLIC_BASE_URL",
+		},
+		{
+			name: "insecure public base url",
+			cfg: Config{
+				FeatureNewAuth: true,
+				PublicBaseURL:  "http://app.example.com",
+				SessionKey:     strings.Repeat("a", 64),
+			},
+			want: "https",
+		},
+		{
+			name: "short session key",
+			cfg: Config{
+				FeatureNewAuth: true,
+				PublicBaseURL:  "https://app.example.com",
+				SessionKey:     "short",
+			},
+			want: "IDENTRAIL_SESSION_KEY",
+		},
+		{
+			name: "manual mode with workos",
+			cfg: Config{
+				APIKeys:        []string{"reader", "writer"},
+				WriteAPIKeys:   []string{"writer"},
+				AuthManualMode: true,
+				WorkOSClientID: "client_123",
+			},
+			want: "IDENTRAIL_AUTH_MANUAL_MODE",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSecurity(tt.cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected error containing %q, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
 func TestValidateSecurityRejectsOIDCIssuerWithoutAudience(t *testing.T) {
 	cfg := Config{
 		OIDCIssuerURL: "https://iam.example.com/realms/identrail",

@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added the backend identity foundation for the new auth rollout:
+  - introduced durable `users`, `user_identities`, and `sessions` persistence with the `tenancy_workspace_members.user_uuid` bridge column
+  - added signed session-cookie middleware, `/auth/logout`, `/v1/me`, and current-user session management endpoints
+  - documented the session endpoints in OpenAPI and wired feature-flagged startup validation for session-auth configuration
 - Added the auth and connector architecture foundation under `docs/auth/`:
   - decided on WorkOS for hosted login plus a dual-driver OIDC path for self-host
   - documented the identity model, cookie and session spec, threat model, identity-linking rules, connector-foundation contract, environment-variables reference, and the canonical twelve-PR delivery sequence
