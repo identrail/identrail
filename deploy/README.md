@@ -12,5 +12,6 @@ Deployment profiles:
 
 Published container image examples use `ghcr.io/identrail/identrail` for the main server image, with `ghcr.io/identrail/identrail-worker`, `ghcr.io/identrail/identrail-web`, and the compatibility alias `ghcr.io/identrail/identrail-api` for multi-service deployments. Pin production deployments to immutable release tags. Helm and Terraform deployment values should use tagged images (`repository` + `tag`), while digest pinning is only for deployment paths that explicitly support digest references.
 
-AWS deployment starts with a validation-only foundation. See `aws/README.md`
-before enabling resource creation.
+AWS deployment starts with a validation-only foundation and a plan-first API
+hosting layer. See `aws/README.md` and `../docs/aws-api-hosting.md` before
+enabling resource creation.

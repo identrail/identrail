@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added a plan-first AWS API hosting layer:
+  - defines ECS/Fargate API service, HTTPS load balancer, task roles, security groups, health checks, and CPU autoscaling primitives
+  - keeps API hosting resource creation disabled by default for cost-safe CI validation
+  - documents operator inputs, Secrets Manager references, DNS cutover, and rollback expectations for `api.identrail.com`
 - Enriched repo findings with stable remediation metadata:
   - exposed `commit`, `file_path`, `line_number`, `detector`, `line_snippet`, and `line_snippet_redacted` in scanner and API finding payloads
   - normalized persisted repo finding evidence so existing rows read back without a storage migration

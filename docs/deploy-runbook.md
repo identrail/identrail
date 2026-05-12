@@ -9,6 +9,7 @@ Portable deployment profiles:
 - Guide: `docs/deployment-anywhere.md`
 - AWS OIDC deployment role: `docs/aws-oidc-deployment.md`
 - AWS deployment foundation: `docs/aws-deployment-foundation.md`
+- AWS API hosting: `docs/aws-api-hosting.md`
 - Operator readiness: `docs/operator-readiness.md`
 - Troubleshooting playbook: `docs/troubleshooting.md`
 - Incident workflow: `docs/incident-response.md`
@@ -96,6 +97,14 @@ Portable deployment profiles:
    - trigger `POST /v1/repo-scans`
    - verify `GET /v1/repo-scans`
    - verify `GET /v1/repo-findings?repo_scan_id=<id>`
+
+### AWS API Hosting Notes
+
+For AWS-hosted API rollout, keep `create_api_hosting_resources=false` until the
+VPC, subnets, ACM certificate, immutable API image, database, and Secrets
+Manager references are ready. Plan the stack first, verify the load balancer
+health endpoint, and only then point `api.identrail.com` at the load balancer.
+Keep `app.identrail.com` on Vercel.
 
 ## 3) Rollback Sequence
 
