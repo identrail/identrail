@@ -685,6 +685,43 @@ func TestMemoryStoreScanPolicyCRUD(t *testing.T) {
 	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
 		WorkspaceID:        "workspace-a",
 		ProjectID:          "project-1",
+		PolicyID:           "alpha",
+		Name:               "Alpha policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	}); err != nil {
+		t.Fatalf("upsert alpha scan policy: %v", err)
+	}
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "zulu",
+		Name:               "Zulu policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	}); err != nil {
+		t.Fatalf("upsert zulu scan policy: %v", err)
+	}
+	sorted, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", "", nil, "name", false, 1)
+	if err != nil {
+		t.Fatalf("list scan policies sorted by name: %v", err)
+	}
+	if len(sorted) != 1 || sorted[0].PolicyID != "alpha" {
+		t.Fatalf("expected name sort before limit to return alpha first, got %+v", sorted)
+	}
+	sorted, err = store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", "", nil, "name", true, 1)
+	if err != nil {
+		t.Fatalf("list scan policies sorted by name desc: %v", err)
+	}
+	if len(sorted) != 1 || sorted[0].PolicyID != "zulu" {
+		t.Fatalf("expected descending name sort before limit to return zulu first, got %+v", sorted)
+	}
+
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
 		PolicyID:           "secondary",
 		Name:               "Default policy",
 		Enabled:            true,
