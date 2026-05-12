@@ -425,16 +425,17 @@ func TestPostgresStoreUpsertsMapForeignKeyViolationToNotFound(t *testing.T) {
 	}
 
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO tenancy_workspace_members (
-		     tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
+		     tenant_id, workspace_id, member_id, user_id, user_uuid, email, role, status, joined_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, $6, $7, $8, $9, $10)
 		 ON CONFLICT (tenant_id, workspace_id, member_id) DO UPDATE
 		 SET user_id = EXCLUDED.user_id,
+		     user_uuid = EXCLUDED.user_uuid,
 		     email = EXCLUDED.email,
 		     role = EXCLUDED.role,
 		     status = EXCLUDED.status,
 		     updated_at = EXCLUDED.updated_at`)).
-		WithArgs("tenant-a", "workspace-a", "member-1", "user-1", "user@example.com", "admin", "active", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("tenant-a", "workspace-a", "member-1", "user-1", "", "user@example.com", "admin", "active", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnError(fkErr)
 	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
 		WorkspaceID: "workspace-a",
@@ -558,9 +559,9 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	now := time.Now().UTC()
 
-	row := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "email", "role", "status", "joined_at", "updated_at"}).
-		AddRow("tenant-a", "workspace-a", "member-1", "user-1", "user@example.com", "admin", "active", now, now)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
+	row := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "member-1", "user-1", "", "user@example.com", "admin", "active", now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
 		 FROM tenancy_workspace_members
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -576,9 +577,9 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 		t.Fatalf("unexpected member: %+v", member)
 	}
 
-	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "email", "role", "status", "joined_at", "updated_at"}).
-		AddRow("tenant-a", "workspace-a", "member-1", "user-1", "user@example.com", "admin", "active", now, now)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "member-1", "user-1", "", "user@example.com", "admin", "active", now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
 		 FROM tenancy_workspace_members
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2

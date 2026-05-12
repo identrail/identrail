@@ -305,6 +305,30 @@ func (m *MemoryStore) GetWorkspaceMember(ctx context.Context, workspaceID string
 	return member, nil
 }
 
+// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth user UUID.
+func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	for _, member := range m.members {
+		if member.TenantID == scope.TenantID &&
+			member.WorkspaceID == resolvedWorkspaceID &&
+			member.UserUUID == normalizedUserUUID {
+			return member, nil
+		}
+	}
+	return TenancyWorkspaceMember{}, ErrNotFound
+}
+
 // ListWorkspaceMembers returns members for one scoped workspace.
 func (m *MemoryStore) ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error) {
 	m.mu.RLock()

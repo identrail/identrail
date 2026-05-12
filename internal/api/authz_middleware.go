@@ -27,6 +27,8 @@ const (
 	policyActionRepoScansRun   = "repo_scans.run"
 	policyActionAuthzSimulate  = "authz.policies.simulate"
 	policyActionAuthzRollback  = "authz.policies.rollback"
+	policyActionMeRead         = "me.read"
+	policyActionMeWrite        = "me.write"
 	policyActionTenancyRead    = "tenancy.read"
 	policyActionTenancyWrite   = "tenancy.write"
 
@@ -64,6 +66,7 @@ func defaultRouteActionRoleGrants() map[string][]string {
 	writeRoles := []string{scopeWrite, scopeAdmin}
 	tenancyReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	tenancyWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
+	authenticatedRoles := []string{"authenticated", scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	return map[string][]string{
 		policyActionFindingsRead:   readRoles,
 		policyActionFindingsTriage: writeRoles,
@@ -74,6 +77,8 @@ func defaultRouteActionRoleGrants() map[string][]string {
 		policyActionRepoScansRun:   writeRoles,
 		policyActionAuthzSimulate:  {scopeAdmin},
 		policyActionAuthzRollback:  {scopeAdmin},
+		policyActionMeRead:         authenticatedRoles,
+		policyActionMeWrite:        authenticatedRoles,
 		policyActionTenancyRead:    tenancyReadRoles,
 		policyActionTenancyWrite:   tenancyWriteRoles,
 	}
@@ -100,6 +105,8 @@ func defaultRouteActionABACPolicies() map[string]abacActionPolicy {
 		policyActionRepoScansRun:  passThroughPolicy,
 		policyActionAuthzSimulate: passThroughPolicy,
 		policyActionAuthzRollback: passThroughPolicy,
+		policyActionMeRead:        passThroughPolicy,
+		policyActionMeWrite:       passThroughPolicy,
 		policyActionTenancyRead:   passThroughPolicy,
 		policyActionTenancyWrite:  passThroughPolicy,
 		policyActionFindingsTriage: {
@@ -689,7 +696,7 @@ func policyRolesFromAuth(c *gin.Context, writeKeys []string, scopedKeys map[stri
 	for _, rawRole := range authClaimRoles(c) {
 		normalized := strings.ToLower(strings.TrimSpace(rawRole))
 		switch normalized {
-		case "owner", "admin", "analyst", "viewer", scopeRead, scopeWrite:
+		case "authenticated", "owner", "admin", "analyst", "viewer", scopeRead, scopeWrite:
 			roles[normalized] = struct{}{}
 		}
 	}

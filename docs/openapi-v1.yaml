@@ -19,6 +19,7 @@ tags:
 security:
   - ApiKeyAuth: []
   - BearerAuth: []
+  - CookieAuth: []
 x-identrail-route-authorizations:
   - method: GET
     path: /v1/findings
@@ -107,6 +108,23 @@ x-identrail-route-authorizations:
     path: /v1/authz/policies/rollback
     action: authz.policies.rollback
     resource_type: authz_policy
+  - method: GET
+    path: /v1/me
+    action: me.read
+    resource_type: user
+  - method: GET
+    path: /v1/me/sessions
+    action: me.read
+    resource_type: session
+  - method: DELETE
+    path: /v1/me/sessions/{session_id}
+    action: me.write
+    resource_type: session
+    resource_id_param: session_id
+  - method: POST
+    path: /v1/me/sessions/revoke-others
+    action: me.write
+    resource_type: session
   - method: GET
     path: /v1/whoami
     action: tenancy.read
@@ -242,6 +260,22 @@ x-identrail-action-role-grants:
     - read
     - write
     - admin
+  me.read:
+    - authenticated
+    - read
+    - write
+    - admin
+    - owner
+    - analyst
+    - viewer
+  me.write:
+    - authenticated
+    - read
+    - write
+    - admin
+    - owner
+    - analyst
+    - viewer
   repo_scans.read:
     - read
     - write
@@ -315,6 +349,27 @@ paths:
             text/plain:
               schema:
                 type: string
+  /auth/logout:
+    post:
+      tags: [Authorization]
+      summary: Log out the current session
+      operationId: logoutCurrentSession
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Current session revoked and cookie cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /webhooks/github:
     post:
       tags: [RepositoryExposure]
@@ -456,6 +511,102 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/me:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Authorization]
+      summary: Get current session user
+      operationId: getCurrentUser
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Current user and session context
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  me:
+                    $ref: "#/components/schemas/CurrentUserContext"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/me/sessions:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Authorization]
+      summary: List current user sessions
+      operationId: listCurrentUserSessions
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Active sessions for the current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SessionListItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/me/sessions/{session_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: session_id
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [Authorization]
+      summary: Revoke one current-user session
+      operationId: revokeCurrentUserSession
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/me/sessions/revoke-others:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Authorization]
+      summary: Revoke all other current-user sessions
+      operationId: revokeOtherCurrentUserSessions
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Other sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /v1/organizations/current:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1846,6 +1997,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: identrail_session
     GitHubWebhookSignature:
       type: apiKey
       in: header
@@ -1963,6 +2118,62 @@ components:
       properties:
         error:
           type: string
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        primary_email: { type: string, format: email }
+        display_name: { type: string }
+        avatar_url: { type: string }
+        status:
+          type: string
+          enum: [active, deactivated, deleted]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+    CurrentUserContext:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        org_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        role:
+          type: string
+          enum: [owner, admin, analyst, viewer]
+        organization:
+          $ref: "#/components/schemas/Organization"
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        project:
+          $ref: "#/components/schemas/Project"
+    SessionListItem:
+      type: object
+      properties:
+        id: { type: string }
+        ip: { type: string }
+        user_agent: { type: string }
+        auth_method:
+          type: string
+          enum: [workos, oidc, manual]
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        idle_expires_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
     Organization:
       type: object
       properties:
@@ -2082,6 +2293,10 @@ components:
         workspace_id: { type: string }
         member_id: { type: string }
         user_id: { type: string }
+        user_uuid:
+          type: string
+          format: uuid
+          nullable: true
         email: { type: string }
         role:
           $ref: "#/components/schemas/WorkspaceMemberRole"

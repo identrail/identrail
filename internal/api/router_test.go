@@ -1630,6 +1630,7 @@ func TestAPIKeyAuthMiddlewareEnforcesScopeBindings(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		false,
 	))
 	r.Use(requestScopeMiddleware("default-tenant", "default-workspace"))
 	r.GET("/scope", func(c *gin.Context) {

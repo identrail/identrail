@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/secretstore"
@@ -136,6 +137,18 @@ var validTenancyMemberStatuses = map[string]struct{}{
 	"active":    {},
 	"suspended": {},
 	"removed":   {},
+}
+
+var validUserStatuses = map[string]struct{}{
+	"active":      {},
+	"deactivated": {},
+	"deleted":     {},
+}
+
+var validSessionAuthMethods = map[string]struct{}{
+	"workos": {},
+	"oidc":   {},
+	"manual": {},
 }
 
 // ScanRecord tracks persisted scan execution metadata.
@@ -335,11 +348,55 @@ type TenancyWorkspaceMember struct {
 	WorkspaceID string    `json:"workspace_id"`
 	MemberID    string    `json:"member_id"`
 	UserID      string    `json:"user_id"`
+	UserUUID    string    `json:"user_uuid,omitempty"`
 	Email       string    `json:"email,omitempty"`
 	Role        string    `json:"role"`
 	Status      string    `json:"status"`
 	JoinedAt    time.Time `json:"joined_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// User stores one human account independent of provider identities.
+type User struct {
+	ID           string     `json:"id"`
+	PrimaryEmail string     `json:"primary_email"`
+	DisplayName  string     `json:"display_name,omitempty"`
+	AvatarURL    string     `json:"avatar_url,omitempty"`
+	Status       string     `json:"status"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
+}
+
+// UserIdentity links one external identity provider subject to a user.
+type UserIdentity struct {
+	ID                  string          `json:"id"`
+	UserID              string          `json:"user_id"`
+	Provider            string          `json:"provider"`
+	Subject             string          `json:"subject"`
+	Email               string          `json:"email,omitempty"`
+	EmailVerified       bool            `json:"email_verified"`
+	RawClaims           json.RawMessage `json:"raw_claims,omitempty"`
+	LastAuthenticatedAt time.Time       `json:"last_authenticated_at"`
+	CreatedAt           time.Time       `json:"created_at"`
+}
+
+// Session stores one opaque server-side browser session.
+type Session struct {
+	ID                 []byte     `json:"-"`
+	UserID             string     `json:"user_id"`
+	CurrentOrgID       string     `json:"current_org_id,omitempty"`
+	CurrentWorkspaceID string     `json:"current_workspace_id,omitempty"`
+	CurrentProjectID   string     `json:"current_project_id,omitempty"`
+	AuthMethod         string     `json:"auth_method"`
+	IP                 string     `json:"ip,omitempty"`
+	UserAgent          string     `json:"user_agent,omitempty"`
+	IdleExpiresAt      time.Time  `json:"idle_expires_at"`
+	AbsoluteExpiresAt  time.Time  `json:"absolute_expires_at"`
+	LastSeenAt         time.Time  `json:"last_seen_at"`
+	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	User               *User      `json:"user,omitempty"`
 }
 
 // TenancyProject stores one project metadata record.
@@ -769,6 +826,7 @@ func NormalizeTenancyWorkspaceMemberForWrite(member TenancyWorkspaceMember) (Ten
 	if normalized.UserID == "" {
 		return TenancyWorkspaceMember{}, fmt.Errorf("user id is required")
 	}
+	normalized.UserUUID = strings.TrimSpace(member.UserUUID)
 	normalized.Email = strings.TrimSpace(member.Email)
 	normalized.Role = strings.ToLower(strings.TrimSpace(member.Role))
 	if _, ok := validTenancyMemberRoles[normalized.Role]; !ok {
@@ -790,6 +848,135 @@ func NormalizeTenancyWorkspaceMemberForWrite(member TenancyWorkspaceMember) (Ten
 		normalized.UpdatedAt = normalized.JoinedAt
 	} else {
 		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeUserForWrite validates and canonicalizes one account row.
+func NormalizeUserForWrite(user User) (User, error) {
+	normalized := user
+	normalized.ID = strings.TrimSpace(user.ID)
+	if normalized.ID == "" {
+		normalized.ID = uuid.NewString()
+	} else if _, err := uuid.Parse(normalized.ID); err != nil {
+		return User{}, fmt.Errorf("invalid user id")
+	}
+	normalized.PrimaryEmail = strings.ToLower(strings.TrimSpace(user.PrimaryEmail))
+	if normalized.PrimaryEmail == "" {
+		return User{}, fmt.Errorf("primary email is required")
+	}
+	normalized.DisplayName = strings.TrimSpace(user.DisplayName)
+	normalized.AvatarURL = strings.TrimSpace(user.AvatarURL)
+	normalized.Status = strings.ToLower(strings.TrimSpace(user.Status))
+	if normalized.Status == "" {
+		normalized.Status = "active"
+	}
+	if _, ok := validUserStatuses[normalized.Status]; !ok {
+		return User{}, fmt.Errorf("invalid user status")
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	if normalized.DeletedAt != nil {
+		deletedAt := normalized.DeletedAt.UTC()
+		normalized.DeletedAt = &deletedAt
+	}
+	return normalized, nil
+}
+
+// NormalizeUserIdentityForWrite validates and canonicalizes one provider identity row.
+func NormalizeUserIdentityForWrite(identity UserIdentity) (UserIdentity, error) {
+	normalized := identity
+	normalized.ID = strings.TrimSpace(identity.ID)
+	if normalized.ID == "" {
+		normalized.ID = uuid.NewString()
+	} else if _, err := uuid.Parse(normalized.ID); err != nil {
+		return UserIdentity{}, fmt.Errorf("invalid user identity id")
+	}
+	normalized.UserID = strings.TrimSpace(identity.UserID)
+	if _, err := uuid.Parse(normalized.UserID); err != nil {
+		return UserIdentity{}, fmt.Errorf("invalid user id")
+	}
+	normalized.Provider = strings.ToLower(strings.TrimSpace(identity.Provider))
+	if normalized.Provider == "" {
+		return UserIdentity{}, fmt.Errorf("provider is required")
+	}
+	normalized.Subject = strings.TrimSpace(identity.Subject)
+	if normalized.Subject == "" {
+		return UserIdentity{}, fmt.Errorf("subject is required")
+	}
+	normalized.Email = strings.ToLower(strings.TrimSpace(identity.Email))
+	if len(normalized.RawClaims) == 0 {
+		normalized.RawClaims = json.RawMessage(`{}`)
+	}
+	if !json.Valid(normalized.RawClaims) {
+		return UserIdentity{}, fmt.Errorf("raw claims must be valid json")
+	}
+	if normalized.LastAuthenticatedAt.IsZero() {
+		normalized.LastAuthenticatedAt = time.Now().UTC()
+	} else {
+		normalized.LastAuthenticatedAt = normalized.LastAuthenticatedAt.UTC()
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = normalized.LastAuthenticatedAt
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeSessionForWrite validates and canonicalizes one session row.
+func NormalizeSessionForWrite(session Session) (Session, error) {
+	normalized := session
+	if len(normalized.ID) != sha256.Size {
+		return Session{}, fmt.Errorf("session id hash must be %d bytes", sha256.Size)
+	}
+	normalized.ID = append([]byte(nil), normalized.ID...)
+	normalized.UserID = strings.TrimSpace(session.UserID)
+	if _, err := uuid.Parse(normalized.UserID); err != nil {
+		return Session{}, fmt.Errorf("invalid user id")
+	}
+	normalized.CurrentOrgID = strings.TrimSpace(session.CurrentOrgID)
+	normalized.CurrentWorkspaceID = strings.TrimSpace(session.CurrentWorkspaceID)
+	normalized.CurrentProjectID = strings.TrimSpace(session.CurrentProjectID)
+	normalized.AuthMethod = strings.ToLower(strings.TrimSpace(session.AuthMethod))
+	if _, ok := validSessionAuthMethods[normalized.AuthMethod]; !ok {
+		return Session{}, fmt.Errorf("invalid auth method")
+	}
+	normalized.IP = strings.TrimSpace(session.IP)
+	normalized.UserAgent = strings.TrimSpace(session.UserAgent)
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.IdleExpiresAt.IsZero() {
+		return Session{}, fmt.Errorf("idle expiry is required")
+	}
+	normalized.IdleExpiresAt = normalized.IdleExpiresAt.UTC()
+	if normalized.AbsoluteExpiresAt.IsZero() {
+		return Session{}, fmt.Errorf("absolute expiry is required")
+	}
+	normalized.AbsoluteExpiresAt = normalized.AbsoluteExpiresAt.UTC()
+	if normalized.LastSeenAt.IsZero() {
+		normalized.LastSeenAt = normalized.CreatedAt
+	} else {
+		normalized.LastSeenAt = normalized.LastSeenAt.UTC()
+	}
+	if normalized.RevokedAt != nil {
+		revokedAt := normalized.RevokedAt.UTC()
+		normalized.RevokedAt = &revokedAt
+	}
+	if normalized.User != nil {
+		user := *normalized.User
+		normalized.User = &user
 	}
 	return normalized, nil
 }
@@ -1235,6 +1422,7 @@ type Store interface {
 	DeleteWorkspace(ctx context.Context, workspaceID string) error
 	UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error
 	GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (TenancyWorkspaceMember, error)
+	GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error)
 	ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error)
 	DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error
 	UpsertProject(ctx context.Context, project TenancyProject) error
@@ -1247,6 +1435,15 @@ type Store interface {
 	ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
 	UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error
 	GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error)
+	UpsertUser(ctx context.Context, user User) (User, error)
+	GetUser(ctx context.Context, userID string) (User, error)
+	UpsertUserIdentity(ctx context.Context, identity UserIdentity) (UserIdentity, error)
+	GetUserIdentity(ctx context.Context, provider string, subject string) (UserIdentity, error)
+	CreateSession(ctx context.Context, session Session) (Session, error)
+	TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
+	ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error)
+	RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error)
+	RevokeOtherUserSessions(ctx context.Context, userID string, currentSessionIDHash []byte, revokedAt time.Time) (int, error)
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error

@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
@@ -70,6 +71,8 @@ type RouterOptions struct {
 	DefaultTenantID      string
 	DefaultWorkspaceID   string
 	RequireExplicitScope bool
+	FeatureNewAuth       bool
+	PublicBaseURL        string
 }
 
 type scopedAPIKeyAuthConfig struct {
@@ -190,6 +193,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			opts.AuditSink,
 			opts.AuditFingerprinter,
 			logger,
+			false,
 		),
 		requireMetricsScopeMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes),
 		gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})),
@@ -237,12 +241,25 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		authzStore = svc.Store
 		svc.Metrics = metrics
 	}
+	sessionManager := sessionauth.Manager{
+		PublicBaseURL: opts.PublicBaseURL,
+	}
+	if svc != nil {
+		sessionManager.Store = svc.Store
+		sessionManager.Now = svc.Now
+	}
+	if opts.FeatureNewAuth {
+		registerAuthSessionRoutes(r, logger, svc, sessionManager)
+	}
 
 	v1 := r.Group("/v1")
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	v1.Use(apiDenialMetricsMiddleware(metrics))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
+	if opts.FeatureNewAuth {
+		v1.Use(sessionManager.Middleware())
+	}
 	v1.Use(apiKeyAuthMiddleware(
 		opts.APIKeys,
 		opts.APIKeyScopes,
@@ -252,12 +269,16 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		opts.AuditSink,
 		opts.AuditFingerprinter,
 		logger,
+		opts.FeatureNewAuth,
 	))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID, opts.RequireExplicitScope))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
+	if opts.FeatureNewAuth {
+		registerMeRoutes(v1, logger, svc, sessionManager)
+	}
 	registerTenancyRoutes(v1, logger, svc)
 	registerKubernetesConnectionRoutes(v1, logger, svc)
 
@@ -1944,7 +1965,7 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string, r
 		if workspaceID == "" {
 			workspaceID = defaultScope.WorkspaceID
 		}
-		if explicitScope && (!tenantProvided || !workspaceProvided) {
+		if explicitScope && !isCurrentUserRoute(c.FullPath()) && (!tenantProvided || !workspaceProvided) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"error": "explicit tenant and workspace scope are required",
 			})
@@ -1956,6 +1977,15 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string, r
 		})
 		c.Request = c.Request.WithContext(scopedCtx)
 		c.Next()
+	}
+}
+
+func isCurrentUserRoute(path string) bool {
+	switch path {
+	case "/v1/me", "/v1/me/sessions", "/v1/me/sessions/:session_id", "/v1/me/sessions/revoke-others":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -2124,6 +2154,7 @@ func apiKeyAuthMiddleware(
 	sink audit.AuditSink,
 	fingerprinter *audit.Fingerprinter,
 	logger *zap.Logger,
+	requireAuth bool,
 ) gin.HandlerFunc {
 	oidcWriteScopeSet := newScopeSet(oidcWriteScopes)
 	if sink == nil {
@@ -2163,11 +2194,17 @@ func apiKeyAuthMiddleware(
 		}
 	}
 
-	if len(scopedAllowed) == 0 && len(legacyAllowed) == 0 && tokenVerifier == nil {
+	if len(scopedAllowed) == 0 && len(legacyAllowed) == 0 && tokenVerifier == nil && !requireAuth {
 		return func(c *gin.Context) { c.Next() }
 	}
 
 	return func(c *gin.Context) {
+		if _, exists := c.Get("auth.session"); exists {
+			setAuditActorOnRequestContext(c, fingerprinter)
+			c.Next()
+			return
+		}
+
 		if candidate := readAPIKey(c); candidate != "" {
 			if config, ok := scopedKeyLookup(scopedAllowed, candidate); ok {
 				if binding, hasBinding := scopedKeyBindingLookup(normalizedScopedBindings, candidate); hasBinding {

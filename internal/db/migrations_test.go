@@ -340,6 +340,49 @@ func TestSeventeenthMigrationContainsQueueTraceContextColumns(t *testing.T) {
 	}
 }
 
+func TestEighteenthMigrationContainsUsersAndSessions(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000018_users_and_sessions.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"CREATE EXTENSION IF NOT EXISTS citext",
+		"CREATE TABLE IF NOT EXISTS users",
+		"CREATE TABLE IF NOT EXISTS user_identities",
+		"ADD COLUMN IF NOT EXISTS user_uuid UUID",
+		"CREATE TABLE IF NOT EXISTS sessions",
+		"CHECK (LENGTH(id) = 32)",
+		"CHECK (auth_method IN ('workos', 'oidc', 'manual'))",
+		"idx_tenancy_members_scope_user_uuid",
+		"idx_sessions_user_id",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected users and sessions migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000018_users_and_sessions.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP TABLE IF EXISTS sessions",
+		"DROP COLUMN IF EXISTS user_uuid",
+		"DROP TABLE IF EXISTS user_identities",
+		"DROP TABLE IF EXISTS users",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected users and sessions down migration item %q", item)
+		}
+	}
+}
+
 func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000013_connectors_state_scan_policies.up.sql")
 	content, err := os.ReadFile(path)

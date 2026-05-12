@@ -28,25 +28,29 @@ type MemoryStore struct {
 	repoFindings   map[string]domain.Finding
 	repoFindingIDs map[string][]string
 
-	rawAssets     map[string]providers.RawAsset
-	authzAttrs    map[string]AuthzEntityAttributes
-	authzRels     map[string]AuthzRelationship
-	authzSets     map[string]AuthzPolicySet
-	authzVersions map[string]AuthzPolicyVersion
-	authzRollouts map[string]AuthzPolicyRollout
-	authzEvents   map[string][]AuthzPolicyEvent
-	authzEventIDs map[string]struct{}
-	organizations map[string]TenancyOrganization
-	workspaces    map[string]TenancyWorkspace
-	members       map[string]TenancyWorkspaceMember
-	projects      map[string]TenancyProject
-	connectors    map[string]TenancyConnector
-	connStates    map[string]TenancyConnectorState
-	connSecrets   map[string]TenancyConnectorSecretEnvelope
-	identities    map[string]domain.Identity
-	policies      map[string]domain.Policy
-	relationships map[string]domain.Relationship
-	permissions   map[string]providers.PermissionTuple
+	rawAssets                     map[string]providers.RawAsset
+	authzAttrs                    map[string]AuthzEntityAttributes
+	authzRels                     map[string]AuthzRelationship
+	authzSets                     map[string]AuthzPolicySet
+	authzVersions                 map[string]AuthzPolicyVersion
+	authzRollouts                 map[string]AuthzPolicyRollout
+	authzEvents                   map[string][]AuthzPolicyEvent
+	authzEventIDs                 map[string]struct{}
+	organizations                 map[string]TenancyOrganization
+	workspaces                    map[string]TenancyWorkspace
+	members                       map[string]TenancyWorkspaceMember
+	projects                      map[string]TenancyProject
+	connectors                    map[string]TenancyConnector
+	connStates                    map[string]TenancyConnectorState
+	connSecrets                   map[string]TenancyConnectorSecretEnvelope
+	users                         map[string]User
+	userIdentityByID              map[string]UserIdentity
+	userIdentityByProviderSubject map[string]string
+	sessions                      map[string]Session
+	identities                    map[string]domain.Identity
+	policies                      map[string]domain.Policy
+	relationships                 map[string]domain.Relationship
+	permissions                   map[string]providers.PermissionTuple
 }
 
 // NewMemoryStore initializes an empty in-memory store.
@@ -64,25 +68,29 @@ func NewMemoryStore() *MemoryStore {
 		repoFindings:   map[string]domain.Finding{},
 		repoFindingIDs: map[string][]string{},
 
-		rawAssets:     map[string]providers.RawAsset{},
-		authzAttrs:    map[string]AuthzEntityAttributes{},
-		authzRels:     map[string]AuthzRelationship{},
-		authzSets:     map[string]AuthzPolicySet{},
-		authzVersions: map[string]AuthzPolicyVersion{},
-		authzRollouts: map[string]AuthzPolicyRollout{},
-		authzEvents:   map[string][]AuthzPolicyEvent{},
-		authzEventIDs: map[string]struct{}{},
-		organizations: map[string]TenancyOrganization{},
-		workspaces:    map[string]TenancyWorkspace{},
-		members:       map[string]TenancyWorkspaceMember{},
-		projects:      map[string]TenancyProject{},
-		connectors:    map[string]TenancyConnector{},
-		connStates:    map[string]TenancyConnectorState{},
-		connSecrets:   map[string]TenancyConnectorSecretEnvelope{},
-		identities:    map[string]domain.Identity{},
-		policies:      map[string]domain.Policy{},
-		relationships: map[string]domain.Relationship{},
-		permissions:   map[string]providers.PermissionTuple{},
+		rawAssets:                     map[string]providers.RawAsset{},
+		authzAttrs:                    map[string]AuthzEntityAttributes{},
+		authzRels:                     map[string]AuthzRelationship{},
+		authzSets:                     map[string]AuthzPolicySet{},
+		authzVersions:                 map[string]AuthzPolicyVersion{},
+		authzRollouts:                 map[string]AuthzPolicyRollout{},
+		authzEvents:                   map[string][]AuthzPolicyEvent{},
+		authzEventIDs:                 map[string]struct{}{},
+		organizations:                 map[string]TenancyOrganization{},
+		workspaces:                    map[string]TenancyWorkspace{},
+		members:                       map[string]TenancyWorkspaceMember{},
+		projects:                      map[string]TenancyProject{},
+		connectors:                    map[string]TenancyConnector{},
+		connStates:                    map[string]TenancyConnectorState{},
+		connSecrets:                   map[string]TenancyConnectorSecretEnvelope{},
+		users:                         map[string]User{},
+		userIdentityByID:              map[string]UserIdentity{},
+		userIdentityByProviderSubject: map[string]string{},
+		sessions:                      map[string]Session{},
+		identities:                    map[string]domain.Identity{},
+		policies:                      map[string]domain.Policy{},
+		relationships:                 map[string]domain.Relationship{},
+		permissions:                   map[string]providers.PermissionTuple{},
 	}
 }
 

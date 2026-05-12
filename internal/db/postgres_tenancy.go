@@ -296,11 +296,12 @@ func (p *PostgresStore) UpsertWorkspaceMember(ctx context.Context, member Tenanc
 	_, err = p.execContext(
 		ctx,
 		`INSERT INTO tenancy_workspace_members (
-		     tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
+		     tenant_id, workspace_id, member_id, user_id, user_uuid, email, role, status, joined_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, $6, $7, $8, $9, $10)
 		 ON CONFLICT (tenant_id, workspace_id, member_id) DO UPDATE
 		 SET user_id = EXCLUDED.user_id,
+		     user_uuid = EXCLUDED.user_uuid,
 		     email = EXCLUDED.email,
 		     role = EXCLUDED.role,
 		     status = EXCLUDED.status,
@@ -309,6 +310,7 @@ func (p *PostgresStore) UpsertWorkspaceMember(ctx context.Context, member Tenanc
 		normalized.WorkspaceID,
 		normalized.MemberID,
 		normalized.UserID,
+		normalized.UserUUID,
 		normalized.Email,
 		normalized.Role,
 		normalized.Status,
@@ -343,7 +345,7 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
+		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
 		 FROM tenancy_workspace_members
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -358,6 +360,49 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 		&member.WorkspaceID,
 		&member.MemberID,
 		&member.UserID,
+		&member.UserUUID,
+		&member.Email,
+		&member.Role,
+		&member.Status,
+		&member.JoinedAt,
+		&member.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyWorkspaceMember{}, ErrNotFound
+		}
+		return TenancyWorkspaceMember{}, err
+	}
+	return member, nil
+}
+
+// GetWorkspaceMemberByUserUUID returns one scoped workspace member by auth user UUID.
+func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
+		 FROM tenancy_workspace_members
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND user_uuid = NULLIF($3, '')::uuid`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(userUUID),
+	)
+	var member TenancyWorkspaceMember
+	if err := row.Scan(
+		&member.TenantID,
+		&member.WorkspaceID,
+		&member.MemberID,
+		&member.UserID,
+		&member.UserUUID,
 		&member.Email,
 		&member.Role,
 		&member.Status,
@@ -387,7 +432,7 @@ func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID st
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, email, role, status, joined_at, updated_at
+		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
 		 FROM tenancy_workspace_members
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -410,6 +455,7 @@ func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID st
 			&member.WorkspaceID,
 			&member.MemberID,
 			&member.UserID,
+			&member.UserUUID,
 			&member.Email,
 			&member.Role,
 			&member.Status,

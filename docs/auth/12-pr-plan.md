@@ -80,7 +80,7 @@ PR 5 (frontend auth)                 │
 
 **Goal.** `users`, `user_identities`, `sessions` plus the session middleware and `GET /v1/me` and `POST /auth/logout`. Begin the strangler-fig migration on `tenancy_workspace_members.user_id`.
 
-**Schema (migration `000017_users_and_sessions`).**
+**Schema (migration `000018_users_and_sessions`; originally planned as `000017`, but `000017_queue_trace_context` landed first).**
 - `users(id UUID PK, primary_email CITEXT UNIQUE, display_name, avatar_url, status, created_at, updated_at, deleted_at NULL)`.
 - `user_identities(id UUID PK, user_id FK, provider TEXT, subject TEXT, email CITEXT, email_verified BOOLEAN NOT NULL DEFAULT FALSE, raw_claims JSONB, last_authenticated_at, created_at, UNIQUE(provider, subject))`.
 - `sessions(id BYTEA PK, user_id FK ON DELETE CASCADE, current_org_id, current_workspace_id, current_project_id, auth_method, ip INET, user_agent, idle_expires_at, absolute_expires_at, last_seen_at, revoked_at NULL, created_at)`. `last_seen_at` is bumped to `NOW()` on every authenticated request alongside `idle_expires_at`; powers the "last seen" display on the account/security page.
@@ -93,7 +93,7 @@ PR 5 (frontend auth)                 │
 - `internal/api/auth/session.go`, `middleware.go` (new).
 - `internal/api/router.go` (register `/v1/me`, `/auth/logout`).
 - `internal/config/config.go` (add `IDENTRAIL_PUBLIC_BASE_URL`, `IDENTRAIL_SESSION_KEY`, `IDENTRAIL_AUTH_MANUAL_MODE`).
-- `migrations/000017_users_and_sessions.up.sql` and `.down.sql`.
+- `migrations/000018_users_and_sessions.up.sql` and `.down.sql`.
 - Tests across all of the above.
 
 **New endpoints.**
