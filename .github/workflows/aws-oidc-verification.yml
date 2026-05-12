@@ -24,8 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+      IDENTRAIL_AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     steps:
       - name: Validate GitHub AWS configuration
@@ -33,8 +32,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${AWS_REGION}" ]; then
+          aws_region="$(printf '%s' "${IDENTRAIL_AWS_REGION}" | tr -d '[:space:]')"
+          if [ -z "${aws_region}" ]; then
             echo "Missing repository variable AWS_REGION."
+            exit 1
+          fi
+          if [[ ! "${aws_region}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "AWS_REGION must be an AWS region such as us-east-1."
             exit 1
           fi
           if [ -z "${AWS_ROLE_ARN}" ]; then
@@ -52,6 +56,10 @@ jobs:
             echo "account_id=${account_id}"
             echo "role_name=${role_name}"
           } >> "$GITHUB_OUTPUT"
+          {
+            echo "AWS_REGION=${aws_region}"
+            echo "AWS_DEFAULT_REGION=${aws_region}"
+          } >> "$GITHUB_ENV"
 
       - name: Assume AWS deployment role
         id: assume
