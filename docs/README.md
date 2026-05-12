@@ -7,6 +7,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - Enterprise quickstart: `enterprise-quickstart.md`
 - Operator readiness handoff: `operator-readiness.md`
 - Deployment runbook: `deploy-runbook.md`
+- AWS OIDC deployment role: `aws-oidc-deployment.md`
 
 ## Operator track
 
