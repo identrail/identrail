@@ -9,6 +9,9 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/scheduler"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const defaultScanPolicyScheduleLimit = 500
@@ -34,8 +37,12 @@ func (s *Service) EnqueueDueScanPolicies(ctx context.Context) (ScanPolicySchedul
 
 // EnqueueDueScanPoliciesAt is the deterministic variant used by tests.
 func (s *Service) EnqueueDueScanPoliciesAt(ctx context.Context, now time.Time) (ScanPolicyScheduleResult, error) {
+	ctx, span := otel.Tracer("identrail/automation").Start(ctx, "automation.scan_policy_scheduler")
+	defer span.End()
+
 	store, ok := s.Store.(scanPolicyScheduleStore)
 	if !ok {
+		span.SetStatus(codes.Error, "scan policy store unavailable")
 		return ScanPolicyScheduleResult{}, ErrScanPolicyStoreUnavailable
 	}
 	now = now.UTC()
@@ -43,6 +50,8 @@ func (s *Service) EnqueueDueScanPoliciesAt(ctx context.Context, now time.Time) (
 	for offset := 0; ; offset += defaultScanPolicyScheduleLimit {
 		policies, err := store.ListScheduledTenancyScanPolicies(ctx, defaultScanPolicyScheduleLimit, offset)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "list scheduled policies failed")
 			return result, err
 		}
 		result.PoliciesChecked += len(policies)
@@ -50,24 +59,38 @@ func (s *Service) EnqueueDueScanPoliciesAt(ctx context.Context, now time.Time) (
 			scheduledAt, due, err := dueScanPolicyTick(policy, now)
 			if err != nil {
 				result.SkippedScans++
+				s.recordAutomationRun("scheduled", "github", "skipped")
 				continue
 			}
 			if !due {
 				continue
 			}
 			result.PoliciesDue++
+			s.recordAutomationLag("scheduled", "repo_scan", now.Sub(scheduledAt.UTC()))
 			policyResult, err := s.enqueueDueScanPolicy(ctx, store, policy, scheduledAt, now)
 			if err != nil {
+				s.recordAutomationRun("scheduled", "github", "failed")
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "enqueue scheduled policy failed")
 				return result, err
 			}
 			result.PoliciesClaimed += policyResult.PoliciesClaimed
 			result.QueuedScans += policyResult.QueuedScans
 			result.SkippedScans += policyResult.SkippedScans
+			s.recordAutomationRuns("scheduled", "github", "queued", policyResult.QueuedScans)
+			s.recordAutomationRuns("scheduled", "github", "skipped", policyResult.SkippedScans)
 		}
 		if len(policies) < defaultScanPolicyScheduleLimit {
 			break
 		}
 	}
+	span.SetAttributes(
+		attribute.Int("automation.policies_checked", result.PoliciesChecked),
+		attribute.Int("automation.policies_due", result.PoliciesDue),
+		attribute.Int("automation.policies_claimed", result.PoliciesClaimed),
+		attribute.Int("automation.queued_scans", result.QueuedScans),
+		attribute.Int("automation.skipped_scans", result.SkippedScans),
+	)
 	return result, nil
 }
 

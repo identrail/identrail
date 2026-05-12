@@ -21,6 +21,9 @@ import (
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/secretstore"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -401,19 +404,27 @@ func (s *Service) RotateGitHubConnectionSecret(ctx context.Context, workspaceID 
 }
 
 func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, deliveryID string, signature string, payload []byte) (GitHubWebhookResult, error) {
+	ctx, span := otel.Tracer("identrail/automation").Start(ctx, "automation.github_webhook")
+	defer span.End()
+
 	normalizedEventType := strings.ToLower(strings.TrimSpace(eventType))
 	if normalizedEventType == "" || len(payload) == 0 {
+		span.SetStatus(codes.Error, "invalid github webhook payload")
 		return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
 	}
+	span.SetAttributes(attribute.String("github.event_type", normalizedEventType))
 
 	var envelope githubWebhookEnvelope
 	if err := json.Unmarshal(payload, &envelope); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid github webhook payload")
 		return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
 	}
 	installationID := envelope.Installation.ID
 	normalizedSignature := strings.TrimSpace(signature)
 
 	if !s.verifyGitHubWebhookSignatureForInstallation(installationID, payload, normalizedSignature) {
+		span.SetStatus(codes.Error, "github webhook signature invalid")
 		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
 	}
 
@@ -434,6 +445,7 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		}
 	}
 	if len(validConnections) == 0 {
+		span.SetStatus(codes.Error, "github webhook signature invalid")
 		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
 	}
 
@@ -451,6 +463,7 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		replayed := s.isGitHubWebhookReplay(connection, normalizedDeliveryID, now)
 		if replayed && scanTriggerEvent {
 			result.SkippedScans++
+			s.recordAutomationRun("event", "github", "skipped")
 			continue
 		}
 		if !scanTriggerEvent {
@@ -459,6 +472,7 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		}
 		if s.shouldThrottleGitHubWebhookScan(connection, repository, now) {
 			result.SkippedScans++
+			s.recordAutomationRun("event", "github", "skipped")
 			s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 			continue
 		}
@@ -468,6 +482,7 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		if err != nil {
 			if errors.Is(err, ErrRepoScanQueueFull) {
 				result.SkippedScans++
+				s.recordAutomationRun("event", "github", "skipped")
 				continue
 			}
 			if errors.Is(err, ErrRepoScanInProgress) ||
@@ -475,16 +490,26 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 				errors.Is(err, ErrRepoTargetNotAllowed) ||
 				errors.Is(err, ErrInvalidRepoScanRequest) {
 				result.SkippedScans++
+				s.recordAutomationRun("event", "github", "skipped")
 				s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 				continue
 			}
+			s.recordAutomationRun("event", "github", "failed")
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "enqueue webhook repo scan failed")
 			return GitHubWebhookResult{}, err
 		}
 		result.QueuedScans++
+		s.recordAutomationRun("event", "github", "queued")
 		s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
 		s.recordGitHubWebhookQueuedScan(ctx, connection, repository, now)
 	}
 
+	span.SetAttributes(
+		attribute.Int("automation.matched_projects", result.MatchedProjects),
+		attribute.Int("automation.queued_scans", result.QueuedScans),
+		attribute.Int("automation.skipped_scans", result.SkippedScans),
+	)
 	return result, nil
 }
 

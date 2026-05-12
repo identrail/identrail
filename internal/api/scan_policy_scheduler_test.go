@@ -10,6 +10,8 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestEnqueueDueScanPoliciesRecoversLatestMissedTick(t *testing.T) {
@@ -48,6 +50,28 @@ func TestEnqueueDueScanPoliciesRecoversLatestMissedTick(t *testing.T) {
 	}
 	if second.PoliciesClaimed != 0 || second.QueuedScans != 0 {
 		t.Fatalf("duplicate scheduler pass enqueued work: %+v", second)
+	}
+}
+
+func TestEnqueueDueScanPoliciesRecordsAutomationMetrics(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 17, 30, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a", "owner/repo-b"})
+	svc.Metrics = telemetry.NewMetrics()
+	createdAt := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	upsertTestScanPolicy(t, store, ctx, createdAt, 2)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.QueuedScans != 2 {
+		t.Fatalf("queued scans = %d, want 2", result.QueuedScans)
+	}
+	if got := testutil.ToFloat64(svc.Metrics.AutomationRunsTotal.WithLabelValues("scheduled", "github", "queued")); got != 2 {
+		t.Fatalf("scheduled github queued metric = %v, want 2", got)
+	}
+	if got := testutil.CollectAndCount(svc.Metrics.AutomationLagMS); got == 0 {
+		t.Fatal("expected scheduled automation lag metric to be collected")
 	}
 }
 

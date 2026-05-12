@@ -5,6 +5,7 @@ import "testing"
 func TestValidateMetricLabelsAllowsBoundedLabels(t *testing.T) {
 	labels := []string{
 		"allowed",
+		"connector",
 		"kind",
 		"outcome",
 		"policy_source",
@@ -53,6 +54,8 @@ func TestValidateMetricLabelsRejectsHighCardinalityLabels(t *testing.T) {
 func TestKnownMetricLabelsStayLowCardinality(t *testing.T) {
 	known := map[string][]string{
 		"identrail_authz_policy_decisions_by_version_total": {"policy_version", "policy_source", "rollout_mode", "allowed"},
+		"identrail_automation_runs_total":                   {"source", "connector", "outcome"},
+		"identrail_automation_lag_milliseconds":             {"source", "queue"},
 	}
 	for metric, labels := range known {
 		if err := ValidateMetricLabels(metric, labels...); err != nil {

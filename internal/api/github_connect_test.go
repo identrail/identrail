@@ -16,6 +16,7 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/secretstore"
 	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.uber.org/zap"
 )
 
@@ -350,6 +351,7 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
+	svc.Metrics = telemetry.NewMetrics()
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
@@ -429,6 +431,12 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	}
 	if len(scans) != 1 {
 		t.Fatalf("expected replay dedupe to keep one repo scan record, got %d", len(scans))
+	}
+	if got := testutil.ToFloat64(svc.Metrics.AutomationRunsTotal.WithLabelValues("event", "github", "queued")); got != 1 {
+		t.Fatalf("event github queued metric = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(svc.Metrics.AutomationRunsTotal.WithLabelValues("event", "github", "skipped")); got != 1 {
+		t.Fatalf("event github skipped metric = %v, want 1", got)
 	}
 }
 

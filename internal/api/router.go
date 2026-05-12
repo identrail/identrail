@@ -141,6 +141,8 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.WorkerRequeuesTotal,
 		metrics.WorkerDeadLettersTotal,
 		metrics.WorkerRetriesTotal,
+		metrics.AutomationRunsTotal,
+		metrics.AutomationLagMS,
 		metrics.RepoFindingsGenerated,
 		metrics.APIDeniedRequestsTotal,
 		metrics.AuthzPolicyShadowEvaluationsTotal,

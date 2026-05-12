@@ -76,12 +76,19 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		result, runErr := svc.RunScan(scanCtx)
 		if runErr != nil {
 			if errors.Is(runErr, api.ErrScanInProgress) {
+				recordWorkerAutomationRun(metrics, "scheduled", cfg.Provider, "skipped")
 				logger.Info("scan skipped because another run is in progress", telemetry.StandardLogFields("worker", "scheduled_scan", telemetry.String("provider", cfg.Provider), telemetry.String("outcome", "skipped_in_progress"))...)
 				return nil
 			}
+			recordWorkerAutomationRun(metrics, "scheduled", cfg.Provider, "failed")
 			logger.Error("scheduled scan failed", telemetry.StandardLogFields("worker", "scheduled_scan", telemetry.String("provider", cfg.Provider), telemetry.String("outcome", "failed"), telemetry.ZapError(runErr))...)
 			return runErr
 		}
+		outcome := "succeeded"
+		if result.PartialSourceRun {
+			outcome = "partial"
+		}
+		recordWorkerAutomationRun(metrics, "scheduled", cfg.Provider, outcome)
 		logger.Info("scheduled scan completed", telemetry.StandardLogFields("worker", "scheduled_scan", telemetry.String("provider", cfg.Provider), telemetry.String("scan_id", result.Scan.ID), telemetry.String("outcome", "completed"))...)
 		return nil
 	}
@@ -98,13 +105,16 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			cancel()
 			if runErr != nil {
 				if errors.Is(runErr, api.ErrRepoScanInProgress) {
+					recordWorkerAutomationRun(metrics, "scheduled", "repo_scan", "skipped")
 					logger.Info("repo scan skipped because another run is in progress", telemetry.StandardLogFields("worker", "scheduled_repo_scan", telemetry.String("repository", target), telemetry.String("outcome", "skipped_in_progress"))...)
 					continue
 				}
 				failures++
+				recordWorkerAutomationRun(metrics, "scheduled", "repo_scan", "failed")
 				logger.Error("scheduled repo scan failed", telemetry.StandardLogFields("worker", "scheduled_repo_scan", telemetry.String("repository", target), telemetry.String("outcome", "failed"), telemetry.ZapError(runErr))...)
 				continue
 			}
+			recordWorkerAutomationRun(metrics, "scheduled", "repo_scan", "succeeded")
 			logger.Info(
 				"scheduled repo scan completed",
 				telemetry.StandardLogFields("worker", "scheduled_repo_scan",
@@ -297,6 +307,66 @@ func writeWorkerHeartbeat(path string) error {
 	}
 	payload := []byte(time.Now().UTC().Format(time.RFC3339Nano) + "\n")
 	return os.WriteFile(path, payload, 0o600)
+}
+
+func recordWorkerAutomationRun(metrics *telemetry.Metrics, source string, connector string, outcome string) {
+	if metrics == nil {
+		return
+	}
+	metrics.AutomationRunsTotal.WithLabelValues(
+		workerAutomationSourceLabel(source),
+		workerAutomationConnectorLabel(connector),
+		workerAutomationOutcomeLabel(outcome),
+	).Inc()
+}
+
+func workerAutomationSourceLabel(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "scheduled":
+		return "scheduled"
+	case "event":
+		return "event"
+	case "api_queue":
+		return "api_queue"
+	default:
+		return "other"
+	}
+}
+
+func workerAutomationConnectorLabel(connector string) string {
+	switch strings.ToLower(strings.TrimSpace(connector)) {
+	case "aws":
+		return "aws"
+	case "github":
+		return "github"
+	case "kubernetes":
+		return "kubernetes"
+	case "repo_scan":
+		return "repo_scan"
+	case "scan_policy":
+		return "scan_policy"
+	default:
+		return "other"
+	}
+}
+
+func workerAutomationOutcomeLabel(outcome string) string {
+	switch strings.ToLower(strings.TrimSpace(outcome)) {
+	case "queued":
+		return "queued"
+	case "succeeded":
+		return "succeeded"
+	case "failed":
+		return "failed"
+	case "partial":
+		return "partial"
+	case "skipped":
+		return "skipped"
+	case "requeued":
+		return "requeued"
+	default:
+		return "other"
+	}
 }
 
 func withTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

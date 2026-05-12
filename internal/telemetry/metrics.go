@@ -29,6 +29,8 @@ type Metrics struct {
 	WorkerRequeuesTotal                    *prometheus.CounterVec
 	WorkerDeadLettersTotal                 *prometheus.CounterVec
 	WorkerRetriesTotal                     *prometheus.CounterVec
+	AutomationRunsTotal                    *prometheus.CounterVec
+	AutomationLagMS                        *prometheus.HistogramVec
 	APIDeniedRequestsTotal                 *prometheus.CounterVec
 	AuthzPolicyShadowEvaluationsTotal      prometheus.Counter
 	AuthzPolicyShadowDivergencesTotal      prometheus.Counter
@@ -207,6 +209,19 @@ func NewMetrics() *Metrics {
 			Name:      "retries_total",
 			Help:      "Total worker retryable failures by bounded runner name.",
 		}, []string{"runner"}),
+		AutomationRunsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "automation",
+			Name:      "runs_total",
+			Help:      "Total scheduled, event-driven, and queue automation actions by bounded source, connector, and outcome.",
+		}, []string{"source", "connector", "outcome"}),
+		AutomationLagMS: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "identrail",
+			Subsystem: "automation",
+			Name:      "lag_milliseconds",
+			Help:      "Observed scheduling or queue lag for automation work by bounded source and queue.",
+			Buckets:   []float64{100, 500, 1000, 5000, 15000, 30000, 60000, 300000, 900000, 1800000},
+		}, []string{"source", "queue"}),
 		APIDeniedRequestsTotal: apiDeniedRequestsTotal,
 		AuthzPolicyShadowEvaluationsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",

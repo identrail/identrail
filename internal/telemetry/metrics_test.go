@@ -36,6 +36,8 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	m.WorkerRequeuesTotal.WithLabelValues("repo_scan").Add(1)
 	m.WorkerDeadLettersTotal.WithLabelValues("api_queue").Add(1)
 	m.WorkerRetriesTotal.WithLabelValues("api_queue").Add(1)
+	m.AutomationRunsTotal.WithLabelValues("scheduled", "github", "queued").Add(2)
+	m.AutomationLagMS.WithLabelValues("scheduled", "repo_scan").Observe(1500)
 	m.RepoFindingsGenerated.Add(4)
 	m.APIDeniedRequestsTotal.WithLabelValues("unauthorized", "auth").Add(1)
 	m.APIDeniedRequestsTotal.WithLabelValues("forbidden", "authz").Add(1)
@@ -101,6 +103,9 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(m.WorkerRetriesTotal.WithLabelValues("api_queue")); got != 1 {
 		t.Fatalf("expected api queue retries 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.AutomationRunsTotal.WithLabelValues("scheduled", "github", "queued")); got != 2 {
+		t.Fatalf("expected scheduled github automation runs 2, got %v", got)
 	}
 	if got := testutil.ToFloat64(m.RepoScanTruncatedTotal); got != 1 {
 		t.Fatalf("expected repo scan truncations 1, got %v", got)
