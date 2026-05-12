@@ -25,13 +25,15 @@ import (
 )
 
 const (
-	defaultRepoScanHistoryLimit = 500
-	defaultRepoScanMaxFindings  = 200
-	defaultRepoScanHistoryMax   = 5000
-	defaultRepoScanFindingsMax  = 1000
-	defaultScanQueueMaxPending  = 25
-	defaultRepoQueueMaxPending  = 100
-	maxSourceErrorsInEvent      = 25
+	defaultRepoScanHistoryLimit      = 500
+	defaultRepoScanMaxFindings       = 200
+	defaultRepoScanHistoryMax        = 5000
+	defaultRepoScanFindingsMax       = 1000
+	defaultScanQueueMaxPending       = 25
+	defaultRepoQueueMaxPending       = 100
+	defaultGitHubWebhookReplayWindow = 24 * time.Hour
+	defaultGitHubWebhookBurstWindow  = 30 * time.Second
+	maxSourceErrorsInEvent           = 25
 )
 
 const (
@@ -95,9 +97,13 @@ type Service struct {
 	KubernetesPreflightFactory  KubernetesConnectorPreflightFactory
 	AWSConnectorValidator       AWSConnectorValidator
 	AWSScannerFactory           AWSScannerFactory
+	GitHubWebhookReplayWindow   time.Duration
+	GitHubWebhookBurstWindow    time.Duration
 	githubConnectMu             sync.RWMutex
 	githubConnections           map[string]githubProjectConnection
 	githubConnectStates         map[string]githubConnectState
+	githubWebhookSeen           map[string]time.Time
+	githubWebhookLastQueued     map[string]time.Time
 	kubernetesConnectMu         sync.RWMutex
 	kubernetesConnections       map[string]kubernetesProjectConnection
 }
@@ -303,9 +309,13 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 		RepoScanMaxFindingsLimit:    defaultRepoScanFindingsMax,
 		ScanQueueMaxPending:         defaultScanQueueMaxPending,
 		RepoQueueMaxPending:         defaultRepoQueueMaxPending,
+		GitHubWebhookReplayWindow:   defaultGitHubWebhookReplayWindow,
+		GitHubWebhookBurstWindow:    defaultGitHubWebhookBurstWindow,
 		ConnectorSecretManager:      secretstore.NewEphemeralManager(),
 		githubConnections:           make(map[string]githubProjectConnection),
 		githubConnectStates:         make(map[string]githubConnectState),
+		githubWebhookSeen:           make(map[string]time.Time),
+		githubWebhookLastQueued:     make(map[string]time.Time),
 		kubernetesConnections:       make(map[string]kubernetesProjectConnection),
 		RepoScannerFactory: func(historyLimit int, maxFindings int) RepoScanExecutor {
 			return repoexposure.NewScanner(

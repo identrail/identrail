@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Hardened GitHub webhook-triggered scan orchestration with dedupe and storm controls:
+  - replayed webhook deliveries are now treated idempotently and skipped before queueing duplicate repo scans
+  - rapid repeated webhook triggers for the same project/repository now honor a burst window to suppress scan storms
+  - persisted webhook status metadata now records last queued scan repository/timestamp for stable throttling behavior
 - Added enterprise auth foundation scaffolding for the new auth rollout:
   - introduced `invitations`, `verified_domains`, and `identity_connections` persistence with tenant RLS policies
   - added memory and Postgres store methods for invitation, domain, and identity connection scaffolds

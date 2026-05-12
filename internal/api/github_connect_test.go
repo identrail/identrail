@@ -347,6 +347,186 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	}
 }
 
+func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	signature := githubWebhookSignature("persisted-secret", webhookPayload)
+	first, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle first webhook delivery: %v", err)
+	}
+	if first.QueuedScans != 1 || first.SkippedScans != 0 {
+		t.Fatalf("unexpected first webhook result: %+v", first)
+	}
+
+	claimed, err := store.ClaimNextQueuedRepoScanAnyScope(context.Background())
+	if err != nil {
+		t.Fatalf("claim queued repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, ""); err != nil {
+		t.Fatalf("complete claimed repo scan: %v", err)
+	}
+
+	now = now.Add(5 * time.Second)
+	second, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle replay webhook delivery: %v", err)
+	}
+	if second.QueuedScans != 0 || second.SkippedScans != 1 {
+		t.Fatalf("expected replay to skip without queueing, got %+v", second)
+	}
+
+	scans, err := svc.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Fatalf("expected replay dedupe to keep one repo scan record, got %d", len(scans))
+	}
+}
+
+func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubWebhookBurstWindow = 1 * time.Minute
+	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         88,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "burst-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":88}}`)
+	signature := githubWebhookSignature("burst-secret", webhookPayload)
+	first, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle first webhook delivery: %v", err)
+	}
+	if first.QueuedScans != 1 {
+		t.Fatalf("expected first delivery to queue one scan, got %+v", first)
+	}
+
+	claimed, err := store.ClaimNextQueuedRepoScanAnyScope(context.Background())
+	if err != nil {
+		t.Fatalf("claim queued repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, ""); err != nil {
+		t.Fatalf("complete claimed repo scan: %v", err)
+	}
+
+	now = now.Add(10 * time.Second)
+	second, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-2", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle burst webhook delivery: %v", err)
+	}
+	if second.QueuedScans != 0 || second.SkippedScans != 1 {
+		t.Fatalf("expected burst webhook to be throttled, got %+v", second)
+	}
+
+	now = now.Add(2 * time.Minute)
+	third, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-3", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle post-window webhook delivery: %v", err)
+	}
+	if third.QueuedScans != 1 {
+		t.Fatalf("expected post-window webhook to queue scan, got %+v", third)
+	}
+
+	scans, err := svc.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(scans) != 2 {
+		t.Fatalf("expected two total repo scan records after throttling flow, got %d", len(scans))
+	}
+}
+
 type countingConnectorListStore struct {
 	db.Store
 	mu        sync.Mutex
