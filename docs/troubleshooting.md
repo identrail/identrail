@@ -53,6 +53,7 @@ Symptoms:
 Why this happens:
 1. GitHub workflow checks repository variable `vars.VITE_IDENTRAIL_API_URL`.
 2. Vercel can still deploy successfully when the variable already exists directly in Vercel project settings.
+3. Hook-only fallback deploys use the env already configured in Vercel and cannot upsert or inspect that value from GitHub Actions.
 
 Checks:
 1. In GitHub: `Settings` -> `Secrets and variables` -> `Actions` -> `Variables`, confirm `VITE_IDENTRAIL_API_URL` exists.

@@ -32,7 +32,7 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
    - `Project` -> `Settings` -> `Environment Variables`
    - Add `VITE_IDENTRAIL_API_URL` for Production (and Preview if needed)
 
-If the GitHub Actions variable is missing, the production deploy workflow fails before deployment so the web app cannot ship without an explicit API URL.
+For token-based Vercel deployments, if the GitHub Actions variable is missing, the production deploy workflow fails before deployment so the web app cannot ship without an explicit API URL. Hook-only fallback deployments cannot read Vercel project env values from GitHub Actions; keep `VITE_IDENTRAIL_API_URL` configured directly in Vercel and run the preflight manually before relying on the hook fallback.
 
 ### Production API preflight
 

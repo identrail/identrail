@@ -67,6 +67,7 @@ jobs:
 
       - name: Check VITE_IDENTRAIL_API_URL variable
         id: check-api-url
+        if: steps.normalize-token.outputs.has_token == 'true'
         env:
           VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
           IDENTRAIL_WEB_ORIGINS: https://identrail.com,https://www.identrail.com,https://app.identrail.com
