@@ -102,6 +102,37 @@ func TestEnqueueDueScanPoliciesSkipsWhenNoConnection(t *testing.T) {
 	}
 }
 
+func TestEnqueueDueScanPoliciesDoesNotAdvanceTickOnQueueFailure(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{""})
+	connection := svc.githubConnections[githubConnectionKey("default", "default", "project-1")]
+	connection.SelectedRepositories = []string{""}
+	svc.githubConnections[githubConnectionKey("default", "default", "project-1")] = connection
+
+	createdAt := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	upsertTestScanPolicy(t, store, createdAt, 1)
+
+	if _, err := svc.EnqueueDueScanPolicies(ctx); err == nil || !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid repo scan request error, got %v", err)
+	}
+
+	policy, err := store.GetTenancyScanPolicy(ctx, "default", "project-1", "default")
+	if err != nil {
+		t.Fatalf("GetTenancyScanPolicy returned error: %v", err)
+	}
+	if policy.LastScheduledAt != nil {
+		t.Fatalf("last scheduled tick was advanced despite enqueue failure: %v", policy.LastScheduledAt)
+	}
+
+	count, err := store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		t.Fatalf("CountQueuedRepoScans returned error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("queued repo scans = %d, want 0", count)
+	}
+}
+
 func TestDueScanPolicyTickHandlesNoHistoryAndInvalidCron(t *testing.T) {
 	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
 	policy := db.TenancyScanPolicy{

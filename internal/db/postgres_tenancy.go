@@ -934,7 +934,8 @@ func (p *PostgresStore) ListScheduledTenancyScanPolicies(ctx context.Context, li
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := p.queryContext(
+	// Intentionally bypass scoped wrappers to allow worker enumeration across tenants.
+	rows, err := p.db.QueryContext(
 		ctx,
 		`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
 		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
