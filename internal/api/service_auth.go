@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -47,6 +48,24 @@ type WorkOSLoginResult struct {
 	CurrentWorkspace string
 	RedirectPath     string
 }
+
+type ManualLoginInput struct {
+	TenantID    string
+	WorkspaceID string
+	ProjectID   string
+	Email       string
+	DisplayName string
+}
+
+type ManualLoginResult struct {
+	User               db.User
+	CurrentOrgID       string
+	CurrentWorkspaceID string
+	CurrentProjectID   string
+	RedirectPath       string
+}
+
+var ErrAuthInvalidManualLogin = errors.New("manual login requires tenant and workspace")
 
 // UpsertWorkOSUser safely maps a WorkOS AuthKit profile into Identrail's local account model.
 func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.WorkOSProfile) (WorkOSLoginResult, error) {
@@ -141,6 +160,134 @@ func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.Work
 		return WorkOSLoginResult{}, err
 	}
 	return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: user, Identity: identity, NewUser: true}, profile.OrganizationID)
+}
+
+// UpsertManualUserSessionContext creates the local user and tenancy context used by dev-only manual mode.
+func (s *Service) UpsertManualUserSessionContext(ctx context.Context, input ManualLoginInput) (ManualLoginResult, error) {
+	if s == nil || s.Store == nil {
+		return ManualLoginResult{}, errors.New("service unavailable")
+	}
+	tenantID := strings.TrimSpace(input.TenantID)
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	projectID := strings.TrimSpace(input.ProjectID)
+	if tenantID == "" || workspaceID == "" {
+		return ManualLoginResult{}, ErrAuthInvalidManualLogin
+	}
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	if email == "" {
+		email = "manual+" + manualAuthSlug(tenantID+"-"+workspaceID) + "@local.identrail.test"
+	}
+	displayName := strings.TrimSpace(input.DisplayName)
+	if displayName == "" {
+		displayName = "Manual developer"
+	}
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+
+	user, err := s.Store.GetUserByPrimaryEmail(ctx, email)
+	if err != nil {
+		if !errors.Is(err, db.ErrNotFound) {
+			return ManualLoginResult{}, err
+		}
+		user = db.User{
+			PrimaryEmail: email,
+			DisplayName:  displayName,
+			Status:       "active",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+	} else {
+		user.DisplayName = displayName
+		user.Status = "active"
+		user.UpdatedAt = now
+	}
+	user, err = s.Store.UpsertUser(ctx, user)
+	if err != nil {
+		return ManualLoginResult{}, err
+	}
+
+	identity, err := s.Store.GetUserIdentity(ctx, "manual", email)
+	if err != nil {
+		if !errors.Is(err, db.ErrNotFound) {
+			return ManualLoginResult{}, err
+		}
+		identity = db.UserIdentity{
+			UserID:    user.ID,
+			Provider:  "manual",
+			Subject:   email,
+			Email:     email,
+			RawClaims: json.RawMessage(`{"mode":"manual"}`),
+			CreatedAt: now,
+		}
+	} else if identity.UserID != user.ID {
+		auditAuthAction(ctx, "auth.identity.conflict", identity.UserID, "denied")
+		return ManualLoginResult{}, ErrAuthIdentityConflict
+	}
+	identity.UserID = user.ID
+	identity.Email = email
+	identity.EmailVerified = true
+	identity.LastAuthenticatedAt = now
+	if _, err := s.Store.UpsertUserIdentity(ctx, identity); err != nil {
+		return ManualLoginResult{}, err
+	}
+
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID})
+	if err := s.Store.UpsertOrganization(scopedCtx, db.TenancyOrganization{
+		DisplayName: "Manual " + tenantID,
+		Slug:        manualAuthSlug(tenantID),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		return ManualLoginResult{}, err
+	}
+	if err := s.Store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{
+		WorkspaceID: workspaceID,
+		DisplayName: "Manual " + workspaceID,
+		Slug:        manualAuthSlug(workspaceID),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		return ManualLoginResult{}, err
+	}
+	if err := s.Store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: workspaceID,
+		MemberID:    "manual-" + user.ID,
+		UserID:      "manual:" + email,
+		UserUUID:    user.ID,
+		Email:       email,
+		Role:        "owner",
+		Status:      "active",
+		JoinedAt:    now,
+		UpdatedAt:   now,
+	}); err != nil {
+		return ManualLoginResult{}, err
+	}
+	if projectID != "" {
+		if err := s.Store.UpsertProject(scopedCtx, db.TenancyProject{
+			WorkspaceID: workspaceID,
+			ProjectID:   projectID,
+			Name:        "Manual " + projectID,
+			Slug:        manualAuthSlug(projectID),
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}); err != nil {
+			return ManualLoginResult{}, err
+		}
+	}
+
+	redirectPath := "/app/" + url.PathEscape(tenantID) + "/" + url.PathEscape(workspaceID)
+	if projectID != "" {
+		redirectPath += "/projects/" + url.PathEscape(projectID)
+	}
+	return ManualLoginResult{
+		User:               user,
+		CurrentOrgID:       tenantID,
+		CurrentWorkspaceID: workspaceID,
+		CurrentProjectID:   projectID,
+		RedirectPath:       redirectPath,
+	}, nil
 }
 
 func (s *Service) DeactivateWorkOSUser(ctx context.Context, subject string) (int, error) {
@@ -323,4 +470,33 @@ func auditAuthAction(ctx context.Context, action string, resourceID string, outc
 		ResourceID:   resourceID,
 		Outcome:      outcome,
 	})
+}
+
+func manualAuthSlug(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range value {
+		isAllowed := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAllowed {
+			builder.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if builder.Len() > 0 && !lastDash {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	slug := strings.Trim(builder.String(), "-")
+	if slug == "" {
+		return "manual"
+	}
+	if len(slug) > 63 {
+		slug = strings.Trim(slug[:63], "-")
+	}
+	if slug == "" {
+		return "manual"
+	}
+	return slug
 }

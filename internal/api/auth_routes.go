@@ -41,6 +41,9 @@ func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, 
 		authGroup.GET("/callback", rateLimitMiddleware(30, 30), workOSCallbackHandler(logger, svc, manager, opts))
 		authGroup.POST("/webhooks/workos", rateLimitMiddleware(60, 60), workOSWebhookHandler(logger, svc, opts))
 	}
+	if opts.ManualMode {
+		authGroup.POST("/manual", rateLimitMiddleware(10, 10), manualLoginHandler(logger, svc, manager))
+	}
 
 	authGroup.POST("/logout", rateLimitMiddleware(100, 100), manager.Middleware(), func(c *gin.Context) {
 		current, ok := sessionauth.CurrentFromGin(c)
@@ -208,6 +211,79 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			redirectTo = result.RedirectPath
 		}
 		c.Redirect(http.StatusFound, redirectTo)
+	}
+}
+
+type manualLoginRequest struct {
+	TenantID    string `json:"tenant_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProjectID   string `json:"project_id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+}
+
+func manualLoginHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if svc == nil || svc.Store == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
+			return
+		}
+		var request manualLoginRequest
+		if err := json.NewDecoder(c.Request.Body).Decode(&request); err != nil {
+			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid manual login payload"})
+			return
+		}
+		result, err := svc.UpsertManualUserSessionContext(c.Request.Context(), ManualLoginInput{
+			TenantID:    request.TenantID,
+			WorkspaceID: request.WorkspaceID,
+			ProjectID:   request.ProjectID,
+			Email:       request.Email,
+			DisplayName: request.DisplayName,
+		})
+		if err != nil {
+			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+			if errors.Is(err, ErrAuthInvalidManualLogin) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "tenant_id and workspace_id are required"})
+				return
+			}
+			if errors.Is(err, ErrAuthIdentityConflict) {
+				c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
+				return
+			}
+			if logger != nil {
+				logger.Error("manual login", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete login"})
+			return
+		}
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		cookieValue, _, err := manager.CreateSession(c.Request.Context(), db.Session{
+			UserID:             result.User.ID,
+			CurrentOrgID:       result.CurrentOrgID,
+			CurrentWorkspaceID: result.CurrentWorkspaceID,
+			CurrentProjectID:   result.CurrentProjectID,
+			AuthMethod:         "manual",
+			IP:                 c.ClientIP(),
+			UserAgent:          c.Request.UserAgent(),
+			CreatedAt:          now,
+			LastSeenAt:         now,
+			IdleExpiresAt:      now.Add(sessionauth.IdleTimeout),
+			AbsoluteExpiresAt:  now.Add(sessionauth.AbsoluteTimeout),
+		})
+		if err != nil {
+			if logger != nil {
+				logger.Error("create manual session", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
+			return
+		}
+		auditAuthAction(c.Request.Context(), "auth.login.success", result.User.ID, "success")
+		http.SetCookie(c.Writer, manager.Cookie(cookieValue))
+		c.JSON(http.StatusOK, gin.H{"ok": true, "redirect_to": result.RedirectPath})
 	}
 }
 

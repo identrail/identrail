@@ -281,6 +281,9 @@ func TestRouterCORSAllowsConfiguredOrigin(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://app.identrail.io" {
 		t.Fatalf("expected cors allow origin header, got %q", got)
 	}
+	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("expected cors credentials header for configured origin, got %q", got)
+	}
 	if !varyHeaderContains(w.Header().Get("Vary"), "Origin") {
 		t.Fatalf("expected Vary header to include Origin, got %q", w.Header().Get("Vary"))
 	}
@@ -307,6 +310,9 @@ func TestRouterCORSPreflightBypassesAuth(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://app.identrail.io" {
 		t.Fatalf("expected cors allow origin header, got %q", got)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("expected cors credentials header for configured origin, got %q", got)
 	}
 	if got := w.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, http.MethodGet) {
 		t.Fatalf("expected allow methods header to include GET, got %q", got)

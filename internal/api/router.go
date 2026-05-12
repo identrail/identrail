@@ -2253,6 +2253,9 @@ func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Methods", corsAllowMethods)
 		c.Header("Access-Control-Allow-Headers", corsAllowHeaders)
 		c.Header("Access-Control-Max-Age", corsMaxAgeSeconds)
+		if allowedOrigin != "*" {
+			c.Header("Access-Control-Allow-Credentials", "true")
+		}
 
 		if c.Request.Method == http.MethodOptions && strings.TrimSpace(c.GetHeader("Access-Control-Request-Method")) != "" {
 			addVaryHeader(c.Writer.Header(), "Access-Control-Request-Method")

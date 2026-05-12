@@ -130,6 +130,68 @@ type WorkspaceMemberPage = {
   next_cursor?: string;
 };
 
+export type AuthConfigResponse = {
+  auth: {
+    manual_mode: boolean;
+    workos_login_enabled: boolean;
+    providers: string[];
+  };
+};
+
+export type CurrentUser = {
+  id: string;
+  primary_email: string;
+  display_name?: string;
+  avatar_url?: string;
+  status: 'active' | 'deactivated' | 'deleted' | string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+};
+
+export type OrganizationRecord = {
+  tenant_id: string;
+  display_name: string;
+  slug: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CurrentUserContext = {
+  user: CurrentUser;
+  org_id?: string;
+  workspace_id?: string;
+  project_id?: string;
+  role?: WorkspaceMemberRole;
+  organization?: OrganizationRecord;
+  workspace?: WorkspaceRecord;
+  project?: ProjectRecord;
+};
+
+export type SessionListItem = {
+  id: string;
+  ip?: string;
+  user_agent?: string;
+  auth_method: 'workos' | 'oidc' | 'manual' | string;
+  created_at: string;
+  last_seen_at: string;
+  idle_expires_at: string;
+  current: boolean;
+};
+
+export type ManualLoginPayload = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id?: string;
+  email?: string;
+  display_name?: string;
+};
+
+export type ManualLoginResponse = {
+  ok: boolean;
+  redirect_to: string;
+};
+
 export type ProjectRecord = {
   tenant_id: string;
   workspace_id: string;
@@ -381,6 +443,29 @@ if (isProd && configuredURL) {
 
 const baseURL = configuredURL ?? (isProd ? '' : 'http://localhost:8080');
 
+type IdentrailRequestInit = RequestInit & {
+  redirectOnUnauthorized?: boolean;
+};
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export function buildAPIURL(path: string): string {
+  if (isProd && !configuredURL) {
+    throw new Error(
+      'Identrail API URL is not configured. Set VITE_IDENTRAIL_API_URL in Vercel project environment variables.'
+    );
+  }
+  return `${baseURL}${path}`;
+}
+
 function trimOrUndefined(value?: string): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
@@ -419,14 +504,32 @@ export function mergeRequestHeaders(auth?: RequestAuthContext, initHeaders?: Hea
   return headers;
 }
 
-async function request<T>(path: string, auth?: RequestAuthContext, init: RequestInit = {}): Promise<T> {
+function redirectToSignInForUnauthorized() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const returnTo = `${window.location.pathname}${window.location.search}`;
+  const query = new URLSearchParams();
+  if (returnTo && !returnTo.startsWith('/signin') && !returnTo.startsWith('/signup')) {
+    query.set('return_to', returnTo);
+  }
+  const target = query.size > 0 ? `/signin?${query.toString()}` : '/signin';
+  window.location.assign(target);
+}
+
+async function request<T>(path: string, auth?: RequestAuthContext, init: IdentrailRequestInit = {}): Promise<T> {
   if (isProd && !configuredURL) {
     throw new Error(
       'Identrail API URL is not configured. Set VITE_IDENTRAIL_API_URL in Vercel project environment variables.'
     );
   }
+  const { redirectOnUnauthorized = true, ...fetchInit } = init;
   const headers = mergeRequestHeaders(auth, init.headers);
-  const res = await fetch(`${baseURL}${path}`, { ...init, headers });
+  const res = await fetch(buildAPIURL(path), {
+    ...fetchInit,
+    credentials: fetchInit.credentials ?? 'include',
+    headers
+  });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     try {
@@ -437,7 +540,10 @@ async function request<T>(path: string, auth?: RequestAuthContext, init: Request
     } catch {
       // Keep status-based message when server does not return a JSON error body.
     }
-    throw new Error(message);
+    if (res.status === 401 && redirectOnUnauthorized) {
+      redirectToSignInForUnauthorized();
+    }
+    throw new ApiError(message, res.status);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -456,6 +562,40 @@ function buildQuery(params: Record<string, string | number | boolean | undefined
 }
 
 export const apiClient = {
+  getAuthConfig() {
+    return request<AuthConfigResponse>('/v1/auth/config', undefined, { redirectOnUnauthorized: false });
+  },
+  getMe(options: { redirectOnUnauthorized?: boolean } = {}) {
+    return request<{ me: CurrentUserContext }>('/v1/me', undefined, {
+      redirectOnUnauthorized: options.redirectOnUnauthorized ?? false
+    });
+  },
+  listCurrentUserSessions() {
+    return request<{ items: SessionListItem[] }>('/v1/me/sessions');
+  },
+  revokeCurrentUserSession(sessionID: string) {
+    return request<{ ok: boolean }>(`/v1/me/sessions/${encodeURIComponent(sessionID)}`, undefined, {
+      method: 'DELETE'
+    });
+  },
+  revokeOtherCurrentUserSessions() {
+    return request<{ ok: boolean; revoked: number }>('/v1/me/sessions/revoke-others', undefined, {
+      method: 'POST'
+    });
+  },
+  logout() {
+    return request<{ ok: boolean }>('/auth/logout', undefined, {
+      method: 'POST',
+      redirectOnUnauthorized: false
+    });
+  },
+  manualLogin(payload: ManualLoginPayload) {
+    return request<ManualLoginResponse>('/auth/manual', undefined, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      redirectOnUnauthorized: false
+    });
+  },
   getWhoAmI(auth?: RequestAuthContext) {
     return request<WhoAmIResponse>('/v1/whoami', auth);
   },
