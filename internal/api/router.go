@@ -72,7 +72,14 @@ type RouterOptions struct {
 	DefaultWorkspaceID   string
 	RequireExplicitScope bool
 	FeatureNewAuth       bool
+	FeatureWorkOSLogin   bool
 	PublicBaseURL        string
+	SessionKey           string
+	AuthManualMode       bool
+	WorkOSClientID       string
+	WorkOSAPIKey         string
+	WorkOSWebhookSecret  string
+	WorkOSAuthClient     sessionauth.WorkOSClient
 }
 
 type scopedAPIKeyAuthConfig struct {
@@ -249,7 +256,29 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		sessionManager.Now = svc.Now
 	}
 	if opts.FeatureNewAuth {
-		registerAuthSessionRoutes(r, logger, svc, sessionManager)
+		workOSClient := opts.WorkOSAuthClient
+		if workOSClient == nil && opts.FeatureWorkOSLogin {
+			workOSClient = sessionauth.NewWorkOSSDKClient(opts.WorkOSAPIKey, opts.WorkOSClientID)
+		}
+		registerAuthSessionRoutes(r, logger, svc, sessionManager, authSessionRouteOptions{
+			AuditSink:           opts.AuditSink,
+			AuditFingerprinter:  opts.AuditFingerprinter,
+			ManualMode:          opts.AuthManualMode,
+			WorkOSEnabled:       opts.FeatureWorkOSLogin,
+			WorkOSClientID:      opts.WorkOSClientID,
+			WorkOSClient:        workOSClient,
+			WorkOSWebhookSecret: opts.WorkOSWebhookSecret,
+			StateManager:        sessionauth.NewOAuthStateManager(opts.SessionKey, nil),
+			PublicBaseURL:       opts.PublicBaseURL,
+		})
+	}
+
+	publicV1 := r.Group("/v1")
+	publicV1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
+	publicV1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
+	publicV1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
+	if opts.FeatureNewAuth {
+		registerAuthConfigRoute(publicV1, opts.AuthManualMode, opts.FeatureWorkOSLogin)
 	}
 
 	v1 := r.Group("/v1")

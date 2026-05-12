@@ -142,7 +142,13 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		DefaultWorkspaceID:   cfg.DefaultWorkspaceID,
 		RequireExplicitScope: cfg.RequireExplicitScope,
 		FeatureNewAuth:       cfg.FeatureNewAuth,
+		FeatureWorkOSLogin:   cfg.FeatureWorkOSLogin,
 		PublicBaseURL:        cfg.PublicBaseURL,
+		SessionKey:           cfg.SessionKey,
+		AuthManualMode:       cfg.AuthManualMode,
+		WorkOSClientID:       cfg.WorkOSClientID,
+		WorkOSAPIKey:         cfg.WorkOSAPIKey,
+		WorkOSWebhookSecret:  cfg.WorkOSWebhookSecret,
 	})
 	return Bootstrap{
 		Logger:        logger,

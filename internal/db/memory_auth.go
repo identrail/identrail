@@ -26,6 +26,12 @@ func (m *MemoryStore) UpsertUser(ctx context.Context, user User) (User, error) {
 		return User{}, err
 	}
 	m.mu.Lock()
+	for id, existing := range m.users {
+		if existing.PrimaryEmail == normalized.PrimaryEmail && id != normalized.ID {
+			m.mu.Unlock()
+			return User{}, ErrConflict
+		}
+	}
 	m.users[normalized.ID] = normalized
 	m.mu.Unlock()
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -46,6 +52,19 @@ func (m *MemoryStore) GetUser(ctx context.Context, userID string) (User, error) 
 		return User{}, ErrNotFound
 	}
 	return user, nil
+}
+
+// GetUserByPrimaryEmail returns one account by normalized primary email.
+func (m *MemoryStore) GetUserByPrimaryEmail(ctx context.Context, email string) (User, error) {
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, user := range m.users {
+		if user.PrimaryEmail == normalizedEmail {
+			return user, nil
+		}
+	}
+	return User{}, ErrNotFound
 }
 
 // UpsertUserIdentity persists one provider identity mapping.
@@ -208,6 +227,29 @@ func (m *MemoryStore) RevokeOtherUserSessions(ctx context.Context, userID string
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "auth.session.revoke_others",
+		ResourceType: "session",
+		ResourceID:   strings.TrimSpace(userID),
+		Outcome:      "success",
+	})
+	return count, nil
+}
+
+// RevokeAllUserSessions revokes every active session for one user.
+func (m *MemoryStore) RevokeAllUserSessions(ctx context.Context, userID string, revokedAt time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	when := revokedAt.UTC()
+	count := 0
+	for key, session := range m.sessions {
+		if session.UserID != strings.TrimSpace(userID) || session.RevokedAt != nil {
+			continue
+		}
+		session.RevokedAt = &when
+		m.sessions[key] = session
+		count++
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.session.revoke_all",
 		ResourceType: "session",
 		ResourceID:   strings.TrimSpace(userID),
 		Outcome:      "success",

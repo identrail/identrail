@@ -51,6 +51,17 @@ func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("unexpected fetched user: %+v", gotUser)
 	}
 
+	mock.ExpectQuery("FROM users").
+		WithArgs("alice@example.com").
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "alice@example.com", "Alice", "", "active", now, now, nil))
+	gotUserByEmail, err := store.GetUserByPrimaryEmail(ctx, " Alice@Example.COM ")
+	if err != nil {
+		t.Fatalf("get user by email: %v", err)
+	}
+	if gotUserByEmail.ID != userID {
+		t.Fatalf("unexpected fetched user by email: %+v", gotUserByEmail)
+	}
+
 	mock.ExpectQuery("INSERT INTO user_identities").
 		WithArgs(identityID, userID, "github", "alice-subject", sqlmock.AnyArg(), true, `{"login":"alice"}`, now, now).
 		WillReturnRows(postgresAuthIdentityRows(now).AddRow(identityID, userID, "github", "alice-subject", "alice@example.com", true, []byte(`{"login":"alice"}`), now, now))
@@ -149,6 +160,17 @@ func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("expected two sessions revoked, got %d", count)
+	}
+
+	mock.ExpectExec("UPDATE sessions").
+		WithArgs(userID, now.Add(4*time.Minute)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	count, err = store.RevokeAllUserSessions(ctx, userID, now.Add(4*time.Minute))
+	if err != nil {
+		t.Fatalf("revoke all sessions: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("expected three sessions revoked, got %d", count)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

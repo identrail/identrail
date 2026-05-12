@@ -46,6 +46,7 @@ const (
 	defaultOIDCGroupsClaim             = OIDCDefaultGroupsClaim
 	defaultOIDCRolesClaim              = OIDCDefaultRolesClaim
 	defaultFeatureNewAuth              = false
+	defaultFeatureWorkOSLogin          = false
 	defaultAuthManualMode              = false
 	defaultAppModeEnabled              = false
 	defaultAppModeConnectorsEnabled    = false
@@ -148,11 +149,15 @@ type Config struct {
 	OIDCGroupsClaim             string
 	OIDCRolesClaim              string
 	FeatureNewAuth              bool
+	FeatureWorkOSLogin          bool
 	PublicBaseURL               string
 	SessionKey                  string
 	SessionKeyPrevious          string
 	AuthManualMode              bool
 	WorkOSClientID              string
+	WorkOSAPIKey                string
+	WorkOSWebhookSecret         string
+	WorkOSEnvironmentID         string
 	AppModeEnabled              bool
 	AppModeConnectorsEnabled    bool
 	AppModeSchedulerEnabled     bool
@@ -276,11 +281,15 @@ func Load() Config {
 		OIDCGroupsClaim:             getEnv("IDENTRAIL_OIDC_GROUPS_CLAIM", defaultOIDCGroupsClaim),
 		OIDCRolesClaim:              getEnv("IDENTRAIL_OIDC_ROLES_CLAIM", defaultOIDCRolesClaim),
 		FeatureNewAuth:              boolEnv("IDENTRAIL_FEATURE_NEW_AUTH", defaultFeatureNewAuth),
+		FeatureWorkOSLogin:          boolEnv("IDENTRAIL_FEATURE_WORKOS_LOGIN", defaultFeatureWorkOSLogin),
 		PublicBaseURL:               getEnv("IDENTRAIL_PUBLIC_BASE_URL", ""),
 		SessionKey:                  getEnv("IDENTRAIL_SESSION_KEY", ""),
 		SessionKeyPrevious:          getEnv("IDENTRAIL_SESSION_KEY_PREVIOUS", ""),
 		AuthManualMode:              boolEnv("IDENTRAIL_AUTH_MANUAL_MODE", defaultAuthManualMode),
 		WorkOSClientID:              getEnv("IDENTRAIL_WORKOS_CLIENT_ID", ""),
+		WorkOSAPIKey:                getEnv("IDENTRAIL_WORKOS_API_KEY", ""),
+		WorkOSWebhookSecret:         getEnv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", ""),
+		WorkOSEnvironmentID:         getEnv("IDENTRAIL_WORKOS_ENVIRONMENT_ID", ""),
 		AppModeEnabled:              boolEnv("IDENTRAIL_APP_MODE_ENABLED", defaultAppModeEnabled),
 		AppModeConnectorsEnabled:    boolEnv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", defaultAppModeConnectorsEnabled),
 		AppModeSchedulerEnabled:     boolEnv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", defaultAppModeSchedulerEnabled),

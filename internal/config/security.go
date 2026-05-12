@@ -214,6 +214,12 @@ func ValidateSecurity(cfg Config) error {
 	if cfg.AuthManualMode && strings.TrimSpace(cfg.WorkOSClientID) != "" {
 		return fmt.Errorf("IDENTRAIL_AUTH_MANUAL_MODE=true cannot be combined with IDENTRAIL_WORKOS_CLIENT_ID")
 	}
+	if cfg.FeatureWorkOSLogin && cfg.AuthManualMode {
+		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true cannot be combined with IDENTRAIL_AUTH_MANUAL_MODE=true")
+	}
+	if cfg.FeatureWorkOSLogin && !cfg.FeatureNewAuth {
+		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
+	}
 	if cfg.FeatureNewAuth {
 		if err := validatePublicBaseURL(cfg.PublicBaseURL); err != nil {
 			return err
@@ -225,6 +231,20 @@ func ValidateSecurity(cfg Config) error {
 			if err := validateSessionKey("IDENTRAIL_SESSION_KEY_PREVIOUS", cfg.SessionKeyPrevious); err != nil {
 				return err
 			}
+		}
+	}
+	if cfg.FeatureWorkOSLogin {
+		if strings.TrimSpace(cfg.WorkOSClientID) == "" {
+			return fmt.Errorf("IDENTRAIL_WORKOS_CLIENT_ID is required when IDENTRAIL_FEATURE_WORKOS_LOGIN=true")
+		}
+		if strings.TrimSpace(cfg.WorkOSAPIKey) == "" {
+			return fmt.Errorf("IDENTRAIL_WORKOS_API_KEY is required when IDENTRAIL_FEATURE_WORKOS_LOGIN=true")
+		}
+		if strings.TrimSpace(cfg.WorkOSWebhookSecret) == "" {
+			return fmt.Errorf("IDENTRAIL_WORKOS_WEBHOOK_SECRET is required when IDENTRAIL_FEATURE_WORKOS_LOGIN=true")
+		}
+		if strings.TrimSpace(cfg.WorkOSEnvironmentID) == "" {
+			return fmt.Errorf("IDENTRAIL_WORKOS_ENVIRONMENT_ID is required when IDENTRAIL_FEATURE_WORKOS_LOGIN=true")
 		}
 	}
 

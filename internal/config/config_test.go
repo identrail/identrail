@@ -286,6 +286,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.FeatureNewAuth {
 		t.Fatal("expected new auth feature disabled by default")
 	}
+	if cfg.FeatureWorkOSLogin {
+		t.Fatal("expected WorkOS login feature disabled by default")
+	}
 	if cfg.PublicBaseURL != "" {
 		t.Fatalf("expected empty public base url by default, got %q", cfg.PublicBaseURL)
 	}
@@ -300,6 +303,15 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.WorkOSClientID != "" {
 		t.Fatalf("expected empty WorkOS client id by default, got %q", cfg.WorkOSClientID)
+	}
+	if cfg.WorkOSAPIKey != "" {
+		t.Fatalf("expected empty WorkOS api key by default, got %q", cfg.WorkOSAPIKey)
+	}
+	if cfg.WorkOSWebhookSecret != "" {
+		t.Fatalf("expected empty WorkOS webhook secret by default, got %q", cfg.WorkOSWebhookSecret)
+	}
+	if cfg.WorkOSEnvironmentID != "" {
+		t.Fatalf("expected empty WorkOS environment id by default, got %q", cfg.WorkOSEnvironmentID)
 	}
 	if cfg.OIDCIssuerURL != "" {
 		t.Fatalf("expected empty oidc issuer by default, got %q", cfg.OIDCIssuerURL)
@@ -397,6 +409,9 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	t.Setenv("IDENTRAIL_AUTH_MANUAL_MODE", "true")
 	t.Setenv("IDENTRAIL_WORKOS_CLIENT_ID", "client_123")
+	t.Setenv("IDENTRAIL_WORKOS_API_KEY", "sk_test_123")
+	t.Setenv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", "whsec_123")
+	t.Setenv("IDENTRAIL_WORKOS_ENVIRONMENT_ID", "env_123")
 	t.Setenv("IDENTRAIL_OIDC_ISSUER_URL", "https://iam.example.com/realms/identrail")
 	t.Setenv("IDENTRAIL_OIDC_AUDIENCE", "identrail-api")
 	t.Setenv("IDENTRAIL_OIDC_WRITE_SCOPES", "identrail.write,identrail.admin")
@@ -624,6 +639,15 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.WorkOSClientID != "client_123" {
 		t.Fatalf("unexpected WorkOS client id: %q", cfg.WorkOSClientID)
+	}
+	if cfg.WorkOSAPIKey != "sk_test_123" {
+		t.Fatalf("unexpected WorkOS api key: %q", cfg.WorkOSAPIKey)
+	}
+	if cfg.WorkOSWebhookSecret != "whsec_123" {
+		t.Fatalf("unexpected WorkOS webhook secret: %q", cfg.WorkOSWebhookSecret)
+	}
+	if cfg.WorkOSEnvironmentID != "env_123" {
+		t.Fatalf("unexpected WorkOS environment id: %q", cfg.WorkOSEnvironmentID)
 	}
 	if cfg.OIDCIssuerURL != "https://iam.example.com/realms/identrail" {
 		t.Fatalf("unexpected oidc issuer url: %q", cfg.OIDCIssuerURL)

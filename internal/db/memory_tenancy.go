@@ -339,6 +339,26 @@ func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspac
 	return TenancyWorkspaceMember{}, ErrNotFound
 }
 
+// FindFirstWorkspaceMemberByUserUUID returns the newest active workspace membership for one auth user.
+func (m *MemoryStore) FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	var selected TenancyWorkspaceMember
+	for _, member := range m.members {
+		if member.UserUUID != normalizedUserUUID || member.Status != "active" {
+			continue
+		}
+		if selected.UserUUID == "" || member.JoinedAt.After(selected.JoinedAt) {
+			selected = member
+		}
+	}
+	if selected.UserUUID == "" {
+		return TenancyWorkspaceMember{}, ErrNotFound
+	}
+	return selected, nil
+}
+
 // ListWorkspaceMembers returns members for one scoped workspace.
 func (m *MemoryStore) ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error) {
 	m.mu.RLock()

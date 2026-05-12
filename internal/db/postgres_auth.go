@@ -76,6 +76,9 @@ func (p *PostgresStore) UpsertUser(ctx context.Context, user User) (User, error)
 	)
 	saved, err := scanUser(row)
 	if err != nil {
+		if isTenancyUniqueViolation(err) {
+			return User{}, ErrConflict
+		}
 		return User{}, err
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -95,6 +98,17 @@ func (p *PostgresStore) GetUser(ctx context.Context, userID string) (User, error
 		 FROM users
 		 WHERE id = NULLIF($1, '')::uuid`,
 		strings.TrimSpace(userID),
+	))
+}
+
+// GetUserByPrimaryEmail returns one account by normalized primary email.
+func (p *PostgresStore) GetUserByPrimaryEmail(ctx context.Context, email string) (User, error) {
+	return scanUser(p.queryRowContext(
+		ctx,
+		`SELECT id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at
+		 FROM users
+		 WHERE primary_email = NULLIF($1, '')::citext`,
+		strings.ToLower(strings.TrimSpace(email)),
 	))
 }
 
@@ -417,6 +431,33 @@ func (p *PostgresStore) RevokeOtherUserSessions(ctx context.Context, userID stri
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "auth.session.revoke_others",
+		ResourceType: "session",
+		ResourceID:   strings.TrimSpace(userID),
+		Outcome:      "success",
+	})
+	return int(affected), nil
+}
+
+// RevokeAllUserSessions revokes every active session for one user.
+func (p *PostgresStore) RevokeAllUserSessions(ctx context.Context, userID string, revokedAt time.Time) (int, error) {
+	result, err := p.execContext(
+		ctx,
+		`UPDATE sessions
+		 SET revoked_at = $2::timestamptz
+		 WHERE user_id = NULLIF($1, '')::uuid
+		   AND revoked_at IS NULL`,
+		strings.TrimSpace(userID),
+		revokedAt.UTC(),
+	)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.session.revoke_all",
 		ResourceType: "session",
 		ResourceID:   strings.TrimSpace(userID),
 		Outcome:      "success",

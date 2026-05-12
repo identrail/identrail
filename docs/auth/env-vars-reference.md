@@ -26,10 +26,10 @@ IDENTRAIL_SESSION_KEY=<64 hex chars from openssl rand -hex 32>
 
 | Variable | Default | Validation | Adds in |
 | --- | --- | --- | --- |
-| `IDENTRAIL_WORKOS_CLIENT_ID` | empty | Required when WorkOS is the active driver. Refuses to start if `IDENTRAIL_AUTH_MANUAL_MODE=true` and this is set. | PR 4 |
-| `IDENTRAIL_WORKOS_API_KEY` | empty | Required when `IDENTRAIL_WORKOS_CLIENT_ID` is set. Treated as a secret. | PR 4 |
-| `IDENTRAIL_WORKOS_WEBHOOK_SECRET` | empty | Required when WorkOS is configured. Used to verify webhook HMAC. | PR 4 |
-| `IDENTRAIL_WORKOS_ENVIRONMENT_ID` | empty | Required when WorkOS is the active driver. Picks the WorkOS environment (test, staging, production). | PR 4 |
+| `IDENTRAIL_WORKOS_CLIENT_ID` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Refuses to start if `IDENTRAIL_AUTH_MANUAL_MODE=true` and this is set. | PR 4 |
+| `IDENTRAIL_WORKOS_API_KEY` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Treated as a secret. | PR 4 |
+| `IDENTRAIL_WORKOS_WEBHOOK_SECRET` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Used to verify webhook HMAC. | PR 4 |
+| `IDENTRAIL_WORKOS_ENVIRONMENT_ID` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Picks the WorkOS environment (test, staging, production). | PR 4 |
 
 Self-hosted operators leave all four WorkOS variables in this section empty. They still set the two required core variables in the previous section (`IDENTRAIL_PUBLIC_BASE_URL` and `IDENTRAIL_SESSION_KEY`), set the two optional ones if they need them (`IDENTRAIL_SESSION_KEY_PREVIOUS` during a key rotation, `IDENTRAIL_AUTH_MANUAL_MODE` for local dev), and configure their OIDC issuer via the existing `IDENTRAIL_OIDC_*` variables.
 
@@ -111,7 +111,7 @@ The contract: every variable above continues to mean exactly what it means today
 `internal/config` runs validation in three passes:
 
 1. Required variables are present and parse as the expected type.
-2. Mutual-exclusion checks (manual mode + WorkOS, missing webhook secret when WorkOS is configured, etc.).
+2. Mutual-exclusion checks (manual mode + WorkOS, missing WorkOS secrets when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`, etc.).
 3. URL reachability checks (where appropriate; WorkOS API health, OIDC discovery endpoint).
 
 Failure in any pass refuses to start the server. The error message names the variable, the rule that failed, and an example correct value.
