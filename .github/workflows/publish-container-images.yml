@@ -72,6 +72,12 @@ jobs:
           sha_tag="${{ steps.meta.outputs.sha_tag }}"
           source_url="${{ github.server_url }}/${{ github.repository }}"
           revision="${{ steps.meta.outputs.source_sha }}"
+          backend_platforms="linux/amd64,linux/arm64"
+
+          if ! grep -Eq '^ARG[[:space:]]+TARGETARCH([[:space:]=]|$)' deploy/docker/Dockerfile.backend; then
+            echo "deploy/docker/Dockerfile.backend does not support TARGETARCH; publishing backend images for linux/amd64 only." >&2
+            backend_platforms="linux/amd64"
+          fi
 
           common_labels=(
             --label "org.opencontainers.image.source=${source_url}"
@@ -81,7 +87,7 @@ jobs:
           )
 
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
+            --platform "${backend_platforms}" \
             --push \
             "${common_labels[@]}" \
             --label "org.opencontainers.image.title=Identrail" \
@@ -95,7 +101,7 @@ jobs:
             .
 
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
+            --platform "${backend_platforms}" \
             --push \
             "${common_labels[@]}" \
             --label "org.opencontainers.image.title=Identrail Worker" \
