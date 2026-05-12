@@ -520,6 +520,99 @@ describe('App', () => {
     });
   });
 
+  it('synchronizes cookie workspace context before rendering a deep-linked workspace route', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              display_name: 'Payments',
+              slug: 'payments',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          scope: { tenant_id: 'default', workspace_id: 'payments' },
+          scope_headers: {
+            'X-Identrail-Tenant-ID': 'default',
+            'X-Identrail-Workspace-ID': 'payments'
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'payments' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              display_name: 'Payments',
+              slug: 'payments',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'payments',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: []
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [] })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/default/payments/workspaces');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    const activeWorkspaceCallIndex = fetchMock.mock.calls.findIndex(([url, options]) => {
+      return typeof url === 'string' && url.includes('/v1/workspaces/active') && options?.method === 'POST';
+    });
+    const membersCallIndex = fetchMock.mock.calls.findIndex(([url]) => {
+      return typeof url === 'string' && url.includes('/v1/workspaces/payments/members');
+    });
+    expect(activeWorkspaceCallIndex).toBeGreaterThan(0);
+    expect(membersCallIndex).toBeGreaterThan(activeWorkspaceCallIndex);
+    expect(fetchMock.mock.calls[activeWorkspaceCallIndex]?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({ workspace_id: 'payments' })
+      })
+    );
+  });
+
   it('ignores stale workspace member responses after scope changes', async () => {
     let resolveInitialMembers: ((value: { ok: boolean; json: () => Promise<{ items: unknown[] }> }) => void) | undefined;
     const initialMembersResponse = new Promise<{ ok: boolean; json: () => Promise<{ items: unknown[] }> }>((resolve) => {

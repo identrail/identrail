@@ -347,7 +347,11 @@ function AppShellEmptyState({ title, body }: { title: string; body: string }) {
 
 export function RequireProductAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const params = useParams<ScopeRouteParams>();
+  const routeKey = `${location.pathname}?${location.search}`;
   const [status, setStatus] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking');
+  const [validatedRouteKey, setValidatedRouteKey] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -357,10 +361,35 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
       setStatus('checking');
       setError('');
       try {
-        await apiClient.getMe({ redirectOnUnauthorized: false });
+        const current = await apiClient.getMe({ redirectOnUnauthorized: false });
+        const routeTenantID = normalizeValue(params.tenantID ?? '');
+        const routeWorkspaceID = normalizeValue(params.workspaceID ?? '');
+        const currentTenantID = normalizeValue(current.me.org_id ?? '');
+        const currentWorkspaceID = normalizeValue(current.me.workspace_id ?? '');
+        if (
+          routeTenantID &&
+          routeWorkspaceID &&
+          currentTenantID &&
+          currentWorkspaceID &&
+          (routeTenantID !== currentTenantID || routeWorkspaceID !== currentWorkspaceID)
+        ) {
+          if (routeTenantID !== currentTenantID) {
+            if (!mounted) {
+              return;
+            }
+            navigate(buildTenantWorkspacePath(currentTenantID, currentWorkspaceID), { replace: true });
+            setStatus('authenticated');
+            return;
+          }
+          await apiClient.resolveActiveWorkspace(routeWorkspaceID, {
+            tenantID: currentTenantID,
+            workspaceID: currentWorkspaceID
+          });
+        }
         if (!mounted) {
           return;
         }
+        setValidatedRouteKey(routeKey);
         setStatus('authenticated');
       } catch (requestError) {
         if (!mounted) {
@@ -371,6 +400,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
           return;
         }
         const message = requestError instanceof Error ? requestError.message : 'Unable to validate account session.';
+        setValidatedRouteKey('');
         setError(message);
         setStatus('error');
       }
@@ -381,9 +411,9 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [location.pathname, location.search]);
+  }, [navigate, params.tenantID, params.workspaceID, routeKey]);
 
-  if (status === 'checking') {
+  if (status === 'checking' || (status === 'authenticated' && validatedRouteKey !== routeKey)) {
     return <AppShellLoading message="Validating session" />;
   }
 

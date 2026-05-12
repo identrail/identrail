@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added public Docker image publishing and no-build evaluation docs:
+  - publishes `ghcr.io/identrail/identrail` as the primary pullable server image
+  - keeps worker, web, and API alias images for multi-service deployments
+  - adds a public-image Docker Compose stack for local evaluation without cloning or building from source
 - Added enterprise auth foundation scaffolding for the new auth rollout:
   - introduced `invitations`, `verified_domains`, and `identity_connections` persistence with tenant RLS policies
   - added memory and Postgres store methods for invitation, domain, and identity connection scaffolds

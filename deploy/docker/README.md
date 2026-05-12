@@ -6,6 +6,7 @@
 - `Dockerfile.web`: builds dashboard web image
   - production builds use the strict nginx CSP by default; Compose passes `NGINX_CONF=default.local.conf` for localhost API access.
 - `docker-compose.yml`: local single-host stack
+- `docker-compose.public.yml`: public-image evaluation stack that pulls from GHCR
 - `docker-compose.prod.example.yml`: production profile override (TLS URLs, migration service, exposed ports)
 - `docker-compose.security.example.yml`: least-privilege runtime hardening override (`read_only`, dropped capabilities, `no-new-privileges`)
 - `.env.example`: environment template
@@ -28,6 +29,58 @@ Manual setup:
    - for live k8s collection: set `IDENTRAIL_K8S_SOURCE=kubectl`
    - optional context override: `IDENTRAIL_KUBE_CONTEXT`
 3. `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build`
+
+## Public Images
+
+For a no-build evaluation path, pull the main Identrail image:
+
+```bash
+docker pull ghcr.io/identrail/identrail:dev
+```
+
+Run the API server by itself with disposable in-memory storage:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e IDENTRAIL_ALLOW_MEMORY_STORE=true \
+  -e IDENTRAIL_RUN_MIGRATIONS=false \
+  -e IDENTRAIL_API_KEYS=identrail-local-read-key-change-me,identrail-local-write-key-change-me \
+  -e IDENTRAIL_WRITE_API_KEYS=identrail-local-write-key-change-me \
+  ghcr.io/identrail/identrail:dev
+```
+
+Then verify it with:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+To run the full local stack from public images:
+
+```bash
+docker compose -f deploy/docker/docker-compose.public.yml up -d
+```
+
+The public stack starts Postgres, API, worker, and web without building from
+source. Open `http://localhost:8081` for the web UI and use
+`http://localhost:8080` for the API. The `dev` web image pre-fills the local
+write API key from this Compose profile so the no-build dashboard can call the
+API immediately; change the Compose API keys and build your own web image for
+non-local deployments.
+
+Supporting images are published for multi-service deployments:
+
+```bash
+docker pull ghcr.io/identrail/identrail-worker:dev
+docker pull ghcr.io/identrail/identrail-web:dev
+docker pull ghcr.io/identrail/identrail-api:dev
+```
+
+Each `dev` publish also creates immutable `sha-<12-char-sha>` tags. Release
+images use SemVer tags such as `ghcr.io/identrail/identrail:v1.0.0`.
+
+After the first publish, a repository maintainer may need to make the GHCR
+packages public in GitHub Packages if the organization default is private.
 
 Production-style hardening example:
 
