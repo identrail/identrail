@@ -1903,6 +1903,202 @@ func TestServiceProcessNextQueuedScanRetriesTransientFailure(t *testing.T) {
 	}
 }
 
+func TestServiceReplayScanQueuesFreshRecordFromDeadLetter(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{err: errors.New("invalid credentials for provider connector")}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	record, err := svc.EnqueueScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("enqueue scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("dead-letter source scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected source scan to be processed")
+	}
+
+	source, err := store.GetScan(defaultScopeContext(), record.ID)
+	if err != nil {
+		t.Fatalf("get source scan: %v", err)
+	}
+	if !source.DeadLettered {
+		t.Fatal("expected source scan to be dead-lettered before replay")
+	}
+
+	replay, err := svc.ReplayScan(defaultScopeContext(), record.ID)
+	if err != nil {
+		t.Fatalf("replay scan: %v", err)
+	}
+	if replay.ID == record.ID {
+		t.Fatal("expected replay to create a fresh scan record")
+	}
+	if replay.Provider != record.Provider {
+		t.Fatalf("expected replay provider %q, got %q", record.Provider, replay.Provider)
+	}
+	if replay.Status != "queued" {
+		t.Fatalf("expected replay status queued, got %q", replay.Status)
+	}
+	if replay.DeadLettered {
+		t.Fatal("did not expect replay scan to be dead-lettered")
+	}
+	if replay.RetryCount != 0 {
+		t.Fatalf("expected replay retry_count=0, got %d", replay.RetryCount)
+	}
+
+	sourceEvents, err := svc.ListScanEvents(defaultScopeContext(), record.ID, 20)
+	if err != nil {
+		t.Fatalf("list source scan events: %v", err)
+	}
+	foundSourceReplayEvent := false
+	for _, event := range sourceEvents {
+		if event.Level == db.ScanEventLevelInfo && strings.Contains(event.Message, "scan replay queued") {
+			foundSourceReplayEvent = true
+			break
+		}
+	}
+	if !foundSourceReplayEvent {
+		t.Fatalf("expected replay event on source scan, got %+v", sourceEvents)
+	}
+
+	replayEvents, err := svc.ListScanEvents(defaultScopeContext(), replay.ID, 20)
+	if err != nil {
+		t.Fatalf("list replay scan events: %v", err)
+	}
+	foundReplayQueuedEvent := false
+	for _, event := range replayEvents {
+		if event.Level == db.ScanEventLevelInfo && strings.Contains(event.Message, "scan replay queued from failed scan") {
+			foundReplayQueuedEvent = true
+			break
+		}
+	}
+	if !foundReplayQueuedEvent {
+		t.Fatalf("expected replay queue event on replay scan, got %+v", replayEvents)
+	}
+}
+
+func TestServiceReplayScanRejectsSucceededScan(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{result: app.ScanResult{}}, "aws")
+
+	result, err := svc.RunScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("run scan: %v", err)
+	}
+
+	if _, err := svc.ReplayScan(defaultScopeContext(), result.Scan.ID); !errors.Is(err, ErrScanReplayUnavailable) {
+		t.Fatalf("expected replay unavailable error, got %v", err)
+	}
+}
+
+func TestScanRetryPolicyHelpers(t *testing.T) {
+	tests := []struct {
+		name          string
+		stage         string
+		err           error
+		wantCategory  string
+		wantRetryable bool
+	}{
+		{
+			name:          "nil failure defaults to execution",
+			stage:         scanFailureStageExecution,
+			wantCategory:  scanFailureCategoryExecution,
+			wantRetryable: false,
+		},
+		{
+			name:          "artifacts persistence failure is non-retryable",
+			stage:         scanFailureStageArtifactsStore,
+			err:           errors.New("write failed"),
+			wantCategory:  scanFailureCategoryPersistence,
+			wantRetryable: false,
+		},
+		{
+			name:          "finalize failure is non-retryable",
+			stage:         scanFailureStageFinalize,
+			err:           errors.New("commit failed"),
+			wantCategory:  scanFailureCategoryFinalize,
+			wantRetryable: false,
+		},
+		{
+			name:          "rate limit failure is retryable",
+			stage:         scanFailureStageExecution,
+			err:           errors.New("provider rate limit exceeded"),
+			wantCategory:  scanFailureCategoryThrottle,
+			wantRetryable: true,
+		},
+		{
+			name:          "auth failure is non-retryable",
+			stage:         scanFailureStageExecution,
+			err:           errors.New("invalid credentials for provider connector"),
+			wantCategory:  scanFailureCategoryProviderAuth,
+			wantRetryable: false,
+		},
+		{
+			name:          "temporary failure is retryable",
+			stage:         scanFailureStageExecution,
+			err:           errors.New("temporary connection refused"),
+			wantCategory:  scanFailureCategoryTransient,
+			wantRetryable: true,
+		},
+		{
+			name:          "config failure is non-retryable",
+			stage:         scanFailureStageExecution,
+			err:           errors.New("missing region configuration"),
+			wantCategory:  scanFailureCategoryConfig,
+			wantRetryable: false,
+		},
+		{
+			name:          "connector setup fallback uses connector category",
+			stage:         scanFailureStageConnectorSetup,
+			err:           errors.New("provider bootstrap failed"),
+			wantCategory:  scanFailureCategoryConnector,
+			wantRetryable: false,
+		},
+		{
+			name:          "unknown execution failure defaults to retryable execution",
+			stage:         scanFailureStageExecution,
+			err:           errors.New("unexpected downstream crash"),
+			wantCategory:  scanFailureCategoryExecution,
+			wantRetryable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := classifyScanFailure(tt.stage, tt.err)
+			if policy.Category != tt.wantCategory {
+				t.Fatalf("expected category %q, got %q", tt.wantCategory, policy.Category)
+			}
+			if policy.Retryable != tt.wantRetryable {
+				t.Fatalf("expected retryable=%t, got %t", tt.wantRetryable, policy.Retryable)
+			}
+		})
+	}
+
+	if got := effectiveScanRetryLimit(db.ScanRecord{MaxRetryCount: -1}); got != 0 {
+		t.Fatalf("expected negative retry limit to clamp to 0, got %d", got)
+	}
+	if got := effectiveScanRetryLimit(db.ScanRecord{}); got != db.DefaultScanMaxRetryCount {
+		t.Fatalf("expected default retry limit %d, got %d", db.DefaultScanMaxRetryCount, got)
+	}
+	if got := effectiveScanRetryLimit(db.ScanRecord{MaxRetryCount: 7}); got != 7 {
+		t.Fatalf("expected explicit retry limit 7, got %d", got)
+	}
+
+	if got := scanRetryBackoff(0); got != defaultScanRetryBaseDelay {
+		t.Fatalf("expected base backoff %s, got %s", defaultScanRetryBaseDelay, got)
+	}
+	if got := scanRetryBackoff(2); got != defaultScanRetryBaseDelay*2 {
+		t.Fatalf("expected doubled backoff %s, got %s", defaultScanRetryBaseDelay*2, got)
+	}
+	if got := scanRetryBackoff(20); got != defaultScanRetryMaxDelay {
+		t.Fatalf("expected capped backoff %s, got %s", defaultScanRetryMaxDelay, got)
+	}
+}
+
 func TestServiceEnqueueScanRejectsDuplicatePendingScan(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
 	svc.ScanQueueMaxPending = 1
