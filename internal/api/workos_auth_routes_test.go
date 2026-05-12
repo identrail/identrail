@@ -117,6 +117,52 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	}
 }
 
+func TestWorkOSHostedLoginAllowsConfiguredWebReturnOrigin(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	workOS := &fakeWorkOSClient{
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_split_origin",
+				Email:         "split@example.com",
+				EmailVerified: true,
+			},
+			AuthenticationMethod: "GoogleOAuth",
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://api.identrail.test",
+		CORSAllowedOrigins:  []string{"https://app.identrail.test"},
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=https%3A%2F%2Fapp.identrail.test%2Fapp%2Fwelcome", nil))
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	if workOS.authorizationInput.RedirectURI != "https://api.identrail.test/auth/callback" {
+		t.Fatalf("expected API callback URL, got %q", workOS.authorizationInput.RedirectURI)
+	}
+
+	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil)
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, callbackReq)
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); got != "https://app.identrail.test/app/welcome" {
+		t.Fatalf("expected configured web-origin redirect, got %q", got)
+	}
+}
+
 func TestWorkOSCallbackPreservesSelectedOrganization(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)

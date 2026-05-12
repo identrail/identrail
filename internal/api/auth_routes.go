@@ -28,6 +28,7 @@ type authSessionRouteOptions struct {
 	WorkOSWebhookSecret string
 	StateManager        *sessionauth.OAuthStateManager
 	PublicBaseURL       string
+	ReturnToOrigins     []string
 }
 
 func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions) {
@@ -98,7 +99,7 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
 			return
 		}
-		returnTo := sanitizeAuthReturnTo(c.Query("return_to"))
+		returnTo := sanitizeAuthReturnTo(c.Query("return_to"), opts.ReturnToOrigins)
 		state, err := opts.StateManager.Issue(intent, returnTo)
 		if err != nil {
 			if logger != nil {
@@ -206,7 +207,7 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 		}
 		auditAuthAction(c.Request.Context(), "auth.login.success", result.User.ID, "success")
 		http.SetCookie(c.Writer, manager.Cookie(cookieValue))
-		redirectTo := sanitizeAuthReturnTo(state.ReturnTo)
+		redirectTo := sanitizeAuthReturnTo(state.ReturnTo, opts.ReturnToOrigins)
 		if redirectTo == "" || redirectTo == "/" {
 			redirectTo = result.RedirectPath
 		}
@@ -365,19 +366,86 @@ func workOSCallbackURL(publicBaseURL string) string {
 	return strings.TrimRight(publicBaseURL, "/") + "/auth/callback"
 }
 
-func sanitizeAuthReturnTo(raw string) string {
+func sanitizeAuthReturnTo(raw string, allowedOrigins []string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") {
+	if err != nil {
 		return ""
 	}
-	if strings.HasPrefix(parsed.Path, "//") || strings.HasPrefix(parsed.Path, "/auth/") {
+	if parsed.IsAbs() || parsed.Host != "" {
+		if !authReturnToOriginAllowed(parsed, allowedOrigins) {
+			return ""
+		}
+		if parsed.Path == "" {
+			parsed.Path = "/"
+		}
+		parsed.Fragment = ""
+		if !authReturnToPathAllowed(parsed.Path) {
+			return ""
+		}
+		return strings.TrimRight(parsed.Scheme+"://"+parsed.Host, "/") + parsed.RequestURI()
+	}
+	if !strings.HasPrefix(parsed.Path, "/") {
+		return ""
+	}
+	if !authReturnToPathAllowed(parsed.Path) {
 		return ""
 	}
 	return parsed.RequestURI()
+}
+
+func authReturnToPathAllowed(path string) bool {
+	if strings.HasPrefix(path, "//") || strings.HasPrefix(path, "/auth/") {
+		return false
+	}
+	return true
+}
+
+func authReturnToOriginAllowed(parsed *url.URL, allowedOrigins []string) bool {
+	if parsed == nil {
+		return false
+	}
+	origin, ok := authReturnToOrigin(parsed.String())
+	if !ok {
+		return false
+	}
+	for _, allowed := range allowedOrigins {
+		allowedOrigin, allowedOK := authReturnToOrigin(allowed)
+		if allowedOK && strings.EqualFold(origin, allowedOrigin) {
+			return true
+		}
+	}
+	return false
+}
+
+func authReturnToOrigins(publicBaseURL string, corsAllowedOrigins []string) []string {
+	origins := make([]string, 0, len(corsAllowedOrigins)+1)
+	if origin, ok := authReturnToOrigin(publicBaseURL); ok {
+		origins = append(origins, origin)
+	}
+	for _, raw := range corsAllowedOrigins {
+		if strings.TrimSpace(raw) == "*" {
+			continue
+		}
+		if origin, ok := authReturnToOrigin(raw); ok {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
+}
+
+func authReturnToOrigin(raw string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return "", false
+	}
+	return strings.ToLower(parsed.Scheme + "://" + parsed.Host), true
 }
 
 func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, manager sessionauth.Manager) {

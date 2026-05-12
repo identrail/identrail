@@ -221,12 +221,17 @@ describe('App', () => {
   it('hides manual workspace entry when auth config disables manual mode', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
 
-    setCurrentPath('/signin');
+    setCurrentPath('/signin?return_to=/app/team/workspace');
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/Tenant ID/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Continue with hosted sign-in/i })).toBeInTheDocument();
+    const hostedSignIn = screen.getByRole('link', { name: /Continue with hosted sign-in/i });
+    expect(hostedSignIn).toBeInTheDocument();
+    expect(hostedSignIn).toHaveAttribute(
+      'href',
+      `http://localhost:8080/auth/login?return_to=${encodeURIComponent(`${window.location.origin}/app/team/workspace`)}`
+    );
   });
 
   it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {

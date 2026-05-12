@@ -126,6 +126,14 @@ func TestMemoryAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("unexpected last seen: %v", touched.LastSeenAt)
 	}
 
+	updated, err := store.UpdateSessionContext(ctx, user.ID, firstHash[:], "tenant-a", "workspace-b", "", now.Add(6*time.Minute))
+	if err != nil {
+		t.Fatalf("update session context: %v", err)
+	}
+	if updated.CurrentOrgID != "tenant-a" || updated.CurrentWorkspaceID != "workspace-b" || !updated.LastSeenAt.Equal(now.Add(6*time.Minute)) {
+		t.Fatalf("unexpected updated session context: %+v", updated)
+	}
+
 	if _, err := store.RevokeUserSession(ctx, user.ID, otherHash[:], now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected cross-user revoke to hide session, got %v", err)
 	}

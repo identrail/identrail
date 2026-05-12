@@ -270,6 +270,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			WorkOSWebhookSecret: opts.WorkOSWebhookSecret,
 			StateManager:        sessionauth.NewOAuthStateManager(opts.SessionKey, nil),
 			PublicBaseURL:       opts.PublicBaseURL,
+			ReturnToOrigins:     authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
 		})
 	}
 
@@ -994,6 +995,39 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve active workspace"})
 			return
+		}
+		if current, ok := sessionauth.CurrentFromGin(c); ok {
+			now := time.Now().UTC()
+			if svc.Now != nil {
+				now = svc.Now().UTC()
+			}
+			updated, updateErr := svc.Store.UpdateSessionContext(
+				c.Request.Context(),
+				current.Session.UserID,
+				current.IDHash,
+				activeWorkspace.Workspace.TenantID,
+				activeWorkspace.Workspace.WorkspaceID,
+				"",
+				now,
+			)
+			if updateErr != nil {
+				if errors.Is(updateErr, db.ErrNotFound) {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+					return
+				}
+				if logger != nil {
+					logger.Error("update session workspace context", telemetry.ZapError(updateErr))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update session context"})
+				return
+			}
+			current.Session = updated
+			c.Set("auth.session", current)
+			c.Set("auth.tenant_id", updated.CurrentOrgID)
+			c.Set("auth.workspace_id", updated.CurrentWorkspaceID)
+			if activeWorkspace.Member != nil && activeWorkspace.Member.Role != "" {
+				c.Set("auth.roles", []string{"authenticated", activeWorkspace.Member.Role})
+			}
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"active_workspace": activeWorkspace,

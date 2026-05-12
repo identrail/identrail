@@ -1753,6 +1753,7 @@ type Store interface {
 	GetUserIdentity(ctx context.Context, provider string, subject string) (UserIdentity, error)
 	CreateSession(ctx context.Context, session Session) (Session, error)
 	TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
+	UpdateSessionContext(ctx context.Context, userID string, sessionIDHash []byte, orgID string, workspaceID string, projectID string, now time.Time) (Session, error)
 	ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error)
 	RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error)
 	RevokeOtherUserSessions(ctx context.Context, userID string, currentSessionIDHash []byte, revokedAt time.Time) (int, error)

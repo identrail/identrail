@@ -34,7 +34,8 @@ function authReasonMessage(reason: string): string {
 
 function workOSURL(intent: AuthIntent, returnTo: string): string {
   const query = new URLSearchParams();
-  query.set('return_to', returnTo);
+  const webReturnTo = typeof window === 'undefined' ? returnTo : new URL(returnTo, window.location.origin).toString();
+  query.set('return_to', webReturnTo);
   return buildAPIURL(`/auth/${intent === 'signup' ? 'signup' : 'login'}?${query.toString()}`);
 }
 

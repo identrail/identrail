@@ -1497,6 +1497,7 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	userUUID := "00000000-0000-0000-0000-0000000000a1"
 
 	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{
 		TenantID:    "tenant-a",
@@ -1528,6 +1529,7 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-a",
 		UserID:      "user-1",
+		UserUUID:    userUUID,
 		Role:        "admin",
 		Status:      "active",
 	}); err != nil {
@@ -1538,6 +1540,7 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		WorkspaceID: "workspace-b",
 		MemberID:    "member-b",
 		UserID:      "user-1",
+		UserUUID:    userUUID,
 		Role:        "viewer",
 		Status:      "active",
 	}); err != nil {
@@ -1570,6 +1573,14 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	}
 	if switched.Member == nil || switched.Member.Role != "viewer" {
 		t.Fatalf("unexpected switched member role: %+v", switched.Member)
+	}
+
+	switchedByUUID, err := svc.ResolveActiveWorkspace(scopeCtx, userUUID, "workspace-b")
+	if err != nil {
+		t.Fatalf("resolve active workspace by user uuid: %v", err)
+	}
+	if switchedByUUID.Member == nil || switchedByUUID.Member.MemberID != "member-b" {
+		t.Fatalf("unexpected uuid switched member: %+v", switchedByUUID.Member)
 	}
 }
 
