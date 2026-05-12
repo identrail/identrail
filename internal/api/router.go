@@ -279,6 +279,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	if opts.FeatureNewAuth {
 		registerMeRoutes(v1, logger, svc, sessionManager)
 	}
+	registerEnterpriseAuthPrepRoutes(v1)
 	registerTenancyRoutes(v1, logger, svc)
 	registerKubernetesConnectionRoutes(v1, logger, svc)
 

@@ -10,6 +10,7 @@ servers:
 tags:
   - name: Health
   - name: Authorization
+  - name: EnterpriseAuth
   - name: Tenancy
   - name: ProjectManagement
   - name: Findings
@@ -125,6 +126,29 @@ x-identrail-route-authorizations:
     path: /v1/me/sessions/revoke-others
     action: me.write
     resource_type: session
+  - method: POST
+    path: /v1/invitations
+    action: enterprise.write
+    resource_type: invitation
+  - method: GET
+    path: /v1/me/invitations
+    action: me.read
+    resource_type: invitation
+  - method: POST
+    path: /v1/orgs/{id}/domains
+    action: enterprise.write
+    resource_type: verified_domain
+    resource_id_param: id
+  - method: POST
+    path: /v1/orgs/{id}/domains/{domain_id}/verify
+    action: enterprise.write
+    resource_type: verified_domain
+    resource_id_param: domain_id
+  - method: GET
+    path: /v1/orgs/{id}/sso
+    action: enterprise.read
+    resource_type: identity_connection
+    resource_id_param: id
   - method: GET
     path: /v1/whoami
     action: tenancy.read
@@ -269,6 +293,17 @@ x-identrail-action-role-grants:
     - admin
   authz.policies.simulate:
     - admin
+  enterprise.read:
+    - read
+    - write
+    - admin
+    - owner
+    - analyst
+    - viewer
+  enterprise.write:
+    - write
+    - admin
+    - owner
   findings.read:
     - read
     - write
@@ -627,6 +662,96 @@ paths:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/invitations:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [EnterpriseAuth]
+      summary: Create invitation scaffold
+      operationId: createInvitation
+      description: Reserved enterprise auth endpoint; implementation arrives in a later auth PR.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationRequest"
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+  /v1/me/invitations:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [EnterpriseAuth]
+      summary: List current-user invitation scaffold
+      operationId: listCurrentUserInvitations
+      description: Reserved enterprise auth endpoint; implementation arrives in a later auth PR.
+      security:
+        - CookieAuth: []
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+  /v1/orgs/{id}/domains:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [EnterpriseAuth]
+      summary: Create verified-domain scaffold
+      operationId: createVerifiedDomain
+      description: Reserved enterprise auth endpoint; implementation arrives in a later auth PR.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVerifiedDomainRequest"
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+  /v1/orgs/{id}/domains/{domain_id}/verify:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: domain_id
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [EnterpriseAuth]
+      summary: Verify domain scaffold
+      operationId: verifyDomain
+      description: Reserved enterprise auth endpoint; implementation arrives in a later auth PR.
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+  /v1/orgs/{id}/sso:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [EnterpriseAuth]
+      summary: Get organization SSO scaffold
+      operationId: getOrganizationSSO
+      description: Reserved enterprise auth endpoint; implementation arrives in a later auth PR.
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
   /v1/organizations/current:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -2260,6 +2385,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    NotImplemented:
+      description: Not implemented
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     ServiceUnavailable:
       description: Service unavailable
       content:
@@ -2286,6 +2417,89 @@ components:
       properties:
         error:
           type: string
+    CreateInvitationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [owner, admin, analyst, viewer]
+    CreateVerifiedDomainRequest:
+      type: object
+      properties:
+        domain:
+          type: string
+        verification_method:
+          type: string
+          enum: [dns_txt, manual]
+    Invitation:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        org_id: { type: string }
+        email: { type: string, format: email }
+        role:
+          type: string
+          enum: [owner, admin, analyst, viewer]
+        invited_by_user_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    VerifiedDomain:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        org_id: { type: string }
+        domain: { type: string }
+        verification_method:
+          type: string
+          enum: [dns_txt, manual]
+        verified_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    IdentityConnection:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        org_id: { type: string }
+        provider:
+          type: string
+          enum: [workos, oidc, saml]
+        type:
+          type: string
+          enum: [sso, directory_sync]
+        workos_connection_id: { type: string }
+        status:
+          type: string
+          enum: [pending, active, disabled]
+        group_role_map:
+          type: object
+          additionalProperties:
+            type: string
+        sso_required:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     User:
       type: object
       properties:

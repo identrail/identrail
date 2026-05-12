@@ -18,19 +18,21 @@ import (
 )
 
 const (
-	policyActionFindingsRead   = "findings.read"
-	policyActionFindingsTriage = "findings.triage"
-	policyActionGraphRead      = "graph.read"
-	policyActionScansRead      = "scans.read"
-	policyActionScansRun       = "scans.run"
-	policyActionRepoScansRead  = "repo_scans.read"
-	policyActionRepoScansRun   = "repo_scans.run"
-	policyActionAuthzSimulate  = "authz.policies.simulate"
-	policyActionAuthzRollback  = "authz.policies.rollback"
-	policyActionMeRead         = "me.read"
-	policyActionMeWrite        = "me.write"
-	policyActionTenancyRead    = "tenancy.read"
-	policyActionTenancyWrite   = "tenancy.write"
+	policyActionFindingsRead    = "findings.read"
+	policyActionFindingsTriage  = "findings.triage"
+	policyActionGraphRead       = "graph.read"
+	policyActionScansRead       = "scans.read"
+	policyActionScansRun        = "scans.run"
+	policyActionRepoScansRead   = "repo_scans.read"
+	policyActionRepoScansRun    = "repo_scans.run"
+	policyActionAuthzSimulate   = "authz.policies.simulate"
+	policyActionAuthzRollback   = "authz.policies.rollback"
+	policyActionMeRead          = "me.read"
+	policyActionMeWrite         = "me.write"
+	policyActionTenancyRead     = "tenancy.read"
+	policyActionTenancyWrite    = "tenancy.write"
+	policyActionEnterpriseRead  = "enterprise.read"
+	policyActionEnterpriseWrite = "enterprise.write"
 
 	policyContextABACSubjectAttrsLoadedKey  = "abac.subject_attributes_loaded"
 	policyContextABACResourceAttrsLoadedKey = "abac.resource_attributes_loaded"
@@ -66,21 +68,25 @@ func defaultRouteActionRoleGrants() map[string][]string {
 	writeRoles := []string{scopeWrite, scopeAdmin}
 	tenancyReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	tenancyWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
+	enterpriseReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
+	enterpriseWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	authenticatedRoles := []string{"authenticated", scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	return map[string][]string{
-		policyActionFindingsRead:   readRoles,
-		policyActionFindingsTriage: writeRoles,
-		policyActionGraphRead:      readRoles,
-		policyActionScansRead:      readRoles,
-		policyActionScansRun:       writeRoles,
-		policyActionRepoScansRead:  readRoles,
-		policyActionRepoScansRun:   writeRoles,
-		policyActionAuthzSimulate:  {scopeAdmin},
-		policyActionAuthzRollback:  {scopeAdmin},
-		policyActionMeRead:         authenticatedRoles,
-		policyActionMeWrite:        authenticatedRoles,
-		policyActionTenancyRead:    tenancyReadRoles,
-		policyActionTenancyWrite:   tenancyWriteRoles,
+		policyActionFindingsRead:    readRoles,
+		policyActionFindingsTriage:  writeRoles,
+		policyActionGraphRead:       readRoles,
+		policyActionScansRead:       readRoles,
+		policyActionScansRun:        writeRoles,
+		policyActionRepoScansRead:   readRoles,
+		policyActionRepoScansRun:    writeRoles,
+		policyActionAuthzSimulate:   {scopeAdmin},
+		policyActionAuthzRollback:   {scopeAdmin},
+		policyActionMeRead:          authenticatedRoles,
+		policyActionMeWrite:         authenticatedRoles,
+		policyActionTenancyRead:     tenancyReadRoles,
+		policyActionTenancyWrite:    tenancyWriteRoles,
+		policyActionEnterpriseRead:  enterpriseReadRoles,
+		policyActionEnterpriseWrite: enterpriseWriteRoles,
 	}
 }
 
@@ -97,18 +103,20 @@ func defaultRouteActionABACPolicies() map[string]abacActionPolicy {
 		AnyOf: []abacClause{{}},
 	}
 	return map[string]abacActionPolicy{
-		policyActionFindingsRead:  passThroughPolicy,
-		policyActionGraphRead:     passThroughPolicy,
-		policyActionScansRead:     passThroughPolicy,
-		policyActionScansRun:      passThroughPolicy,
-		policyActionRepoScansRead: passThroughPolicy,
-		policyActionRepoScansRun:  passThroughPolicy,
-		policyActionAuthzSimulate: passThroughPolicy,
-		policyActionAuthzRollback: passThroughPolicy,
-		policyActionMeRead:        passThroughPolicy,
-		policyActionMeWrite:       passThroughPolicy,
-		policyActionTenancyRead:   passThroughPolicy,
-		policyActionTenancyWrite:  passThroughPolicy,
+		policyActionFindingsRead:    passThroughPolicy,
+		policyActionGraphRead:       passThroughPolicy,
+		policyActionScansRead:       passThroughPolicy,
+		policyActionScansRun:        passThroughPolicy,
+		policyActionRepoScansRead:   passThroughPolicy,
+		policyActionRepoScansRun:    passThroughPolicy,
+		policyActionAuthzSimulate:   passThroughPolicy,
+		policyActionAuthzRollback:   passThroughPolicy,
+		policyActionMeRead:          passThroughPolicy,
+		policyActionMeWrite:         passThroughPolicy,
+		policyActionTenancyRead:     passThroughPolicy,
+		policyActionTenancyWrite:    passThroughPolicy,
+		policyActionEnterpriseRead:  passThroughPolicy,
+		policyActionEnterpriseWrite: passThroughPolicy,
 		policyActionFindingsTriage: {
 			OnNoMatch: PolicyOutcomeNoOpinion,
 			AnyOf: []abacClause{

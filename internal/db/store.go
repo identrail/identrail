@@ -157,6 +157,23 @@ var validSessionAuthMethods = map[string]struct{}{
 	"manual": {},
 }
 
+var validIdentityConnectionProviders = map[string]struct{}{
+	"workos": {},
+	"oidc":   {},
+	"saml":   {},
+}
+
+var validIdentityConnectionTypes = map[string]struct{}{
+	"sso":            {},
+	"directory_sync": {},
+}
+
+var validIdentityConnectionStatuses = map[string]struct{}{
+	"pending":  {},
+	"active":   {},
+	"disabled": {},
+}
+
 // ScanRecord tracks persisted scan execution metadata.
 type ScanRecord struct {
 	ID           string     `json:"id"`
@@ -403,6 +420,45 @@ type Session struct {
 	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 	User               *User      `json:"user,omitempty"`
+}
+
+// Invitation stores one organization invitation scaffold for later invite flows.
+type Invitation struct {
+	ID              string     `json:"id"`
+	OrgID           string     `json:"org_id"`
+	Email           string     `json:"email"`
+	Role            string     `json:"role"`
+	InvitedByUserID string     `json:"invited_by_user_id"`
+	TokenHash       []byte     `json:"-"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	AcceptedAt      *time.Time `json:"accepted_at,omitempty"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
+// VerifiedDomain stores one organization domain-verification scaffold.
+type VerifiedDomain struct {
+	ID                 string     `json:"id"`
+	OrgID              string     `json:"org_id"`
+	Domain             string     `json:"domain"`
+	VerificationToken  string     `json:"verification_token"`
+	VerificationMethod string     `json:"verification_method"`
+	VerifiedAt         *time.Time `json:"verified_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+}
+
+// IdentityConnection stores one enterprise SSO or directory-sync connection scaffold.
+type IdentityConnection struct {
+	ID                 string            `json:"id"`
+	OrgID              string            `json:"org_id"`
+	Provider           string            `json:"provider"`
+	Type               string            `json:"type"`
+	WorkOSConnectionID string            `json:"workos_connection_id,omitempty"`
+	Status             string            `json:"status"`
+	GroupRoleMap       map[string]string `json:"group_role_map"`
+	SSORequired        bool              `json:"sso_required"`
+	CreatedAt          time.Time         `json:"created_at"`
+	UpdatedAt          time.Time         `json:"updated_at"`
 }
 
 // TenancyProject stores one project metadata record.
@@ -1004,6 +1060,165 @@ func NormalizeSessionForWrite(session Session) (Session, error) {
 	return normalized, nil
 }
 
+// NormalizeInvitationForWrite validates and canonicalizes one organization invite scaffold.
+func NormalizeInvitationForWrite(invitation Invitation) (Invitation, error) {
+	normalized := invitation
+	normalized.ID = strings.TrimSpace(invitation.ID)
+	if normalized.ID == "" {
+		normalized.ID = uuid.NewString()
+	} else if _, err := uuid.Parse(normalized.ID); err != nil {
+		return Invitation{}, fmt.Errorf("invalid invitation id")
+	}
+	normalized.OrgID = strings.TrimSpace(invitation.OrgID)
+	if normalized.OrgID == "" {
+		return Invitation{}, fmt.Errorf("org id is required")
+	}
+	normalized.Email = strings.ToLower(strings.TrimSpace(invitation.Email))
+	if normalized.Email == "" || !strings.Contains(normalized.Email, "@") {
+		return Invitation{}, fmt.Errorf("email is required")
+	}
+	normalized.Role = strings.ToLower(strings.TrimSpace(invitation.Role))
+	if _, ok := validTenancyMemberRoles[normalized.Role]; !ok {
+		return Invitation{}, fmt.Errorf("invalid invitation role")
+	}
+	normalized.InvitedByUserID = strings.TrimSpace(invitation.InvitedByUserID)
+	if normalized.InvitedByUserID != "" {
+		if _, err := uuid.Parse(normalized.InvitedByUserID); err != nil {
+			return Invitation{}, fmt.Errorf("invalid inviter user id")
+		}
+	}
+	if len(normalized.TokenHash) != sha256.Size {
+		return Invitation{}, fmt.Errorf("token hash must be %d bytes", sha256.Size)
+	}
+	normalized.TokenHash = append([]byte(nil), normalized.TokenHash...)
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.ExpiresAt.IsZero() {
+		return Invitation{}, fmt.Errorf("expires_at is required")
+	}
+	normalized.ExpiresAt = normalized.ExpiresAt.UTC()
+	if !normalized.ExpiresAt.After(normalized.CreatedAt) {
+		return Invitation{}, fmt.Errorf("expires_at must be after created_at")
+	}
+	if normalized.AcceptedAt != nil {
+		acceptedAt := normalized.AcceptedAt.UTC()
+		normalized.AcceptedAt = &acceptedAt
+	}
+	if normalized.RevokedAt != nil {
+		revokedAt := normalized.RevokedAt.UTC()
+		normalized.RevokedAt = &revokedAt
+	}
+	if normalized.AcceptedAt != nil && normalized.RevokedAt != nil {
+		return Invitation{}, fmt.Errorf("invitation cannot be both accepted and revoked")
+	}
+	return normalized, nil
+}
+
+// NormalizeVerifiedDomainForWrite validates and canonicalizes one domain-verification scaffold.
+func NormalizeVerifiedDomainForWrite(domain VerifiedDomain) (VerifiedDomain, error) {
+	normalized := domain
+	normalized.ID = strings.TrimSpace(domain.ID)
+	if normalized.ID == "" {
+		normalized.ID = uuid.NewString()
+	} else if _, err := uuid.Parse(normalized.ID); err != nil {
+		return VerifiedDomain{}, fmt.Errorf("invalid verified domain id")
+	}
+	normalized.OrgID = strings.TrimSpace(domain.OrgID)
+	if normalized.OrgID == "" {
+		return VerifiedDomain{}, fmt.Errorf("org id is required")
+	}
+	normalized.Domain = strings.ToLower(strings.Trim(strings.TrimSpace(domain.Domain), "."))
+	if normalized.Domain == "" || strings.ContainsAny(normalized.Domain, "/:@") {
+		return VerifiedDomain{}, fmt.Errorf("invalid domain")
+	}
+	normalized.VerificationToken = strings.TrimSpace(domain.VerificationToken)
+	if normalized.VerificationToken == "" {
+		return VerifiedDomain{}, fmt.Errorf("verification token is required")
+	}
+	normalized.VerificationMethod = strings.ToLower(strings.TrimSpace(domain.VerificationMethod))
+	if normalized.VerificationMethod == "" {
+		normalized.VerificationMethod = "dns_txt"
+	}
+	if normalized.VerificationMethod != "dns_txt" && normalized.VerificationMethod != "manual" {
+		return VerifiedDomain{}, fmt.Errorf("invalid verification method")
+	}
+	if normalized.VerifiedAt != nil {
+		verifiedAt := normalized.VerifiedAt.UTC()
+		normalized.VerifiedAt = &verifiedAt
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeIdentityConnectionForWrite validates and canonicalizes one enterprise identity connection scaffold.
+func NormalizeIdentityConnectionForWrite(connection IdentityConnection) (IdentityConnection, error) {
+	normalized := connection
+	normalized.ID = strings.TrimSpace(connection.ID)
+	if normalized.ID == "" {
+		normalized.ID = uuid.NewString()
+	} else if _, err := uuid.Parse(normalized.ID); err != nil {
+		return IdentityConnection{}, fmt.Errorf("invalid identity connection id")
+	}
+	normalized.OrgID = strings.TrimSpace(connection.OrgID)
+	if normalized.OrgID == "" {
+		return IdentityConnection{}, fmt.Errorf("org id is required")
+	}
+	normalized.Provider = strings.ToLower(strings.TrimSpace(connection.Provider))
+	if _, ok := validIdentityConnectionProviders[normalized.Provider]; !ok {
+		return IdentityConnection{}, fmt.Errorf("invalid identity provider")
+	}
+	normalized.Type = strings.ToLower(strings.TrimSpace(connection.Type))
+	if _, ok := validIdentityConnectionTypes[normalized.Type]; !ok {
+		return IdentityConnection{}, fmt.Errorf("invalid identity connection type")
+	}
+	normalized.WorkOSConnectionID = strings.TrimSpace(connection.WorkOSConnectionID)
+	normalized.Status = strings.ToLower(strings.TrimSpace(connection.Status))
+	if normalized.Status == "" {
+		normalized.Status = "pending"
+	}
+	if _, ok := validIdentityConnectionStatuses[normalized.Status]; !ok {
+		return IdentityConnection{}, fmt.Errorf("invalid identity connection status")
+	}
+	normalized.GroupRoleMap = normalizeGroupRoleMap(connection.GroupRoleMap)
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+func normalizeGroupRoleMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return map[string]string{}
+	}
+	normalized := make(map[string]string, len(values))
+	for group, role := range values {
+		group = strings.TrimSpace(group)
+		role = strings.ToLower(strings.TrimSpace(role))
+		if group == "" {
+			continue
+		}
+		if _, ok := validTenancyMemberRoles[role]; !ok {
+			continue
+		}
+		normalized[group] = role
+	}
+	return normalized
+}
+
 // NormalizeTenancyProjectForWrite validates and canonicalizes project metadata.
 func NormalizeTenancyProjectForWrite(project TenancyProject) (TenancyProject, error) {
 	normalized := project
@@ -1529,6 +1744,16 @@ type Store interface {
 	ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error)
 	RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error)
 	RevokeOtherUserSessions(ctx context.Context, userID string, currentSessionIDHash []byte, revokedAt time.Time) (int, error)
+	CreateInvitation(ctx context.Context, invitation Invitation) (Invitation, error)
+	GetInvitation(ctx context.Context, orgID string, invitationID string) (Invitation, error)
+	ListInvitations(ctx context.Context, orgID string, limit int) ([]Invitation, error)
+	RevokeInvitation(ctx context.Context, orgID string, invitationID string, revokedAt time.Time) (Invitation, error)
+	CreateVerifiedDomain(ctx context.Context, domain VerifiedDomain) (VerifiedDomain, error)
+	GetVerifiedDomain(ctx context.Context, orgID string, domainID string) (VerifiedDomain, error)
+	ListVerifiedDomains(ctx context.Context, orgID string, limit int) ([]VerifiedDomain, error)
+	CreateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
+	GetIdentityConnection(ctx context.Context, orgID string, connectionID string) (IdentityConnection, error)
+	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error

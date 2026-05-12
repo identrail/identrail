@@ -117,7 +117,7 @@ PR 5 (frontend auth)                 │
 
 **Goal.** Tables and endpoint stubs for invitations, verified domains, identity connections. No business logic in this PR; just the scaffolding for PRs 6, 11, 12 to fill in.
 
-**Schema (migration `000018_invitations_domains_connections`).**
+**Schema (migration `000020_invitations_domains_connections`).** The original plan reserved `000018` for this PR, but PR 2 consumed that version for `users` and `sessions`, and scan-policy bounds consumed `000019`, so this PR uses the next migration slot.
 - `invitations(id UUID PK, org_id, email CITEXT, role, invited_by_user_id, token_hash BYTEA, expires_at, accepted_at NULL, revoked_at NULL, created_at)`.
 - `verified_domains(id UUID PK, org_id, domain CITEXT, verification_token, verification_method, verified_at NULL, created_at)`.
 - `identity_connections(id UUID PK, org_id, provider, type, workos_connection_id NULL, status, group_role_map JSONB DEFAULT '{}', sso_required BOOLEAN DEFAULT false, created_at, updated_at)`.
@@ -125,9 +125,9 @@ PR 5 (frontend auth)                 │
 `auth_audit_events` is not a separate table. Auth events flow through the existing `audit.AuditEvent` pipeline.
 
 **Files.**
-- `internal/db/invitations.go`, `verified_domains.go`, `identity_connections.go` (new).
-- `internal/api/auth/audit.go` (helper constructors for `auth.*` events).
-- Endpoint stubs in `internal/api/router.go` returning 501.
+- `internal/db/store.go`, `internal/db/memory_enterprise_auth.go`, `internal/db/postgres_enterprise_auth.go`.
+- `internal/api/auth/enterprise_audit.go` (helper constructors for `auth.*` events).
+- Endpoint stubs in `internal/api/auth_enterprise_routes.go` returning 501.
 
 **Endpoint stubs (return 501 until later PRs fill them in).**
 - `POST /v1/invitations`, `GET /v1/me/invitations` (PR 11).
@@ -237,9 +237,9 @@ PR 5 (frontend auth)                 │
 - `internal/api/service.go` (ListConnectors, GetConnector, GetConnectorHealth).
 - `web/src/components/connector/ConnectorStatusBadge.tsx`, `ConnectorErrorPanel.tsx` (new).
 - `web/src/pages/ConnectorsListPage.tsx` (new, route `/app/{tenant}/{workspace}/connectors`).
-- `migrations/000019_connector_disabled_flag.up.sql` and `.down.sql` (new). Adds `disabled BOOLEAN NOT NULL DEFAULT FALSE` and `config JSONB NOT NULL DEFAULT '{}'::jsonb` to `tenancy_connectors`. Does not modify the existing `status` CHECK constraint.
+- `migrations/000021_connector_disabled_flag.up.sql` and `.down.sql` (new). Adds `disabled BOOLEAN NOT NULL DEFAULT FALSE` and `config JSONB NOT NULL DEFAULT '{}'::jsonb` to `tenancy_connectors`. Does not modify the existing `status` CHECK constraint.
 
-**Schema (migration `000019_connector_disabled_flag`).**
+**Schema (migration `000021_connector_disabled_flag`).**
 - `tenancy_connectors.disabled BOOLEAN NOT NULL DEFAULT FALSE`. Backfills as `false` for existing rows.
 - `tenancy_connectors.config JSONB NOT NULL DEFAULT '{}'::jsonb`. Holds provider-specific non-secret configuration (for example GHES base URL or selected repo IDs).
 
@@ -390,7 +390,7 @@ PR 5 (frontend auth)                 │
 - `web/src/components/onboarding/Stepper.tsx`, `SkipForNow.tsx`.
 - `internal/api/onboarding/handler.go`.
 - `internal/db/onboarding_state.go`.
-- `migrations/000020_onboarding_state.up.sql` and `.down.sql` (small auxiliary table).
+- `migrations/000022_onboarding_state.up.sql` and `.down.sql` (small auxiliary table).
 - Routes registered in `App.tsx`.
 
 **Five steps.** Each at its own URL, resumable on refresh.
@@ -400,7 +400,7 @@ PR 5 (frontend auth)                 │
 4. `/onboarding/scan`. First scan inline, live progress, finding count animating up. Skippable only if step 3 was skipped.
 5. `/onboarding/invite`. Invite teammates by email. Skippable.
 
-**Schema (migration `000020_onboarding_state`).**
+**Schema (migration `000022_onboarding_state`).**
 - `onboarding_state(user_id PK, current_step, org_id NULL, workspace_id NULL, connector_id NULL, completed_at NULL, started_at, updated_at)`.
 
 **State management.** Server-driven. Every step writes to backend via `POST /v1/onboarding/state`. Frontend stores nothing in localStorage. Refresh-safe and resume-safe.
@@ -488,11 +488,11 @@ PR 5 (frontend auth)                 │
 - `internal/api/audit/export.go` (CSV export, license-gated).
 - `internal/scheduler/cleanup_jobs.go` (extended with deletion grace job).
 - `internal/license/entitlements.go`.
-- `migrations/000021_org_entitlements.up.sql` and `.down.sql`.
+- `migrations/000023_org_entitlements.up.sql` and `.down.sql`.
 - `web/src/pages/admin/AuditLogPage.tsx`, `OrgSessionsPage.tsx`.
 - `web/src/pages/account/DeleteAccountPage.tsx`.
 
-**Schema (migration `000021_org_entitlements`).**
+**Schema (migration `000023_org_entitlements`).**
 - `org_entitlements(org_id PK, plan, max_connectors INT, max_scans_per_day INT, sso_enabled BOOL, scim_enabled BOOL, audit_export_enabled BOOL, expires_at NULL, updated_at)`. Free defaults: 1 connector, 100 scans per day, no SSO, no SCIM, no audit export. Ops set entitlements manually for early customers (no Stripe yet).
 - `scim_events_seen(event_id TEXT PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`. Idempotency log for WorkOS Directory Sync webhook deliveries. Cleanup job prunes rows older than 30 days.
 
@@ -505,7 +505,7 @@ PR 5 (frontend auth)                 │
 
 **JIT fallback.** SAML user lands before SCIM has synced them: create user with default role from SAML attributes, audit warning.
 
-**Auth audit log UI.** Org-admin view filterable by user, action, time range, outcome, with CSV export gated by `entitlements.audit_export_enabled`. The same PR ships the per-user feed at `/app/account/security` (the placeholder slot left by PR 5) backed by `GET /v1/me/auth-events?limit=30`. The query is authenticated against the calling session and scoped to that user's events only. Backing the feed requires a queryable persistence path for `audit.AuditEvent` records of `Action LIKE 'auth.%'`; the simplest implementation is to add an `audit_events` Postgres sink alongside the existing file/HTTP sinks and read from it. The migration that adds the `audit_events` table ships in this PR's `000021_org_entitlements.up.sql` migration to keep PR 12's schema work in one place.
+**Auth audit log UI.** Org-admin view filterable by user, action, time range, outcome, with CSV export gated by `entitlements.audit_export_enabled`. The same PR ships the per-user feed at `/app/account/security` (the placeholder slot left by PR 5) backed by `GET /v1/me/auth-events?limit=30`. The query is authenticated against the calling session and scoped to that user's events only. Backing the feed requires a queryable persistence path for `audit.AuditEvent` records of `Action LIKE 'auth.%'`; the simplest implementation is to add an `audit_events` Postgres sink alongside the existing file/HTTP sinks and read from it. The migration that adds the `audit_events` table ships in this PR's `000023_org_entitlements.up.sql` migration to keep PR 12's schema work in one place.
 
 **Org-admin session management.** All active sessions across the org. Filter and revoke.
 

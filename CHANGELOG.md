@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added enterprise auth foundation scaffolding for the new auth rollout:
+  - introduced `invitations`, `verified_domains`, and `identity_connections` persistence with tenant RLS policies
+  - added memory and Postgres store methods for invitation, domain, and identity connection scaffolds
+  - registered 501 route stubs and OpenAPI/authz metadata for invitation, domain verification, and SSO endpoints
 - Added the backend identity foundation for the new auth rollout:
   - introduced durable `users`, `user_identities`, and `sessions` persistence with the `tenancy_workspace_members.user_uuid` bridge column
   - added signed session-cookie middleware, `/auth/logout`, `/v1/me`, and current-user session management endpoints

@@ -421,6 +421,52 @@ func TestNineteenthMigrationContainsScanPolicyRepoBoundsColumns(t *testing.T) {
 	}
 }
 
+func TestTwentiethMigrationContainsEnterpriseAuthFoundation(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000020_invitations_domains_connections.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"CREATE TABLE IF NOT EXISTS invitations",
+		"CREATE TABLE IF NOT EXISTS verified_domains",
+		"CREATE TABLE IF NOT EXISTS identity_connections",
+		"idx_invitations_org_email_pending",
+		"idx_verified_domains_org_verified",
+		"idx_identity_connections_org_status",
+		"CHECK (provider IN ('workos', 'oidc', 'saml'))",
+		"CHECK (type IN ('sso', 'directory_sync'))",
+		"ALTER TABLE invitations ENABLE ROW LEVEL SECURITY",
+		"CREATE POLICY invitations_scope_isolation",
+		"CREATE POLICY verified_domains_scope_isolation",
+		"CREATE POLICY identity_connections_scope_isolation",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected enterprise auth foundation migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000020_invitations_domains_connections.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP POLICY IF EXISTS identity_connections_scope_isolation",
+		"DROP TABLE IF EXISTS identity_connections",
+		"DROP TABLE IF EXISTS verified_domains",
+		"DROP TABLE IF EXISTS invitations",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected enterprise auth foundation down migration item %q", item)
+		}
+	}
+}
+
 func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000013_connectors_state_scan_policies.up.sql")
 	content, err := os.ReadFile(path)

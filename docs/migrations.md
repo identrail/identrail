@@ -62,6 +62,11 @@ Current sequence in `migrations/`:
 16. `000015_db_constraints_guardrails` - database status, identifier, and non-negative counter constraints
 17. `000015_tenancy_connector_rls_scope_enforcement` - enforced tenant/workspace row-level security policies
 18. `000015_tenancy_connector_rls_scope_guardrails` - additive tenant/workspace row-level security guardrails
+19. `000016_findings_lookup_indexes` - finding-id lookup indexes for API retrieval paths
+20. `000017_queue_trace_context` - trace context columns for queued scans
+21. `000018_users_and_sessions` - user, identity, and session primitives for the new auth stack
+22. `000019_scan_policy_repo_bounds` - scan policy history and finding limit bounds
+23. `000020_invitations_domains_connections` - invitation, verified-domain, and enterprise identity connection scaffolding
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.
