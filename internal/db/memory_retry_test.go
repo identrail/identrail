@@ -42,7 +42,7 @@ func TestMemoryStoreScheduleScanRetryAndDeadLetterScan(t *testing.T) {
 	}
 
 	finishedAt := createdAt.Add(5 * time.Minute)
-	if err := store.DeadLetterScan(ctx, record.ID, finishedAt, 3, 3, "provider_auth", "invalid credentials"); err != nil {
+	if err := store.DeadLetterScan(ctx, record.ID, finishedAt, 3, 3, 12, 2, "provider_auth", "invalid credentials"); err != nil {
 		t.Fatalf("dead letter scan: %v", err)
 	}
 
@@ -64,6 +64,9 @@ func TestMemoryStoreScheduleScanRetryAndDeadLetterScan(t *testing.T) {
 	}
 	if deadLettered.FailureCategory != "provider_auth" {
 		t.Fatalf("expected dead-letter failure category provider_auth, got %q", deadLettered.FailureCategory)
+	}
+	if deadLettered.AssetCount != 12 || deadLettered.FindingCount != 2 {
+		t.Fatalf("expected dead-letter counts to be preserved, got assets=%d findings=%d", deadLettered.AssetCount, deadLettered.FindingCount)
 	}
 	if deadLettered.ErrorMessage != "invalid credentials" {
 		t.Fatalf("expected dead-letter error message to be preserved, got %q", deadLettered.ErrorMessage)

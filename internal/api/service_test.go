@@ -78,6 +78,22 @@ type completionContextStore struct {
 	lastRepoScanCompletionCtxErr error
 }
 
+type failingCompleteScanStore struct {
+	*db.MemoryStore
+}
+
+func (s *failingCompleteScanStore) CompleteScan(
+	context.Context,
+	string,
+	string,
+	time.Time,
+	int,
+	int,
+	string,
+) error {
+	return errors.New("finalize failed")
+}
+
 type failingAnyScopeDepthStore struct {
 	*db.MemoryStore
 }
@@ -1858,6 +1874,50 @@ func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 	}
 }
 
+func TestServiceProcessNextQueuedScanDeadLettersFinalizeFailurePreservingCounts(t *testing.T) {
+	store := &failingCompleteScanStore{MemoryStore: db.NewMemoryStore()}
+	now := time.Date(2026, 3, 20, 9, 30, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{result: app.ScanResult{
+		Assets: 4,
+		Findings: []domain.Finding{{
+			ID:           "finding-1",
+			Type:         domain.FindingRiskyTrustPolicy,
+			Severity:     domain.SeverityHigh,
+			Title:        "Risky trust",
+			HumanSummary: "summary",
+			CreatedAt:    now,
+		}},
+	}}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	record, err := svc.EnqueueScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("enqueue scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("expected finalize failure to be dead-lettered without worker error, got %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+
+	scan, err := store.GetScan(defaultScopeContext(), record.ID)
+	if err != nil {
+		t.Fatalf("get scan: %v", err)
+	}
+	if scan.Status != "failed" || !scan.DeadLettered {
+		t.Fatalf("expected dead-lettered failed scan, got %+v", scan)
+	}
+	if scan.AssetCount != 4 || scan.FindingCount != 1 {
+		t.Fatalf("expected dead-lettered scan counts to be preserved, got assets=%d findings=%d", scan.AssetCount, scan.FindingCount)
+	}
+	if scan.FailureCategory != scanFailureCategoryFinalize {
+		t.Fatalf("expected finalization failure category, got %q", scan.FailureCategory)
+	}
+}
+
 func TestServiceProcessNextQueuedScanRetriesTransientFailure(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Now().UTC()
@@ -1991,6 +2051,35 @@ func TestServiceReplayScanRejectsSucceededScan(t *testing.T) {
 
 	if _, err := svc.ReplayScan(defaultScopeContext(), result.Scan.ID); !errors.Is(err, ErrScanReplayUnavailable) {
 		t.Fatalf("expected replay unavailable error, got %v", err)
+	}
+}
+
+func TestServiceReplayScanRejectsFullQueue(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{err: errors.New("invalid credentials for provider connector")}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.ScanQueueMaxPending = 2
+
+	source, err := svc.EnqueueScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("enqueue source scan: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("dead-letter source scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected source scan to be processed")
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := svc.EnqueueScan(defaultScopeContext()); err != nil {
+			t.Fatalf("enqueue pending scan %d: %v", i, err)
+		}
+	}
+
+	if _, err := svc.ReplayScan(defaultScopeContext(), source.ID); !errors.Is(err, ErrScanQueueFull) {
+		t.Fatalf("expected replay queue full error, got %v", err)
 	}
 }
 

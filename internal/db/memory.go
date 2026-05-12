@@ -466,7 +466,7 @@ func (m *MemoryStore) ScheduleScanRetry(ctx context.Context, scanID string, queu
 }
 
 // DeadLetterScan marks a failed queued scan as operator-replayable.
-func (m *MemoryStore) DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string) error {
+func (m *MemoryStore) DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, assetCount int, findingCount int, failureCategory string, errorMessage string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -484,6 +484,8 @@ func (m *MemoryStore) DeadLetterScan(ctx context.Context, scanID string, finishe
 	record.ErrorMessage = errorMessage
 	record.RetryCount = retryCount
 	record.MaxRetryCount = maxRetryCount
+	record.AssetCount = assetCount
+	record.FindingCount = findingCount
 	record.FailureCategory = strings.TrimSpace(failureCategory)
 	record.NextRetryAt = nil
 	record.DeadLettered = true

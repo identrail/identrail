@@ -73,26 +73,30 @@ func TestPostgresStoreDeadLetterScan(t *testing.T) {
 		     error_message = $3,
 		     retry_count = $4,
 		     max_retry_count = $5,
-		     failure_category = NULLIF($6, ''),
+		     asset_count = $6,
+		     finding_count = $7,
+		     failure_category = NULLIF($8, ''),
 		     next_retry_at = NULL,
 		     dead_lettered = TRUE,
 		     dead_lettered_at = $2
 		 WHERE id = $1
-		   AND tenant_id = $7
-		   AND workspace_id = $8`)).
+		   AND tenant_id = $9
+		   AND workspace_id = $10`)).
 		WithArgs(
 			"scan-1",
 			finishedAt.UTC(),
 			"invalid credentials",
 			3,
 			3,
+			12,
+			2,
 			"provider_auth",
 			"tenant-a",
 			"workspace-a",
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := store.DeadLetterScan(ctx, "scan-1", finishedAt, 3, 3, "provider_auth", "invalid credentials"); err != nil {
+	if err := store.DeadLetterScan(ctx, "scan-1", finishedAt, 3, 3, 12, 2, "provider_auth", "invalid credentials"); err != nil {
 		t.Fatalf("dead letter scan: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -675,7 +675,7 @@ func (s *Service) handleScanFailure(
 	metadata["dead_lettered"] = true
 	metadata["retryable"] = false
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, eventMessage, metadata)
-	if err := s.deadLetterQueuedScan(ctx, record.ID, now, record.RetryCount, maxRetryCount, policy.Category, failure.Error()); err != nil {
+	if err := s.deadLetterQueuedScan(ctx, record.ID, now, record.RetryCount, maxRetryCount, assetCount, findingCount, policy.Category, failure.Error()); err != nil {
 		return err
 	}
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan moved to dead-letter queue", map[string]any{
@@ -2374,6 +2374,8 @@ func (s *Service) deadLetterQueuedScan(
 	finishedAt time.Time,
 	retryCount int,
 	maxRetryCount int,
+	assetCount int,
+	findingCount int,
 	failureCategory string,
 	errorMessage string,
 ) error {
@@ -2381,11 +2383,11 @@ func (s *Service) deadLetterQueuedScan(
 	if shouldRetryTerminalWrite(ctx.Err()) {
 		writeCtx = s.terminalWriteContext(ctx)
 	}
-	err := s.Store.DeadLetterScan(writeCtx, scanID, finishedAt, retryCount, maxRetryCount, failureCategory, errorMessage)
+	err := s.Store.DeadLetterScan(writeCtx, scanID, finishedAt, retryCount, maxRetryCount, assetCount, findingCount, failureCategory, errorMessage)
 	if !shouldRetryTerminalWrite(err) {
 		return err
 	}
-	return s.Store.DeadLetterScan(s.terminalWriteContext(ctx), scanID, finishedAt, retryCount, maxRetryCount, failureCategory, errorMessage)
+	return s.Store.DeadLetterScan(s.terminalWriteContext(ctx), scanID, finishedAt, retryCount, maxRetryCount, assetCount, findingCount, failureCategory, errorMessage)
 }
 
 func (s *Service) completeRepoScanTerminal(

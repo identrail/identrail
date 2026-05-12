@@ -1696,7 +1696,7 @@ type Store interface {
 	GetScan(ctx context.Context, scanID string) (ScanRecord, error)
 	CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error
 	ScheduleScanRetry(ctx context.Context, scanID string, queuedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string, nextRetryAt time.Time) error
-	DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string) error
+	DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, assetCount int, findingCount int, failureCategory string, errorMessage string) error
 	UpsertArtifacts(ctx context.Context, scanID string, artifacts ScanArtifacts) error
 	UpsertFindings(ctx context.Context, scanID string, findings []domain.Finding) error
 	GetFindingTriageState(ctx context.Context, findingID string) (FindingTriageState, error)

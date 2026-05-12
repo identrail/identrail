@@ -680,7 +680,7 @@ func (p *PostgresStore) ScheduleScanRetry(ctx context.Context, scanID string, qu
 }
 
 // DeadLetterScan marks a failed queued scan as operator-replayable.
-func (p *PostgresStore) DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string) error {
+func (p *PostgresStore) DeadLetterScan(ctx context.Context, scanID string, finishedAt time.Time, retryCount int, maxRetryCount int, assetCount int, findingCount int, failureCategory string, errorMessage string) error {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return err
@@ -693,18 +693,22 @@ func (p *PostgresStore) DeadLetterScan(ctx context.Context, scanID string, finis
 		     error_message = $3,
 		     retry_count = $4,
 		     max_retry_count = $5,
-		     failure_category = NULLIF($6, ''),
+		     asset_count = $6,
+		     finding_count = $7,
+		     failure_category = NULLIF($8, ''),
 		     next_retry_at = NULL,
 		     dead_lettered = TRUE,
 		     dead_lettered_at = $2
 		 WHERE id = $1
-		   AND tenant_id = $7
-		   AND workspace_id = $8`,
+		   AND tenant_id = $9
+		   AND workspace_id = $10`,
 		scanID,
 		finishedAt.UTC(),
 		nullableString(errorMessage),
 		retryCount,
 		maxRetryCount,
+		assetCount,
+		findingCount,
 		strings.TrimSpace(failureCategory),
 		scope.TenantID,
 		scope.WorkspaceID,
