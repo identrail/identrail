@@ -432,6 +432,148 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	}
 }
 
+func TestHandleGitHubWebhookReplayWindowExpiresPersistedDeliveryID(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubWebhookReplayWindow = 1 * time.Minute
+	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	connectionKey := githubConnectionKey("tenant-a", "workspace-a", "project-1")
+	oldEventAt := now.Add(-2 * time.Minute)
+	svc.githubConnectMu.Lock()
+	connection := svc.githubConnections[connectionKey]
+	connection.LastWebhookDeliveryID = "delivery-1"
+	connection.LastWebhookEventAt = &oldEventAt
+	svc.githubConnections[connectionKey] = connection
+	svc.githubWebhookSeen = map[string]time.Time{}
+	svc.githubConnectMu.Unlock()
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	signature := githubWebhookSignature("persisted-secret", webhookPayload)
+	result, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle webhook with expired persisted delivery id: %v", err)
+	}
+	if result.QueuedScans != 1 || result.SkippedScans != 0 {
+		t.Fatalf("expected expired persisted delivery id to queue scan, got %+v", result)
+	}
+}
+
+func TestHandleGitHubWebhookReplayWindowUsesPersistedDeliveryTimestamp(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubWebhookReplayWindow = 1 * time.Minute
+	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{
+		DisplayName: "Tenant A",
+		Slug:        "tenant-a",
+	}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	connectionKey := githubConnectionKey("tenant-a", "workspace-a", "project-1")
+	recentEventAt := now.Add(-10 * time.Second)
+	svc.githubConnectMu.Lock()
+	connection := svc.githubConnections[connectionKey]
+	connection.LastWebhookDeliveryID = "delivery-1"
+	connection.LastWebhookEventAt = &recentEventAt
+	svc.githubConnections[connectionKey] = connection
+	svc.githubWebhookSeen = map[string]time.Time{}
+	svc.githubConnectMu.Unlock()
+
+	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	signature := githubWebhookSignature("persisted-secret", webhookPayload)
+	result, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle webhook with recent persisted delivery id: %v", err)
+	}
+	if result.QueuedScans != 0 || result.SkippedScans != 1 {
+		t.Fatalf("expected recent persisted delivery id to be replay-skipped, got %+v", result)
+	}
+}
+
 type failOnceQueuedRepoStore struct {
 	*db.MemoryStore
 	failuresRemaining int

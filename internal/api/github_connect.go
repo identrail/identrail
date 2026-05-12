@@ -541,7 +541,9 @@ func (s *Service) isGitHubWebhookReplay(connection githubProjectConnection, deli
 	replayed := false
 	if normalizedDeliveryID != "" {
 		if strings.EqualFold(strings.TrimSpace(current.LastWebhookDeliveryID), normalizedDeliveryID) {
-			replayed = true
+			if current.LastWebhookEventAt != nil && !current.LastWebhookEventAt.UTC().Before(cutoff) {
+				replayed = true
+			}
 		}
 		replayKey := connectionKey + "::" + normalizedDeliveryID
 		if seenAt, seen := s.githubWebhookSeen[replayKey]; seen && !seenAt.Before(cutoff) {
