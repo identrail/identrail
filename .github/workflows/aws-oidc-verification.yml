@@ -108,5 +108,5 @@ jobs:
           fi
 
           echo "AWS OIDC verification passed."
-          echo "Account: ${account}"
+          echo "AWS account matched the configured role ARN."
           echo "Role: ${expected_role}"
