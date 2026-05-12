@@ -418,6 +418,76 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 	return member, nil
 }
 
+// FindFirstWorkspaceMemberByUserUUID returns the newest active workspace membership for one auth user.
+func (p *PostgresStore) FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error) {
+	// Internal login resolution must run before a tenant/workspace scope exists.
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
+		 FROM tenancy_workspace_members
+		 WHERE user_uuid = NULLIF($1, '')::uuid
+		   AND status = 'active'
+		 ORDER BY joined_at DESC
+		 LIMIT 1`,
+		strings.TrimSpace(userUUID),
+	)
+	var member TenancyWorkspaceMember
+	if err := row.Scan(
+		&member.TenantID,
+		&member.WorkspaceID,
+		&member.MemberID,
+		&member.UserID,
+		&member.UserUUID,
+		&member.Email,
+		&member.Role,
+		&member.Status,
+		&member.JoinedAt,
+		&member.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyWorkspaceMember{}, ErrNotFound
+		}
+		return TenancyWorkspaceMember{}, err
+	}
+	return member, nil
+}
+
+// FindFirstWorkspaceMemberByUserUUIDAndTenantID returns the newest active workspace membership for one auth user in one tenant.
+func (p *PostgresStore) FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) (TenancyWorkspaceMember, error) {
+	// Internal login resolution must run before a tenant/workspace scope exists.
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
+		 FROM tenancy_workspace_members
+		 WHERE user_uuid = NULLIF($1, '')::uuid
+		   AND tenant_id = $2
+		   AND status = 'active'
+		 ORDER BY joined_at DESC
+		 LIMIT 1`,
+		strings.TrimSpace(userUUID),
+		strings.TrimSpace(tenantID),
+	)
+	var member TenancyWorkspaceMember
+	if err := row.Scan(
+		&member.TenantID,
+		&member.WorkspaceID,
+		&member.MemberID,
+		&member.UserID,
+		&member.UserUUID,
+		&member.Email,
+		&member.Role,
+		&member.Status,
+		&member.JoinedAt,
+		&member.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyWorkspaceMember{}, ErrNotFound
+		}
+		return TenancyWorkspaceMember{}, err
+	}
+	return member, nil
+}
+
 // ListWorkspaceMembers lists members for one scoped workspace.
 func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error) {
 	scope, err := RequireScope(ctx)

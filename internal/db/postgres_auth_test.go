@@ -51,6 +51,17 @@ func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("unexpected fetched user: %+v", gotUser)
 	}
 
+	mock.ExpectQuery("FROM users").
+		WithArgs("alice@example.com").
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "alice@example.com", "Alice", "", "active", now, now, nil))
+	gotUserByEmail, err := store.GetUserByPrimaryEmail(ctx, " Alice@Example.COM ")
+	if err != nil {
+		t.Fatalf("get user by email: %v", err)
+	}
+	if gotUserByEmail.ID != userID {
+		t.Fatalf("unexpected fetched user by email: %+v", gotUserByEmail)
+	}
+
 	mock.ExpectQuery("INSERT INTO user_identities").
 		WithArgs(identityID, userID, "github", "alice-subject", sqlmock.AnyArg(), true, `{"login":"alice"}`, now, now).
 		WillReturnRows(postgresAuthIdentityRows(now).AddRow(identityID, userID, "github", "alice-subject", "alice@example.com", true, []byte(`{"login":"alice"}`), now, now))
@@ -151,8 +162,99 @@ func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("expected two sessions revoked, got %d", count)
 	}
 
+	mock.ExpectExec("UPDATE sessions").
+		WithArgs(userID, now.Add(4*time.Minute)).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	count, err = store.RevokeAllUserSessions(ctx, userID, now.Add(4*time.Minute))
+	if err != nil {
+		t.Fatalf("revoke all sessions: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("expected three sessions revoked, got %d", count)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestPostgresAuthMethodsBypassScopeRLS(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	store.SetScopeRLSEnforcement(true)
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	userID := "11111111-1111-1111-1111-111111111111"
+	identityID := "22222222-2222-2222-2222-222222222222"
+	sessionHash := sha256.Sum256([]byte("rls-bypass-session"))
+
+	mock.ExpectQuery("INSERT INTO users").
+		WithArgs(userID, "alice@example.com", "Alice", "", "active", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "alice@example.com", "Alice", "", "active", now, now, nil))
+	if _, err := store.UpsertUser(ctx, User{
+		ID:           userID,
+		PrimaryEmail: "alice@example.com",
+		DisplayName:  "Alice",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}); err != nil {
+		t.Fatalf("upsert user without scope under rls: %v", err)
+	}
+
+	mock.ExpectQuery("FROM users").
+		WithArgs("alice@example.com").
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "alice@example.com", "Alice", "", "active", now, now, nil))
+	if _, err := store.GetUserByPrimaryEmail(ctx, "alice@example.com"); err != nil {
+		t.Fatalf("get user by email without scope under rls: %v", err)
+	}
+
+	mock.ExpectQuery("INSERT INTO user_identities").
+		WithArgs(identityID, userID, "workos", "workos-subject", sqlmock.AnyArg(), true, `{}`, now, now).
+		WillReturnRows(postgresAuthIdentityRows(now).AddRow(identityID, userID, "workos", "workos-subject", "alice@example.com", true, []byte(`{}`), now, now))
+	if _, err := store.UpsertUserIdentity(ctx, UserIdentity{
+		ID:                  identityID,
+		UserID:              userID,
+		Provider:            "workos",
+		Subject:             "workos-subject",
+		Email:               "alice@example.com",
+		EmailVerified:       true,
+		LastAuthenticatedAt: now,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("upsert identity without scope under rls: %v", err)
+	}
+
+	mock.ExpectQuery("WITH inserted AS").
+		WithArgs(sessionHash[:], userID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "workos", "203.0.113.10", sqlmock.AnyArg(), now.Add(15*time.Minute), now.Add(24*time.Hour), now, sqlmock.AnyArg(), now).
+		WillReturnRows(postgresAuthSessionRows().AddRow(sessionHash[:], userID, nil, nil, nil, "workos", "203.0.113.10", "browser", now.Add(15*time.Minute), now.Add(24*time.Hour), now, nil, now, userID, "alice@example.com", "Alice", "", "active", now, now, nil))
+	if _, err := store.CreateSession(ctx, Session{
+		ID:                sessionHash[:],
+		UserID:            userID,
+		AuthMethod:        "workos",
+		IP:                "203.0.113.10",
+		UserAgent:         "browser",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(24 * time.Hour),
+		LastSeenAt:        now,
+		CreatedAt:         now,
+	}); err != nil {
+		t.Fatalf("create session without scope under rls: %v", err)
+	}
+
+	mock.ExpectExec("UPDATE sessions").
+		WithArgs(userID, now.Add(time.Minute)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if _, err := store.RevokeAllUserSessions(ctx, userID, now.Add(time.Minute)); err != nil {
+		t.Fatalf("revoke all sessions without scope under rls: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }
 

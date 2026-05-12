@@ -53,7 +53,7 @@ func (p *PostgresStore) UpsertUser(ctx context.Context, user User) (User, error)
 	if err != nil {
 		return User{}, err
 	}
-	row := p.queryRowContext(
+	row := p.queryRowContextAnyScope(
 		ctx,
 		`INSERT INTO users (id, primary_email, display_name, avatar_url, status, created_at, updated_at, deleted_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -76,6 +76,9 @@ func (p *PostgresStore) UpsertUser(ctx context.Context, user User) (User, error)
 	)
 	saved, err := scanUser(row)
 	if err != nil {
+		if isTenancyUniqueViolation(err) {
+			return User{}, ErrConflict
+		}
 		return User{}, err
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -89,12 +92,23 @@ func (p *PostgresStore) UpsertUser(ctx context.Context, user User) (User, error)
 
 // GetUser returns one account by UUID.
 func (p *PostgresStore) GetUser(ctx context.Context, userID string) (User, error) {
-	return scanUser(p.queryRowContext(
+	return scanUser(p.queryRowContextAnyScope(
 		ctx,
 		`SELECT id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at
 		 FROM users
 		 WHERE id = NULLIF($1, '')::uuid`,
 		strings.TrimSpace(userID),
+	))
+}
+
+// GetUserByPrimaryEmail returns one account by normalized primary email.
+func (p *PostgresStore) GetUserByPrimaryEmail(ctx context.Context, email string) (User, error) {
+	return scanUser(p.queryRowContextAnyScope(
+		ctx,
+		`SELECT id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at
+		 FROM users
+		 WHERE primary_email = NULLIF($1, '')::citext`,
+		strings.ToLower(strings.TrimSpace(email)),
 	))
 }
 
@@ -108,7 +122,7 @@ func (p *PostgresStore) UpsertUserIdentity(ctx context.Context, identity UserIde
 	if len(rawClaims) == 0 {
 		rawClaims = json.RawMessage(`{}`)
 	}
-	row := p.queryRowContext(
+	row := p.queryRowContextAnyScope(
 		ctx,
 		`INSERT INTO user_identities (
 		     id, user_id, provider, subject, email, email_verified, raw_claims, last_authenticated_at, created_at
@@ -162,7 +176,7 @@ func (p *PostgresStore) UpsertUserIdentity(ctx context.Context, identity UserIde
 
 // GetUserIdentity returns one provider identity by provider and subject.
 func (p *PostgresStore) GetUserIdentity(ctx context.Context, provider string, subject string) (UserIdentity, error) {
-	row := p.queryRowContext(
+	row := p.queryRowContextAnyScope(
 		ctx,
 		`SELECT id::text, user_id::text, provider, subject, COALESCE(email::text, ''), email_verified, raw_claims, last_authenticated_at, created_at
 		 FROM user_identities
@@ -260,7 +274,7 @@ func (p *PostgresStore) CreateSession(ctx context.Context, session Session) (Ses
 	if err != nil {
 		return Session{}, err
 	}
-	row := p.queryRowContext(
+	row := p.queryRowContextAnyScope(
 		ctx,
 		`WITH inserted AS (
 		     INSERT INTO sessions (
@@ -305,7 +319,7 @@ func (p *PostgresStore) CreateSession(ctx context.Context, session Session) (Ses
 
 // TouchSession renews idle expiry and returns the joined session/user row.
 func (p *PostgresStore) TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
-	row := p.queryRowContext(
+	row := p.queryRowContextAnyScope(
 		ctx,
 		`WITH touched AS (
 		     UPDATE sessions
@@ -333,7 +347,7 @@ func (p *PostgresStore) ListUserSessions(ctx context.Context, userID string, now
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := p.queryContext(
+	rows, err := p.queryContextAnyScope(
 		ctx,
 		`SELECT `+sessionUserSelect+`
 		 FROM sessions s
@@ -365,7 +379,7 @@ func (p *PostgresStore) ListUserSessions(ctx context.Context, userID string, now
 
 // RevokeUserSession revokes one active session if it belongs to the user.
 func (p *PostgresStore) RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error) {
-	row := p.queryRowContext(
+	row := p.queryRowContextAnyScope(
 		ctx,
 		`WITH revoked AS (
 		     UPDATE sessions
@@ -397,7 +411,7 @@ func (p *PostgresStore) RevokeUserSession(ctx context.Context, userID string, se
 
 // RevokeOtherUserSessions revokes every active session except the caller's.
 func (p *PostgresStore) RevokeOtherUserSessions(ctx context.Context, userID string, currentSessionIDHash []byte, revokedAt time.Time) (int, error) {
-	result, err := p.execContext(
+	result, err := p.execContextAnyScope(
 		ctx,
 		`UPDATE sessions
 		 SET revoked_at = $3::timestamptz
@@ -417,6 +431,33 @@ func (p *PostgresStore) RevokeOtherUserSessions(ctx context.Context, userID stri
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "auth.session.revoke_others",
+		ResourceType: "session",
+		ResourceID:   strings.TrimSpace(userID),
+		Outcome:      "success",
+	})
+	return int(affected), nil
+}
+
+// RevokeAllUserSessions revokes every active session for one user.
+func (p *PostgresStore) RevokeAllUserSessions(ctx context.Context, userID string, revokedAt time.Time) (int, error) {
+	result, err := p.execContextAnyScope(
+		ctx,
+		`UPDATE sessions
+		 SET revoked_at = $2::timestamptz
+		 WHERE user_id = NULLIF($1, '')::uuid
+		   AND revoked_at IS NULL`,
+		strings.TrimSpace(userID),
+		revokedAt.UTC(),
+	)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.session.revoke_all",
 		ResourceType: "session",
 		ResourceID:   strings.TrimSpace(userID),
 		Outcome:      "success",

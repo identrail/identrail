@@ -621,6 +621,77 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreFindFirstWorkspaceMemberByUserUUIDBypassesScopeRLS(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	store.SetScopeRLSEnforcement(true)
+
+	now := time.Now().UTC()
+	userUUID := "11111111-1111-1111-1111-111111111111"
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "member-1", "subject-1", userUUID, "user@example.com", "admin", "active", now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
+		 FROM tenancy_workspace_members
+		 WHERE user_uuid = NULLIF($1, '')::uuid
+		   AND status = 'active'
+		 ORDER BY joined_at DESC
+		 LIMIT 1`)).
+		WithArgs(userUUID).
+		WillReturnRows(rows)
+
+	member, err := store.FindFirstWorkspaceMemberByUserUUID(context.Background(), userUUID)
+	if err != nil {
+		t.Fatalf("find first member without scope under rls: %v", err)
+	}
+	if member.TenantID != "tenant-a" || member.WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected member: %+v", member)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreFindFirstWorkspaceMemberByUserUUIDAndTenantIDBypassesScopeRLS(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	store.SetScopeRLSEnforcement(true)
+
+	now := time.Now().UTC()
+	userUUID := "11111111-1111-1111-1111-111111111111"
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "member-1", "subject-1", userUUID, "user@example.com", "admin", "active", now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
+		 FROM tenancy_workspace_members
+		 WHERE user_uuid = NULLIF($1, '')::uuid
+		   AND tenant_id = $2
+		   AND status = 'active'
+		 ORDER BY joined_at DESC
+		 LIMIT 1`)).
+		WithArgs(userUUID, "tenant-a").
+		WillReturnRows(rows)
+
+	member, err := store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(context.Background(), userUUID, "tenant-a")
+	if err != nil {
+		t.Fatalf("find first member by tenant without scope under rls: %v", err)
+	}
+	if member.TenantID != "tenant-a" || member.WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected member: %+v", member)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreProjectReadPaths(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

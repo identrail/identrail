@@ -26,6 +26,15 @@ func TestMemoryAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 	if user.PrimaryEmail != "alice@example.com" || user.DisplayName != "Alice" || user.Status != "active" {
 		t.Fatalf("user was not normalized: %+v", user)
 	}
+	if byEmail, err := store.GetUserByPrimaryEmail(ctx, "ALICE@example.com"); err != nil || byEmail.ID != user.ID {
+		t.Fatalf("expected lookup by primary email, got user=%+v err=%v", byEmail, err)
+	}
+	if _, err := store.UpsertUser(ctx, User{
+		ID:           "44444444-4444-4444-4444-444444444444",
+		PrimaryEmail: "alice@example.com",
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected duplicate primary email conflict, got %v", err)
+	}
 
 	identity, err := store.UpsertUserIdentity(ctx, UserIdentity{
 		ID:                  "22222222-2222-2222-2222-222222222222",
@@ -136,6 +145,20 @@ func TestMemoryAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 	}
 	if len(items) != 1 || !bytes.Equal(items[0].ID, firstHash[:]) {
 		t.Fatalf("expected only first session active, got %+v", items)
+	}
+	count, err = store.RevokeAllUserSessions(ctx, user.ID, now)
+	if err != nil {
+		t.Fatalf("revoke all sessions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one remaining session revoked, got %d", count)
+	}
+	items, err = store.ListUserSessions(ctx, user.ID, now, 0)
+	if err != nil {
+		t.Fatalf("list sessions after revoke all: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no active sessions after revoke all, got %+v", items)
 	}
 }
 

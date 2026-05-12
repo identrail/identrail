@@ -425,6 +425,98 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /auth/login:
+    get:
+      tags: [Authorization]
+      summary: Start WorkOS AuthKit sign-in
+      operationId: startWorkOSLogin
+      security: []
+      parameters:
+        - in: query
+          name: return_to
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to WorkOS AuthKit
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /auth/signup:
+    get:
+      tags: [Authorization]
+      summary: Start WorkOS AuthKit sign-up
+      operationId: startWorkOSSignup
+      security: []
+      parameters:
+        - in: query
+          name: return_to
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to WorkOS AuthKit sign-up screen
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /auth/callback:
+    get:
+      tags: [Authorization]
+      summary: Complete WorkOS AuthKit callback
+      operationId: completeWorkOSCallback
+      security: []
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Session cookie set and browser redirected to the app
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /auth/webhooks/workos:
+    post:
+      tags: [Authorization]
+      summary: Receive WorkOS AuthKit lifecycle webhooks
+      operationId: receiveWorkOSWebhook
+      security:
+        - WorkOSWebhookSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /webhooks/github:
     post:
       tags: [RepositoryExposure]
@@ -566,6 +658,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/config:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Authorization]
+      summary: Get public authentication configuration
+      operationId: getAuthConfig
+      security: []
+      responses:
+        "200":
+          description: Authentication options available to the frontend
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [auth]
+                properties:
+                  auth:
+                    type: object
+                    required: [manual_mode, workos_login_enabled, providers]
+                    properties:
+                      manual_mode:
+                        type: boolean
+                      workos_login_enabled:
+                        type: boolean
+                      providers:
+                        type: array
+                        items:
+                          type: string
   /v1/me:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -2299,6 +2421,11 @@ components:
       in: header
       name: X-Hub-Signature-256
       description: GitHub HMAC SHA-256 signature of the raw webhook request body.
+    WorkOSWebhookSignature:
+      type: apiKey
+      in: header
+      name: WorkOS-Signature
+      description: WorkOS HMAC SHA-256 signature of the raw webhook request body.
   parameters:
     scopeTenantID:
       in: header

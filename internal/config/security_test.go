@@ -78,6 +78,32 @@ func TestValidateSecurityRejectsInvalidSessionAuthConfig(t *testing.T) {
 			},
 			want: "IDENTRAIL_AUTH_MANUAL_MODE",
 		},
+		{
+			name: "workos login requires new auth",
+			cfg: Config{
+				APIKeys:             []string{"reader", "writer"},
+				WriteAPIKeys:        []string{"writer"},
+				FeatureWorkOSLogin:  true,
+				WorkOSClientID:      "client_123",
+				WorkOSAPIKey:        "sk_test_123",
+				WorkOSWebhookSecret: "whsec_123",
+				WorkOSEnvironmentID: "env_123",
+			},
+			want: "IDENTRAIL_FEATURE_NEW_AUTH",
+		},
+		{
+			name: "workos login missing api key",
+			cfg: Config{
+				FeatureNewAuth:      true,
+				FeatureWorkOSLogin:  true,
+				PublicBaseURL:       "https://app.example.com",
+				SessionKey:          strings.Repeat("a", 64),
+				WorkOSClientID:      "client_123",
+				WorkOSWebhookSecret: "whsec_123",
+				WorkOSEnvironmentID: "env_123",
+			},
+			want: "IDENTRAIL_WORKOS_API_KEY",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
