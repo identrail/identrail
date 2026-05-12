@@ -134,6 +134,56 @@ func TestEnqueueDueScanPoliciesReturnsQueueErrorAfterClaim(t *testing.T) {
 	}
 }
 
+func TestEnqueueDueScanPoliciesSkipsInvalidCronPolicyAndProcessesOthers(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a"})
+
+	upsertNamedTestScanPolicy(t, store, ctx, "invalid-cron", "Invalid policy", "not-a-cron", now.Add(-time.Hour), 1)
+	upsertNamedTestScanPolicy(t, store, ctx, "valid", "Every minute", "* * * * *", now.Add(-time.Hour), 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.PoliciesChecked != 2 || result.PoliciesDue != 1 || result.PoliciesClaimed != 1 || result.SkippedScans != 1 {
+		t.Fatalf("unexpected scheduler result: %+v", result)
+	}
+
+	count, err := store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		t.Fatalf("CountQueuedRepoScans returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("queued repo scans = %d, want 1", count)
+	}
+}
+
+func TestEnqueueDueScanPolicyCountsInProgressRepoTowardConcurrency(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a", "owner/repo-b"})
+	if _, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{Repository: "owner/repo-a"}); err != nil {
+		t.Fatalf("prequeue repo scan: %v", err)
+	}
+
+	upsertTestScanPolicy(t, store, ctx, now.Add(-time.Hour), 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.PoliciesDue != 1 || result.PoliciesClaimed != 1 || result.SkippedScans != 1 || result.QueuedScans != 0 {
+		t.Fatalf("unexpected scheduler result: %+v", result)
+	}
+
+	count, err := store.CountQueuedRepoScans(ctx)
+	if err != nil {
+		t.Fatalf("CountQueuedRepoScans returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("queued repo scans = %d, want 1", count)
+	}
+}
+
 func TestDueScanPolicyTickHandlesNoHistoryAndInvalidCron(t *testing.T) {
 	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
 	policy := db.TenancyScanPolicy{

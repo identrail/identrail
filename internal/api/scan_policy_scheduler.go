@@ -49,7 +49,8 @@ func (s *Service) EnqueueDueScanPoliciesAt(ctx context.Context, now time.Time) (
 		for _, policy := range policies {
 			scheduledAt, due, err := dueScanPolicyTick(policy, now)
 			if err != nil {
-				return result, err
+				result.SkippedScans++
+				continue
 			}
 			if !due {
 				continue
@@ -84,6 +85,7 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 	scopedCtx := db.WithScope(ctx, scope)
 
 	result := ScanPolicyScheduleResult{}
+	processed := 0
 	claimed, err := store.ClaimTenancyScanPolicySchedule(scopedCtx, policy.WorkspaceID, policy.ProjectID, policy.PolicyID, scheduledAt, now)
 	if err != nil {
 		return result, err
@@ -103,7 +105,7 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 		maxConcurrent = 1
 	}
 	for _, repository := range status.SelectedRepositories {
-		if result.QueuedScans >= maxConcurrent {
+		if processed >= maxConcurrent {
 			break
 		}
 		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{
@@ -114,11 +116,13 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 		if err != nil {
 			if isExpectedScheduledRepoSkip(err) {
 				result.SkippedScans++
+				processed++
 				continue
 			}
 			return result, err
 		}
 		result.QueuedScans++
+		processed++
 	}
 	return result, nil
 }
