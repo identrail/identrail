@@ -463,6 +463,7 @@ export function ProductAuthCallbackRedirectPage() {
 
 export function ProductLogoutPage() {
   const navigate = useNavigate();
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -470,8 +471,14 @@ export function ProductLogoutPage() {
     const run = async () => {
       try {
         await apiClient.logout();
-      } catch {
-        // A missing or already-revoked cookie should still land on the signed-out page.
+      } catch (logoutError) {
+        if (!(logoutError instanceof ApiError && logoutError.status === 401)) {
+          if (mounted) {
+            const message = logoutError instanceof Error ? logoutError.message : 'Unable to revoke this browser session.';
+            setError(message);
+          }
+          return;
+        }
       }
 
       if (mounted) {
@@ -485,6 +492,18 @@ export function ProductLogoutPage() {
       mounted = false;
     };
   }, [navigate]);
+
+  if (error) {
+    return (
+      <section className="idt-app-shell-screen" role="alert">
+        <article className="idt-app-panel idt-app-panel-error">
+          <p className="idt-app-kicker">Sign out failed</p>
+          <h1>Unable to sign out</h1>
+          <p>{error}</p>
+        </article>
+      </section>
+    );
+  }
 
   return <AppShellLoading message="Signing out" />;
 }

@@ -1033,4 +1033,31 @@ describe('App', () => {
     expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
     expect(window.location.pathname).toBe('/signin');
   });
+
+  it('treats an already-missing logout session as signed out', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(errorJSON(401, 'unauthorized')).mockResolvedValueOnce(authConfig(false, true))
+    );
+
+    setCurrentPath('/app/logout');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Signed out successfully/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/signin');
+  });
+
+  it('does not report logout success when server session revocation fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(errorJSON(500, 'logout failed')));
+
+    setCurrentPath('/app/logout');
+    render(<App />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Unable to sign out/i);
+    expect(alert).toHaveTextContent(/logout failed/i);
+    expect(window.location.pathname).toBe('/app/logout');
+    expect(screen.queryByText(/Signed out successfully/i)).not.toBeInTheDocument();
+  });
 });
