@@ -111,7 +111,10 @@ func (s *Service) UpsertScanPolicy(ctx context.Context, workspaceID string, proj
 		enabled = *request.Enabled
 	}
 	maxConcurrent := request.MaxConcurrentScans
-	if maxConcurrent <= 0 {
+	if maxConcurrent < 0 {
+		return db.TenancyScanPolicy{}, ErrInvalidScanPolicyRequest
+	}
+	if maxConcurrent == 0 {
 		maxConcurrent = 1
 	}
 	policy, err := db.NormalizeTenancyScanPolicyForWrite(db.TenancyScanPolicy{

@@ -25,6 +25,7 @@
   - introduced scan-policy CRUD endpoints under project tenancy routes with trigger-mode and enabled filters
   - persisted policy bounds for `history_limit` and `max_findings` with migration and scoped store adapters
   - embedded a scan policy editor in the project detail page and documented new contracts in `docs/openapi-v1.yaml`
+  - rejects negative `max_concurrent_scans` API values instead of silently defaulting them to one
 - Hardened connector secret storage and rotation:
   - encrypted GitHub webhook secrets with versioned AES-256-GCM envelopes instead of retaining plaintext service state
   - added a webhook-secret rotation endpoint with audit events and status metadata for key version, algorithm, and rotation due date

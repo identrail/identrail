@@ -495,6 +495,15 @@ func TestServiceScanPolicyValidation(t *testing.T) {
 				MaxFindings: 51,
 			},
 		},
+		{
+			name: "negative max concurrent scans",
+			request: ScanPolicyUpsertRequest{
+				PolicyID:           "negative-concurrency",
+				Name:               "Negative concurrency",
+				TriggerMode:        "manual",
+				MaxConcurrentScans: -1,
+			},
+		},
 	}
 
 	for _, tc := range cases {
