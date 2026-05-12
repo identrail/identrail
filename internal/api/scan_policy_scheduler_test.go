@@ -102,6 +102,30 @@ func TestEnqueueDueScanPoliciesSkipsWhenNoConnection(t *testing.T) {
 	}
 }
 
+func TestEnqueueDueScanPoliciesDoesNotClaimWhileRepoScanDisabled(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a"})
+	svc.RepoScanEnabled = false
+
+	createdAt := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	upsertTestScanPolicy(t, store, ctx, createdAt, 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.PoliciesDue != 1 || result.PoliciesClaimed != 0 || result.SkippedScans != 1 || result.QueuedScans != 0 {
+		t.Fatalf("unexpected scheduler result: %+v", result)
+	}
+	policy, err := store.GetTenancyScanPolicy(ctx, "default", "project-1", "default")
+	if err != nil {
+		t.Fatalf("GetTenancyScanPolicy returned error: %v", err)
+	}
+	if policy.LastScheduledAt != nil {
+		t.Fatalf("expected last_scheduled_at to remain unset, got %v", policy.LastScheduledAt)
+	}
+}
+
 func TestEnqueueDueScanPoliciesReturnsQueueErrorAfterClaim(t *testing.T) {
 	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
 	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{""})

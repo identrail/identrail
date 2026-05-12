@@ -86,6 +86,9 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 
 	result := ScanPolicyScheduleResult{}
 	processed := 0
+	if !s.RepoScanEnabled {
+		return ScanPolicyScheduleResult{SkippedScans: 1}, nil
+	}
 	claimed, err := store.ClaimTenancyScanPolicySchedule(scopedCtx, policy.WorkspaceID, policy.ProjectID, policy.PolicyID, scheduledAt, now)
 	if err != nil {
 		return result, err
