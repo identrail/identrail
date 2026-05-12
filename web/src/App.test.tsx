@@ -226,7 +226,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Sign in to Identrail/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/Tenant ID/i)).not.toBeInTheDocument();
-    const hostedSignIn = screen.getByRole('link', { name: /Continue with hosted sign-in/i });
+    const hostedSignIn = screen.getByRole('link', { name: /Log in/i });
     expect(hostedSignIn).toBeInTheDocument();
     expect(hostedSignIn).toHaveAttribute(
       'href',

@@ -29,6 +29,18 @@ a {
   outline-offset: 2px;
 }
 
+.idt-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .idt-site {
   min-height: 100vh;
   background: #ffffff;
@@ -4305,162 +4317,329 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 }
 
 .idt-auth-page {
-  width: min(100% - 2rem, 1120px);
-  margin: 2.5rem auto 4rem;
+  width: 100%;
+  min-height: 100svh;
+  margin: 0;
+  padding: clamp(2.25rem, 8vh, 5.25rem) 1rem;
   display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.05fr);
-  gap: 1.5rem;
-  align-items: stretch;
+  place-items: center;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #020202;
+  color: #f7f7f7;
 }
 
-.idt-auth-visual,
+.idt-auth-page::before {
+  content: '';
+  position: absolute;
+  inset: 12% max(-14rem, -12vw) 4%;
+  z-index: -2;
+  background-image: radial-gradient(circle, rgba(94, 232, 178, 0.34) 1px, transparent 1.4px);
+  background-size: 16px 16px;
+  background-position: center;
+  opacity: 0.78;
+  mask-image: radial-gradient(ellipse at center, #000 0 58%, transparent 78%);
+}
+
+.idt-auth-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 50% 46%, transparent 0 21rem, rgba(2, 2, 2, 0.54) 34rem, #020202 58rem),
+    linear-gradient(180deg, #020202 0%, transparent 18%, transparent 78%, #020202 100%);
+  pointer-events: none;
+}
+
+.idt-site-auth {
+  min-height: 100svh;
+  background: #020202;
+}
+
+.idt-site-auth > main {
+  min-height: 100svh;
+}
+
+.idt-auth-stage {
+  width: min(100%, 32rem);
+  display: grid;
+  justify-items: center;
+  gap: 1.5rem;
+}
+
+.idt-auth-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  color: #f7f7f7;
+  text-decoration: none;
+}
+
+.idt-auth-brand-mark img {
+  width: 4.1rem;
+  height: 4.1rem;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.idt-auth-brand-mark span {
+  font-family: var(--idt-display);
+  font-size: clamp(2.75rem, 9vw, 4.6rem);
+  line-height: 0.84;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #f8f8f8;
+}
+
 .idt-auth-panel,
 .idt-empty-panel,
 .idt-error-panel {
-  border: 1px solid rgba(120, 151, 207, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
-  background: rgba(10, 17, 30, 0.84);
-}
-
-.idt-auth-visual {
-  min-height: 560px;
-  padding: 1.25rem;
-  display: grid;
-  align-content: end;
-  gap: 1rem;
-  background:
-    linear-gradient(140deg, rgba(13, 25, 42, 0.86), rgba(15, 35, 51, 0.72)),
-    url('/identrail-logo.png') center 18% / 172px auto no-repeat;
-}
-
-.idt-auth-signal-card {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: fit-content;
-  max-width: 100%;
-  border: 1px solid rgba(139, 206, 179, 0.36);
-  border-radius: 8px;
-  padding: 0.75rem 0.9rem;
-  color: #dffbed;
-  background: rgba(9, 24, 25, 0.74);
-}
-
-.idt-auth-signal-card img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.idt-auth-path {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-
-.idt-auth-path span {
-  border: 1px solid rgba(164, 183, 211, 0.28);
-  border-radius: 8px;
-  padding: 0.7rem;
-  text-align: center;
-  color: #d8e6f8;
-  background: rgba(11, 18, 31, 0.82);
-  font-size: 0.88rem;
-  font-weight: 700;
+  background: rgba(3, 3, 3, 0.86);
 }
 
 .idt-auth-panel {
-  padding: clamp(1.25rem, 3vw, 2rem);
+  width: min(100%, 32rem);
+  min-height: 31rem;
+  padding: clamp(1.35rem, 3.2vw, 2.25rem);
   display: grid;
-  align-content: center;
-  gap: 1rem;
+  align-content: start;
+  gap: 1.05rem;
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(2px);
 }
 
-.idt-auth-panel h1,
+.idt-auth-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.idt-auth-panel h1 {
+  margin: 0;
+  color: #f6f6f6;
+  font-family: var(--idt-body);
+  font-size: clamp(1.35rem, 3vw, 1.62rem);
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
 .idt-passwordless-hero h1 {
   max-width: 780px;
   font-size: clamp(2.15rem, 4vw, 4.4rem);
   line-height: 0.98;
 }
 
+.idt-auth-theme-glyph {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #a7a7ad;
+  box-shadow:
+    0 0 0 4px rgba(167, 167, 173, 0.12),
+    0 0 0 8px rgba(167, 167, 173, 0.04);
+}
+
 .idt-auth-provider-stack,
 .idt-auth-provider-grid {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.6rem;
 }
 
 .idt-auth-provider-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .idt-auth-provider {
-  min-height: 48px;
+  width: 100%;
+  min-height: 2.9rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.65rem;
-  border: 1px solid rgba(126, 157, 211, 0.34);
+  gap: 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  color: #e7f1ff;
+  color: #f5f5f5;
   text-decoration: none;
-  font-weight: 800;
-  background: rgba(13, 21, 35, 0.88);
+  font-size: 0.98rem;
+  font-weight: 500;
+  line-height: 1.2;
+  background: rgba(3, 3, 3, 0.76);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
-.idt-auth-provider:hover {
-  border-color: rgba(139, 206, 179, 0.58);
-  color: #f4fff8;
+.idt-auth-provider:hover,
+.idt-auth-provider:focus-visible {
+  border-color: rgba(94, 232, 178, 0.44);
+  background: rgba(14, 14, 14, 0.92);
+  color: #ffffff;
+}
+
+.idt-auth-provider:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
 }
 
 .idt-auth-provider-primary {
-  justify-content: flex-start;
-  padding-inline: 1rem;
-  background: #dceaff;
-  color: #14294e;
+  margin-top: 0.15rem;
+  color: #020202;
+  background: #5fe6b3;
+  border-color: #5fe6b3;
+  font-weight: 600;
+}
+
+.idt-auth-provider-primary:hover,
+.idt-auth-provider-primary:focus-visible {
+  color: #020202;
+  background: #6df0bf;
+  border-color: #6df0bf;
 }
 
 .idt-auth-provider img {
-  width: 22px;
-  height: 22px;
+  width: 1.15rem;
+  height: 1.15rem;
   object-fit: contain;
+  filter: brightness(0) invert(1);
 }
 
-.idt-auth-provider-letter {
-  width: 22px;
-  height: 22px;
+.idt-auth-provider-letter,
+.idt-auth-google-mark {
+  width: 1.15rem;
+  height: 1.15rem;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
-  color: #0f233f;
-  background: #f8fbff;
-  font-weight: 900;
+  color: #f4f4f4;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.idt-auth-google-mark {
+  color: #ffffff;
+  background: conic-gradient(from -45deg, #4285f4 0 25%, #34a853 0 50%, #fbbc05 0 75%, #ea4335 0 100%);
+}
+
+.idt-auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.9rem;
+  color: rgba(246, 246, 246, 0.58);
+  font-size: 0.82rem;
+  line-height: 1;
+  margin: 0.6rem 0 0.5rem;
+}
+
+.idt-auth-divider::before,
+.idt-auth-divider::after {
+  content: '';
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.idt-auth-password-link {
+  justify-self: end;
+  color: #9fc8ff;
+  text-decoration: none;
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+
+.idt-auth-password-link:hover,
+.idt-auth-password-link:focus-visible {
+  color: #c7ddff;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.idt-auth-password-link-standalone {
+  justify-self: end;
+  margin-top: -0.2rem;
+}
+
+.idt-auth-panel .idt-app-alert {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(8, 8, 8, 0.78);
+  color: #d8d8d8;
+  line-height: 1.45;
+}
+
+.idt-auth-panel .idt-app-alert-error {
+  border-color: rgba(255, 116, 116, 0.42);
+  color: #ffbaba;
+}
+
+.idt-auth-panel .idt-app-alert-success {
+  border-color: rgba(95, 230, 179, 0.42);
+  color: #c8ffe9;
 }
 
 .idt-auth-manual-form {
-  border-top: 1px solid rgba(126, 157, 211, 0.22);
-  padding-top: 1rem;
+  margin-top: 0.2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 0.9rem;
+}
+
+.idt-auth-manual-form label {
+  color: #cfcfd3;
+  font-size: 0.82rem;
+}
+
+.idt-auth-manual-form input {
+  min-height: 2.65rem;
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(4, 4, 4, 0.72);
+  color: #f7f7f7;
+  padding: 0.66rem 0.75rem;
 }
 
 .idt-dev-mode-banner {
   width: fit-content;
-  border: 1px solid rgba(221, 184, 85, 0.44);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
   padding: 0.32rem 0.55rem;
-  color: #ffe8a8;
-  background: rgba(49, 35, 10, 0.72);
-  font-weight: 800;
+  color: #e6e6e6;
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .idt-auth-footer-line {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
-  color: #c6d7ed;
+  justify-content: center;
+  gap: 0.35rem;
+  color: #e2e2e2;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  margin-top: 0.2rem;
 }
 
 .idt-auth-footer-line a {
-  color: #dffbed;
-  font-weight: 800;
+  color: #9fc8ff;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.idt-auth-footer-line a:hover,
+.idt-auth-footer-line a:focus-visible {
+  color: #c7ddff;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
 }
 
 .idt-passwordless-page {
@@ -5253,6 +5432,62 @@ html[data-theme='light'] .idt-auth-footer-line {
 
 html[data-theme='light'] .idt-auth-footer-line a {
   color: #183c6b;
+}
+
+html[data-theme='light'] .idt-site-auth,
+html[data-theme='light'] .idt-auth-page {
+  background: #020202;
+}
+
+html[data-theme='light'] .idt-auth-panel {
+  background: rgba(3, 3, 3, 0.86);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme='light'] .idt-auth-provider {
+  color: #f5f5f5;
+  background: rgba(3, 3, 3, 0.76);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme='light'] .idt-auth-provider:hover,
+html[data-theme='light'] .idt-auth-provider:focus-visible {
+  color: #ffffff;
+  background: rgba(14, 14, 14, 0.92);
+  border-color: rgba(94, 232, 178, 0.44);
+}
+
+html[data-theme='light'] .idt-auth-provider-primary,
+html[data-theme='light'] .idt-auth-provider-primary:hover,
+html[data-theme='light'] .idt-auth-provider-primary:focus-visible {
+  color: #020202;
+  background: #5fe6b3;
+  border-color: #5fe6b3;
+}
+
+html[data-theme='light'] .idt-auth-footer-line {
+  color: #e2e2e2;
+}
+
+html[data-theme='light'] .idt-auth-footer-line a,
+html[data-theme='light'] .idt-auth-password-link {
+  color: #9fc8ff;
+}
+
+html[data-theme='light'] .idt-auth-manual-form input {
+  color: #f7f7f7;
+  background: rgba(4, 4, 4, 0.72);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+html[data-theme='light'] .idt-auth-manual-form label {
+  color: #cfcfd3;
+}
+
+html[data-theme='light'] .idt-dev-mode-banner {
+  color: #e6e6e6;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 html[data-theme='light'] .idt-passwordless-hero {
