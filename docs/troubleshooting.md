@@ -58,3 +58,21 @@ Checks:
 1. In GitHub: `Settings` -> `Secrets and variables` -> `Actions` -> `Variables`, confirm `VITE_IDENTRAIL_API_URL` exists.
 2. In Vercel: `Project` -> `Settings` -> `Environment Variables`, confirm `VITE_IDENTRAIL_API_URL` exists for Production.
 3. Ensure the value points to the public API URL (not the web frontend URL).
+
+For Identrail Cloud, the intended value is:
+
+```text
+VITE_IDENTRAIL_API_URL=https://api.identrail.com
+```
+
+Do not use `https://identrail.com`, `https://www.identrail.com`, or `https://app.identrail.com` for this value. Those are frontend origins. Validate the value with:
+
+```bash
+VITE_IDENTRAIL_API_URL=https://api.identrail.com make production-api-url-check
+```
+
+After `api.identrail.com` is live, run the full probe:
+
+```bash
+VITE_IDENTRAIL_API_URL=https://api.identrail.com make production-api-preflight
+```

@@ -21,6 +21,7 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
 - If the API is served from the same domain via reverse proxy, use that public API base path.
 - Configure the API deployment with `IDENTRAIL_CORS_ALLOWED_ORIGINS` set to the web app origin when the frontend and API use different origins.
 - The default Vercel CSP allows `https://api.identrail.io`; update `connect-src` when using a custom API host.
+- For Identrail Cloud, use `https://api.identrail.com` once that API domain is live. Do not use `https://identrail.com`, `https://www.identrail.com`, or `https://app.identrail.com`; those are web origins.
 
 ### Where to configure it
 
@@ -32,6 +33,18 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
    - Add `VITE_IDENTRAIL_API_URL` for Production (and Preview if needed)
 
 If the GitHub Actions variable is missing, the production deploy workflow fails before deployment so the web app cannot ship without an explicit API URL.
+
+### Production API preflight
+
+Before wiring or rotating the Vercel value, run:
+
+```bash
+VITE_IDENTRAIL_API_URL=https://api.identrail.com make production-api-preflight
+```
+
+The preflight verifies that `/healthz` and `/v1/auth/config` return API responses instead of the frontend HTML shell. Use `make production-api-url-check` when the API is not live yet and only static URL validation is needed.
+
+See [Production API Readiness](./auth/production-api-readiness.md) for the full API/web domain checklist.
 
 ## `site/` (legacy Next.js marketing surface)
 

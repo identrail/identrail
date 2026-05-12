@@ -11,8 +11,9 @@ Start at the top. Each later doc fills in detail for one section of the first.
 3. [`identity-linking-rules.md`](./identity-linking-rules.md) - how we connect provider identities to Identrail accounts. Has the account-takeover exploit narrative.
 4. [`cookie-and-session-spec.md`](./cookie-and-session-spec.md) - exact cookie attributes, session lifetimes, rotation rules.
 5. [`connector-foundation.md`](./connector-foundation.md) - the Provider interface, status state machine, and error taxonomy that every connector implements.
-6. [`env-vars-reference.md`](./env-vars-reference.md) - flat list of every environment variable across the twelve PRs.
-7. [`12-pr-plan.md`](./12-pr-plan.md) - the canonical scope for each of the twelve PRs.
+6. [`production-api-readiness.md`](./production-api-readiness.md) - the production web/API split required before the frontend auth UI can work on Vercel.
+7. [`env-vars-reference.md`](./env-vars-reference.md) - flat list of every environment variable across the twelve PRs.
+8. [`12-pr-plan.md`](./12-pr-plan.md) - the canonical scope for each of the twelve PRs.
 
 ## When to Update These Docs
 

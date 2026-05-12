@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap quickstart quickstart-down clean-local fmt fmt-check vet test test-integration web-install web-test web-build web-route-integrity-check api-example-contract-check vercel-prod-deploy helm-lint tfmt-check ci pre-commit
+.PHONY: help bootstrap quickstart quickstart-down clean-local fmt fmt-check vet test test-integration web-install web-test web-build web-route-integrity-check api-example-contract-check production-api-url-check production-api-preflight vercel-prod-deploy helm-lint tfmt-check ci pre-commit
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -64,6 +64,12 @@ web-route-integrity-check: ## Validate web app routes for static generation inte
 
 api-example-contract-check: ## Validate docs/web API snippets against current v1 contract
 	./scripts/check_api_example_contract.sh
+
+production-api-url-check: ## Validate VITE_IDENTRAIL_API_URL does not point at the web frontend
+	./scripts/check_public_api_url.sh
+
+production-api-preflight: ## Validate and probe the public API URL before wiring the frontend
+	./scripts/check_public_api_url.sh --probe
 
 vercel-prod-deploy: ## Trigger Vercel production deploy (always uses origin/dev)
 	./scripts/vercel_prod_deploy.sh

@@ -56,6 +56,16 @@ tasks:
     cmds:
       - make api-example-contract-check
 
+  production-api-url-check:
+    desc: Validate VITE_IDENTRAIL_API_URL does not point at the web frontend
+    cmds:
+      - make production-api-url-check
+
+  production-api-preflight:
+    desc: Validate and probe the public API URL before wiring the frontend
+    cmds:
+      - make production-api-preflight
+
   vercel-prod-deploy:
     desc: Trigger Vercel production deploy (always uses origin/dev)
     cmds:
