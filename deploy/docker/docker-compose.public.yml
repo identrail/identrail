@@ -30,14 +30,11 @@ x-identrail-env: &identrail-env
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: identrail-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: identrail
       POSTGRES_USER: identrail
       POSTGRES_PASSWORD: "${IDENTRAIL_POSTGRES_PASSWORD:-identrail-local-password}"
-    ports:
-      - "127.0.0.1:${IDENTRAIL_POSTGRES_PORT:-5432}:5432"
     volumes:
       - identrail_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -48,7 +45,6 @@ services:
 
   api:
     image: ghcr.io/identrail/identrail:${IDENTRAIL_IMAGE_TAG:-dev}
-    container_name: identrail-api
     restart: unless-stopped
     depends_on:
       postgres:
@@ -62,7 +58,6 @@ services:
 
   worker:
     image: ghcr.io/identrail/identrail-worker:${IDENTRAIL_IMAGE_TAG:-dev}
-    container_name: identrail-worker
     restart: unless-stopped
     depends_on:
       postgres:
@@ -75,7 +70,6 @@ services:
 
   web:
     image: ghcr.io/identrail/identrail-web:${IDENTRAIL_IMAGE_TAG:-dev}
-    container_name: identrail-web
     restart: unless-stopped
     depends_on:
       api:
