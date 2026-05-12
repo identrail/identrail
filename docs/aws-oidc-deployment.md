@@ -17,7 +17,7 @@ That means PR branches and forks cannot assume the deployment role. The first AW
 Required repository secret:
 
 ```text
-AWS_ROLE_ARN=arn:aws:iam::263434643405:role/IdentrailGithubDeployRole
+AWS_ROLE_ARN=arn:aws:iam::<aws-account-id>:role/IdentrailGithubDeployRole
 ```
 
 Required repository variable:
@@ -37,7 +37,7 @@ The role trust policy should allow only the `dev` branch in this repository:
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam::263434643405:oidc-provider/token.actions.githubusercontent.com"
+        "Federated": "arn:aws:iam::<aws-account-id>:oidc-provider/token.actions.githubusercontent.com"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
@@ -50,6 +50,8 @@ The role trust policy should allow only the `dev` branch in this repository:
   ]
 }
 ```
+
+Replace `<aws-account-id>` with the target AWS account ID when configuring the role. Do not commit personal account-specific ARNs unless the repository intentionally documents a public production account.
 
 ## Verification Workflow
 
