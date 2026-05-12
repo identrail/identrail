@@ -749,3 +749,78 @@ func TestMemoryStoreScanPolicyCRUD(t *testing.T) {
 		t.Fatalf("expected deleted scan policy to return ErrNotFound, got %v", err)
 	}
 }
+
+func TestMemoryStoreScheduledScanPolicyPaginationAndClaim(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	createdAt := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+			WorkspaceID:        "workspace-a",
+			ProjectID:          "project-1",
+			PolicyID:           "scheduled-" + string(rune('a'+i)),
+			Name:               "Scheduled " + string(rune('A'+i)),
+			Enabled:            true,
+			TriggerMode:        domain.ScanTriggerModeScheduled,
+			Cron:               "*/5 * * * *",
+			MaxConcurrentScans: 1,
+			CreatedAt:          createdAt.Add(time.Duration(i) * time.Minute),
+			UpdatedAt:          createdAt.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatalf("upsert scheduled policy %d: %v", i, err)
+		}
+	}
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "manual-1",
+		Name:               "Manual 1",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	}); err != nil {
+		t.Fatalf("upsert manual policy: %v", err)
+	}
+
+	page, err := store.ListScheduledTenancyScanPolicies(ctx, 2, 0)
+	if err != nil {
+		t.Fatalf("ListScheduledTenancyScanPolicies page 1: %v", err)
+	}
+	if len(page) != 2 {
+		t.Fatalf("expected first page length 2, got %d", len(page))
+	}
+	nextPage, err := store.ListScheduledTenancyScanPolicies(ctx, 2, 2)
+	if err != nil {
+		t.Fatalf("ListScheduledTenancyScanPolicies page 2: %v", err)
+	}
+	if len(nextPage) != 1 {
+		t.Fatalf("expected second page length 1, got %d", len(nextPage))
+	}
+
+	claimTick := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	now := claimTick.Add(30 * time.Second)
+	claimed, err := store.ClaimTenancyScanPolicySchedule(ctx, "workspace-a", "project-1", page[0].PolicyID, claimTick, now)
+	if err != nil {
+		t.Fatalf("ClaimTenancyScanPolicySchedule returned error: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected initial claim to succeed")
+	}
+	claimed, err = store.ClaimTenancyScanPolicySchedule(ctx, "workspace-a", "project-1", page[0].PolicyID, claimTick, now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ClaimTenancyScanPolicySchedule duplicate returned error: %v", err)
+	}
+	if claimed {
+		t.Fatal("expected duplicate claim to be rejected")
+	}
+}

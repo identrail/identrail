@@ -691,12 +691,15 @@ func (m *MemoryStore) ListTenancyScanPolicies(ctx context.Context, workspaceID s
 }
 
 // ListScheduledTenancyScanPolicies returns all enabled scheduled policies for worker execution.
-func (m *MemoryStore) ListScheduledTenancyScanPolicies(ctx context.Context, limit int) ([]TenancyScanPolicy, error) {
+func (m *MemoryStore) ListScheduledTenancyScanPolicies(ctx context.Context, limit int, offset int) ([]TenancyScanPolicy, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	policies := make([]TenancyScanPolicy, 0, limit)
 	for _, policy := range m.scanPolicies {
@@ -716,10 +719,14 @@ func (m *MemoryStore) ListScheduledTenancyScanPolicies(ctx context.Context, limi
 		}
 		return compareMemoryString(left.PolicyID, right.PolicyID) < 0
 	})
-	if len(policies) > limit {
-		policies = policies[:limit]
+	if offset >= len(policies) {
+		return []TenancyScanPolicy{}, nil
 	}
-	return policies, nil
+	end := offset + limit
+	if end > len(policies) {
+		end = len(policies)
+	}
+	return policies[offset:end], nil
 }
 
 // ClaimTenancyScanPolicySchedule atomically records the scheduled tick claimed by a worker.

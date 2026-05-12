@@ -13,11 +13,13 @@ const cronSearchLimit = 366 * 24 * 60
 // scheduler. It supports the common portable cron forms: *, */n, n, n-m,
 // n-m/s, and comma-separated combinations.
 type CronSchedule struct {
-	minutes   map[int]bool
-	hours     map[int]bool
-	monthDays map[int]bool
-	months    map[int]bool
-	weekDays  map[int]bool
+	minutes      map[int]bool
+	hours        map[int]bool
+	monthDays    map[int]bool
+	monthDaysAny bool
+	months       map[int]bool
+	weekDays     map[int]bool
+	weekDaysAny  bool
 }
 
 // ParseCronSchedule parses a standard five-field cron expression.
@@ -53,11 +55,13 @@ func ParseCronSchedule(expr string) (CronSchedule, error) {
 	}
 
 	return CronSchedule{
-		minutes:   minutes,
-		hours:     hours,
-		monthDays: monthDays,
-		months:    months,
-		weekDays:  weekDays,
+		minutes:      minutes,
+		hours:        hours,
+		monthDays:    monthDays,
+		monthDaysAny: strings.TrimSpace(fields[2]) == "*",
+		months:       months,
+		weekDays:     weekDays,
+		weekDaysAny:  strings.TrimSpace(fields[4]) == "*",
 	}, nil
 }
 
@@ -77,11 +81,23 @@ func (s CronSchedule) LatestAfter(after time.Time, now time.Time) (time.Time, bo
 }
 
 func (s CronSchedule) matches(t time.Time) bool {
+	monthDayMatches := s.monthDays[t.Day()]
+	weekDayMatches := s.weekDays[int(t.Weekday())]
+	dayMatches := false
+	switch {
+	case s.monthDaysAny && s.weekDaysAny:
+		dayMatches = true
+	case s.monthDaysAny:
+		dayMatches = weekDayMatches
+	case s.weekDaysAny:
+		dayMatches = monthDayMatches
+	default:
+		dayMatches = monthDayMatches || weekDayMatches
+	}
 	return s.minutes[t.Minute()] &&
 		s.hours[t.Hour()] &&
-		s.monthDays[t.Day()] &&
 		s.months[int(t.Month())] &&
-		s.weekDays[int(t.Weekday())]
+		dayMatches
 }
 
 func parseCronField(raw string, min int, max int) (map[int]bool, error) {

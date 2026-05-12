@@ -897,3 +897,62 @@ func TestPostgresStoreScanPolicyDuplicateNameReturnsConflict(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+func TestPostgresStoreScheduledScanPolicyListAndClaim(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Now().UTC()
+
+	rows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "policy_id", "name", "enabled", "trigger_mode", "cron",
+		"max_concurrent_scans", "history_limit", "max_findings", "last_scheduled_at", "created_at", "updated_at",
+	}).AddRow("tenant-a", "workspace-a", "project-1", "default", "Default policy", true, "scheduled", "*/5 * * * *", 1, 500, 200, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
+		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
+		 FROM tenancy_scan_policies
+		 WHERE enabled = TRUE
+		   AND trigger_mode IN ($1, $2)
+		 ORDER BY created_at ASC, policy_id ASC
+		 LIMIT $3 OFFSET $4`)).
+		WithArgs("scheduled", "hybrid", 100, 25).
+		WillReturnRows(rows)
+
+	listed, err := store.ListScheduledTenancyScanPolicies(ctx, 100, 25)
+	if err != nil {
+		t.Fatalf("ListScheduledTenancyScanPolicies returned error: %v", err)
+	}
+	if len(listed) != 1 || listed[0].PolicyID != "default" {
+		t.Fatalf("unexpected list payload: %+v", listed)
+	}
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE tenancy_scan_policies
+		 SET last_scheduled_at = $5,
+		     updated_at = $6
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND policy_id = $4
+		   AND enabled = TRUE
+		   AND trigger_mode IN ($7, $8)
+		   AND (last_scheduled_at IS NULL OR last_scheduled_at < $5)`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "default", sqlmock.AnyArg(), sqlmock.AnyArg(), "scheduled", "hybrid").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	claimed, err := store.ClaimTenancyScanPolicySchedule(ctx, "workspace-a", "project-1", "default", now, now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ClaimTenancyScanPolicySchedule returned error: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected claim to return true")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}

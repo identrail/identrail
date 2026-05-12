@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -82,6 +84,85 @@ func TestEnqueueDueScanPoliciesDoesNotDuplicateConcurrentWorkers(t *testing.T) {
 	}
 }
 
+func TestEnqueueDueScanPoliciesSkipsWhenNoConnection(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, _, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a"})
+	delete(svc.githubConnections, githubConnectionKey("default", "default", "project-1"))
+
+	store := svc.Store.(*db.MemoryStore)
+	createdAt := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	upsertTestScanPolicy(t, store, ctx, createdAt, 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.PoliciesClaimed != 1 || result.QueuedScans != 0 {
+		t.Fatalf("unexpected scheduler result without connection: %+v", result)
+	}
+}
+
+func TestDueScanPolicyTickHandlesNoHistoryAndInvalidCron(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	policy := db.TenancyScanPolicy{
+		PolicyID: "default",
+		Cron:     "*/5 * * * *",
+	}
+	tick, due, err := dueScanPolicyTick(policy, now)
+	if err != nil {
+		t.Fatalf("dueScanPolicyTick returned error: %v", err)
+	}
+	if !due {
+		t.Fatal("expected policy to be due")
+	}
+	wantTick := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	if !tick.Equal(wantTick) {
+		t.Fatalf("tick = %s, want %s", tick, wantTick)
+	}
+
+	_, _, err = dueScanPolicyTick(db.TenancyScanPolicy{PolicyID: "broken", Cron: "not-a-cron"}, now)
+	if err == nil {
+		t.Fatal("expected invalid cron to return error")
+	}
+}
+
+func TestIsExpectedScheduledRepoSkip(t *testing.T) {
+	if !isExpectedScheduledRepoSkip(ErrRepoScanInProgress) {
+		t.Fatal("expected ErrRepoScanInProgress to be treated as skip")
+	}
+	if !isExpectedScheduledRepoSkip(ErrRepoScanQueueFull) {
+		t.Fatal("expected ErrRepoScanQueueFull to be treated as skip")
+	}
+	if !isExpectedScheduledRepoSkip(errors.New("github app not connected")) {
+		t.Fatal("expected not-connected error to be treated as skip")
+	}
+	if isExpectedScheduledRepoSkip(errors.New("unrelated failure")) {
+		t.Fatal("expected unrelated error to be treated as non-skip")
+	}
+}
+
+func TestEnqueueDueScanPoliciesPagesBeyondFirstBatch(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 1, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a"})
+
+	baseCreatedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 1; i <= 500; i++ {
+		upsertNamedTestScanPolicy(t, store, ctx, fmt.Sprintf("weekly-%03d", i), fmt.Sprintf("Weekly %03d", i), "0 0 1 1 *", baseCreatedAt.Add(time.Duration(i)*time.Minute), 1)
+	}
+	upsertNamedTestScanPolicy(t, store, ctx, "minutely-501", "Minutely 501", "* * * * *", baseCreatedAt.Add(600*time.Minute), 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.PoliciesChecked != 501 {
+		t.Fatalf("policies checked = %d, want 501", result.PoliciesChecked)
+	}
+	if result.QueuedScans != 1 {
+		t.Fatalf("queued scans = %d, want 1", result.QueuedScans)
+	}
+}
+
 func newScanPolicySchedulerTestService(t *testing.T, now time.Time, repositories []string) (*Service, *db.MemoryStore, context.Context) {
 	t.Helper()
 	store := db.NewMemoryStore()
@@ -108,14 +189,19 @@ func newScanPolicySchedulerTestService(t *testing.T, now time.Time, repositories
 
 func upsertTestScanPolicy(t *testing.T, store *db.MemoryStore, ctx context.Context, createdAt time.Time, maxConcurrent int) {
 	t.Helper()
+	upsertNamedTestScanPolicy(t, store, ctx, "default", "Default scheduled policy", "*/5 * * * *", createdAt, maxConcurrent)
+}
+
+func upsertNamedTestScanPolicy(t *testing.T, store *db.MemoryStore, ctx context.Context, policyID string, name string, cron string, createdAt time.Time, maxConcurrent int) {
+	t.Helper()
 	err := store.UpsertTenancyScanPolicy(ctx, db.TenancyScanPolicy{
 		WorkspaceID:        "default",
 		ProjectID:          "project-1",
-		PolicyID:           "default",
-		Name:               "Default scheduled policy",
+		PolicyID:           policyID,
+		Name:               name,
 		Enabled:            true,
 		TriggerMode:        domain.ScanTriggerModeScheduled,
-		Cron:               "*/5 * * * *",
+		Cron:               cron,
 		MaxConcurrentScans: maxConcurrent,
 		HistoryLimit:       20,
 		MaxFindings:        10,

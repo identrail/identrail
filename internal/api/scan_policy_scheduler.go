@@ -14,7 +14,7 @@ import (
 const defaultScanPolicyScheduleLimit = 500
 
 type scanPolicyScheduleStore interface {
-	ListScheduledTenancyScanPolicies(ctx context.Context, limit int) ([]db.TenancyScanPolicy, error)
+	ListScheduledTenancyScanPolicies(ctx context.Context, limit int, offset int) ([]db.TenancyScanPolicy, error)
 	ClaimTenancyScanPolicySchedule(ctx context.Context, workspaceID string, projectID string, policyID string, scheduledAt time.Time, now time.Time) (bool, error)
 }
 
@@ -39,28 +39,33 @@ func (s *Service) EnqueueDueScanPoliciesAt(ctx context.Context, now time.Time) (
 		return ScanPolicyScheduleResult{}, ErrScanPolicyStoreUnavailable
 	}
 	now = now.UTC()
-	policies, err := store.ListScheduledTenancyScanPolicies(ctx, defaultScanPolicyScheduleLimit)
-	if err != nil {
-		return ScanPolicyScheduleResult{}, err
-	}
-
-	result := ScanPolicyScheduleResult{PoliciesChecked: len(policies)}
-	for _, policy := range policies {
-		scheduledAt, due, err := dueScanPolicyTick(policy, now)
+	result := ScanPolicyScheduleResult{}
+	for offset := 0; ; offset += defaultScanPolicyScheduleLimit {
+		policies, err := store.ListScheduledTenancyScanPolicies(ctx, defaultScanPolicyScheduleLimit, offset)
 		if err != nil {
 			return result, err
 		}
-		if !due {
-			continue
+		result.PoliciesChecked += len(policies)
+		for _, policy := range policies {
+			scheduledAt, due, err := dueScanPolicyTick(policy, now)
+			if err != nil {
+				return result, err
+			}
+			if !due {
+				continue
+			}
+			result.PoliciesDue++
+			policyResult, err := s.enqueueDueScanPolicy(ctx, store, policy, scheduledAt, now)
+			if err != nil {
+				return result, err
+			}
+			result.PoliciesClaimed += policyResult.PoliciesClaimed
+			result.QueuedScans += policyResult.QueuedScans
+			result.SkippedScans += policyResult.SkippedScans
 		}
-		result.PoliciesDue++
-		policyResult, err := s.enqueueDueScanPolicy(ctx, store, policy, scheduledAt, now)
-		if err != nil {
-			return result, err
+		if len(policies) < defaultScanPolicyScheduleLimit {
+			break
 		}
-		result.PoliciesClaimed += policyResult.PoliciesClaimed
-		result.QueuedScans += policyResult.QueuedScans
-		result.SkippedScans += policyResult.SkippedScans
 	}
 	return result, nil
 }

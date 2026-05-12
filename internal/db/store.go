@@ -1741,7 +1741,7 @@ type Store interface {
 	UpsertTenancyScanPolicy(ctx context.Context, policy TenancyScanPolicy) error
 	GetTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (TenancyScanPolicy, error)
 	ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, sortBy string, sortDesc bool, limit int) ([]TenancyScanPolicy, error)
-	ListScheduledTenancyScanPolicies(ctx context.Context, limit int) ([]TenancyScanPolicy, error)
+	ListScheduledTenancyScanPolicies(ctx context.Context, limit int, offset int) ([]TenancyScanPolicy, error)
 	ClaimTenancyScanPolicySchedule(ctx context.Context, workspaceID string, projectID string, policyID string, scheduledAt time.Time, now time.Time) (bool, error)
 	DeleteTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error
 	UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error

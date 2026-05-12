@@ -927,9 +927,12 @@ func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID
 }
 
 // ListScheduledTenancyScanPolicies returns enabled scheduled policies for worker execution.
-func (p *PostgresStore) ListScheduledTenancyScanPolicies(ctx context.Context, limit int) ([]TenancyScanPolicy, error) {
+func (p *PostgresStore) ListScheduledTenancyScanPolicies(ctx context.Context, limit int, offset int) ([]TenancyScanPolicy, error) {
 	if limit <= 0 {
 		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	rows, err := p.queryContext(
 		ctx,
@@ -939,10 +942,11 @@ func (p *PostgresStore) ListScheduledTenancyScanPolicies(ctx context.Context, li
 		 WHERE enabled = TRUE
 		   AND trigger_mode IN ($1, $2)
 		 ORDER BY created_at ASC, policy_id ASC
-		 LIMIT $3`,
+		 LIMIT $3 OFFSET $4`,
 		string(domain.ScanTriggerModeScheduled),
 		string(domain.ScanTriggerModeHybrid),
 		limit,
+		offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query scheduled scan policies: %w", err)
