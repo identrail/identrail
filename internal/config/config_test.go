@@ -68,6 +68,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "")
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "")
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "")
+	t.Setenv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED", "")
+	t.Setenv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_INTERVAL", "")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", "")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", "")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "")
@@ -259,6 +261,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.WorkerRepoScanFindings != 0 {
 		t.Fatalf("expected default worker repo scan findings override 0, got %d", cfg.WorkerRepoScanFindings)
 	}
+	if !cfg.WorkerScanPolicyEnabled {
+		t.Fatal("expected scan policy scheduler enabled by default")
+	}
+	if cfg.WorkerScanPolicyInterval != defaultWorkerScanPolicyInterval {
+		t.Fatalf("expected default scan policy scheduler interval %v, got %v", defaultWorkerScanPolicyInterval, cfg.WorkerScanPolicyInterval)
+	}
 	if !cfg.WorkerAPIJobQueueEnabled {
 		t.Fatal("expected worker api job queue enabled by default")
 	}
@@ -383,6 +391,8 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "owner/repo,trusted/infra")
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "700")
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "80")
+	t.Setenv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED", "false")
+	t.Setenv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_INTERVAL", "90s")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", "false")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", "5s")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "12")
@@ -582,6 +592,12 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.WorkerRepoScanFindings != 80 {
 		t.Fatalf("unexpected worker repo scan findings override: %d", cfg.WorkerRepoScanFindings)
+	}
+	if cfg.WorkerScanPolicyEnabled {
+		t.Fatal("expected scan policy scheduler disabled")
+	}
+	if cfg.WorkerScanPolicyInterval != 90*time.Second {
+		t.Fatalf("unexpected scan policy scheduler interval: %v", cfg.WorkerScanPolicyInterval)
 	}
 	if cfg.WorkerAPIJobQueueEnabled {
 		t.Fatal("expected worker api job queue disabled")

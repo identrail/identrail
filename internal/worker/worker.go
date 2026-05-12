@@ -138,11 +138,36 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			},
 		)
 	}
+	scanPolicyTrigger := func(runCtx context.Context) error {
+		writeHeartbeat()
+		result, runErr := svc.EnqueueDueScanPolicies(runCtx)
+		if runErr != nil {
+			logger.Error("scan policy scheduler failed", telemetry.StandardLogFields("worker", "scan_policy_scheduler", telemetry.String("outcome", "failed"), telemetry.ZapError(runErr))...)
+			return runErr
+		}
+		logger.Info(
+			"scan policy scheduler completed",
+			telemetry.StandardLogFields("worker", "scan_policy_scheduler",
+				telemetry.String("policies_checked", fmt.Sprint(result.PoliciesChecked)),
+				telemetry.String("policies_due", fmt.Sprint(result.PoliciesDue)),
+				telemetry.String("policies_claimed", fmt.Sprint(result.PoliciesClaimed)),
+				telemetry.String("queued_scans", fmt.Sprint(result.QueuedScans)),
+				telemetry.String("skipped_scans", fmt.Sprint(result.SkippedScans)),
+				telemetry.String("outcome", "completed"),
+			)...,
+		)
+		return nil
+	}
 
 	type scheduledRunner struct {
 		name   string
 		runNow bool
 		runner scheduler.Runner
+	}
+
+	scanPolicyRunnerKey := "scan-policy-scheduler"
+	if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+		scanPolicyRunnerKey = namespace + ":" + scanPolicyRunnerKey
 	}
 
 	runners := []scheduledRunner{{
@@ -202,6 +227,28 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				OnError: func(_ context.Context, err error) {
 					metrics.WorkerRetriesTotal.WithLabelValues("api_queue").Inc()
 					logger.Error("api queue runner iteration failed", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
+	if cfg.WorkerScanPolicyEnabled {
+		runners = append(runners, scheduledRunner{
+			name:   "scan-policy",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     cfg.WorkerScanPolicyInterval,
+				Key:          scanPolicyRunnerKey,
+				Locker:       svc.Locker,
+				Trigger:      scanPolicyTrigger,
+				MaxAttempts:  defaultWorkerQueueMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("scan_policy").Inc()
+					logger.Error("scan policy scheduler exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("scan_policy").Inc()
+					logger.Error("scan policy scheduler iteration failed", telemetry.ZapError(err))
 				},
 			},
 		})

@@ -7,6 +7,7 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/scheduler"
 )
 
 // ErrInvalidScanPolicyRequest indicates invalid scan policy API input.
@@ -97,6 +98,11 @@ func (s *Service) UpsertScanPolicy(ctx context.Context, workspaceID string, proj
 	triggerMode, err := normalizeScanTriggerMode(request.TriggerMode, false)
 	if err != nil {
 		return db.TenancyScanPolicy{}, err
+	}
+	if triggerMode == domain.ScanTriggerModeScheduled || triggerMode == domain.ScanTriggerModeHybrid {
+		if _, err := scheduler.ParseCronSchedule(request.Cron); err != nil {
+			return db.TenancyScanPolicy{}, ErrInvalidScanPolicyRequest
+		}
 	}
 	historyLimit, err := sanitizeScanPolicyLimit(request.HistoryLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
 	if err != nil {

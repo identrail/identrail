@@ -32,6 +32,8 @@ const (
 	defaultWorkerRepoScanEnabled       = false
 	defaultWorkerRepoScanRunNow        = false
 	defaultWorkerRepoScanInterval      = 1 * time.Hour
+	defaultWorkerScanPolicyEnabled     = true
+	defaultWorkerScanPolicyInterval    = 1 * time.Minute
 	defaultWorkerAPIJobQueueEnabled    = true
 	defaultWorkerAPIJobQueueInterval   = 2 * time.Second
 	defaultWorkerAPIJobQueueBatchSize  = 5
@@ -132,6 +134,8 @@ type Config struct {
 	WorkerRepoScanTargets       []string
 	WorkerRepoScanHistory       int
 	WorkerRepoScanFindings      int
+	WorkerScanPolicyEnabled     bool
+	WorkerScanPolicyInterval    time.Duration
 	WorkerAPIJobQueueEnabled    bool
 	WorkerAPIJobQueueInterval   time.Duration
 	WorkerAPIJobQueueBatchSize  int
@@ -259,6 +263,8 @@ func Load() Config {
 		WorkerRepoScanTargets:       parseCommaSeparated(getEnv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "")),
 		WorkerRepoScanHistory:       parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "0"), 0),
 		WorkerRepoScanFindings:      parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "0"), 0),
+		WorkerScanPolicyEnabled:     boolEnv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED", defaultWorkerScanPolicyEnabled),
+		WorkerScanPolicyInterval:    durationEnv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_INTERVAL", defaultWorkerScanPolicyInterval),
 		WorkerAPIJobQueueEnabled:    boolEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", defaultWorkerAPIJobQueueEnabled),
 		WorkerAPIJobQueueInterval:   durationEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", defaultWorkerAPIJobQueueInterval),
 		WorkerAPIJobQueueBatchSize:  parseInt(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "5"), defaultWorkerAPIJobQueueBatchSize),

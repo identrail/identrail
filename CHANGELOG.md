@@ -28,6 +28,7 @@
 - Added project-scoped scan policy management across API, persistence, and UI:
   - introduced scan-policy CRUD endpoints under project tenancy routes with trigger-mode and enabled filters
   - persisted policy bounds for `history_limit` and `max_findings` with migration and scoped store adapters
+  - added a periodic scan-policy scheduler with atomic tick claiming, missed-run recovery, and concurrent-worker duplicate protection
   - embedded a scan policy editor in the project detail page and documented new contracts in `docs/openapi-v1.yaml`
   - rejects negative `max_concurrent_scans` API values instead of silently defaulting them to one
 - Hardened connector secret storage and rotation:

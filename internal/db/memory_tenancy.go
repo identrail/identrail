@@ -591,6 +591,7 @@ func (m *MemoryStore) UpsertTenancyScanPolicy(ctx context.Context, policy Tenanc
 	key := tenancyScanPolicyKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.PolicyID)
 	if existing, exists := m.scanPolicies[key]; exists {
 		normalized.CreatedAt = existing.CreatedAt
+		normalized.LastScheduledAt = existing.LastScheduledAt
 	}
 	m.scanPolicies[key] = normalized
 	m.mu.Unlock()
@@ -686,6 +687,70 @@ func (m *MemoryStore) ListTenancyScanPolicies(ctx context.Context, workspaceID s
 		policies = policies[:limit]
 	}
 	return policies, nil
+}
+
+// ListScheduledTenancyScanPolicies returns all enabled scheduled policies for worker execution.
+func (m *MemoryStore) ListScheduledTenancyScanPolicies(ctx context.Context, limit int) ([]TenancyScanPolicy, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	policies := make([]TenancyScanPolicy, 0, limit)
+	for _, policy := range m.scanPolicies {
+		if !policy.Enabled {
+			continue
+		}
+		if policy.TriggerMode != domain.ScanTriggerModeScheduled && policy.TriggerMode != domain.ScanTriggerModeHybrid {
+			continue
+		}
+		policies = append(policies, policy)
+	}
+	sort.SliceStable(policies, func(i, j int) bool {
+		left := policies[i]
+		right := policies[j]
+		if cmp := left.CreatedAt.Compare(right.CreatedAt); cmp != 0 {
+			return cmp < 0
+		}
+		return compareMemoryString(left.PolicyID, right.PolicyID) < 0
+	})
+	if len(policies) > limit {
+		policies = policies[:limit]
+	}
+	return policies, nil
+}
+
+// ClaimTenancyScanPolicySchedule atomically records the scheduled tick claimed by a worker.
+func (m *MemoryStore) ClaimTenancyScanPolicySchedule(ctx context.Context, workspaceID string, projectID string, policyID string, scheduledAt time.Time, now time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return false, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	key := tenancyScanPolicyKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(policyID))
+	policy, exists := m.scanPolicies[key]
+	if !exists {
+		return false, ErrNotFound
+	}
+	if !policy.Enabled || (policy.TriggerMode != domain.ScanTriggerModeScheduled && policy.TriggerMode != domain.ScanTriggerModeHybrid) {
+		return false, nil
+	}
+	scheduledAt = scheduledAt.UTC().Truncate(time.Minute)
+	if policy.LastScheduledAt != nil && !policy.LastScheduledAt.Before(scheduledAt) {
+		return false, nil
+	}
+	now = now.UTC()
+	policy.LastScheduledAt = &scheduledAt
+	policy.UpdatedAt = now
+	m.scanPolicies[key] = policy
+	return true, nil
 }
 
 // DeleteTenancyScanPolicy removes one scoped scan policy.

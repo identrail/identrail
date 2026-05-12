@@ -487,6 +487,7 @@ type TenancyScanPolicy struct {
 	MaxConcurrentScans int                    `json:"max_concurrent_scans"`
 	HistoryLimit       int                    `json:"history_limit"`
 	MaxFindings        int                    `json:"max_findings"`
+	LastScheduledAt    *time.Time             `json:"last_scheduled_at,omitempty"`
 	CreatedAt          time.Time              `json:"created_at"`
 	UpdatedAt          time.Time              `json:"updated_at"`
 }
@@ -1312,6 +1313,10 @@ func NormalizeTenancyScanPolicyForWrite(policy TenancyScanPolicy) (TenancyScanPo
 	if normalized.MaxFindings <= 0 {
 		normalized.MaxFindings = defaultTenancyScanPolicyMaxFindings
 	}
+	if normalized.LastScheduledAt != nil {
+		lastScheduledAt := normalized.LastScheduledAt.UTC()
+		normalized.LastScheduledAt = &lastScheduledAt
+	}
 	if normalized.CreatedAt.IsZero() {
 		normalized.CreatedAt = time.Now().UTC()
 	} else {
@@ -1733,6 +1738,12 @@ type Store interface {
 	GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error)
 	ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
 	ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
+	UpsertTenancyScanPolicy(ctx context.Context, policy TenancyScanPolicy) error
+	GetTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (TenancyScanPolicy, error)
+	ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, sortBy string, sortDesc bool, limit int) ([]TenancyScanPolicy, error)
+	ListScheduledTenancyScanPolicies(ctx context.Context, limit int) ([]TenancyScanPolicy, error)
+	ClaimTenancyScanPolicySchedule(ctx context.Context, workspaceID string, projectID string, policyID string, scheduledAt time.Time, now time.Time) (bool, error)
+	DeleteTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error
 	UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error
 	GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error)
 	UpsertUser(ctx context.Context, user User) (User, error)

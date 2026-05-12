@@ -467,6 +467,41 @@ func TestTwentiethMigrationContainsEnterpriseAuthFoundation(t *testing.T) {
 	}
 }
 
+func TestTwentyFirstMigrationContainsScanPolicySchedulerState(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000021_scan_policy_scheduler_state.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"ADD COLUMN IF NOT EXISTS last_scheduled_at TIMESTAMPTZ",
+		"idx_tenancy_scan_policies_schedule_due",
+		"enabled, trigger_mode, last_scheduled_at",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected scan policy scheduler migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000021_scan_policy_scheduler_state.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP INDEX IF EXISTS idx_tenancy_scan_policies_schedule_due",
+		"DROP COLUMN IF EXISTS last_scheduled_at",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected scan policy scheduler down migration item %q", item)
+		}
+	}
+}
+
 func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000013_connectors_state_scan_policies.up.sql")
 	content, err := os.ReadFile(path)

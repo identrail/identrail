@@ -67,6 +67,7 @@ Current sequence in `migrations/`:
 21. `000018_users_and_sessions` - user, identity, and session primitives for the new auth stack
 22. `000019_scan_policy_repo_bounds` - scan policy history and finding limit bounds
 23. `000020_invitations_domains_connections` - invitation, verified-domain, and enterprise identity connection scaffolding
+24. `000021_scan_policy_scheduler_state` - scan policy scheduler tick state and due-policy lookup index
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

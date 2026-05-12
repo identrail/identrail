@@ -2753,6 +2753,10 @@ components:
         max_concurrent_scans: { type: integer, minimum: 1 }
         history_limit: { type: integer, minimum: 1 }
         max_findings: { type: integer, minimum: 1 }
+        last_scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
         created_at:
           type: string
           format: date-time

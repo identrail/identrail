@@ -95,9 +95,9 @@ func TestPostgresStoreUpsertAndGetTenancyConnector(t *testing.T) {
 			"",
 			"",
 			"",
-			nil,
+			sqlmock.AnyArg(),
 			"",
-			nil,
+			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 		).
@@ -774,6 +774,7 @@ func TestPostgresStoreScanPolicyCRUD(t *testing.T) {
 			2,
 			300,
 			120,
+			nil,
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 		).
@@ -796,8 +797,8 @@ func TestPostgresStoreScanPolicyCRUD(t *testing.T) {
 
 	listRows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "policy_id", "name", "enabled", "trigger_mode", "cron",
-		"max_concurrent_scans", "history_limit", "max_findings", "created_at", "updated_at",
-	}).AddRow("tenant-a", "workspace-a", "project-1", "default", "Default policy", true, "scheduled", "0 * * * *", 2, 300, 120, now, now)
+		"max_concurrent_scans", "history_limit", "max_findings", "last_scheduled_at", "created_at", "updated_at",
+	}).AddRow("tenant-a", "workspace-a", "project-1", "default", "Default policy", true, "scheduled", "0 * * * *", 2, 300, 120, nil, now, now)
 	mock.ExpectQuery("SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE\\(cron, ''\\),").
 		WithArgs("tenant-a", "workspace-a", "project-1", "scheduled", true, 20).
 		WillReturnRows(listRows)
@@ -813,10 +814,10 @@ func TestPostgresStoreScanPolicyCRUD(t *testing.T) {
 
 	getRows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "policy_id", "name", "enabled", "trigger_mode", "cron",
-		"max_concurrent_scans", "history_limit", "max_findings", "created_at", "updated_at",
-	}).AddRow("tenant-a", "workspace-a", "project-1", "default", "Default policy", true, "scheduled", "0 * * * *", 2, 300, 120, now, now)
+		"max_concurrent_scans", "history_limit", "max_findings", "last_scheduled_at", "created_at", "updated_at",
+	}).AddRow("tenant-a", "workspace-a", "project-1", "default", "Default policy", true, "scheduled", "0 * * * *", 2, 300, 120, nil, now, now)
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
-		        max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
 		 FROM tenancy_scan_policies
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -873,6 +874,7 @@ func TestPostgresStoreScanPolicyDuplicateNameReturnsConflict(t *testing.T) {
 			1,
 			500,
 			200,
+			nil,
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 		).
