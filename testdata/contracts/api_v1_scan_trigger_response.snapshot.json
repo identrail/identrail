@@ -1,9 +1,12 @@
 {
   "scan": {
     "asset_count": 0,
+    "dead_lettered": false,
     "finding_count": 0,
     "id": "\u003cscan-id\u003e",
+    "max_retry_count": 3,
     "provider": "aws",
+    "retry_count": 0,
     "started_at": "\u003ctimestamp\u003e",
     "status": "queued"
   }

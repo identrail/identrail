@@ -34,7 +34,7 @@ func TestPostgresStoreCreateAndCompleteScan(t *testing.T) {
 	}
 
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE scans
-		 SET status=$2, finished_at=$3, asset_count=$4, finding_count=$5, error_message=$6
+		 SET status=$2, finished_at=$3, asset_count=$4, finding_count=$5, error_message=$6, failure_category = NULL, next_retry_at = NULL, dead_lettered = FALSE, dead_lettered_at = NULL
 		 WHERE id=$1
 		   AND tenant_id=$7
 		   AND workspace_id=$8`)).
@@ -206,8 +206,8 @@ func TestPostgresStoreListScansAndFindings(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
 
-	scanRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "error_message"}).
-		AddRow("scan-1", "default", "default", "aws", "completed", now, now, 2, 1, "")
+	scanRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "error_message", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at"}).
+		AddRow("scan-1", "default", "default", "aws", "completed", now, now, 2, 1, "", 0, 3, "", nil, false, nil)
 	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, provider, status").WithArgs("default", "default", 20).WillReturnRows(scanRows)
 
 	scans, err := store.ListScans(defaultScopeContext(), 20)
@@ -297,8 +297,8 @@ func TestPostgresStoreListScansDefaultsNonPositiveLimitToOneHundred(t *testing.T
 
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "error_message"}).
-		AddRow("scan-1", "default", "default", "aws", "completed", now, now, 1, 1, "")
+	rows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "error_message", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at"}).
+		AddRow("scan-1", "default", "default", "aws", "completed", now, now, 1, 1, "", 0, 3, "", nil, false, nil)
 	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, provider, status").WithArgs("default", "default", 100).WillReturnRows(rows)
 
 	scans, err := store.ListScans(defaultScopeContext(), 0)
@@ -433,8 +433,8 @@ func TestPostgresStoreGetScanAndFindingsByScan(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
 
-	scanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "error_message"}).
-		AddRow("scan-1", "default", "default", "aws", "completed", now, now, 2, 1, "")
+	scanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "error_message", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at"}).
+		AddRow("scan-1", "default", "default", "aws", "completed", now, now, 2, 1, "", 0, 3, "", nil, false, nil)
 	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, provider, status").WithArgs("scan-1", "default", "default").WillReturnRows(scanRow)
 
 	scan, err := store.GetScan(defaultScopeContext(), "scan-1")
@@ -932,7 +932,8 @@ func TestPostgresStoreScanQueueLifecycle(t *testing.T) {
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND ($3 = '' OR provider = $3)
-		   AND status = 'queued'`)).
+		   AND status = 'queued'
+		   AND dead_lettered = FALSE`)).
 		WithArgs("default", "default", "aws").
 		WillReturnRows(countRows)
 
@@ -944,8 +945,8 @@ func TestPostgresStoreScanQueueLifecycle(t *testing.T) {
 		t.Fatalf("expected queued count 1, got %d", count)
 	}
 
-	claimRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "trace_parent", "trace_state"}).
-		AddRow(queued.ID, "default", "default", "aws", "running", now, nil, 0, 0, "", "", "")
+	claimRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at", "trace_parent", "trace_state"}).
+		AddRow(queued.ID, "default", "default", "aws", "running", now, nil, 0, 0, "", 0, 3, "", nil, false, nil, "", "")
 	mock.ExpectQuery("WITH next_scan AS").WithArgs("default", "default", "aws").WillReturnRows(claimRows)
 
 	claimed, err := store.ClaimNextQueuedScan(defaultScopeContext(), "aws")
@@ -983,8 +984,8 @@ func TestPostgresStoreCreateQueuedScanWithinLimit(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\)").
 		WithArgs("default", "default", "aws").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	successRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "trace_parent", "trace_state"}).
-		AddRow("scan-1", "default", "default", "aws", "queued", now, nil, 0, 0, "", "", "")
+	successRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at", "trace_parent", "trace_state"}).
+		AddRow("scan-1", "default", "default", "aws", "queued", now, nil, 0, 0, "", 0, 3, "", nil, false, nil, "", "")
 	mock.ExpectQuery("INSERT INTO scans").
 		WithArgs(sqlmock.AnyArg(), "default", "default", "aws", sqlmock.AnyArg(), "", "").
 		WillReturnRows(successRows)
@@ -2466,8 +2467,8 @@ func TestPostgresStoreClaimNextQueuedScanAnyScopeBypassesScopeInjection(t *testi
 	store.SetScopeRLSEnforcement(true)
 
 	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "trace_parent", "trace_state"}).
-		AddRow("scan-1", "tenant-a", "workspace-a", "aws", "running", now, nil, 0, 0, "", "", "")
+	rows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at", "trace_parent", "trace_state"}).
+		AddRow("scan-1", "tenant-a", "workspace-a", "aws", "running", now, nil, 0, 0, "", 0, 3, "", nil, false, nil, "", "")
 	mock.ExpectQuery("WITH next_scan AS").
 		WithArgs("aws").
 		WillReturnRows(rows)

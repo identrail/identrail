@@ -1798,7 +1798,7 @@ func TestServiceCountQueuedScansForDepthReturnsZeroWhenAnyScopeCountFails(t *tes
 func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 20, 9, 0, 0, 0, time.UTC)
-	svc := NewService(store, fakeScanner{err: errors.New("scanner failed during analysis")}, "aws")
+	svc := NewService(store, fakeScanner{err: errors.New("invalid credentials for provider connector")}, "aws")
 	svc.Now = func() time.Time { return now }
 
 	record, err := svc.EnqueueScan(defaultScopeContext())
@@ -1810,8 +1810,8 @@ func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 	if !processed {
 		t.Fatal("expected queued scan to be processed")
 	}
-	if err == nil {
-		t.Fatal("expected scanner failure to be returned")
+	if err != nil {
+		t.Fatalf("expected queued scan failure to be handled without worker error, got %v", err)
 	}
 
 	scan, err := store.GetScan(defaultScopeContext(), record.ID)
@@ -1820,6 +1820,9 @@ func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 	}
 	if scan.Status != "failed" {
 		t.Fatalf("expected failed status, got %q", scan.Status)
+	}
+	if !scan.DeadLettered {
+		t.Fatal("expected failed scan to be marked dead-lettered")
 	}
 	if scan.ErrorMessage == "" {
 		t.Fatal("expected persisted scan error message")
@@ -1830,14 +1833,20 @@ func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 		t.Fatalf("list scan events: %v", err)
 	}
 	foundFailureEvent := false
+	foundDeadLetterEvent := false
 	for _, event := range events {
 		if event.Level == db.ScanEventLevelError && strings.Contains(event.Message, "scan failed during collection/analysis") {
 			foundFailureEvent = true
-			break
+		}
+		if event.Level == db.ScanEventLevelError && strings.Contains(event.Message, "scan moved to dead-letter queue") {
+			foundDeadLetterEvent = true
 		}
 	}
 	if !foundFailureEvent {
 		t.Fatalf("expected failure scan event, got %+v", events)
+	}
+	if !foundDeadLetterEvent {
+		t.Fatalf("expected dead-letter scan event, got %+v", events)
 	}
 
 	processed, err = svc.ProcessNextQueuedScan(defaultScopeContext())
@@ -1846,6 +1855,51 @@ func TestServiceProcessNextQueuedScanFinalizesFailure(t *testing.T) {
 	}
 	if processed {
 		t.Fatal("expected failed scan to not be retried from queue")
+	}
+}
+
+func TestServiceProcessNextQueuedScanRetriesTransientFailure(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Now().UTC()
+	svc := NewService(store, fakeScanner{err: errors.New("temporary timeout talking to provider")}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	record, err := svc.EnqueueScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("enqueue scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("expected transient failure to be requeued without worker error, got %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+
+	scan, err := store.GetScan(defaultScopeContext(), record.ID)
+	if err != nil {
+		t.Fatalf("get scan: %v", err)
+	}
+	if scan.Status != "queued" {
+		t.Fatalf("expected scan to be requeued, got status %q", scan.Status)
+	}
+	if scan.RetryCount != 1 {
+		t.Fatalf("expected retry_count=1, got %d", scan.RetryCount)
+	}
+	if scan.NextRetryAt == nil {
+		t.Fatal("expected next_retry_at to be set")
+	}
+	if scan.DeadLettered {
+		t.Fatal("did not expect dead-lettered retryable scan")
+	}
+
+	processed, err = svc.ProcessNextQueuedScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("second queue process: %v", err)
+	}
+	if processed {
+		t.Fatal("expected backoff-delayed retry to stay out of the queue until due")
 	}
 }
 

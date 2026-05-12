@@ -18,9 +18,9 @@ func TestQueriesGetScan(t *testing.T) {
 
 	q := New(db)
 	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"}).
-		AddRow("scan-1", "aws", "completed", now, now, 2, 1, "")
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+	rows := sqlmock.NewRows([]string{"id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at"}).
+		AddRow("scan-1", "aws", "completed", now, now, 2, 1, "", 0, 3, "", nil, false, nil)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 WHERE id = $1`)).WithArgs("scan-1").WillReturnRows(rows)
 
@@ -122,9 +122,9 @@ func TestQueriesListScans(t *testing.T) {
 
 	q := New(db)
 	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce"}).
-		AddRow("scan-1", "aws", "completed", now, now, 3, 1, "")
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+	rows := sqlmock.NewRows([]string{"id", "provider", "status", "started_at", "finished_at", "asset_count", "finding_count", "coalesce", "retry_count", "max_retry_count", "failure_category", "next_retry_at", "dead_lettered", "dead_lettered_at"}).
+		AddRow("scan-1", "aws", "completed", now, now, 3, 1, "", 0, 3, "", nil, false, nil)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 ORDER BY started_at DESC
 		 LIMIT $1`)).WithArgs(20).WillReturnRows(rows)
