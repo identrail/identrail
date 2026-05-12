@@ -738,3 +738,103 @@ func TestPostgresStoreListProjectsIncludesArchivedBranch(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+func TestPostgresStoreScanPolicyCRUD(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Now().UTC()
+
+	mock.ExpectExec("INSERT INTO tenancy_scan_policies").
+		WithArgs(
+			"tenant-a",
+			"workspace-a",
+			"project-1",
+			"default",
+			"Default policy",
+			true,
+			"scheduled",
+			"0 * * * *",
+			2,
+			300,
+			120,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "default",
+		Name:               "Default policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeScheduled,
+		Cron:               "0 * * * *",
+		MaxConcurrentScans: 2,
+		HistoryLimit:       300,
+		MaxFindings:        120,
+	}); err != nil {
+		t.Fatalf("upsert scan policy: %v", err)
+	}
+
+	listRows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "policy_id", "name", "enabled", "trigger_mode", "cron",
+		"max_concurrent_scans", "history_limit", "max_findings", "created_at", "updated_at",
+	}).AddRow("tenant-a", "workspace-a", "project-1", "default", "Default policy", true, "scheduled", "0 * * * *", 2, 300, 120, now, now)
+	mock.ExpectQuery("SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE\\(cron, ''\\),").
+		WithArgs("tenant-a", "workspace-a", "project-1", "scheduled", true, 20).
+		WillReturnRows(listRows)
+
+	enabled := true
+	listed, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", domain.ScanTriggerModeScheduled, &enabled, 20)
+	if err != nil {
+		t.Fatalf("list scan policies: %v", err)
+	}
+	if len(listed) != 1 || listed[0].PolicyID != "default" {
+		t.Fatalf("unexpected listed scan policies: %+v", listed)
+	}
+
+	getRows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "policy_id", "name", "enabled", "trigger_mode", "cron",
+		"max_concurrent_scans", "history_limit", "max_findings", "created_at", "updated_at",
+	}).AddRow("tenant-a", "workspace-a", "project-1", "default", "Default policy", true, "scheduled", "0 * * * *", 2, 300, 120, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
+		        max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		 FROM tenancy_scan_policies
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND policy_id = $4`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "default").
+		WillReturnRows(getRows)
+
+	policy, err := store.GetTenancyScanPolicy(ctx, "workspace-a", "project-1", "default")
+	if err != nil {
+		t.Fatalf("get scan policy: %v", err)
+	}
+	if policy.HistoryLimit != 300 || policy.MaxFindings != 120 {
+		t.Fatalf("unexpected scan policy payload: %+v", policy)
+	}
+
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_scan_policies
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND policy_id = $4`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "default").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := store.DeleteTenancyScanPolicy(ctx, "workspace-a", "project-1", "default"); err != nil {
+		t.Fatalf("delete scan policy: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}

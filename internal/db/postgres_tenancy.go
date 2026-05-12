@@ -671,6 +671,225 @@ func (p *PostgresStore) DeleteProject(ctx context.Context, workspaceID string, p
 	return nil
 }
 
+// UpsertTenancyScanPolicy persists one scan policy for a scoped project.
+func (p *PostgresStore) UpsertTenancyScanPolicy(ctx context.Context, policy TenancyScanPolicy) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	policy.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, policy.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	policy.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyScanPolicyForWrite(policy)
+	if err != nil {
+		return err
+	}
+	_, err = p.execContext(
+		ctx,
+		`INSERT INTO tenancy_scan_policies (
+		     tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, cron,
+		     max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $12, $13)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, policy_id) DO UPDATE
+		 SET name = EXCLUDED.name,
+		     enabled = EXCLUDED.enabled,
+		     trigger_mode = EXCLUDED.trigger_mode,
+		     cron = EXCLUDED.cron,
+		     max_concurrent_scans = EXCLUDED.max_concurrent_scans,
+		     history_limit = EXCLUDED.history_limit,
+		     max_findings = EXCLUDED.max_findings,
+		     updated_at = EXCLUDED.updated_at`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.PolicyID,
+		normalized.Name,
+		normalized.Enabled,
+		string(normalized.TriggerMode),
+		normalized.Cron,
+		normalized.MaxConcurrentScans,
+		normalized.HistoryLimit,
+		normalized.MaxFindings,
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+	)
+	if isTenancyFKViolation(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("upsert scan policy: %w", err)
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.scan_policy.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_scan_policy",
+		ResourceID:   normalized.PolicyID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
+// GetTenancyScanPolicy returns one scoped scan policy by id.
+func (p *PostgresStore) GetTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (TenancyScanPolicy, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyScanPolicy{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyScanPolicy{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
+		        max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		 FROM tenancy_scan_policies
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND policy_id = $4`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(policyID),
+	)
+	var policy TenancyScanPolicy
+	if err := row.Scan(
+		&policy.TenantID,
+		&policy.WorkspaceID,
+		&policy.ProjectID,
+		&policy.PolicyID,
+		&policy.Name,
+		&policy.Enabled,
+		&policy.TriggerMode,
+		&policy.Cron,
+		&policy.MaxConcurrentScans,
+		&policy.HistoryLimit,
+		&policy.MaxFindings,
+		&policy.CreatedAt,
+		&policy.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyScanPolicy{}, ErrNotFound
+		}
+		return TenancyScanPolicy{}, fmt.Errorf("query scan policy: %w", err)
+	}
+	return policy, nil
+}
+
+// ListTenancyScanPolicies returns scoped scan policies ordered by most recent update.
+func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, limit int) ([]TenancyScanPolicy, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
+		        max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		 FROM tenancy_scan_policies
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3`
+	args := []any{scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID)}
+	nextArg := 4
+	if trimmedMode := strings.ToLower(strings.TrimSpace(string(triggerMode))); trimmedMode != "" {
+		query += fmt.Sprintf(" AND trigger_mode = $%d", nextArg)
+		args = append(args, trimmedMode)
+		nextArg++
+	}
+	if enabled != nil {
+		query += fmt.Sprintf(" AND enabled = $%d", nextArg)
+		args = append(args, *enabled)
+		nextArg++
+	}
+	query += fmt.Sprintf(" ORDER BY updated_at DESC LIMIT $%d", nextArg)
+	args = append(args, limit)
+
+	rows, err := p.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query scan policies: %w", err)
+	}
+	defer rows.Close()
+
+	policies := make([]TenancyScanPolicy, 0, limit)
+	for rows.Next() {
+		var policy TenancyScanPolicy
+		if err := rows.Scan(
+			&policy.TenantID,
+			&policy.WorkspaceID,
+			&policy.ProjectID,
+			&policy.PolicyID,
+			&policy.Name,
+			&policy.Enabled,
+			&policy.TriggerMode,
+			&policy.Cron,
+			&policy.MaxConcurrentScans,
+			&policy.HistoryLimit,
+			&policy.MaxFindings,
+			&policy.CreatedAt,
+			&policy.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan scan policy row: %w", err)
+		}
+		policies = append(policies, policy)
+	}
+	return policies, rows.Err()
+}
+
+// DeleteTenancyScanPolicy removes one scoped scan policy by id.
+func (p *PostgresStore) DeleteTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(
+		ctx,
+		`DELETE FROM tenancy_scan_policies
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND policy_id = $4`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(policyID),
+	)
+	if err != nil {
+		return fmt.Errorf("delete scan policy: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.scan_policy.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_scan_policy",
+		ResourceID:   strings.TrimSpace(policyID),
+		Outcome:      "success",
+	})
+	return nil
+}
+
 // UpsertTenancyConnector persists one connector and its latest state atomically.
 func (p *PostgresStore) UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error {
 	scope, err := RequireScope(ctx)

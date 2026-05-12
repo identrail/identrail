@@ -340,6 +340,44 @@ func TestSeventeenthMigrationContainsQueueTraceContextColumns(t *testing.T) {
 	}
 }
 
+func TestEighteenthMigrationContainsScanPolicyRepoBoundsColumns(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000018_scan_policy_repo_bounds.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"ADD COLUMN IF NOT EXISTS history_limit INTEGER NOT NULL DEFAULT 500",
+		"ADD COLUMN IF NOT EXISTS max_findings INTEGER NOT NULL DEFAULT 200",
+		"ADD CONSTRAINT tenancy_scan_policies_history_limit_positive CHECK (history_limit > 0)",
+		"ADD CONSTRAINT tenancy_scan_policies_max_findings_positive CHECK (max_findings > 0)",
+		"idx_tenancy_scan_policies_scope_limits",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected scan policy bounds migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000018_scan_policy_repo_bounds.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP INDEX IF EXISTS idx_tenancy_scan_policies_scope_limits",
+		"DROP COLUMN IF EXISTS max_findings",
+		"DROP COLUMN IF EXISTS history_limit",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected scan policy bounds down migration item %q", item)
+		}
+	}
+}
+
 func TestThirteenthMigrationContainsConnectorAndPolicyTables(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000013_connectors_state_scan_policies.up.sql")
 	content, err := os.ReadFile(path)

@@ -181,6 +181,26 @@ x-identrail-route-authorizations:
     action: tenancy.write
     resource_type: project
     resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies
+    action: tenancy.read
+    resource_type: scan_policy
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies
+    action: tenancy.write
+    resource_type: scan_policy
+    resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies/{policy_id}
+    action: tenancy.read
+    resource_type: scan_policy
+    resource_id_param: policy_id
+  - method: DELETE
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies/{policy_id}
+    action: tenancy.write
+    resource_type: scan_policy
+    resource_id_param: policy_id
   - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection
     action: tenancy.write
@@ -900,6 +920,152 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: List project scan policies
+      operationId: listProjectScanPolicies
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/sortBy"
+        - $ref: "#/components/parameters/sortOrder"
+        - in: query
+          name: trigger_mode
+          schema:
+            $ref: "#/components/schemas/ScanTriggerMode"
+        - in: query
+          name: enabled
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Scan policy page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanPolicyPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      tags: [ProjectManagement]
+      summary: Create or update project scan policy
+      operationId: upsertProjectScanPolicy
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanPolicyUpsertRequest"
+      responses:
+        "200":
+          description: Scan policy upserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policy:
+                    $ref: "#/components/schemas/ScanPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies/{policy_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: Get one project scan policy
+      operationId: getProjectScanPolicy
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: policy_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Scan policy detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policy:
+                    $ref: "#/components/schemas/ScanPolicy"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      tags: [ProjectManagement]
+      summary: Delete one project scan policy
+      operationId: deleteProjectScanPolicy
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: policy_id
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Scan policy deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -2138,6 +2304,54 @@ components:
           type: string
           format: date-time
           nullable: true
+    ScanTriggerMode:
+      type: string
+      enum: [manual, scheduled, event, hybrid]
+    ScanPolicy:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        policy_id: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
+        trigger_mode:
+          $ref: "#/components/schemas/ScanTriggerMode"
+        cron: { type: string }
+        max_concurrent_scans: { type: integer, minimum: 1 }
+        history_limit: { type: integer, minimum: 1 }
+        max_findings: { type: integer, minimum: 1 }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ScanPolicyUpsertRequest:
+      type: object
+      required: [policy_id, name]
+      properties:
+        policy_id: { type: string }
+        name: { type: string }
+        enabled:
+          type: boolean
+          default: true
+        trigger_mode:
+          $ref: "#/components/schemas/ScanTriggerMode"
+        cron: { type: string }
+        max_concurrent_scans:
+          type: integer
+          minimum: 1
+          default: 1
+        history_limit:
+          type: integer
+          minimum: 1
+          default: 500
+        max_findings:
+          type: integer
+          minimum: 1
+          default: 200
     KubernetesConnectionUpsertRequest:
       type: object
       properties:
@@ -2471,6 +2685,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Project"
+        next_cursor:
+          type: string
+    ScanPolicyPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanPolicy"
         next_cursor:
           type: string
     PolicyStage:

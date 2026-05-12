@@ -1192,6 +1192,126 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.Status(http.StatusNoContent)
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/scan-policies", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		limit := parseLimit(c.Query("limit"), defaultScansLimit, maxListLimit)
+		offset := parseCursor(c.Query("cursor"))
+		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
+		triggerMode := strings.ToLower(strings.TrimSpace(c.Query("trigger_mode")))
+
+		var enabled *bool
+		if raw := strings.TrimSpace(c.Query("enabled")); raw != "" {
+			parsed, err := strconv.ParseBool(raw)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid enabled query parameter"})
+				return
+			}
+			enabled = &parsed
+		}
+
+		items, err := svc.ListScanPolicies(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), ScanPolicyListFilter{
+			TriggerMode: triggerMode,
+			Enabled:     enabled,
+			Limit:       pageFetchLimit(offset, limit),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrInvalidScanPolicyRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan policy query"})
+			case errors.Is(err, ErrScanPolicyStoreUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan policy service unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("list scan policies", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list scan policies"})
+			}
+			return
+		}
+		sortScanPolicies(items, sortBy, sortDesc)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
+	})
+
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/scan-policies", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request ScanPolicyUpsertRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.UpsertScanPolicy(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrInvalidScanPolicyRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan policy request"})
+			case errors.Is(err, ErrScanPolicyStoreUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan policy service unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("upsert scan policy", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert scan policy"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"policy": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/scan-policies/:policy_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetScanPolicy(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), c.Param("policy_id"))
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan policy not found"})
+			case errors.Is(err, ErrScanPolicyStoreUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan policy service unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("get scan policy", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get scan policy"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"policy": record})
+	})
+
+	v1.DELETE("/workspaces/:workspace_id/projects/:project_id/scan-policies/:policy_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		if err := svc.DeleteScanPolicy(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), c.Param("policy_id")); err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan policy not found"})
+			case errors.Is(err, ErrScanPolicyStoreUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan policy service unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("delete scan policy", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete scan policy"})
+			}
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
 	v1.POST("/workspaces/:workspace_id/projects/:project_id/github/connect/start", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)
@@ -1737,6 +1857,33 @@ func sortProjects(items []db.TenancyProject, sortBy string, desc bool) {
 		}
 		if cmp == 0 {
 			cmp = compareString(left.ProjectID, right.ProjectID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func sortScanPolicies(items []db.TenancyScanPolicy, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch sortBy {
+		case "policy_id":
+			cmp = compareString(left.PolicyID, right.PolicyID)
+		case "name":
+			cmp = compareString(left.Name, right.Name)
+		case "trigger_mode":
+			cmp = compareString(string(left.TriggerMode), string(right.TriggerMode))
+		case "updated_at":
+			cmp = compareTime(left.UpdatedAt, right.UpdatedAt)
+		default:
+			cmp = compareTime(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareString(left.PolicyID, right.PolicyID)
 		}
 		if desc {
 			return cmp > 0

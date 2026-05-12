@@ -635,3 +635,57 @@ func TestMemoryStoreTenancyNotFoundAndListBranches(t *testing.T) {
 		t.Fatalf("expected both projects when includeArchived=true, got %+v", allProjects)
 	}
 }
+
+func TestMemoryStoreScanPolicyCRUD(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "default",
+		Name:               "Default policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeScheduled,
+		Cron:               "0 * * * *",
+		MaxConcurrentScans: 2,
+		HistoryLimit:       300,
+		MaxFindings:        120,
+	}); err != nil {
+		t.Fatalf("upsert scan policy: %v", err)
+	}
+
+	policy, err := store.GetTenancyScanPolicy(ctx, "workspace-a", "project-1", "default")
+	if err != nil {
+		t.Fatalf("get scan policy: %v", err)
+	}
+	if policy.TriggerMode != domain.ScanTriggerModeScheduled || policy.HistoryLimit != 300 || policy.MaxFindings != 120 {
+		t.Fatalf("unexpected scan policy payload: %+v", policy)
+	}
+
+	enabled := true
+	policies, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", domain.ScanTriggerModeScheduled, &enabled, 20)
+	if err != nil {
+		t.Fatalf("list scan policies: %v", err)
+	}
+	if len(policies) != 1 || policies[0].PolicyID != "default" {
+		t.Fatalf("unexpected scan policy list payload: %+v", policies)
+	}
+
+	if err := store.DeleteTenancyScanPolicy(ctx, "workspace-a", "project-1", "default"); err != nil {
+		t.Fatalf("delete scan policy: %v", err)
+	}
+	if _, err := store.GetTenancyScanPolicy(ctx, "workspace-a", "project-1", "default"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted scan policy to return ErrNotFound, got %v", err)
+	}
+}

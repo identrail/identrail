@@ -82,6 +82,9 @@ const (
 	AuthzPolicyRolloutModeDisabled = "disabled"
 	AuthzPolicyRolloutModeShadow   = "shadow"
 	AuthzPolicyRolloutModeEnforce  = "enforce"
+
+	defaultTenancyScanPolicyHistoryLimit = 500
+	defaultTenancyScanPolicyMaxFindings  = 200
 )
 
 var validAuthzEntityKinds = map[string]struct{}{
@@ -353,6 +356,23 @@ type TenancyProject struct {
 	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// TenancyScanPolicy stores one project-scoped automation policy record.
+type TenancyScanPolicy struct {
+	TenantID           string                 `json:"tenant_id"`
+	WorkspaceID        string                 `json:"workspace_id"`
+	ProjectID          string                 `json:"project_id"`
+	PolicyID           string                 `json:"policy_id"`
+	Name               string                 `json:"name"`
+	Enabled            bool                   `json:"enabled"`
+	TriggerMode        domain.ScanTriggerMode `json:"trigger_mode"`
+	Cron               string                 `json:"cron,omitempty"`
+	MaxConcurrentScans int                    `json:"max_concurrent_scans"`
+	HistoryLimit       int                    `json:"history_limit"`
+	MaxFindings        int                    `json:"max_findings"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
 }
 
 // TenancyConnector stores one project-scoped source connector record.
@@ -824,6 +844,68 @@ func NormalizeTenancyProjectForWrite(project TenancyProject) (TenancyProject, er
 	if normalized.ArchivedAt != nil {
 		archived := normalized.ArchivedAt.UTC()
 		normalized.ArchivedAt = &archived
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// NormalizeTenancyScanPolicyForWrite validates and canonicalizes project scan policies.
+func NormalizeTenancyScanPolicyForWrite(policy TenancyScanPolicy) (TenancyScanPolicy, error) {
+	normalized := policy
+	normalized.TenantID = strings.TrimSpace(policy.TenantID)
+	if normalized.TenantID == "" {
+		return TenancyScanPolicy{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(policy.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return TenancyScanPolicy{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.ProjectID = strings.TrimSpace(policy.ProjectID)
+	if normalized.ProjectID == "" {
+		return TenancyScanPolicy{}, fmt.Errorf("project id is required")
+	}
+	normalized.PolicyID = strings.TrimSpace(policy.PolicyID)
+	if normalized.PolicyID == "" {
+		return TenancyScanPolicy{}, fmt.Errorf("policy id is required")
+	}
+	normalized.Name = strings.TrimSpace(policy.Name)
+	if normalized.Name == "" {
+		return TenancyScanPolicy{}, fmt.Errorf("scan policy name is required")
+	}
+	normalized.TriggerMode = domain.ScanTriggerMode(strings.ToLower(strings.TrimSpace(string(policy.TriggerMode))))
+	if normalized.TriggerMode == "" {
+		normalized.TriggerMode = domain.ScanTriggerModeManual
+	}
+	switch normalized.TriggerMode {
+	case domain.ScanTriggerModeManual, domain.ScanTriggerModeScheduled, domain.ScanTriggerModeEvent, domain.ScanTriggerModeHybrid:
+	default:
+		return TenancyScanPolicy{}, fmt.Errorf("invalid scan policy trigger mode")
+	}
+	normalized.Cron = strings.TrimSpace(policy.Cron)
+	if normalized.TriggerMode == domain.ScanTriggerModeScheduled || normalized.TriggerMode == domain.ScanTriggerModeHybrid {
+		if normalized.Cron == "" {
+			return TenancyScanPolicy{}, fmt.Errorf("scan policy cron is required for scheduled or hybrid trigger mode")
+		}
+	} else {
+		normalized.Cron = ""
+	}
+	if normalized.MaxConcurrentScans <= 0 {
+		normalized.MaxConcurrentScans = 1
+	}
+	if normalized.HistoryLimit <= 0 {
+		normalized.HistoryLimit = defaultTenancyScanPolicyHistoryLimit
+	}
+	if normalized.MaxFindings <= 0 {
+		normalized.MaxFindings = defaultTenancyScanPolicyMaxFindings
 	}
 	if normalized.CreatedAt.IsZero() {
 		normalized.CreatedAt = time.Now().UTC()

@@ -311,6 +311,72 @@ describe('apiClient', () => {
     );
   });
 
+  it('lists and upserts project scan policies with scoped headers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [] })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ policy: { policy_id: 'default' } })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.listProjectScanPolicies(
+      'workspace/a',
+      'project 1',
+      { trigger_mode: 'scheduled', enabled: true, limit: 10, sort_by: 'updated_at', sort_order: 'desc' },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+    await apiClient.upsertProjectScanPolicy(
+      'workspace/a',
+      'project 1',
+      {
+        policy_id: 'default',
+        name: 'Default policy',
+        trigger_mode: 'scheduled',
+        cron: '0 * * * *',
+        max_concurrent_scans: 2,
+        history_limit: 300,
+        max_findings: 120
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [listURL, listOptions] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(listURL).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/scan-policies?trigger_mode=scheduled&enabled=true&limit=10&sort_by=updated_at&sort_order=desc'
+    );
+    const listHeaders = new Headers(listOptions.headers);
+    expect(listHeaders.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(listHeaders.get('x-identrail-workspace-id')).toBe('workspace/a');
+
+    const [upsertURL, upsertOptions] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(upsertURL).toContain('/v1/workspaces/workspace%2Fa/projects/project%201/scan-policies');
+    expect(upsertOptions.method).toBe('POST');
+    expect(upsertOptions.body).toBe(
+      JSON.stringify({
+        policy_id: 'default',
+        name: 'Default policy',
+        trigger_mode: 'scheduled',
+        cron: '0 * * * *',
+        max_concurrent_scans: 2,
+        history_limit: 300,
+        max_findings: 120
+      })
+    );
+  });
+
   it('supports 204 no-content workspace member removal responses', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -328,6 +394,26 @@ describe('apiClient', () => {
 
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/v1/workspaces/workspace-a/members/member-a');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('supports project scan policy deletion responses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      json: async () => ({})
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      apiClient.deleteProjectScanPolicy('workspace-a', 'project-1', 'default', {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      })
+    ).resolves.toBeUndefined();
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace-a/projects/project-1/scan-policies/default');
     expect(options.method).toBe('DELETE');
   });
 

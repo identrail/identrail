@@ -17,6 +17,10 @@
   - guided GitHub, AWS, and Kubernetes source onboarding from the project detail route
   - wired live connection status, validation, retry, and remediation feedback to existing project-scoped connector APIs
   - added UI and API-client regression coverage for first-source onboarding
+- Added project-scoped scan policy management across API, persistence, and UI:
+  - introduced scan-policy CRUD endpoints under project tenancy routes with trigger-mode and enabled filters
+  - persisted policy bounds for `history_limit` and `max_findings` with migration and scoped store adapters
+  - embedded a scan policy editor in the project detail page and documented new contracts in `docs/openapi-v1.yaml`
 - Hardened connector secret storage and rotation:
   - encrypted GitHub webhook secrets with versioned AES-256-GCM envelopes instead of retaining plaintext service state
   - added a webhook-secret rotation endpoint with audit events and status metadata for key version, algorithm, and rotation due date

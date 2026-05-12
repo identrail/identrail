@@ -83,6 +83,11 @@ func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 			delete(m.projects, key)
 		}
 	}
+	for key, policy := range m.scanPolicies {
+		if policy.TenantID == scope.TenantID {
+			delete(m.scanPolicies, key)
+		}
+	}
 	for key, connector := range m.connectors {
 		if connector.TenantID == scope.TenantID {
 			delete(m.connectors, key)
@@ -220,6 +225,11 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 	for projectKey, project := range m.projects {
 		if project.TenantID == scope.TenantID && project.WorkspaceID == normalizedWorkspaceID {
 			delete(m.projects, projectKey)
+		}
+	}
+	for policyKey, policy := range m.scanPolicies {
+		if policy.TenantID == scope.TenantID && policy.WorkspaceID == normalizedWorkspaceID {
+			delete(m.scanPolicies, policyKey)
 		}
 	}
 	for connectorKey, connector := range m.connectors {
@@ -488,6 +498,11 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 		return ErrNotFound
 	}
 	delete(m.projects, key)
+	for policyKey, policy := range m.scanPolicies {
+		if policy.TenantID == scope.TenantID && policy.WorkspaceID == resolvedWorkspaceID && policy.ProjectID == projectID {
+			delete(m.scanPolicies, policyKey)
+		}
+	}
 	for connectorKey, connector := range m.connectors {
 		if connector.TenantID == scope.TenantID && connector.WorkspaceID == resolvedWorkspaceID && connector.ProjectID == projectID {
 			delete(m.connectors, connectorKey)
@@ -512,6 +527,143 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 	return nil
 }
 
+// UpsertTenancyScanPolicy persists one scan policy for a scoped project.
+func (m *MemoryStore) UpsertTenancyScanPolicy(ctx context.Context, policy TenancyScanPolicy) error {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	policy.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, policy.WorkspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	policy.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyScanPolicyForWrite(policy)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	if _, exists := m.projects[tenancyProjectKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID)]; !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	key := tenancyScanPolicyKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.PolicyID)
+	if existing, exists := m.scanPolicies[key]; exists {
+		normalized.CreatedAt = existing.CreatedAt
+	}
+	m.scanPolicies[key] = normalized
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.scan_policy.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_scan_policy",
+		ResourceID:   normalized.PolicyID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
+// GetTenancyScanPolicy returns one scoped scan policy by id.
+func (m *MemoryStore) GetTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (TenancyScanPolicy, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyScanPolicy{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyScanPolicy{}, err
+	}
+	key := tenancyScanPolicyKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(policyID))
+	policy, exists := m.scanPolicies[key]
+	if !exists {
+		return TenancyScanPolicy{}, ErrNotFound
+	}
+	return policy, nil
+}
+
+// ListTenancyScanPolicies returns scoped policies ordered by most recent update.
+func (m *MemoryStore) ListTenancyScanPolicies(ctx context.Context, workspaceID string, projectID string, triggerMode domain.ScanTriggerMode, enabled *bool, limit int) ([]TenancyScanPolicy, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	normalizedProjectID := strings.TrimSpace(projectID)
+	normalizedTriggerMode := domain.ScanTriggerMode(strings.ToLower(strings.TrimSpace(string(triggerMode))))
+	policies := make([]TenancyScanPolicy, 0, limit)
+	for _, policy := range m.scanPolicies {
+		if policy.TenantID != scope.TenantID || policy.WorkspaceID != resolvedWorkspaceID || policy.ProjectID != normalizedProjectID {
+			continue
+		}
+		if normalizedTriggerMode != "" && policy.TriggerMode != normalizedTriggerMode {
+			continue
+		}
+		if enabled != nil && policy.Enabled != *enabled {
+			continue
+		}
+		policies = append(policies, policy)
+	}
+	sort.SliceStable(policies, func(i, j int) bool {
+		return policies[i].UpdatedAt.After(policies[j].UpdatedAt)
+	})
+	if len(policies) > limit {
+		policies = policies[:limit]
+	}
+	return policies, nil
+}
+
+// DeleteTenancyScanPolicy removes one scoped scan policy.
+func (m *MemoryStore) DeleteTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	key := tenancyScanPolicyKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(policyID))
+	if _, exists := m.scanPolicies[key]; !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	delete(m.scanPolicies, key)
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.scan_policy.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_scan_policy",
+		ResourceID:   strings.TrimSpace(policyID),
+		Outcome:      "success",
+	})
+	return nil
+}
+
 func tenancyWorkspaceKey(tenantID string, workspaceID string) string {
 	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID))
 }
@@ -522,6 +674,10 @@ func tenancyMemberKey(tenantID string, workspaceID string, memberID string) stri
 
 func tenancyProjectKey(tenantID string, workspaceID string, projectID string) string {
 	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID))
+}
+
+func tenancyScanPolicyKey(tenantID string, workspaceID string, projectID string, policyID string) string {
+	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID), strings.TrimSpace(policyID))
 }
 
 // UpsertTenancyConnector persists one connector and its latest state atomically.

@@ -150,6 +150,35 @@ export type ProjectUpsertRequest = {
   archived_at?: string | null;
 };
 
+export type ScanTriggerMode = 'manual' | 'scheduled' | 'event' | 'hybrid';
+
+export type ScanPolicyRecord = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  policy_id: string;
+  name: string;
+  enabled: boolean;
+  trigger_mode: ScanTriggerMode;
+  cron?: string;
+  max_concurrent_scans: number;
+  history_limit: number;
+  max_findings: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ScanPolicyUpsertRequest = {
+  policy_id: string;
+  name: string;
+  enabled?: boolean;
+  trigger_mode?: ScanTriggerMode;
+  cron?: string;
+  max_concurrent_scans?: number;
+  history_limit?: number;
+  max_findings?: number;
+};
+
 export type WhoAmIResponse = {
   principal: {
     type: 'subject' | 'api_key' | 'anonymous';
@@ -500,6 +529,54 @@ export const apiClient = {
       {
         method: 'POST',
         body: JSON.stringify(payload)
+      }
+    );
+  },
+  listProjectScanPolicies(
+    workspaceID: string,
+    projectID: string,
+    filters: {
+      limit?: number;
+      cursor?: string;
+      sort_by?: string;
+      sort_order?: 'asc' | 'desc';
+      trigger_mode?: ScanTriggerMode;
+      enabled?: boolean;
+    } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ items: ScanPolicyRecord[]; next_cursor?: string }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/scan-policies${buildQuery(filters)}`,
+      auth
+    );
+  },
+  getProjectScanPolicy(workspaceID: string, projectID: string, policyID: string, auth?: RequestAuthContext) {
+    return request<{ policy: ScanPolicyRecord }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/scan-policies/${encodeURIComponent(policyID)}`,
+      auth
+    );
+  },
+  upsertProjectScanPolicy(
+    workspaceID: string,
+    projectID: string,
+    payload: ScanPolicyUpsertRequest,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ policy: ScanPolicyRecord }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/scan-policies`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  deleteProjectScanPolicy(workspaceID: string, projectID: string, policyID: string, auth?: RequestAuthContext) {
+    return request<void>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/scan-policies/${encodeURIComponent(policyID)}`,
+      auth,
+      {
+        method: 'DELETE'
       }
     );
   },

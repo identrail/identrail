@@ -2787,6 +2787,10 @@ func TestRouterTenancyRoutesUnavailableWithoutService(t *testing.T) {
 		{http.MethodPost, "/v1/workspaces/ws-1/projects"},
 		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1"},
 		{http.MethodDelete, "/v1/workspaces/ws-1/projects/p-1"},
+		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/scan-policies"},
+		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/scan-policies"},
+		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/scan-policies/default"},
+		{http.MethodDelete, "/v1/workspaces/ws-1/projects/p-1/scan-policies/default"},
 		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/aws/connection"},
 		{http.MethodGet, "/v1/workspaces/ws-1/projects/p-1/aws/connection"},
 		{http.MethodPost, "/v1/workspaces/ws-1/projects/p-1/github/connect/start"},
@@ -2886,6 +2890,43 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	}
 	if len(projectsBody.Items) != 1 || projectsBody.Items[0].ProjectID != "project-1" {
 		t.Fatalf("unexpected projects payload: %+v", projectsBody.Items)
+	}
+
+	scanPolicyResp := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/scan-policies", `{
+		"policy_id":"default",
+		"name":"Default policy",
+		"trigger_mode":"scheduled",
+		"cron":"0 * * * *",
+		"max_concurrent_scans":2,
+		"history_limit":300,
+		"max_findings":120
+	}`)
+	if scanPolicyResp.Code != http.StatusOK {
+		t.Fatalf("expected scan policy upsert 200, got %d body=%s", scanPolicyResp.Code, scanPolicyResp.Body.String())
+	}
+
+	listPoliciesResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/scan-policies?trigger_mode=scheduled&enabled=true", "")
+	if listPoliciesResp.Code != http.StatusOK {
+		t.Fatalf("expected scan policy list 200, got %d body=%s", listPoliciesResp.Code, listPoliciesResp.Body.String())
+	}
+	var policiesBody struct {
+		Items []db.TenancyScanPolicy `json:"items"`
+	}
+	if err := json.Unmarshal(listPoliciesResp.Body.Bytes(), &policiesBody); err != nil {
+		t.Fatalf("decode scan policies response: %v", err)
+	}
+	if len(policiesBody.Items) != 1 || policiesBody.Items[0].PolicyID != "default" {
+		t.Fatalf("unexpected scan policies payload: %+v", policiesBody.Items)
+	}
+
+	getPolicyResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/scan-policies/default", "")
+	if getPolicyResp.Code != http.StatusOK {
+		t.Fatalf("expected scan policy get 200, got %d body=%s", getPolicyResp.Code, getPolicyResp.Body.String())
+	}
+
+	deletePolicyResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/projects/project-1/scan-policies/default", "")
+	if deletePolicyResp.Code != http.StatusNoContent {
+		t.Fatalf("expected scan policy delete 204, got %d body=%s", deletePolicyResp.Code, deletePolicyResp.Body.String())
 	}
 
 	orgGetResp := doRequest(http.MethodGet, "/v1/organizations/current", "")
@@ -3471,6 +3512,11 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 		t.Fatalf("expected project bad body 400, got %d", projectBadBody.Code)
 	}
 
+	scanPolicyBadBody := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/scan-policies", `{invalid`)
+	if scanPolicyBadBody.Code != http.StatusBadRequest {
+		t.Fatalf("expected scan policy bad body 400, got %d", scanPolicyBadBody.Code)
+	}
+
 	orgNotFound := doRequest(http.MethodGet, "/v1/organizations/current", "")
 	if orgNotFound.Code != http.StatusNotFound {
 		t.Fatalf("expected org not found 404, got %d", orgNotFound.Code)
@@ -3506,6 +3552,16 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 		t.Fatalf("expected project delete not found 404, got %d", projectDeleteNotFound.Code)
 	}
 
+	scanPolicyNotFound := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects/nonexistent/scan-policies/default", "")
+	if scanPolicyNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected scan policy get not found 404, got %d", scanPolicyNotFound.Code)
+	}
+
+	scanPolicyDeleteNotFound := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/projects/nonexistent/scan-policies/default", "")
+	if scanPolicyDeleteNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected scan policy delete not found 404, got %d", scanPolicyDeleteNotFound.Code)
+	}
+
 	listWorkspacesResp := doRequest(http.MethodGet, "/v1/workspaces", "")
 	if listWorkspacesResp.Code != http.StatusOK {
 		t.Fatalf("expected workspace list 200, got %d", listWorkspacesResp.Code)
@@ -3519,6 +3575,11 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 	listProjectsResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects", "")
 	if listProjectsResp.Code != http.StatusOK {
 		t.Fatalf("expected projects list 200, got %d", listProjectsResp.Code)
+	}
+
+	listScanPoliciesResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/scan-policies?enabled=notbool", "")
+	if listScanPoliciesResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected scan policy list invalid enabled 400, got %d", listScanPoliciesResp.Code)
 	}
 
 	badArchivedResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/projects?include_archived=notbool", "")
