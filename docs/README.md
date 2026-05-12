@@ -8,6 +8,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - Operator readiness handoff: `operator-readiness.md`
 - Deployment runbook: `deploy-runbook.md`
 - AWS OIDC deployment role: `aws-oidc-deployment.md`
+- AWS deployment foundation: `aws-deployment-foundation.md`
 
 ## Operator track
 
@@ -18,6 +19,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
   - `../deploy/kubernetes/README.md`
   - `../deploy/helm/README.md`
   - `../deploy/terraform/README.md`
+  - `../deploy/aws/README.md`
 - Day-2 operations:
   - `observability.md`
   - `troubleshooting.md`

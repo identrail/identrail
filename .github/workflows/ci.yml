@@ -194,13 +194,16 @@ jobs:
         uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85
 
       - name: Terraform Format Check
-        run: terraform fmt -check -recursive deploy/terraform
+        run: terraform fmt -check -recursive deploy/terraform deploy/aws/terraform
 
       - name: Terraform Validate
         shell: bash
         run: |
           set -euo pipefail
           cd deploy/terraform
+          terraform init -backend=false
+          terraform validate
+          cd ../aws/terraform
           terraform init -backend=false
           terraform validate
 
