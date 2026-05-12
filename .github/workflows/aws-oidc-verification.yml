@@ -46,7 +46,8 @@ jobs:
             exit 1
           fi
           account_id="${BASH_REMATCH[1]}"
-          role_name="${BASH_REMATCH[2]}"
+          role_resource="${BASH_REMATCH[2]}"
+          role_name="${role_resource##*/}"
           {
             echo "account_id=${account_id}"
             echo "role_name=${role_name}"
