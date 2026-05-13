@@ -62,6 +62,9 @@ var ErrGitHubConnectorSecretUnavailable = errors.New("github connector secret un
 // ErrGitHubAppConfigUnavailable indicates the hosted GitHub App flow is not configured.
 var ErrGitHubAppConfigUnavailable = errors.New("github app config unavailable")
 
+// ErrGitHubRepositoryListUnavailable indicates the GitHub App repository list could not be loaded.
+var ErrGitHubRepositoryListUnavailable = errors.New("github repository list unavailable")
+
 // ErrGitHubPATValidatorUnavailable indicates PAT validation is not configured.
 var ErrGitHubPATValidatorUnavailable = errors.New("github pat validator unavailable")
 
@@ -418,18 +421,20 @@ func (s *Service) CompleteGitHubConnector(ctx context.Context, request GitHubCon
 	}
 	scope := db.Scope{TenantID: pending.Connector.TenantID, WorkspaceID: pending.Connector.WorkspaceID}
 	repositories := metadataStringSlice(pending.State.Metadata, "selected_repositories")
-	if s.GitHubRepositoryLister != nil {
-		listed, listErr := s.GitHubRepositoryLister.ListInstallationRepositories(ctx, request.InstallationID)
-		if listErr == nil {
-			repositories = repositories[:0]
-			for _, repository := range listed {
-				if normalized := normalizeGitHubRepository(repository.FullName); normalized != "" {
-					repositories = append(repositories, normalized)
-				}
-			}
-			sort.Strings(repositories)
+	if s.GitHubRepositoryLister == nil {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubRepositoryListUnavailable
+	}
+	listed, listErr := s.GitHubRepositoryLister.ListInstallationRepositories(ctx, request.InstallationID)
+	if listErr != nil {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubRepositoryListUnavailable
+	}
+	repositories = repositories[:0]
+	for _, repository := range listed {
+		if normalized := normalizeGitHubRepository(repository.FullName); normalized != "" {
+			repositories = append(repositories, normalized)
 		}
 	}
+	sort.Strings(repositories)
 	webhookEnvelope, err := s.encryptGitHubWebhookSecret(scope, pending.Connector.ProjectID, s.GitHubAppWebhookSecret)
 	if err != nil {
 		return GitHubConnectorCompleteResponse{}, ErrGitHubConnectorSecretUnavailable

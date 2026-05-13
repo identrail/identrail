@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/secretstore"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
@@ -206,6 +208,45 @@ func TestRouterGitHubConnectorV2HydratesCustomAppConnector(t *testing.T) {
 	}
 	if pushBody.Webhook.MatchedProjects != 1 {
 		t.Fatalf("expected hydrated custom connector to match webhook, got %+v", pushBody.Webhook)
+	}
+}
+
+func TestRouterGitHubConnectorV2DoesNotActivateWhenRepoListingFails(t *testing.T) {
+	lister := &fakeGitHubRepositoryLister{err: errors.New("github timeout")}
+	r := newGitHubConnectorV2TestRouter(t, &fakeGitHubPATValidator{}, lister)
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"redirect_uri":"https://app.identrail.com/app/github/callback"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody GitHubConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
+		"state":%q,
+		"installation_id":12345
+	}`, startBody.State))
+	if completeResp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected repository listing failure 503, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+
+	statusResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github?workspace_id=workspace-a&project_id=project-1", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector status 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if statusBody.Connection.Connected || statusBody.Connection.Status != domain.ConnectorStatusPending {
+		t.Fatalf("expected connector to remain pending after failed completion, got %+v", statusBody.Connection)
 	}
 }
 

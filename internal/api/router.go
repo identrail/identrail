@@ -1799,6 +1799,8 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
 			case errors.Is(err, ErrGitHubAppConfigUnavailable):
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github app connector is not configured"})
+			case errors.Is(err, ErrGitHubRepositoryListUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github repositories unavailable"})
 			default:
 				if logger != nil {
 					logger.Error("complete github connector", telemetry.ZapError(err))
