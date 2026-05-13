@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -1181,7 +1182,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, err.Error())
 		return RunRepoScanResult{}, err
 	}
-	result.Findings = enrichFindings(result.Findings)
+	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
 		s.recordRepoScanExecutionFailure()
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, err.Error())
@@ -1249,7 +1250,7 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 	if err != nil {
 		return nil, err
 	}
-	return enrichFindings(findings), nil
+	return enrichFindingsWithRepoContext(findings), nil
 }
 
 // GetOrganization returns the current scoped organization record.
@@ -2103,14 +2104,101 @@ func sanitizeRepoScanLimit(candidate int, fallback int, maxAllowed int) (int, er
 }
 
 func enrichFindings(findings []domain.Finding) []domain.Finding {
+	return enrichFindingsWithRepoContext(findings)
+}
+
+func enrichFindingsWithRepoContext(findings []domain.Finding, repositoryHints ...string) []domain.Finding {
 	if len(findings) == 0 {
 		return findings
 	}
+	defaultRepository := ""
+	for _, hint := range repositoryHints {
+		if trimmed := strings.TrimSpace(hint); trimmed != "" {
+			defaultRepository = trimmed
+			break
+		}
+	}
 	enriched := make([]domain.Finding, 0, len(findings))
 	for _, finding := range findings {
+		if finding.Repository == "" && defaultRepository != "" {
+			finding.Repository = defaultRepository
+		}
+		domain.NormalizeRepoFindingMetadata(&finding)
+		if finding.SourceURL == "" {
+			finding.SourceURL = repoFindingSourceURL(finding.Repository, finding.Commit, finding.FilePath, finding.LineNumber)
+		}
 		enriched = append(enriched, standards.EnrichFinding(finding))
 	}
 	return enriched
+}
+
+func repoFindingSourceURL(repository string, commit string, filePath string, lineNumber int) string {
+	if lineNumber < 1 {
+		return ""
+	}
+	normalizedRepository := normalizeGitHubRepositoryPath(repository)
+	normalizedCommit := strings.TrimSpace(commit)
+	normalizedFilePath := strings.Trim(strings.TrimSpace(filePath), "/")
+	if normalizedRepository == "" || normalizedCommit == "" || normalizedFilePath == "" {
+		return ""
+	}
+	blobURL := url.URL{
+		Scheme: "https",
+		Host:   "github.com",
+		Path:   "/" + path.Join(normalizedRepository, "blob", normalizedCommit, normalizedFilePath),
+	}
+	return fmt.Sprintf("%s#L%d", blobURL.String(), lineNumber)
+}
+
+func normalizeGitHubRepositoryPath(repository string) string {
+	trimmed := strings.TrimSpace(repository)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.Count(trimmed, "/") == 1 &&
+		!strings.HasPrefix(trimmed, "/") &&
+		!strings.HasPrefix(trimmed, ".") &&
+		!strings.HasPrefix(trimmed, "~") &&
+		!strings.Contains(trimmed, "\\") &&
+		!strings.Contains(trimmed, "://") &&
+		!strings.HasPrefix(strings.ToLower(trimmed), "git@") {
+		return canonicalGitHubRepositoryPath(trimmed)
+	}
+
+	if strings.HasPrefix(strings.ToLower(trimmed), "git@") {
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) != 2 {
+			return ""
+		}
+		host := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(parts[0])), "git@")
+		if host != "github.com" && host != "www.github.com" {
+			return ""
+		}
+		return canonicalGitHubRepositoryPath(parts[1])
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "github.com" && host != "www.github.com" {
+		return ""
+	}
+	return canonicalGitHubRepositoryPath(parsed.Path)
+}
+
+func canonicalGitHubRepositoryPath(raw string) string {
+	normalized := strings.Trim(strings.TrimSpace(raw), "/")
+	normalized = strings.TrimSuffix(normalized, ".git")
+	parts := strings.Split(normalized, "/")
+	if len(parts) != 2 {
+		return ""
+	}
+	if strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return ""
+	}
+	return strings.TrimSpace(parts[0]) + "/" + strings.TrimSpace(parts[1])
 }
 
 func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domain.Finding) ([]domain.Finding, error) {

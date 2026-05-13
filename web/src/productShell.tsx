@@ -5,10 +5,12 @@ import {
   apiClient,
   type AWSConnectionStatus,
   type CurrentUserContext,
+  type Finding as ApiFinding,
   type GitHubConnectionStartResponse,
   type GitHubConnectionStatus,
   type KubernetesConnectionStatus,
   type ProjectRecord,
+  type RepoScanRecord,
   type RequestAuthContext,
   type ScanPolicyRecord,
   type ScanTriggerMode,
@@ -130,6 +132,8 @@ const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as co
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
+const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
+const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 
 function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
   return {
@@ -164,6 +168,66 @@ function normalizeProjectToken(value: string): string {
 
 function deriveProjectToken(value: string, fallback = 'project'): string {
   return normalizeProjectToken(value) || fallback;
+}
+
+function formatTokenLabel(value: string): string {
+  const trimmed = normalizeValue(value);
+  if (!trimmed) {
+    return 'Unknown';
+  }
+  return trimmed
+    .replace(/[-_]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function canonicalGitHubRepositoryDisplay(value: string): string {
+  const trimmed = normalizeValue(value).replace(/\/+$/g, '');
+  if (!trimmed) {
+    return '';
+  }
+  if (/^git@github\.com:/i.test(trimmed)) {
+    return trimmed
+      .replace(/^git@github\.com:/i, '')
+      .replace(/\.git$/i, '');
+  }
+  if (/^https?:\/\/github\.com\//i.test(trimmed) || /^ssh:\/\/git@github\.com\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.pathname.replace(/^\/+/, '').replace(/\/+$/g, '').replace(/\.git$/i, '');
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed.replace(/\.git$/i, '');
+}
+
+function repoFindingRepositoryValue(finding: ApiFinding, repoScansByID: Record<string, RepoScanRecord>): string {
+  if (normalizeValue(finding.repository ?? '')) {
+    return normalizeValue(finding.repository ?? '');
+  }
+  const evidenceRepository = finding.evidence?.repository;
+  if (typeof evidenceRepository === 'string' && normalizeValue(evidenceRepository)) {
+    return normalizeValue(evidenceRepository);
+  }
+  return normalizeValue(repoScansByID[finding.scan_id]?.repository ?? '');
+}
+
+function repoFindingLocationLabel(finding: ApiFinding): string {
+  if (finding.file_path && finding.line_number) {
+    return `${finding.file_path}:${finding.line_number}`;
+  }
+  if (finding.file_path) {
+    return finding.file_path;
+  }
+  return 'Location unavailable';
+}
+
+function repoFindingSeverityClass(severity: string): string {
+  const normalized = normalizeValue(severity).toLowerCase() || 'unknown';
+  return `idt-repo-finding-severity is-${normalized}`;
 }
 
 function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse | null): boolean {
@@ -2567,7 +2631,311 @@ export function ProductProjectDetailPage() {
 }
 
 export function ProductFindingsPage() {
-  return <ScopedShellPage title="Findings" description="Finding triage queue placeholder for scoped findings, filters, and ownership assignment." />;
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
+  const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const [repoScanFilter, setRepoScanFilter] = useState('');
+  const [severityFilter, setSeverityFilter] = useState<(typeof REPO_FINDING_SEVERITY_FILTERS)[number]>('all');
+  const [typeFilter, setTypeFilter] = useState<(typeof REPO_FINDING_TYPE_FILTERS)[number]>('all');
+  const [selectedFindingID, setSelectedFindingID] = useState('');
+  const requestRef = useRef(0);
+
+  const repoScansByID = useMemo(
+    () =>
+      repoScans.reduce<Record<string, RepoScanRecord>>((acc, scan) => {
+        acc[scan.id] = scan;
+        return acc;
+      }, {}),
+    [repoScans]
+  );
+
+  const selectedFinding = useMemo(
+    () => repoFindings.find((finding) => finding.id === selectedFindingID) ?? repoFindings[0] ?? null,
+    [repoFindings, selectedFindingID]
+  );
+
+  const linkedFindingCount = useMemo(
+    () => repoFindings.filter((finding) => normalizeValue(finding.source_url ?? '')).length,
+    [repoFindings]
+  );
+
+  const criticalFindingCount = useMemo(
+    () => repoFindings.filter((finding) => normalizeValue(finding.severity).toLowerCase() === 'critical').length,
+    [repoFindings]
+  );
+
+  const activeScanCount = useMemo(
+    () => repoScans.filter((scan) => normalizeValue(scan.status).toLowerCase() === 'succeeded').length,
+    [repoScans]
+  );
+
+  const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+    const requestID = ++requestRef.current;
+    if (mode === 'initial') {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+    setError('');
+    try {
+      const auth = buildProductAuthContext(targetScope);
+      const [repoScanResponse, repoFindingResponse] = await Promise.all([
+        apiClient.listRepoScans({ limit: 50 }, auth),
+        apiClient.listRepoFindings(
+          {
+            limit: 100,
+            repo_scan_id: normalizeValue(repoScanFilter) || undefined,
+            severity: severityFilter !== 'all' ? severityFilter : undefined,
+            type: typeFilter !== 'all' ? typeFilter : undefined
+          },
+          auth
+        )
+      ]);
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setRepoScans(repoScanResponse.items);
+      setRepoFindings(repoFindingResponse.items);
+    } catch (requestError) {
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      const message = requestError instanceof Error ? requestError.message : 'Failed to load repository findings.';
+      setError(message);
+    } finally {
+      if (requestID === requestRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!scope) {
+      setLoading(false);
+      setError('Workspace route context is missing.');
+      return;
+    }
+    void loadRepoFindings(scope, 'initial');
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [scope?.tenantID, scope?.workspaceID, repoScanFilter, severityFilter, typeFilter]);
+
+  useEffect(() => {
+    if (repoFindings.length === 0) {
+      if (selectedFindingID) {
+        setSelectedFindingID('');
+      }
+      return;
+    }
+    if (!repoFindings.some((finding) => finding.id === selectedFindingID)) {
+      setSelectedFindingID(repoFindings[0].id);
+    }
+  }, [repoFindings, selectedFindingID]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error">
+        <p className="idt-app-kicker">Findings</p>
+        <h2>Repository findings</h2>
+        <p>Workspace route context is missing.</p>
+      </section>
+    );
+  }
+
+  if (loading) {
+    return <AppShellLoading message="Loading repository findings" />;
+  }
+
+  const handleRefresh = () => {
+    void loadRepoFindings(scope, 'refresh');
+  };
+
+  return (
+    <section className="idt-app-panel">
+      <div className="idt-repo-findings-header">
+        <div>
+          <p className="idt-app-kicker">Repository Exposure</p>
+          <h2>Findings</h2>
+          <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
+        </div>
+        <div className="idt-inline-actions">
+          <button className="idt-btn idt-btn-ghost" type="button" onClick={handleRefresh} disabled={refreshing}>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          {selectedFinding?.source_url ? (
+            <a className="idt-btn idt-btn-primary" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
+              Open in GitHub
+            </a>
+          ) : null}
+        </div>
+      </div>
+
+      {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
+
+      <div className="idt-repo-finding-stats" aria-label="Repository finding summary">
+        <article className="idt-repo-finding-stat">
+          <span>Total repo findings</span>
+          <strong>{repoFindings.length}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>GitHub-linked findings</span>
+          <strong>{linkedFindingCount}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>Critical findings</span>
+          <strong>{criticalFindingCount}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>Completed repo scans</span>
+          <strong>{activeScanCount}</strong>
+        </article>
+      </div>
+
+      <div className="idt-repo-finding-filters">
+        <label>
+          Repository scan
+          <select value={repoScanFilter} onChange={(event) => setRepoScanFilter(event.target.value)}>
+            <option value="">All repository scans</option>
+            {repoScans.map((scan) => (
+              <option key={scan.id} value={scan.id}>
+                {canonicalGitHubRepositoryDisplay(scan.repository)} · {formatTokenLabel(scan.status)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Severity
+          <select
+            value={severityFilter}
+            onChange={(event) => setSeverityFilter(event.target.value as (typeof REPO_FINDING_SEVERITY_FILTERS)[number])}
+          >
+            {REPO_FINDING_SEVERITY_FILTERS.map((value) => (
+              <option key={value} value={value}>
+                {value === 'all' ? 'All severities' : formatTokenLabel(value)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Type
+          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as (typeof REPO_FINDING_TYPE_FILTERS)[number])}>
+            {REPO_FINDING_TYPE_FILTERS.map((value) => (
+              <option key={value} value={value}>
+                {value === 'all' ? 'All finding types' : formatTokenLabel(value)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="idt-repo-finding-layout">
+        <div className="idt-repo-finding-list">
+          <div className="idt-repo-finding-list-header">
+            <h3>Repository findings</h3>
+            <p>{repoFindings.length ? `${repoFindings.length} findings in scope` : 'No findings match the current filters.'}</p>
+          </div>
+          {repoFindings.length === 0 ? (
+            <AppShellEmptyState
+              title="No repository findings"
+              body="Run a repository exposure scan or loosen the current filters to inspect GitHub-linked findings."
+            />
+          ) : (
+            <div className="idt-repo-finding-items" role="list">
+              {repoFindings.map((finding) => {
+                const repositoryValue = repoFindingRepositoryValue(finding, repoScansByID);
+                const repositoryLabel = canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
+                const isSelected = selectedFinding?.id === finding.id;
+                return (
+                  <button
+                    key={finding.id}
+                    type="button"
+                    role="listitem"
+                    className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
+                    onClick={() => setSelectedFindingID(finding.id)}
+                  >
+                    <div className="idt-repo-finding-row-top">
+                      <strong>{finding.title}</strong>
+                      <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
+                    </div>
+                    <p>{finding.human_summary}</p>
+                    <div className="idt-repo-finding-row-meta">
+                      <span>{repositoryLabel}</span>
+                      <span>{repoFindingLocationLabel(finding)}</span>
+                      <span>{formatTokenLabel(finding.type)}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="idt-repo-finding-detail">
+          {selectedFinding ? (
+            <>
+              <div className="idt-repo-finding-detail-copy">
+                <p className="idt-app-kicker">Finding detail</p>
+                <h3>{selectedFinding.title}</h3>
+                <p>{selectedFinding.human_summary}</p>
+              </div>
+
+              <dl className="idt-repo-finding-facts">
+                <div>
+                  <dt>Repository</dt>
+                  <dd>{canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(selectedFinding, repoScansByID)) || 'Unavailable'}</dd>
+                </div>
+                <div>
+                  <dt>Location</dt>
+                  <dd>{repoFindingLocationLabel(selectedFinding)}</dd>
+                </div>
+                <div>
+                  <dt>Commit</dt>
+                  <dd>{selectedFinding.commit || 'Unavailable'}</dd>
+                </div>
+                <div>
+                  <dt>Detector</dt>
+                  <dd>{selectedFinding.detector ? formatTokenLabel(selectedFinding.detector) : 'Unavailable'}</dd>
+                </div>
+              </dl>
+
+              {selectedFinding.source_url ? (
+                <a className="idt-repo-finding-link" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
+                  {selectedFinding.source_url}
+                </a>
+              ) : (
+                <div className="idt-app-alert">GitHub line link unavailable for this finding. Rescan the repository to refresh line-link metadata.</div>
+              )}
+
+              {selectedFinding.line_snippet ? (
+                <div className="idt-repo-finding-code">
+                  <span>Evidence line</span>
+                  <pre>
+                    <code>{selectedFinding.line_snippet}</code>
+                  </pre>
+                </div>
+              ) : null}
+
+              <div className="idt-repo-finding-remediation">
+                <h4>Remediation</h4>
+                <p>{selectedFinding.remediation}</p>
+              </div>
+            </>
+          ) : (
+            <AppShellEmptyState
+              title="Select a finding"
+              body="Choose one repository finding to inspect commit, detector, and GitHub line-link context."
+            />
+          )}
+        </aside>
+      </div>
+    </section>
+  );
 }
 
 export function ProductSettingsPage() {

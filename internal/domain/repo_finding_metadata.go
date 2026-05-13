@@ -11,7 +11,8 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 	if finding == nil {
 		return
 	}
-	hasFields := finding.Commit != "" ||
+	hasFields := finding.Repository != "" ||
+		finding.Commit != "" ||
 		finding.FilePath != "" ||
 		finding.LineNumber > 0 ||
 		finding.Detector != "" ||
@@ -25,6 +26,9 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 		finding.Evidence = maps.Clone(finding.Evidence)
 	}
 
+	if finding.Repository == "" {
+		finding.Repository = stringFromAny(finding.Evidence["repository"])
+	}
 	if finding.Commit == "" {
 		finding.Commit = stringFromAny(finding.Evidence["commit"])
 	}
@@ -67,6 +71,9 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 	}
 	if finding.Evidence == nil {
 		return
+	}
+	if finding.Repository != "" {
+		finding.Evidence["repository"] = finding.Repository
 	}
 	if finding.Commit != "" {
 		finding.Evidence["commit"] = finding.Commit

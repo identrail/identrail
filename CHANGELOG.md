@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added clickable GitHub line links for repository findings:
+  - repo findings now expose stable `repository` and `source_url` fields in API payloads
+  - the authenticated findings route now lists repository findings and opens a detail view with direct GitHub blob links
+  - snapshot-based repo misconfiguration findings now record the resolved HEAD commit SHA on new scans so line links stay pinned to the scanned revision
 - Enriched repo findings with stable remediation metadata:
   - exposed `commit`, `file_path`, `line_number`, `detector`, `line_snippet`, and `line_snippet_redacted` in scanner and API finding payloads
   - normalized persisted repo finding evidence so existing rows read back without a storage migration

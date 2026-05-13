@@ -17,12 +17,14 @@ func TestFindingJSONUsesSnakeCaseFields(t *testing.T) {
 		Title:               "title",
 		HumanSummary:        "summary",
 		Path:                []string{"app.env"},
+		Repository:          "owner/repo",
 		Commit:              "abc123",
 		FilePath:            "app.env",
 		LineNumber:          12,
 		Detector:            "aws-access-key",
 		LineSnippet:         "AWS_ACCESS_KEY_ID=AKIA****",
 		LineSnippetRedacted: &redacted,
+		SourceURL:           "https://github.com/owner/repo/blob/abc123/app.env#L12",
 		Remediation:         "fix",
 		CreatedAt:           time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC),
 	}
@@ -32,7 +34,7 @@ func TestFindingJSONUsesSnakeCaseFields(t *testing.T) {
 		t.Fatalf("marshal finding: %v", err)
 	}
 	text := string(payload)
-	for _, expected := range []string{`"id"`, `"scan_id"`, `"human_summary"`, `"created_at"`, `"file_path"`, `"line_number"`, `"line_snippet_redacted"`} {
+	for _, expected := range []string{`"id"`, `"scan_id"`, `"human_summary"`, `"created_at"`, `"repository"`, `"file_path"`, `"line_number"`, `"line_snippet_redacted"`, `"source_url"`} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("expected field %s in %s", expected, text)
 		}

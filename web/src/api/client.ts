@@ -12,16 +12,31 @@ export type Finding = {
   title: string;
   human_summary: string;
   path?: string[];
+  repository?: string;
   commit?: string;
   file_path?: string;
   line_number?: number;
   detector?: string;
   line_snippet?: string;
   line_snippet_redacted?: boolean;
+  source_url?: string;
   evidence?: Record<string, unknown>;
   remediation: string;
   created_at: string;
   triage?: FindingTriage;
+};
+
+export type RepoScanRecord = {
+  id: string;
+  repository: string;
+  status: string;
+  started_at: string;
+  finished_at?: string;
+  commits_scanned: number;
+  files_scanned: number;
+  finding_count: number;
+  truncated: boolean;
+  error_message?: string;
 };
 
 export type ScanRecord = {
@@ -767,6 +782,20 @@ export const apiClient = {
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
   },
+  listRepoScans(
+    filters: {
+      limit?: number;
+      cursor?: string;
+      sort_by?: string;
+      sort_order?: 'asc' | 'desc';
+    } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ items: RepoScanRecord[] }>(
+      `/v1/repo-scans${buildQuery({ sort_by: 'started_at', sort_order: 'desc', ...filters })}`,
+      auth
+    );
+  },
   listFindings(
     filters: {
       limit?: number;
@@ -781,6 +810,23 @@ export const apiClient = {
     auth?: RequestAuthContext
   ) {
     return request<{ items: Finding[] }>(`/v1/findings${buildQuery(filters)}`, auth);
+  },
+  listRepoFindings(
+    filters: {
+      limit?: number;
+      cursor?: string;
+      repo_scan_id?: string;
+      severity?: string;
+      type?: string;
+      sort_by?: string;
+      sort_order?: 'asc' | 'desc';
+    } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ items: Finding[] }>(
+      `/v1/repo-findings${buildQuery({ sort_by: 'created_at', sort_order: 'desc', ...filters })}`,
+      auth
+    );
   },
   getFinding(findingID: string, scanID?: string, auth?: RequestAuthContext) {
     const suffix = buildQuery({ scan_id: scanID });

@@ -77,7 +77,7 @@ func TestScanRepositoryDetectsSecretInCommitHistory(t *testing.T) {
 }
 
 func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
-	repoPath := initTestRepoWithHeadMisconfig(t)
+	repoPath, headCommit := initTestRepoWithHeadMisconfig(t)
 	scanner := NewScanner(nil, WithHistoryLimit(10), WithMaxFindings(20))
 
 	result, err := scanner.ScanRepository(context.Background(), repoPath)
@@ -95,7 +95,7 @@ func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
 		}
 		path, _ := finding.Evidence["file_path"].(string)
 		if strings.HasSuffix(path, "workflow.yml") {
-			if finding.Commit != "HEAD" || finding.FilePath == "" || finding.LineNumber == 0 || finding.Detector == "" || finding.LineSnippet == "" {
+			if finding.Commit != headCommit || finding.FilePath == "" || finding.LineNumber == 0 || finding.Detector == "" || finding.LineSnippet == "" {
 				t.Fatalf("expected structured repo misconfig metadata, got %+v", finding)
 			}
 			if finding.LineSnippetRedacted == nil || *finding.LineSnippetRedacted {
@@ -111,7 +111,7 @@ func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
 }
 
 func TestScanRepositoryHonorsMaxFindings(t *testing.T) {
-	repoPath := initTestRepoWithHeadMisconfig(t)
+	repoPath, _ := initTestRepoWithHeadMisconfig(t)
 	scanner := NewScanner(nil, WithHistoryLimit(10), WithMaxFindings(1))
 
 	result, err := scanner.ScanRepository(context.Background(), repoPath)
@@ -430,7 +430,7 @@ func initTestRepoWithHistorySecret(t *testing.T) (string, string) {
 	return repo, firstCommit
 }
 
-func initTestRepoWithHeadMisconfig(t *testing.T) string {
+func initTestRepoWithHeadMisconfig(t *testing.T) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
 	runGit(t, repo, "init", "-q")
@@ -465,7 +465,7 @@ jobs:
 
 	runGit(t, repo, "add", ".")
 	runGit(t, repo, "commit", "-q", "-m", "add misconfig")
-	return repo
+	return repo, strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {

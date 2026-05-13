@@ -243,6 +243,69 @@ describe('App', () => {
     expect(await screen.findByText(/Project source onboarding/i)).toBeInTheDocument();
   });
 
+  it('renders repository findings with direct GitHub line links inside the app shell', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-scan-1',
+              repository: 'owner/repo',
+              status: 'succeeded',
+              started_at: '2026-01-01T00:00:00Z',
+              finished_at: '2026-01-01T00:05:00Z',
+              commits_scanned: 12,
+              files_scanned: 4,
+              finding_count: 1,
+              truncated: false
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-f1',
+              scan_id: 'repo-scan-1',
+              type: 'secret_exposure',
+              severity: 'high',
+              title: 'Potential AWS access key exposed in commit history',
+              human_summary: 'A line added in commit history appears to contain an AWS access key identifier.',
+              repository: 'owner/repo',
+              commit: 'abc123',
+              file_path: 'config/app.env',
+              line_number: 7,
+              detector: 'aws_access_key_id',
+              line_snippet: 'AWS_ACCESS_KEY_ID=AKIA****',
+              line_snippet_redacted: true,
+              source_url: 'https://github.com/owner/repo/blob/abc123/config/app.env#L7',
+              remediation: 'Rotate the key and move the credential to a secret manager.',
+              created_at: '2026-01-01T00:00:00Z'
+            }
+          ]
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Findings/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
+
+    const openInGitHub = await screen.findByRole('link', { name: /Open in GitHub/i });
+    expect(openInGitHub).toHaveAttribute('href', 'https://github.com/owner/repo/blob/abc123/config/app.env#L7');
+    expect((await screen.findAllByText('config/app.env:7')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('owner/repo')).length).toBeGreaterThan(0);
+  });
+
   it('supports workspace member invite workflow from app shell administration route', async () => {
     const fetchMock = vi
       .fn()

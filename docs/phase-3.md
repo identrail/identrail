@@ -20,11 +20,14 @@ Create a thin React + TypeScript dashboard shell that can consume Identrail APIs
   - `GET /v1/scans`
   - `GET /v1/findings` (supports `severity`, `type`, `scan_id`, `lifecycle_status`, and `assignee` filters)
   - `GET /v1/findings/:finding_id` (finding drill-down)
+  - `GET /v1/repo-scans`
+  - `GET /v1/repo-findings` (supports `repo_scan_id`, `severity`, and `type` filters)
 - Dashboard views now include:
   - findings table with live severity/type filters
   - scan selector and scan diff panel with optional baseline scan selection
   - identity/relationship explorer snapshot
   - recent trend list
+  - tenancy-scoped repository findings list with GitHub line-link drill-in
 - Frontend tests:
   - Vitest + Testing Library
   - API client query contract tests

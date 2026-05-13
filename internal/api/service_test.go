@@ -1478,11 +1478,67 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	if len(findings) != 1 || findings[0].ID != "rf-1" {
 		t.Fatalf("unexpected persisted repo findings: %+v", findings)
 	}
+	if findings[0].Repository != "owner/repo" {
+		t.Fatalf("expected repository metadata, got %+v", findings[0])
+	}
 	if findings[0].Commit != "abc123" || findings[0].FilePath != "config/app.env" || findings[0].LineNumber != 7 || findings[0].Detector != "aws-access-key" {
 		t.Fatalf("expected persisted repo metadata, got %+v", findings[0])
 	}
 	if findings[0].LineSnippet != "AWS_ACCESS_KEY_ID=AKIA****" || findings[0].LineSnippetRedacted == nil || !*findings[0].LineSnippetRedacted {
 		t.Fatalf("expected persisted snippet metadata, got %+v", findings[0])
+	}
+	if findings[0].SourceURL != "https://github.com/owner/repo/blob/abc123/config/app.env#L7" {
+		t.Fatalf("expected GitHub source URL, got %+v", findings[0].SourceURL)
+	}
+}
+
+func TestRepoFindingSourceURLSupportsGitHubRepositoryForms(t *testing.T) {
+	testCases := []struct {
+		name       string
+		repository string
+		want       string
+	}{
+		{
+			name:       "owner slash repo",
+			repository: "owner/repo",
+			want:       "https://github.com/owner/repo/blob/abc123/.github/workflows/release.yml#L18",
+		},
+		{
+			name:       "https clone url",
+			repository: "https://github.com/owner/repo.git",
+			want:       "https://github.com/owner/repo/blob/abc123/.github/workflows/release.yml#L18",
+		},
+		{
+			name:       "ssh clone url",
+			repository: "ssh://git@github.com/owner/repo.git",
+			want:       "https://github.com/owner/repo/blob/abc123/.github/workflows/release.yml#L18",
+		},
+		{
+			name:       "scp style",
+			repository: "git@github.com:owner/repo.git",
+			want:       "https://github.com/owner/repo/blob/abc123/.github/workflows/release.yml#L18",
+		},
+		{
+			name:       "legacy head ref",
+			repository: "owner/repo",
+			want:       "https://github.com/owner/repo/blob/HEAD/.github/workflows/release.yml#L18",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			commit := "abc123"
+			if tc.name == "legacy head ref" {
+				commit = "HEAD"
+			}
+			if got := repoFindingSourceURL(tc.repository, commit, ".github/workflows/release.yml", 18); got != tc.want {
+				t.Fatalf("unexpected source url %q", got)
+			}
+		})
+	}
+
+	if got := repoFindingSourceURL("https://gitlab.com/owner/repo.git", "abc123", "main.tf", 9); got != "" {
+		t.Fatalf("expected non-GitHub repositories to skip source URLs, got %q", got)
 	}
 }
 
