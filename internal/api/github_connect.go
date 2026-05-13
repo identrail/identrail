@@ -1292,7 +1292,10 @@ func (s *Service) hydrateGitHubConnections(ctx context.Context) {
 	}
 	hydrated := make(map[string]githubProjectConnection, len(items))
 	for _, item := range items {
-		if strings.TrimSpace(item.Connector.ConnectorID) != githubConnectorID {
+		if item.Connector.Status != domain.ConnectorStatusActive {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
 			continue
 		}
 		connection, convErr := s.githubConnectionFromStored(ctx, item)

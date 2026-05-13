@@ -159,6 +159,56 @@ func TestRouterGitHubConnectorV2CompletesAppInstall(t *testing.T) {
 	}
 }
 
+func TestRouterGitHubConnectorV2HydratesCustomAppConnector(t *testing.T) {
+	lister := &fakeGitHubRepositoryLister{
+		repositories: []githubconnector.Repository{{FullName: "identrail/api", Private: true}},
+	}
+	store := db.NewMemoryStore()
+	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"github-prod",
+		"display_name":"GitHub production",
+		"redirect_uri":"https://app.identrail.com/app/github/callback"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody GitHubConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
+		"state":%q,
+		"installation_id":12345
+	}`, startBody.State))
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+
+	svc.githubConnectMu.Lock()
+	svc.githubConnections = nil
+	svc.githubConnectMu.Unlock()
+	svc.hydrateGitHubConnections(context.Background())
+
+	pushPayload := []byte(`{"repository":{"full_name":"identrail/api"},"installation":{"id":12345}}`)
+	pushResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "push", "delivery-custom", "global-webhook-secret", pushPayload)
+	if pushResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github push webhook 202, got %d body=%s", pushResp.Code, pushResp.Body.String())
+	}
+	var pushBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(pushResp.Body.Bytes(), &pushBody); err != nil {
+		t.Fatalf("decode push webhook response: %v", err)
+	}
+	if pushBody.Webhook.MatchedProjects != 1 {
+		t.Fatalf("expected hydrated custom connector to match webhook, got %+v", pushBody.Webhook)
+	}
+}
+
 func TestRouterGitHubConnectorV2WebhookQueuesAndDisconnects(t *testing.T) {
 	lister := &fakeGitHubRepositoryLister{
 		repositories: []githubconnector.Repository{{FullName: "identrail/api", Private: true}},
