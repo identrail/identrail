@@ -20,6 +20,7 @@ import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
   ProductFindingsPage,
+  ProductGitHubCallbackPage,
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
@@ -3374,6 +3375,14 @@ export function RoutedSite() {
           <Route path="/why-no-passwords" element={<WhyNoPasswordsPage />} />
           <Route path="/app/login" element={<ProductLoginPage />} />
           <Route path="/app/callback" element={<ProductAuthCallbackRedirectPage />} />
+          <Route
+            path="/app/github/callback"
+            element={
+              <RequireProductAuth>
+                <ProductGitHubCallbackPage />
+              </RequireProductAuth>
+            }
+          />
           <Route path="/app/logout" element={<ProductLogoutPage />} />
           <Route
             path="/app/account/security"

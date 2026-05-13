@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added the standard GitHub connector foundation:
+  - GitHub App install URL generation, App JWT signing, installation token caching, HMAC-verified webhooks, and repository pagination helpers
+  - `/v1/connectors/github`, `/v1/connectors/github/pat`, `/v1/connectors/github/{connector_id}/repos`, and `/auth/webhooks/github`
+  - encrypted PAT storage for GitHub Enterprise fallback connectors and updated product UI to use the standard connector path
 - Added an Identrail Cloud API URL fallback for production web deploys:
   - canonical hosted web domains now use `https://api.identrail.com` when no build-time API URL is injected
   - Vercel production deploys default and upsert the same API URL when the GitHub Actions variable is absent

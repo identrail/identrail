@@ -3,12 +3,14 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/identrail/identrail/internal/api"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/config"
+	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
@@ -125,6 +127,19 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
 	svc.AWSCloudFormationTemplateURL = cfg.AWSCloudFormationTemplateURL
 	svc.AWSAccountID = cfg.AWSAccountID
+	svc.GitHubAppID = parseInt64Config(cfg.GitHubAppID)
+	svc.GitHubAppName = cfg.GitHubAppName
+	svc.GitHubAppPrivateKey = cfg.GitHubAppPrivateKey
+	svc.GitHubAppWebhookSecret = cfg.GitHubAppWebhookSecret
+	svc.GitHubPATValidator = githubconnector.PATValidator{}
+	tokenClient := &githubconnector.InstallationTokenClient{
+		Credentials: githubconnector.AppCredentials{
+			AppID:         svc.GitHubAppID,
+			AppSlug:       svc.GitHubAppName,
+			PrivateKeyPEM: svc.GitHubAppPrivateKey,
+		},
+	}
+	svc.GitHubRepositoryLister = githubconnector.RepositoryClient{TokenClient: tokenClient}
 	svc.AWSScannerFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.ScannerRunner, error) {
 		iamAPI, iamErr := awsprovider.NewSDKIAMAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan")
 		if iamErr != nil {
@@ -205,6 +220,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		svc.Alerter = alerter
 	}
 	return svc, store.Close, nil
+}
+
+func parseInt64Config(value string) int64 {
+	parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return parsed
 }
 
 func newAWSScanner(iamAPI awsprovider.IAMAPI) app.Scanner {

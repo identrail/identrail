@@ -1,0 +1,24 @@
+{
+  "name": "Identrail",
+  "url": "https://www.identrail.com",
+  "hook_attributes": {
+    "url": "https://api.identrail.com/auth/webhooks/github",
+    "active": true
+  },
+  "redirect_url": "https://app.identrail.com/app/github/callback",
+  "public": false,
+  "default_permissions": {
+    "metadata": "read",
+    "contents": "read",
+    "pull_requests": "read",
+    "security_events": "read"
+  },
+  "default_events": [
+    "installation",
+    "installation_repositories",
+    "push",
+    "pull_request",
+    "repository",
+    "code_scanning_alert"
+  ]
+}

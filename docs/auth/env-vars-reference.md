@@ -55,9 +55,9 @@ Self-hosted operators leave all four WorkOS variables in this section empty. The
 | Variable | Default | Validation | Adds in |
 | --- | --- | --- | --- |
 | `IDENTRAIL_GITHUB_APP_ID` | empty | Required for the App flow. | PR 8 |
-| `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` | empty | Required when `IDENTRAIL_GITHUB_APP_ID` is set. PEM-formatted RSA private key. Treated as a secret. | PR 8 |
-| `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET` | empty | Required when `IDENTRAIL_GITHUB_APP_ID` is set. Used to verify webhook HMAC. | PR 8 |
-| `IDENTRAIL_GITHUB_APP_NAME` | empty | Required. The GitHub App slug used in install URLs. | PR 8 |
+| `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` | empty | Required when `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true`. PEM-formatted RSA private key. Treated as a secret. | PR 8 |
+| `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET` | empty | Required when `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true`. Used to verify webhook HMAC. | PR 8 |
+| `IDENTRAIL_GITHUB_APP_NAME` | empty | Required when `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true`. The GitHub App slug used in install URLs. | PR 8 |
 
 ### Kubernetes Connector
 

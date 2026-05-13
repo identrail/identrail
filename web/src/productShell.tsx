@@ -8,7 +8,7 @@ import {
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type Finding as ApiFinding,
-  type GitHubConnectionStartResponse,
+  type GitHubConnectorStartResponse,
   type GitHubConnectionStatus,
   type KubernetesConnectionStatus,
   type ProjectRecord,
@@ -64,20 +64,6 @@ function normalizeValue(value: string): string {
   return value.trim();
 }
 
-function bytesToBase64URL(bytes: Uint8Array): string {
-  let binary = '';
-  for (const value of bytes) {
-    binary += String.fromCharCode(value);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function randomString(byteLength: number): string {
-  const buffer = new Uint8Array(byteLength);
-  crypto.getRandomValues(buffer);
-  return bytesToBase64URL(buffer);
-}
-
 function buildTenantWorkspacePath(tenantID: string, workspaceID: string): string {
   return `/app/${encodeURIComponent(tenantID)}/${encodeURIComponent(workspaceID)}`;
 }
@@ -130,7 +116,6 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
     requiredAccess: 'Read-only kubectl context available to the API runtime'
   }
 };
-const SOURCE_ORDER: SourceProvider[] = ['github', 'aws', 'kubernetes'];
 const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as const;
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
@@ -138,8 +123,14 @@ const PRODUCT_VITE_ENV = ((import.meta as unknown as { env?: Record<string, unkn
   string,
   unknown
 >;
+const FEATURE_CONNECTOR_GITHUB_V2 =
+  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_GITHUB_V2 === true ||
+  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_GITHUB_V2 === 'true';
 const FEATURE_CONNECTOR_AWS =
   PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === true || PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === 'true';
+const SOURCE_ORDER: SourceProvider[] = FEATURE_CONNECTOR_GITHUB_V2
+  ? ['github', 'aws', 'kubernetes']
+  : ['aws', 'kubernetes'];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
@@ -265,7 +256,7 @@ function connectionHealth(status?: GitHubConnectionStatus | AWSConnectionStatus 
     return 'unknown';
   }
   if ('health_status' in status) {
-    return status.health_status;
+    return status.health_status ?? (status.connected ? 'healthy' : 'unknown');
   }
   return status.connected ? 'healthy' : 'unknown';
 }
@@ -278,7 +269,10 @@ function connectionLifecycle(status?: GitHubConnectionStatus | AWSConnectionStat
     return 'Active';
   }
   if ('status' in status) {
-    return status.status.charAt(0).toUpperCase() + status.status.slice(1);
+    const lifecycle = status.status;
+    if (lifecycle) {
+      return lifecycle.charAt(0).toUpperCase() + lifecycle.slice(1);
+    }
   }
   return 'Not connected';
 }
@@ -327,13 +321,6 @@ function parseGitHubRepositories(value: string): string[] {
       seen.add(entry);
       return true;
     });
-}
-
-function newWebhookSecret(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    return `whsec_${randomString(32)}`;
-  }
-  return `whsec_${Date.now().toString(36)}`;
 }
 
 function useScaffoldDataState(delayMS = 320) {
@@ -532,6 +519,68 @@ export function ProductLoginPage() {
 
 export function ProductAuthCallbackRedirectPage() {
   return <Navigate to="/auth/callback" replace />;
+}
+
+export function ProductGitHubCallbackPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    const query = new URLSearchParams(location.search);
+    const state = normalizeValue(query.get('state') ?? '');
+    const setupAction = normalizeValue(query.get('setup_action') ?? '');
+    const installationID = Number.parseInt(normalizeValue(query.get('installation_id') ?? ''), 10);
+
+    const run = async () => {
+      if (!state || !Number.isFinite(installationID) || installationID <= 0) {
+        setError('GitHub did not return a valid installation callback.');
+        return;
+      }
+      try {
+        const response = await apiClient.completeGitHubConnector({
+          state,
+          installation_id: installationID,
+          setup_action: setupAction || undefined
+        });
+        if (mounted) {
+          navigate(response.redirect_path || '/app', {
+            replace: true,
+            state: { connector: response.connection.connector_id, connected: response.connection.connected }
+          });
+        }
+      } catch (callbackError) {
+        if (mounted) {
+          const message = callbackError instanceof Error ? callbackError.message : 'Unable to complete GitHub installation.';
+          setError(message);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      mounted = false;
+    };
+  }, [location.search, navigate]);
+
+  if (error) {
+    return (
+      <section className="idt-app-shell-screen" role="alert">
+        <article className="idt-app-panel idt-app-panel-error">
+          <p className="idt-app-kicker">GitHub setup failed</p>
+          <h1>Unable to complete GitHub</h1>
+          <p>{error}</p>
+          <Link className="idt-btn idt-btn-primary" to="/app">
+            Return to app
+          </Link>
+        </article>
+      </section>
+    );
+  }
+
+  return <AppShellLoading message="Completing GitHub installation" />;
 }
 
 export function ProductLogoutPage() {
@@ -1590,21 +1639,17 @@ export function ProductProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState<SourceProvider | ''>('');
-  const [selectedSource, setSelectedSource] = useState<SourceProvider>('github');
+  const [selectedSource, setSelectedSource] = useState<SourceProvider>(SOURCE_ORDER[0] ?? 'aws');
   const [successMessage, setSuccessMessage] = useState('');
-  const [githubStart, setGitHubStart] = useState<GitHubConnectionStartResponse | null>(null);
-  const [githubStartForm, setGitHubStartForm] = useState({
-    appSlug: 'identrail',
-    redirectURI: ''
+  const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);
+  const [githubAppForm, setGitHubAppForm] = useState({
+    displayName: 'GitHub App'
   });
-  const [githubComplete, setGitHubComplete] = useState({
-    state: '',
-    installationID: '',
-    accountLogin: '',
-    repositories: '',
-    tokenReference: '',
-    webhookSecret: '',
-    webhookSecretReference: ''
+  const [githubPATForm, setGitHubPATForm] = useState({
+    displayName: 'GitHub Enterprise',
+    baseURL: '',
+    token: '',
+    repositories: ''
   });
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
@@ -1665,7 +1710,9 @@ export function ProductProjectDetailPage() {
     const auth = buildProductAuthContext(scope);
 
     const results = await Promise.allSettled([
-      apiClient.getGitHubProjectConnection(scope.workspaceID, projectID, auth),
+      FEATURE_CONNECTOR_GITHUB_V2
+        ? apiClient.getGitHubConnectorStatus(scope.workspaceID, projectID, auth)
+        : Promise.resolve({ connection: undefined as unknown as GitHubConnectionStatus }),
       apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth),
       apiClient.getKubernetesProjectConnection(scope.workspaceID, projectID, auth),
       apiClient.listProjectScanPolicies(
@@ -1688,11 +1735,15 @@ export function ProductProjectDetailPage() {
     const nextErrors: Partial<Record<SourceProvider, string>> = {};
     const [githubResult, awsResult, kubernetesResult, scanPolicyResult] = results;
 
-    if (githubResult.status === 'fulfilled') {
+    if (githubResult.status === 'fulfilled' && githubResult.value.connection) {
       nextConnections.github = githubResult.value.connection;
     } else {
-      nextErrors.github =
-        githubResult.reason instanceof Error ? githubResult.reason.message : `Unable to load ${SOURCE_PROFILES.github.name} status.`;
+      if (FEATURE_CONNECTOR_GITHUB_V2) {
+        nextErrors.github =
+          githubResult.status === 'rejected' && githubResult.reason instanceof Error
+            ? githubResult.reason.message
+            : `Unable to load ${SOURCE_PROFILES.github.name} status.`;
+      }
     }
     if (awsResult.status === 'fulfilled') {
       nextConnections.aws = awsResult.value.connection;
@@ -1795,13 +1846,12 @@ export function ProductProjectDetailPage() {
     try {
       const auth = buildProductAuthContext(scope);
       const redirectURI =
-        normalizeValue(githubStartForm.redirectURI) ||
-        (typeof window !== 'undefined' ? `${window.location.origin}${buildProjectPath(scope, projectID)}` : undefined);
-      const response = await apiClient.startGitHubProjectConnection(
-        scope.workspaceID,
-        projectID,
+        typeof window !== 'undefined' ? `${window.location.origin}/app/github/callback` : undefined;
+      const response = await apiClient.startGitHubConnector(
         {
-          app_slug: normalizeValue(githubStartForm.appSlug) || undefined,
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
+          display_name: normalizeValue(githubAppForm.displayName) || undefined,
           redirect_uri: redirectURI
         },
         auth
@@ -1809,14 +1859,8 @@ export function ProductProjectDetailPage() {
       if (isStaleRequestSequence(requestSequence)) {
         return;
       }
-      setGitHubStart(response.connection);
-      setGitHubComplete((current) => ({
-        ...current,
-        state: response.connection.state,
-        webhookSecret: current.webhookSecret || newWebhookSecret(),
-        webhookSecretReference:
-          current.webhookSecretReference || `github-webhook:${projectID}:${response.connection.state.slice(0, 8)}`
-      }));
+      setGitHubStart(response);
+      setConnections((current) => ({ ...current, github: response.connection }));
       setSuccessMessage('GitHub installation link generated.');
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
@@ -1831,49 +1875,26 @@ export function ProductProjectDetailPage() {
     }
   };
 
-  const handleGitHubComplete = async (event: FormEvent<HTMLFormElement>) => {
+  const handleGitHubPATSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting('github');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, github: undefined }));
     const requestSequence = refreshSequenceRef.current;
     try {
-      const state = normalizeValue(githubComplete.state || githubStart?.state || '');
-      const installationID = Number.parseInt(githubComplete.installationID, 10);
-      const repositories = parseGitHubRepositories(githubComplete.repositories);
-      if (!state) {
-        throw new Error('Generate a GitHub install state before saving the connection.');
+      const token = normalizeValue(githubPATForm.token);
+      if (!token) {
+        throw new Error('Enter a GitHub personal access token for the self-hosted fallback.');
       }
-      if (!Number.isFinite(installationID) || installationID <= 0) {
-        throw new Error('Enter a valid GitHub App installation ID.');
-      }
-      if (repositories.length === 0) {
-        throw new Error('Add at least one repository in owner/name format.');
-      }
-
-      const tokenReference =
-        normalizeValue(githubComplete.tokenReference) || `github-app-installation:${installationID}`;
-      const webhookSecret = normalizeValue(githubComplete.webhookSecret) || newWebhookSecret();
-      const webhookSecretReference =
-        normalizeValue(githubComplete.webhookSecretReference) || `github-webhook:${projectID}:${installationID}`;
-      setGitHubComplete((current) => ({
-        ...current,
-        tokenReference,
-        webhookSecret,
-        webhookSecretReference
-      }));
-
+      const repositories = parseGitHubRepositories(githubPATForm.repositories);
       const auth = buildProductAuthContext(scope);
-      const response = await apiClient.completeGitHubProjectConnection(
-        scope.workspaceID,
-        projectID,
+      const response = await apiClient.upsertGitHubPATConnector(
         {
-          state,
-          installation_id: installationID,
-          account_login: normalizeValue(githubComplete.accountLogin) || undefined,
-          token_reference: tokenReference,
-          webhook_secret: webhookSecret,
-          webhook_secret_reference: webhookSecretReference,
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
+          display_name: normalizeValue(githubPATForm.displayName) || undefined,
+          base_url: normalizeValue(githubPATForm.baseURL) || undefined,
+          token,
           selected_repositories: repositories
         },
         auth
@@ -1883,12 +1904,13 @@ export function ProductProjectDetailPage() {
       }
       setConnections((current) => ({ ...current, github: response.connection }));
       setGitHubStart(null);
-      setSuccessMessage('GitHub connection saved and ready for repository events.');
+      setGitHubPATForm((current) => ({ ...current, token: '' }));
+      setSuccessMessage('GitHub Enterprise connector validated and saved.');
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
       }
-      const message = error instanceof Error ? error.message : 'Unable to complete GitHub connection.';
+      const message = error instanceof Error ? error.message : 'Unable to save GitHub Enterprise connector.';
       setSourceErrors((current) => ({ ...current, github: message }));
     } finally {
       if (!isStaleRequestSequence(requestSequence)) {
@@ -2290,24 +2312,16 @@ export function ProductProjectDetailPage() {
               <form className="idt-app-form" onSubmit={handleGitHubStart}>
                 <div className="idt-source-inline-fields">
                   <label>
-                    GitHub App slug
+                    Display name
                     <input
-                      value={githubStartForm.appSlug}
-                      onChange={(event) => setGitHubStartForm((current) => ({ ...current, appSlug: event.target.value }))}
-                      placeholder="identrail"
-                    />
-                  </label>
-                  <label>
-                    Redirect URI
-                    <input
-                      value={githubStartForm.redirectURI}
+                      value={githubAppForm.displayName}
                       onChange={(event) =>
-                        setGitHubStartForm((current) => ({ ...current, redirectURI: event.target.value }))
+                        setGitHubAppForm((current) => ({ ...current, displayName: event.target.value }))
                       }
-                      placeholder="Current project page"
+                      placeholder="GitHub App"
                     />
-                  </label>
-                </div>
+	                  </label>
+	                </div>
                 <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
                   {submitting === 'github' ? 'Preparing...' : 'Generate install link'}
                 </button>
@@ -2319,95 +2333,55 @@ export function ProductProjectDetailPage() {
                     <h4>GitHub installation ready</h4>
                     <p>State expires {formatConnectionTime(githubStart.expires_at)}.</p>
                   </div>
-                  <a className="idt-btn idt-btn-dark" href={githubStart.connect_url} target="_blank" rel="noreferrer">
+                  <a className="idt-btn idt-btn-dark" href={githubStart.install_url} target="_blank" rel="noreferrer">
                     Open GitHub
                   </a>
                 </article>
               ) : null}
 
-              <form className="idt-app-form" onSubmit={handleGitHubComplete}>
+              <form className="idt-app-form" onSubmit={handleGitHubPATSubmit}>
                 <div className="idt-source-inline-fields">
                   <label>
-                    Install state
+                    Enterprise base URL
                     <input
-                      value={githubComplete.state}
-                      onChange={(event) => setGitHubComplete((current) => ({ ...current, state: event.target.value }))}
-                      placeholder="Generated install state"
-                      required
+                      value={githubPATForm.baseURL}
+                      onChange={(event) => setGitHubPATForm((current) => ({ ...current, baseURL: event.target.value }))}
+                      placeholder="https://github.company.com"
                     />
                   </label>
                   <label>
-                    Installation ID
+                    Display name
                     <input
-                      inputMode="numeric"
-                      value={githubComplete.installationID}
+                      value={githubPATForm.displayName}
                       onChange={(event) =>
-                        setGitHubComplete((current) => ({ ...current, installationID: event.target.value }))
+                        setGitHubPATForm((current) => ({ ...current, displayName: event.target.value }))
                       }
-                      placeholder="12345678"
-                      required
+                      placeholder="GitHub Enterprise"
                     />
                   </label>
                 </div>
                 <label>
-                  Account login
+                  Personal access token
                   <input
-                    value={githubComplete.accountLogin}
-                    onChange={(event) =>
-                      setGitHubComplete((current) => ({ ...current, accountLogin: event.target.value }))
-                    }
-                    placeholder="organization or user"
-                  />
-                </label>
-                <label>
-                  Selected repositories
-                  <textarea
-                    value={githubComplete.repositories}
-                    onChange={(event) =>
-                      setGitHubComplete((current) => ({ ...current, repositories: event.target.value }))
-                    }
-                    placeholder="owner/repo, owner/security-platform"
+                    type="password"
+                    value={githubPATForm.token}
+                    onChange={(event) => setGitHubPATForm((current) => ({ ...current, token: event.target.value }))}
+                    placeholder="GitHub Enterprise fallback token"
                     required
                   />
                 </label>
-                <details className="idt-source-advanced">
-                  <summary>Credential references</summary>
-                  <div className="idt-source-inline-fields">
-                    <label>
-                      Token reference
-                      <input
-                        value={githubComplete.tokenReference}
-                        onChange={(event) =>
-                          setGitHubComplete((current) => ({ ...current, tokenReference: event.target.value }))
-                        }
-                        placeholder="Auto generated from installation ID"
-                      />
-                    </label>
-                    <label>
-                      Webhook secret reference
-                      <input
-                        value={githubComplete.webhookSecretReference}
-                        onChange={(event) =>
-                          setGitHubComplete((current) => ({ ...current, webhookSecretReference: event.target.value }))
-                        }
-                        placeholder="Auto generated for this project"
-                      />
-                    </label>
-                  </div>
-                  <label>
-                    Webhook secret
-                    <input
-                      type="password"
-                      value={githubComplete.webhookSecret}
-                      onChange={(event) =>
-                        setGitHubComplete((current) => ({ ...current, webhookSecret: event.target.value }))
-                      }
-                      placeholder="Generated when install link is created"
-                    />
-                  </label>
-                </details>
+                <label>
+                  Repository allowlist
+                  <textarea
+                    value={githubPATForm.repositories}
+                    onChange={(event) =>
+                      setGitHubPATForm((current) => ({ ...current, repositories: event.target.value }))
+                    }
+                    placeholder="owner/repo, owner/security-platform"
+                  />
+                </label>
                 <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
-                  {submitting === 'github' ? 'Saving...' : 'Save GitHub connection'}
+                  {submitting === 'github' ? 'Validating...' : 'Save enterprise fallback'}
                 </button>
               </form>
             </div>

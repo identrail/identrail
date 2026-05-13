@@ -466,6 +466,59 @@ export type GitHubConnectionStartResponse = {
   expires_at: string;
 };
 
+export type GitHubConnectorStartRequest = {
+  workspace_id?: string;
+  project_id?: string;
+  connector_id?: string;
+  display_name?: string;
+  redirect_uri?: string;
+};
+
+export type GitHubConnectorStartResponse = {
+  connection: GitHubConnectionStatus;
+  connector_id: string;
+  state: string;
+  install_url: string;
+  webhook_url?: string;
+  expires_at: string;
+};
+
+export type GitHubConnectorCompleteRequest = {
+  state: string;
+  installation_id: number;
+  setup_action?: string;
+  account_login?: string;
+};
+
+export type GitHubConnectorCompleteResponse = {
+  connection: GitHubConnectionStatus;
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  redirect_path: string;
+};
+
+export type GitHubPATConnectorRequest = {
+  workspace_id?: string;
+  project_id?: string;
+  connector_id?: string;
+  display_name?: string;
+  base_url?: string;
+  token: string;
+  selected_repositories?: string[];
+};
+
+export type GitHubRepositoryStatus = {
+  full_name: string;
+  private?: boolean;
+};
+
+export type GitHubRepositoryListResponse = {
+  connector_id: string;
+  provider: string;
+  repositories: GitHubRepositoryStatus[];
+};
+
 export type GitHubConnectionCompleteRequest = {
   state: string;
   installation_id: number;
@@ -479,8 +532,14 @@ export type GitHubConnectionCompleteRequest = {
 export type GitHubConnectionStatus = {
   provider: string;
   connected: boolean;
+  connector_id?: string;
+  display_name?: string;
+  status?: ConnectorLifecycleStatus;
+  health_status?: ConnectorHealthStatus;
   account_login?: string;
   installation_id?: number;
+  base_url?: string;
+  scopes?: string[];
   token_reference?: string;
   webhook_secret_reference?: string;
   webhook_secret_key_version?: string;
@@ -983,6 +1042,36 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(payload)
     });
+  },
+  startGitHubConnector(payload: GitHubConnectorStartRequest, auth?: RequestAuthContext) {
+    return request<GitHubConnectorStartResponse>('/v1/connectors/github', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  completeGitHubConnector(payload: GitHubConnectorCompleteRequest, auth?: RequestAuthContext) {
+    return request<GitHubConnectorCompleteResponse>('/v1/connectors/github/complete', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  getGitHubConnectorStatus(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: GitHubConnectionStatus }>(
+      `/v1/connectors/github${buildQuery({ workspace_id: workspaceID, project_id: projectID })}`,
+      auth
+    );
+  },
+  upsertGitHubPATConnector(payload: GitHubPATConnectorRequest, auth?: RequestAuthContext) {
+    return request<{ connection: GitHubConnectionStatus }>('/v1/connectors/github/pat', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  listGitHubConnectorRepositories(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<GitHubRepositoryListResponse>(
+      `/v1/connectors/github/${encodeURIComponent(connectorID)}/repos${buildQuery({ workspace_id: workspaceID, project_id: projectID })}`,
+      auth
+    );
   },
   upsertAWSProjectConnection(
     workspaceID: string,

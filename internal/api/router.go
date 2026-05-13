@@ -56,31 +56,32 @@ const (
 
 // RouterOptions controls API middleware behavior.
 type RouterOptions struct {
-	APIKeys              []string
-	WriteAPIKeys         []string
-	APIKeyScopes         map[string][]string
-	APIKeyScopeBindings  map[string]db.Scope
-	OIDCTokenVerifier    TokenVerifier
-	OIDCWriteScopes      []string
-	RateLimitRPM         int
-	RateLimitBurst       int
-	AuditSink            audit.AuditSink
-	AuditFingerprinter   *audit.Fingerprinter
-	TrustedProxies       []string
-	CORSAllowedOrigins   []string
-	DefaultTenantID      string
-	DefaultWorkspaceID   string
-	RequireExplicitScope bool
-	FeatureNewAuth       bool
-	FeatureWorkOSLogin   bool
-	FeatureConnectorAWS  bool
-	PublicBaseURL        string
-	SessionKey           string
-	AuthManualMode       bool
-	WorkOSClientID       string
-	WorkOSAPIKey         string
-	WorkOSWebhookSecret  string
-	WorkOSAuthClient     sessionauth.WorkOSClient
+	APIKeys                  []string
+	WriteAPIKeys             []string
+	APIKeyScopes             map[string][]string
+	APIKeyScopeBindings      map[string]db.Scope
+	OIDCTokenVerifier        TokenVerifier
+	OIDCWriteScopes          []string
+	RateLimitRPM             int
+	RateLimitBurst           int
+	AuditSink                audit.AuditSink
+	AuditFingerprinter       *audit.Fingerprinter
+	TrustedProxies           []string
+	CORSAllowedOrigins       []string
+	DefaultTenantID          string
+	DefaultWorkspaceID       string
+	RequireExplicitScope     bool
+	FeatureNewAuth           bool
+	FeatureWorkOSLogin       bool
+	FeatureConnectorAWS      bool
+	FeatureConnectorGitHubV2 bool
+	PublicBaseURL            string
+	SessionKey               string
+	AuthManualMode           bool
+	WorkOSClientID           string
+	WorkOSAPIKey             string
+	WorkOSWebhookSecret      string
+	WorkOSAuthClient         sessionauth.WorkOSClient
 }
 
 type scopedAPIKeyAuthConfig struct {
@@ -246,6 +247,41 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 	})
 
+	r.POST("/auth/webhooks/github", func(c *gin.Context) {
+		if svc == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, defaultJSONBodyLimit)
+		payload, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
+			return
+		}
+		result, err := svc.HandleGitHubAppWebhook(
+			c.Request.Context(),
+			c.GetHeader("X-GitHub-Event"),
+			c.GetHeader("X-GitHub-Delivery"),
+			c.GetHeader("X-Hub-Signature-256"),
+			payload,
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrGitHubWebhookSignatureInvalid):
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid webhook signature"})
+			case errors.Is(err, ErrInvalidGitHubWebhookPayload):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
+			default:
+				if logger != nil {
+					logger.Error("handle github app webhook", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process webhook"})
+			}
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{"webhook": result})
+	})
+
 	var authzStore db.Store
 	if svc != nil {
 		authzStore = svc.Store
@@ -313,7 +349,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		registerMeRoutes(v1, logger, svc, sessionManager)
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
-	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS)
+	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS, opts.FeatureConnectorGitHubV2)
 	registerKubernetesConnectionRoutes(v1, logger, svc)
 
 	if svc == nil {
@@ -963,7 +999,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	return r
 }
 
-func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, featureConnectorAWS bool) {
+func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, featureConnectorAWS bool, featureConnectorGitHubV2 bool) {
 	v1.GET("/organizations/current", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)
@@ -1693,6 +1729,177 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				logger.Error("refresh aws connector policy", telemetry.ZapError(err))
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refresh aws connector policy"})
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	v1.POST("/connectors/github", func(c *gin.Context) {
+		if !featureConnectorGitHubV2 {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request GitHubConnectorStartRequest
+		if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		response, err := svc.StartGitHubConnector(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
+			case errors.Is(err, ErrGitHubAppConfigUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github app connector is not configured"})
+			default:
+				if logger != nil {
+					logger.Error("start github connector", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start github connector"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	v1.POST("/connectors/github/complete", func(c *gin.Context) {
+		if !featureConnectorGitHubV2 {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request GitHubConnectorCompleteRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		if request.InstallationID == 0 {
+			parsed, err := parseGitHubInstallationID(c.GetHeader("X-GitHub-Installation-ID"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
+				return
+			}
+			request.InstallationID = parsed
+		}
+		response, err := svc.CompleteGitHubConnector(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrGitHubConnectStateNotFound):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired github connector state"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
+			case errors.Is(err, ErrGitHubAppConfigUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github app connector is not configured"})
+			default:
+				if logger != nil {
+					logger.Error("complete github connector", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete github connector"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	v1.GET("/connectors/github", func(c *gin.Context) {
+		if !featureConnectorGitHubV2 {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		response, err := svc.GetGitHubConnectorStatus(c.Request.Context(), c.Query("workspace_id"), c.Query("project_id"))
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
+			default:
+				if logger != nil {
+					logger.Error("get github connector", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get github connector"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": response})
+	})
+
+	v1.POST("/connectors/github/pat", func(c *gin.Context) {
+		if !featureConnectorGitHubV2 {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request GitHubPATConnectorRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		response, err := svc.UpsertGitHubPATConnector(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github pat connector request"})
+			case errors.Is(err, ErrGitHubPATValidatorUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github pat validator unavailable"})
+			case errors.Is(err, ErrGitHubConnectorSecretUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github connector secret manager unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("upsert github pat connector", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save github pat connector"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": response})
+	})
+
+	v1.GET("/connectors/github/:connector_id/repos", func(c *gin.Context) {
+		if !featureConnectorGitHubV2 {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		response, err := svc.GetGitHubConnectorRepositories(
+			c.Request.Context(),
+			c.Param("connector_id"),
+			c.Query("workspace_id"),
+			c.Query("project_id"),
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "github connector not found"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
+			default:
+				if logger != nil {
+					logger.Error("list github connector repositories", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list github repositories"})
+			}
 			return
 		}
 		c.JSON(http.StatusOK, response)

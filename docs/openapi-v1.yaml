@@ -294,6 +294,27 @@ x-identrail-route-authorizations:
     resource_type: connector
     resource_id_param: connector_id
   - method: POST
+    path: /v1/connectors/github
+    action: tenancy.write
+    resource_type: connector
+  - method: GET
+    path: /v1/connectors/github
+    action: tenancy.read
+    resource_type: connector
+  - method: POST
+    path: /v1/connectors/github/complete
+    action: tenancy.write
+    resource_type: connector
+  - method: POST
+    path: /v1/connectors/github/pat
+    action: tenancy.write
+    resource_type: connector
+  - method: GET
+    path: /v1/connectors/github/{connector_id}/repos
+    action: tenancy.read
+    resource_type: connector
+    resource_id_param: connector_id
+  - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection
     action: tenancy.write
     resource_type: project
@@ -1765,6 +1786,175 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AWSConnectorPolicyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/connectors/github:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: Get GitHub connector status
+      operationId: getGitHubConnectorStatus
+      parameters:
+        - in: query
+          name: workspace_id
+          schema: { type: string }
+        - in: query
+          name: project_id
+          schema: { type: string }
+      responses:
+        "200":
+          description: GitHub connector status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/GitHubConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [ProjectManagement]
+      summary: Start GitHub App connector setup
+      operationId: startGitHubConnector
+      description: Creates a project-scoped GitHub App connector setup state and returns the hosted GitHub App installation URL.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubConnectorStartRequest"
+      responses:
+        "200":
+          description: GitHub connector installation launch data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubConnectorStartResponse"
+        "400":
+          description: Invalid GitHub connector request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: GitHub App connector flow is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/connectors/github/complete:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Complete GitHub App connector setup
+      operationId: completeGitHubConnector
+      description: Activates a pending GitHub App connector after GitHub returns the installation callback state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubConnectorCompleteRequest"
+      responses:
+        "200":
+          description: Activated GitHub connector and app redirect path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubConnectorCompleteResponse"
+        "400":
+          description: Invalid or expired GitHub connector state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: GitHub App connector flow is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/connectors/github/pat:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Validate and save GitHub Enterprise PAT connector
+      operationId: upsertGitHubPATConnector
+      description: Validates a GitHub.com or GitHub Enterprise Server personal access token and stores it in an encrypted connector secret envelope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubPATConnectorRequest"
+      responses:
+        "200":
+          description: GitHub connector status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/GitHubConnectionStatus"
+        "400":
+          description: Invalid GitHub PAT connector request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: GitHub PAT validator unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/connectors/github/{connector_id}/repos:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: workspace_id
+        schema: { type: string }
+      - in: query
+        name: project_id
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: List GitHub connector repositories
+      operationId: listGitHubConnectorRepositories
+      responses:
+        "200":
+          description: GitHub repository list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubRepositoryListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -3580,6 +3770,104 @@ components:
         expires_at:
           type: string
           format: date-time
+    GitHubConnectorStartRequest:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+    GitHubConnectorStartResponse:
+      type: object
+      properties:
+        connection:
+          $ref: "#/components/schemas/GitHubConnectionStatus"
+        connector_id:
+          type: string
+        state:
+          type: string
+        install_url:
+          type: string
+          format: uri
+        webhook_url:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    GitHubConnectorCompleteRequest:
+      type: object
+      required: [state, installation_id]
+      properties:
+        state:
+          type: string
+        installation_id:
+          type: integer
+          format: int64
+          minimum: 1
+        setup_action:
+          type: string
+        account_login:
+          type: string
+    GitHubConnectorCompleteResponse:
+      type: object
+      properties:
+        connection:
+          $ref: "#/components/schemas/GitHubConnectionStatus"
+        tenant_id:
+          type: string
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        redirect_path:
+          type: string
+    GitHubPATConnectorRequest:
+      type: object
+      required: [token]
+      properties:
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        base_url:
+          type: string
+          format: uri
+        token:
+          type: string
+          writeOnly: true
+        selected_repositories:
+          type: array
+          items:
+            type: string
+    GitHubRepositoryStatus:
+      type: object
+      properties:
+        full_name:
+          type: string
+        private:
+          type: boolean
+    GitHubRepositoryListResponse:
+      type: object
+      properties:
+        connector_id:
+          type: string
+        provider:
+          type: string
+        repositories:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitHubRepositoryStatus"
     GitHubConnectionCompleteRequest:
       type: object
       required:
@@ -3635,11 +3923,26 @@ components:
           type: string
         connected:
           type: boolean
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        status:
+          type: string
+        health_status:
+          type: string
         account_login:
           type: string
         installation_id:
           type: integer
           format: int64
+        base_url:
+          type: string
+          format: uri
+        scopes:
+          type: array
+          items:
+            type: string
         token_reference:
           type: string
         webhook_secret_reference:

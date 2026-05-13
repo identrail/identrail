@@ -5,7 +5,7 @@ PR 7 adds the hosted AWS connector onboarding path behind two feature flags:
 - Backend: `IDENTRAIL_FEATURE_CONNECTOR_AWS=true`
 - Frontend: `VITE_FEATURE_CONNECTOR_AWS=true`
 
-The legacy manual project route stays available:
+The product path is the standard connector API. Older project-scoped AWS routes are not the product path and should not be used by new UI:
 
 ```text
 POST /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection

@@ -119,6 +119,12 @@ type Service struct {
 	AWSScannerFactory            AWSScannerFactory
 	AWSCloudFormationTemplateURL string
 	AWSAccountID                 string
+	GitHubAppID                  int64
+	GitHubAppName                string
+	GitHubAppPrivateKey          string
+	GitHubAppWebhookSecret       string
+	GitHubPATValidator           GitHubPATValidator
+	GitHubRepositoryLister       GitHubRepositoryLister
 	GitHubWebhookReplayWindow    time.Duration
 	GitHubWebhookBurstWindow     time.Duration
 	githubConnectMu              sync.RWMutex

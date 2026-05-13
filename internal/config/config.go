@@ -50,6 +50,7 @@ const (
 	defaultFeatureNewAuth              = false
 	defaultFeatureWorkOSLogin          = false
 	defaultFeatureConnectorAWS         = false
+	defaultFeatureConnectorGitHubV2    = false
 	defaultAuthManualMode              = false
 	defaultAppModeEnabled              = false
 	defaultAppModeConnectorsEnabled    = false
@@ -158,6 +159,11 @@ type Config struct {
 	FeatureNewAuth               bool
 	FeatureWorkOSLogin           bool
 	FeatureConnectorAWS          bool
+	FeatureConnectorGitHubV2     bool
+	GitHubAppID                  string
+	GitHubAppName                string
+	GitHubAppPrivateKey          string
+	GitHubAppWebhookSecret       string
 	PublicBaseURL                string
 	SessionKey                   string
 	SessionKeyPrevious           string
@@ -295,6 +301,11 @@ func Load() Config {
 		FeatureNewAuth:               boolEnv("IDENTRAIL_FEATURE_NEW_AUTH", defaultFeatureNewAuth),
 		FeatureWorkOSLogin:           boolEnv("IDENTRAIL_FEATURE_WORKOS_LOGIN", defaultFeatureWorkOSLogin),
 		FeatureConnectorAWS:          boolEnv("IDENTRAIL_FEATURE_CONNECTOR_AWS", defaultFeatureConnectorAWS),
+		FeatureConnectorGitHubV2:     boolEnv("IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2", defaultFeatureConnectorGitHubV2),
+		GitHubAppID:                  getEnv("IDENTRAIL_GITHUB_APP_ID", ""),
+		GitHubAppName:                getEnv("IDENTRAIL_GITHUB_APP_NAME", ""),
+		GitHubAppPrivateKey:          getEnv("IDENTRAIL_GITHUB_APP_PRIVATE_KEY", ""),
+		GitHubAppWebhookSecret:       getEnv("IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET", ""),
 		PublicBaseURL:                getEnv("IDENTRAIL_PUBLIC_BASE_URL", ""),
 		SessionKey:                   getEnv("IDENTRAIL_SESSION_KEY", ""),
 		SessionKeyPrevious:           getEnv("IDENTRAIL_SESSION_KEY_PREVIOUS", ""),

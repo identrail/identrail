@@ -6,9 +6,11 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/repoallowlist"
 	"github.com/identrail/identrail/internal/secretstore"
@@ -263,6 +265,24 @@ func ValidateSecurity(cfg Config) error {
 		}
 		if strings.TrimSpace(cfg.DatabaseURL) != "" && strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
 			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_AWS=true and IDENTRAIL_DATABASE_URL is configured")
+		}
+	}
+	if cfg.FeatureConnectorGitHubV2 {
+		appID, err := strconv.ParseInt(strings.TrimSpace(cfg.GitHubAppID), 10, 64)
+		if err != nil || appID <= 0 {
+			return fmt.Errorf("IDENTRAIL_GITHUB_APP_ID must be a positive integer when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
+		}
+		if _, err := githubconnector.NormalizeAppSlug(cfg.GitHubAppName); err != nil {
+			return fmt.Errorf("IDENTRAIL_GITHUB_APP_NAME must be a valid GitHub App slug when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
+		}
+		if _, err := githubconnector.ParsePrivateKey(cfg.GitHubAppPrivateKey); err != nil {
+			return fmt.Errorf("IDENTRAIL_GITHUB_APP_PRIVATE_KEY must be a PEM encoded RSA private key when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
+		}
+		if strings.TrimSpace(cfg.GitHubAppWebhookSecret) == "" {
+			return fmt.Errorf("IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET is required when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
+		}
+		if strings.TrimSpace(cfg.DatabaseURL) != "" && strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
+			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true and IDENTRAIL_DATABASE_URL is configured")
 		}
 	}
 

@@ -308,7 +308,7 @@ PR 5 (frontend auth)                 │
 **Goal.** GitHub App for SaaS GitHub.com. PAT fallback for self-hosted GitHub Enterprise.
 
 **Files.**
-- `internal/connectors/github/provider.go` (supersedes legacy `github_connect.go` while keeping it).
+- `internal/connectors/github/provider.go` (standard connector surface; old project-scoped routes are not the product path).
 - `internal/connectors/github/app.go` (App credential management, JWT signing, installation token minting).
 - `internal/connectors/github/pat.go` (PAT path for GHES).
 - `internal/connectors/github/webhook.go` (installation lifecycle).
@@ -318,8 +318,8 @@ PR 5 (frontend auth)                 │
 **Flow (App).**
 1. User picks "GitHub.com (recommended)". Backend returns App install URL with state.
 2. User redirected to GitHub, picks org and repos, installs.
-3. Webhook receives `installation.created`. We capture installation ID.
-4. List accessible repos, store as scannable targets, first scan begins.
+3. GitHub returns to `/app/github/callback`; the app calls `POST /v1/connectors/github/complete`.
+4. Backend captures the installation ID, lists accessible repos, and stores them as scannable targets.
 
 **Flow (PAT).**
 1. User picks "GitHub Enterprise / PAT".
@@ -327,7 +327,7 @@ PR 5 (frontend auth)                 │
 
 **App permissions.** Read-only: Contents, Metadata, Pull Requests, Code Scanning Alerts.
 
-**New endpoints.** `POST /v1/connectors/github`, `POST /v1/connectors/github/pat`, `POST /auth/webhooks/github` (HMAC-verified), `GET /v1/connectors/github/:id/repos`.
+**New endpoints.** `POST /v1/connectors/github`, `GET /v1/connectors/github`, `POST /v1/connectors/github/complete`, `POST /v1/connectors/github/pat`, `POST /auth/webhooks/github` (HMAC-verified), `GET /v1/connectors/github/:id/repos`.
 
 **New env vars.** `IDENTRAIL_GITHUB_APP_ID`, `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` (PEM), `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`, `IDENTRAIL_GITHUB_APP_NAME`.
 
@@ -335,9 +335,9 @@ PR 5 (frontend auth)                 │
 
 **Tests.** App JWT signing. Installation token minting and caching. Webhook signature verification. PAT validation. Repo pagination. End-to-end with mocked GitHub API.
 
-**Acceptance.** User installs Identrail GitHub App on their org. Scanning starts on selected repos within 60 seconds. `installation.deleted` webhook removes connector cleanly. GHES users with PAT can connect.
+**Acceptance.** User installs Identrail GitHub App on their org and returns to an active connector with selected repos visible. Repository webhooks queue scans for selected repos. `installation.deleted` webhook removes connector cleanly. GHES users with PAT can connect.
 
-**Rollback.** Backend flag `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=false` returns the new `/v1/connectors/github*` and `/auth/webhooks/github` endpoints to 404 (legacy `internal/api/github_connect.go` paths stay). Frontend flag `VITE_FEATURE_CONNECTOR_GITHUB_V2=false` falls back to the legacy connect UI.
+**Rollback.** Backend flag `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=false` returns the standard `/v1/connectors/github*` endpoints to 404. Frontend flag `VITE_FEATURE_CONNECTOR_GITHUB_V2=false` hides the GitHub connector UI rather than falling back to old project-scoped setup.
 
 ---
 
