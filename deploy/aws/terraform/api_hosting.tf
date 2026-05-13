@@ -68,17 +68,17 @@ resource "terraform_data" "api_inputs" {
     }
 
     precondition {
-      condition = length(var.api_public_subnet_ids) >= 2 && alltrue([
+      condition = length(distinct(var.api_public_subnet_ids)) >= 2 && alltrue([
         for subnet_id in var.api_public_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
       ])
-      error_message = "api_public_subnet_ids must include at least two valid subnet IDs when create_api_hosting_resources=true."
+      error_message = "api_public_subnet_ids must include at least two distinct valid subnet IDs, preferably in different Availability Zones, when create_api_hosting_resources=true."
     }
 
     precondition {
-      condition = length(var.api_private_subnet_ids) >= 2 && alltrue([
+      condition = length(distinct(var.api_private_subnet_ids)) >= 2 && alltrue([
         for subnet_id in var.api_private_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
       ])
-      error_message = "api_private_subnet_ids must include at least two valid subnet IDs when create_api_hosting_resources=true."
+      error_message = "api_private_subnet_ids must include at least two distinct valid subnet IDs when create_api_hosting_resources=true."
     }
 
     precondition {

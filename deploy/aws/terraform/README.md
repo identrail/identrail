@@ -73,9 +73,10 @@ terraform plan \
 
 ## Manual Dev Plan With API Hosting Enabled
 
-Only run this after the VPC, public/private subnets, ACM certificate, immutable
-API image, database, auth configuration, and Secrets Manager references are
-ready:
+Only run this after the VPC, at least two distinct public subnets in different
+Availability Zones, at least two distinct private subnets, ACM certificate,
+immutable API image, database, auth configuration, and Secrets Manager
+references are ready:
 
 ```bash
 cd deploy/aws/terraform

@@ -87,26 +87,26 @@ variable "api_vpc_id" {
 }
 
 variable "api_public_subnet_ids" {
-  description = "Public subnet IDs for the API application load balancer. Provide at least two subnets when API hosting is enabled."
+  description = "Public subnet IDs for the API application load balancer. Provide at least two distinct subnets in different Availability Zones when API hosting is enabled."
   type        = list(string)
   default     = []
   validation {
-    condition = alltrue([
+    condition = length(var.api_public_subnet_ids) == length(distinct(var.api_public_subnet_ids)) && alltrue([
       for subnet_id in var.api_public_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
     ])
-    error_message = "api_public_subnet_ids must contain valid subnet IDs."
+    error_message = "api_public_subnet_ids must contain distinct valid subnet IDs."
   }
 }
 
 variable "api_private_subnet_ids" {
-  description = "Private subnet IDs for the API ECS tasks. Provide at least two subnets when API hosting is enabled."
+  description = "Private subnet IDs for the API ECS tasks. Provide at least two distinct subnets when API hosting is enabled."
   type        = list(string)
   default     = []
   validation {
-    condition = alltrue([
+    condition = length(var.api_private_subnet_ids) == length(distinct(var.api_private_subnet_ids)) && alltrue([
       for subnet_id in var.api_private_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
     ])
-    error_message = "api_private_subnet_ids must contain valid subnet IDs."
+    error_message = "api_private_subnet_ids must contain distinct valid subnet IDs."
   }
 }
 

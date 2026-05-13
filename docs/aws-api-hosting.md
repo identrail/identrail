@@ -36,8 +36,10 @@ exist and have been reviewed.
 Before a manual apply, operators must provide:
 
 - `api_vpc_id`
-- `api_public_subnet_ids` for the load balancer
-- `api_private_subnet_ids` for Fargate tasks
+- `api_public_subnet_ids` for the load balancer, with at least two distinct
+  public subnets in different Availability Zones
+- `api_private_subnet_ids` for Fargate tasks, with at least two distinct private
+  subnets
 - `api_certificate_arn` for HTTPS on `api.identrail.com`
 - `api_container_image` pinned to an immutable release tag
 - `api_cors_allowed_origins`, defaulting to the Identrail Cloud web origins
