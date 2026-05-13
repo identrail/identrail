@@ -138,9 +138,9 @@ variable "api_cors_allowed_origins" {
   ]
   validation {
     condition = alltrue([
-      for origin in var.api_cors_allowed_origins : can(regex("^https://[^, ]+$", origin))
+      for origin in var.api_cors_allowed_origins : can(regex("^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$", origin))
     ])
-    error_message = "api_cors_allowed_origins must contain HTTPS origins such as https://app.identrail.com."
+    error_message = "api_cors_allowed_origins must contain bare HTTPS origins without paths, queries, fragments, or trailing slashes, such as https://app.identrail.com."
   }
 }
 

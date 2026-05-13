@@ -51,7 +51,9 @@ Before a manual apply, operators must provide:
   and S3 image-layer access; API tasks run with `assign_public_ip=false`
 - `api_certificate_arn` for HTTPS on `api.identrail.com`
 - `api_container_image` pinned to an immutable release tag
-- `api_cors_allowed_origins`, defaulting to the Identrail Cloud web origins
+- `api_cors_allowed_origins`, defaulting to the Identrail Cloud web origins;
+  entries must be bare HTTPS origins such as `https://app.identrail.com`, not
+  URLs with paths, queries, fragments, or trailing slashes
 - `api_trusted_proxy_cidr_blocks`, defaulting to private VPC ranges used by ALB
   nodes in common AWS VPCs
 - `api_secrets`, including `IDENTRAIL_DATABASE_URL` as a Secrets Manager ARN

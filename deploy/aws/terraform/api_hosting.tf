@@ -187,9 +187,9 @@ resource "terraform_data" "api_inputs" {
 
     precondition {
       condition = length(local.api_runtime_cors_allowed_origins) > 0 && alltrue([
-        for origin in local.api_runtime_cors_allowed_origins : can(regex("^https://[^, ]+$", origin))
+        for origin in local.api_runtime_cors_allowed_origins : can(regex("^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$", origin))
       ])
-      error_message = "API hosting requires IDENTRAIL_CORS_ALLOWED_ORIGINS to contain at least one HTTPS web origin."
+      error_message = "API hosting requires IDENTRAIL_CORS_ALLOWED_ORIGINS to contain at least one bare HTTPS web origin without paths, queries, fragments, or trailing slashes."
     }
 
     precondition {
