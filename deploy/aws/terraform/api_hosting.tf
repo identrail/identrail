@@ -27,6 +27,9 @@ locals {
   api_runtime_environment_variables = merge(local.api_default_environment_variables, var.api_environment_variables)
   api_config_names                  = toset(concat(keys(local.api_runtime_environment_variables), keys(var.api_secrets)))
   api_secret_config_names           = toset(keys(var.api_secrets))
+  api_secret_resource_arns = toset([
+    for value_from in values(var.api_secrets) : join(":", slice(split(":", value_from), 0, 7))
+  ])
   api_runtime_cors_allowed_origins = compact([
     for origin in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_CORS_ALLOWED_ORIGINS", "")) : trimspace(origin)
   ])
@@ -189,7 +192,7 @@ data "aws_iam_policy_document" "api_task_execution_secrets" {
 
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = values(var.api_secrets)
+    resources = local.api_secret_resource_arns
   }
 
   dynamic "statement" {

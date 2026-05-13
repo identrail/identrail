@@ -278,7 +278,7 @@ variable "api_environment_variables" {
 }
 
 variable "api_secrets" {
-  description = "Map of API environment variable names to Secrets Manager secret ARNs. Values are references only, not secret material."
+  description = "Map of API environment variable names to Secrets Manager secret ARNs or ECS valueFrom selectors. Values are references only, not secret material."
   type        = map(string)
   default     = {}
   validation {

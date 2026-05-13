@@ -24,6 +24,9 @@ It does not write secret values. Runtime secrets should be created by the
 operator or a dedicated secrets workflow and referenced through `api_secrets`.
 If those secrets use customer-managed KMS keys, list the key ARNs in
 `api_secret_kms_key_arns` so ECS secret injection can decrypt them.
+`api_secrets` may use ECS `valueFrom` selectors for JSON keys or versions, but
+the generated IAM policy grants `GetSecretValue` on the underlying base secret
+ARN so task startup has the correct access.
 Do not place database URLs, API keys, session keys, or OAuth/webhook/HMAC
 secrets in `api_environment_variables`; API hosting rejects known secret-bearing
 Identrail variables there so Terraform state does not receive secret material.

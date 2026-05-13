@@ -66,6 +66,9 @@ If a referenced secret uses a customer-managed KMS key, add that key ARN to
 `api_secret_kms_key_arns` so ECS can decrypt the secret during task startup.
 Leave the list empty for secrets encrypted with the AWS-managed Secrets Manager
 key.
+`api_secrets` values can use ECS `valueFrom` selectors such as a JSON key or
+secret version suffix. Terraform still grants IAM access to the base Secrets
+Manager ARN so ECS can fetch the underlying secret during task startup.
 
 For the first manual AWS plan, prefer Secrets Manager references for
 `IDENTRAIL_DATABASE_URL`, `IDENTRAIL_API_KEY_SCOPES`, and, when tenant/workspace
