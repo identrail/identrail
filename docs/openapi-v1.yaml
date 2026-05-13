@@ -42,6 +42,14 @@ x-identrail-route-authorizations:
     resource_type: finding_export
     resource_id_param: finding_id
   - method: GET
+    path: /v1/findings/baseline/export
+    action: findings.read
+    resource_type: finding_baseline
+  - method: POST
+    path: /v1/findings/baseline/import
+    action: findings.triage
+    resource_type: finding_baseline
+  - method: GET
     path: /v1/findings/trends
     action: findings.read
     resource_type: finding_trend
@@ -1949,6 +1957,69 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FindingsSummary"
+  /v1/findings/baseline/export:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Findings]
+      summary: Export suppressed findings as one reusable baseline
+      operationId: exportFindingBaseline
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - in: query
+          name: scan_id
+          schema: { type: string }
+      responses:
+        "200":
+          description: Finding suppression baseline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingBaseline"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/findings/baseline/import:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Findings]
+      summary: Import one finding suppression baseline into a scan
+      operationId: importFindingBaseline
+      parameters:
+        - in: query
+          name: scan_id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FindingBaselineImportRequest"
+      responses:
+        "200":
+          description: Baseline import results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindingBaselineImportResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/findings/trends:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -3590,6 +3661,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          description: Required and must be in the future when `status` is `suppressed`.
         comment:
           type: string
     FindingTriageEvent:
@@ -3619,6 +3691,10 @@ components:
         scan_id: { type: string }
         type: { $ref: "#/components/schemas/FindingType" }
         severity: { $ref: "#/components/schemas/FindingSeverity" }
+        confidence_score:
+          type: number
+          format: double
+          description: Deterministic analyst-facing confidence score for the finding, from 0.0 to 1.0.
         title: { type: string }
         human_summary: { type: string }
         path:
@@ -3659,6 +3735,80 @@ components:
           format: date-time
         triage:
           $ref: "#/components/schemas/FindingTriage"
+    FindingBaseline:
+      type: object
+      properties:
+        schema_version: { type: string }
+        match_mode: { type: string }
+        exported_at:
+          type: string
+          format: date-time
+        source_scan_id: { type: string }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FindingBaselineEntry"
+    FindingBaselineEntry:
+      type: object
+      properties:
+        finding_id: { type: string }
+        type: { $ref: "#/components/schemas/FindingType" }
+        severity: { $ref: "#/components/schemas/FindingSeverity" }
+        confidence_score:
+          type: number
+          format: double
+        title: { type: string }
+        human_summary: { type: string }
+        path:
+          type: array
+          items: { type: string }
+        repository: { type: string }
+        file_path: { type: string }
+        detector: { type: string }
+        match_fingerprint: { type: string }
+        suppression_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        assignee: { type: string }
+    FindingBaselineImportRequest:
+      type: object
+      properties:
+        baseline:
+          $ref: "#/components/schemas/FindingBaseline"
+        comment:
+          type: string
+    FindingBaselineImportResult:
+      type: object
+      properties:
+        scan_id: { type: string }
+        imported_at:
+          type: string
+          format: date-time
+        applied_count:
+          type: integer
+          minimum: 0
+        skipped_count:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FindingBaselineImportItem"
+    FindingBaselineImportItem:
+      type: object
+      properties:
+        baseline_finding_id: { type: string }
+        finding_id: { type: string }
+        match_confidence_score:
+          type: number
+          format: double
+        status: { type: string }
+        reason: { type: string }
+        suppression_expires_at:
+          type: string
+          format: date-time
+          nullable: true
     RepoFindingClusterSpread:
       type: object
       properties:

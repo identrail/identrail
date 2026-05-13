@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added expiring suppression baselines for findings:
+  - findings now expose deterministic `confidence_score` values to help analysts judge likely false positives
+  - finding suppressions now require a future `suppression_expires_at` when a finding is moved into `suppressed`
+  - new `/v1/findings/baseline/export` and `/v1/findings/baseline/import` endpoints let teams carry forward known false positives without auto-suppressing changed future variants
 - Added a plan-first AWS API hosting layer:
   - defines ECS/Fargate API service, HTTPS load balancer, task roles, security groups, health checks, and CPU autoscaling primitives
   - keeps API hosting resource creation disabled by default for cost-safe CI validation

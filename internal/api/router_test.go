@@ -1569,6 +1569,115 @@ func TestRouterFindingTriageWorkflowEndpoints(t *testing.T) {
 	}
 }
 
+func TestRouterFindingBaselineEndpoints(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.Now = func() time.Time { return time.Date(2026, 3, 24, 10, 0, 0, 0, time.UTC) }
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"read-key", "write-key"},
+		WriteAPIKeys: []string{"write-key"},
+	})
+
+	triggerReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	triggerReq.Header.Set("X-API-Key", "write-key")
+	triggerW := httptest.NewRecorder()
+	r.ServeHTTP(triggerW, triggerReq)
+	if triggerW.Code != http.StatusAccepted {
+		t.Fatalf("expected scan trigger 202, got %d", triggerW.Code)
+	}
+	var triggerBody struct {
+		Scan db.ScanRecord `json:"scan"`
+	}
+	if err := json.Unmarshal(triggerW.Body.Bytes(), &triggerBody); err != nil {
+		t.Fatalf("decode scan trigger body: %v", err)
+	}
+	if processed, err := svc.ProcessNextQueuedScan(defaultScopeContext()); err != nil || !processed {
+		t.Fatalf("process queued scan: processed=%v err=%v", processed, err)
+	}
+
+	secondScan, err := store.CreateScan(defaultScopeContext(), "aws", svc.Now().Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("create second scan: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), secondScan.ID, []domain.Finding{{
+		ID:           "f2",
+		Type:         domain.FindingRiskyTrustPolicy,
+		Severity:     domain.SeverityHigh,
+		Title:        "Risky trust",
+		HumanSummary: "summary",
+		CreatedAt:    svc.Now().Add(2 * time.Hour),
+	}}); err != nil {
+		t.Fatalf("upsert second scan findings: %v", err)
+	}
+
+	missingExpiryReq := httptest.NewRequest(http.MethodPatch, "/v1/findings/f1/triage?scan_id="+triggerBody.Scan.ID, bytes.NewBufferString(`{"status":"suppressed"}`))
+	missingExpiryReq.Header.Set("Content-Type", "application/json")
+	missingExpiryReq.Header.Set("X-API-Key", "write-key")
+	missingExpiryW := httptest.NewRecorder()
+	r.ServeHTTP(missingExpiryW, missingExpiryReq)
+	if missingExpiryW.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing suppression expiry to be rejected, got %d", missingExpiryW.Code)
+	}
+
+	expiry := svc.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	triageReq := httptest.NewRequest(http.MethodPatch, "/v1/findings/f1/triage?scan_id="+triggerBody.Scan.ID, bytes.NewBufferString(`{"status":"suppressed","suppression_expires_at":"`+expiry+`","comment":"known false positive"}`))
+	triageReq.Header.Set("Content-Type", "application/json")
+	triageReq.Header.Set("X-API-Key", "write-key")
+	triageW := httptest.NewRecorder()
+	r.ServeHTTP(triageW, triageReq)
+	if triageW.Code != http.StatusOK {
+		t.Fatalf("expected suppression triage 200, got %d", triageW.Code)
+	}
+
+	exportReq := httptest.NewRequest(http.MethodGet, "/v1/findings/baseline/export?scan_id="+triggerBody.Scan.ID, nil)
+	exportReq.Header.Set("X-API-Key", "read-key")
+	exportW := httptest.NewRecorder()
+	r.ServeHTTP(exportW, exportReq)
+	if exportW.Code != http.StatusOK {
+		t.Fatalf("expected baseline export 200, got %d", exportW.Code)
+	}
+	var exported FindingBaseline
+	if err := json.Unmarshal(exportW.Body.Bytes(), &exported); err != nil {
+		t.Fatalf("decode baseline export: %v", err)
+	}
+	if len(exported.Items) != 1 || exported.Items[0].ConfidenceScore <= 0 {
+		t.Fatalf("unexpected baseline export payload: %+v", exported)
+	}
+
+	importBody, err := json.Marshal(FindingBaselineImportRequest{
+		Baseline: exported,
+		Comment:  "carry forward false positive",
+	})
+	if err != nil {
+		t.Fatalf("marshal import request: %v", err)
+	}
+	importReq := httptest.NewRequest(http.MethodPost, "/v1/findings/baseline/import?scan_id="+secondScan.ID, bytes.NewBuffer(importBody))
+	importReq.Header.Set("Content-Type", "application/json")
+	importReq.Header.Set("X-API-Key", "write-key")
+	importW := httptest.NewRecorder()
+	r.ServeHTTP(importW, importReq)
+	if importW.Code != http.StatusOK {
+		t.Fatalf("expected baseline import 200, got %d body=%s", importW.Code, importW.Body.String())
+	}
+	var imported FindingBaselineImportResult
+	if err := json.Unmarshal(importW.Body.Bytes(), &imported); err != nil {
+		t.Fatalf("decode baseline import: %v", err)
+	}
+	if imported.AppliedCount != 1 || len(imported.Items) != 1 || imported.Items[0].Status != "applied" {
+		t.Fatalf("unexpected baseline import payload: %+v", imported)
+	}
+
+	applied, err := svc.GetFinding(defaultScopeContext(), "f2", secondScan.ID)
+	if err != nil {
+		t.Fatalf("get imported finding: %v", err)
+	}
+	if applied.Triage.Status != domain.FindingLifecycleSuppressed || applied.Triage.SuppressionExpiresAt == nil {
+		t.Fatalf("expected imported suppression to apply, got %+v", applied.Triage)
+	}
+}
+
 func TestRouterWriteAuthorizationRequiresConfiguredWriteKeys(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

@@ -1689,6 +1689,9 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 		nextState.SuppressionExpiresAt = nil
 		changed = true
 	}
+	if nextState.Status == domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt == nil {
+		return domain.Finding{}, ErrInvalidFindingTriageRequest
+	}
 	if nextState.Status == domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt != nil && !nextState.SuppressionExpiresAt.After(now) {
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}
@@ -2160,6 +2163,7 @@ func enrichFindingsWithRepoContext(findings []domain.Finding, repositoryHints ..
 		if finding.SourceURL == "" {
 			finding.SourceURL = repoFindingSourceURL(finding.Repository, finding.Commit, finding.FilePath, finding.LineNumber)
 		}
+		finding.ConfidenceScore = scoreFindingConfidence(finding)
 		enriched = append(enriched, standards.EnrichFinding(finding))
 	}
 	return enriched

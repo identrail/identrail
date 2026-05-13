@@ -132,6 +132,7 @@ type Finding struct {
 	ScanID              string          `json:"scan_id"`
 	Type                FindingType     `json:"type"`
 	Severity            FindingSeverity `json:"severity"`
+	ConfidenceScore     float64         `json:"confidence_score,omitempty"`
 	Title               string          `json:"title"`
 	HumanSummary        string          `json:"human_summary"`
 	Path                []string        `json:"path,omitempty"`

@@ -928,6 +928,18 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 	}
 
 	suppressed := string(domain.FindingLifecycleSuppressed)
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{
+			Status: &suppressed,
+		},
+		"subject:user-1",
+	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
+		t.Fatalf("expected invalid triage request error for missing suppression expiry, got %v", err)
+	}
+
 	pastExpiry := now.Add(-1 * time.Hour).Format(time.RFC3339)
 	if _, err := svc.TriageFinding(
 		defaultScopeContext(),
@@ -940,6 +952,162 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 		"subject:user-1",
 	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
 		t.Fatalf("expected invalid triage request error for past suppression expiry, got %v", err)
+	}
+}
+
+func TestServiceExportAndImportFindingBaseline(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC)
+	sourceScan, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create source scan: %v", err)
+	}
+	targetScan, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("create target scan: %v", err)
+	}
+
+	sourceFinding := domain.Finding{
+		ID:           "finding-1",
+		Type:         domain.FindingOwnerless,
+		Severity:     domain.SeverityHigh,
+		Title:        "Ownerless identity: payments-role",
+		HumanSummary: "No ownership metadata is attached to this identity.",
+		Path:         []string{"identity:payments-role"},
+		Evidence:     map[string]any{"identity_id": "identity:payments-role"},
+		CreatedAt:    now,
+	}
+	targetFinding := sourceFinding
+	targetFinding.ID = "finding-2"
+	targetFinding.CreatedAt = now.Add(2 * time.Hour)
+
+	if err := store.UpsertFindings(defaultScopeContext(), sourceScan.ID, []domain.Finding{sourceFinding}); err != nil {
+		t.Fatalf("upsert source findings: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), targetScan.ID, []domain.Finding{targetFinding}); err != nil {
+		t.Fatalf("upsert target findings: %v", err)
+	}
+
+	clock := now
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return clock }
+
+	suppressed := string(domain.FindingLifecycleSuppressed)
+	expiry := clock.Add(24 * time.Hour).Format(time.RFC3339)
+	updated, err := svc.TriageFinding(defaultScopeContext(), sourceFinding.ID, sourceScan.ID, FindingTriageRequest{
+		Status:               &suppressed,
+		SuppressionExpiresAt: &expiry,
+		Comment:              "known false positive",
+	}, "subject:owner")
+	if err != nil {
+		t.Fatalf("triage source finding: %v", err)
+	}
+	if updated.ConfidenceScore <= 0 {
+		t.Fatalf("expected exported finding confidence score, got %+v", updated)
+	}
+
+	baseline, err := svc.ExportFindingBaseline(defaultScopeContext(), sourceScan.ID, 10)
+	if err != nil {
+		t.Fatalf("export baseline: %v", err)
+	}
+	if baseline.SchemaVersion != findingBaselineSchemaVersion || baseline.MatchMode != "exact_fingerprint_v1" {
+		t.Fatalf("unexpected baseline metadata: %+v", baseline)
+	}
+	if len(baseline.Items) != 1 {
+		t.Fatalf("expected one baseline item, got %+v", baseline.Items)
+	}
+	if baseline.Items[0].ConfidenceScore <= 0 || baseline.Items[0].SuppressionExpiresAt == nil {
+		t.Fatalf("expected baseline confidence and expiry, got %+v", baseline.Items[0])
+	}
+
+	imported, err := svc.ImportFindingBaseline(defaultScopeContext(), FindingBaselineImportRequest{
+		ScanID:   targetScan.ID,
+		Baseline: baseline,
+		Comment:  "carry forward false positive",
+	}, "subject:owner")
+	if err != nil {
+		t.Fatalf("import baseline: %v", err)
+	}
+	if imported.AppliedCount != 1 || imported.SkippedCount != 0 {
+		t.Fatalf("unexpected import counts: %+v", imported)
+	}
+	if len(imported.Items) != 1 || imported.Items[0].Status != "applied" || imported.Items[0].MatchConfidenceScore < findingBaselineImportMatchThreshold {
+		t.Fatalf("unexpected import items: %+v", imported.Items)
+	}
+
+	applied, err := svc.GetFinding(defaultScopeContext(), targetFinding.ID, targetScan.ID)
+	if err != nil {
+		t.Fatalf("get imported finding: %v", err)
+	}
+	if applied.Triage.Status != domain.FindingLifecycleSuppressed || applied.Triage.SuppressionExpiresAt == nil {
+		t.Fatalf("expected imported suppression to apply, got %+v", applied.Triage)
+	}
+}
+
+func TestServiceImportFindingBaselineSkipsChangedVariants(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC)
+	sourceScan, _ := store.CreateScan(defaultScopeContext(), "aws", now)
+	targetScan, _ := store.CreateScan(defaultScopeContext(), "aws", now.Add(2*time.Hour))
+
+	sourceFinding := domain.Finding{
+		ID:           "finding-1",
+		Type:         domain.FindingOwnerless,
+		Severity:     domain.SeverityHigh,
+		Title:        "Ownerless identity: payments-role",
+		HumanSummary: "No ownership metadata is attached to this identity.",
+		Path:         []string{"identity:payments-role"},
+		Evidence:     map[string]any{"identity_id": "identity:payments-role"},
+		CreatedAt:    now,
+	}
+	changedVariant := sourceFinding
+	changedVariant.ID = "finding-2"
+	changedVariant.HumanSummary = "Ownership metadata is still missing after the latest scan."
+	changedVariant.CreatedAt = now.Add(2 * time.Hour)
+
+	if err := store.UpsertFindings(defaultScopeContext(), sourceScan.ID, []domain.Finding{sourceFinding}); err != nil {
+		t.Fatalf("upsert source findings: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), targetScan.ID, []domain.Finding{changedVariant}); err != nil {
+		t.Fatalf("upsert target findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	suppressed := string(domain.FindingLifecycleSuppressed)
+	expiry := now.Add(24 * time.Hour).Format(time.RFC3339)
+	if _, err := svc.TriageFinding(defaultScopeContext(), sourceFinding.ID, sourceScan.ID, FindingTriageRequest{
+		Status:               &suppressed,
+		SuppressionExpiresAt: &expiry,
+	}, "subject:owner"); err != nil {
+		t.Fatalf("triage source finding: %v", err)
+	}
+
+	baseline, err := svc.ExportFindingBaseline(defaultScopeContext(), sourceScan.ID, 10)
+	if err != nil {
+		t.Fatalf("export baseline: %v", err)
+	}
+
+	imported, err := svc.ImportFindingBaseline(defaultScopeContext(), FindingBaselineImportRequest{
+		ScanID:   targetScan.ID,
+		Baseline: baseline,
+	}, "subject:owner")
+	if err != nil {
+		t.Fatalf("import baseline: %v", err)
+	}
+	if imported.AppliedCount != 0 || imported.SkippedCount != 1 {
+		t.Fatalf("unexpected import counts: %+v", imported)
+	}
+	if imported.Items[0].Status != "skipped" || imported.Items[0].MatchConfidenceScore >= findingBaselineImportMatchThreshold {
+		t.Fatalf("expected changed variant to be skipped, got %+v", imported.Items[0])
+	}
+
+	targetState, err := svc.GetFinding(defaultScopeContext(), changedVariant.ID, targetScan.ID)
+	if err != nil {
+		t.Fatalf("get changed variant: %v", err)
+	}
+	if targetState.Triage.Status != domain.FindingLifecycleOpen {
+		t.Fatalf("expected changed variant to remain open, got %+v", targetState.Triage)
 	}
 }
 

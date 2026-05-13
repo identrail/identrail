@@ -1,6 +1,7 @@
 {
   "items": [
     {
+      "confidence_score": 0.91,
       "created_at": "\u003ctimestamp\u003e",
       "evidence": {
         "compliance_frameworks": [

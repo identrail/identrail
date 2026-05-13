@@ -328,6 +328,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/findings/:finding_id/exports", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
+		v1.GET("/findings/baseline/export", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
+		})
+		v1.POST("/findings/baseline/import", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
+		})
 		v1.GET("/findings/trends", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
@@ -422,6 +428,56 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		c.JSON(http.StatusOK, summary)
+	})
+
+	v1.GET("/findings/baseline/export", func(c *gin.Context) {
+		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
+		baseline, err := svc.ExportFindingBaseline(c.Request.Context(), scanID, limit)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
+				return
+			}
+			logger.Error("export finding baseline", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export finding baseline"})
+			return
+		}
+		c.JSON(http.StatusOK, baseline)
+	})
+
+	v1.POST("/findings/baseline/import", func(c *gin.Context) {
+		scanID, ok := optionalUUIDParam(c, c.Query("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
+		var request FindingBaselineImportRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid finding baseline request"})
+			return
+		}
+		request.ScanID = scanID
+		result, err := svc.ImportFindingBaseline(
+			c.Request.Context(),
+			request,
+			triageActorFromContext(c, opts.AuditFingerprinter),
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrInvalidFindingBaselineRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid finding baseline request"})
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
+			default:
+				logger.Error("import finding baseline", telemetry.ZapError(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to import finding baseline"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, result)
 	})
 
 	v1.GET("/findings/:finding_id", func(c *gin.Context) {

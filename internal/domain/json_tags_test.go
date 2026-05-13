@@ -14,6 +14,7 @@ func TestFindingJSONUsesSnakeCaseFields(t *testing.T) {
 		ScanID:              "scan-1",
 		Type:                FindingSecretExposure,
 		Severity:            SeverityHigh,
+		ConfidenceScore:     0.96,
 		Title:               "title",
 		HumanSummary:        "summary",
 		Path:                []string{"app.env"},
@@ -34,7 +35,7 @@ func TestFindingJSONUsesSnakeCaseFields(t *testing.T) {
 		t.Fatalf("marshal finding: %v", err)
 	}
 	text := string(payload)
-	for _, expected := range []string{`"id"`, `"scan_id"`, `"human_summary"`, `"created_at"`, `"repository"`, `"file_path"`, `"line_number"`, `"line_snippet_redacted"`, `"source_url"`} {
+	for _, expected := range []string{`"id"`, `"scan_id"`, `"confidence_score"`, `"human_summary"`, `"created_at"`, `"repository"`, `"file_path"`, `"line_number"`, `"line_snippet_redacted"`, `"source_url"`} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("expected field %s in %s", expected, text)
 		}
