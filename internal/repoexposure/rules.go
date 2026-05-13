@@ -650,11 +650,20 @@ func detectTerraformMisconfigFindings(
 
 	findings := []domain.Finding{}
 	for _, block := range body.Blocks {
-		if block.Type != "resource" || len(block.Labels) < 2 {
+		if block.Type != "resource" && block.Type != "module" {
 			continue
 		}
-		resourceType := strings.ToLower(strings.TrimSpace(block.Labels[0]))
+		if block.Type == "resource" && len(block.Labels) < 2 {
+			continue
+		}
+		if block.Type == "module" {
+			if ingressAttribute := block.Body.Attributes["ingress"]; ingressAttribute != nil {
+				appendTerraformOpenSSHRDPenaltyFindingFromIngressAttribute(&findings, seen, repo, commit, path, ingressAttribute, detectedAt)
+			}
+			continue
+		}
 
+		resourceType := strings.ToLower(strings.TrimSpace(block.Labels[0]))
 		switch resourceType {
 		case "aws_s3_bucket":
 			acl, ok := terraformStringAttribute(block.Body.Attributes["acl"])
@@ -749,6 +758,86 @@ func detectTerraformMisconfigFindings(
 	}
 
 	return findings, true
+}
+
+func appendTerraformOpenSSHRDPenaltyFindingFromIngressAttribute(
+	findings *[]domain.Finding,
+	seen map[string]struct{},
+	repo string,
+	commit string,
+	path string,
+	ingressAttribute *hclsyntax.Attribute,
+	detectedAt time.Time,
+) bool {
+	if ingressAttribute == nil {
+		return false
+	}
+	value, diagnostics := ingressAttribute.Expr.Value(nil)
+	if diagnostics.HasErrors() || !value.IsKnown() || value.IsNull() {
+		return false
+	}
+
+	lineNumber := terraformAttributeLine(ingressAttribute)
+	if value.Type().IsObjectType() {
+		return appendTerraformOpenSSHRDPenaltyFindingFromCtyObject(findings, seen, repo, commit, path, value, lineNumber, detectedAt)
+	}
+
+	found := false
+	if value.Type().IsTupleType() || value.Type().IsListType() || value.Type().IsSetType() {
+		it := value.ElementIterator()
+		for it.Next() {
+			_, childValue := it.Element()
+			if !childValue.IsKnown() || childValue.IsNull() {
+				continue
+			}
+			if appendTerraformOpenSSHRDPenaltyFindingFromCtyObject(findings, seen, repo, commit, path, childValue, lineNumber, detectedAt) {
+				found = true
+			}
+		}
+	}
+	return found
+}
+
+func appendTerraformOpenSSHRDPenaltyFindingFromCtyObject(
+	findings *[]domain.Finding,
+	seen map[string]struct{},
+	repo string,
+	commit string,
+	path string,
+	value cty.Value,
+	lineNumber int,
+	detectedAt time.Time,
+) bool {
+	if !value.IsKnown() || value.IsNull() || !value.Type().IsObjectType() {
+		return false
+	}
+
+	attrs := value.AsValueMap()
+	if len(attrs) == 0 {
+		return false
+	}
+
+	fromPort, fromFound := ctyIntAttribute(attrs["from_port"])
+	toPort, toFound := ctyIntAttribute(attrs["to_port"])
+	if !containsSensitivePortRange(fromPort, toPort, fromFound, toFound) {
+		return false
+	}
+	publicIPv4 := containsPublicCidrCtyValue(attrs["cidr_blocks"])
+	publicIPv6 := containsPublicCidrCtyValue(attrs["ipv6_cidr_blocks"])
+	if !publicIPv4 && !publicIPv6 {
+		return false
+	}
+
+	appendMisconfigFinding(findings, seen, repo, commit, path, lineNumber, "terraform_open_ssh_rdp", domain.SeverityHigh,
+		"Terraform security group exposes SSH/RDP to the internet", "Config appears to allow 0.0.0.0/0 access to privileged management ports.",
+		"Restrict source CIDRs and route administrative access through bastion/VPN controls.",
+		"security group rule exposes internet-managed ports", detectedAt, map[string]any{
+			"line_snippet":          "security group rule exposes internet-managed ports",
+			"line_snippet_redacted": false,
+			"history_source":        "head_snapshot",
+			"match_snippet":         "module ingress",
+		})
+	return true
 }
 
 func appendTerraformOpenSSHRDPPenaltyFinding(
@@ -856,6 +945,49 @@ func containsSensitivePortRange(fromPort int, toPort int, fromFound bool, toFoun
 		}
 	}
 	return false
+}
+
+func ctyIntAttribute(attribute cty.Value) (int, bool) {
+	if !attribute.IsKnown() || attribute.IsNull() {
+		return 0, false
+	}
+	if attribute.Type() != cty.Number {
+		return 0, false
+	}
+	f32, _ := attribute.AsBigFloat().Float64()
+	if math.Trunc(f32) != f32 {
+		return 0, false
+	}
+	return int(f32), true
+}
+
+func containsPublicCidrCtyValue(attribute cty.Value) bool {
+	if !attribute.IsKnown() || attribute.IsNull() {
+		return false
+	}
+
+	if attribute.Type() == cty.String {
+		return isPublicCidr(strings.TrimSpace(strings.ToLower(attribute.AsString())))
+	}
+
+	if attribute.Type().IsTupleType() || attribute.Type().IsListType() || attribute.Type().IsSetType() {
+		it := attribute.ElementIterator()
+		for it.Next() {
+			_, childValue := it.Element()
+			if !childValue.IsKnown() || childValue.IsNull() || childValue.Type() != cty.String {
+				continue
+			}
+			if isPublicCidr(strings.TrimSpace(strings.ToLower(childValue.AsString()))) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func isPublicCidr(value string) bool {
+	return value == "0.0.0.0/0" || value == "::/0"
 }
 
 func containsPublicCidr(attribute *hclsyntax.Attribute) bool {

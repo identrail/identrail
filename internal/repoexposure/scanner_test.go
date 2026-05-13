@@ -259,6 +259,37 @@ func TestDetectMisconfigFindingsSupportsDynamicIngressTerraformSignals(t *testin
 	}
 }
 
+func TestDetectMisconfigFindingsSupportsModuleIngressTerraformSignals(t *testing.T) {
+	content := []byte(`module "sg" {
+  ingress = [
+    {
+      from_port = 3389
+      to_port   = 3389
+      protocol  = "tcp"
+      cidr_blocks = ["10.0.0.0/16", "::/0"]
+    }
+  ]
+}
+`)
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/module.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected module ingress terraform finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "terraform_open_ssh_rdp" {
+			found = true
+			if finding.LineNumber == 0 {
+				t.Fatalf("expected non-zero line number: %+v", finding)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
 func TestDetectMisconfigFindingsSupportsMixedCidrTupleTerraformSignals(t *testing.T) {
 	content := []byte(`resource "aws_security_group" "sg" {
   dynamic "ingress" {
