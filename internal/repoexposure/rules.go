@@ -304,10 +304,7 @@ func isTerraformFile(path string) bool {
 
 func isDockerfilePath(path string) bool {
 	base := strings.ToLower(filepath.Base(strings.TrimSpace(path)))
-	if strings.HasSuffix(base, "dockerfile") {
-		return base == "dockerfile" || strings.HasPrefix(base, "dockerfile.") || strings.HasPrefix(base, "dockerfile_") || strings.HasPrefix(base, "dockerfile-")
-	}
-	return false
+	return strings.HasPrefix(base, "dockerfile")
 }
 
 func shouldSkipLineRuleByParser(ruleID string, path string) bool {
@@ -891,24 +888,39 @@ func terraformStringListExpr(expression hclsyntax.Expression) ([]string, bool) {
 	}
 
 	value, diagnostics := expression.Value(nil)
-	if diagnostics.HasErrors() || !value.IsKnown() || value.IsNull() {
-		return nil, false
-	}
-	if value.Type() == cty.String {
-		return []string{strings.TrimSpace(value.AsString())}, true
-	}
-	if value.Type().IsTupleType() || value.Type().IsListType() || value.Type().IsSetType() {
-		ret := make([]string, 0)
-		iterator := value.ElementIterator()
-		for iterator.Next() {
-			_, childValue := iterator.Element()
-			if !childValue.IsKnown() || childValue.IsNull() || childValue.Type() != cty.String {
-				return nil, false
-			}
-			ret = append(ret, strings.TrimSpace(childValue.AsString()))
+	if !diagnostics.HasErrors() && value.IsKnown() && !value.IsNull() {
+		if value.Type() == cty.String {
+			return []string{strings.TrimSpace(value.AsString())}, true
 		}
-		if len(ret) > 0 {
-			return ret, true
+		if value.Type().IsTupleType() || value.Type().IsListType() || value.Type().IsSetType() {
+			ret := make([]string, 0)
+			iterator := value.ElementIterator()
+			for iterator.Next() {
+				_, childValue := iterator.Element()
+				if !childValue.IsKnown() || childValue.IsNull() || childValue.Type() != cty.String {
+					return nil, false
+				}
+				ret = append(ret, strings.TrimSpace(childValue.AsString()))
+			}
+			if len(ret) > 0 {
+				return ret, true
+			}
+		}
+	}
+
+	if tupleExpr, isTupleExpr := expression.(*hclsyntax.TupleConsExpr); isTupleExpr {
+		values := make([]string, 0, len(tupleExpr.Exprs))
+		for _, expr := range tupleExpr.Exprs {
+			childValue, childDiagnostics := expr.Value(nil)
+			if childDiagnostics.HasErrors() || !childValue.IsKnown() || childValue.IsNull() {
+				continue
+			}
+			if childValue.Type() == cty.String {
+				values = append(values, strings.TrimSpace(childValue.AsString()))
+			}
+		}
+		if len(values) > 0 {
+			return values, true
 		}
 	}
 
