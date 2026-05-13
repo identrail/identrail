@@ -303,6 +303,20 @@ func TestRouterGitHubConnectorV2WebhookQueuesAndDisconnects(t *testing.T) {
 	if deletedBody.Webhook.MatchedProjects != 1 {
 		t.Fatalf("expected disconnected connector match, got %+v", deletedBody.Webhook)
 	}
+
+	postDeleteResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "push", "delivery-after-delete", "global-webhook-secret", pushPayload)
+	if postDeleteResp.Code != http.StatusAccepted {
+		t.Fatalf("expected post-delete push webhook 202, got %d body=%s", postDeleteResp.Code, postDeleteResp.Body.String())
+	}
+	var postDeleteBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(postDeleteResp.Body.Bytes(), &postDeleteBody); err != nil {
+		t.Fatalf("decode post-delete webhook response: %v", err)
+	}
+	if postDeleteBody.Webhook.MatchedProjects != 0 {
+		t.Fatalf("expected deleted installation to stop matching webhook, got %+v", postDeleteBody.Webhook)
+	}
 }
 
 func TestRouterGitHubConnectorV2PATStoresEncryptedToken(t *testing.T) {

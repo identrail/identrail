@@ -1070,6 +1070,7 @@ func (s *Service) markGitHubInstallationDisconnected(ctx context.Context, event 
 	}
 	now := s.Now().UTC()
 	matched := 0
+	disconnectedKeys := []string{}
 	for _, item := range items {
 		if metadataInt64(item.State.Metadata, "installation_id") != event.InstallationID {
 			continue
@@ -1094,8 +1095,14 @@ func (s *Service) markGitHubInstallationDisconnected(ctx context.Context, event 
 		state.UpdatedAt = now
 		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: item.Connector.TenantID, WorkspaceID: item.Connector.WorkspaceID})
 		_ = s.Store.UpsertTenancyConnector(scopedCtx, connector, state)
+		disconnectedKeys = append(disconnectedKeys, githubConnectionKey(item.Connector.TenantID, item.Connector.WorkspaceID, item.Connector.ProjectID))
 	}
 	if matched > 0 {
+		s.githubConnectMu.Lock()
+		for _, key := range disconnectedKeys {
+			delete(s.githubConnections, key)
+		}
+		s.githubConnectMu.Unlock()
 		s.hydrateGitHubConnections(ctx)
 	}
 	return matched
