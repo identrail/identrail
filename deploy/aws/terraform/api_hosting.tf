@@ -22,6 +22,8 @@ locals {
     IDENTRAIL_CORS_ALLOWED_ORIGINS = local.api_cors_allowed_origins
     IDENTRAIL_HTTP_ADDR            = ":${var.api_container_port}"
     IDENTRAIL_REQUIRE_LIVE_SOURCES = "true"
+    IDENTRAIL_RUN_MIGRATIONS       = "false"
+    IDENTRAIL_RUN_MIGRATIONS_ONLY  = "false"
     IDENTRAIL_TRUSTED_PROXIES      = local.api_trusted_proxies
   }
   api_runtime_environment_variables = merge(local.api_default_environment_variables, var.api_environment_variables)
@@ -210,6 +212,16 @@ resource "terraform_data" "api_inputs" {
     precondition {
       condition     = lower(local.api_runtime_environment_variables["IDENTRAIL_REQUIRE_LIVE_SOURCES"]) == "true"
       error_message = "API hosting requires IDENTRAIL_REQUIRE_LIVE_SOURCES=true so hosted ECS tasks cannot serve fixture-backed scans."
+    }
+
+    precondition {
+      condition     = lower(local.api_runtime_environment_variables["IDENTRAIL_RUN_MIGRATIONS"]) == "false"
+      error_message = "API hosting requires IDENTRAIL_RUN_MIGRATIONS=false so long-running ECS tasks do not run schema migrations during startup."
+    }
+
+    precondition {
+      condition     = lower(local.api_runtime_environment_variables["IDENTRAIL_RUN_MIGRATIONS_ONLY"]) == "false"
+      error_message = "API hosting requires IDENTRAIL_RUN_MIGRATIONS_ONLY=false so long-running ECS tasks start the API server."
     }
 
     precondition {

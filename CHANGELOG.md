@@ -9,6 +9,7 @@
   - requires operator confirmation that private API task subnets have NAT or VPC endpoint egress before planning Fargate tasks with `assign_public_ip=false`
   - validates the ACM certificate ARN partition against the active AWS provider partition
   - grants ECS secret injection IAM permissions on base Secrets Manager ARNs when `api_secrets` use JSON-key or version selectors
+  - keeps long-running ECS API tasks non-migrating so schema changes stay in a dedicated migration step
   - documents operator inputs, Secrets Manager references, DNS cutover, and rollback expectations for `api.identrail.com`
 - Added clickable GitHub line links for repository findings:
   - repo findings now expose stable `repository` and `source_url` fields in API payloads

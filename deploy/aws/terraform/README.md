@@ -40,6 +40,9 @@ The hosted API task also defaults to live AWS collection with
 origins through `IDENTRAIL_CORS_ALLOWED_ORIGINS`, and configures
 `IDENTRAIL_TRUSTED_PROXIES` from `api_trusted_proxy_cidr_blocks` so ALB
 `X-Forwarded-For` client IPs are honored by audit and rate-limit paths.
+Long-running API tasks set `IDENTRAIL_RUN_MIGRATIONS=false`; run migrations
+through a dedicated one-off migration step before deploying or upgrading the
+service.
 The task role includes the read-only IAM discovery calls required by that live
 collector. Optional `sts:AssumeRole` access is limited to ARNs listed in
 `api_connector_role_arns`.

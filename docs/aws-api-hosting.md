@@ -24,7 +24,9 @@ balancer, `IDENTRAIL_CORS_ALLOWED_ORIGINS` from `api_cors_allowed_origins`, and
 `IDENTRAIL_TRUSTED_PROXIES` from `api_trusted_proxy_cidr_blocks` so browser
 requests from the Vercel app and ALB forwarded client IPs work before DNS
 cutover. Terraform refuses overrides that would move the hosted API back to
-fixture-backed AWS scans.
+fixture-backed AWS scans. It also sets `IDENTRAIL_RUN_MIGRATIONS=false` and
+`IDENTRAIL_RUN_MIGRATIONS_ONLY=false` so rolling ECS API deployments do not run
+schema changes during normal service startup.
 
 The API task role receives the read-only IAM discovery permissions that the live
 AWS collector uses. Cross-account connector access is still explicit: add
@@ -87,6 +89,9 @@ Terraform requires `api_private_subnet_egress_ready=true` before creating API
 hosting resources. Use that only after the private task subnets can pull the
 image, read injected secrets, and write logs through NAT or private VPC
 endpoints.
+
+Run database migrations as a separate one-off operation before deploying or
+upgrading the hosted API service. Keep long-running API tasks non-migrating.
 
 Leave `api_connector_role_arns` empty for the first single-account API hosting
 plan. Populate it later with reviewed AWS connector role ARNs when the hosted API
