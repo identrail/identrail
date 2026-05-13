@@ -1253,6 +1253,16 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 	return enrichFindingsWithRepoContext(findings), nil
 }
 
+// ListRepoFindingClusters returns duplicate-aware repository finding clusters.
+func (s *Service) ListRepoFindingClusters(ctx context.Context, filter db.RepoFindingFilter) ([]domain.RepoFindingCluster, error) {
+	ctx = s.scopeContext(ctx)
+	findings, err := s.Store.ListRepoFindings(ctx, filter, maxCursorFetchLimit)
+	if err != nil {
+		return nil, err
+	}
+	return domain.BuildRepoFindingClusters(enrichFindingsWithRepoContext(findings)), nil
+}
+
 // GetOrganization returns the current scoped organization record.
 func (s *Service) GetOrganization(ctx context.Context) (db.TenancyOrganization, error) {
 	ctx = s.scopeContext(ctx)

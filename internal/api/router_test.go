@@ -682,6 +682,25 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 		t.Fatalf("expected GitHub source URL in response, got %+v", repoFindingsBody.Items[0].SourceURL)
 	}
 
+	repoClustersReq := httptest.NewRequest(http.MethodGet, "/v1/repo-finding-clusters?repo_scan_id="+repoScanID, nil)
+	repoClustersW := httptest.NewRecorder()
+	r.ServeHTTP(repoClustersW, repoClustersReq)
+	if repoClustersW.Code != http.StatusOK {
+		t.Fatalf("expected repo finding clusters 200, got %d", repoClustersW.Code)
+	}
+	var repoClustersBody struct {
+		Items []domain.RepoFindingCluster `json:"items"`
+	}
+	if err := json.Unmarshal(repoClustersW.Body.Bytes(), &repoClustersBody); err != nil {
+		t.Fatalf("decode repo finding clusters body: %v", err)
+	}
+	if len(repoClustersBody.Items) != 1 {
+		t.Fatalf("expected one repo finding cluster, got %+v", repoClustersBody)
+	}
+	if repoClustersBody.Items[0].Count != 1 || len(repoClustersBody.Items[0].Members) != 1 || repoClustersBody.Items[0].Members[0].FindingID != repoFindingsBody.Items[0].ID {
+		t.Fatalf("expected clustered repo finding response, got %+v", repoClustersBody.Items[0])
+	}
+
 	scansPageOneReq := httptest.NewRequest(http.MethodGet, "/v1/scans?limit=1", nil)
 	scansPageOneW := httptest.NewRecorder()
 	r.ServeHTTP(scansPageOneW, scansPageOneReq)
@@ -2672,6 +2691,13 @@ func TestRouterRejectsInvalidRepoScanUUIDInputs(t *testing.T) {
 	if repoFindingsW.Code != http.StatusBadRequest {
 		t.Fatalf("expected repo findings 400 for invalid repo_scan_id filter, got %d", repoFindingsW.Code)
 	}
+
+	repoClustersReq := httptest.NewRequest(http.MethodGet, "/v1/repo-finding-clusters?repo_scan_id=not-a-uuid", nil)
+	repoClustersW := httptest.NewRecorder()
+	r.ServeHTTP(repoClustersW, repoClustersReq)
+	if repoClustersW.Code != http.StatusBadRequest {
+		t.Fatalf("expected repo finding clusters 400 for invalid repo_scan_id filter, got %d", repoClustersW.Code)
+	}
 }
 
 func TestRouterErrorEnvelopeForCommonStatuses(t *testing.T) {
@@ -2775,6 +2801,68 @@ func TestRouterErrorEnvelopeForCommonStatuses(t *testing.T) {
 	queueFullW := httptest.NewRecorder()
 	securedRouter.ServeHTTP(queueFullW, queueFullReq)
 	assertErrorEnvelope(t, queueFullW, http.StatusConflict)
+}
+
+func TestSortRepoFindingClusters(t *testing.T) {
+	clusters := []domain.RepoFindingCluster{
+		{
+			ID:          "cluster-b",
+			Repository:  "owner/repo-b",
+			Severity:    domain.SeverityHigh,
+			Detector:    "workflow_pull_request_target",
+			Count:       2,
+			FirstSeenAt: time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC),
+			LastSeenAt:  time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          "cluster-a",
+			Repository:  "owner/repo-a",
+			Severity:    domain.SeverityCritical,
+			Detector:    "aws_access_key_id",
+			Count:       5,
+			FirstSeenAt: time.Date(2026, 4, 28, 9, 0, 0, 0, time.UTC),
+			LastSeenAt:  time.Date(2026, 5, 1, 12, 5, 0, 0, time.UTC),
+		},
+		{
+			ID:          "cluster-c",
+			Repository:  "owner/repo-c",
+			Severity:    domain.SeverityLow,
+			Detector:    "docker_latest_tag",
+			Count:       1,
+			FirstSeenAt: time.Date(2026, 4, 30, 9, 0, 0, 0, time.UTC),
+			LastSeenAt:  time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC),
+		},
+	}
+
+	sortRepoFindingClusters(clusters, "count", true)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected count-desc sort, got %+v", clusters)
+	}
+
+	sortRepoFindingClusters(clusters, "severity", true)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected severity-desc sort, got %+v", clusters)
+	}
+
+	sortRepoFindingClusters(clusters, "first_seen_at", false)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected first_seen_at-asc sort, got %+v", clusters)
+	}
+
+	sortRepoFindingClusters(clusters, "detector", false)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected detector-asc sort, got %+v", clusters)
+	}
+
+	sortRepoFindingClusters(clusters, "repository", false)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected repository-asc sort, got %+v", clusters)
+	}
+
+	sortRepoFindingClusters(clusters, "last_seen_at", true)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected last_seen_at-desc sort, got %+v", clusters)
+	}
 }
 
 func TestRouterPaginationHelpers(t *testing.T) {

@@ -1492,6 +1492,108 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	}
 }
 
+func TestServiceListRepoFindingClusters(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create first repo scan: %v", err)
+	}
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create second repo scan: %v", err)
+	}
+
+	if err := store.UpsertRepoFindings(defaultScopeContext(), firstScan.ID, []domain.Finding{
+		{
+			ID:           "rf-1",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "GitHub workflow uses pull_request_target trigger",
+			HumanSummary: "pull_request_target can execute with elevated token context if not strictly controlled.",
+			Repository:   "owner/repo",
+			Commit:       "abc123",
+			FilePath:     ".github/workflows/build.yml",
+			LineNumber:   7,
+			Detector:     "workflow_pull_request_target",
+			LineSnippet:  "pull_request_target:",
+			CreatedAt:    time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:           "rf-2",
+			Type:         domain.FindingSecretExposure,
+			Severity:     domain.SeverityHigh,
+			Title:        "Potential AWS access key exposed in commit history",
+			HumanSummary: "A line added in commit history appears to contain an AWS access key identifier.",
+			Repository:   "owner/repo",
+			Commit:       "deadbeef",
+			FilePath:     "config/app.env",
+			LineNumber:   3,
+			Detector:     "aws_access_key_id",
+			LineSnippet:  "AWS_ACCESS_KEY_ID=AKIA****",
+			Evidence:     map[string]any{"secret_fingerprint": "fp-a"},
+			CreatedAt:    time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("upsert first repo findings: %v", err)
+	}
+
+	if err := store.UpsertRepoFindings(defaultScopeContext(), secondScan.ID, []domain.Finding{
+		{
+			ID:           "rf-3",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "GitHub workflow uses pull_request_target trigger",
+			HumanSummary: "pull_request_target can execute with elevated token context if not strictly controlled.",
+			Repository:   "owner/repo",
+			Commit:       "def456",
+			FilePath:     ".github/workflows/release.yml",
+			LineNumber:   11,
+			Detector:     "workflow_pull_request_target",
+			LineSnippet:  "pull_request_target:",
+			CreatedAt:    time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:           "rf-4",
+			Type:         domain.FindingSecretExposure,
+			Severity:     domain.SeverityHigh,
+			Title:        "Potential AWS access key exposed in commit history",
+			HumanSummary: "A line added in commit history appears to contain an AWS access key identifier.",
+			Repository:   "owner/repo",
+			Commit:       "cafe1234",
+			FilePath:     "config/app.env",
+			LineNumber:   3,
+			Detector:     "aws_access_key_id",
+			LineSnippet:  "AWS_ACCESS_KEY_ID=AKIA****",
+			Evidence:     map[string]any{"secret_fingerprint": "fp-a"},
+			CreatedAt:    time.Date(2026, 5, 1, 12, 5, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("upsert second repo findings: %v", err)
+	}
+
+	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), db.RepoFindingFilter{})
+	if err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	if len(clusters) != 2 {
+		t.Fatalf("expected two clusters, got %+v", clusters)
+	}
+	if clusters[0].Detector != "aws_access_key_id" || clusters[0].Count != 2 {
+		t.Fatalf("expected secret cluster rollup first, got %+v", clusters[0])
+	}
+	if clusters[0].Spread.Commits != 2 || clusters[0].Spread.RepoScans != 2 || len(clusters[0].Members) != 2 {
+		t.Fatalf("expected secret spread metadata, got %+v", clusters[0])
+	}
+	if clusters[1].Detector != "workflow_pull_request_target" || clusters[1].Count != 2 {
+		t.Fatalf("expected misconfig cluster rollup second, got %+v", clusters[1])
+	}
+	if clusters[1].Spread.Paths != 2 || clusters[1].Members[0].SourceURL != "https://github.com/owner/repo/blob/def456/.github/workflows/release.yml#L11" {
+		t.Fatalf("expected member source URLs and path spread, got %+v", clusters[1])
+	}
+}
+
 func TestRepoFindingSourceURLSupportsGitHubRepositoryForms(t *testing.T) {
 	testCases := []struct {
 		name       string

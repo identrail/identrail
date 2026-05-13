@@ -45,9 +45,11 @@ Read APIs:
 - `GET /v1/repo-scans`
 - `GET /v1/repo-scans/:repo_scan_id`
 - `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
+- `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
 - list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
 - repo finding responses expose stable repository and location fields when available: `repository`, `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, `line_snippet_redacted`, and `source_url`
 - `source_url` is a direct GitHub blob link pinned to the detected commit when Identrail can derive one
+- grouped cluster responses roll duplicate repo findings into cluster counts with `first_seen_at`, `last_seen_at`, `spread`, and a per-occurrence `members` list
 
 ## What It Scans
 

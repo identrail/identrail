@@ -656,6 +656,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/repo-scans", Action: policyActionRepoScansRead, ResourceType: "repo_scan"},
 		{Method: http.MethodGet, Path: "/v1/repo-scans/:repo_scan_id", Action: policyActionRepoScansRead, ResourceType: "repo_scan", ResourceIDParam: "repo_scan_id"},
 		{Method: http.MethodGet, Path: "/v1/repo-findings", Action: policyActionRepoScansRead, ResourceType: "repo_finding"},
+		{Method: http.MethodGet, Path: "/v1/repo-finding-clusters", Action: policyActionRepoScansRead, ResourceType: "repo_finding_cluster"},
 		{Method: http.MethodPost, Path: "/v1/repo-scans", Action: policyActionRepoScansRun, ResourceType: "repo_scan"},
 		{Method: http.MethodPost, Path: "/v1/authz/policies/simulate", Action: policyActionAuthzSimulate, ResourceType: "authz_policy"},
 		{Method: http.MethodPost, Path: "/v1/authz/policies/rollback", Action: policyActionAuthzRollback, ResourceType: "authz_policy"},

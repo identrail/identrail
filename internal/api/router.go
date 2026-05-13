@@ -365,6 +365,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/repo-findings", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.GET("/repo-finding-clusters", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"items": []any{}})
+		})
 		v1.POST("/scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
@@ -752,6 +755,36 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		sortFindings(items, sortBy, sortDesc)
+		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
+	})
+
+	v1.GET("/repo-finding-clusters", func(c *gin.Context) {
+		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
+		offset := parseCursor(c.Query("cursor"))
+		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "last_seen_at")
+		repoScanID := strings.TrimSpace(c.Query("repo_scan_id"))
+		if repoScanID != "" && !isValidUUID(repoScanID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
+			return
+		}
+		items, err := svc.ListRepoFindingClusters(
+			c.Request.Context(),
+			db.RepoFindingFilter{
+				RepoScanID: repoScanID,
+				Severity:   strings.TrimSpace(c.Query("severity")),
+				Type:       strings.TrimSpace(c.Query("type")),
+			},
+		)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "repo scan not found"})
+				return
+			}
+			logger.Error("list repo finding clusters", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list repo finding clusters"})
+			return
+		}
+		sortRepoFindingClusters(items, sortBy, sortDesc)
 		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
@@ -1773,6 +1806,38 @@ func sortFindings(items []domain.Finding, sortBy string, desc bool) {
 			cmp = compareString(left.Title, right.Title)
 		default:
 			cmp = compareTime(left.CreatedAt, right.CreatedAt)
+		}
+		if cmp == 0 {
+			cmp = compareString(left.ID, right.ID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func sortRepoFindingClusters(items []domain.RepoFindingCluster, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch sortBy {
+		case "count":
+			cmp = compareInt(left.Count, right.Count)
+		case "severity":
+			cmp = compareInt(severityOrder(left.Severity), severityOrder(right.Severity))
+		case "repository":
+			cmp = compareString(left.Repository, right.Repository)
+		case "detector":
+			cmp = compareString(left.Detector, right.Detector)
+		case "first_seen_at":
+			cmp = compareTime(left.FirstSeenAt, right.FirstSeenAt)
+		default:
+			cmp = compareTime(left.LastSeenAt, right.LastSeenAt)
+		}
+		if cmp == 0 {
+			cmp = compareInt(left.Count, right.Count)
 		}
 		if cmp == 0 {
 			cmp = compareString(left.ID, right.ID)

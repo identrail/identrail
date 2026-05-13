@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added grouped repository finding cluster rollups:
+  - new `GET /v1/repo-finding-clusters` API groups duplicate repo findings into cluster counts with `first_seen_at`, `last_seen_at`, spread metadata, and member lists
+  - repo misconfigurations now cluster by repository plus detector, while secret exposures cluster by repository plus detector plus secret fingerprint
+  - preserves the existing flat `GET /v1/repo-findings` response for clients that still want one row per occurrence
 - Added clickable GitHub line links for repository findings:
   - repo findings now expose stable `repository` and `source_url` fields in API payloads
   - the authenticated findings route now lists repository findings and opens a detail view with direct GitHub blob links
