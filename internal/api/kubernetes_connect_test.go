@@ -163,6 +163,87 @@ func TestKubernetesConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	}
 }
 
+func TestKubernetesLegacyPreflightPreservesAgentMetadata(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	lastHeartbeatAt := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	enrollmentUsedAt := lastHeartbeatAt.Add(-time.Hour)
+	enrollmentExpiresAt := lastHeartbeatAt.Add(time.Hour)
+	metadata, err := persistedKubernetesConnectorState{
+		ConnectionMode:        k8sconnector.AgentMode,
+		EnrollmentTokenHash:   "enrollment-hash",
+		EnrollmentExpiresAt:   &enrollmentExpiresAt,
+		EnrollmentTokenUsedAt: &enrollmentUsedAt,
+		AgentCredentialHash:   k8sconnector.HashCredential("agent-token"),
+		AgentID:               "agent-a",
+		LastHeartbeatAt:       &lastHeartbeatAt,
+	}.toMap()
+	if err != nil {
+		t.Fatalf("encode metadata: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "kubernetes-agent",
+		Type:        domain.ConnectorTypeKubernetes,
+		DisplayName: "Agent cluster",
+		Status:      domain.ConnectorStatusActive,
+		CreatedAt:   lastHeartbeatAt,
+		UpdatedAt:   lastHeartbeatAt,
+	}, db.TenancyConnectorState{
+		TenantID:     "tenant-a",
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "kubernetes-agent",
+		HealthStatus: string(connectors.HealthStatusHealthy),
+		Metadata:     metadata,
+		ObservedAt:   lastHeartbeatAt,
+		UpdatedAt:    lastHeartbeatAt,
+	}); err != nil {
+		t.Fatalf("seed connector: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "kubernetes")
+	svc.KubernetesPreflightFactory = func(string) KubernetesConnectorPreflightRunner {
+		return fakeKubernetesPreflightRunner{result: k8sprovider.KubernetesPreflightResult{
+			Health:     connectors.HealthStatusHealthy,
+			ObservedAt: lastHeartbeatAt.Add(time.Minute),
+			Cluster: k8sprovider.KubernetesClusterIdentity{
+				Context: "prod",
+				Cluster: "prod-cluster",
+				Server:  "https://kubernetes.example",
+			},
+		}}
+	}
+
+	status, err := svc.UpsertKubernetesConnection(ctx, "workspace-a", "project-1", KubernetesConnectionUpsertRequest{})
+	if err != nil {
+		t.Fatalf("legacy preflight: %v", err)
+	}
+	if status.ConnectionMode != k8sconnector.AgentMode || status.AgentID != "agent-a" || status.LastHeartbeatAt == nil {
+		t.Fatalf("expected agent mode status to survive legacy preflight, got %+v", status)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "kubernetes-agent")
+	if err != nil {
+		t.Fatalf("load connector: %v", err)
+	}
+	reloaded, err := decodePersistedKubernetesConnectorState(stored.State.Metadata)
+	if err != nil {
+		t.Fatalf("decode reloaded metadata: %v", err)
+	}
+	if reloaded.ConnectionMode != k8sconnector.AgentMode ||
+		reloaded.AgentCredentialHash != k8sconnector.HashCredential("agent-token") ||
+		reloaded.AgentID != "agent-a" ||
+		reloaded.LastHeartbeatAt == nil ||
+		!reloaded.LastHeartbeatAt.Equal(lastHeartbeatAt) {
+		t.Fatalf("legacy preflight must preserve agent credentials and heartbeat metadata: %+v", reloaded)
+	}
+	if reloaded.Cluster != "prod-cluster" || reloaded.Server != "https://kubernetes.example" {
+		t.Fatalf("legacy preflight should still refresh cluster metadata: %+v", reloaded)
+	}
+}
+
 func TestRouterKubernetesConnectionPendingBeforeOnboarding(t *testing.T) {
 	r := newKubernetesConnectionTestRouter(t, func(contextName string) KubernetesConnectorPreflightRunner {
 		t.Fatalf("preflight should not run for read-only pending status request")
@@ -302,8 +383,21 @@ func TestRouterKubernetesConnectorUsesForwardedBaseURL(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode start response: %v", err)
 	}
-	if !bytes.Contains([]byte(body.HelmCommand), []byte(`api.url="http://api.forwarded.test"`)) {
+	if !bytes.Contains([]byte(body.HelmCommand), []byte(`api.url='http://api.forwarded.test'`)) {
 		t.Fatalf("helm command did not use forwarded base URL: %q", body.HelmCommand)
+	}
+}
+
+func TestKubernetesHelmCommandShellQuotesValues(t *testing.T) {
+	command := kubernetesHelmCommand("https://api.example/$(touch bad)'x", "token'$(whoami)")
+	if bytes.Contains([]byte(command), []byte(`api.url="`)) || bytes.Contains([]byte(command), []byte(`enrollment.token="`)) {
+		t.Fatalf("helm command must not use shell-interpolating double quotes: %q", command)
+	}
+	if !bytes.Contains([]byte(command), []byte(`api.url='https://api.example/$(touch bad)'"'"'x'`)) {
+		t.Fatalf("helm command did not shell-quote api URL: %q", command)
+	}
+	if !bytes.Contains([]byte(command), []byte(`enrollment.token='token'"'"'$(whoami)'`)) {
+		t.Fatalf("helm command did not shell-quote enrollment token: %q", command)
 	}
 }
 

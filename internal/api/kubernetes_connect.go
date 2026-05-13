@@ -114,13 +114,25 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 	if err != nil {
 		return KubernetesConnectionStatus{}, err
 	}
+	var existing db.TenancyConnectorWithState
+	hasExisting := false
 	if strings.TrimSpace(request.ConnectorID) == "" {
-		existing, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeKubernetes, 1)
+		items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeKubernetes, 1)
 		if err != nil {
 			return KubernetesConnectionStatus{}, fmt.Errorf("list kubernetes connectors: %w", err)
 		}
-		if len(existing) > 0 {
-			normalized.ConnectorID = existing[0].Connector.ConnectorID
+		if len(items) > 0 {
+			normalized.ConnectorID = items[0].Connector.ConnectorID
+			existing = items[0]
+			hasExisting = true
+		}
+	} else {
+		existing, err = s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
+		if err != nil && !errors.Is(err, db.ErrNotFound) {
+			return KubernetesConnectionStatus{}, fmt.Errorf("load kubernetes connector: %w", err)
+		}
+		if err == nil {
+			hasExisting = true
 		}
 	}
 	if s.KubernetesPreflightFactory == nil {
@@ -161,7 +173,7 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 		UpdatedAt:        now,
 		LastValidatedAt:  validatedAt,
 	}
-	metadata, err := persistedKubernetesConnectorState{
+	metadataState := persistedKubernetesConnectorState{
 		Context:          connection.Context,
 		Cluster:          connection.Cluster,
 		Server:           connection.Server,
@@ -170,7 +182,23 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 		PermissionChecks: copyKubernetesPermissionChecks(connection.PermissionChecks),
 		Diagnostics:      copyKubernetesDiagnostics(connection.Diagnostics),
 		LastValidatedAt:  &validatedAt,
-	}.toMap()
+	}
+	if hasExisting {
+		existingMetadata, err := decodePersistedKubernetesConnectorState(existing.State.Metadata)
+		if err != nil {
+			return KubernetesConnectionStatus{}, fmt.Errorf("decode existing kubernetes connector metadata: %w", err)
+		}
+		if existingMetadata.ConnectionMode == k8sconnector.AgentMode {
+			metadataState.ConnectionMode = existingMetadata.ConnectionMode
+			metadataState.EnrollmentTokenHash = existingMetadata.EnrollmentTokenHash
+			metadataState.EnrollmentExpiresAt = utcTimePtr(existingMetadata.EnrollmentExpiresAt)
+			metadataState.EnrollmentTokenUsedAt = utcTimePtr(existingMetadata.EnrollmentTokenUsedAt)
+			metadataState.AgentCredentialHash = existingMetadata.AgentCredentialHash
+			metadataState.AgentID = existingMetadata.AgentID
+			metadataState.LastHeartbeatAt = utcTimePtr(existingMetadata.LastHeartbeatAt)
+		}
+	}
+	metadata, err := metadataState.toMap()
 	if err != nil {
 		return KubernetesConnectionStatus{}, fmt.Errorf("encode kubernetes connector metadata: %w", err)
 	}
@@ -188,16 +216,19 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 		state.LastErrorCode = "kubernetes_connector_validation_failed"
 		state.LastErrorMessage = firstKubernetesRemediation(connection.Diagnostics, connection.PermissionChecks)
 	}
-	connector := db.TenancyConnector{
-		TenantID:    scope.TenantID,
-		WorkspaceID: project.WorkspaceID,
-		ProjectID:   project.ProjectID,
-		ConnectorID: normalized.ConnectorID,
-		Type:        domain.ConnectorTypeKubernetes,
-		DisplayName: normalized.DisplayName,
-		Status:      status,
-		UpdatedAt:   now,
+	connector := existing.Connector
+	if !hasExisting {
+		connector = db.TenancyConnector{
+			TenantID:    scope.TenantID,
+			WorkspaceID: project.WorkspaceID,
+			ProjectID:   project.ProjectID,
+			ConnectorID: normalized.ConnectorID,
+		}
 	}
+	connector.Type = domain.ConnectorTypeKubernetes
+	connector.DisplayName = normalized.DisplayName
+	connector.Status = status
+	connector.UpdatedAt = now
 	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
 		return KubernetesConnectionStatus{}, fmt.Errorf("persist kubernetes connector: %w", err)
 	}

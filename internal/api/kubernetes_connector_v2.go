@@ -417,7 +417,11 @@ func kubernetesHelmCommand(apiURL string, token string) string {
 	if endpoint == "" {
 		endpoint = "https://api.identrail.com"
 	}
-	return fmt.Sprintf("helm upgrade --install identrail-agent deploy/connectors/k8s/identrail-agent --namespace identrail --create-namespace --set api.url=%q --set enrollment.token=%q", endpoint, token)
+	return fmt.Sprintf("helm upgrade --install identrail-agent deploy/connectors/k8s/identrail-agent --namespace identrail --create-namespace --set api.url=%s --set enrollment.token=%s", shellQuote(endpoint), shellQuote(token))
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func kubernetesKubeconfigAAD(tenantID string, workspaceID string, projectID string, connectorID string) []byte {
