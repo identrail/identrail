@@ -76,9 +76,10 @@ terraform plan \
 Only run this after the VPC, at least two distinct public subnets in different
 Availability Zones, at least two distinct private subnets, ACM certificate,
 immutable API image, database, auth configuration, and Secrets Manager
-references are ready. The API-hosting plan reads public subnet metadata from AWS
-and fails before apply if the load balancer subnets are not spread across at
-least two Availability Zones:
+references are ready. The API-hosting plan reads public and private subnet
+metadata from AWS and fails before apply if the load balancer subnets are not
+spread across at least two Availability Zones or if any provided subnet is
+outside `api_vpc_id`:
 
 ```bash
 cd deploy/aws/terraform
