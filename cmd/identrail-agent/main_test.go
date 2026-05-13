@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"net/http"
@@ -244,5 +245,48 @@ func TestMainEnrollsBeforeHeartbeat(t *testing.T) {
 
 	if got := strings.Join(paths, ","); got != "/v1/connectors/k8s/enroll,/v1/connectors/k8s/heartbeat" {
 		t.Fatalf("paths = %s", got)
+	}
+}
+
+func TestRunAgentRetriesEnrollmentAfterStartupFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var enrollAttempts int32
+	var heartbeatAttempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/connectors/k8s/enroll":
+			attempt := atomic.AddInt32(&enrollAttempts, 1)
+			if attempt == 1 {
+				http.Error(w, "api temporarily unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte(`{"connector_id":"connector-1","agent_id":"agent-1","agent_token":"issued-agent-token","heartbeat_url":"/v1/connectors/k8s/heartbeat"}`))
+		case "/v1/connectors/k8s/heartbeat":
+			attempt := atomic.AddInt32(&heartbeatAttempts, 1)
+			switch r.Header.Get("Authorization") {
+			case "Bearer enrollment-token":
+				http.Error(w, "not enrolled yet", http.StatusUnauthorized)
+			case "Bearer issued-agent-token":
+				_, _ = w.Write([]byte(`{"ok":true}`))
+				cancel()
+			default:
+				t.Fatalf("unexpected authorization header on heartbeat %d: %q", attempt, r.Header.Get("Authorization"))
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err := runAgent(ctx, server.Client(), server.URL, "enrollment-token", "", "connector-1", "agent-1", false, time.Millisecond)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runAgent() error = %v, want context.Canceled", err)
+	}
+	if got := atomic.LoadInt32(&enrollAttempts); got != 2 {
+		t.Fatalf("enroll attempts = %d, want 2", got)
+	}
+	if got := atomic.LoadInt32(&heartbeatAttempts); got != 2 {
+		t.Fatalf("heartbeat attempts = %d, want 2", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -65,45 +66,62 @@ func main() {
 	}
 	ctx := context.Background()
 	client := &http.Client{Timeout: 15 * time.Second}
+	if err := runAgent(ctx, client, apiURL, enrollmentToken, agentToken, connectorID, agentID, once, heartbeatInterval); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmentToken string, agentToken string, connectorID string, agentID string, once bool, heartbeatInterval time.Duration) error {
 	apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
 	if apiURL == "" {
-		log.Fatal("api-url is required")
+		return errors.New("api-url is required")
 	}
 
 	credential := strings.TrimSpace(agentToken)
-	if credential == "" {
-		if strings.TrimSpace(enrollmentToken) == "" {
-			log.Fatal("enrollment-token or agent-token is required")
-		}
-		response, err := enroll(ctx, client, apiURL, enrollRequest{
-			EnrollmentToken: enrollmentToken,
-			ConnectorID:     connectorID,
-			AgentID:         agentID,
-		})
-		if err != nil {
-			log.Printf("enroll failed; continuing with existing enrollment credential for heartbeat: %v", err)
-			credential = enrollmentToken
-		} else {
-			credential = response.AgentToken
-			connectorID = response.ConnectorID
-			agentID = response.AgentID
-			log.Printf("enrolled connector %s as %s", connectorID, agentID)
-		}
+	enrollmentToken = strings.TrimSpace(enrollmentToken)
+	if credential == "" && enrollmentToken == "" {
+		return errors.New("enrollment-token or agent-token is required")
 	}
 
 	for {
+		usingEnrollmentRecoveryCredential := false
+		if credential == "" {
+			response, err := enroll(ctx, client, apiURL, enrollRequest{
+				EnrollmentToken: enrollmentToken,
+				ConnectorID:     connectorID,
+				AgentID:         agentID,
+			})
+			if err != nil {
+				log.Printf("enroll failed; trying enrollment credential for heartbeat recovery: %v", err)
+				credential = enrollmentToken
+				usingEnrollmentRecoveryCredential = true
+			} else {
+				credential = response.AgentToken
+				connectorID = response.ConnectorID
+				agentID = response.AgentID
+				log.Printf("enrolled connector %s as %s", connectorID, agentID)
+			}
+		}
+
 		if err := heartbeat(ctx, client, apiURL, credential, heartbeatRequest{
 			ConnectorID: connectorID,
 			AgentID:     agentID,
 		}); err != nil {
 			log.Printf("heartbeat failed: %v", err)
+			if usingEnrollmentRecoveryCredential {
+				credential = ""
+			}
 		} else {
 			log.Printf("heartbeat sent for connector %s", connectorID)
 		}
 		if once {
-			return
+			return nil
 		}
-		time.Sleep(heartbeatInterval)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(heartbeatInterval):
+		}
 	}
 }
 
