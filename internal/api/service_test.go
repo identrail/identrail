@@ -730,6 +730,60 @@ func TestServiceListFindingsFiltered(t *testing.T) {
 	}
 }
 
+func TestServiceListFindingsFilteredByAssigneeOnly(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 17, 8, 0, 0, 0, time.UTC)
+	scan, _ := store.CreateScan(defaultScopeContext(), "aws", now)
+	_ = store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{
+		{ID: "finding-platform", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now},
+		{ID: "finding-operations", Type: domain.FindingOwnerless, Severity: domain.SeverityMedium, CreatedAt: now.Add(1 * time.Minute)},
+		{ID: "finding-empty", Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now.Add(2 * time.Minute)},
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	ack := string(domain.FindingLifecycleAck)
+	open := string(domain.FindingLifecycleOpen)
+	platform := "platform"
+	operations := "ops"
+	_, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-platform",
+		scan.ID,
+		FindingTriageRequest{Assignee: &platform, Status: &ack},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("triage platform finding: %v", err)
+	}
+
+	_, err = svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-operations",
+		scan.ID,
+		FindingTriageRequest{Assignee: &operations, Status: &open},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("triage operations finding: %v", err)
+	}
+
+	platformOnly, err := svc.ListFindingsFiltered(defaultScopeContext(), 10, FindingsFilter{Assignee: "platform"})
+	if err != nil {
+		t.Fatalf("list findings by assignee only: %v", err)
+	}
+	if len(platformOnly) != 1 || platformOnly[0].ID != "finding-platform" {
+		t.Fatalf("expected only finding-platform for assignee filter, got %+v", platformOnly)
+	}
+
+	operationsOnly, err := svc.ListFindingsFiltered(defaultScopeContext(), 10, FindingsFilter{Assignee: "OPS"})
+	if err != nil {
+		t.Fatalf("list findings by uppercase assignee: %v", err)
+	}
+	if len(operationsOnly) != 1 || operationsOnly[0].ID != "finding-operations" {
+		t.Fatalf("expected case-insensitive assignee matching, got %+v", operationsOnly)
+	}
+}
+
 func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testing.T) {
 	store := db.NewMemoryStore()
 	base := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

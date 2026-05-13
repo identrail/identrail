@@ -165,6 +165,15 @@ function formatDateLabel(value: string): string {
   return parsed.toLocaleString();
 }
 
+function toLocalDateTimeInputValue(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+  const localTimestamp = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60 * 1000);
+  return localTimestamp.toISOString().slice(0, 16);
+}
+
 function normalizeFindingStatus(value: string | undefined): FindingLifecycleStatus {
   const normalized = normalizeValue(value ?? '').toLowerCase();
   if (normalized === 'ack' || normalized === 'suppressed' || normalized === 'resolved') {
@@ -2829,6 +2838,7 @@ export function ProductFindingsPage() {
   const [workflowStatus, setWorkflowStatus] = useState<FindingLifecycleStatus>('open');
   const [workflowAssignee, setWorkflowAssignee] = useState('');
   const [workflowComment, setWorkflowComment] = useState('');
+  const [workflowSuppressionExpiresAt, setWorkflowSuppressionExpiresAt] = useState('');
   const [workflowLoading, setWorkflowLoading] = useState(false);
   const [workflowSuccess, setWorkflowSuccess] = useState('');
   const [workflowError, setWorkflowError] = useState('');
@@ -3008,10 +3018,14 @@ export function ProductFindingsPage() {
     const nextAssignee = normalizeValue(workflowAssignee);
     const currentStatus = normalizeFindingStatus(selectedFinding.triage?.status);
     const currentAssignee = normalizeValue(selectedFinding.triage?.assignee ?? '');
+    const trackingSuppression = nextStatus === 'suppressed';
+    const currentSuppression = normalizeValue(toLocalDateTimeInputValue(selectedFinding.triage?.suppression_expires_at ?? ''));
+    const nextSuppression = normalizeValue(workflowSuppressionExpiresAt);
     const hasChanges =
       nextStatus !== currentStatus ||
       nextAssignee !== currentAssignee ||
-      normalizeValue(workflowComment).length > 0;
+      normalizeValue(workflowComment).length > 0 ||
+      (trackingSuppression && nextSuppression !== currentSuppression);
 
     if (!hasChanges) {
       setWorkflowError('Make a workflow change before saving.');
@@ -3023,7 +3037,31 @@ export function ProductFindingsPage() {
     setWorkflowSuccess('');
     try {
       const auth = buildProductAuthContext(scope);
-      const request: { status?: FindingLifecycleStatus; assignee?: string; comment?: string } = {};
+      const request: {
+        status?: FindingLifecycleStatus;
+        assignee?: string;
+        suppression_expires_at?: string;
+        comment?: string;
+      } = {};
+      if (trackingSuppression && !nextSuppression) {
+        setWorkflowError('Suppression requires an expiry date/time.');
+        setWorkflowLoading(false);
+        return;
+      }
+      if (trackingSuppression && nextSuppression) {
+        const parsedExpiry = new Date(nextSuppression);
+        if (Number.isNaN(parsedExpiry.getTime())) {
+          setWorkflowError('Suppression expiry must be a valid date/time.');
+          setWorkflowLoading(false);
+          return;
+        }
+        if (parsedExpiry.getTime() <= Date.now()) {
+          setWorkflowError('Suppression expiry must be set in the future.');
+          setWorkflowLoading(false);
+          return;
+        }
+        request.suppression_expires_at = parsedExpiry.toISOString();
+      }
       if (nextStatus !== currentStatus) {
         request.status = nextStatus;
       }
@@ -3078,13 +3116,22 @@ export function ProductFindingsPage() {
       setWorkflowStatus('open');
       setWorkflowAssignee('');
       setWorkflowComment('');
+      setWorkflowSuppressionExpiresAt('');
       return;
     }
 
     setWorkflowStatus(normalizeFindingStatus(selectedFinding.triage?.status));
     setWorkflowAssignee(selectedFinding.triage?.assignee ?? '');
     setWorkflowComment('');
-  }, [selectedFinding?.id, selectedFinding?.triage?.status, selectedFinding?.triage?.assignee]);
+    setWorkflowSuppressionExpiresAt(
+      selectedFinding.triage?.suppression_expires_at ? toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at) : ''
+    );
+  }, [
+    selectedFinding?.id,
+    selectedFinding?.triage?.status,
+    selectedFinding?.triage?.assignee,
+    selectedFinding?.triage?.suppression_expires_at
+  ]);
 
   useEffect(() => {
     if (filteredFindings.length === 0) {
@@ -3432,7 +3479,17 @@ export function ProductFindingsPage() {
                   Status
                   <select
                     value={workflowStatus}
-                    onChange={(event) => setWorkflowStatus(event.target.value as FindingLifecycleStatus)}
+                    onChange={(event) => {
+                      const nextStatus = event.target.value as FindingLifecycleStatus;
+                      setWorkflowStatus(nextStatus);
+                      if (nextStatus !== 'suppressed') {
+                        setWorkflowSuppressionExpiresAt('');
+                      } else if (!workflowSuppressionExpiresAt && selectedFinding?.triage?.suppression_expires_at) {
+                        setWorkflowSuppressionExpiresAt(
+                          toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at)
+                        );
+                      }
+                    }}
                     disabled={workflowLoading || !hasTriageAccess}
                   >
                     {REPO_FINDING_STATUS_FILTERS.filter((status) => status !== 'all').map((status) => (
@@ -3441,6 +3498,20 @@ export function ProductFindingsPage() {
                       </option>
                     ))}
                   </select>
+                </label>
+                <label>
+                  Suppression expiry
+                  <input
+                    type="datetime-local"
+                    value={workflowSuppressionExpiresAt}
+                    onChange={(event) => setWorkflowSuppressionExpiresAt(event.target.value)}
+                    min={toLocalDateTimeInputValue(new Date().toISOString())}
+                    disabled={workflowLoading || !hasTriageAccess || workflowStatus !== 'suppressed'}
+                    placeholder="YYYY-MM-DDThh:mm"
+                  />
+                  <span className="idt-app-field-hint">
+                    Required when setting status to <strong>suppressed</strong>, ignored otherwise.
+                  </span>
                 </label>
                 <label>
                   Assignee

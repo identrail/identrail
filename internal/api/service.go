@@ -1674,7 +1674,7 @@ func filterRepoFindingsByTriage(
 	if statusFilter == "" && assigneeFilter == "" {
 		return findings
 	}
-	if !isValidFindingLifecycleStatus(statusFilter) {
+	if statusFilter != "" && !isValidFindingLifecycleStatus(statusFilter) {
 		return nil
 	}
 	filtered := make([]domain.Finding, 0, len(findings))
