@@ -13,9 +13,10 @@ Start at the top. Each later doc fills in detail for one section of the first.
 5. [`connector-foundation.md`](./connector-foundation.md) - the Provider interface, status state machine, and error taxonomy that every connector implements.
 6. [`aws-connector.md`](./aws-connector.md) - the standard AWS CloudFormation connector path.
 7. [`github-connector.md`](./github-connector.md) - the standard GitHub App and GitHub Enterprise connector path.
-8. [`production-api-readiness.md`](./production-api-readiness.md) - the production web/API split required before the frontend auth UI can work on Vercel.
-9. [`env-vars-reference.md`](./env-vars-reference.md) - flat list of every environment variable across the twelve PRs.
-10. [`12-pr-plan.md`](./12-pr-plan.md) - the canonical scope for each of the twelve PRs.
+8. [`kubernetes-connector.md`](./kubernetes-connector.md) - the standard in-cluster agent and kubeconfig fallback path.
+9. [`production-api-readiness.md`](./production-api-readiness.md) - the production web/API split required before the frontend auth UI can work on Vercel.
+10. [`env-vars-reference.md`](./env-vars-reference.md) - flat list of every environment variable across the twelve PRs.
+11. [`12-pr-plan.md`](./12-pr-plan.md) - the canonical scope for each of the twelve PRs.
 
 ## When to Update These Docs
 

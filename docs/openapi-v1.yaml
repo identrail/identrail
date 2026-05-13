@@ -315,6 +315,26 @@ x-identrail-route-authorizations:
     resource_type: connector
     resource_id_param: connector_id
   - method: POST
+    path: /v1/connectors/k8s
+    action: tenancy.write
+    resource_type: connector
+  - method: GET
+    path: /v1/connectors/k8s
+    action: tenancy.read
+    resource_type: connector
+  - method: POST
+    path: /v1/connectors/k8s/kubeconfig
+    action: tenancy.write
+    resource_type: connector
+  - method: POST
+    path: /v1/connectors/k8s/enroll
+    action: tenancy.write
+    resource_type: connector
+  - method: POST
+    path: /v1/connectors/k8s/heartbeat
+    action: tenancy.write
+    resource_type: connector
+  - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection
     action: tenancy.write
     resource_type: project
@@ -1653,6 +1673,148 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/connectors/k8s:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [ProjectManagement]
+      summary: Get Kubernetes connector status
+      operationId: getKubernetesConnectorStatus
+      parameters:
+        - in: query
+          name: workspace_id
+          schema: { type: string }
+        - in: query
+          name: project_id
+          schema: { type: string }
+      responses:
+        "200":
+          description: Kubernetes connector status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/KubernetesConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [ProjectManagement]
+      summary: Start Kubernetes agent connector setup
+      operationId: startKubernetesConnector
+      description: Generates a single-use enrollment token and Helm install command for the read-only in-cluster Identrail agent.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KubernetesConnectorStartRequest"
+      responses:
+        "200":
+          description: Kubernetes agent enrollment command
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KubernetesConnectorStartResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/connectors/k8s/kubeconfig:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Save Kubernetes kubeconfig fallback connector
+      operationId: upsertKubernetesKubeconfigConnector
+      description: Validates kubeconfig structure, stores it through the connector secret envelope table, and records the connector as an ad-hoc fallback mode.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KubernetesConnectorKubeconfigRequest"
+      responses:
+        "200":
+          description: Kubernetes kubeconfig connector status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/KubernetesConnectionStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/connectors/k8s/enroll:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Enroll Kubernetes agent
+      operationId: enrollKubernetesAgent
+      description: Agent-facing endpoint that exchanges a valid single-use enrollment token for a long-lived agent credential.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KubernetesAgentEnrollRequest"
+      responses:
+        "200":
+          description: Agent credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KubernetesAgentEnrollResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/connectors/k8s/heartbeat:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Record Kubernetes agent heartbeat
+      operationId: heartbeatKubernetesAgent
+      description: Agent-facing endpoint authenticated by the agent bearer credential returned during enrollment.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KubernetesAgentHeartbeatRequest"
+      responses:
+        "200":
+          description: Updated connector heartbeat status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KubernetesAgentHeartbeatResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/connectors/aws:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -3533,6 +3695,11 @@ components:
           type: string
         platform:
           type: string
+        connection_mode:
+          type: string
+          enum: [agent, kubeconfig]
+        agent_id:
+          type: string
         permission_checks:
           type: array
           items:
@@ -3555,6 +3722,112 @@ components:
           type: string
           format: date-time
           nullable: true
+        last_heartbeat_at:
+          type: string
+          format: date-time
+          nullable: true
+        enrollment_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    KubernetesConnectorStartRequest:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        api_url:
+          type: string
+          format: uri
+    KubernetesConnectorStartResponse:
+      type: object
+      properties:
+        connection:
+          $ref: "#/components/schemas/KubernetesConnectionStatus"
+        enrollment_token:
+          type: string
+        enrollment_expires_at:
+          type: string
+          format: date-time
+        helm_command:
+          type: string
+    KubernetesConnectorKubeconfigRequest:
+      type: object
+      required: [kubeconfig]
+      properties:
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        kubeconfig:
+          type: string
+        context:
+          type: string
+    KubernetesAgentEnrollRequest:
+      type: object
+      required: [enrollment_token]
+      properties:
+        enrollment_token:
+          type: string
+        connector_id:
+          type: string
+        agent_id:
+          type: string
+        cluster:
+          type: string
+        server:
+          type: string
+        git_version:
+          type: string
+        platform:
+          type: string
+    KubernetesAgentEnrollResponse:
+      type: object
+      properties:
+        connector_id:
+          type: string
+        agent_id:
+          type: string
+        agent_token:
+          type: string
+        heartbeat_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    KubernetesAgentHeartbeatRequest:
+      type: object
+      properties:
+        connector_id:
+          type: string
+        agent_id:
+          type: string
+        cluster:
+          type: string
+        server:
+          type: string
+        git_version:
+          type: string
+        platform:
+          type: string
+    KubernetesAgentHeartbeatResponse:
+      type: object
+      properties:
+        connection:
+          $ref: "#/components/schemas/KubernetesConnectionStatus"
+        degraded_at:
+          type: string
+          format: date-time
     AWSConnectorStartRequest:
       type: object
       properties:

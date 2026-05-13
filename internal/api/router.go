@@ -75,6 +75,7 @@ type RouterOptions struct {
 	FeatureWorkOSLogin       bool
 	FeatureConnectorAWS      bool
 	FeatureConnectorGitHubV2 bool
+	FeatureConnectorK8S      bool
 	PublicBaseURL            string
 	SessionKey               string
 	AuthManualMode           bool
@@ -320,6 +321,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	if opts.FeatureNewAuth {
 		registerAuthConfigRoute(publicV1, opts.AuthManualMode, opts.FeatureWorkOSLogin)
 	}
+	registerKubernetesAgentRoutes(publicV1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 
 	v1 := r.Group("/v1")
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
@@ -350,7 +352,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
 	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS, opts.FeatureConnectorGitHubV2)
-	registerKubernetesConnectionRoutes(v1, logger, svc)
+	registerKubernetesConnectionRoutes(v1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 
 	if svc == nil {
 		v1.GET("/findings", func(c *gin.Context) {

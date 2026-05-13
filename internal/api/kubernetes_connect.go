@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/connectors"
+	k8sconnector "github.com/identrail/identrail/internal/connectors/kubernetes"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
@@ -38,54 +39,69 @@ type KubernetesConnectionUpsertRequest struct {
 
 // KubernetesConnectionStatus describes current Kubernetes connector state for one project.
 type KubernetesConnectionStatus struct {
-	Provider           string                                        `json:"provider"`
-	Connected          bool                                          `json:"connected"`
-	ConnectorID        string                                        `json:"connector_id,omitempty"`
-	DisplayName        string                                        `json:"display_name,omitempty"`
-	Status             domain.ConnectorStatus                        `json:"status"`
-	HealthStatus       string                                        `json:"health_status"`
-	Context            string                                        `json:"context,omitempty"`
-	Cluster            string                                        `json:"cluster,omitempty"`
-	Server             string                                        `json:"server,omitempty"`
-	GitVersion         string                                        `json:"git_version,omitempty"`
-	Platform           string                                        `json:"platform,omitempty"`
-	PermissionChecks   []k8sprovider.KubernetesPermissionCheckResult `json:"permission_checks"`
-	Diagnostics        []k8sprovider.KubernetesPreflightDiagnostic   `json:"diagnostics"`
-	RemediationMessage string                                        `json:"remediation_message,omitempty"`
-	CreatedAt          *time.Time                                    `json:"created_at,omitempty"`
-	UpdatedAt          *time.Time                                    `json:"updated_at,omitempty"`
-	LastValidatedAt    *time.Time                                    `json:"last_validated_at,omitempty"`
+	Provider            string                                        `json:"provider"`
+	Connected           bool                                          `json:"connected"`
+	ConnectorID         string                                        `json:"connector_id,omitempty"`
+	DisplayName         string                                        `json:"display_name,omitempty"`
+	Status              domain.ConnectorStatus                        `json:"status"`
+	HealthStatus        string                                        `json:"health_status"`
+	Context             string                                        `json:"context,omitempty"`
+	Cluster             string                                        `json:"cluster,omitempty"`
+	Server              string                                        `json:"server,omitempty"`
+	GitVersion          string                                        `json:"git_version,omitempty"`
+	Platform            string                                        `json:"platform,omitempty"`
+	ConnectionMode      string                                        `json:"connection_mode,omitempty"`
+	AgentID             string                                        `json:"agent_id,omitempty"`
+	PermissionChecks    []k8sprovider.KubernetesPermissionCheckResult `json:"permission_checks"`
+	Diagnostics         []k8sprovider.KubernetesPreflightDiagnostic   `json:"diagnostics"`
+	RemediationMessage  string                                        `json:"remediation_message,omitempty"`
+	CreatedAt           *time.Time                                    `json:"created_at,omitempty"`
+	UpdatedAt           *time.Time                                    `json:"updated_at,omitempty"`
+	LastValidatedAt     *time.Time                                    `json:"last_validated_at,omitempty"`
+	LastHeartbeatAt     *time.Time                                    `json:"last_heartbeat_at,omitempty"`
+	EnrollmentExpiresAt *time.Time                                    `json:"enrollment_expires_at,omitempty"`
 }
 
 type kubernetesProjectConnection struct {
-	TenantID         string
-	WorkspaceID      string
-	ProjectID        string
-	ConnectorID      string
-	DisplayName      string
-	Status           domain.ConnectorStatus
-	HealthStatus     string
-	Context          string
-	Cluster          string
-	Server           string
-	GitVersion       string
-	Platform         string
-	PermissionChecks []k8sprovider.KubernetesPermissionCheckResult
-	Diagnostics      []k8sprovider.KubernetesPreflightDiagnostic
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	LastValidatedAt  time.Time
+	TenantID            string
+	WorkspaceID         string
+	ProjectID           string
+	ConnectorID         string
+	DisplayName         string
+	Status              domain.ConnectorStatus
+	HealthStatus        string
+	Context             string
+	Cluster             string
+	Server              string
+	GitVersion          string
+	Platform            string
+	ConnectionMode      string
+	AgentID             string
+	PermissionChecks    []k8sprovider.KubernetesPermissionCheckResult
+	Diagnostics         []k8sprovider.KubernetesPreflightDiagnostic
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	LastValidatedAt     time.Time
+	LastHeartbeatAt     *time.Time
+	EnrollmentExpiresAt *time.Time
 }
 
 type persistedKubernetesConnectorState struct {
-	Context          string                                        `json:"context,omitempty"`
-	Cluster          string                                        `json:"cluster,omitempty"`
-	Server           string                                        `json:"server,omitempty"`
-	GitVersion       string                                        `json:"git_version,omitempty"`
-	Platform         string                                        `json:"platform,omitempty"`
-	PermissionChecks []k8sprovider.KubernetesPermissionCheckResult `json:"permission_checks,omitempty"`
-	Diagnostics      []k8sprovider.KubernetesPreflightDiagnostic   `json:"diagnostics,omitempty"`
-	LastValidatedAt  *time.Time                                    `json:"last_validated_at,omitempty"`
+	Context               string                                        `json:"context,omitempty"`
+	Cluster               string                                        `json:"cluster,omitempty"`
+	Server                string                                        `json:"server,omitempty"`
+	GitVersion            string                                        `json:"git_version,omitempty"`
+	Platform              string                                        `json:"platform,omitempty"`
+	ConnectionMode        string                                        `json:"connection_mode,omitempty"`
+	EnrollmentTokenHash   string                                        `json:"enrollment_token_sha256,omitempty"`
+	EnrollmentExpiresAt   *time.Time                                    `json:"enrollment_expires_at,omitempty"`
+	EnrollmentTokenUsedAt *time.Time                                    `json:"enrollment_token_used_at,omitempty"`
+	AgentCredentialHash   string                                        `json:"agent_credential_sha256,omitempty"`
+	AgentID               string                                        `json:"agent_id,omitempty"`
+	LastHeartbeatAt       *time.Time                                    `json:"last_heartbeat_at,omitempty"`
+	PermissionChecks      []k8sprovider.KubernetesPermissionCheckResult `json:"permission_checks,omitempty"`
+	Diagnostics           []k8sprovider.KubernetesPreflightDiagnostic   `json:"diagnostics,omitempty"`
+	LastValidatedAt       *time.Time                                    `json:"last_validated_at,omitempty"`
 }
 
 // UpsertKubernetesConnection runs preflight and records the project Kubernetes connector state.
@@ -189,7 +205,7 @@ func (s *Service) UpsertKubernetesConnection(ctx context.Context, workspaceID st
 	if err != nil {
 		return KubernetesConnectionStatus{}, fmt.Errorf("load persisted kubernetes connector: %w", err)
 	}
-	response, err := kubernetesConnectionStatusFromStored(stored)
+	response, err := s.kubernetesConnectionStatusFromStored(stored)
 	if err != nil {
 		return KubernetesConnectionStatus{}, err
 	}
@@ -216,7 +232,7 @@ func (s *Service) GetKubernetesConnection(ctx context.Context, workspaceID strin
 			Diagnostics:      []k8sprovider.KubernetesPreflightDiagnostic{},
 		}, nil
 	}
-	return kubernetesConnectionStatusFromStored(items[0])
+	return s.kubernetesConnectionStatusFromStored(items[0])
 }
 
 func normalizeKubernetesConnectionRequest(project db.TenancyProject, request KubernetesConnectionUpsertRequest) (KubernetesConnectionUpsertRequest, error) {
@@ -249,24 +265,49 @@ func toKubernetesConnectionStatus(connection kubernetesProjectConnection) Kubern
 	updatedAt := connection.UpdatedAt.UTC()
 	validatedAt := connection.LastValidatedAt.UTC()
 	return KubernetesConnectionStatus{
-		Provider:           "kubernetes",
-		Connected:          connection.Status == domain.ConnectorStatusActive && connection.HealthStatus == string(connectors.HealthStatusHealthy),
-		ConnectorID:        connection.ConnectorID,
-		DisplayName:        connection.DisplayName,
-		Status:             connection.Status,
-		HealthStatus:       connection.HealthStatus,
-		Context:            connection.Context,
-		Cluster:            connection.Cluster,
-		Server:             connection.Server,
-		GitVersion:         connection.GitVersion,
-		Platform:           connection.Platform,
-		PermissionChecks:   copyKubernetesPermissionChecks(connection.PermissionChecks),
-		Diagnostics:        copyKubernetesDiagnostics(connection.Diagnostics),
-		RemediationMessage: firstKubernetesRemediation(connection.Diagnostics, connection.PermissionChecks),
-		CreatedAt:          &createdAt,
-		UpdatedAt:          &updatedAt,
-		LastValidatedAt:    &validatedAt,
+		Provider:            "kubernetes",
+		Connected:           connection.Status == domain.ConnectorStatusActive && connection.HealthStatus == string(connectors.HealthStatusHealthy),
+		ConnectorID:         connection.ConnectorID,
+		DisplayName:         connection.DisplayName,
+		Status:              connection.Status,
+		HealthStatus:        connection.HealthStatus,
+		Context:             connection.Context,
+		Cluster:             connection.Cluster,
+		Server:              connection.Server,
+		GitVersion:          connection.GitVersion,
+		Platform:            connection.Platform,
+		ConnectionMode:      connection.ConnectionMode,
+		AgentID:             connection.AgentID,
+		PermissionChecks:    copyKubernetesPermissionChecks(connection.PermissionChecks),
+		Diagnostics:         copyKubernetesDiagnostics(connection.Diagnostics),
+		RemediationMessage:  firstKubernetesRemediation(connection.Diagnostics, connection.PermissionChecks),
+		CreatedAt:           &createdAt,
+		UpdatedAt:           &updatedAt,
+		LastValidatedAt:     &validatedAt,
+		LastHeartbeatAt:     utcTimePtr(connection.LastHeartbeatAt),
+		EnrollmentExpiresAt: utcTimePtr(connection.EnrollmentExpiresAt),
 	}
+}
+
+func (s *Service) kubernetesConnectionStatusFromStored(stored db.TenancyConnectorWithState) (KubernetesConnectionStatus, error) {
+	connection, err := kubernetesConnectionFromStored(stored)
+	if err != nil {
+		return KubernetesConnectionStatus{}, err
+	}
+	if connection.ConnectionMode == k8sconnector.AgentMode &&
+		connection.Status == domain.ConnectorStatusActive &&
+		connection.LastHeartbeatAt != nil &&
+		s.Now().UTC().Sub(connection.LastHeartbeatAt.UTC()) > k8sconnector.HeartbeatDegradedAfter {
+		connection.Status = domain.ConnectorStatusDegraded
+		connection.HealthStatus = string(connectors.HealthStatusError)
+		connection.Diagnostics = append(connection.Diagnostics, k8sprovider.KubernetesPreflightDiagnostic{
+			Code:        "kubernetes_agent_heartbeat_stale",
+			Severity:    "error",
+			Message:     "Identrail has not received a recent heartbeat from the Kubernetes agent.",
+			Remediation: "Verify the identrail-agent Deployment is running and can reach the Identrail API.",
+		})
+	}
+	return toKubernetesConnectionStatus(connection), nil
 }
 
 func kubernetesConnectionStatusFromStored(stored db.TenancyConnectorWithState) (KubernetesConnectionStatus, error) {
@@ -283,22 +324,26 @@ func kubernetesConnectionFromStored(stored db.TenancyConnectorWithState) (kubern
 		return kubernetesProjectConnection{}, fmt.Errorf("decode kubernetes connector metadata: %w", err)
 	}
 	connection := kubernetesProjectConnection{
-		TenantID:         stored.Connector.TenantID,
-		WorkspaceID:      stored.Connector.WorkspaceID,
-		ProjectID:        stored.Connector.ProjectID,
-		ConnectorID:      stored.Connector.ConnectorID,
-		DisplayName:      stored.Connector.DisplayName,
-		Status:           stored.Connector.Status,
-		HealthStatus:     stored.State.HealthStatus,
-		Context:          metadata.Context,
-		Cluster:          metadata.Cluster,
-		Server:           metadata.Server,
-		GitVersion:       metadata.GitVersion,
-		Platform:         metadata.Platform,
-		PermissionChecks: copyKubernetesPermissionChecks(metadata.PermissionChecks),
-		Diagnostics:      copyKubernetesDiagnostics(metadata.Diagnostics),
-		CreatedAt:        stored.Connector.CreatedAt,
-		UpdatedAt:        stored.Connector.UpdatedAt,
+		TenantID:            stored.Connector.TenantID,
+		WorkspaceID:         stored.Connector.WorkspaceID,
+		ProjectID:           stored.Connector.ProjectID,
+		ConnectorID:         stored.Connector.ConnectorID,
+		DisplayName:         stored.Connector.DisplayName,
+		Status:              stored.Connector.Status,
+		HealthStatus:        stored.State.HealthStatus,
+		Context:             metadata.Context,
+		Cluster:             metadata.Cluster,
+		Server:              metadata.Server,
+		GitVersion:          metadata.GitVersion,
+		Platform:            metadata.Platform,
+		ConnectionMode:      metadata.ConnectionMode,
+		AgentID:             metadata.AgentID,
+		PermissionChecks:    copyKubernetesPermissionChecks(metadata.PermissionChecks),
+		Diagnostics:         copyKubernetesDiagnostics(metadata.Diagnostics),
+		CreatedAt:           stored.Connector.CreatedAt,
+		UpdatedAt:           stored.Connector.UpdatedAt,
+		LastHeartbeatAt:     utcTimePtr(metadata.LastHeartbeatAt),
+		EnrollmentExpiresAt: utcTimePtr(metadata.EnrollmentExpiresAt),
 	}
 	if metadata.LastValidatedAt != nil {
 		connection.LastValidatedAt = metadata.LastValidatedAt.UTC()
@@ -306,6 +351,14 @@ func kubernetesConnectionFromStored(stored db.TenancyConnectorWithState) (kubern
 		connection.LastValidatedAt = stored.State.ObservedAt.UTC()
 	}
 	return connection, nil
+}
+
+func utcTimePtr(value *time.Time) *time.Time {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	normalized := value.UTC()
+	return &normalized
 }
 
 func (state persistedKubernetesConnectorState) toMap() (map[string]any, error) {

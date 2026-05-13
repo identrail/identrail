@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "identrail-agent.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "identrail-agent.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "identrail-agent.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "identrail-agent.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "identrail-agent.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+{{ toYaml .Values.podSecurityContext | indent 8 }}
+      containers:
+        - name: identrail-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --api-url={{ required "api.url is required" .Values.api.url }}
+            - --heartbeat-interval={{ .Values.agent.heartbeatInterval }}
+            - --scan-secret-values={{ .Values.agent.scanSecretValues }}
+          env:
+            - name: IDENTRAIL_ENROLLMENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "identrail-agent.fullname" . }}-enrollment
+                  key: enrollment-token
+          securityContext:
+{{ toYaml .Values.securityContext | indent 12 }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}

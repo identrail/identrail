@@ -441,17 +441,45 @@ export type KubernetesConnectionStatus = {
   server?: string;
   git_version?: string;
   platform?: string;
+  connection_mode?: 'agent' | 'kubeconfig';
+  agent_id?: string;
   permission_checks: KubernetesPermissionCheck[];
   diagnostics: KubernetesPreflightDiagnostic[];
   remediation_message?: string;
   created_at?: string;
   updated_at?: string;
   last_validated_at?: string;
+  last_heartbeat_at?: string;
+  enrollment_expires_at?: string;
 };
 
 export type KubernetesConnectionUpsertRequest = {
   connector_id?: string;
   display_name?: string;
+  context?: string;
+};
+
+export type KubernetesConnectorStartRequest = {
+  workspace_id?: string;
+  project_id?: string;
+  connector_id?: string;
+  display_name?: string;
+  api_url?: string;
+};
+
+export type KubernetesConnectorStartResponse = {
+  connection: KubernetesConnectionStatus;
+  enrollment_token: string;
+  enrollment_expires_at: string;
+  helm_command: string;
+};
+
+export type KubernetesConnectorKubeconfigRequest = {
+  workspace_id?: string;
+  project_id?: string;
+  connector_id?: string;
+  display_name?: string;
+  kubeconfig: string;
   context?: string;
 };
 
@@ -1072,6 +1100,24 @@ export const apiClient = {
       `/v1/connectors/github/${encodeURIComponent(connectorID)}/repos${buildQuery({ workspace_id: workspaceID, project_id: projectID })}`,
       auth
     );
+  },
+  startKubernetesConnector(payload: KubernetesConnectorStartRequest, auth?: RequestAuthContext) {
+    return request<KubernetesConnectorStartResponse>('/v1/connectors/k8s', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  getKubernetesConnectorStatus(workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: KubernetesConnectionStatus }>(
+      `/v1/connectors/k8s${buildQuery({ workspace_id: workspaceID, project_id: projectID })}`,
+      auth
+    );
+  },
+  upsertKubernetesKubeconfigConnector(payload: KubernetesConnectorKubeconfigRequest, auth?: RequestAuthContext) {
+    return request<{ connection: KubernetesConnectionStatus }>('/v1/connectors/k8s/kubeconfig', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
   upsertAWSProjectConnection(
     workspaceID: string,

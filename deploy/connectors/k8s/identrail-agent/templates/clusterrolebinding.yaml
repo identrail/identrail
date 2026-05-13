@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "identrail-agent.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "identrail-agent.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "identrail-agent.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "identrail-agent.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

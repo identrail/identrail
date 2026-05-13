@@ -1,0 +1,38 @@
+image:
+  repository: ghcr.io/identrail/identrail-agent
+  tag: latest
+  pullPolicy: IfNotPresent
+
+api:
+  url: https://api.identrail.com
+
+enrollment:
+  token: ""
+
+agent:
+  heartbeatInterval: 30s
+  scanSecretValues: false
+
+serviceAccount:
+  create: true
+  name: identrail-agent
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL

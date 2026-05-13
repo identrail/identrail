@@ -292,6 +292,9 @@ func ValidateSecurity(cfg Config) error {
 			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true and IDENTRAIL_DATABASE_URL is configured")
 		}
 	}
+	if cfg.FeatureConnectorK8S && strings.TrimSpace(cfg.DatabaseURL) != "" && strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
+		return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_K8S=true and IDENTRAIL_DATABASE_URL is configured")
+	}
 
 	if cfg.apiKeyScopesError != "" {
 		return fmt.Errorf("invalid IDENTRAIL_API_KEY_SCOPES: %s", cfg.apiKeyScopesError)

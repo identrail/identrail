@@ -4,7 +4,7 @@ repos:
     hooks:
       - id: check-merge-conflict
       - id: check-yaml
-        exclude: '^deploy/helm/.+/templates/.+\.ya?ml$|^deploy/docker/docker-compose\.prod\.example\.yml$'
+        exclude: '^deploy/helm/.+/templates/.+\.ya?ml$|^deploy/connectors/k8s/.+/templates/.+\.ya?ml$|^deploy/docker/docker-compose\.prod\.example\.yml$'
       - id: end-of-file-fixer
       - id: trailing-whitespace
 

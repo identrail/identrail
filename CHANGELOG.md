@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added the standard Kubernetes connector foundation:
+  - `/v1/connectors/k8s`, `/v1/connectors/k8s/enroll`, `/v1/connectors/k8s/heartbeat`, and `/v1/connectors/k8s/kubeconfig`
+  - single-use 24-hour agent enrollment tokens, hashed agent credentials, stale heartbeat degradation, and encrypted kubeconfig fallback storage
+  - a read-only Helm chart and agent binary scaffold with no secrets, pods/exec, or mutating RBAC verbs
 - Added the standard GitHub connector foundation:
   - GitHub App install URL generation, App JWT signing, installation token caching, HMAC-verified webhooks, and repository pagination helpers
   - `/v1/connectors/github`, `/v1/connectors/github/pat`, `/v1/connectors/github/{connector_id}/repos`, and `/auth/webhooks/github`

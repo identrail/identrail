@@ -10,6 +10,7 @@ import {
   type Finding as ApiFinding,
   type GitHubConnectorStartResponse,
   type GitHubConnectionStatus,
+  type KubernetesConnectorStartResponse,
   type KubernetesConnectionStatus,
   type ProjectRecord,
   type RepoScanRecord,
@@ -111,9 +112,9 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
     provider: 'kubernetes',
     name: 'Kubernetes',
     eyebrow: 'Cluster service identity',
-    summary: 'Run a non-mutating preflight against the configured cluster context before activation.',
+    summary: 'Install a read-only in-cluster agent or use kubeconfig fallback for ad-hoc development.',
     primarySignal: 'Service accounts, RBAC bindings, pods, cluster metadata',
-    requiredAccess: 'Read-only kubectl context available to the API runtime'
+    requiredAccess: 'Read-only ClusterRole through the Identrail agent'
   }
 };
 const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as const;
@@ -128,9 +129,13 @@ const FEATURE_CONNECTOR_GITHUB_V2 =
   PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_GITHUB_V2 === 'true';
 const FEATURE_CONNECTOR_AWS =
   PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === true || PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === 'true';
-const SOURCE_ORDER: SourceProvider[] = FEATURE_CONNECTOR_GITHUB_V2
-  ? ['github', 'aws', 'kubernetes']
-  : ['aws', 'kubernetes'];
+const FEATURE_CONNECTOR_K8S =
+  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_K8S === true || PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_K8S === 'true';
+const SOURCE_ORDER: SourceProvider[] = [
+  ...(FEATURE_CONNECTOR_GITHUB_V2 ? (['github'] as SourceProvider[]) : []),
+  'aws',
+  ...(FEATURE_CONNECTOR_K8S ? (['kubernetes'] as SourceProvider[]) : [])
+];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
@@ -1665,8 +1670,12 @@ export function ProductProjectDetailPage() {
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const [kubernetesForm, setKubernetesForm] = useState({
     displayName: '',
-    context: ''
+    context: '',
+    mode: 'agent' as 'agent' | 'kubeconfig',
+    apiURL: '',
+    kubeconfig: ''
   });
+  const [kubernetesEnrollment, setKubernetesEnrollment] = useState<KubernetesConnectorStartResponse | null>(null);
   const [scanPolicies, setScanPolicies] = useState<ScanPolicyRecord[]>([]);
   const [scanPolicyError, setScanPolicyError] = useState('');
   const [policySaving, setPolicySaving] = useState(false);
@@ -1714,7 +1723,9 @@ export function ProductProjectDetailPage() {
         ? apiClient.getGitHubConnectorStatus(scope.workspaceID, projectID, auth)
         : Promise.resolve({ connection: undefined as unknown as GitHubConnectionStatus }),
       apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth),
-      apiClient.getKubernetesProjectConnection(scope.workspaceID, projectID, auth),
+      FEATURE_CONNECTOR_K8S
+        ? apiClient.getKubernetesConnectorStatus(scope.workspaceID, projectID, auth)
+        : Promise.resolve({ connection: undefined as unknown as KubernetesConnectionStatus }),
       apiClient.listProjectScanPolicies(
         scope.workspaceID,
         projectID,
@@ -1751,13 +1762,15 @@ export function ProductProjectDetailPage() {
       nextErrors.aws =
         awsResult.reason instanceof Error ? awsResult.reason.message : `Unable to load ${SOURCE_PROFILES.aws.name} status.`;
     }
-    if (kubernetesResult.status === 'fulfilled') {
+    if (kubernetesResult.status === 'fulfilled' && kubernetesResult.value.connection) {
       nextConnections.kubernetes = kubernetesResult.value.connection;
     } else {
-      nextErrors.kubernetes =
-        kubernetesResult.reason instanceof Error
-          ? kubernetesResult.reason.message
-          : `Unable to load ${SOURCE_PROFILES.kubernetes.name} status.`;
+      if (FEATURE_CONNECTOR_K8S) {
+        nextErrors.kubernetes =
+          kubernetesResult.status === 'rejected' && kubernetesResult.reason instanceof Error
+            ? kubernetesResult.reason.message
+            : `Unable to load ${SOURCE_PROFILES.kubernetes.name} status.`;
+      }
     }
 
     setConnections(nextConnections);
@@ -2056,12 +2069,31 @@ export function ProductProjectDetailPage() {
     const requestSequence = refreshSequenceRef.current;
     try {
       const auth = buildProductAuthContext(scope);
-      const response = await apiClient.upsertKubernetesProjectConnection(
-        scope.workspaceID,
-        projectID,
+      if (kubernetesForm.mode === 'kubeconfig') {
+        const response = await apiClient.upsertKubernetesKubeconfigConnector(
+          {
+            workspace_id: scope.workspaceID,
+            project_id: projectID,
+            display_name: normalizeValue(kubernetesForm.displayName) || undefined,
+            context: normalizeValue(kubernetesForm.context) || undefined,
+            kubeconfig: kubernetesForm.kubeconfig
+          },
+          auth
+        );
+        if (isStaleRequestSequence(requestSequence)) {
+          return;
+        }
+        setConnections((current) => ({ ...current, kubernetes: response.connection }));
+        setKubernetesEnrollment(null);
+        setSuccessMessage('Kubernetes kubeconfig fallback is saved.');
+        return;
+      }
+      const response = await apiClient.startKubernetesConnector(
         {
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
           display_name: normalizeValue(kubernetesForm.displayName) || undefined,
-          context: normalizeValue(kubernetesForm.context) || undefined
+          api_url: normalizeValue(kubernetesForm.apiURL) || undefined
         },
         auth
       );
@@ -2069,11 +2101,8 @@ export function ProductProjectDetailPage() {
         return;
       }
       setConnections((current) => ({ ...current, kubernetes: response.connection }));
-      setSuccessMessage(
-        response.connection.connected
-          ? 'Kubernetes connector is active.'
-          : 'Kubernetes preflight completed with diagnostics to resolve.'
-      );
+      setKubernetesEnrollment(response);
+      setSuccessMessage('Kubernetes agent enrollment token is ready.');
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
@@ -2492,6 +2521,23 @@ export function ProductProjectDetailPage() {
             <form className="idt-app-form" onSubmit={handleKubernetesSubmit}>
               <div className="idt-source-inline-fields">
                 <label>
+                  Connection mode
+                  <select
+                    value={kubernetesForm.mode}
+                    onChange={(event) =>
+                      setKubernetesForm((current) => ({
+                        ...current,
+                        mode: event.target.value === 'kubeconfig' ? 'kubeconfig' : 'agent'
+                      }))
+                    }
+                  >
+                    <option value="agent">In-cluster agent</option>
+                    <option value="kubeconfig">Kubeconfig fallback</option>
+                  </select>
+                </label>
+              </div>
+              <div className="idt-source-inline-fields">
+                <label>
                   Display name
                   <input
                     value={kubernetesForm.displayName}
@@ -2501,18 +2547,61 @@ export function ProductProjectDetailPage() {
                     placeholder="Production cluster"
                   />
                 </label>
+                {kubernetesForm.mode === 'agent' ? (
+                  <label>
+                    API URL
+                    <input
+                      value={kubernetesForm.apiURL}
+                      onChange={(event) =>
+                        setKubernetesForm((current) => ({ ...current, apiURL: event.target.value }))
+                      }
+                      placeholder="https://api.identrail.com"
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    kubeconfig context
+                    <input
+                      value={kubernetesForm.context}
+                      onChange={(event) =>
+                        setKubernetesForm((current) => ({ ...current, context: event.target.value }))
+                      }
+                      placeholder="current-context"
+                    />
+                  </label>
+                )}
+              </div>
+              {kubernetesForm.mode === 'kubeconfig' ? (
                 <label>
-                  kubectl context
-                  <input
-                    value={kubernetesForm.context}
-                    onChange={(event) => setKubernetesForm((current) => ({ ...current, context: event.target.value }))}
-                    placeholder="API runtime default"
+                  kubeconfig
+                  <textarea
+                    value={kubernetesForm.kubeconfig}
+                    onChange={(event) =>
+                      setKubernetesForm((current) => ({ ...current, kubeconfig: event.target.value }))
+                    }
+                    placeholder="Paste kubeconfig YAML"
+                    rows={8}
                   />
                 </label>
-              </div>
+              ) : null}
               <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
-                {submitting === 'kubernetes' ? 'Running preflight...' : 'Run preflight and save'}
+                {submitting === 'kubernetes'
+                  ? 'Preparing...'
+                  : kubernetesForm.mode === 'agent'
+                    ? 'Generate agent install'
+                    : 'Validate and save kubeconfig'}
               </button>
+              {kubernetesEnrollment ? (
+                <div className="idt-source-diagnostics">
+                  <article>
+                    <strong>Install command</strong>
+                    <span>Expires {formatConnectionTime(kubernetesEnrollment.enrollment_expires_at)}</span>
+                    <p>
+                      <code>{kubernetesEnrollment.helm_command}</code>
+                    </p>
+                  </article>
+                </div>
+              ) : null}
             </form>
           ) : null}
 
@@ -2541,6 +2630,11 @@ export function ProductProjectDetailPage() {
 
           {selectedSource === 'kubernetes' && connections.kubernetes ? (
             <div className="idt-source-diagnostics">
+              {connections.kubernetes.connection_mode ? <p>Mode {connections.kubernetes.connection_mode}</p> : null}
+              {connections.kubernetes.agent_id ? <p>Agent {connections.kubernetes.agent_id}</p> : null}
+              {connections.kubernetes.last_heartbeat_at ? (
+                <p>Last heartbeat {formatConnectionTime(connections.kubernetes.last_heartbeat_at)}</p>
+              ) : null}
               {connections.kubernetes.cluster ? <p>Cluster {connections.kubernetes.cluster}</p> : null}
               {connections.kubernetes.server ? <p>Server {connections.kubernetes.server}</p> : null}
               {connections.kubernetes.permission_checks.map((check) => (

@@ -204,6 +204,125 @@ func TestRouterKubernetesConnectionPreflightUnavailable(t *testing.T) {
 	}
 }
 
+func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
+	r, _ := newKubernetesConnectorV2TestRouter(t)
+	startResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"kubernetes-prod",
+		"display_name":"Production Cluster",
+		"api_url":"https://api.identrail.test"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected start connector 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody KubernetesConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if startBody.EnrollmentToken == "" || startBody.Connection.ConnectionMode != "agent" {
+		t.Fatalf("expected single-use enrollment token and agent mode, got %+v", startBody)
+	}
+	if !bytes.Contains([]byte(startBody.HelmCommand), []byte("helm upgrade --install identrail-agent")) {
+		t.Fatalf("expected helm install command, got %q", startBody.HelmCommand)
+	}
+
+	enrollResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{
+		"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`,
+		"agent_id":"agent-a",
+		"cluster":"prod-cluster",
+		"server":"https://kubernetes.example"
+	}`)
+	if enrollResp.Code != http.StatusOK {
+		t.Fatalf("expected enroll 200, got %d body=%s", enrollResp.Code, enrollResp.Body.String())
+	}
+	var enrollBody KubernetesAgentEnrollResponse
+	if err := json.Unmarshal(enrollResp.Body.Bytes(), &enrollBody); err != nil {
+		t.Fatalf("decode enroll response: %v", err)
+	}
+	if enrollBody.AgentToken == "" || enrollBody.HeartbeatURL != "https://api.identrail.test/v1/connectors/k8s/heartbeat" {
+		t.Fatalf("expected agent token and heartbeat URL, got %+v", enrollBody)
+	}
+
+	reuseResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`}`)
+	if reuseResp.Code != http.StatusGone {
+		t.Fatalf("expected reused token 410, got %d body=%s", reuseResp.Code, reuseResp.Body.String())
+	}
+
+	heartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{
+		"connector_id":"kubernetes-prod",
+		"agent_id":"agent-a"
+	}`, enrollBody.AgentToken)
+	if heartbeatResp.Code != http.StatusOK {
+		t.Fatalf("expected heartbeat 200, got %d body=%s", heartbeatResp.Code, heartbeatResp.Body.String())
+	}
+	var heartbeatBody KubernetesAgentHeartbeatResponse
+	if err := json.Unmarshal(heartbeatResp.Body.Bytes(), &heartbeatBody); err != nil {
+		t.Fatalf("decode heartbeat response: %v", err)
+	}
+	if !heartbeatBody.Connection.Connected || heartbeatBody.Connection.LastHeartbeatAt == nil {
+		t.Fatalf("expected active heartbeat connection, got %+v", heartbeatBody.Connection)
+	}
+}
+
+func TestRouterKubernetesConnectorFeatureFlagDisabled(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "kubernetes")
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		APIKeys:            []string{"writer-key"},
+		WriteAPIKeys:       []string{"writer-key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+	})
+	resp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s", `{}`)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected disabled connector 404, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestKubernetesKubeconfigFallbackEncryptsSecret(t *testing.T) {
+	r, store := newKubernetesConnectorV2TestRouter(t)
+	kubeconfig := `apiVersion: v1
+clusters:
+- name: prod
+  cluster:
+    server: https://kubernetes.example
+contexts:
+- name: prod
+  context:
+    cluster: prod
+    user: identrail
+current-context: prod
+users:
+- name: identrail
+  user:
+    token: super-secret-token
+`
+	resp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/kubeconfig", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"kubernetes-kubeconfig",
+		"display_name":"Kubeconfig fallback",
+		"kubeconfig":`+quoteJSON(kubeconfig)+`
+	}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected kubeconfig 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	secret, err := store.GetTenancyConnectorSecretEnvelope(
+		db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}),
+		"workspace-a",
+		"project-1",
+		"kubernetes-kubeconfig",
+		"kubeconfig",
+	)
+	if err != nil {
+		t.Fatalf("expected encrypted kubeconfig envelope: %v", err)
+	}
+	if bytes.Contains(secret.Envelope.Ciphertext, []byte("super-secret-token")) {
+		t.Fatalf("kubeconfig secret ciphertext must not contain plaintext token")
+	}
+}
+
 func newKubernetesConnectionTestRouter(t *testing.T, factory KubernetesConnectorPreflightFactory) *gin.Engine {
 	t.Helper()
 	store := db.NewMemoryStore()
@@ -225,6 +344,27 @@ func newKubernetesConnectionTestRouter(t *testing.T, factory KubernetesConnector
 	return r
 }
 
+func newKubernetesConnectorV2TestRouter(t *testing.T) (*gin.Engine, *db.MemoryStore) {
+	t.Helper()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "kubernetes")
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		APIKeys:             []string{"writer-key"},
+		WriteAPIKeys:        []string{"writer-key"},
+		DefaultTenantID:     "tenant-a",
+		DefaultWorkspaceID:  "workspace-a",
+		FeatureConnectorK8S: true,
+		PublicBaseURL:       "https://api.identrail.test",
+	})
+	_ = doKubernetesConnectionAPI(t, r, http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`)
+	_ = doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`)
+	projectResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1"}`)
+	if projectResp.Code != http.StatusOK {
+		t.Fatalf("seed project failed %d body=%s", projectResp.Code, projectResp.Body.String())
+	}
+	return r, store
+}
+
 func doKubernetesConnectionAPI(t *testing.T, r *gin.Engine, method string, path string, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
@@ -235,4 +375,21 @@ func doKubernetesConnectionAPI(t *testing.T, r *gin.Engine, method string, path 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
+}
+
+func doKubernetesAgentAPI(t *testing.T, r *gin.Engine, method string, path string, body string, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func quoteJSON(value string) string {
+	payload, _ := json.Marshal(value)
+	return string(payload)
 }

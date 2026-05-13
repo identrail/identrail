@@ -67,6 +67,8 @@ Self-hosted operators leave all four WorkOS variables in this section empty. The
 | `IDENTRAIL_K8S_AGENT_HELM_REPO` | `oci://registry.identrail.com/charts` | The Helm OCI registry the operator references when installing the agent. Self-hosters can override. | PR 9 |
 | `IDENTRAIL_K8S_AGENT_VERSION` | empty | Optional. Pins a specific agent version. Empty means latest stable. | PR 9 |
 
+The PR 9 implementation ships the chart in `deploy/connectors/k8s/identrail-agent`. The API response generates a Helm command against that checked-in chart path; self-hosted operators can publish it to their own OCI registry later without changing the connector API.
+
 ## Feature Flags
 
 Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` patterns. Backend flags use `IDENTRAIL_FEATURE_*` and frontend flags use `VITE_FEATURE_*`. Defaults are conservative; every new feature ships off and gets turned on after the PR is reviewed and verified.
