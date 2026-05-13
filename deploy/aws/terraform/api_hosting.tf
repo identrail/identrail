@@ -56,6 +56,12 @@ locals {
 
 data "aws_partition" "current" {}
 
+data "aws_subnet" "api_public" {
+  count = var.create_api_hosting_resources ? length(var.api_public_subnet_ids) : 0
+
+  id = var.api_public_subnet_ids[count.index]
+}
+
 resource "terraform_data" "api_inputs" {
   count = var.create_api_hosting_resources ? 1 : 0
 
@@ -71,7 +77,12 @@ resource "terraform_data" "api_inputs" {
       condition = length(distinct(var.api_public_subnet_ids)) >= 2 && alltrue([
         for subnet_id in var.api_public_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
       ])
-      error_message = "api_public_subnet_ids must include at least two distinct valid subnet IDs, preferably in different Availability Zones, when create_api_hosting_resources=true."
+      error_message = "api_public_subnet_ids must include at least two distinct valid subnet IDs when create_api_hosting_resources=true."
+    }
+
+    precondition {
+      condition     = length(distinct(data.aws_subnet.api_public[*].availability_zone_id)) >= 2
+      error_message = "api_public_subnet_ids must include public subnets in at least two distinct Availability Zones when create_api_hosting_resources=true."
     }
 
     precondition {
