@@ -29,6 +29,8 @@ Before wiring the frontend to the production API URL, the API deployment must ex
 - `GET /readyz` returning `200` only after runtime dependencies are ready
 - `GET /v1/auth/config` returning JSON, not the web HTML shell
 - `IDENTRAIL_CORS_ALLOWED_ORIGINS` containing the web origins that need browser access
+- `IDENTRAIL_TRUSTED_PROXIES` containing the ALB/VPC proxy CIDRs so rate limits
+  and audit events use the real browser client IP from `X-Forwarded-For`
 - `IDENTRAIL_PUBLIC_BASE_URL` set to the API origin when WorkOS callbacks terminate at the API
 - `IDENTRAIL_SESSION_KEY` set from at least 32 bytes of secret key material
 - persistent storage through `IDENTRAIL_DATABASE_URL`
@@ -37,6 +39,7 @@ For Identrail Cloud, the first production API deployment should use:
 
 ```text
 IDENTRAIL_CORS_ALLOWED_ORIGINS=https://identrail.com,https://www.identrail.com,https://app.identrail.com
+IDENTRAIL_TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 IDENTRAIL_PUBLIC_BASE_URL=https://api.identrail.com
 VITE_IDENTRAIL_API_URL=https://api.identrail.com
 ```

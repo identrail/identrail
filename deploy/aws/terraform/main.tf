@@ -1,5 +1,9 @@
 locals {
   service_names = toset(["api", "worker"])
+  enabled_service_names = setunion(
+    var.create_foundation_resources ? local.service_names : toset([]),
+    var.create_api_hosting_resources ? toset(["api"]) : toset([])
+  )
   runtime_secret_name = length(trimspace(var.runtime_secret_name)) > 0 ? trimspace(var.runtime_secret_name) : (
     "${var.name_prefix}/${var.environment}/runtime"
   )
@@ -22,7 +26,7 @@ provider "aws" {
 }
 
 resource "aws_cloudwatch_log_group" "service" {
-  for_each = var.create_foundation_resources ? local.service_names : toset([])
+  for_each = local.enabled_service_names
 
   name              = "/${var.name_prefix}/${var.environment}/${each.key}"
   retention_in_days = var.log_retention_days

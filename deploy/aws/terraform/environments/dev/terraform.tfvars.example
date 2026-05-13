@@ -4,9 +4,38 @@ name_prefix = "identrail"
 
 # Keep false until the API hosting stack and rollback runbook are ready.
 create_foundation_resources = false
+create_api_hosting_resources = false
 
 create_runtime_secret = true
 log_retention_days    = 30
+
+# API hosting inputs are intentionally placeholders until an operator is ready
+# to run a manual plan/apply for AWS API hosting.
+# api_vpc_id             = "<vpc-id>"
+# api_public_subnet_ids  = ["<public-subnet-a>", "<public-subnet-b>"]
+# api_private_subnet_ids = ["<private-subnet-a>", "<private-subnet-b>"]
+# api_private_subnet_egress_ready = true
+# api_certificate_arn    = "<api-certificate-arn>"
+# api_container_image    = "ghcr.io/identrail/identrail-api:<immutable-release-tag>"
+# api_cors_allowed_origins = [
+#   "https://app.identrail.com",
+#   "https://identrail.com",
+#   "https://www.identrail.com",
+# ]
+# api_trusted_proxy_cidr_blocks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+# Non-secret task settings only. Put database URLs, API keys, session keys, and
+# OAuth/webhook/HMAC secrets in api_secrets instead.
+# api_environment_variables = {
+#   IDENTRAIL_PUBLIC_BASE_URL = "https://app.identrail.com"
+# }
+# api_secrets = {
+#   IDENTRAIL_DATABASE_URL    = "<database-url-secret-arn>"
+#   IDENTRAIL_API_KEY_SCOPES  = "<api-key-scopes-secret-arn>"
+#   # Optional but recommended for tenant/workspace isolation.
+#   # IDENTRAIL_API_KEY_SCOPE_BINDINGS = "<api-key-scope-bindings-secret-arn>"
+# }
+# api_secret_kms_key_arns = ["<secret-kms-key-arn>"]
+# api_connector_role_arns = ["<connector-role-arn>"]
 
 tags = {
   Project = "identrail"
