@@ -981,6 +981,40 @@ func TestValidateSecurityAllowsDatabaseModeWithoutConnectorSecretKeysWhenConnect
 	}
 }
 
+func TestValidateSecurityGitHubV2AllowsPATOnlyConfig(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:             map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		FeatureConnectorGitHubV2: true,
+		GitHubPATAllowedBaseURLs: []string{"https://github.com", "https://ghe.example.com"},
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected github pat-only config to be valid, got %v", err)
+	}
+}
+
+func TestValidateSecurityGitHubV2RejectsPartialAppConfig(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:             map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		FeatureConnectorGitHubV2: true,
+		GitHubAppName:            "identrail",
+		GitHubPATAllowedBaseURLs: []string{"https://github.com"},
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "GitHub App flow") {
+		t.Fatalf("expected github app config error, got %v", err)
+	}
+}
+
+func TestValidateSecurityGitHubV2RejectsInvalidPATAllowlist(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:             map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		FeatureConnectorGitHubV2: true,
+		GitHubPATAllowedBaseURLs: []string{"http://ghe.example.com"},
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS") {
+		t.Fatalf("expected github pat allowlist error, got %v", err)
+	}
+}
+
 func TestStartupDiagnosticsIncludesAppModeSummary(t *testing.T) {
 	cfg := Config{
 		AppModeEnabled:            true,

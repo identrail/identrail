@@ -54,10 +54,11 @@ Self-hosted operators leave all four WorkOS variables in this section empty. The
 
 | Variable | Default | Validation | Adds in |
 | --- | --- | --- | --- |
-| `IDENTRAIL_GITHUB_APP_ID` | empty | Required for the App flow. | PR 8 |
-| `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` | empty | Required when `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true`. PEM-formatted RSA private key. Treated as a secret. | PR 8 |
-| `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET` | empty | Required when `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true`. Used to verify webhook HMAC. | PR 8 |
-| `IDENTRAIL_GITHUB_APP_NAME` | empty | Required when `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true`. The GitHub App slug used in install URLs. | PR 8 |
+| `IDENTRAIL_GITHUB_APP_ID` | empty | Required only when the hosted GitHub App flow is configured. | PR 8 |
+| `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` | empty | Required only when the hosted GitHub App flow is configured. PEM-formatted RSA private key. Treated as a secret. | PR 8 |
+| `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET` | empty | Required only when the hosted GitHub App flow is configured. Used to verify webhook HMAC. | PR 8 |
+| `IDENTRAIL_GITHUB_APP_NAME` | empty | Required only when the hosted GitHub App flow is configured. The GitHub App slug used in install URLs. | PR 8 |
+| `IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS` | `https://github.com` | Comma-separated allowlist of GitHub.com or GitHub Enterprise base URLs accepted by the PAT fallback. | PR 8 |
 
 ### Kubernetes Connector
 

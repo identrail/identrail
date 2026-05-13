@@ -131,7 +131,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	svc.GitHubAppName = cfg.GitHubAppName
 	svc.GitHubAppPrivateKey = cfg.GitHubAppPrivateKey
 	svc.GitHubAppWebhookSecret = cfg.GitHubAppWebhookSecret
-	svc.GitHubPATValidator = githubconnector.PATValidator{}
+	svc.GitHubPATValidator = githubconnector.PATValidator{AllowedBaseURLs: cfg.GitHubPATAllowedBaseURLs}
 	tokenClient := &githubconnector.InstallationTokenClient{
 		Credentials: githubconnector.AppCredentials{
 			AppID:         svc.GitHubAppID,

@@ -268,18 +268,25 @@ func ValidateSecurity(cfg Config) error {
 		}
 	}
 	if cfg.FeatureConnectorGitHubV2 {
-		appID, err := strconv.ParseInt(strings.TrimSpace(cfg.GitHubAppID), 10, 64)
-		if err != nil || appID <= 0 {
-			return fmt.Errorf("IDENTRAIL_GITHUB_APP_ID must be a positive integer when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
+		for _, allowedBaseURL := range cfg.GitHubPATAllowedBaseURLs {
+			if _, err := githubconnector.NormalizeBaseURL(allowedBaseURL); err != nil {
+				return fmt.Errorf("IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS contains an invalid GitHub base URL")
+			}
 		}
-		if _, err := githubconnector.NormalizeAppSlug(cfg.GitHubAppName); err != nil {
-			return fmt.Errorf("IDENTRAIL_GITHUB_APP_NAME must be a valid GitHub App slug when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
-		}
-		if _, err := githubconnector.ParsePrivateKey(cfg.GitHubAppPrivateKey); err != nil {
-			return fmt.Errorf("IDENTRAIL_GITHUB_APP_PRIVATE_KEY must be a PEM encoded RSA private key when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
-		}
-		if strings.TrimSpace(cfg.GitHubAppWebhookSecret) == "" {
-			return fmt.Errorf("IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET is required when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true")
+		if hasGitHubAppConfig(cfg) {
+			appID, err := strconv.ParseInt(strings.TrimSpace(cfg.GitHubAppID), 10, 64)
+			if err != nil || appID <= 0 {
+				return fmt.Errorf("IDENTRAIL_GITHUB_APP_ID must be a positive integer when the GitHub App flow is configured")
+			}
+			if _, err := githubconnector.NormalizeAppSlug(cfg.GitHubAppName); err != nil {
+				return fmt.Errorf("IDENTRAIL_GITHUB_APP_NAME must be a valid GitHub App slug when the GitHub App flow is configured")
+			}
+			if _, err := githubconnector.ParsePrivateKey(cfg.GitHubAppPrivateKey); err != nil {
+				return fmt.Errorf("IDENTRAIL_GITHUB_APP_PRIVATE_KEY must be a PEM encoded RSA private key when the GitHub App flow is configured")
+			}
+			if strings.TrimSpace(cfg.GitHubAppWebhookSecret) == "" {
+				return fmt.Errorf("IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET is required when the GitHub App flow is configured")
+			}
 		}
 		if strings.TrimSpace(cfg.DatabaseURL) != "" && strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
 			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true and IDENTRAIL_DATABASE_URL is configured")
@@ -616,6 +623,13 @@ func ValidateSecurity(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func hasGitHubAppConfig(cfg Config) bool {
+	return strings.TrimSpace(cfg.GitHubAppID) != "" ||
+		strings.TrimSpace(cfg.GitHubAppName) != "" ||
+		strings.TrimSpace(cfg.GitHubAppPrivateKey) != "" ||
+		strings.TrimSpace(cfg.GitHubAppWebhookSecret) != ""
 }
 
 func validatePublicBaseURL(raw string) error {

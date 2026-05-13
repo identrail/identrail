@@ -23,7 +23,8 @@ type PATValidationResult struct {
 
 // PATValidator validates classic GitHub PATs against GitHub.com or GHES.
 type PATValidator struct {
-	HTTPClient *http.Client
+	HTTPClient      *http.Client
+	AllowedBaseURLs []string
 }
 
 // ValidateGitHubPAT adapts PATValidator to the API service dependency.
@@ -60,14 +61,14 @@ func ValidatePATShape(token string) error {
 
 // Validate confirms the token is accepted and has read-oriented repository scope.
 func (v PATValidator) Validate(ctx context.Context, baseURL string, token string) (PATValidationResult, error) {
-	normalizedBaseURL, err := NormalizeBaseURL(baseURL)
+	allowedBaseURL, err := v.allowedBaseURL(baseURL)
 	if err != nil {
 		return PATValidationResult{}, err
 	}
 	if err := ValidatePATShape(token); err != nil {
 		return PATValidationResult{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userEndpoint(normalizedBaseURL), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userEndpoint(allowedBaseURL), nil)
 	if err != nil {
 		return PATValidationResult{}, err
 	}
@@ -100,6 +101,27 @@ func (v PATValidator) httpClient() *http.Client {
 		return v.HTTPClient
 	}
 	return &http.Client{Timeout: 10 * time.Second}
+}
+
+func (v PATValidator) allowedBaseURL(baseURL string) (string, error) {
+	normalizedBaseURL, err := NormalizeBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	allowedBaseURLs := v.AllowedBaseURLs
+	if len(allowedBaseURLs) == 0 {
+		allowedBaseURLs = []string{"https://github.com"}
+	}
+	for _, allowedValue := range allowedBaseURLs {
+		normalizedAllowedURL, err := NormalizeBaseURL(allowedValue)
+		if err != nil {
+			return "", fmt.Errorf("invalid allowed github base url: %w", err)
+		}
+		if normalizedAllowedURL == normalizedBaseURL {
+			return normalizedAllowedURL, nil
+		}
+	}
+	return "", fmt.Errorf("github base url is not allowed")
 }
 
 func userEndpoint(baseURL string) string {

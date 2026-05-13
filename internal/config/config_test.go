@@ -79,6 +79,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "")
 	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "")
 	t.Setenv("IDENTRAIL_FEATURE_NEW_AUTH", "")
+	t.Setenv("IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2", "")
+	t.Setenv("IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS", "")
 	t.Setenv("IDENTRAIL_PUBLIC_BASE_URL", "")
 	t.Setenv("IDENTRAIL_SESSION_KEY", "")
 	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "")
@@ -128,6 +130,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.AWSAccountID != "" {
 		t.Fatalf("expected empty aws account id, got %q", cfg.AWSAccountID)
+	}
+	if len(cfg.GitHubPATAllowedBaseURLs) != 1 || cfg.GitHubPATAllowedBaseURLs[0] != "https://github.com" {
+		t.Fatalf("expected default github pat base url allowlist, got %+v", cfg.GitHubPATAllowedBaseURLs)
 	}
 	if len(cfg.AWSFixturePath) != 2 {
 		t.Fatalf("expected 2 default fixture paths, got %d", len(cfg.AWSFixturePath))

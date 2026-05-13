@@ -329,7 +329,7 @@ PR 5 (frontend auth)                 │
 
 **New endpoints.** `POST /v1/connectors/github`, `GET /v1/connectors/github`, `POST /v1/connectors/github/complete`, `POST /v1/connectors/github/pat`, `POST /auth/webhooks/github` (HMAC-verified), `GET /v1/connectors/github/:id/repos`.
 
-**New env vars.** `IDENTRAIL_GITHUB_APP_ID`, `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` (PEM), `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`, `IDENTRAIL_GITHUB_APP_NAME`.
+**New env vars.** `IDENTRAIL_GITHUB_APP_ID`, `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` (PEM), `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`, `IDENTRAIL_GITHUB_APP_NAME`, `IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS`.
 
 **Out of scope.** Pushing scan results as PR comments. Code scanning alert ingestion. GraphQL API integration.
 

@@ -22,7 +22,7 @@ Older project-scoped GitHub routes are not the product path. They remain interna
 
 `POST /v1/connectors/github` creates a pending connector and returns a GitHub App install URL. The product sends GitHub back to `/app/github/callback`, and that callback calls `POST /v1/connectors/github/complete` with the returned state and installation ID. The backend owns the GitHub App slug and webhook secret through environment variables, so users do not paste app credentials into the browser.
 
-Required runtime configuration:
+Required runtime configuration for the hosted GitHub App flow:
 
 - `IDENTRAIL_GITHUB_APP_ID`
 - `IDENTRAIL_GITHUB_APP_NAME`
@@ -33,7 +33,9 @@ The GitHub App manifest lives at `deploy/connectors/github/app-manifest.json`. I
 
 ## GitHub Enterprise Fallback
 
-`POST /v1/connectors/github/pat` accepts a GitHub Enterprise base URL and a personal access token. The API validates the token against `/api/v3/user`, requires `repo` or `public_repo` scope, encrypts the token into the connector secret envelope table, and stores only non-secret metadata on the connector state.
+`POST /v1/connectors/github/pat` accepts an allowlisted GitHub Enterprise base URL and a personal access token. The API validates the token against `/api/v3/user`, requires `repo` or `public_repo` scope, encrypts the token into the connector secret envelope table, and stores only non-secret metadata on the connector state.
+
+Set `IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS` to the comma-separated list of GitHub.com or GitHub Enterprise origins that PAT validation may call. The default is `https://github.com`. This keeps the fallback usable without letting user input choose arbitrary outbound hosts.
 
 This fallback is for self-hosted GitHub Enterprise and development environments. Hosted Identrail should prefer the GitHub App path.
 

@@ -3843,6 +3843,7 @@ components:
         base_url:
           type: string
           format: uri
+          description: Must match an allowlisted GitHub.com or GitHub Enterprise base URL configured by the operator.
         token:
           type: string
           writeOnly: true

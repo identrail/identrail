@@ -60,6 +60,16 @@ Kubernetes connector onboarding uses the same kubectl path and context to run a 
 Cross-provider:
 - `IDENTRAIL_REQUIRE_LIVE_SOURCES`
 
+GitHub connector:
+- `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2`
+- `IDENTRAIL_GITHUB_APP_ID`
+- `IDENTRAIL_GITHUB_APP_NAME`
+- `IDENTRAIL_GITHUB_APP_PRIVATE_KEY`
+- `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`
+- `IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS`
+
+The hosted GitHub App credentials are only required when that flow is configured. The PAT fallback can run without App credentials, but PAT validation only calls base URLs listed in `IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS`.
+
 Production deployment templates set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true` with `IDENTRAIL_AWS_SOURCE=sdk` and `IDENTRAIL_K8S_SOURCE=kubectl`. Keep fixture sources for local smoke tests only, and set `IDENTRAIL_REQUIRE_LIVE_SOURCES=false` when using them intentionally.
 
 ## Queue, Worker, and Locking

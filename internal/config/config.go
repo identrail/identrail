@@ -164,6 +164,7 @@ type Config struct {
 	GitHubAppName                string
 	GitHubAppPrivateKey          string
 	GitHubAppWebhookSecret       string
+	GitHubPATAllowedBaseURLs     []string
 	PublicBaseURL                string
 	SessionKey                   string
 	SessionKeyPrevious           string
@@ -306,6 +307,7 @@ func Load() Config {
 		GitHubAppName:                getEnv("IDENTRAIL_GITHUB_APP_NAME", ""),
 		GitHubAppPrivateKey:          getEnv("IDENTRAIL_GITHUB_APP_PRIVATE_KEY", ""),
 		GitHubAppWebhookSecret:       getEnv("IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET", ""),
+		GitHubPATAllowedBaseURLs:     parseCommaSeparated(getEnv("IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS", "https://github.com")),
 		PublicBaseURL:                getEnv("IDENTRAIL_PUBLIC_BASE_URL", ""),
 		SessionKey:                   getEnv("IDENTRAIL_SESSION_KEY", ""),
 		SessionKeyPrevious:           getEnv("IDENTRAIL_SESSION_KEY_PREVIOUS", ""),

@@ -64,7 +64,7 @@ func TestPATValidatorValidate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := PATValidator{}.Validate(context.Background(), server.URL, "ghp_abcdefghijklmnopqrstuvwxyz")
+	result, err := PATValidator{AllowedBaseURLs: []string{server.URL}}.Validate(context.Background(), server.URL, "ghp_abcdefghijklmnopqrstuvwxyz")
 	if err != nil {
 		t.Fatalf("validate pat: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestPATValidatorRejectsMissingScope(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := PATValidator{}.Validate(context.Background(), server.URL, "ghp_abcdefghijklmnopqrstuvwxyz")
+	_, err := PATValidator{AllowedBaseURLs: []string{server.URL}}.Validate(context.Background(), server.URL, "ghp_abcdefghijklmnopqrstuvwxyz")
 	if err == nil || !strings.Contains(err.Error(), "repo or public_repo") {
 		t.Fatalf("expected missing scope error, got %v", err)
 	}
@@ -98,7 +98,7 @@ func TestPATValidatorRejectsProviderErrors(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := PATValidator{}.ValidateGitHubPAT(context.Background(), server.URL, "ghp_abcdefghijklmnopqrstuvwxyz")
+	_, err := PATValidator{AllowedBaseURLs: []string{server.URL}}.ValidateGitHubPAT(context.Background(), server.URL, "ghp_abcdefghijklmnopqrstuvwxyz")
 	if err == nil || !strings.Contains(err.Error(), "status 401") {
 		t.Fatalf("expected provider status error, got %v", err)
 	}
@@ -111,9 +111,16 @@ func TestPATValidatorRejectsBadJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := PATValidator{}.Validate(context.Background(), server.URL, "github_pat_abcdefghijklmnopqrstuvwxyz")
+	_, err := PATValidator{AllowedBaseURLs: []string{server.URL}}.Validate(context.Background(), server.URL, "github_pat_abcdefghijklmnopqrstuvwxyz")
 	if err == nil || !strings.Contains(err.Error(), "decode") {
 		t.Fatalf("expected decode error, got %v", err)
+	}
+}
+
+func TestPATValidatorRejectsUnapprovedBaseURL(t *testing.T) {
+	_, err := PATValidator{AllowedBaseURLs: []string{"https://github.com"}}.Validate(context.Background(), "https://ghe.example.com", "ghp_abcdefghijklmnopqrstuvwxyz")
+	if err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("expected unapproved base url error, got %v", err)
 	}
 }
 
