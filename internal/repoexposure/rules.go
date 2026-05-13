@@ -702,6 +702,9 @@ func detectTerraformMisconfigFindings(
 			}
 
 		case "aws_security_group":
+			if ingressAttribute := block.Body.Attributes["ingress"]; ingressAttribute != nil {
+				appendTerraformOpenSSHRDPenaltyFindingFromIngressAttribute(&findings, seen, repo, commit, path, ingressAttribute, detectedAt)
+			}
 			for _, child := range block.Body.Blocks {
 				if child.Type == "ingress" {
 					appendTerraformOpenSSHRDPPenaltyFinding(&findings, seen, repo, commit, path, child.Body.Attributes, detectedAt)
