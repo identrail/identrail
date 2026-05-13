@@ -102,6 +102,10 @@ x-identrail-route-authorizations:
     path: /v1/repo-findings
     action: repo_scans.read
     resource_type: repo_finding
+  - method: GET
+    path: /v1/repo-finding-clusters
+    action: repo_scans.read
+    resource_type: repo_finding_cluster
   - method: POST
     path: /v1/repo-scans
     action: repo_scans.run
@@ -2497,6 +2501,45 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/repo-finding-clusters:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [RepositoryExposure]
+      summary: List grouped repository scan finding clusters
+      operationId: listRepoFindingClusters
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/sortBy"
+        - $ref: "#/components/parameters/sortOrder"
+        - in: query
+          name: repo_scan_id
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema:
+            $ref: "#/components/schemas/FindingSeverity"
+        - in: query
+          name: type
+          schema:
+            $ref: "#/components/schemas/FindingType"
+      responses:
+        "200":
+          description: Repository finding clusters page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoFindingClusterPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -3616,6 +3659,74 @@ components:
           format: date-time
         triage:
           $ref: "#/components/schemas/FindingTriage"
+    RepoFindingClusterSpread:
+      type: object
+      properties:
+        paths:
+          type: integer
+          minimum: 0
+        commits:
+          type: integer
+          minimum: 0
+        repo_scans:
+          type: integer
+          minimum: 0
+    RepoFindingClusterMember:
+      type: object
+      properties:
+        finding_id: { type: string }
+        repo_scan_id: { type: string }
+        repository: { type: string }
+        commit: { type: string }
+        file_path: { type: string }
+        line_number:
+          type: integer
+          minimum: 1
+        line_snippet:
+          type: string
+        line_snippet_redacted:
+          type: boolean
+        source_url:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+    RepoFindingCluster:
+      type: object
+      properties:
+        id: { type: string }
+        repository: { type: string }
+        type: { $ref: "#/components/schemas/FindingType" }
+        severity: { $ref: "#/components/schemas/FindingSeverity" }
+        detector: { type: string }
+        title: { type: string }
+        human_summary: { type: string }
+        remediation: { type: string }
+        count:
+          type: integer
+          minimum: 1
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        spread:
+          $ref: "#/components/schemas/RepoFindingClusterSpread"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoFindingClusterMember"
+    RepoFindingClusterPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoFindingCluster"
+        next_cursor:
+          type: string
     FindingsSummary:
       type: object
       properties:

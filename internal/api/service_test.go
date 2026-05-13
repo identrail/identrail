@@ -98,12 +98,22 @@ type failingAnyScopeDepthStore struct {
 	*db.MemoryStore
 }
 
+type repoFindingClusterFilterCaptureStore struct {
+	*db.MemoryStore
+	lastRepoFindingClusterFilter db.RepoFindingClusterListFilter
+}
+
 func (s *failingAnyScopeDepthStore) CountQueuedScansAnyScope(context.Context, string) (int, error) {
 	return 0, errors.New("count queued scans any scope failed")
 }
 
 func (s *failingAnyScopeDepthStore) CountQueuedRepoScansAnyScope(context.Context) (int, error) {
 	return 0, errors.New("count queued repo scans any scope failed")
+}
+
+func (s *repoFindingClusterFilterCaptureStore) ListRepoFindingClusters(ctx context.Context, filter db.RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error) {
+	s.lastRepoFindingClusterFilter = filter
+	return s.MemoryStore.ListRepoFindingClusters(ctx, filter)
 }
 
 func (s *completionContextStore) CompleteScan(
@@ -1489,6 +1499,189 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	}
 	if findings[0].SourceURL != "https://github.com/owner/repo/blob/abc123/config/app.env#L7" {
 		t.Fatalf("expected GitHub source URL, got %+v", findings[0].SourceURL)
+	}
+}
+
+func TestServiceListRepoFindingClusters(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create first repo scan: %v", err)
+	}
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create second repo scan: %v", err)
+	}
+
+	if err := store.UpsertRepoFindings(defaultScopeContext(), firstScan.ID, []domain.Finding{
+		{
+			ID:           "rf-1",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "GitHub workflow uses pull_request_target trigger",
+			HumanSummary: "pull_request_target can execute with elevated token context if not strictly controlled.",
+			Repository:   "owner/repo",
+			Commit:       "abc123",
+			FilePath:     ".github/workflows/build.yml",
+			LineNumber:   7,
+			Detector:     "workflow_pull_request_target",
+			LineSnippet:  "pull_request_target:",
+			CreatedAt:    time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:           "rf-2",
+			Type:         domain.FindingSecretExposure,
+			Severity:     domain.SeverityHigh,
+			Title:        "Potential AWS access key exposed in commit history",
+			HumanSummary: "A line added in commit history appears to contain an AWS access key identifier.",
+			Repository:   "owner/repo",
+			Commit:       "deadbeef",
+			FilePath:     "config/app.env",
+			LineNumber:   3,
+			Detector:     "aws_access_key_id",
+			LineSnippet:  "AWS_ACCESS_KEY_ID=AKIA****",
+			Evidence:     map[string]any{"secret_fingerprint": "fp-a"},
+			CreatedAt:    time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("upsert first repo findings: %v", err)
+	}
+
+	if err := store.UpsertRepoFindings(defaultScopeContext(), secondScan.ID, []domain.Finding{
+		{
+			ID:           "rf-3",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "GitHub workflow uses pull_request_target trigger",
+			HumanSummary: "pull_request_target can execute with elevated token context if not strictly controlled.",
+			Repository:   "owner/repo",
+			Commit:       "def456",
+			FilePath:     ".github/workflows/release.yml",
+			LineNumber:   11,
+			Detector:     "workflow_pull_request_target",
+			LineSnippet:  "pull_request_target:",
+			CreatedAt:    time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:           "rf-4",
+			Type:         domain.FindingSecretExposure,
+			Severity:     domain.SeverityHigh,
+			Title:        "Potential AWS access key exposed in commit history",
+			HumanSummary: "A line added in commit history appears to contain an AWS access key identifier.",
+			Repository:   "owner/repo",
+			Commit:       "cafe1234",
+			FilePath:     "config/app.env",
+			LineNumber:   3,
+			Detector:     "aws_access_key_id",
+			LineSnippet:  "AWS_ACCESS_KEY_ID=AKIA****",
+			Evidence:     map[string]any{"secret_fingerprint": "fp-a"},
+			CreatedAt:    time.Date(2026, 5, 1, 12, 5, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("upsert second repo findings: %v", err)
+	}
+
+	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), 100, RepoFindingClusterFilter{})
+	if err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	if len(clusters) != 2 {
+		t.Fatalf("expected two clusters, got %+v", clusters)
+	}
+	if clusters[0].Detector != "aws_access_key_id" || clusters[0].Count != 2 {
+		t.Fatalf("expected secret cluster rollup first, got %+v", clusters[0])
+	}
+	if clusters[0].Spread.Commits != 2 || clusters[0].Spread.RepoScans != 2 || len(clusters[0].Members) != 2 {
+		t.Fatalf("expected secret spread metadata, got %+v", clusters[0])
+	}
+	if clusters[1].Detector != "workflow_pull_request_target" || clusters[1].Count != 2 {
+		t.Fatalf("expected misconfig cluster rollup second, got %+v", clusters[1])
+	}
+	if clusters[1].Spread.Paths != 2 || clusters[1].Members[0].SourceURL != "https://github.com/owner/repo/blob/def456/.github/workflows/release.yml#L11" {
+		t.Fatalf("expected member source URLs and path spread, got %+v", clusters[1])
+	}
+}
+
+func TestServiceListRepoFindingClustersUsesBoundedPageFilter(t *testing.T) {
+	store := &repoFindingClusterFilterCaptureStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{{
+		ID:         "rf-1",
+		Type:       domain.FindingRepoMisconfig,
+		Severity:   domain.SeverityMedium,
+		Repository: "owner/repo",
+		Detector:   "workflow_pull_request_target",
+		CreatedAt:  time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+	}}); err != nil {
+		t.Fatalf("upsert repo finding: %v", err)
+	}
+
+	if _, err := svc.ListRepoFindingClusters(defaultScopeContext(), 25, RepoFindingClusterFilter{
+		SortBy: "count",
+		Offset: 10,
+	}); err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	if store.lastRepoFindingClusterFilter.Limit != 25 || store.lastRepoFindingClusterFilter.Offset != 10 {
+		t.Fatalf("expected bounded repo finding cluster page filter, got %+v", store.lastRepoFindingClusterFilter)
+	}
+	if store.lastRepoFindingClusterFilter.SortBy != "count" || store.lastRepoFindingClusterFilter.SortDesc {
+		t.Fatalf("expected explicit count sort to pass through unchanged, got %+v", store.lastRepoFindingClusterFilter)
+	}
+}
+
+func TestServiceListRepoFindingClustersBackfillsLegacyRepositoryContext(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create first repo scan: %v", err)
+	}
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create second repo scan: %v", err)
+	}
+
+	for _, candidate := range []struct {
+		scanID    string
+		findingID string
+		createdAt time.Time
+	}{
+		{scanID: firstScan.ID, findingID: "rf-1", createdAt: time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)},
+		{scanID: secondScan.ID, findingID: "rf-2", createdAt: time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)},
+	} {
+		if err := store.UpsertRepoFindings(defaultScopeContext(), candidate.scanID, []domain.Finding{{
+			ID:           candidate.findingID,
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "GitHub workflow uses pull_request_target trigger",
+			HumanSummary: "pull_request_target can execute with elevated token context if not strictly controlled.",
+			Detector:     "workflow_pull_request_target",
+			FilePath:     ".github/workflows/release.yml",
+			LineNumber:   18,
+			CreatedAt:    candidate.createdAt,
+		}}); err != nil {
+			t.Fatalf("upsert repo finding for %s: %v", candidate.scanID, err)
+		}
+	}
+
+	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), 100, RepoFindingClusterFilter{})
+	if err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	if len(clusters) != 2 {
+		t.Fatalf("expected distinct clusters per repository, got %+v", clusters)
+	}
+	if clusters[0].Repository != "owner/repo-b" || clusters[1].Repository != "owner/repo-a" {
+		t.Fatalf("expected repository backfill to separate clusters, got %+v", clusters)
 	}
 }
 

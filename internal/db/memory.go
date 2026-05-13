@@ -2089,11 +2089,13 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 		return nil, err
 	}
 	repoScanID := strings.TrimSpace(filter.RepoScanID)
+	repoScanRepository := ""
 	if repoScanID != "" {
 		record, exists := m.repoScans[repoScanID]
 		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			return nil, ErrNotFound
 		}
+		repoScanRepository = strings.TrimSpace(record.Repository)
 	}
 	severity := strings.ToLower(strings.TrimSpace(filter.Severity))
 	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
@@ -2111,6 +2113,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
 				continue
 			}
+			if finding.Repository == "" {
+				finding.Repository = repoScanRepository
+			}
 			domain.NormalizeRepoFindingMetadata(&finding)
 			result = append(result, finding)
 		}
@@ -2126,6 +2131,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
 				continue
 			}
+			if finding.Repository == "" {
+				finding.Repository = strings.TrimSpace(record.Repository)
+			}
 			domain.NormalizeRepoFindingMetadata(&finding)
 			result = append(result, finding)
 		}
@@ -2135,6 +2143,29 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+// ListRepoFindingClusters returns repository finding clusters using store-backed pagination semantics.
+func (m *MemoryStore) ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error) {
+	findings, err := m.ListRepoFindings(ctx, RepoFindingFilter{
+		RepoScanID: filter.RepoScanID,
+		Severity:   filter.Severity,
+		Type:       filter.Type,
+	}, 0)
+	if err != nil {
+		return nil, err
+	}
+	normalized := NormalizeRepoFindingClusterListFilter(filter)
+	clusters := domain.BuildRepoFindingClusters(findings)
+	domain.SortRepoFindingClusters(clusters, normalized.SortBy, normalized.SortDesc)
+	if normalized.Offset >= len(clusters) {
+		return []domain.RepoFindingCluster{}, nil
+	}
+	end := normalized.Offset + normalized.Limit + 1
+	if end > len(clusters) {
+		end = len(clusters)
+	}
+	return append([]domain.RepoFindingCluster(nil), clusters[normalized.Offset:end]...), nil
 }
 
 // Close closes store resources.

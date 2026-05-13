@@ -3006,9 +3006,6 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 
 // ListRepoFindings returns latest repository findings first with optional filters.
 func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error) {
-	if limit <= 0 {
-		limit = 100
-	}
 	repoScanID := strings.TrimSpace(filter.RepoScanID)
 	if repoScanID != "" {
 		if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
@@ -3019,24 +3016,30 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	if err != nil {
 		return nil, err
 	}
-	rows, err := p.queryContext(
-		ctx,
-		`SELECT rf.repo_scan_id, rf.finding_id, rf.type, rf.severity, rf.title, rf.human_summary, rf.path, rf.evidence, COALESCE(rf.remediation, ''), rf.created_at
+	query := `SELECT rf.repo_scan_id, rf.finding_id, rf.type, rf.severity, rf.title, rf.human_summary, rf.path, rf.evidence, COALESCE(rf.remediation, ''), rf.created_at, rs.repository
 		 FROM repo_findings rf
 		 JOIN repo_scans rs ON rs.id = rf.repo_scan_id
 		 WHERE ($1 = '' OR rf.repo_scan_id = $1::uuid)
 		   AND ($2 = '' OR rf.severity = $2)
 		   AND ($3 = '' OR rf.type = $3)
-		   AND rs.tenant_id = $5
-		   AND rs.workspace_id = $6
-		 ORDER BY rf.created_at DESC
-		 LIMIT $4`,
+		   AND rs.tenant_id = $4
+		   AND rs.workspace_id = $5
+		 ORDER BY rf.created_at DESC`
+	args := []any{
 		repoScanID,
 		strings.TrimSpace(filter.Severity),
 		strings.TrimSpace(filter.Type),
-		limit,
 		scope.TenantID,
 		scope.WorkspaceID,
+	}
+	if limit > 0 {
+		query += "\n\t\t LIMIT $6"
+		args = append(args, limit)
+	}
+	rows, err := p.queryContext(
+		ctx,
+		query,
+		args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query repo findings: %w", err)
@@ -3055,6 +3058,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 			Evidence     []byte
 			Remediation  string
 			CreatedAt    time.Time
+			Repository   string
 		}
 		if err := rows.Scan(
 			&row.RepoScanID,
@@ -3067,6 +3071,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 			&row.Evidence,
 			&row.Remediation,
 			&row.CreatedAt,
+			&row.Repository,
 		); err != nil {
 			return nil, fmt.Errorf("repo finding row: %w", err)
 		}
@@ -3079,6 +3084,9 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 			HumanSummary: row.HumanSummary,
 			Remediation:  row.Remediation,
 			CreatedAt:    row.CreatedAt,
+		}
+		if finding.Repository == "" {
+			finding.Repository = strings.TrimSpace(row.Repository)
 		}
 		if len(row.Path) > 0 {
 			if err := json.Unmarshal(row.Path, &finding.Path); err != nil {
@@ -3097,6 +3105,397 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 		return nil, fmt.Errorf("repo finding rows: %w", err)
 	}
 	return result, nil
+}
+
+// ListRepoFindingClusters returns repository finding clusters with bounded store-side pagination.
+func (p *PostgresStore) ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error) {
+	normalized := NormalizeRepoFindingClusterListFilter(filter)
+	if normalized.RepoScanID != "" {
+		if err := p.ensureRepoScanInScope(ctx, normalized.RepoScanID); err != nil {
+			return nil, err
+		}
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredCTE, baseArgs, nextArg := repoFindingClusterFilteredCTE(scope, normalized)
+	summaryArgs := append([]any(nil), baseArgs...)
+	summaryArgs = append(summaryArgs, normalized.Offset, normalized.Limit+1)
+	summaryQuery := fmt.Sprintf(
+		`%s,
+cluster_summaries AS (
+	SELECT
+		cluster_key,
+		MIN(repository) AS repository,
+		MIN(type) AS type,
+		MAX(severity_rank) AS severity_rank,
+		MAX(detector) AS detector,
+		COUNT(*) AS finding_count,
+		MIN(created_at) AS first_seen_at,
+		MAX(created_at) AS last_seen_at,
+		COUNT(DISTINCT NULLIF(file_path, '')) AS path_count,
+		COUNT(DISTINCT NULLIF(commit, '')) AS commit_count,
+		COUNT(DISTINCT repo_scan_id) AS repo_scan_count
+	FROM filtered
+	GROUP BY cluster_key
+),
+latest_cluster_details AS (
+	SELECT DISTINCT ON (cluster_key)
+		cluster_key,
+		title,
+		human_summary,
+		remediation
+	FROM filtered
+	ORDER BY cluster_key, created_at DESC, file_path ASC, line_number ASC, finding_id ASC
+)
+SELECT
+	s.cluster_key,
+	s.repository,
+	s.type,
+	CASE s.severity_rank
+		WHEN 5 THEN 'critical'
+		WHEN 4 THEN 'high'
+		WHEN 3 THEN 'medium'
+		WHEN 2 THEN 'low'
+		WHEN 1 THEN 'info'
+		ELSE ''
+	END AS severity,
+	s.detector,
+	d.title,
+	d.human_summary,
+	d.remediation,
+	s.finding_count,
+	s.first_seen_at,
+	s.last_seen_at,
+	s.path_count,
+	s.commit_count,
+	s.repo_scan_count
+FROM cluster_summaries s
+JOIN latest_cluster_details d ON d.cluster_key = s.cluster_key
+ORDER BY %s
+OFFSET $%d
+LIMIT $%d`,
+		filteredCTE,
+		repoFindingClusterOrderClause(normalized.SortBy, normalized.SortDesc),
+		nextArg,
+		nextArg+1,
+	)
+	summaryRows, err := p.queryContext(ctx, summaryQuery, summaryArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query repo finding cluster summaries: %w", err)
+	}
+	defer summaryRows.Close()
+
+	type clusterSummaryRow struct {
+		ClusterKey    string
+		Repository    string
+		Type          string
+		Severity      string
+		Detector      string
+		Title         string
+		HumanSummary  string
+		Remediation   string
+		FindingCount  int
+		FirstSeenAt   time.Time
+		LastSeenAt    time.Time
+		PathCount     int
+		CommitCount   int
+		RepoScanCount int
+	}
+
+	orderedKeys := []string{}
+	clustersByKey := make(map[string]*domain.RepoFindingCluster)
+	for summaryRows.Next() {
+		var row clusterSummaryRow
+		if err := summaryRows.Scan(
+			&row.ClusterKey,
+			&row.Repository,
+			&row.Type,
+			&row.Severity,
+			&row.Detector,
+			&row.Title,
+			&row.HumanSummary,
+			&row.Remediation,
+			&row.FindingCount,
+			&row.FirstSeenAt,
+			&row.LastSeenAt,
+			&row.PathCount,
+			&row.CommitCount,
+			&row.RepoScanCount,
+		); err != nil {
+			return nil, fmt.Errorf("repo finding cluster summary row: %w", err)
+		}
+		cluster := domain.RepoFindingCluster{
+			ID:           domain.RepoFindingClusterIDForKey(row.ClusterKey),
+			Repository:   strings.TrimSpace(row.Repository),
+			Type:         domain.FindingType(row.Type),
+			Severity:     domain.FindingSeverity(row.Severity),
+			Detector:     strings.TrimSpace(row.Detector),
+			Title:        row.Title,
+			HumanSummary: row.HumanSummary,
+			Remediation:  row.Remediation,
+			Count:        row.FindingCount,
+			FirstSeenAt:  row.FirstSeenAt.UTC(),
+			LastSeenAt:   row.LastSeenAt.UTC(),
+			Spread: domain.RepoFindingClusterSpread{
+				Paths:     row.PathCount,
+				Commits:   row.CommitCount,
+				RepoScans: row.RepoScanCount,
+			},
+		}
+		orderedKeys = append(orderedKeys, row.ClusterKey)
+		clustersByKey[row.ClusterKey] = &cluster
+	}
+	if err := summaryRows.Err(); err != nil {
+		return nil, fmt.Errorf("repo finding cluster summary rows: %w", err)
+	}
+	if len(orderedKeys) == 0 {
+		return []domain.RepoFindingCluster{}, nil
+	}
+
+	memberArgs := append([]any(nil), baseArgs...)
+	memberPlaceholders := make([]string, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		memberPlaceholders = append(memberPlaceholders, fmt.Sprintf("$%d", nextArg))
+		memberArgs = append(memberArgs, key)
+		nextArg++
+	}
+	memberQuery := fmt.Sprintf(
+		`%s
+SELECT
+	cluster_key,
+	repo_scan_id,
+	finding_id,
+	type,
+	severity,
+	title,
+	human_summary,
+	path,
+	evidence,
+	remediation,
+	created_at,
+	repository
+FROM filtered
+WHERE cluster_key IN (%s)
+ORDER BY cluster_key ASC, created_at DESC, file_path ASC, line_number ASC, finding_id ASC`,
+		filteredCTE,
+		strings.Join(memberPlaceholders, ", "),
+	)
+	memberRows, err := p.queryContext(ctx, memberQuery, memberArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query repo finding cluster members: %w", err)
+	}
+	defer memberRows.Close()
+
+	for memberRows.Next() {
+		var row struct {
+			ClusterKey   string
+			RepoScanID   string
+			FindingID    string
+			Type         string
+			Severity     string
+			Title        string
+			HumanSummary string
+			Path         []byte
+			Evidence     []byte
+			Remediation  string
+			CreatedAt    time.Time
+			Repository   string
+		}
+		if err := memberRows.Scan(
+			&row.ClusterKey,
+			&row.RepoScanID,
+			&row.FindingID,
+			&row.Type,
+			&row.Severity,
+			&row.Title,
+			&row.HumanSummary,
+			&row.Path,
+			&row.Evidence,
+			&row.Remediation,
+			&row.CreatedAt,
+			&row.Repository,
+		); err != nil {
+			return nil, fmt.Errorf("repo finding cluster member row: %w", err)
+		}
+		cluster, exists := clustersByKey[row.ClusterKey]
+		if !exists {
+			continue
+		}
+		finding := domain.Finding{
+			ScanID:       row.RepoScanID,
+			ID:           row.FindingID,
+			Type:         domain.FindingType(row.Type),
+			Severity:     domain.FindingSeverity(row.Severity),
+			Title:        row.Title,
+			HumanSummary: row.HumanSummary,
+			Remediation:  row.Remediation,
+			CreatedAt:    row.CreatedAt.UTC(),
+			Repository:   strings.TrimSpace(row.Repository),
+		}
+		if len(row.Path) > 0 {
+			if err := json.Unmarshal(row.Path, &finding.Path); err != nil {
+				return nil, fmt.Errorf("decode repo finding cluster member path: %w", err)
+			}
+		}
+		if len(row.Evidence) > 0 {
+			if err := json.Unmarshal(row.Evidence, &finding.Evidence); err != nil {
+				return nil, fmt.Errorf("decode repo finding cluster member evidence: %w", err)
+			}
+		}
+		domain.NormalizeRepoFindingMetadata(&finding)
+		cluster.Members = append(cluster.Members, domain.RepoFindingClusterMember{
+			FindingID:           finding.ID,
+			RepoScanID:          strings.TrimSpace(finding.ScanID),
+			Repository:          strings.TrimSpace(finding.Repository),
+			Commit:              strings.TrimSpace(finding.Commit),
+			FilePath:            strings.TrimSpace(finding.FilePath),
+			LineNumber:          finding.LineNumber,
+			LineSnippet:         finding.LineSnippet,
+			LineSnippetRedacted: finding.LineSnippetRedacted,
+			CreatedAt:           finding.CreatedAt.UTC(),
+		})
+	}
+	if err := memberRows.Err(); err != nil {
+		return nil, fmt.Errorf("repo finding cluster member rows: %w", err)
+	}
+
+	result := make([]domain.RepoFindingCluster, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		cluster, exists := clustersByKey[key]
+		if !exists {
+			continue
+		}
+		result = append(result, *cluster)
+	}
+	return result, nil
+}
+
+func repoFindingClusterFilteredCTE(scope Scope, filter RepoFindingClusterListFilter) (string, []any, int) {
+	args := []any{scope.TenantID, scope.WorkspaceID}
+	conditions := []string{
+		"rs.tenant_id = $1",
+		"rs.workspace_id = $2",
+	}
+	nextArg := 3
+	if filter.RepoScanID != "" {
+		conditions = append(conditions, fmt.Sprintf("rf.repo_scan_id = $%d::uuid", nextArg))
+		args = append(args, filter.RepoScanID)
+		nextArg++
+	}
+	if filter.Severity != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(rf.severity) = $%d", nextArg))
+		args = append(args, filter.Severity)
+		nextArg++
+	}
+	if filter.Type != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(rf.type) = $%d", nextArg))
+		args = append(args, filter.Type)
+		nextArg++
+	}
+
+	repositoryExpr := "COALESCE(NULLIF(rf.evidence->>'repository', ''), rs.repository)"
+	commitExpr := "COALESCE(NULLIF(rf.evidence->>'commit', ''), '')"
+	filePathExpr := `COALESCE(
+		NULLIF(rf.evidence->>'file_path', ''),
+		CASE
+			WHEN jsonb_typeof(rf.path) = 'array' AND jsonb_array_length(rf.path) > 0 THEN rf.path->>0
+			ELSE ''
+		END,
+		''
+	)`
+	lineNumberExpr := `CASE
+		WHEN COALESCE(rf.evidence->>'line_number', '') ~ '^[0-9]+$' THEN (rf.evidence->>'line_number')::integer
+		ELSE 0
+	END`
+	detectorExpr := "COALESCE(NULLIF(rf.evidence->>'detector', ''), '')"
+	fingerprintExpr := "NULLIF(rf.evidence->>'secret_fingerprint', '')"
+	clusterKeyExpr := fmt.Sprintf(`CASE
+		WHEN rf.type = 'secret_exposure' AND %s <> '' AND %s IS NOT NULL
+			THEN CONCAT_WS(E'\x1f', 'secret', %s, rf.type, %s, %s)
+		WHEN rf.type = 'secret_exposure'
+			THEN CONCAT_WS(E'\x1f', 'finding', %s, rf.type, rf.repo_scan_id::text, rf.finding_id)
+		WHEN %s <> ''
+			THEN CONCAT_WS(E'\x1f', 'detector', %s, rf.type, %s)
+		ELSE CONCAT_WS(E'\x1f', 'finding', %s, rf.type, rf.finding_id)
+	END`,
+		detectorExpr,
+		fingerprintExpr,
+		repositoryExpr,
+		detectorExpr,
+		fingerprintExpr,
+		repositoryExpr,
+		detectorExpr,
+		repositoryExpr,
+		detectorExpr,
+		repositoryExpr,
+	)
+	severityRankExpr := `CASE LOWER(rf.severity)
+		WHEN 'critical' THEN 5
+		WHEN 'high' THEN 4
+		WHEN 'medium' THEN 3
+		WHEN 'low' THEN 2
+		WHEN 'info' THEN 1
+		ELSE 0
+	END`
+
+	query := fmt.Sprintf(
+		`WITH filtered AS (
+	SELECT
+		rf.repo_scan_id,
+		rf.finding_id,
+		rf.type,
+		rf.severity,
+		rf.title,
+		rf.human_summary,
+		COALESCE(rf.path, '[]'::jsonb) AS path,
+		COALESCE(rf.evidence, '{}'::jsonb) AS evidence,
+		COALESCE(rf.remediation, '') AS remediation,
+		rf.created_at,
+		%s AS repository,
+		%s AS commit,
+		%s AS file_path,
+		%s AS line_number,
+		%s AS detector,
+		%s AS cluster_key,
+		%s AS severity_rank
+	FROM repo_findings rf
+	JOIN repo_scans rs ON rs.id = rf.repo_scan_id
+	WHERE %s
+)`,
+		repositoryExpr,
+		commitExpr,
+		filePathExpr,
+		lineNumberExpr,
+		detectorExpr,
+		clusterKeyExpr,
+		severityRankExpr,
+		strings.Join(conditions, " AND "),
+	)
+	return query, args, nextArg
+}
+
+func repoFindingClusterOrderClause(sortBy string, desc bool) string {
+	direction := "ASC"
+	if desc {
+		direction = "DESC"
+	}
+	switch sortBy {
+	case "count":
+		return fmt.Sprintf("s.finding_count %s, s.cluster_key ASC", direction)
+	case "severity":
+		return fmt.Sprintf("s.severity_rank %s, s.finding_count %s, s.cluster_key ASC", direction, direction)
+	case "repository":
+		return fmt.Sprintf("s.repository %s, s.finding_count %s, s.cluster_key ASC", direction, direction)
+	case "detector":
+		return fmt.Sprintf("s.detector %s, s.finding_count %s, s.cluster_key ASC", direction, direction)
+	case "first_seen_at":
+		return fmt.Sprintf("s.first_seen_at %s, s.finding_count %s, s.cluster_key ASC", direction, direction)
+	default:
+		return fmt.Sprintf("s.last_seen_at %s, s.finding_count %s, s.cluster_key ASC", direction, direction)
+	}
 }
 
 // Close closes database resources.

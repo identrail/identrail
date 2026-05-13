@@ -688,8 +688,8 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("unexpected repo scans: %+v", repoScans)
 	}
 
-	repoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).
-		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now)
+	repoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at", "repository"}).
+		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now, "owner/repo")
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
 			SELECT 1
 			FROM repo_scans
@@ -699,13 +699,39 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", 100, "default", "default").WillReturnRows(repoFindingsRows)
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "default", "default", 100).WillReturnRows(repoFindingsRows)
 	repoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 100)
 	if err != nil {
 		t.Fatalf("list repo findings failed: %v", err)
 	}
 	if len(repoFindings) != 1 || repoFindings[0].ID != "rf-1" {
 		t.Fatalf("unexpected repo findings: %+v", repoFindings)
+	}
+	if repoFindings[0].Repository != "owner/repo" {
+		t.Fatalf("expected repository backfill from repo scan, got %+v", repoFindings[0])
+	}
+
+	unboundedRepoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at", "repository"}).
+		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now, "owner/repo")
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM repo_scans
+			WHERE id = $1
+			  AND tenant_id = $2
+			  AND workspace_id = $3
+		)`)).
+		WithArgs(record.ID, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "default", "default").WillReturnRows(unboundedRepoFindingsRows)
+	unboundedRepoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 0)
+	if err != nil {
+		t.Fatalf("list repo findings unbounded failed: %v", err)
+	}
+	if len(unboundedRepoFindings) != 1 || unboundedRepoFindings[0].ID != "rf-1" {
+		t.Fatalf("unexpected unbounded repo findings: %+v", unboundedRepoFindings)
+	}
+	if unboundedRepoFindings[0].Repository != "owner/repo" {
+		t.Fatalf("expected repository backfill from repo scan, got %+v", unboundedRepoFindings[0])
 	}
 
 	repoScanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "error_message", "history_limit", "max_findings_limit"}).
@@ -721,6 +747,139 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListRepoFindingClustersPagesInStore(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+
+	summaryRows := sqlmock.NewRows([]string{
+		"cluster_key",
+		"repository",
+		"type",
+		"severity",
+		"detector",
+		"title",
+		"human_summary",
+		"remediation",
+		"finding_count",
+		"first_seen_at",
+		"last_seen_at",
+		"path_count",
+		"commit_count",
+		"repo_scan_count",
+	}).
+		AddRow("cluster-key-1", "owner/repo-a", "repo_misconfig", "medium", "workflow_pull_request_target", "title-a", "summary-a", "fix-a", 2, now.Add(-2*time.Hour), now.Add(-1*time.Hour), 2, 1, 2).
+		AddRow("cluster-key-2", "owner/repo-b", "repo_misconfig", "low", "workflow_pull_request_target", "title-b", "summary-b", "fix-b", 1, now.Add(-30*time.Minute), now, 1, 1, 1)
+	mock.ExpectQuery("cluster_summaries AS").
+		WithArgs("default", "default", 1, 2).
+		WillReturnRows(summaryRows)
+
+	memberRows := sqlmock.NewRows([]string{
+		"cluster_key",
+		"repo_scan_id",
+		"finding_id",
+		"type",
+		"severity",
+		"title",
+		"human_summary",
+		"path",
+		"evidence",
+		"remediation",
+		"created_at",
+		"repository",
+	}).
+		AddRow("cluster-key-1", "scan-1", "rf-1", "repo_misconfig", "medium", "title-a", "summary-a", []byte(`[".github/workflows/build.yml"]`), []byte(`{"detector":"workflow_pull_request_target","commit":"abc123","file_path":".github/workflows/build.yml","line_number":7,"line_snippet":"pull_request_target:"}`), "fix-a", now.Add(-1*time.Hour), "owner/repo-a").
+		AddRow("cluster-key-1", "scan-2", "rf-2", "repo_misconfig", "medium", "title-a", "summary-a", []byte(`[".github/workflows/release.yml"]`), []byte(`{"detector":"workflow_pull_request_target","commit":"def456","file_path":".github/workflows/release.yml","line_number":11,"line_snippet":"pull_request_target:"}`), "fix-a", now.Add(-90*time.Minute), "owner/repo-a").
+		AddRow("cluster-key-2", "scan-3", "rf-3", "repo_misconfig", "low", "title-b", "summary-b", []byte(`[".github/workflows/test.yml"]`), []byte(`{"detector":"workflow_pull_request_target","commit":"fedcba","file_path":".github/workflows/test.yml","line_number":3,"line_snippet":"pull_request_target:"}`), "fix-b", now, "owner/repo-b")
+	mock.ExpectQuery("WHERE cluster_key IN").
+		WithArgs("default", "default", "cluster-key-1", "cluster-key-2").
+		WillReturnRows(memberRows)
+
+	clusters, err := store.ListRepoFindingClusters(defaultScopeContext(), RepoFindingClusterListFilter{
+		Limit:  1,
+		Offset: 1,
+	})
+	if err != nil {
+		t.Fatalf("list repo finding clusters failed: %v", err)
+	}
+	if len(clusters) != 2 {
+		t.Fatalf("expected store to return one page plus sentinel cluster, got %+v", clusters)
+	}
+	if clusters[0].ID != domain.RepoFindingClusterIDForKey("cluster-key-1") || len(clusters[0].Members) != 2 {
+		t.Fatalf("expected first cluster summary and members, got %+v", clusters[0])
+	}
+	if clusters[0].Members[0].Commit != "abc123" || clusters[0].Members[1].FindingID != "rf-2" {
+		t.Fatalf("expected ordered cluster members, got %+v", clusters[0].Members)
+	}
+	if clusters[1].Repository != "owner/repo-b" || clusters[1].Count != 1 {
+		t.Fatalf("expected second cluster summary, got %+v", clusters[1])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRepoFindingClusterQueryHelpers(t *testing.T) {
+	scope := Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	query, args, nextArg := repoFindingClusterFilteredCTE(scope, RepoFindingClusterListFilter{
+		RepoScanID: "repo-scan-1",
+		Severity:   "high",
+		Type:       "secret_exposure",
+	})
+	if nextArg != 6 {
+		t.Fatalf("expected next arg index 6, got %d", nextArg)
+	}
+	if len(args) != 5 || args[0] != "tenant-a" || args[1] != "workspace-a" || args[2] != "repo-scan-1" || args[3] != "high" || args[4] != "secret_exposure" {
+		t.Fatalf("unexpected filtered CTE args: %+v", args)
+	}
+	for _, expected := range []string{
+		"WITH filtered AS",
+		"rf.repo_scan_id = $3::uuid",
+		"LOWER(rf.severity) = $4",
+		"LOWER(rf.type) = $5",
+		"rf.evidence->>'secret_fingerprint'",
+		"jsonb_array_length(rf.path) > 0",
+		"CASE LOWER(rf.severity)",
+	} {
+		if !strings.Contains(query, expected) {
+			t.Fatalf("expected filtered CTE query to contain %q, got %s", expected, query)
+		}
+	}
+
+	orderCases := map[string]string{
+		"count":         "s.finding_count DESC, s.cluster_key ASC",
+		"severity":      "s.severity_rank DESC, s.finding_count DESC, s.cluster_key ASC",
+		"repository":    "s.repository ASC, s.finding_count ASC, s.cluster_key ASC",
+		"detector":      "s.detector ASC, s.finding_count ASC, s.cluster_key ASC",
+		"first_seen_at": "s.first_seen_at ASC, s.finding_count ASC, s.cluster_key ASC",
+		"last_seen_at":  "s.last_seen_at DESC, s.finding_count DESC, s.cluster_key ASC",
+	}
+	if got := repoFindingClusterOrderClause("count", true); got != orderCases["count"] {
+		t.Fatalf("unexpected count order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("severity", true); got != orderCases["severity"] {
+		t.Fatalf("unexpected severity order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("repository", false); got != orderCases["repository"] {
+		t.Fatalf("unexpected repository order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("detector", false); got != orderCases["detector"] {
+		t.Fatalf("unexpected detector order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("first_seen_at", false); got != orderCases["first_seen_at"] {
+		t.Fatalf("unexpected first_seen_at order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("last_seen_at", true); got != orderCases["last_seen_at"] {
+		t.Fatalf("unexpected last_seen_at order clause: %s", got)
 	}
 }
 

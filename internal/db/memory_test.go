@@ -660,6 +660,9 @@ func TestMemoryStoreListRepoFindingsDoesNotMutateLegacyStoredEvidence(t *testing
 	if len(listed) != 1 {
 		t.Fatalf("expected one listed finding, got %+v", listed)
 	}
+	if listed[0].Repository != "owner/repo" {
+		t.Fatalf("expected repository backfill from repo scan, got %+v", listed[0])
+	}
 	if listed[0].LineSnippet != "AWS_ACCESS_KEY_ID=AKIA****" {
 		t.Fatalf("expected normalized line snippet, got %+v", listed[0])
 	}
@@ -670,6 +673,66 @@ func TestMemoryStoreListRepoFindingsDoesNotMutateLegacyStoredEvidence(t *testing
 	}
 	if _, exists := stored.Evidence["line_snippet_redacted"]; exists {
 		t.Fatalf("expected stored legacy evidence redaction flag to stay unchanged, got %+v", stored.Evidence)
+	}
+}
+
+func TestMemoryStoreListRepoFindingClustersPaginatesClusters(t *testing.T) {
+	store := NewMemoryStore()
+
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create first repo scan: %v", err)
+	}
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create second repo scan: %v", err)
+	}
+	thirdScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create third repo scan: %v", err)
+	}
+
+	for _, seed := range []struct {
+		scanID     string
+		findingID  string
+		repository string
+		createdAt  time.Time
+	}{
+		{scanID: firstScan.ID, findingID: "rf-1", repository: "owner/repo-a", createdAt: time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)},
+		{scanID: secondScan.ID, findingID: "rf-2", repository: "owner/repo-a", createdAt: time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)},
+		{scanID: thirdScan.ID, findingID: "rf-3", repository: "owner/repo-b", createdAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)},
+	} {
+		if err := store.UpsertRepoFindings(defaultScopeContext(), seed.scanID, []domain.Finding{{
+			ID:           seed.findingID,
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "GitHub workflow uses pull_request_target trigger",
+			HumanSummary: "pull_request_target can execute with elevated token context if not strictly controlled.",
+			Repository:   seed.repository,
+			Detector:     "workflow_pull_request_target",
+			CreatedAt:    seed.createdAt,
+		}}); err != nil {
+			t.Fatalf("upsert repo finding %s: %v", seed.findingID, err)
+		}
+	}
+
+	clusters, err := store.ListRepoFindingClusters(defaultScopeContext(), RepoFindingClusterListFilter{
+		SortBy:   "count",
+		SortDesc: true,
+		Limit:    1,
+		Offset:   0,
+	})
+	if err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	if len(clusters) != 2 {
+		t.Fatalf("expected one page plus sentinel cluster, got %+v", clusters)
+	}
+	if clusters[0].Repository != "owner/repo-a" || clusters[0].Count != 2 {
+		t.Fatalf("expected highest-count cluster first, got %+v", clusters[0])
+	}
+	if clusters[1].Repository != "owner/repo-b" || clusters[1].Count != 1 {
+		t.Fatalf("expected sentinel next cluster, got %+v", clusters[1])
 	}
 }
 
