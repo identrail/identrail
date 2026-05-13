@@ -688,8 +688,8 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("unexpected repo scans: %+v", repoScans)
 	}
 
-	repoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).
-		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now)
+	repoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at", "repository"}).
+		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now, "owner/repo")
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
 			SELECT 1
 			FROM repo_scans
@@ -707,9 +707,12 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	if len(repoFindings) != 1 || repoFindings[0].ID != "rf-1" {
 		t.Fatalf("unexpected repo findings: %+v", repoFindings)
 	}
+	if repoFindings[0].Repository != "owner/repo" {
+		t.Fatalf("expected repository backfill from repo scan, got %+v", repoFindings[0])
+	}
 
-	unboundedRepoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).
-		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now)
+	unboundedRepoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at", "repository"}).
+		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now, "owner/repo")
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
 			SELECT 1
 			FROM repo_scans
@@ -726,6 +729,9 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	}
 	if len(unboundedRepoFindings) != 1 || unboundedRepoFindings[0].ID != "rf-1" {
 		t.Fatalf("unexpected unbounded repo findings: %+v", unboundedRepoFindings)
+	}
+	if unboundedRepoFindings[0].Repository != "owner/repo" {
+		t.Fatalf("expected repository backfill from repo scan, got %+v", unboundedRepoFindings[0])
 	}
 
 	repoScanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "error_message", "history_limit", "max_findings_limit"}).

@@ -2089,11 +2089,13 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 		return nil, err
 	}
 	repoScanID := strings.TrimSpace(filter.RepoScanID)
+	repoScanRepository := ""
 	if repoScanID != "" {
 		record, exists := m.repoScans[repoScanID]
 		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			return nil, ErrNotFound
 		}
+		repoScanRepository = strings.TrimSpace(record.Repository)
 	}
 	severity := strings.ToLower(strings.TrimSpace(filter.Severity))
 	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
@@ -2111,6 +2113,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
 				continue
 			}
+			if finding.Repository == "" {
+				finding.Repository = repoScanRepository
+			}
 			domain.NormalizeRepoFindingMetadata(&finding)
 			result = append(result, finding)
 		}
@@ -2125,6 +2130,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			}
 			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
 				continue
+			}
+			if finding.Repository == "" {
+				finding.Repository = strings.TrimSpace(record.Repository)
 			}
 			domain.NormalizeRepoFindingMetadata(&finding)
 			result = append(result, finding)

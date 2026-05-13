@@ -660,6 +660,9 @@ func TestMemoryStoreListRepoFindingsDoesNotMutateLegacyStoredEvidence(t *testing
 	if len(listed) != 1 {
 		t.Fatalf("expected one listed finding, got %+v", listed)
 	}
+	if listed[0].Repository != "owner/repo" {
+		t.Fatalf("expected repository backfill from repo scan, got %+v", listed[0])
+	}
 	if listed[0].LineSnippet != "AWS_ACCESS_KEY_ID=AKIA****" {
 		t.Fatalf("expected normalized line snippet, got %+v", listed[0])
 	}

@@ -3016,7 +3016,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT rf.repo_scan_id, rf.finding_id, rf.type, rf.severity, rf.title, rf.human_summary, rf.path, rf.evidence, COALESCE(rf.remediation, ''), rf.created_at
+	query := `SELECT rf.repo_scan_id, rf.finding_id, rf.type, rf.severity, rf.title, rf.human_summary, rf.path, rf.evidence, COALESCE(rf.remediation, ''), rf.created_at, rs.repository
 		 FROM repo_findings rf
 		 JOIN repo_scans rs ON rs.id = rf.repo_scan_id
 		 WHERE ($1 = '' OR rf.repo_scan_id = $1::uuid)
@@ -3058,6 +3058,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 			Evidence     []byte
 			Remediation  string
 			CreatedAt    time.Time
+			Repository   string
 		}
 		if err := rows.Scan(
 			&row.RepoScanID,
@@ -3070,6 +3071,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 			&row.Evidence,
 			&row.Remediation,
 			&row.CreatedAt,
+			&row.Repository,
 		); err != nil {
 			return nil, fmt.Errorf("repo finding row: %w", err)
 		}
@@ -3082,6 +3084,9 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 			HumanSummary: row.HumanSummary,
 			Remediation:  row.Remediation,
 			CreatedAt:    row.CreatedAt,
+		}
+		if finding.Repository == "" {
+			finding.Repository = strings.TrimSpace(row.Repository)
 		}
 		if len(row.Path) > 0 {
 			if err := json.Unmarshal(row.Path, &finding.Path); err != nil {

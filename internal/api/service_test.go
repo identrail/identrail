@@ -1631,6 +1631,54 @@ func TestServiceListRepoFindingClustersFetchesUnboundedMatches(t *testing.T) {
 	}
 }
 
+func TestServiceListRepoFindingClustersBackfillsLegacyRepositoryContext(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create first repo scan: %v", err)
+	}
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create second repo scan: %v", err)
+	}
+
+	for _, candidate := range []struct {
+		scanID    string
+		findingID string
+		createdAt time.Time
+	}{
+		{scanID: firstScan.ID, findingID: "rf-1", createdAt: time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)},
+		{scanID: secondScan.ID, findingID: "rf-2", createdAt: time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)},
+	} {
+		if err := store.UpsertRepoFindings(defaultScopeContext(), candidate.scanID, []domain.Finding{{
+			ID:           candidate.findingID,
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "GitHub workflow uses pull_request_target trigger",
+			HumanSummary: "pull_request_target can execute with elevated token context if not strictly controlled.",
+			Detector:     "workflow_pull_request_target",
+			FilePath:     ".github/workflows/release.yml",
+			LineNumber:   18,
+			CreatedAt:    candidate.createdAt,
+		}}); err != nil {
+			t.Fatalf("upsert repo finding for %s: %v", candidate.scanID, err)
+		}
+	}
+
+	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), db.RepoFindingFilter{})
+	if err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	if len(clusters) != 2 {
+		t.Fatalf("expected distinct clusters per repository, got %+v", clusters)
+	}
+	if clusters[0].Repository != "owner/repo-b" || clusters[1].Repository != "owner/repo-a" {
+		t.Fatalf("expected repository backfill to separate clusters, got %+v", clusters)
+	}
+}
+
 func TestRepoFindingSourceURLSupportsGitHubRepositoryForms(t *testing.T) {
 	testCases := []struct {
 		name       string
