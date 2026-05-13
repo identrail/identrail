@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/identrail/identrail/internal/connectors"
+	k8sconnector "github.com/identrail/identrail/internal/connectors/kubernetes"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
@@ -429,6 +430,79 @@ users:
 	}
 	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "kubernetes-kubeconfig", "kubeconfig"); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("expected no persisted kubeconfig secret, got %v", err)
+	}
+}
+
+func TestKubernetesKubeconfigFallbackPreservesExistingConnectorWhenRotationSecretFails(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	oldRotatedAt := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	oldSecretRef := k8sconnector.SecretRef("kubernetes-kubeconfig", k8sconnector.KubeconfigSecretName)
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		TenantID:            "tenant-a",
+		WorkspaceID:         "workspace-a",
+		ProjectID:           "project-1",
+		ConnectorID:         "kubernetes-kubeconfig",
+		Type:                domain.ConnectorTypeKubernetes,
+		DisplayName:         "Existing kubeconfig",
+		Status:              domain.ConnectorStatusActive,
+		SecretProvider:      "identrail",
+		SecretRefID:         oldSecretRef,
+		SecretLastRotatedAt: &oldRotatedAt,
+		CreatedAt:           oldRotatedAt,
+		UpdatedAt:           oldRotatedAt,
+	}, db.TenancyConnectorState{
+		TenantID:     "tenant-a",
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "kubernetes-kubeconfig",
+		HealthStatus: string(connectors.HealthStatusHealthy),
+		Metadata:     map[string]any{"connection_mode": "kubeconfig", "context": "old"},
+		ObservedAt:   oldRotatedAt,
+		UpdatedAt:    oldRotatedAt,
+	}); err != nil {
+		t.Fatalf("seed existing connector: %v", err)
+	}
+	svc := NewService(failingKubernetesSecretStore{Store: store}, routerScanner{}, "kubernetes")
+
+	kubeconfig := `apiVersion: v1
+clusters:
+- name: prod
+  cluster:
+    server: https://kubernetes.example
+contexts:
+- name: prod
+  context:
+    cluster: prod
+    user: identrail
+current-context: prod
+users:
+- name: identrail
+  user:
+    token: replacement-token
+`
+	_, err := svc.UpsertKubernetesKubeconfigConnector(ctx, KubernetesConnectorKubeconfigRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "kubernetes-kubeconfig",
+		DisplayName: "Replacement kubeconfig",
+		Kubeconfig:  kubeconfig,
+	})
+	if err == nil {
+		t.Fatal("expected kubeconfig secret persistence failure")
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "kubernetes-kubeconfig")
+	if err != nil {
+		t.Fatalf("expected existing connector to remain readable: %v", err)
+	}
+	if stored.Connector.Status != domain.ConnectorStatusActive ||
+		stored.Connector.SecretProvider != "identrail" ||
+		stored.Connector.SecretRefID != oldSecretRef ||
+		stored.Connector.DisplayName != "Existing kubeconfig" ||
+		stored.Connector.SecretLastRotatedAt == nil ||
+		!stored.Connector.SecretLastRotatedAt.Equal(oldRotatedAt) {
+		t.Fatalf("failed rotation must preserve existing connector: %+v", stored.Connector)
 	}
 }
 

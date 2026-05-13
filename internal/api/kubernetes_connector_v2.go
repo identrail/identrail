@@ -260,42 +260,56 @@ func (s *Service) UpsertKubernetesKubeconfigConnector(ctx context.Context, reque
 	if err != nil {
 		return KubernetesConnectionStatus{}, fmt.Errorf("encode kubernetes kubeconfig metadata: %w", err)
 	}
-	connector := db.TenancyConnector{
-		TenantID:    scope.TenantID,
-		WorkspaceID: project.WorkspaceID,
-		ProjectID:   project.ProjectID,
-		ConnectorID: normalized.ConnectorID,
-		Type:        domain.ConnectorTypeKubernetes,
-		DisplayName: normalized.DisplayName,
-		Status:      domain.ConnectorStatusPending,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return KubernetesConnectionStatus{}, fmt.Errorf("load kubernetes kubeconfig connector: %w", err)
 	}
-	state := db.TenancyConnectorState{
-		TenantID:     scope.TenantID,
-		WorkspaceID:  project.WorkspaceID,
-		ProjectID:    project.ProjectID,
-		ConnectorID:  normalized.ConnectorID,
-		HealthStatus: string(connectors.HealthStatusUnknown),
-		Metadata:     metadata,
-		ObservedAt:   now,
-		UpdatedAt:    now,
-	}
-	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
-		return KubernetesConnectionStatus{}, fmt.Errorf("persist kubernetes kubeconfig connector: %w", err)
+	connector := stored.Connector
+	state := stored.State
+	if errors.Is(err, db.ErrNotFound) {
+		connector = db.TenancyConnector{
+			TenantID:    scope.TenantID,
+			WorkspaceID: project.WorkspaceID,
+			ProjectID:   project.ProjectID,
+			ConnectorID: normalized.ConnectorID,
+			Type:        domain.ConnectorTypeKubernetes,
+			DisplayName: normalized.DisplayName,
+			Status:      domain.ConnectorStatusPending,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		state = db.TenancyConnectorState{
+			TenantID:     scope.TenantID,
+			WorkspaceID:  project.WorkspaceID,
+			ProjectID:    project.ProjectID,
+			ConnectorID:  normalized.ConnectorID,
+			HealthStatus: string(connectors.HealthStatusUnknown),
+			Metadata:     metadata,
+			ObservedAt:   now,
+			UpdatedAt:    now,
+		}
+		if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
+			return KubernetesConnectionStatus{}, fmt.Errorf("persist kubernetes kubeconfig connector: %w", err)
+		}
 	}
 	if err := s.persistKubernetesKubeconfig(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, request.Kubeconfig, now); err != nil {
 		return KubernetesConnectionStatus{}, err
 	}
+	connector.Type = domain.ConnectorTypeKubernetes
+	connector.DisplayName = normalized.DisplayName
 	connector.Status = domain.ConnectorStatusActive
+	connector.UpdatedAt = now
 	connector.SecretProvider = "identrail"
 	connector.SecretRefID = k8sconnector.SecretRef(normalized.ConnectorID, k8sconnector.KubeconfigSecretName)
 	connector.SecretLastRotatedAt = &now
 	state.HealthStatus = string(connectors.HealthStatusHealthy)
+	state.Metadata = metadata
+	state.ObservedAt = now
+	state.UpdatedAt = now
 	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
 		return KubernetesConnectionStatus{}, fmt.Errorf("activate kubernetes kubeconfig connector: %w", err)
 	}
-	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
+	stored, err = s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
 	if err != nil {
 		return KubernetesConnectionStatus{}, fmt.Errorf("load kubernetes kubeconfig connector: %w", err)
 	}
