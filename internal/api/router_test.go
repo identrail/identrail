@@ -672,11 +672,14 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	if len(repoFindingsBody.Items) != 1 {
 		t.Fatalf("expected one repo finding, got %+v", repoFindingsBody)
 	}
-	if repoFindingsBody.Items[0].FilePath != "config/app.env" || repoFindingsBody.Items[0].LineNumber != 3 || repoFindingsBody.Items[0].Detector != "aws-access-key" {
+	if repoFindingsBody.Items[0].Repository != "owner/repo" || repoFindingsBody.Items[0].FilePath != "config/app.env" || repoFindingsBody.Items[0].LineNumber != 3 || repoFindingsBody.Items[0].Detector != "aws-access-key" {
 		t.Fatalf("expected structured repo findings response, got %+v", repoFindingsBody.Items[0])
 	}
 	if repoFindingsBody.Items[0].LineSnippetRedacted == nil || !*repoFindingsBody.Items[0].LineSnippetRedacted {
 		t.Fatalf("expected structured redaction flag in response, got %+v", repoFindingsBody.Items[0].LineSnippetRedacted)
+	}
+	if repoFindingsBody.Items[0].SourceURL != "https://github.com/owner/repo/blob/abc123/config/app.env#L3" {
+		t.Fatalf("expected GitHub source URL in response, got %+v", repoFindingsBody.Items[0].SourceURL)
 	}
 
 	scansPageOneReq := httptest.NewRequest(http.MethodGet, "/v1/scans?limit=1", nil)

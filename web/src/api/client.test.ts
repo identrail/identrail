@@ -59,6 +59,18 @@ describe('apiClient', () => {
     expect(url).toContain('/v1/scans?sort_by=started_at&sort_order=desc');
   });
 
+  it('uses default repo scan listing sort contract', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.listRepoScans({}, { apiKey: 'reader' });
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toContain('/v1/repo-scans?sort_by=started_at&sort_order=desc');
+  });
+
   it('encodes scan id for diff URL', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -136,6 +148,28 @@ describe('apiClient', () => {
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain('/v1/findings/finding-1/history?scan_id=scan-1&limit=15');
+  });
+
+  it('builds repo findings URL with filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.listRepoFindings(
+      {
+        repo_scan_id: 'repo-scan-1',
+        severity: 'high',
+        type: 'secret_exposure'
+      },
+      { apiKey: 'reader' }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/repo-findings?sort_by=created_at&sort_order=desc&repo_scan_id=repo-scan-1&severity=high&type=secret_exposure');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-api-key')).toBe('reader');
   });
 
   it('sends triage patch payload for finding workflow actions', async () => {

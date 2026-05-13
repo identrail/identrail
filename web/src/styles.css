@@ -4304,6 +4304,283 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   color: #d7ffdf;
 }
 
+.idt-repo-findings-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.idt-repo-findings-header h2,
+.idt-repo-finding-list-header h3,
+.idt-repo-finding-detail h3,
+.idt-repo-finding-remediation h4 {
+  margin: 0;
+}
+
+.idt-repo-findings-header p:last-child,
+.idt-repo-finding-list-header p,
+.idt-repo-finding-detail-copy p:last-child,
+.idt-repo-finding-remediation p {
+  margin-bottom: 0;
+}
+
+.idt-repo-finding-stats {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.idt-repo-finding-stat,
+.idt-repo-finding-list,
+.idt-repo-finding-detail {
+  border: 1px solid rgba(126, 157, 211, 0.24);
+  border-radius: 0.8rem;
+  background: rgba(9, 15, 26, 0.56);
+}
+
+.idt-repo-finding-stat {
+  padding: 0.95rem 1rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.idt-repo-finding-stat span {
+  color: #9fb5d8;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-repo-finding-stat strong {
+  font-size: 1.55rem;
+  color: #f4f8ff;
+}
+
+.idt-repo-finding-filters {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.idt-repo-finding-filters label {
+  display: grid;
+  gap: 0.35rem;
+  color: #d3e1f7;
+  font-size: 0.95rem;
+}
+
+.idt-repo-finding-filters select {
+  border: 1px solid rgba(126, 157, 211, 0.35);
+  border-radius: 0.55rem;
+  background: rgba(9, 15, 26, 0.84);
+  color: #e4efff;
+  padding: 0.5rem 0.6rem;
+}
+
+.idt-repo-finding-layout {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.idt-repo-finding-list,
+.idt-repo-finding-detail {
+  padding: 1rem;
+}
+
+.idt-repo-finding-list-header {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 0.85rem;
+}
+
+.idt-repo-finding-items {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.idt-repo-finding-row {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(126, 157, 211, 0.24);
+  border-radius: 0.75rem;
+  background: rgba(14, 22, 36, 0.9);
+  color: inherit;
+  padding: 0.95rem 1rem;
+  display: grid;
+  gap: 0.55rem;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.idt-repo-finding-row:hover,
+.idt-repo-finding-row:focus-visible,
+.idt-repo-finding-row.is-selected {
+  border-color: rgba(181, 207, 255, 0.62);
+  background: rgba(17, 28, 46, 0.96);
+  transform: translateY(-1px);
+}
+
+.idt-repo-finding-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.idt-repo-finding-row-top strong {
+  font-size: 0.98rem;
+  color: #f4f8ff;
+}
+
+.idt-repo-finding-row p {
+  margin: 0;
+  color: #ccdaef;
+}
+
+.idt-repo-finding-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  color: #9fb5d8;
+  font-size: 0.82rem;
+}
+
+.idt-repo-finding-severity {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.24rem 0.58rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.idt-repo-finding-severity.is-critical {
+  background: rgba(179, 38, 30, 0.22);
+  color: #ffd2cb;
+}
+
+.idt-repo-finding-severity.is-high {
+  background: rgba(191, 92, 0, 0.22);
+  color: #ffd8b3;
+}
+
+.idt-repo-finding-severity.is-medium {
+  background: rgba(162, 116, 0, 0.22);
+  color: #ffe6a3;
+}
+
+.idt-repo-finding-severity.is-low,
+.idt-repo-finding-severity.is-info,
+.idt-repo-finding-severity.is-unknown {
+  background: rgba(57, 112, 201, 0.22);
+  color: #d9e6ff;
+}
+
+.idt-repo-finding-detail {
+  display: grid;
+  gap: 1rem;
+}
+
+.idt-repo-finding-detail-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.idt-repo-finding-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+}
+
+.idt-repo-finding-facts div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.idt-repo-finding-facts dt {
+  color: #9fb5d8;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-repo-finding-facts dd {
+  margin: 0;
+  color: #f4f8ff;
+  word-break: break-word;
+}
+
+.idt-repo-finding-link {
+  color: #b9d5ff;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.idt-repo-finding-link:hover,
+.idt-repo-finding-link:focus-visible {
+  color: #e3efff;
+  text-decoration: underline;
+}
+
+.idt-repo-finding-code {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.idt-repo-finding-code span {
+  color: #9fb5d8;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-repo-finding-code pre {
+  margin: 0;
+  padding: 0.85rem 0.95rem;
+  overflow-x: auto;
+  border: 1px solid rgba(126, 157, 211, 0.24);
+  border-radius: 0.75rem;
+  background: rgba(7, 12, 21, 0.92);
+  color: #edf4ff;
+}
+
+.idt-repo-finding-code code {
+  font-family: var(--idt-mono);
+  font-size: 0.84rem;
+}
+
+.idt-repo-finding-remediation {
+  display: grid;
+  gap: 0.35rem;
+}
+
+@media (max-width: 960px) {
+  .idt-repo-findings-header,
+  .idt-repo-finding-row-top {
+    flex-direction: column;
+  }
+
+  .idt-repo-finding-stats,
+  .idt-repo-finding-filters,
+  .idt-repo-finding-layout,
+  .idt-repo-finding-facts {
+    grid-template-columns: 1fr;
+  }
+}
+
 .idt-auth-page {
   width: 100%;
   min-height: 100svh;
@@ -5434,6 +5711,58 @@ html[data-theme='light'] .idt-app-alert-error {
 html[data-theme='light'] .idt-app-alert-success {
   border-color: rgba(44, 122, 70, 0.35);
   color: #1e5a31;
+}
+
+html[data-theme='light'] .idt-repo-finding-stat,
+html[data-theme='light'] .idt-repo-finding-list,
+html[data-theme='light'] .idt-repo-finding-detail {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(42, 71, 119, 0.18);
+}
+
+html[data-theme='light'] .idt-repo-finding-stat span,
+html[data-theme='light'] .idt-repo-finding-row-meta,
+html[data-theme='light'] .idt-repo-finding-facts dt,
+html[data-theme='light'] .idt-repo-finding-code span {
+  color: #5473a4;
+}
+
+html[data-theme='light'] .idt-repo-finding-stat strong,
+html[data-theme='light'] .idt-repo-finding-row-top strong,
+html[data-theme='light'] .idt-repo-finding-facts dd {
+  color: #12284c;
+}
+
+html[data-theme='light'] .idt-repo-finding-filters label,
+html[data-theme='light'] .idt-repo-finding-row p {
+  color: #2b456c;
+}
+
+html[data-theme='light'] .idt-repo-finding-filters select {
+  color: #1c355d;
+  background: #ffffff;
+  border-color: rgba(42, 71, 119, 0.32);
+}
+
+html[data-theme='light'] .idt-repo-finding-row {
+  background: rgba(245, 249, 255, 0.98);
+  border-color: rgba(42, 71, 119, 0.18);
+}
+
+html[data-theme='light'] .idt-repo-finding-row:hover,
+html[data-theme='light'] .idt-repo-finding-row:focus-visible,
+html[data-theme='light'] .idt-repo-finding-row.is-selected {
+  background: rgba(232, 241, 255, 0.98);
+  border-color: rgba(75, 110, 167, 0.45);
+}
+
+html[data-theme='light'] .idt-repo-finding-link {
+  color: #1f4f96;
+}
+
+html[data-theme='light'] .idt-repo-finding-code pre {
+  background: #0f1724;
+  border-color: rgba(42, 71, 119, 0.18);
 }
 
 html[data-theme='light'] .idt-auth-visual,

@@ -46,7 +46,8 @@ Read APIs:
 - `GET /v1/repo-scans/:repo_scan_id`
 - `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
 - list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
-- repo finding responses expose stable location fields when available: `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, and `line_snippet_redacted`
+- repo finding responses expose stable repository and location fields when available: `repository`, `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, `line_snippet_redacted`, and `source_url`
+- `source_url` is a direct GitHub blob link pinned to the detected commit when Identrail can derive one
 
 ## What It Scans
 
@@ -84,6 +85,7 @@ Read APIs:
 - Findings are deterministic and deduplicated by stable IDs/fingerprints.
 - Output is capped by `--max-findings` to prevent runaway payloads.
 - Repo scan metadata/findings are persisted in dedicated storage (`repo_scans`, `repo_findings`) to avoid changing existing cloud scan APIs.
+- Snapshot-based repo misconfiguration findings now persist the resolved HEAD commit SHA on new scans so GitHub links stay pinned to the scanned revision.
 
 ## Useful Flags
 

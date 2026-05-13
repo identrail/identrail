@@ -194,10 +194,14 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 	return findings
 }
 
-func detectMisconfigFindings(repo string, path string, content []byte, detectedAt time.Time) []domain.Finding {
+func detectMisconfigFindings(repo string, commit string, path string, content []byte, detectedAt time.Time) []domain.Finding {
 	data := string(content)
 	findings := []domain.Finding{}
 	seen := map[string]struct{}{}
+	revision := strings.TrimSpace(commit)
+	if revision == "" {
+		revision = "HEAD"
+	}
 
 	lines := strings.Split(data, "\n")
 	for index, line := range lines {
@@ -220,7 +224,7 @@ func detectMisconfigFindings(repo string, path string, content []byte, detectedA
 				Title:               rule.Title,
 				HumanSummary:        rule.Summary,
 				Path:                []string{path},
-				Commit:              "HEAD",
+				Commit:              revision,
 				FilePath:            path,
 				LineNumber:          lineNumber,
 				Detector:            rule.ID,
@@ -228,7 +232,7 @@ func detectMisconfigFindings(repo string, path string, content []byte, detectedA
 				LineSnippetRedacted: boolPtr(false),
 				Evidence: map[string]any{
 					"repository":            repo,
-					"commit":                "HEAD",
+					"commit":                revision,
 					"file_path":             path,
 					"line_number":           lineNumber,
 					"detector":              rule.ID,
@@ -266,7 +270,7 @@ func detectMisconfigFindings(repo string, path string, content []byte, detectedA
 			Title:               rule.Title,
 			HumanSummary:        rule.Summary,
 			Path:                []string{path},
-			Commit:              "HEAD",
+			Commit:              revision,
 			FilePath:            path,
 			LineNumber:          lineNumber,
 			Detector:            rule.ID,
@@ -274,7 +278,7 @@ func detectMisconfigFindings(repo string, path string, content []byte, detectedA
 			LineSnippetRedacted: boolPtr(false),
 			Evidence: map[string]any{
 				"repository":            repo,
-				"commit":                "HEAD",
+				"commit":                revision,
 				"file_path":             path,
 				"line_number":           lineNumber,
 				"detector":              rule.ID,

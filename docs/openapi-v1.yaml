@@ -3581,9 +3581,12 @@ components:
         path:
           type: array
           items: { type: string }
+        repository:
+          type: string
+          description: Repository target associated with one repo finding when available.
         commit:
           type: string
-          description: Repository commit SHA, or `HEAD` for snapshot-based repo findings, when available.
+          description: Repository commit reference for one repo finding when available.
         file_path:
           type: string
           description: Repository file path for repo findings when available.
@@ -3600,6 +3603,10 @@ components:
         line_snippet_redacted:
           type: boolean
           description: True when `line_snippet` has been redacted to avoid storing raw secrets.
+        source_url:
+          type: string
+          format: uri
+          description: Direct GitHub blob URL for the repository file and line when Identrail can derive one.
         evidence:
           type: object
           additionalProperties: true

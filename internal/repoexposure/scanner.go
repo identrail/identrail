@@ -174,6 +174,10 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 
 	filesScanned := 0
 	if !truncated {
+		headCommit, headCommitErr := s.resolveHeadCommit(ctx, location)
+		if headCommitErr != nil {
+			return ScanResult{}, headCommitErr
+		}
 		headFiles, fileErr := s.listHeadFiles(ctx, location)
 		if fileErr != nil {
 			return ScanResult{}, fileErr
@@ -193,7 +197,7 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 				continue
 			}
 			filesScanned++
-			for _, finding := range detectMisconfigFindings(location.Display, filePath, content, started) {
+			for _, finding := range detectMisconfigFindings(location.Display, headCommit, filePath, content, started) {
 				if _, exists := seen[finding.ID]; exists {
 					continue
 				}
@@ -292,6 +296,14 @@ func (s *Scanner) listHeadFiles(ctx context.Context, repo repositoryLocation) ([
 		files = append(files, path)
 	}
 	return files, nil
+}
+
+func (s *Scanner) resolveHeadCommit(ctx context.Context, repo repositoryLocation) (string, error) {
+	output, err := s.git(ctx, repo, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("resolve HEAD commit: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (s *Scanner) git(ctx context.Context, repo repositoryLocation, args ...string) ([]byte, error) {

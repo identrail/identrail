@@ -135,12 +135,14 @@ type Finding struct {
 	Title               string          `json:"title"`
 	HumanSummary        string          `json:"human_summary"`
 	Path                []string        `json:"path,omitempty"`
+	Repository          string          `json:"repository,omitempty"`
 	Commit              string          `json:"commit,omitempty"`
 	FilePath            string          `json:"file_path,omitempty"`
 	LineNumber          int             `json:"line_number,omitempty"`
 	Detector            string          `json:"detector,omitempty"`
 	LineSnippet         string          `json:"line_snippet,omitempty"`
 	LineSnippetRedacted *bool           `json:"line_snippet_redacted,omitempty"`
+	SourceURL           string          `json:"source_url,omitempty"`
 	Evidence            map[string]any  `json:"evidence,omitempty"`
 	Remediation         string          `json:"remediation"`
 	CreatedAt           time.Time       `json:"created_at"`
