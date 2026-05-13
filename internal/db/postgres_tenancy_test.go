@@ -321,6 +321,19 @@ func TestPostgresStoreConnectorSecretEnvelopeCRUD(t *testing.T) {
 		t.Fatalf("unexpected connector secret envelope: %+v", got)
 	}
 
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_connector_secret_envelopes
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND secret_name = $5`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "github", "webhook_secret").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.DeleteTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "github", "webhook_secret"); err != nil {
+		t.Fatalf("delete connector secret envelope: %v", err)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

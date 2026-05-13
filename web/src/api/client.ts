@@ -336,6 +336,13 @@ export type AWSConnectionDiagnostic = {
   remediation?: string;
 };
 
+export type AWSPermissionPreviewItem = {
+  service: string;
+  actions: string[];
+  resources: string[];
+  reason: string;
+};
+
 export type AWSConnectionStatus = {
   provider: 'aws';
   connected: boolean;
@@ -352,6 +359,9 @@ export type AWSConnectionStatus = {
   permission_checks: AWSConnectionPermissionCheck[];
   diagnostics: AWSConnectionDiagnostic[];
   remediation_message?: string;
+  launch_url?: string;
+  template_url?: string;
+  policy_hash?: string;
   created_at?: string;
   updated_at?: string;
   last_validated_at?: string;
@@ -364,6 +374,43 @@ export type AWSConnectionUpsertRequest = {
   external_id?: string;
   region?: string;
   session_name?: string;
+};
+
+export type AWSConnectorStartRequest = {
+  workspace_id?: string;
+  project_id?: string;
+  connector_id?: string;
+  display_name?: string;
+  region?: string;
+  role_name?: string;
+  stack_name?: string;
+};
+
+export type AWSConnectorStartResponse = {
+  connection: AWSConnectionStatus;
+  connector_id: string;
+  external_id: string;
+  launch_url: string;
+  template_url: string;
+  role_name: string;
+  stack_name: string;
+  policy_hash: string;
+  permission_preview: AWSPermissionPreviewItem[];
+};
+
+export type AWSConnectorValidateRequest = {
+  workspace_id?: string;
+  project_id?: string;
+  role_arn: string;
+  external_id?: string;
+  region?: string;
+  session_name?: string;
+};
+
+export type AWSConnectorPolicyResponse = {
+  policy_hash: string;
+  policy_document: Record<string, unknown>;
+  permission_preview: AWSPermissionPreviewItem[];
 };
 
 export type KubernetesPermissionCheck = {
@@ -882,6 +929,38 @@ export const apiClient = {
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/connection`,
       auth
     );
+  },
+  startAWSConnector(payload: AWSConnectorStartRequest, auth?: RequestAuthContext) {
+    return request<AWSConnectorStartResponse>('/v1/connectors/aws', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  pollAWSConnector(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {
+    return request<{ connection: AWSConnectionStatus }>(
+      `/v1/connectors/aws/${encodeURIComponent(connectorID)}/poll${buildQuery({ workspace_id: workspaceID, project_id: projectID })}`,
+      auth
+    );
+  },
+  validateAWSConnector(connectorID: string, payload: AWSConnectorValidateRequest, auth?: RequestAuthContext) {
+    return request<{ connection: AWSConnectionStatus }>(
+      `/v1/connectors/aws/${encodeURIComponent(connectorID)}/validate`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  refreshAWSConnectorPolicy(
+    connectorID: string,
+    payload: { workspace_id?: string; project_id?: string },
+    auth?: RequestAuthContext
+  ) {
+    return request<AWSConnectorPolicyResponse>(`/v1/connectors/aws/${encodeURIComponent(connectorID)}/refresh-policy`, auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
   upsertAWSProjectConnection(
     workspaceID: string,

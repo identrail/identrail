@@ -123,6 +123,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AWSProfile != "" {
 		t.Fatalf("expected empty aws profile, got %q", cfg.AWSProfile)
 	}
+	if cfg.AWSCloudFormationTemplateURL != "" {
+		t.Fatalf("expected empty aws cloudformation template url, got %q", cfg.AWSCloudFormationTemplateURL)
+	}
+	if cfg.AWSAccountID != "" {
+		t.Fatalf("expected empty aws account id, got %q", cfg.AWSAccountID)
+	}
 	if len(cfg.AWSFixturePath) != 2 {
 		t.Fatalf("expected 2 default fixture paths, got %d", len(cfg.AWSFixturePath))
 	}
@@ -297,6 +303,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.FeatureWorkOSLogin {
 		t.Fatal("expected WorkOS login feature disabled by default")
 	}
+	if cfg.FeatureConnectorAWS {
+		t.Fatal("expected AWS connector feature disabled by default")
+	}
 	if cfg.PublicBaseURL != "" {
 		t.Fatalf("expected empty public base url by default, got %q", cfg.PublicBaseURL)
 	}
@@ -356,6 +365,8 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_AWS_SOURCE", "sdk")
 	t.Setenv("IDENTRAIL_AWS_REGION", "eu-west-1")
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "engineering")
+	t.Setenv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml")
+	t.Setenv("IDENTRAIL_AWS_ACCOUNT_ID", "123456789012")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "fixtures/a.json,fixtures/b.json")
 	t.Setenv("IDENTRAIL_K8S_FIXTURES", "fixtures/sa.json,fixtures/rb.json")
 	t.Setenv("IDENTRAIL_K8S_SOURCE", "kubectl")
@@ -414,6 +425,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "workspace-blue")
 	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "true")
 	t.Setenv("IDENTRAIL_FEATURE_NEW_AUTH", "true")
+	t.Setenv("IDENTRAIL_FEATURE_CONNECTOR_AWS", "true")
 	t.Setenv("IDENTRAIL_PUBLIC_BASE_URL", "https://app.identrail.example")
 	t.Setenv("IDENTRAIL_SESSION_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -463,6 +475,12 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.AWSProfile != "engineering" {
 		t.Fatalf("unexpected aws profile: %q", cfg.AWSProfile)
+	}
+	if cfg.AWSCloudFormationTemplateURL != "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml" {
+		t.Fatalf("unexpected aws cloudformation template url: %q", cfg.AWSCloudFormationTemplateURL)
+	}
+	if cfg.AWSAccountID != "123456789012" {
+		t.Fatalf("unexpected aws account id: %q", cfg.AWSAccountID)
 	}
 	if len(cfg.AWSFixturePath) != 2 || cfg.AWSFixturePath[0] != "fixtures/a.json" || cfg.AWSFixturePath[1] != "fixtures/b.json" {
 		t.Fatalf("unexpected fixture paths: %+v", cfg.AWSFixturePath)
@@ -640,6 +658,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if !cfg.FeatureNewAuth {
 		t.Fatal("expected new auth feature enabled from env")
+	}
+	if !cfg.FeatureConnectorAWS {
+		t.Fatal("expected AWS connector feature enabled from env")
 	}
 	if cfg.PublicBaseURL != "https://app.identrail.example" {
 		t.Fatalf("unexpected public base url: %q", cfg.PublicBaseURL)

@@ -1792,6 +1792,7 @@ type Store interface {
 	DeleteTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error
 	UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error
 	GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error)
+	DeleteTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) error
 	UpsertUser(ctx context.Context, user User) (User, error)
 	GetUser(ctx context.Context, userID string) (User, error)
 	GetUserByPrimaryEmail(ctx context.Context, email string) (User, error)

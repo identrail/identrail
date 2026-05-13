@@ -1077,6 +1077,27 @@ func (m *MemoryStore) GetTenancyConnectorSecretEnvelope(ctx context.Context, wor
 	return secret, nil
 }
 
+// DeleteTenancyConnectorSecretEnvelope removes one encrypted connector secret envelope.
+func (m *MemoryStore) DeleteTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
+	key := tenancyConnectorSecretKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), strings.TrimSpace(secretName))
+	if _, exists := m.connSecrets[key]; !exists {
+		return ErrNotFound
+	}
+	delete(m.connSecrets, key)
+	return nil
+}
+
 func tenancyConnectorKey(tenantID string, workspaceID string, projectID string, connectorID string) string {
 	return tenancyCompositeKey(
 		strings.TrimSpace(tenantID),

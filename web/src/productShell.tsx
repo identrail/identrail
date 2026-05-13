@@ -3,7 +3,9 @@ import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } 
 import {
   ApiError,
   apiClient,
+  type AWSConnectorStartResponse,
   type AWSConnectionStatus,
+  type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type Finding as ApiFinding,
   type GitHubConnectionStartResponse,
@@ -19,6 +21,7 @@ import {
   type WorkspaceMemberRole,
   type WorkspaceMemberStatus
 } from './api/client';
+import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { useMe } from './hooks/useMe';
 
 type ProductSession = {
@@ -131,6 +134,12 @@ const SOURCE_ORDER: SourceProvider[] = ['github', 'aws', 'kubernetes'];
 const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as const;
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
+const PRODUCT_VITE_ENV = ((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<
+  string,
+  unknown
+>;
+const FEATURE_CONNECTOR_AWS =
+  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === true || PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === 'true';
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
@@ -1602,8 +1611,13 @@ export function ProductProjectDetailPage() {
     externalID: '',
     region: 'us-east-1',
     displayName: '',
-    sessionName: 'identrail-connector-validation'
+    sessionName: 'identrail-connector-validation',
+    roleName: 'IdentrailReadOnly',
+    stackName: 'identrail-readonly-connector'
   });
+  const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
+  const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
+  const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const [kubernetesForm, setKubernetesForm] = useState({
     displayName: '',
     context: ''
@@ -1748,6 +1762,10 @@ export function ProductProjectDetailPage() {
     setSubmitting('');
     setSuccessMessage('');
     setGitHubStart(null);
+    setAWSCloudFormationStart(null);
+    setAWSPermissionPreview([]);
+    setAWSPreviewOpen(false);
+    setAWSForm((current) => ({ ...current, externalID: '' }));
     void refreshConnections(false);
 
     return () => {
@@ -1891,18 +1909,28 @@ export function ProductProjectDetailPage() {
         throw new Error('Enter a valid IAM role ARN, for example arn:aws:iam::123456789012:role/IdentrailReadOnly.');
       }
       const auth = buildProductAuthContext(scope);
-      const response = await apiClient.upsertAWSProjectConnection(
-        scope.workspaceID,
-        projectID,
-        {
+      const payload = {
           role_arn: roleARN,
           external_id: normalizeValue(awsForm.externalID) || undefined,
           region: normalizeValue(awsForm.region) || 'us-east-1',
           display_name: normalizeValue(awsForm.displayName) || undefined,
           session_name: normalizeValue(awsForm.sessionName) || undefined
-        },
-        auth
-      );
+        };
+      const response =
+        FEATURE_CONNECTOR_AWS && awsCloudFormationStart?.connector_id
+          ? await apiClient.validateAWSConnector(
+              awsCloudFormationStart.connector_id,
+              {
+                workspace_id: scope.workspaceID,
+                project_id: projectID,
+                role_arn: payload.role_arn,
+                external_id: payload.external_id,
+                region: payload.region,
+                session_name: payload.session_name
+              },
+              auth
+            )
+          : await apiClient.upsertAWSProjectConnection(scope.workspaceID, projectID, payload, auth);
       if (isStaleRequestSequence(requestSequence)) {
         return;
       }
@@ -1915,6 +1943,81 @@ export function ProductProjectDetailPage() {
         return;
       }
       const message = error instanceof Error ? error.message : 'Unable to validate AWS connection.';
+      setSourceErrors((current) => ({ ...current, aws: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleAWSCloudFormationStart = async () => {
+    if (!scope || !projectID) {
+      return;
+    }
+    setSubmitting('aws');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, aws: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.startAWSConnector(
+        {
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
+          display_name: normalizeValue(awsForm.displayName) || undefined,
+          region: normalizeValue(awsForm.region) || 'us-east-1',
+          role_name: normalizeValue(awsForm.roleName) || undefined,
+          stack_name: normalizeValue(awsForm.stackName) || undefined
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setAWSCloudFormationStart(response);
+      setAWSPermissionPreview(response.permission_preview);
+      setAWSForm((current) => ({ ...current, externalID: response.external_id }));
+      setConnections((current) => ({ ...current, aws: response.connection }));
+      setSuccessMessage('AWS stack launch is ready.');
+      window.open(response.launch_url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to start AWS connector setup.';
+      setSourceErrors((current) => ({ ...current, aws: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleAWSPoll = async () => {
+    if (!scope || !projectID || !awsCloudFormationStart?.connector_id) {
+      return;
+    }
+    setSubmitting('aws');
+    setSourceErrors((current) => ({ ...current, aws: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.pollAWSConnector(
+        awsCloudFormationStart.connector_id,
+        scope.workspaceID,
+        projectID,
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setConnections((current) => ({ ...current, aws: response.connection }));
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to poll AWS connector setup.';
       setSourceErrors((current) => ({ ...current, aws: message }));
     } finally {
       if (!isStaleRequestSequence(requestSequence)) {
@@ -2312,6 +2415,34 @@ export function ProductProjectDetailPage() {
 
           {selectedSource === 'aws' ? (
             <form className="idt-app-form" onSubmit={handleAWSSubmit}>
+              {FEATURE_CONNECTOR_AWS ? (
+                <article className="idt-source-install-card idt-aws-launch-card">
+                  <div>
+                    <h4>CloudFormation setup</h4>
+                    <p>{awsCloudFormationStart ? 'Stack launch generated.' : 'Generate a least-privilege stack launch.'}</p>
+                  </div>
+                  <div className="idt-source-actions">
+                    <button className="idt-btn idt-btn-dark" type="button" onClick={handleAWSCloudFormationStart} disabled={submitting !== ''}>
+                      {submitting === 'aws' ? 'Preparing...' : 'Launch stack'}
+                    </button>
+                    {awsCloudFormationStart ? (
+                      <a className="idt-btn idt-btn-dark" href={awsCloudFormationStart.launch_url} target="_blank" rel="noreferrer">
+                        Open stack
+                      </a>
+                    ) : null}
+                    {awsPermissionPreview.length > 0 ? (
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
+                        Preview permissions
+                      </button>
+                    ) : null}
+                    {awsCloudFormationStart ? (
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={handleAWSPoll} disabled={submitting !== ''}>
+                        Refresh status
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              ) : null}
               <label>
                 Role ARN
                 <input
@@ -2340,6 +2471,26 @@ export function ProductProjectDetailPage() {
                 </label>
               </div>
               <div className="idt-source-inline-fields">
+                {FEATURE_CONNECTOR_AWS ? (
+                  <>
+                    <label>
+                      Role name
+                      <input
+                        value={awsForm.roleName}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, roleName: event.target.value }))}
+                        placeholder="IdentrailReadOnly"
+                      />
+                    </label>
+                    <label>
+                      Stack name
+                      <input
+                        value={awsForm.stackName}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, stackName: event.target.value }))}
+                        placeholder="identrail-readonly-connector"
+                      />
+                    </label>
+                  </>
+                ) : null}
                 <label>
                   Display name
                   <input
@@ -2626,6 +2777,12 @@ export function ProductProjectDetailPage() {
           </button>
         </form>
       </article>
+      <PermissionPreviewModal
+        open={awsPreviewOpen}
+        title="AWS read-only connector policy"
+        items={awsPermissionPreview}
+        onClose={() => setAWSPreviewOpen(false)}
+      />
     </section>
   );
 }

@@ -10,6 +10,7 @@ Portable deployment profiles:
 - AWS OIDC deployment role: `docs/aws-oidc-deployment.md`
 - AWS deployment foundation: `docs/aws-deployment-foundation.md`
 - AWS API hosting: `docs/aws-api-hosting.md`
+- AWS connector onboarding: `docs/auth/aws-connector.md`
 - Operator readiness: `docs/operator-readiness.md`
 - Troubleshooting playbook: `docs/troubleshooting.md`
 - Incident workflow: `docs/incident-response.md`

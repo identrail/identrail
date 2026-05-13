@@ -49,6 +49,7 @@ const (
 	defaultOIDCRolesClaim              = OIDCDefaultRolesClaim
 	defaultFeatureNewAuth              = false
 	defaultFeatureWorkOSLogin          = false
+	defaultFeatureConnectorAWS         = false
 	defaultAuthManualMode              = false
 	defaultAppModeEnabled              = false
 	defaultAppModeConnectorsEnabled    = false
@@ -71,109 +72,112 @@ const (
 // Config centralizes process-level configuration. It keeps module wiring simple
 // and deterministic for API, worker, and CLI binaries.
 type Config struct {
-	HTTPAddr                    string
-	LogLevel                    string
-	Provider                    string
-	ServiceName                 string
-	TrustedProxies              []string
-	CORSAllowedOrigins          []string
-	DatabaseURL                 string
-	AllowMemoryStore            bool
-	AWSSource                   string
-	AWSRegion                   string
-	AWSProfile                  string
-	AWSFixturePath              []string
-	KubernetesFixturePath       []string
-	KubernetesSource            string
-	KubectlPath                 string
-	KubeContext                 string
-	RequireLiveSources          bool
-	requireLiveSourcesRaw       string
-	requireLiveSourcesInvalid   bool
-	parseErrors                 []string
-	ScanInterval                time.Duration
-	WorkerRunNow                bool
-	APIKeys                     []string
-	WriteAPIKeys                []string
-	APIKeyScopes                map[string][]string
-	APIKeyScopeBindings         map[string]db.Scope
-	apiKeyScopesError           string
-	apiKeyScopeBindingsError    string
-	RateLimitRPM                int
-	RateLimitBurst              int
-	RunMigrations               bool
-	RunMigrationsOnly           bool
-	MigrationsDir               string
-	PostgresRLSEnforced         bool
-	AuditLogFile                string
-	AuditForwardURL             string
-	AuditForwardTimeout         time.Duration
-	AuditForwardMaxRetries      int
-	AuditForwardRetryBackoff    time.Duration
-	AuditForwardHMACSecret      string
-	AuditFingerprintSecret      string
-	ConnectorSecretKeys         string
-	ConnectorSecretKeysRequired bool
-	AlertWebhookURL             string
-	AlertMinSeverity            string
-	AlertTimeout                time.Duration
-	AlertHMACSecret             string
-	AlertMaxFindings            int
-	AlertMaxRetries             int
-	AlertRetryBackoff           time.Duration
-	RepoScanEnabled             bool
-	RepoScanHistoryLimit        int
-	RepoScanMaxFindings         int
-	RepoScanHistoryLimitMax     int
-	RepoScanMaxFindingsMax      int
-	RepoScanAllowlist           []string
-	ScanQueueMaxPending         int
-	RepoQueueMaxPending         int
-	WorkerRepoScanEnabled       bool
-	WorkerRepoScanRunNow        bool
-	WorkerRepoScanInterval      time.Duration
-	WorkerRepoScanTargets       []string
-	WorkerRepoScanHistory       int
-	WorkerRepoScanFindings      int
-	WorkerScanPolicyEnabled     bool
-	WorkerScanPolicyInterval    time.Duration
-	WorkerAPIJobQueueEnabled    bool
-	WorkerAPIJobQueueInterval   time.Duration
-	WorkerAPIJobQueueBatchSize  int
-	LockBackend                 string
-	LockNamespace               string
-	DefaultTenantID             string
-	DefaultWorkspaceID          string
-	RequireExplicitScope        bool
-	OIDCIssuerURL               string
-	OIDCAudience                string
-	OIDCWriteScopes             []string
-	OIDCTenantClaim             string
-	OIDCWorkspaceClaim          string
-	OIDCGroupsClaim             string
-	OIDCRolesClaim              string
-	FeatureNewAuth              bool
-	FeatureWorkOSLogin          bool
-	PublicBaseURL               string
-	SessionKey                  string
-	SessionKeyPrevious          string
-	AuthManualMode              bool
-	WorkOSClientID              string
-	WorkOSAPIKey                string
-	WorkOSWebhookSecret         string
-	WorkOSEnvironmentID         string
-	AppModeEnabled              bool
-	AppModeConnectorsEnabled    bool
-	AppModeSchedulerEnabled     bool
-	AppModeRemediationEnabled   bool
-	AppModePremiumEnabled       bool
-	AppModePremiumReports       bool
-	AppModePremiumAutofix       bool
-	AppModeRolloutEnabled       bool
-	AppModeRolloutCanary        int
-	AppModeTenantAllowlist      []string
-	AppModeWorkspaceAllowlist   []string
-	WorkerHeartbeatPath         string
+	HTTPAddr                     string
+	LogLevel                     string
+	Provider                     string
+	ServiceName                  string
+	TrustedProxies               []string
+	CORSAllowedOrigins           []string
+	DatabaseURL                  string
+	AllowMemoryStore             bool
+	AWSSource                    string
+	AWSRegion                    string
+	AWSProfile                   string
+	AWSCloudFormationTemplateURL string
+	AWSAccountID                 string
+	AWSFixturePath               []string
+	KubernetesFixturePath        []string
+	KubernetesSource             string
+	KubectlPath                  string
+	KubeContext                  string
+	RequireLiveSources           bool
+	requireLiveSourcesRaw        string
+	requireLiveSourcesInvalid    bool
+	parseErrors                  []string
+	ScanInterval                 time.Duration
+	WorkerRunNow                 bool
+	APIKeys                      []string
+	WriteAPIKeys                 []string
+	APIKeyScopes                 map[string][]string
+	APIKeyScopeBindings          map[string]db.Scope
+	apiKeyScopesError            string
+	apiKeyScopeBindingsError     string
+	RateLimitRPM                 int
+	RateLimitBurst               int
+	RunMigrations                bool
+	RunMigrationsOnly            bool
+	MigrationsDir                string
+	PostgresRLSEnforced          bool
+	AuditLogFile                 string
+	AuditForwardURL              string
+	AuditForwardTimeout          time.Duration
+	AuditForwardMaxRetries       int
+	AuditForwardRetryBackoff     time.Duration
+	AuditForwardHMACSecret       string
+	AuditFingerprintSecret       string
+	ConnectorSecretKeys          string
+	ConnectorSecretKeysRequired  bool
+	AlertWebhookURL              string
+	AlertMinSeverity             string
+	AlertTimeout                 time.Duration
+	AlertHMACSecret              string
+	AlertMaxFindings             int
+	AlertMaxRetries              int
+	AlertRetryBackoff            time.Duration
+	RepoScanEnabled              bool
+	RepoScanHistoryLimit         int
+	RepoScanMaxFindings          int
+	RepoScanHistoryLimitMax      int
+	RepoScanMaxFindingsMax       int
+	RepoScanAllowlist            []string
+	ScanQueueMaxPending          int
+	RepoQueueMaxPending          int
+	WorkerRepoScanEnabled        bool
+	WorkerRepoScanRunNow         bool
+	WorkerRepoScanInterval       time.Duration
+	WorkerRepoScanTargets        []string
+	WorkerRepoScanHistory        int
+	WorkerRepoScanFindings       int
+	WorkerScanPolicyEnabled      bool
+	WorkerScanPolicyInterval     time.Duration
+	WorkerAPIJobQueueEnabled     bool
+	WorkerAPIJobQueueInterval    time.Duration
+	WorkerAPIJobQueueBatchSize   int
+	LockBackend                  string
+	LockNamespace                string
+	DefaultTenantID              string
+	DefaultWorkspaceID           string
+	RequireExplicitScope         bool
+	OIDCIssuerURL                string
+	OIDCAudience                 string
+	OIDCWriteScopes              []string
+	OIDCTenantClaim              string
+	OIDCWorkspaceClaim           string
+	OIDCGroupsClaim              string
+	OIDCRolesClaim               string
+	FeatureNewAuth               bool
+	FeatureWorkOSLogin           bool
+	FeatureConnectorAWS          bool
+	PublicBaseURL                string
+	SessionKey                   string
+	SessionKeyPrevious           string
+	AuthManualMode               bool
+	WorkOSClientID               string
+	WorkOSAPIKey                 string
+	WorkOSWebhookSecret          string
+	WorkOSEnvironmentID          string
+	AppModeEnabled               bool
+	AppModeConnectorsEnabled     bool
+	AppModeSchedulerEnabled      bool
+	AppModeRemediationEnabled    bool
+	AppModePremiumEnabled        bool
+	AppModePremiumReports        bool
+	AppModePremiumAutofix        bool
+	AppModeRolloutEnabled        bool
+	AppModeRolloutCanary         int
+	AppModeTenantAllowlist       []string
+	AppModeWorkspaceAllowlist    []string
+	WorkerHeartbeatPath          string
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -205,109 +209,112 @@ func Load() Config {
 	}
 
 	return Config{
-		HTTPAddr:                    getEnv("IDENTRAIL_HTTP_ADDR", defaultHTTPAddr),
-		LogLevel:                    strings.ToLower(getEnv("IDENTRAIL_LOG_LEVEL", defaultLogLevel)),
-		Provider:                    strings.ToLower(getEnv("IDENTRAIL_PROVIDER", defaultProvider)),
-		ServiceName:                 getEnv("IDENTRAIL_SERVICE_NAME", defaultServiceName),
-		TrustedProxies:              parseCommaSeparated(getEnv("IDENTRAIL_TRUSTED_PROXIES", "")),
-		CORSAllowedOrigins:          parseCommaSeparated(getEnv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "")),
-		DatabaseURL:                 getEnv("IDENTRAIL_DATABASE_URL", ""),
-		AllowMemoryStore:            boolEnv("IDENTRAIL_ALLOW_MEMORY_STORE", false),
-		AWSSource:                   strings.ToLower(getEnv("IDENTRAIL_AWS_SOURCE", defaultAWSSource)),
-		AWSRegion:                   getEnv("IDENTRAIL_AWS_REGION", defaultAWSRegion),
-		AWSProfile:                  getEnv("IDENTRAIL_AWS_PROFILE", ""),
-		AWSFixturePath:              parseCommaSeparated(getEnv("IDENTRAIL_AWS_FIXTURES", defaultAWSFixtures)),
-		KubernetesFixturePath:       parseCommaSeparated(getEnv("IDENTRAIL_K8S_FIXTURES", defaultK8sFixtures)),
-		KubernetesSource:            strings.ToLower(getEnv("IDENTRAIL_K8S_SOURCE", defaultK8sSource)),
-		KubectlPath:                 getEnv("IDENTRAIL_KUBECTL_PATH", defaultKubectlPath),
-		KubeContext:                 getEnv("IDENTRAIL_KUBE_CONTEXT", ""),
-		RequireLiveSources:          requireLiveSources,
-		requireLiveSourcesRaw:       requireLiveSourcesRaw,
-		requireLiveSourcesInvalid:   requireLiveSourcesInvalid,
-		ScanInterval:                durationEnv("IDENTRAIL_SCAN_INTERVAL", defaultScanInterval),
-		WorkerRunNow:                boolEnv("IDENTRAIL_WORKER_RUN_NOW", true),
-		APIKeys:                     parseCommaSeparated(getEnv("IDENTRAIL_API_KEYS", "")),
-		WriteAPIKeys:                parseCommaSeparated(getEnv("IDENTRAIL_WRITE_API_KEYS", "")),
-		APIKeyScopes:                apiKeyScopes,
-		APIKeyScopeBindings:         apiKeyScopeBindings,
-		apiKeyScopeBindingsError:    apiKeyScopeBindingsError,
-		apiKeyScopesError:           apiKeyScopesError,
-		RateLimitRPM:                parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
-		RateLimitBurst:              parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
-		RunMigrations:               boolEnv("IDENTRAIL_RUN_MIGRATIONS", true),
-		RunMigrationsOnly:           boolEnv("IDENTRAIL_RUN_MIGRATIONS_ONLY", false),
-		MigrationsDir:               getEnv("IDENTRAIL_MIGRATIONS_DIR", "migrations"),
-		PostgresRLSEnforced:         boolEnv("IDENTRAIL_POSTGRES_RLS_ENFORCED", defaultPostgresRLSEnforced),
-		AuditLogFile:                getEnv("IDENTRAIL_AUDIT_LOG_FILE", ""),
-		AuditForwardURL:             getEnv("IDENTRAIL_AUDIT_FORWARD_URL", ""),
-		AuditForwardTimeout:         durationEnv("IDENTRAIL_AUDIT_FORWARD_TIMEOUT", 3*time.Second),
-		AuditForwardMaxRetries:      parseInt(getEnv("IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES", "1"), 1),
-		AuditForwardRetryBackoff:    durationEnv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", 1*time.Second),
-		AuditForwardHMACSecret:      getEnv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", ""),
-		AuditFingerprintSecret:      getEnv("IDENTRAIL_AUDIT_FINGERPRINT_SECRET", ""),
-		ConnectorSecretKeys:         getEnv("IDENTRAIL_CONNECTOR_SECRET_KEYS", ""),
-		ConnectorSecretKeysRequired: boolEnv("IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", false),
-		AlertWebhookURL:             getEnv("IDENTRAIL_ALERT_WEBHOOK_URL", ""),
-		AlertMinSeverity:            strings.ToLower(getEnv("IDENTRAIL_ALERT_MIN_SEVERITY", "high")),
-		AlertTimeout:                durationEnv("IDENTRAIL_ALERT_TIMEOUT", 5*time.Second),
-		AlertHMACSecret:             getEnv("IDENTRAIL_ALERT_HMAC_SECRET", ""),
-		AlertMaxFindings:            parseInt(getEnv("IDENTRAIL_ALERT_MAX_FINDINGS", "25"), 25),
-		AlertMaxRetries:             parseInt(getEnv("IDENTRAIL_ALERT_MAX_RETRIES", "2"), 2),
-		AlertRetryBackoff:           durationEnv("IDENTRAIL_ALERT_RETRY_BACKOFF", 1*time.Second),
-		RepoScanEnabled:             boolEnv("IDENTRAIL_REPO_SCAN_ENABLED", defaultRepoScanEnabled),
-		RepoScanHistoryLimit:        parseInt(getEnv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT", "500"), defaultRepoScanHistoryLimit),
-		RepoScanMaxFindings:         parseInt(getEnv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS", "200"), defaultRepoScanMaxFindings),
-		RepoScanHistoryLimitMax:     parseInt(getEnv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "5000"), defaultRepoScanHistoryLimitMax),
-		RepoScanMaxFindingsMax:      parseInt(getEnv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "1000"), defaultRepoScanMaxFindingsLimitMax),
-		RepoScanAllowlist:           parseCommaSeparated(getEnv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "")),
-		ScanQueueMaxPending:         parseInt(getEnv("IDENTRAIL_SCAN_QUEUE_MAX_PENDING", "25"), defaultScanQueueMaxPending),
-		RepoQueueMaxPending:         parseInt(getEnv("IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING", "100"), defaultRepoQueueMaxPending),
-		WorkerRepoScanEnabled:       boolEnv("IDENTRAIL_WORKER_REPO_SCAN_ENABLED", defaultWorkerRepoScanEnabled),
-		WorkerRepoScanRunNow:        boolEnv("IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW", defaultWorkerRepoScanRunNow),
-		WorkerRepoScanInterval:      durationEnv("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL", defaultWorkerRepoScanInterval),
-		WorkerRepoScanTargets:       parseCommaSeparated(getEnv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "")),
-		WorkerRepoScanHistory:       parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "0"), 0),
-		WorkerRepoScanFindings:      parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "0"), 0),
-		WorkerScanPolicyEnabled:     boolEnv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED", defaultWorkerScanPolicyEnabled),
-		WorkerScanPolicyInterval:    durationEnv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_INTERVAL", defaultWorkerScanPolicyInterval),
-		WorkerAPIJobQueueEnabled:    boolEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", defaultWorkerAPIJobQueueEnabled),
-		WorkerAPIJobQueueInterval:   durationEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", defaultWorkerAPIJobQueueInterval),
-		WorkerAPIJobQueueBatchSize:  parseInt(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "5"), defaultWorkerAPIJobQueueBatchSize),
-		WorkerHeartbeatPath:         strings.TrimSpace(getEnv("IDENTRAIL_WORKER_HEARTBEAT_PATH", "")),
-		LockBackend:                 strings.ToLower(getEnv("IDENTRAIL_LOCK_BACKEND", defaultLockBackend)),
-		LockNamespace:               getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),
-		DefaultTenantID:             getEnv("IDENTRAIL_DEFAULT_TENANT_ID", defaultTenantID),
-		DefaultWorkspaceID:          getEnv("IDENTRAIL_DEFAULT_WORKSPACE_ID", defaultWorkspaceID),
-		RequireExplicitScope:        boolEnv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", false),
-		OIDCIssuerURL:               getEnv("IDENTRAIL_OIDC_ISSUER_URL", ""),
-		OIDCAudience:                getEnv("IDENTRAIL_OIDC_AUDIENCE", ""),
-		OIDCWriteScopes:             parseCommaSeparated(getEnv("IDENTRAIL_OIDC_WRITE_SCOPES", defaultOIDCWriteScopes)),
-		OIDCTenantClaim:             getEnv("IDENTRAIL_OIDC_TENANT_CLAIM", defaultOIDCTenantClaim),
-		OIDCWorkspaceClaim:          getEnv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", defaultOIDCWorkspaceClaim),
-		OIDCGroupsClaim:             getEnv("IDENTRAIL_OIDC_GROUPS_CLAIM", defaultOIDCGroupsClaim),
-		OIDCRolesClaim:              getEnv("IDENTRAIL_OIDC_ROLES_CLAIM", defaultOIDCRolesClaim),
-		FeatureNewAuth:              boolEnv("IDENTRAIL_FEATURE_NEW_AUTH", defaultFeatureNewAuth),
-		FeatureWorkOSLogin:          boolEnv("IDENTRAIL_FEATURE_WORKOS_LOGIN", defaultFeatureWorkOSLogin),
-		PublicBaseURL:               getEnv("IDENTRAIL_PUBLIC_BASE_URL", ""),
-		SessionKey:                  getEnv("IDENTRAIL_SESSION_KEY", ""),
-		SessionKeyPrevious:          getEnv("IDENTRAIL_SESSION_KEY_PREVIOUS", ""),
-		AuthManualMode:              boolEnv("IDENTRAIL_AUTH_MANUAL_MODE", defaultAuthManualMode),
-		WorkOSClientID:              getEnv("IDENTRAIL_WORKOS_CLIENT_ID", ""),
-		WorkOSAPIKey:                getEnv("IDENTRAIL_WORKOS_API_KEY", ""),
-		WorkOSWebhookSecret:         getEnv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", ""),
-		WorkOSEnvironmentID:         getEnv("IDENTRAIL_WORKOS_ENVIRONMENT_ID", ""),
-		AppModeEnabled:              boolEnv("IDENTRAIL_APP_MODE_ENABLED", defaultAppModeEnabled),
-		AppModeConnectorsEnabled:    boolEnv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", defaultAppModeConnectorsEnabled),
-		AppModeSchedulerEnabled:     boolEnv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", defaultAppModeSchedulerEnabled),
-		AppModeRemediationEnabled:   boolEnv("IDENTRAIL_APP_MODE_REMEDIATION_ENABLED", defaultAppModeRemediationEnabled),
-		AppModePremiumEnabled:       boolEnv("IDENTRAIL_APP_MODE_PREMIUM_ENABLED", defaultAppModePremiumEnabled),
-		AppModePremiumReports:       boolEnv("IDENTRAIL_APP_MODE_PREMIUM_REPORTS_ENABLED", defaultAppModePremiumReports),
-		AppModePremiumAutofix:       boolEnv("IDENTRAIL_APP_MODE_PREMIUM_AUTOFIX_ENABLED", defaultAppModePremiumAutofix),
-		AppModeRolloutEnabled:       boolEnv("IDENTRAIL_APP_MODE_ROLLOUT_ENABLED", defaultAppModeRolloutEnabled),
-		AppModeRolloutCanary:        parseIntAllowZero(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT", "0"), defaultAppModeRolloutCanaryPercent),
-		AppModeTenantAllowlist:      parseCommaSeparated(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST", "")),
-		AppModeWorkspaceAllowlist:   parseCommaSeparated(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST", "")),
-		parseErrors:                 parseErrors,
+		HTTPAddr:                     getEnv("IDENTRAIL_HTTP_ADDR", defaultHTTPAddr),
+		LogLevel:                     strings.ToLower(getEnv("IDENTRAIL_LOG_LEVEL", defaultLogLevel)),
+		Provider:                     strings.ToLower(getEnv("IDENTRAIL_PROVIDER", defaultProvider)),
+		ServiceName:                  getEnv("IDENTRAIL_SERVICE_NAME", defaultServiceName),
+		TrustedProxies:               parseCommaSeparated(getEnv("IDENTRAIL_TRUSTED_PROXIES", "")),
+		CORSAllowedOrigins:           parseCommaSeparated(getEnv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "")),
+		DatabaseURL:                  getEnv("IDENTRAIL_DATABASE_URL", ""),
+		AllowMemoryStore:             boolEnv("IDENTRAIL_ALLOW_MEMORY_STORE", false),
+		AWSSource:                    strings.ToLower(getEnv("IDENTRAIL_AWS_SOURCE", defaultAWSSource)),
+		AWSRegion:                    getEnv("IDENTRAIL_AWS_REGION", defaultAWSRegion),
+		AWSProfile:                   getEnv("IDENTRAIL_AWS_PROFILE", ""),
+		AWSCloudFormationTemplateURL: getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", ""),
+		AWSAccountID:                 getEnv("IDENTRAIL_AWS_ACCOUNT_ID", ""),
+		AWSFixturePath:               parseCommaSeparated(getEnv("IDENTRAIL_AWS_FIXTURES", defaultAWSFixtures)),
+		KubernetesFixturePath:        parseCommaSeparated(getEnv("IDENTRAIL_K8S_FIXTURES", defaultK8sFixtures)),
+		KubernetesSource:             strings.ToLower(getEnv("IDENTRAIL_K8S_SOURCE", defaultK8sSource)),
+		KubectlPath:                  getEnv("IDENTRAIL_KUBECTL_PATH", defaultKubectlPath),
+		KubeContext:                  getEnv("IDENTRAIL_KUBE_CONTEXT", ""),
+		RequireLiveSources:           requireLiveSources,
+		requireLiveSourcesRaw:        requireLiveSourcesRaw,
+		requireLiveSourcesInvalid:    requireLiveSourcesInvalid,
+		ScanInterval:                 durationEnv("IDENTRAIL_SCAN_INTERVAL", defaultScanInterval),
+		WorkerRunNow:                 boolEnv("IDENTRAIL_WORKER_RUN_NOW", true),
+		APIKeys:                      parseCommaSeparated(getEnv("IDENTRAIL_API_KEYS", "")),
+		WriteAPIKeys:                 parseCommaSeparated(getEnv("IDENTRAIL_WRITE_API_KEYS", "")),
+		APIKeyScopes:                 apiKeyScopes,
+		APIKeyScopeBindings:          apiKeyScopeBindings,
+		apiKeyScopeBindingsError:     apiKeyScopeBindingsError,
+		apiKeyScopesError:            apiKeyScopesError,
+		RateLimitRPM:                 parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
+		RateLimitBurst:               parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
+		RunMigrations:                boolEnv("IDENTRAIL_RUN_MIGRATIONS", true),
+		RunMigrationsOnly:            boolEnv("IDENTRAIL_RUN_MIGRATIONS_ONLY", false),
+		MigrationsDir:                getEnv("IDENTRAIL_MIGRATIONS_DIR", "migrations"),
+		PostgresRLSEnforced:          boolEnv("IDENTRAIL_POSTGRES_RLS_ENFORCED", defaultPostgresRLSEnforced),
+		AuditLogFile:                 getEnv("IDENTRAIL_AUDIT_LOG_FILE", ""),
+		AuditForwardURL:              getEnv("IDENTRAIL_AUDIT_FORWARD_URL", ""),
+		AuditForwardTimeout:          durationEnv("IDENTRAIL_AUDIT_FORWARD_TIMEOUT", 3*time.Second),
+		AuditForwardMaxRetries:       parseInt(getEnv("IDENTRAIL_AUDIT_FORWARD_MAX_RETRIES", "1"), 1),
+		AuditForwardRetryBackoff:     durationEnv("IDENTRAIL_AUDIT_FORWARD_RETRY_BACKOFF", 1*time.Second),
+		AuditForwardHMACSecret:       getEnv("IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET", ""),
+		AuditFingerprintSecret:       getEnv("IDENTRAIL_AUDIT_FINGERPRINT_SECRET", ""),
+		ConnectorSecretKeys:          getEnv("IDENTRAIL_CONNECTOR_SECRET_KEYS", ""),
+		ConnectorSecretKeysRequired:  boolEnv("IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", false),
+		AlertWebhookURL:              getEnv("IDENTRAIL_ALERT_WEBHOOK_URL", ""),
+		AlertMinSeverity:             strings.ToLower(getEnv("IDENTRAIL_ALERT_MIN_SEVERITY", "high")),
+		AlertTimeout:                 durationEnv("IDENTRAIL_ALERT_TIMEOUT", 5*time.Second),
+		AlertHMACSecret:              getEnv("IDENTRAIL_ALERT_HMAC_SECRET", ""),
+		AlertMaxFindings:             parseInt(getEnv("IDENTRAIL_ALERT_MAX_FINDINGS", "25"), 25),
+		AlertMaxRetries:              parseInt(getEnv("IDENTRAIL_ALERT_MAX_RETRIES", "2"), 2),
+		AlertRetryBackoff:            durationEnv("IDENTRAIL_ALERT_RETRY_BACKOFF", 1*time.Second),
+		RepoScanEnabled:              boolEnv("IDENTRAIL_REPO_SCAN_ENABLED", defaultRepoScanEnabled),
+		RepoScanHistoryLimit:         parseInt(getEnv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT", "500"), defaultRepoScanHistoryLimit),
+		RepoScanMaxFindings:          parseInt(getEnv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS", "200"), defaultRepoScanMaxFindings),
+		RepoScanHistoryLimitMax:      parseInt(getEnv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "5000"), defaultRepoScanHistoryLimitMax),
+		RepoScanMaxFindingsMax:       parseInt(getEnv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "1000"), defaultRepoScanMaxFindingsLimitMax),
+		RepoScanAllowlist:            parseCommaSeparated(getEnv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "")),
+		ScanQueueMaxPending:          parseInt(getEnv("IDENTRAIL_SCAN_QUEUE_MAX_PENDING", "25"), defaultScanQueueMaxPending),
+		RepoQueueMaxPending:          parseInt(getEnv("IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING", "100"), defaultRepoQueueMaxPending),
+		WorkerRepoScanEnabled:        boolEnv("IDENTRAIL_WORKER_REPO_SCAN_ENABLED", defaultWorkerRepoScanEnabled),
+		WorkerRepoScanRunNow:         boolEnv("IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW", defaultWorkerRepoScanRunNow),
+		WorkerRepoScanInterval:       durationEnv("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL", defaultWorkerRepoScanInterval),
+		WorkerRepoScanTargets:        parseCommaSeparated(getEnv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "")),
+		WorkerRepoScanHistory:        parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "0"), 0),
+		WorkerRepoScanFindings:       parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "0"), 0),
+		WorkerScanPolicyEnabled:      boolEnv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED", defaultWorkerScanPolicyEnabled),
+		WorkerScanPolicyInterval:     durationEnv("IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_INTERVAL", defaultWorkerScanPolicyInterval),
+		WorkerAPIJobQueueEnabled:     boolEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", defaultWorkerAPIJobQueueEnabled),
+		WorkerAPIJobQueueInterval:    durationEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", defaultWorkerAPIJobQueueInterval),
+		WorkerAPIJobQueueBatchSize:   parseInt(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "5"), defaultWorkerAPIJobQueueBatchSize),
+		WorkerHeartbeatPath:          strings.TrimSpace(getEnv("IDENTRAIL_WORKER_HEARTBEAT_PATH", "")),
+		LockBackend:                  strings.ToLower(getEnv("IDENTRAIL_LOCK_BACKEND", defaultLockBackend)),
+		LockNamespace:                getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),
+		DefaultTenantID:              getEnv("IDENTRAIL_DEFAULT_TENANT_ID", defaultTenantID),
+		DefaultWorkspaceID:           getEnv("IDENTRAIL_DEFAULT_WORKSPACE_ID", defaultWorkspaceID),
+		RequireExplicitScope:         boolEnv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", false),
+		OIDCIssuerURL:                getEnv("IDENTRAIL_OIDC_ISSUER_URL", ""),
+		OIDCAudience:                 getEnv("IDENTRAIL_OIDC_AUDIENCE", ""),
+		OIDCWriteScopes:              parseCommaSeparated(getEnv("IDENTRAIL_OIDC_WRITE_SCOPES", defaultOIDCWriteScopes)),
+		OIDCTenantClaim:              getEnv("IDENTRAIL_OIDC_TENANT_CLAIM", defaultOIDCTenantClaim),
+		OIDCWorkspaceClaim:           getEnv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", defaultOIDCWorkspaceClaim),
+		OIDCGroupsClaim:              getEnv("IDENTRAIL_OIDC_GROUPS_CLAIM", defaultOIDCGroupsClaim),
+		OIDCRolesClaim:               getEnv("IDENTRAIL_OIDC_ROLES_CLAIM", defaultOIDCRolesClaim),
+		FeatureNewAuth:               boolEnv("IDENTRAIL_FEATURE_NEW_AUTH", defaultFeatureNewAuth),
+		FeatureWorkOSLogin:           boolEnv("IDENTRAIL_FEATURE_WORKOS_LOGIN", defaultFeatureWorkOSLogin),
+		FeatureConnectorAWS:          boolEnv("IDENTRAIL_FEATURE_CONNECTOR_AWS", defaultFeatureConnectorAWS),
+		PublicBaseURL:                getEnv("IDENTRAIL_PUBLIC_BASE_URL", ""),
+		SessionKey:                   getEnv("IDENTRAIL_SESSION_KEY", ""),
+		SessionKeyPrevious:           getEnv("IDENTRAIL_SESSION_KEY_PREVIOUS", ""),
+		AuthManualMode:               boolEnv("IDENTRAIL_AUTH_MANUAL_MODE", defaultAuthManualMode),
+		WorkOSClientID:               getEnv("IDENTRAIL_WORKOS_CLIENT_ID", ""),
+		WorkOSAPIKey:                 getEnv("IDENTRAIL_WORKOS_API_KEY", ""),
+		WorkOSWebhookSecret:          getEnv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", ""),
+		WorkOSEnvironmentID:          getEnv("IDENTRAIL_WORKOS_ENVIRONMENT_ID", ""),
+		AppModeEnabled:               boolEnv("IDENTRAIL_APP_MODE_ENABLED", defaultAppModeEnabled),
+		AppModeConnectorsEnabled:     boolEnv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", defaultAppModeConnectorsEnabled),
+		AppModeSchedulerEnabled:      boolEnv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", defaultAppModeSchedulerEnabled),
+		AppModeRemediationEnabled:    boolEnv("IDENTRAIL_APP_MODE_REMEDIATION_ENABLED", defaultAppModeRemediationEnabled),
+		AppModePremiumEnabled:        boolEnv("IDENTRAIL_APP_MODE_PREMIUM_ENABLED", defaultAppModePremiumEnabled),
+		AppModePremiumReports:        boolEnv("IDENTRAIL_APP_MODE_PREMIUM_REPORTS_ENABLED", defaultAppModePremiumReports),
+		AppModePremiumAutofix:        boolEnv("IDENTRAIL_APP_MODE_PREMIUM_AUTOFIX_ENABLED", defaultAppModePremiumAutofix),
+		AppModeRolloutEnabled:        boolEnv("IDENTRAIL_APP_MODE_ROLLOUT_ENABLED", defaultAppModeRolloutEnabled),
+		AppModeRolloutCanary:         parseIntAllowZero(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_CANARY_PERCENT", "0"), defaultAppModeRolloutCanaryPercent),
+		AppModeTenantAllowlist:       parseCommaSeparated(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_TENANT_ALLOWLIST", "")),
+		AppModeWorkspaceAllowlist:    parseCommaSeparated(getEnv("IDENTRAIL_APP_MODE_ROLLOUT_WORKSPACE_ALLOWLIST", "")),
+		parseErrors:                  parseErrors,
 	}
 }
 

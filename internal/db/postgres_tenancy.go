@@ -1569,3 +1569,40 @@ func (p *PostgresStore) GetTenancyConnectorSecretEnvelope(ctx context.Context, w
 	}
 	return item, nil
 }
+
+// DeleteTenancyConnectorSecretEnvelope removes one encrypted connector secret envelope by name.
+func (p *PostgresStore) DeleteTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(
+		ctx,
+		`DELETE FROM tenancy_connector_secret_envelopes
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND secret_name = $5`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+		strings.TrimSpace(secretName),
+	)
+	if err != nil {
+		return fmt.Errorf("delete connector secret envelope: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

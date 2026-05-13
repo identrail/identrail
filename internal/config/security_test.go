@@ -213,6 +213,31 @@ func TestValidateSecurityRequiresConnectorSecretKeysWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRequiresAWSConnectorLaunchConfig(t *testing.T) {
+	cfg := Config{
+		APIKeys:             []string{"reader", "writer"},
+		WriteAPIKeys:        []string{"writer"},
+		FeatureConnectorAWS: true,
+		AWSAccountID:        "123456789012",
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_AWS_CFN_TEMPLATE_URL") {
+		t.Fatalf("expected missing AWS template URL error, got %v", err)
+	}
+}
+
+func TestValidateSecurityAcceptsAWSConnectorLaunchConfig(t *testing.T) {
+	cfg := Config{
+		APIKeys:                      []string{"reader", "writer"},
+		WriteAPIKeys:                 []string{"writer"},
+		FeatureConnectorAWS:          true,
+		AWSCloudFormationTemplateURL: "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml",
+		AWSAccountID:                 "123456789012",
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected AWS connector launch config success, got %v", err)
+	}
+}
+
 func TestValidateSecurityRejectsInvalidAWSSource(t *testing.T) {
 	cfg := Config{
 		Provider:  "aws",

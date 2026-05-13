@@ -104,28 +104,30 @@ type Service struct {
 	ReadinessCheck func(context.Context) error
 	Metrics        *telemetry.Metrics
 	// Repo scan controls are intentionally separate from cloud identity scan flow.
-	RepoScanEnabled             bool
-	RepoScanDefaultHistoryLimit int
-	RepoScanDefaultMaxFindings  int
-	RepoScanMaxHistoryLimit     int
-	RepoScanMaxFindingsLimit    int
-	RepoScanAllowedTargets      []string
-	ScanQueueMaxPending         int
-	RepoQueueMaxPending         int
-	RepoScannerFactory          RepoScannerFactory
-	ConnectorSecretManager      *secretstore.Manager
-	KubernetesPreflightFactory  KubernetesConnectorPreflightFactory
-	AWSConnectorValidator       AWSConnectorValidator
-	AWSScannerFactory           AWSScannerFactory
-	GitHubWebhookReplayWindow   time.Duration
-	GitHubWebhookBurstWindow    time.Duration
-	githubConnectMu             sync.RWMutex
-	githubConnections           map[string]githubProjectConnection
-	githubConnectStates         map[string]githubConnectState
-	githubWebhookSeen           map[string]time.Time
-	githubWebhookLastQueued     map[string]time.Time
-	kubernetesConnectMu         sync.RWMutex
-	kubernetesConnections       map[string]kubernetesProjectConnection
+	RepoScanEnabled              bool
+	RepoScanDefaultHistoryLimit  int
+	RepoScanDefaultMaxFindings   int
+	RepoScanMaxHistoryLimit      int
+	RepoScanMaxFindingsLimit     int
+	RepoScanAllowedTargets       []string
+	ScanQueueMaxPending          int
+	RepoQueueMaxPending          int
+	RepoScannerFactory           RepoScannerFactory
+	ConnectorSecretManager       *secretstore.Manager
+	KubernetesPreflightFactory   KubernetesConnectorPreflightFactory
+	AWSConnectorValidator        AWSConnectorValidator
+	AWSScannerFactory            AWSScannerFactory
+	AWSCloudFormationTemplateURL string
+	AWSAccountID                 string
+	GitHubWebhookReplayWindow    time.Duration
+	GitHubWebhookBurstWindow     time.Duration
+	githubConnectMu              sync.RWMutex
+	githubConnections            map[string]githubProjectConnection
+	githubConnectStates          map[string]githubConnectState
+	githubWebhookSeen            map[string]time.Time
+	githubWebhookLastQueued      map[string]time.Time
+	kubernetesConnectMu          sync.RWMutex
+	kubernetesConnections        map[string]kubernetesProjectConnection
 }
 
 // CheckReadiness validates critical runtime dependencies for readiness checks.
@@ -825,7 +827,7 @@ func (s *Service) activeAWSConnectionForScan(ctx context.Context) (AWSConnection
 		return AWSConnectionStatus{}, false, fmt.Errorf("list aws connectors: %w", err)
 	}
 	for _, item := range items {
-		status := awsConnectionStatusFromStored(item)
+		status := s.awsConnectionStatusFromStored(ctx, item)
 		if status.Connected {
 			return status, true, nil
 		}

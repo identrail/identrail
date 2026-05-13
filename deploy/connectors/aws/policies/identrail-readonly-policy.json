@@ -1,0 +1,59 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "IdentityTrustGraphReadOnlyIAM",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetAccountSummary",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAccountAliases",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListRoles",
+        "iam:SimulatePrincipalPolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyCompute",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeIamInstanceProfileAssociations",
+        "ec2:DescribeInstances",
+        "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyStorage",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketAcl",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:ListAllMyBuckets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphReadOnlyKMS",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:ListKeys"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IdentityTrustGraphCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    }
+  ]
+}

@@ -253,6 +253,12 @@ func TestMemoryStoreConnectorSecretEnvelopeCRUD(t *testing.T) {
 	if string(reloaded.Envelope.Nonce) != "123456789012" {
 		t.Fatalf("expected stored nonce copy to remain unchanged, got %q", string(reloaded.Envelope.Nonce))
 	}
+	if err := store.DeleteTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "github", "webhook_secret"); err != nil {
+		t.Fatalf("delete connector secret envelope: %v", err)
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "github", "webhook_secret"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted connector secret envelope to be missing, got %v", err)
+	}
 }
 
 func TestMemoryStoreTenancyScopeIsolation(t *testing.T) {

@@ -143,6 +143,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		RequireExplicitScope: cfg.RequireExplicitScope,
 		FeatureNewAuth:       cfg.FeatureNewAuth,
 		FeatureWorkOSLogin:   cfg.FeatureWorkOSLogin,
+		FeatureConnectorAWS:  cfg.FeatureConnectorAWS,
 		PublicBaseURL:        cfg.PublicBaseURL,
 		SessionKey:           cfg.SessionKey,
 		AuthManualMode:       cfg.AuthManualMode,

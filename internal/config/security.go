@@ -247,6 +247,24 @@ func ValidateSecurity(cfg Config) error {
 			return fmt.Errorf("IDENTRAIL_WORKOS_ENVIRONMENT_ID is required when IDENTRAIL_FEATURE_WORKOS_LOGIN=true")
 		}
 	}
+	if cfg.FeatureConnectorAWS {
+		if strings.TrimSpace(cfg.AWSCloudFormationTemplateURL) == "" {
+			return fmt.Errorf("IDENTRAIL_AWS_CFN_TEMPLATE_URL is required when IDENTRAIL_FEATURE_CONNECTOR_AWS=true")
+		}
+		parsedTemplateURL, err := url.Parse(strings.TrimSpace(cfg.AWSCloudFormationTemplateURL))
+		if err != nil || parsedTemplateURL == nil || parsedTemplateURL.Scheme == "" || parsedTemplateURL.Host == "" {
+			return fmt.Errorf("IDENTRAIL_AWS_CFN_TEMPLATE_URL must be an absolute URL")
+		}
+		if parsedTemplateURL.Scheme != "https" && parsedTemplateURL.Hostname() != "localhost" {
+			return fmt.Errorf("IDENTRAIL_AWS_CFN_TEMPLATE_URL must use HTTPS unless it points at localhost")
+		}
+		if !regexp.MustCompile(`^[0-9]{12}$`).MatchString(strings.TrimSpace(cfg.AWSAccountID)) {
+			return fmt.Errorf("IDENTRAIL_AWS_ACCOUNT_ID must be a 12 digit AWS account ID when IDENTRAIL_FEATURE_CONNECTOR_AWS=true")
+		}
+		if strings.TrimSpace(cfg.DatabaseURL) != "" && strings.TrimSpace(cfg.ConnectorSecretKeys) == "" {
+			return fmt.Errorf("IDENTRAIL_CONNECTOR_SECRET_KEYS must be set when IDENTRAIL_FEATURE_CONNECTOR_AWS=true and IDENTRAIL_DATABASE_URL is configured")
+		}
+	}
 
 	if cfg.apiKeyScopesError != "" {
 		return fmt.Errorf("invalid IDENTRAIL_API_KEY_SCOPES: %s", cfg.apiKeyScopesError)

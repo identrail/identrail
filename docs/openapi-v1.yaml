@@ -275,6 +275,25 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: POST
+    path: /v1/connectors/aws
+    action: tenancy.write
+    resource_type: connector
+  - method: POST
+    path: /v1/connectors/aws/{connector_id}/validate
+    action: tenancy.write
+    resource_type: connector
+    resource_id_param: connector_id
+  - method: GET
+    path: /v1/connectors/aws/{connector_id}/poll
+    action: tenancy.read
+    resource_type: connector
+    resource_id_param: connector_id
+  - method: POST
+    path: /v1/connectors/aws/{connector_id}/refresh-policy
+    action: tenancy.write
+    resource_type: connector
+    resource_id_param: connector_id
+  - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection
     action: tenancy.write
     resource_type: project
@@ -1613,6 +1632,143 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/connectors/aws:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [ProjectManagement]
+      summary: Start AWS CloudFormation connector setup
+      operationId: startAWSConnector
+      description: Generates a connector-specific External ID, stores it in the connector secret envelope table, and returns an AWS CloudFormation launch URL plus permission preview.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSConnectorStartRequest"
+      responses:
+        "200":
+          description: AWS connector launch data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AWSConnectorStartResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: AWS CloudFormation connector flow is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/connectors/aws/{connector_id}/validate:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Validate a CloudFormation-created AWS connector role
+      operationId: validateAWSConnector
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSConnectorValidateRequest"
+      responses:
+        "200":
+          description: AWS connection validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/AWSConnectionStatus"
+        "400":
+          description: Invalid AWS connection request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: AWS validator unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/connectors/aws/{connector_id}/poll:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: workspace_id
+        schema: { type: string }
+      - in: query
+        name: project_id
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Poll AWS connector setup status
+      operationId: pollAWSConnector
+      responses:
+        "200":
+          description: AWS connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/AWSConnectionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/connectors/aws/{connector_id}/refresh-policy:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [ProjectManagement]
+      summary: Refresh AWS connector policy preview
+      operationId: refreshAWSConnectorPolicy
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSConnectorPollRequest"
+      responses:
+        "200":
+          description: AWS read-only policy preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AWSConnectorPolicyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -3209,6 +3365,102 @@ components:
           type: string
           format: date-time
           nullable: true
+    AWSConnectorStartRequest:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        display_name:
+          type: string
+        region:
+          type: string
+          default: us-east-1
+        role_name:
+          type: string
+          default: IdentrailReadOnly
+        stack_name:
+          type: string
+          default: identrail-readonly-connector
+    AWSConnectorValidateRequest:
+      type: object
+      required: [role_arn]
+      properties:
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        role_arn:
+          type: string
+          example: arn:aws:iam::123456789012:role/IdentrailReadOnly
+        external_id:
+          type: string
+          writeOnly: true
+        region:
+          type: string
+        session_name:
+          type: string
+          default: identrail-connector-validation
+    AWSConnectorPollRequest:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+    AWSConnectorStartResponse:
+      type: object
+      properties:
+        connection:
+          $ref: "#/components/schemas/AWSConnectionStatus"
+        connector_id:
+          type: string
+        external_id:
+          type: string
+          writeOnly: true
+        launch_url:
+          type: string
+          format: uri
+        template_url:
+          type: string
+          format: uri
+        role_name:
+          type: string
+        stack_name:
+          type: string
+        policy_hash:
+          type: string
+        permission_preview:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPermissionPreviewItem"
+    AWSConnectorPolicyResponse:
+      type: object
+      properties:
+        policy_hash:
+          type: string
+        policy_document:
+          type: object
+        permission_preview:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPermissionPreviewItem"
+    AWSPermissionPreviewItem:
+      type: object
+      properties:
+        service:
+          type: string
+        actions:
+          type: array
+          items: { type: string }
+        resources:
+          type: array
+          items: { type: string }
+        reason:
+          type: string
     AWSConnectionUpsertRequest:
       type: object
       required: [role_arn]
@@ -3288,6 +3540,14 @@ components:
           items:
             $ref: "#/components/schemas/AWSConnectionDiagnostic"
         remediation_message:
+          type: string
+        launch_url:
+          type: string
+          format: uri
+        template_url:
+          type: string
+          format: uri
+        policy_hash:
           type: string
         created_at:
           type: string

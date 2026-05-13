@@ -73,6 +73,7 @@ type RouterOptions struct {
 	RequireExplicitScope bool
 	FeatureNewAuth       bool
 	FeatureWorkOSLogin   bool
+	FeatureConnectorAWS  bool
 	PublicBaseURL        string
 	SessionKey           string
 	AuthManualMode       bool
@@ -312,7 +313,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		registerMeRoutes(v1, logger, svc, sessionManager)
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
-	registerTenancyRoutes(v1, logger, svc)
+	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS)
 	registerKubernetesConnectionRoutes(v1, logger, svc)
 
 	if svc == nil {
@@ -962,7 +963,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	return r
 }
 
-func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service) {
+func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, featureConnectorAWS bool) {
 	v1.GET("/organizations/current", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)
@@ -1562,6 +1563,139 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"connection": response})
+	})
+
+	v1.POST("/connectors/aws", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request AWSConnectorStartRequest
+		if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		response, err := svc.StartAWSConnector(c.Request.Context(), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connector request"})
+			case errors.Is(err, ErrAWSConnectorConfigUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws connector cloudformation flow is not configured"})
+			default:
+				if logger != nil {
+					logger.Error("start aws connector", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start aws connector"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
+	v1.POST("/connectors/aws/:connector_id/validate", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request AWSConnectorValidateRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		record, err := svc.ValidateAWSConnector(c.Request.Context(), c.Param("connector_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "aws connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connection request"})
+			case errors.Is(err, ErrAWSConnectionValidatorUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "aws connection validator unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("validate aws connector", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate aws connector"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
+	})
+
+	v1.GET("/connectors/aws/:connector_id/poll", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		request := AWSConnectorPollRequest{
+			WorkspaceID: c.Query("workspace_id"),
+			ProjectID:   c.Query("project_id"),
+		}
+		record, err := svc.PollAWSConnector(c.Request.Context(), c.Param("connector_id"), request)
+		if err != nil {
+			if errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connector request"})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "aws connector not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("poll aws connector", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to poll aws connector"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"connection": record})
+	})
+
+	v1.POST("/connectors/aws/:connector_id/refresh-policy", func(c *gin.Context) {
+		if !featureConnectorAWS {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request AWSConnectorPollRequest
+		if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		response, err := svc.AWSConnectorPolicy(c.Request.Context(), c.Param("connector_id"), request)
+		if err != nil {
+			if errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws connector request"})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "aws connector not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("refresh aws connector policy", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to refresh aws connector policy"})
+			return
+		}
+		c.JSON(http.StatusOK, response)
 	})
 
 	v1.POST("/workspaces/:workspace_id/projects/:project_id/aws/connection", func(c *gin.Context) {

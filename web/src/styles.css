@@ -5514,6 +5514,14 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   gap: 0.8rem;
 }
 
+.idt-source-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
 .idt-source-install-card h4,
 .idt-source-install-card p {
   margin: 0;
@@ -5532,6 +5540,68 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-source-advanced .idt-source-inline-fields,
 .idt-source-advanced label {
   margin-top: 0.75rem;
+}
+
+.idt-permission-preview-modal {
+  width: min(100%, 720px);
+  max-height: min(82vh, 760px);
+  overflow: auto;
+  border: 1px solid rgba(126, 157, 211, 0.42);
+  border-radius: 0.8rem;
+  background: #0d1422;
+  box-shadow: var(--idt-shadow);
+  padding: 1rem;
+}
+
+.idt-permission-preview-modal header,
+.idt-permission-preview-list article {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.idt-permission-preview-modal header {
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
+.idt-permission-preview-modal h3,
+.idt-permission-preview-modal p,
+.idt-permission-preview-list strong {
+  margin: 0;
+}
+
+.idt-icon-btn {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(126, 157, 211, 0.35);
+  border-radius: 999px;
+  background: rgba(9, 15, 26, 0.84);
+  color: #e4efff;
+  font-weight: 800;
+}
+
+.idt-permission-preview-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-permission-preview-list article {
+  align-items: start;
+  border: 1px solid rgba(126, 157, 211, 0.26);
+  border-radius: 0.7rem;
+  padding: 0.75rem;
+  background: rgba(12, 22, 35, 0.7);
+}
+
+.idt-permission-preview-list p {
+  color: #c2d4f0;
+}
+
+.idt-permission-preview-list code {
+  max-width: 48%;
+  white-space: normal;
+  color: #b9d3ff;
 }
 
 .idt-source-diagnostics {
@@ -5954,7 +6024,10 @@ html[data-theme='light'] .idt-source-config,
 html[data-theme='light'] .idt-source-meta div,
 html[data-theme='light'] .idt-source-install-card,
 html[data-theme='light'] .idt-source-advanced,
-html[data-theme='light'] .idt-source-diagnostics article {
+html[data-theme='light'] .idt-source-diagnostics article,
+html[data-theme='light'] .idt-permission-preview-modal,
+html[data-theme='light'] .idt-permission-preview-list article,
+html[data-theme='light'] .idt-icon-btn {
   background: rgba(245, 250, 255, 0.95);
   border-color: rgba(42, 71, 119, 0.24);
 }
@@ -5966,8 +6039,14 @@ html[data-theme='light'] .idt-source-card small,
 html[data-theme='light'] .idt-source-install-card p,
 html[data-theme='light'] .idt-source-diagnostics > p,
 html[data-theme='light'] .idt-source-diagnostics p,
-html[data-theme='light'] .idt-source-diagnostics small {
+html[data-theme='light'] .idt-source-diagnostics small,
+html[data-theme='light'] .idt-permission-preview-list p {
   color: #35598d;
+}
+
+html[data-theme='light'] .idt-icon-btn,
+html[data-theme='light'] .idt-permission-preview-list code {
+  color: #17345f;
 }
 
 html[data-theme='light'] .idt-source-summary span,
