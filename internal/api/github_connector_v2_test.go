@@ -131,6 +131,90 @@ func TestRouterGitHubConnectorV2CompletesAppInstall(t *testing.T) {
 	if bytes.Contains(secret.Envelope.Ciphertext, []byte("global-webhook-secret")) {
 		t.Fatal("github app webhook secret should not be stored in plaintext")
 	}
+
+	statusResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github?workspace_id=workspace-a&project_id=project-1", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector status 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if !statusBody.Connection.Connected || statusBody.Connection.DisplayName != "GitHub production" {
+		t.Fatalf("expected active status from stored connector, got %+v", statusBody.Connection)
+	}
+
+	repoResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-app/repos?workspace_id=workspace-a&project_id=project-1", "")
+	if repoResp.Code != http.StatusOK {
+		t.Fatalf("expected github repo list 200, got %d body=%s", repoResp.Code, repoResp.Body.String())
+	}
+	var repoBody GitHubRepositoryListResponse
+	if err := json.Unmarshal(repoResp.Body.Bytes(), &repoBody); err != nil {
+		t.Fatalf("decode repositories response: %v", err)
+	}
+	if repoBody.Provider != "github_app" || len(repoBody.Repositories) != 2 {
+		t.Fatalf("expected github app repositories, got %+v", repoBody)
+	}
+}
+
+func TestRouterGitHubConnectorV2WebhookQueuesAndDisconnects(t *testing.T) {
+	lister := &fakeGitHubRepositoryLister{
+		repositories: []githubconnector.Repository{{FullName: "identrail/api", Private: true}},
+	}
+	store := db.NewMemoryStore()
+	r := newGitHubConnectorV2TestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"redirect_uri":"https://app.identrail.com/app/github/callback"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody GitHubConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
+		"state":%q,
+		"installation_id":12345
+	}`, startBody.State))
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+
+	pushPayload := []byte(`{"repository":{"full_name":"identrail/api"},"installation":{"id":12345}}`)
+	pushResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "push", "delivery-push", "global-webhook-secret", pushPayload)
+	if pushResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github push webhook 202, got %d body=%s", pushResp.Code, pushResp.Body.String())
+	}
+	var pushBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(pushResp.Body.Bytes(), &pushBody); err != nil {
+		t.Fatalf("decode push webhook response: %v", err)
+	}
+	if pushBody.Webhook.MatchedProjects != 1 || pushBody.Webhook.Repository != "identrail/api" {
+		t.Fatalf("expected matched github app webhook, got %+v", pushBody.Webhook)
+	}
+
+	deletedPayload := []byte(`{"action":"deleted","installation":{"id":12345,"account":{"login":"identrail"}}}`)
+	deletedResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "installation", "delivery-delete", "global-webhook-secret", deletedPayload)
+	if deletedResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github installation webhook 202, got %d body=%s", deletedResp.Code, deletedResp.Body.String())
+	}
+	var deletedBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(deletedResp.Body.Bytes(), &deletedBody); err != nil {
+		t.Fatalf("decode deleted webhook response: %v", err)
+	}
+	if deletedBody.Webhook.MatchedProjects != 1 {
+		t.Fatalf("expected disconnected connector match, got %+v", deletedBody.Webhook)
+	}
 }
 
 func TestRouterGitHubConnectorV2PATStoresEncryptedToken(t *testing.T) {
@@ -178,6 +262,32 @@ func TestRouterGitHubConnectorV2PATStoresEncryptedToken(t *testing.T) {
 	if bytes.Contains(secret.Envelope.Ciphertext, []byte("ghp_")) {
 		t.Fatal("pat token should not be stored in plaintext")
 	}
+
+	statusResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github?workspace_id=workspace-a&project_id=project-1", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("expected github status 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if statusBody.Connection.Provider != "github_pat" || statusBody.Connection.BaseURL != "https://github.example.com" {
+		t.Fatalf("expected github pat status, got %+v", statusBody.Connection)
+	}
+
+	repoResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-pat/repos?workspace_id=workspace-a&project_id=project-1", "")
+	if repoResp.Code != http.StatusOK {
+		t.Fatalf("expected github pat repositories 200, got %d body=%s", repoResp.Code, repoResp.Body.String())
+	}
+	var repoBody GitHubRepositoryListResponse
+	if err := json.Unmarshal(repoResp.Body.Bytes(), &repoBody); err != nil {
+		t.Fatalf("decode repository response: %v", err)
+	}
+	if repoBody.Provider != "github_pat" || len(repoBody.Repositories) != 1 || repoBody.Repositories[0].FullName != "identrail/platform" {
+		t.Fatalf("unexpected pat repositories %+v", repoBody)
+	}
 }
 
 func TestRouterGitHubAppWebhookUsesGlobalSecret(t *testing.T) {
@@ -193,12 +303,144 @@ func TestRouterGitHubAppWebhookUsesGlobalSecret(t *testing.T) {
 	}
 }
 
+func TestRouterGitHubConnectorV2EmptyAndInvalidStates(t *testing.T) {
+	r := newGitHubConnectorV2TestRouter(t, &fakeGitHubPATValidator{}, nil)
+
+	statusResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github?workspace_id=workspace-a&project_id=project-1", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("expected empty github status 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection GitHubConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode empty status response: %v", err)
+	}
+	if statusBody.Connection.Connected || statusBody.Connection.Provider != "github_app" {
+		t.Fatalf("expected empty github app status, got %+v", statusBody.Connection)
+	}
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{"workspace_id":"workspace-a"}`)
+	if startResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid start 400, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", `{
+		"state":"missing",
+		"installation_id":123
+	}`)
+	if completeResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid complete 400, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+	repoResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/missing/repos?workspace_id=workspace-a&project_id=project-1", "")
+	if repoResp.Code != http.StatusNotFound {
+		t.Fatalf("expected missing repository list 404, got %d body=%s", repoResp.Code, repoResp.Body.String())
+	}
+	ignoredPayload := []byte(`{"repository":{"full_name":"identrail/nope"},"installation":{"id":999}}`)
+	ignoredResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "push", "delivery-ignored", "global-webhook-secret", ignoredPayload)
+	if ignoredResp.Code != http.StatusAccepted {
+		t.Fatalf("expected ignored github webhook 202, got %d body=%s", ignoredResp.Code, ignoredResp.Body.String())
+	}
+}
+
+func TestRouterGitHubConnectorV2RejectsInvalidPATRequests(t *testing.T) {
+	validator := &fakeGitHubPATValidator{
+		result: githubconnector.PATValidationResult{Login: "sec-eng", Scopes: []string{"repo"}},
+	}
+	r := newGitHubConnectorV2TestRouter(t, validator, nil)
+
+	missingTokenResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/pat", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"token":""
+	}`)
+	if missingTokenResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing token 400, got %d body=%s", missingTokenResp.Code, missingTokenResp.Body.String())
+	}
+	badRepoResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/pat", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"token":"ghp_abcdefghijklmnopqrstuvwxyz",
+		"selected_repositories":["not-a-repo"]
+	}`)
+	if badRepoResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid repository 400, got %d body=%s", badRepoResp.Code, badRepoResp.Body.String())
+	}
+}
+
+func TestRouterGitHubConnectorV2RequiresAppConfig(t *testing.T) {
+	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, db.NewMemoryStore(), &fakeGitHubPATValidator{}, nil)
+	svc.GitHubAppWebhookSecret = ""
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1"
+	}`)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected missing github app config 503, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", `{
+		"state":"pending",
+		"installation_id":123
+	}`)
+	if completeResp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected missing github app config on complete 503, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+}
+
+func TestRouterGitHubConnectorV2RequiresPATValidator(t *testing.T) {
+	r := newGitHubConnectorV2TestRouter(t, nil, nil)
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/pat", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"token":"ghp_abcdefghijklmnopqrstuvwxyz"
+	}`)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected missing github pat validator 503, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRouterGitHubConnectorV2FeatureFlagDisabled(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), routerScanner{}, "aws")
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		APIKeys:            []string{"writer-key"},
+		WriteAPIKeys:       []string{"writer-key"},
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+	})
+
+	paths := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodPost, path: "/v1/connectors/github", body: "{}"},
+		{method: http.MethodPost, path: "/v1/connectors/github/complete", body: "{}"},
+		{method: http.MethodGet, path: "/v1/connectors/github?workspace_id=workspace-a&project_id=project-1"},
+		{method: http.MethodPost, path: "/v1/connectors/github/pat", body: "{}"},
+		{method: http.MethodGet, path: "/v1/connectors/github/github-app/repos?workspace_id=workspace-a&project_id=project-1"},
+	}
+	for _, tc := range paths {
+		resp := doAWSConnectionAPI(t, r, tc.method, tc.path, tc.body)
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("expected feature-gated %s %s to be 404, got %d body=%s", tc.method, tc.path, resp.Code, resp.Body.String())
+		}
+	}
+}
+
 func newGitHubConnectorV2TestRouter(t *testing.T, validator GitHubPATValidator, repoLister GitHubRepositoryLister) ginEngineForTest {
 	t.Helper()
 	return newGitHubConnectorV2TestRouterWithStore(t, db.NewMemoryStore(), validator, repoLister)
 }
 
 func newGitHubConnectorV2TestRouterWithStore(t *testing.T, store db.Store, validator GitHubPATValidator, repoLister GitHubRepositoryLister) ginEngineForTest {
+	t.Helper()
+	r, _ := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, validator, repoLister)
+	return r
+}
+
+func newGitHubConnectorV2ConfiguredTestRouterWithStore(t *testing.T, store db.Store, validator GitHubPATValidator, repoLister GitHubRepositoryLister) (ginEngineForTest, *Service) {
 	t.Helper()
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.GitHubAppName = "identrail"
@@ -223,7 +465,7 @@ func newGitHubConnectorV2TestRouterWithStore(t *testing.T, store db.Store, valid
 	if projectResp.Code != http.StatusOK {
 		t.Fatalf("seed project failed: %d body=%s", projectResp.Code, projectResp.Body.String())
 	}
-	return r
+	return r, svc
 }
 
 func doGitHubWebhook(t *testing.T, r ginEngineForTest, path string, event string, delivery string, secret string, payload []byte) *httptest.ResponseRecorder {

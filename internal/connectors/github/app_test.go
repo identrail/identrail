@@ -95,6 +95,85 @@ func TestBuildInstallURL(t *testing.T) {
 	}
 }
 
+func TestBuildInstallURLRejectsInvalidInput(t *testing.T) {
+	if _, err := BuildInstallURL("Bad_App", "state-1", "https://app.identrail.com/callback"); err == nil {
+		t.Fatal("expected invalid app slug error")
+	}
+	if _, err := BuildInstallURL("identrail", "", "https://app.identrail.com/callback"); err == nil {
+		t.Fatal("expected missing state error")
+	}
+	if _, err := BuildInstallURL("identrail", "state-1", "/relative"); err == nil {
+		t.Fatal("expected relative redirect error")
+	}
+}
+
+func TestParsePrivateKeySupportsPKCS8(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	encoded, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal pkcs8: %v", err)
+	}
+	block := &pem.Block{Type: "PRIVATE KEY", Bytes: encoded}
+	parsed, err := ParsePrivateKey(string(pem.EncodeToMemory(block)))
+	if err != nil {
+		t.Fatalf("parse pkcs8: %v", err)
+	}
+	if parsed.N.Cmp(key.N) != 0 {
+		t.Fatal("parsed key does not match original")
+	}
+}
+
+func TestInstallationTokenClientMintErrors(t *testing.T) {
+	if _, err := (&InstallationTokenClient{}).Mint(context.Background(), 0); err == nil {
+		t.Fatal("expected invalid installation id error")
+	}
+	_, pemValue := testPrivateKeyPEM(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusForbidden)
+	}))
+	defer server.Close()
+	_, err := (&InstallationTokenClient{
+		Credentials: AppCredentials{AppID: 12345, PrivateKeyPEM: pemValue},
+		APIBaseURL:  server.URL,
+		Now:         func() time.Time { return time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC) },
+	}).Mint(context.Background(), 99)
+	if err == nil || !strings.Contains(err.Error(), "status 403") {
+		t.Fatalf("expected status error, got %v", err)
+	}
+}
+
+func TestInstallationTokenClientRejectsBadResponses(t *testing.T) {
+	_, pemValue := testPrivateKeyPEM(t)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid json", body: `{`},
+		{name: "missing token", body: `{"expires_at":"2026-05-13T13:00:00Z"}`},
+		{name: "missing expiry", body: `{"token":"inst-token"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+			_, err := (&InstallationTokenClient{
+				Credentials: AppCredentials{AppID: 12345, PrivateKeyPEM: pemValue},
+				APIBaseURL:  server.URL + "/",
+				Now:         func() time.Time { return time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC) },
+			}).Mint(context.Background(), 99)
+			if err == nil {
+				t.Fatal("expected bad response error")
+			}
+		})
+	}
+}
+
 func testPrivateKeyPEM(t *testing.T) (*rsa.PrivateKey, string) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

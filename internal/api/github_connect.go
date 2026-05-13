@@ -496,6 +496,9 @@ func (s *Service) UpsertGitHubPATConnector(ctx context.Context, request GitHubPA
 		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
 	}
 	token := strings.TrimSpace(request.Token)
+	if token == "" {
+		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
 	validation, err := s.GitHubPATValidator.ValidateGitHubPAT(ctx, baseURL, token)
 	if err != nil {
 		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
@@ -1369,9 +1372,9 @@ func (s *Service) persistGitHubConnection(ctx context.Context, connection github
 		TenantID:            connection.TenantID,
 		WorkspaceID:         connection.WorkspaceID,
 		ProjectID:           connection.ProjectID,
-		ConnectorID:         githubConnectorID,
+		ConnectorID:         firstNonEmptyString(connection.ConnectorID, githubConnectorID),
 		Type:                domain.ConnectorTypeGitHub,
-		DisplayName:         githubConnectorDisplayName,
+		DisplayName:         firstNonEmptyString(connection.DisplayName, githubConnectorDisplayName),
 		Status:              domain.ConnectorStatusActive,
 		SecretProvider:      "secret-envelope",
 		SecretRefID:         connection.WebhookSecretReference,
@@ -1384,7 +1387,7 @@ func (s *Service) persistGitHubConnection(ctx context.Context, connection github
 		TenantID:     connection.TenantID,
 		WorkspaceID:  connection.WorkspaceID,
 		ProjectID:    connection.ProjectID,
-		ConnectorID:  githubConnectorID,
+		ConnectorID:  firstNonEmptyString(connection.ConnectorID, githubConnectorID),
 		HealthStatus: "healthy",
 		Metadata:     metadata,
 		ObservedAt:   connection.UpdatedAt,
@@ -1398,7 +1401,7 @@ func (s *Service) persistGitHubConnection(ctx context.Context, connection github
 		TenantID:        connection.TenantID,
 		WorkspaceID:     connection.WorkspaceID,
 		ProjectID:       connection.ProjectID,
-		ConnectorID:     githubConnectorID,
+		ConnectorID:     firstNonEmptyString(connection.ConnectorID, githubConnectorID),
 		SecretName:      githubWebhookSecretName,
 		EnvelopeVersion: connection.WebhookSecretEnvelope.Version,
 		Envelope:        connection.WebhookSecretEnvelope,
