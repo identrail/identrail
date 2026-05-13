@@ -110,6 +110,335 @@ func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
 	}
 }
 
+func TestDetectMisconfigFindingsParsesWorkflowSignals(t *testing.T) {
+	content := []byte(`name: ci
+on:
+  pull_request_target:
+    branches: [main]
+jobs:
+  build:
+    permissions:
+      contents: write-all
+      packages: read
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ci
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ci.yml", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) < 2 {
+		t.Fatalf("expected at least two workflow findings, got %d", len(findings))
+	}
+
+	seen := map[string]bool{}
+	for _, finding := range findings {
+		seen[finding.Detector] = true
+		if finding.LineNumber == 0 {
+			t.Fatalf("expected finding line number to be populated: %+v", finding)
+		}
+	}
+	if !seen["workflow_pull_request_target"] {
+		t.Fatalf("expected workflow_pull_request_target detection, got %+v", findings)
+	}
+	if !seen["workflow_write_all_permissions"] {
+		t.Fatalf("expected workflow_write_all_permissions detection, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsParsesPrivilegedYamlSettings(t *testing.T) {
+	content := []byte(`apiVersion: v1
+kind: Pod
+metadata:
+  name: sample
+spec:
+  containers:
+    - name: app
+      securityContext:
+        privileged: true
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "manifests/pod.yaml", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected k8s privileged finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "k8s_privileged_true" {
+			found = true
+			if finding.LineNumber == 0 {
+				t.Fatalf("expected non-zero line number: %+v", finding)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected k8s_privileged_true finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsParsesTerraformSignals(t *testing.T) {
+	content := []byte(`resource "aws_s3_bucket" "public" {
+  acl = "public-read"
+}
+
+resource "aws_s3_bucket_acl" "public_acl" {
+  bucket = "my-public-bucket"
+  acl    = "public-read-write"
+}
+
+resource "aws_security_group" "sg" {
+  ingress {
+    from_port = 22
+    to_port   = 22
+    protocol  = "tcp"
+    cidr_blocks = [
+      "0.0.0.0/0",
+      "10.0.0.0/16",
+    ]
+  }
+}
+
+resource "aws_security_group_rule" "sg_rule" {
+  type              = "ingress"
+  from_port         = 3389
+  to_port           = 3389
+  protocol          = "tcp"
+  cidr_blocks       = ["::/0"]
+  ipv6_cidr_blocks  = ["::/0"]
+  security_group_id = "sg-12345"
+}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) < 4 {
+		t.Fatalf("expected at least four terraform findings, got %d", len(findings))
+	}
+
+	seen := map[string]bool{}
+	for _, finding := range findings {
+		seen[finding.Detector] = true
+	}
+	if !seen["terraform_public_s3_acl"] {
+		t.Fatalf("expected terraform_public_s3_acl finding, got %+v", findings)
+	}
+	if !seen["terraform_open_ssh_rdp"] {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsSupportsDynamicIngressTerraformSignals(t *testing.T) {
+	content := []byte(`resource "aws_security_group" "sg" {
+  dynamic "ingress" {
+    for_each = [1]
+    content {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected dynamic ingress terraform finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "terraform_open_ssh_rdp" {
+			found = true
+			if finding.LineNumber == 0 {
+				t.Fatalf("expected non-zero line number: %+v", finding)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsSupportsResourceAttributeIngressTerraformSignals(t *testing.T) {
+	content := []byte(`resource "aws_security_group" "sg" {
+  ingress = [
+    {
+      from_port = 22
+      to_port   = 22
+      protocol  = "tcp"
+      cidr_blocks = ["10.0.0.0/16", "0.0.0.0/0"]
+    },
+  ]
+}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected resource ingress terraform finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "terraform_open_ssh_rdp" {
+			found = true
+			if finding.LineNumber == 0 {
+				t.Fatalf("expected non-zero line number: %+v", finding)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsSupportsResourceAttributeIngressWithVariableCidrTerraformSignals(t *testing.T) {
+	content := []byte(`resource "aws_security_group" "sg" {
+  ingress = [
+    {
+      from_port = 3389
+      to_port   = 3389
+      cidr_blocks = ["10.0.0.0/16", "::/0", var.office_cidr]
+    },
+  ]
+}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected resource attribute terraform finding with variable cidr")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "terraform_open_ssh_rdp" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsSupportsModuleIngressTerraformSignals(t *testing.T) {
+	content := []byte(`module "sg" {
+  ingress = [
+    {
+      from_port = 3389
+      to_port   = 3389
+      protocol  = "tcp"
+      cidr_blocks = ["10.0.0.0/16", "::/0"]
+    }
+  ]
+}
+`)
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/module.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected module ingress terraform finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "terraform_open_ssh_rdp" {
+			found = true
+			if finding.LineNumber == 0 {
+				t.Fatalf("expected non-zero line number: %+v", finding)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsSupportsMixedCidrTupleTerraformSignals(t *testing.T) {
+	content := []byte(`resource "aws_security_group" "sg" {
+  dynamic "ingress" {
+    for_each = [1]
+    content {
+      from_port   = 3389
+      to_port     = 3389
+      cidr_blocks = ["10.0.0.0/16", var.office_cidr, "::/0"]
+    }
+  }
+}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected mixed-cidr terraform finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "terraform_open_ssh_rdp" {
+			found = true
+			if finding.LineNumber == 0 {
+				t.Fatalf("expected non-zero line number: %+v", finding)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsSupportsDockerfileVariants(t *testing.T) {
+	content := []byte(`FROM --platform=linux/amd64 nginx:latest
+FROM python:3.12
+`)
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "Dockerfile.prod", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected dockerfile variant finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "docker_latest_tag" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected docker_latest_tag finding, got %+v", findings)
+	}
+}
+
+func TestDetectMisconfigFindingsParsesDockerfileFromLine(t *testing.T) {
+	content := []byte(`FROM golang:latest
+FROM --platform=linux/amd64 nginx:1.25
+FROM busybox:latest AS runtime
+FROM registry:5000/team/app:latest@sha256:abc123
+	FROM python
+	FROM node:20
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "Dockerfile", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatalf("expected docker latest findings")
+	}
+
+	found := 0
+	for _, finding := range findings {
+		if finding.Detector == "docker_latest_tag" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Fatalf("expected 2 docker latest findings, got %d", found)
+	}
+}
+
+func TestIsDockerfileBaseImagePinnedToLatestIgnoresDigestTaggedImages(t *testing.T) {
+	if !isDockerfileBaseImagePinnedToLatest("FROM golang:latest") {
+		t.Fatal("expected latest tag to be treated as mutable")
+	}
+	if isDockerfileBaseImagePinnedToLatest("FROM registry.example.com/team/app:latest@sha256:abcdef") {
+		t.Fatal("expected digest-pinned latest image to be excluded from latest mutable tag checks")
+	}
+	if isDockerfileBaseImagePinnedToLatest("FROM node:20") {
+		t.Fatal("expected non-latest tag not to trigger latest mutable check")
+	}
+}
+
 func TestScanRepositoryHonorsMaxFindings(t *testing.T) {
 	repoPath, _ := initTestRepoWithHeadMisconfig(t)
 	scanner := NewScanner(nil, WithHistoryLimit(10), WithMaxFindings(1))
