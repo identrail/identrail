@@ -14,6 +14,7 @@ log_retention_days    = 30
 # api_vpc_id             = "<vpc-id>"
 # api_public_subnet_ids  = ["<public-subnet-a>", "<public-subnet-b>"]
 # api_private_subnet_ids = ["<private-subnet-a>", "<private-subnet-b>"]
+# api_private_subnet_egress_ready = true
 # api_certificate_arn    = "<api-certificate-arn>"
 # api_container_image    = "ghcr.io/identrail/identrail-api:<immutable-release-tag>"
 # api_cors_allowed_origins = [

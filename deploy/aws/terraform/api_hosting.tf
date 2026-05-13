@@ -132,10 +132,15 @@ resource "terraform_data" "api_inputs" {
 
     precondition {
       condition = can(regex(
-        "^arn:(aws|aws-us-gov|aws-cn):acm:${var.aws_region}:[0-9]{12}:certificate/.+$",
+        "^arn:${data.aws_partition.current.partition}:acm:${var.aws_region}:[0-9]{12}:certificate/.+$",
         var.api_certificate_arn
       ))
-      error_message = "api_certificate_arn must be an ACM certificate ARN in aws_region when create_api_hosting_resources=true."
+      error_message = "api_certificate_arn must be an ACM certificate ARN in the active AWS partition and aws_region when create_api_hosting_resources=true."
+    }
+
+    precondition {
+      condition     = var.api_private_subnet_egress_ready
+      error_message = "api_private_subnet_egress_ready must be true when create_api_hosting_resources=true after confirming private API subnets have NAT egress or VPC endpoints for ECR, Secrets Manager, and CloudWatch Logs."
     }
 
     precondition {
@@ -514,7 +519,8 @@ resource "aws_ecs_service" "api" {
   network_configuration {
     assign_public_ip = false
     security_groups  = [aws_security_group.api_service[0].id]
-    subnets          = var.api_private_subnet_ids
+    # terraform_data.api_inputs requires operator-confirmed NAT or VPC endpoints before these private subnets are used.
+    subnets = var.api_private_subnet_ids
   }
 
   depends_on = [

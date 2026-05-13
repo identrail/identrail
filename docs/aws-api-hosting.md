@@ -43,6 +43,9 @@ Before a manual apply, operators must provide:
   tables with an Internet Gateway default route
 - `api_private_subnet_ids` for Fargate tasks, with at least two distinct private
   subnets that belong to `api_vpc_id`
+- `api_private_subnet_egress_ready=true` after confirming those private subnets
+  have NAT egress or VPC endpoints for ECR, Secrets Manager, CloudWatch Logs,
+  and S3 image-layer access; API tasks run with `assign_public_ip=false`
 - `api_certificate_arn` for HTTPS on `api.identrail.com`
 - `api_container_image` pinned to an immutable release tag
 - `api_cors_allowed_origins`, defaulting to the Identrail Cloud web origins
@@ -78,6 +81,11 @@ refuse to plan API hosting without a database reference and at least one auth
 mode so ECS tasks do not boot into a known-bad configuration. It also refuses to
 plan API hosting without at least one HTTPS CORS origin and at least one trusted
 proxy CIDR.
+
+Terraform requires `api_private_subnet_egress_ready=true` before creating API
+hosting resources. Use that only after the private task subnets can pull the
+image, read injected secrets, and write logs through NAT or private VPC
+endpoints.
 
 Leave `api_connector_role_arns` empty for the first single-account API hosting
 plan. Populate it later with reviewed AWS connector role ARNs when the hosted API

@@ -95,6 +95,7 @@ terraform plan \
   -var='api_vpc_id=<vpc-id>' \
   -var='api_public_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
   -var='api_private_subnet_ids=["<private-subnet-a>","<private-subnet-b>"]' \
+  -var='api_private_subnet_egress_ready=true' \
   -var='api_certificate_arn=<api-certificate-arn>' \
   -var='api_container_image=ghcr.io/identrail/identrail-api:<immutable-release-tag>' \
   -var='api_cors_allowed_origins=["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' \
@@ -111,6 +112,11 @@ reviewed.
 Keep `api_connector_role_arns=[]` until reviewed AWS connector roles exist. Add
 only those connector role ARNs when the hosted API should validate connector
 setup or run recurring scans through assumed roles.
+
+Set `api_private_subnet_egress_ready=true` only after the private task subnets
+have NAT egress or private VPC endpoints for the services Fargate needs at
+startup, including ECR API, ECR Docker, CloudWatch Logs, Secrets Manager, and
+S3 access for image layers. Identrail API tasks run with `assign_public_ip=false`.
 
 Set `api_enable_execute_command=true` only when operator IAM and audit
 expectations are ready. The task role receives the required SSM Messages

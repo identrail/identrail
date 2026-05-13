@@ -110,6 +110,12 @@ variable "api_private_subnet_ids" {
   }
 }
 
+variable "api_private_subnet_egress_ready" {
+  description = "Set true only after private API subnets have NAT egress or VPC endpoints for ECR, Secrets Manager, and CloudWatch Logs. Required when API hosting is enabled because Fargate tasks run with assign_public_ip=false."
+  type        = bool
+  default     = false
+}
+
 variable "api_allowed_cidr_blocks" {
   description = "IPv4 CIDR blocks allowed to reach the public API load balancer."
   type        = list(string)
