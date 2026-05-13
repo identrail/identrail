@@ -26,7 +26,8 @@
   <a href="https://github.com/identrail/identrail/issues">Issues</a>
 </p>
 
-## Who This Is For
+<details>
+  <summary><strong>Who This Is For</strong></summary>
 
 Identrail is for security and platform teams that need to answer three questions quickly:
 
@@ -36,7 +37,10 @@ Identrail is for security and platform teams that need to answer three questions
 
 Use it when you run AWS and/or Kubernetes workloads and want identity risk visibility plus deployment-safe control surfaces.
 
-## 5-Minute Quickstart
+</details>
+
+<details>
+  <summary><strong>5-Minute Quickstart</strong></summary>
 
 Prerequisites: Docker, Docker Compose, `curl`, `jq`.
 
@@ -78,7 +82,10 @@ make quickstart-down
 
 For enterprise auth scope, tenant/workspace context, and decision audit verification, use the full [Enterprise Quickstart](./docs/enterprise-quickstart.md).
 
-## What Identrail Does
+</details>
+
+<details>
+  <summary><strong>What Identrail Does</strong></summary>
 
 - Discovers machine identities and trust relationships across AWS and Kubernetes.
 - Persists raw and normalized scan artifacts for explainability and auditability.
@@ -86,7 +93,10 @@ For enterprise auth scope, tenant/workspace context, and decision audit verifica
 - Provides API and web workflows for trends and diff analysis, plus CLI workflows for scans, findings, repo exposure scans, and authz rollback.
 - Supports optional repository exposure scanning (secrets and CI/IaC risk) in an isolated pipeline.
 
-## What Identrail Does Not Do
+</details>
+
+<details>
+  <summary><strong>What Identrail Does Not Do</strong></summary>
 
 - It is not a cloud SIEM replacement.
 - It is not an endpoint runtime agent.
@@ -94,7 +104,10 @@ For enterprise auth scope, tenant/workspace context, and decision audit verifica
 
 V1 is intentionally focused on machine identity security workflows for AWS and Kubernetes.
 
-## How It Works
+</details>
+
+<details>
+  <summary><strong>How It Works</strong></summary>
 
 ```text
 Collector -> Raw Assets -> Normalizer -> Graph -> Risk Rules -> Findings Store -> API/CLI/Web
@@ -106,7 +119,10 @@ Operational model:
 - Worker drains queue and runs scheduled jobs.
 - Results are queryable via API and CLI with scan-aware filtering and history.
 
-## Deployment Options
+</details>
+
+<details>
+  <summary><strong>Deployment Options</strong></summary>
 
 Choose the rollout path that matches your environment maturity:
 
@@ -118,7 +134,10 @@ Choose the rollout path that matches your environment maturity:
 
 See [Deployment Anywhere](./docs/deployment-anywhere.md) for exact commands.
 
-## Project Status
+</details>
+
+<details>
+  <summary><strong>Project Status</strong></summary>
 
 Status: **Active** (v1 line in active support).
 
@@ -136,13 +155,19 @@ Reference docs:
 
 Demo video: _coming soon_.
 
-## Comparison (Where Identrail Fits)
+</details>
+
+<details>
+  <summary><strong>Comparison (Where Identrail Fits)</strong></summary>
 
 - Versus broad CSPM tools: Identrail is narrower and deeper on machine identity trust and authorization workflows.
 - Versus secret scanners alone: Identrail includes optional repo exposure scanning, but also links findings into identity risk context.
 - Versus policy engines alone: Identrail adds discovery + risk evidence, not only policy evaluation.
 
-## Security and Support SLA
+</details>
+
+<details>
+  <summary><strong>Security and Support SLA</strong></summary>
 
 If you discover a vulnerability, please use private reporting only:
 
@@ -157,8 +182,13 @@ Maintainer targets for supported versions:
 
 Full policy: [SECURITY.md](./SECURITY.md).
 
-## Contributing
+</details>
+
+<details>
+  <summary><strong>Contributing</strong></summary>
 
 - [Contributing Guide](./CONTRIBUTING.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Issues](https://github.com/identrail/identrail/issues)
+
+</details>
