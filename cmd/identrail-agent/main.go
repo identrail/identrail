@@ -94,7 +94,6 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 			})
 			if err != nil {
 				log.Printf("enroll failed; trying enrollment credential for heartbeat recovery: %v", err)
-				lastErr = fmt.Errorf("enroll kubernetes agent: %w", err)
 				credential = enrollmentToken
 				usingEnrollmentRecoveryCredential = true
 			} else {
