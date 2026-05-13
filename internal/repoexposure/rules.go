@@ -677,6 +677,24 @@ func detectTerraformMisconfigFindings(
 					})
 			}
 
+		case "aws_s3_bucket_acl":
+			acl, ok := terraformStringAttribute(block.Body.Attributes["acl"])
+			if !ok {
+				continue
+			}
+			if acl == "public-read" || acl == "public-read-write" {
+				lineNumber := terraformAttributeLine(block.Body.Attributes["acl"])
+				appendMisconfigFinding(&findings, seen, repo, commit, path, lineNumber, "terraform_public_s3_acl", domain.SeverityHigh,
+					"Terraform config enables public S3 ACL", "Terraform file sets a public S3 ACL, which can expose data externally.",
+					"Use private ACLs and explicit bucket policies with least-privilege principals.",
+					fmt.Sprintf("acl = %q", acl), detectedAt, map[string]any{
+						"line_snippet":          fmt.Sprintf("acl = %q", acl),
+						"line_snippet_redacted": false,
+						"history_source":        "head_snapshot",
+						"match_snippet":         fmt.Sprintf("acl = %q", acl),
+					})
+			}
+
 		case "aws_security_group":
 			for _, child := range block.Body.Blocks {
 				if child.Type != "ingress" {
@@ -963,8 +981,8 @@ func isDockerfileBaseImagePinnedToLatest(line string) bool {
 	if image == "" {
 		return false
 	}
-	if idx := strings.Index(image, "@"); idx >= 0 {
-		image = image[:idx]
+	if strings.Contains(image, "@") {
+		return false
 	}
 	segments := strings.Split(image, "/")
 	base := segments[len(segments)-1]

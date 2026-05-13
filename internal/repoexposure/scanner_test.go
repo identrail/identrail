@@ -181,6 +181,11 @@ func TestDetectMisconfigFindingsParsesTerraformSignals(t *testing.T) {
   acl = "public-read"
 }
 
+resource "aws_s3_bucket_acl" "public_acl" {
+  bucket = "my-public-bucket"
+  acl    = "public-read-write"
+}
+
 resource "aws_security_group" "sg" {
   ingress {
     from_port = 22
@@ -205,8 +210,8 @@ resource "aws_security_group_rule" "sg_rule" {
 `)
 
 	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
-	if len(findings) < 3 {
-		t.Fatalf("expected at least three terraform findings, got %d", len(findings))
+	if len(findings) < 4 {
+		t.Fatalf("expected at least four terraform findings, got %d", len(findings))
 	}
 
 	seen := map[string]bool{}
@@ -241,8 +246,20 @@ FROM registry:5000/team/app:latest@sha256:abc123
 			found++
 		}
 	}
-	if found != 3 {
-		t.Fatalf("expected 3 docker latest findings, got %d", found)
+	if found != 2 {
+		t.Fatalf("expected 2 docker latest findings, got %d", found)
+	}
+}
+
+func TestIsDockerfileBaseImagePinnedToLatestIgnoresDigestTaggedImages(t *testing.T) {
+	if !isDockerfileBaseImagePinnedToLatest("FROM golang:latest") {
+		t.Fatal("expected latest tag to be treated as mutable")
+	}
+	if isDockerfileBaseImagePinnedToLatest("FROM registry.example.com/team/app:latest@sha256:abcdef") {
+		t.Fatal("expected digest-pinned latest image to be excluded from latest mutable tag checks")
+	}
+	if isDockerfileBaseImagePinnedToLatest("FROM node:20") {
+		t.Fatal("expected non-latest tag not to trigger latest mutable check")
 	}
 }
 
