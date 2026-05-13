@@ -261,25 +261,22 @@ func (s *Service) UpsertKubernetesKubeconfigConnector(ctx context.Context, reque
 		return KubernetesConnectionStatus{}, fmt.Errorf("encode kubernetes kubeconfig metadata: %w", err)
 	}
 	connector := db.TenancyConnector{
-		TenantID:            scope.TenantID,
-		WorkspaceID:         project.WorkspaceID,
-		ProjectID:           project.ProjectID,
-		ConnectorID:         normalized.ConnectorID,
-		Type:                domain.ConnectorTypeKubernetes,
-		DisplayName:         normalized.DisplayName,
-		Status:              domain.ConnectorStatusActive,
-		SecretProvider:      "identrail",
-		SecretRefID:         k8sconnector.SecretRef(normalized.ConnectorID, k8sconnector.KubeconfigSecretName),
-		SecretLastRotatedAt: &now,
-		CreatedAt:           now,
-		UpdatedAt:           now,
+		TenantID:    scope.TenantID,
+		WorkspaceID: project.WorkspaceID,
+		ProjectID:   project.ProjectID,
+		ConnectorID: normalized.ConnectorID,
+		Type:        domain.ConnectorTypeKubernetes,
+		DisplayName: normalized.DisplayName,
+		Status:      domain.ConnectorStatusPending,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	state := db.TenancyConnectorState{
 		TenantID:     scope.TenantID,
 		WorkspaceID:  project.WorkspaceID,
 		ProjectID:    project.ProjectID,
 		ConnectorID:  normalized.ConnectorID,
-		HealthStatus: string(connectors.HealthStatusHealthy),
+		HealthStatus: string(connectors.HealthStatusUnknown),
 		Metadata:     metadata,
 		ObservedAt:   now,
 		UpdatedAt:    now,
@@ -289,6 +286,14 @@ func (s *Service) UpsertKubernetesKubeconfigConnector(ctx context.Context, reque
 	}
 	if err := s.persistKubernetesKubeconfig(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, normalized.ConnectorID, request.Kubeconfig, now); err != nil {
 		return KubernetesConnectionStatus{}, err
+	}
+	connector.Status = domain.ConnectorStatusActive
+	connector.SecretProvider = "identrail"
+	connector.SecretRefID = k8sconnector.SecretRef(normalized.ConnectorID, k8sconnector.KubeconfigSecretName)
+	connector.SecretLastRotatedAt = &now
+	state.HealthStatus = string(connectors.HealthStatusHealthy)
+	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
+		return KubernetesConnectionStatus{}, fmt.Errorf("activate kubernetes kubeconfig connector: %w", err)
 	}
 	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, normalized.ConnectorID)
 	if err != nil {

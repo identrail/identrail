@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/identrail/identrail/internal/connectors"
 	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
@@ -384,6 +386,58 @@ users:
 	if bytes.Contains(secret.Envelope.Ciphertext, []byte("super-secret-token")) {
 		t.Fatalf("kubeconfig secret ciphertext must not contain plaintext token")
 	}
+}
+
+func TestKubernetesKubeconfigFallbackDoesNotActivateWithoutSecret(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	svc := NewService(failingKubernetesSecretStore{Store: store}, routerScanner{}, "kubernetes")
+
+	kubeconfig := `apiVersion: v1
+clusters:
+- name: prod
+  cluster:
+    server: https://kubernetes.example
+contexts:
+- name: prod
+  context:
+    cluster: prod
+    user: identrail
+current-context: prod
+users:
+- name: identrail
+  user:
+    token: super-secret-token
+`
+	_, err := svc.UpsertKubernetesKubeconfigConnector(ctx, KubernetesConnectorKubeconfigRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "kubernetes-kubeconfig",
+		DisplayName: "Kubeconfig fallback",
+		Kubeconfig:  kubeconfig,
+	})
+	if err == nil {
+		t.Fatal("expected kubeconfig secret persistence failure")
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "kubernetes-kubeconfig")
+	if err != nil {
+		t.Fatalf("expected pending connector record for retry visibility: %v", err)
+	}
+	if stored.Connector.Status == domain.ConnectorStatusActive || stored.Connector.SecretRefID != "" || stored.Connector.SecretProvider != "" {
+		t.Fatalf("connector must not be active or point at a missing secret: %+v", stored.Connector)
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "kubernetes-kubeconfig", "kubeconfig"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected no persisted kubeconfig secret, got %v", err)
+	}
+}
+
+type failingKubernetesSecretStore struct {
+	db.Store
+}
+
+func (f failingKubernetesSecretStore) UpsertTenancyConnectorSecretEnvelope(context.Context, db.TenancyConnectorSecretEnvelope) error {
+	return errors.New("persist connector secret envelope")
 }
 
 func newKubernetesConnectionTestRouter(t *testing.T, factory KubernetesConnectorPreflightFactory) *gin.Engine {

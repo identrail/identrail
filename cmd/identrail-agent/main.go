@@ -84,6 +84,7 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 	}
 
 	for {
+		var lastErr error
 		usingEnrollmentRecoveryCredential := false
 		if credential == "" {
 			response, err := enroll(ctx, client, apiURL, enrollRequest{
@@ -93,6 +94,7 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 			})
 			if err != nil {
 				log.Printf("enroll failed; trying enrollment credential for heartbeat recovery: %v", err)
+				lastErr = fmt.Errorf("enroll kubernetes agent: %w", err)
 				credential = enrollmentToken
 				usingEnrollmentRecoveryCredential = true
 			} else {
@@ -108,14 +110,16 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 			AgentID:     agentID,
 		}); err != nil {
 			log.Printf("heartbeat failed: %v", err)
+			lastErr = fmt.Errorf("send kubernetes agent heartbeat: %w", err)
 			if usingEnrollmentRecoveryCredential {
 				credential = ""
 			}
 		} else {
 			log.Printf("heartbeat sent for connector %s", connectorID)
+			lastErr = nil
 		}
 		if once {
-			return nil
+			return lastErr
 		}
 		select {
 		case <-ctx.Done():

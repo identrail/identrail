@@ -290,3 +290,21 @@ func TestRunAgentRetriesEnrollmentAfterStartupFailure(t *testing.T) {
 		t.Fatalf("heartbeat attempts = %d, want 2", got)
 	}
 }
+
+func TestRunAgentReturnsOneShotFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/connectors/k8s/heartbeat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		http.Error(w, "heartbeat rejected", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	err := runAgent(context.Background(), server.Client(), server.URL, "", "agent-token", "connector-1", "agent-1", true, time.Second)
+	if err == nil {
+		t.Fatal("expected one-shot heartbeat failure to be returned")
+	}
+	if !strings.Contains(err.Error(), "send kubernetes agent heartbeat") || !strings.Contains(err.Error(), "heartbeat rejected") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
