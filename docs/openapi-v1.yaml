@@ -2400,6 +2400,40 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/TrendPoint"
+  /v1/repo-findings/trends:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [RepositoryExposure]
+      summary: Repository findings trend over recent repository scans
+      operationId: getRepoFindingsTrends
+      parameters:
+        - in: query
+          name: points
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: severity
+          schema:
+            $ref: "#/components/schemas/FindingSeverity"
+        - in: query
+          name: type
+          schema:
+            $ref: "#/components/schemas/FindingType"
+      responses:
+        "200":
+          description: Trend points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrendPoint"
   /v1/findings/{finding_id}:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

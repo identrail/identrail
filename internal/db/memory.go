@@ -1108,6 +1108,73 @@ func (m *MemoryStore) ListFindingTrendCounts(ctx context.Context, scanIDs []stri
 	return result, nil
 }
 
+// ListRepoFindingTrendCounts aggregates repository finding totals by repo scan and severity.
+func (m *MemoryStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalizedSeverity := strings.ToLower(strings.TrimSpace(severity))
+	normalizedType := strings.ToLower(strings.TrimSpace(findingType))
+
+	unique := make([]string, 0, len(repoScanIDs))
+	seen := map[string]struct{}{}
+	for _, repoScanID := range repoScanIDs {
+		normalized := strings.TrimSpace(repoScanID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		repoScan, exists := m.repoScans[normalized]
+		if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
+			continue
+		}
+		unique = append(unique, normalized)
+	}
+
+	result := make([]FindingTrendCount, 0, len(unique))
+	for _, repoScanID := range unique {
+		repoScan, exists := m.repoScans[repoScanID]
+		if !exists {
+			continue
+		}
+		counts := map[string]int{}
+		for _, key := range m.repoFindingIDs[repoScanID] {
+			finding, exists := m.repoFindings[key]
+			if !exists {
+				continue
+			}
+			if normalizedSeverity != "" && strings.ToLower(string(finding.Severity)) != normalizedSeverity {
+				continue
+			}
+			if normalizedType != "" && strings.ToLower(string(finding.Type)) != normalizedType {
+				continue
+			}
+			counts[string(finding.Severity)]++
+		}
+		if len(counts) == 0 {
+			result = append(result, FindingTrendCount{ScanID: repoScanID, StartedAt: repoScan.StartedAt})
+			continue
+		}
+		for severityKey, count := range counts {
+			result = append(result, FindingTrendCount{
+				ScanID:     repoScanID,
+				StartedAt:  repoScan.StartedAt,
+				Severity:   severityKey,
+				TotalCount: count,
+			})
+		}
+	}
+
+	return result, nil
+}
+
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
 func (m *MemoryStore) UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error {
 	normalized, err := NormalizeAuthzEntityAttributesForWrite(attributes)

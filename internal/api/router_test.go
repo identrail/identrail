@@ -571,6 +571,13 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 		t.Fatalf("expected filtered trends 200, got %d", trendsFilteredW.Code)
 	}
 
+	repoTrendsReq := httptest.NewRequest(http.MethodGet, "/v1/repo-findings/trends", nil)
+	repoTrendsW := httptest.NewRecorder()
+	r.ServeHTTP(repoTrendsW, repoTrendsReq)
+	if repoTrendsW.Code != http.StatusOK {
+		t.Fatalf("expected repo findings trends 200, got %d", repoTrendsW.Code)
+	}
+
 	identitiesReq := httptest.NewRequest(http.MethodGet, "/v1/identities", nil)
 	identitiesW := httptest.NewRecorder()
 	r.ServeHTTP(identitiesW, identitiesReq)
@@ -805,6 +812,13 @@ func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
 	r.ServeHTTP(repoFindingsW, repoFindingsReq)
 	if repoFindingsW.Code != http.StatusOK {
 		t.Fatalf("expected repo findings 200 without service, got %d", repoFindingsW.Code)
+	}
+
+	repoTrendsReq := httptest.NewRequest(http.MethodGet, "/v1/repo-findings/trends", nil)
+	repoTrendsW := httptest.NewRecorder()
+	r.ServeHTTP(repoTrendsW, repoTrendsReq)
+	if repoTrendsW.Code != http.StatusOK {
+		t.Fatalf("expected repo findings trends 200 without service, got %d", repoTrendsW.Code)
 	}
 }
 

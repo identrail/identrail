@@ -1744,6 +1744,83 @@ func TestServiceGetFindingsTrendFiltered(t *testing.T) {
 	}
 }
 
+func TestServiceGetRepoFindingsTrend(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	ctx := defaultScopeContext()
+
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", now)
+	if err != nil {
+		t.Fatalf("create repo scan A: %v", err)
+	}
+	if err := store.UpsertRepoFindings(ctx, scanA.ID, []domain.Finding{
+		{ID: "f1", Severity: domain.SeverityHigh, Type: domain.FindingOwnerless, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan A: %v", err)
+	}
+
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("create repo scan B: %v", err)
+	}
+	if err := store.UpsertRepoFindings(ctx, scanB.ID, []domain.Finding{
+		{ID: "f2", Severity: domain.SeverityCritical, Type: domain.FindingEscalationPath, CreatedAt: now.Add(3 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan B: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	points, err := svc.GetRepoFindingsTrend(ctx, 10)
+	if err != nil {
+		t.Fatalf("get repo findings trend: %v", err)
+	}
+	if len(points) != 2 {
+		t.Fatalf("expected 2 repo trend points, got %d", len(points))
+	}
+	if points[0].ScanID != scanA.ID || points[1].ScanID != scanB.ID {
+		t.Fatalf("unexpected repo trend order: %+v", points)
+	}
+	if points[1].BySeverity["critical"] != 1 {
+		t.Fatalf("unexpected critical total in latest repo trend point: %+v", points[1])
+	}
+}
+
+func TestServiceGetRepoFindingsTrendFiltered(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	ctx := defaultScopeContext()
+
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", now)
+	if err != nil {
+		t.Fatalf("create repo scan A: %v", err)
+	}
+	if err := store.UpsertRepoFindings(ctx, scanA.ID, []domain.Finding{
+		{ID: "f1", Severity: domain.SeverityCritical, Type: domain.FindingEscalationPath, CreatedAt: now},
+		{ID: "f2", Severity: domain.SeverityHigh, Type: domain.FindingOwnerless, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan A: %v", err)
+	}
+
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatalf("create repo scan B: %v", err)
+	}
+	if err := store.UpsertRepoFindings(ctx, scanB.ID, []domain.Finding{
+		{ID: "f3", Severity: domain.SeverityLow, Type: domain.FindingOwnerless, CreatedAt: now.Add(3 * time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan B: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	points, err := svc.GetRepoFindingsTrendFiltered(ctx, 10, "critical", "escalation_path")
+	if err != nil {
+		t.Fatalf("get filtered repo findings trend: %v", err)
+	}
+	if len(points) != 2 || points[0].Total != 1 || points[1].Total != 0 {
+		t.Fatalf("unexpected filtered repo trend points: %+v", points)
+	}
+}
+
 func TestServiceRunRepoScanSuccess(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

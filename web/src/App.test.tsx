@@ -290,7 +290,7 @@ describe('App', () => {
           ]
         });
       }
-      if (url.includes('/v1/findings/trends')) {
+      if (url.includes('/v1/repo-findings/trends')) {
         return okJSON({
           items: [
             {

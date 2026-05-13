@@ -905,8 +905,14 @@ export const apiClient = {
   getFindingsTrends(
     filters: { points?: number; severity?: string; type?: string } = {},
     auth?: RequestAuthContext
-  ) {
+    ) {
     return request<{ items: TrendPoint[] }>(`/v1/findings/trends${buildQuery(filters)}`, auth);
+  },
+  getRepoFindingsTrends(
+    filters: { points?: number; severity?: string; type?: string } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ items: TrendPoint[] }>(`/v1/repo-findings/trends${buildQuery(filters)}`, auth);
   },
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);

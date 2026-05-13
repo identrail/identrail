@@ -1950,6 +1950,57 @@ func (s *Service) GetFindingsTrendFiltered(ctx context.Context, points int, seve
 	return result, nil
 }
 
+// GetRepoFindingsTrend returns repository finding trend totals by repo scan.
+func (s *Service) GetRepoFindingsTrend(ctx context.Context, points int) ([]TrendPoint, error) {
+	return s.GetRepoFindingsTrendFiltered(ctx, points, "", "")
+}
+
+// GetRepoFindingsTrendFiltered returns repository finding trend with optional severity/type filters.
+func (s *Service) GetRepoFindingsTrendFiltered(ctx context.Context, points int, severity string, findingType string) ([]TrendPoint, error) {
+	ctx = s.scopeContext(ctx)
+	if points <= 0 {
+		points = 10
+	}
+
+	repoScans, err := s.Store.ListRepoScans(ctx, points)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(repoScans, func(i, j int) bool {
+		return repoScans[i].StartedAt.Before(repoScans[j].StartedAt)
+	})
+	repoScanIDs := make([]string, 0, len(repoScans))
+	index := make(map[string]*TrendPoint, len(repoScans))
+	result := make([]TrendPoint, 0, len(repoScans))
+	for _, scan := range repoScans {
+		repoScanIDs = append(repoScanIDs, scan.ID)
+		result = append(result, TrendPoint{
+			ScanID:     scan.ID,
+			StartedAt:  scan.StartedAt,
+			BySeverity: map[string]int{},
+		})
+		index[scan.ID] = &result[len(result)-1]
+	}
+
+	counts, err := s.Store.ListRepoFindingTrendCounts(ctx, repoScanIDs, severity, findingType)
+	if err != nil {
+		return nil, err
+	}
+	for _, count := range counts {
+		point := index[count.ScanID]
+		if point == nil {
+			continue
+		}
+		if strings.TrimSpace(count.Severity) != "" {
+			point.BySeverity[count.Severity] += count.TotalCount
+		}
+		point.Total += count.TotalCount
+	}
+
+	return result, nil
+}
+
 // ListOwnershipSignals returns inferred ownership hints for identities in one scan.
 func (s *Service) ListOwnershipSignals(ctx context.Context, limit int, filter OwnershipFilter) ([]domain.OwnershipSignal, error) {
 	ctx = s.scopeContext(ctx)

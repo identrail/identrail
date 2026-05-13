@@ -374,6 +374,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/findings/trends", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.GET("/repo-findings/trends", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"items": []any{}})
+		})
 		v1.GET("/findings/summary", func(c *gin.Context) {
 			c.JSON(http.StatusOK, FindingsSummary{
 				Total:      0,
@@ -596,6 +599,22 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		if err != nil {
 			logger.Error("findings trends", telemetry.ZapError(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build findings trends"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
+
+	v1.GET("/repo-findings/trends", func(c *gin.Context) {
+		points := parseLimit(c.Query("points"), 10, 100)
+		items, err := svc.GetRepoFindingsTrendFiltered(
+			c.Request.Context(),
+			points,
+			strings.TrimSpace(c.Query("severity")),
+			strings.TrimSpace(c.Query("type")),
+		)
+		if err != nil {
+			logger.Error("repo findings trends", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build repository findings trends"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"items": items})

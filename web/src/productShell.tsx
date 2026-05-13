@@ -2983,7 +2983,7 @@ export function ProductFindingsPage() {
     setTrendError('');
     try {
       const auth = buildProductAuthContext(targetScope);
-      const trendResponse = await apiClient.getFindingsTrends(
+      const trendResponse = await apiClient.getRepoFindingsTrends(
         {
           points: TREND_POINTS,
           severity: severityFilter !== 'all' ? severityFilter : undefined,

@@ -1587,6 +1587,74 @@ func (p *PostgresStore) ListFindingTrendCounts(ctx context.Context, scanIDs []st
 	return result, nil
 }
 
+// ListRepoFindingTrendCounts aggregates repository finding totals by repo scan and severity.
+func (p *PostgresStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unique := make([]string, 0, len(repoScanIDs))
+	seen := map[string]struct{}{}
+	for _, repoScanID := range repoScanIDs {
+		normalized := strings.TrimSpace(repoScanID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		unique = append(unique, normalized)
+	}
+	if len(unique) == 0 {
+		return []FindingTrendCount{}, nil
+	}
+
+	placeholders := make([]string, 0, len(unique))
+	args := make([]any, 0, len(unique)+4)
+	args = append(args, scope.TenantID, scope.WorkspaceID, strings.ToLower(strings.TrimSpace(severity)), strings.ToLower(strings.TrimSpace(findingType)))
+	for i, repoScanID := range unique {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+5))
+		args = append(args, repoScanID)
+	}
+
+	rows, err := p.queryContext(
+		ctx,
+		fmt.Sprintf(`SELECT rs.id, rs.started_at, rf.severity, COUNT(rf.finding_id)
+		 FROM repo_scans rs
+		 LEFT JOIN repo_findings rf
+		   ON rf.repo_scan_id = rs.id
+		  AND ($3 = '' OR LOWER(rf.severity) = $3)
+		  AND ($4 = '' OR LOWER(rf.type) = $4)
+		 WHERE rs.tenant_id = $1
+		   AND rs.workspace_id = $2
+		   AND rs.id IN (%s)
+		 GROUP BY rs.id, rs.started_at, rf.severity`, strings.Join(placeholders, ",")),
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query repo finding trend counts: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]FindingTrendCount, 0)
+	for rows.Next() {
+		var count FindingTrendCount
+		var severityValue sql.NullString
+		if err := rows.Scan(&count.ScanID, &count.StartedAt, &severityValue, &count.TotalCount); err != nil {
+			return nil, fmt.Errorf("repo finding trend row: %w", err)
+		}
+		if severityValue.Valid {
+			count.Severity = severityValue.String
+		}
+		result = append(result, count)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repo finding trend rows: %w", err)
+	}
+	return result, nil
+}
+
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
 func (p *PostgresStore) UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error {
 	scope, err := RequireScope(ctx)
