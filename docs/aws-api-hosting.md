@@ -40,7 +40,8 @@ Before a manual apply, operators must provide:
   public subnets in different Availability Zones; Terraform reads the subnet
   metadata and refuses to plan API hosting when the public subnets collapse to
   one Availability Zone, do not belong to `api_vpc_id`, or do not have route
-  tables with an Internet Gateway default route
+  tables with an Internet Gateway default route; explicit subnet route-table
+  associations and inherited VPC main route tables are both supported
 - `api_private_subnet_ids` for Fargate tasks, with at least two distinct private
   subnets that belong to `api_vpc_id`
 - `api_private_subnet_egress_ready=true` after confirming those private subnets

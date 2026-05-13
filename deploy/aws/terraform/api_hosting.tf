@@ -36,6 +36,23 @@ locals {
   api_runtime_trusted_proxies = compact([
     for cidr_block in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_TRUSTED_PROXIES", "")) : trimspace(cidr_block)
   ])
+  api_main_route_table_ids = [
+    for route_table_id, route_table in data.aws_route_table.api_vpc : route_table_id
+    if anytrue([for association in route_table.associations : association.main])
+  ]
+  api_public_subnet_explicit_route_table_ids = {
+    for subnet_id in var.api_public_subnet_ids : subnet_id => [
+      for route_table_id, route_table in data.aws_route_table.api_vpc : route_table_id
+      if anytrue([for association in route_table.associations : association.subnet_id == subnet_id])
+    ]
+  }
+  api_public_subnet_effective_route_table_ids = {
+    for subnet_id in var.api_public_subnet_ids : subnet_id => (
+      length(local.api_public_subnet_explicit_route_table_ids[subnet_id]) > 0 ?
+      local.api_public_subnet_explicit_route_table_ids[subnet_id] :
+      local.api_main_route_table_ids
+    )
+  }
   api_new_auth_enabled = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_NEW_AUTH", "")) == "true"
   api_has_supported_auth = (
     contains(local.api_secret_config_names, "IDENTRAIL_API_KEY_SCOPES") ||
@@ -71,10 +88,16 @@ data "aws_subnet" "api_private" {
   id = var.api_private_subnet_ids[count.index]
 }
 
-data "aws_route_table" "api_public" {
-  count = var.create_api_hosting_resources ? length(var.api_public_subnet_ids) : 0
+data "aws_route_tables" "api_vpc" {
+  count = var.create_api_hosting_resources ? 1 : 0
 
-  subnet_id = var.api_public_subnet_ids[count.index]
+  vpc_id = var.api_vpc_id
+}
+
+data "aws_route_table" "api_vpc" {
+  for_each = var.create_api_hosting_resources ? toset(data.aws_route_tables.api_vpc[0].ids) : toset([])
+
+  route_table_id = each.value
 }
 
 resource "terraform_data" "api_inputs" {
@@ -109,11 +132,13 @@ resource "terraform_data" "api_inputs" {
 
     precondition {
       condition = alltrue([
-        for route_table in data.aws_route_table.api_public : anytrue([
-          for route in route_table.routes : route.cidr_block == "0.0.0.0/0" && can(regex("^igw-", route.gateway_id))
+        for route_table_ids in values(local.api_public_subnet_effective_route_table_ids) : anytrue([
+          for route_table_id in route_table_ids : anytrue([
+            for route in data.aws_route_table.api_vpc[route_table_id].routes : route.cidr_block == "0.0.0.0/0" && can(regex("^igw-", route.gateway_id))
+          ])
         ])
       ])
-      error_message = "api_public_subnet_ids must be associated with route tables that have a 0.0.0.0/0 Internet Gateway route when create_api_hosting_resources=true."
+      error_message = "api_public_subnet_ids must resolve to explicit or inherited main route tables with a 0.0.0.0/0 Internet Gateway route when create_api_hosting_resources=true."
     }
 
     precondition {
