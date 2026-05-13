@@ -52,6 +52,9 @@ curl http://localhost:8080/healthz
 
 Open `http://localhost:8081` for the web UI, use **Continue in dev mode**, and
 the stack will create a disposable local session against the API container.
+The quickstart exposes only the web UI and API on your machine. Postgres stays
+inside the Docker network, which avoids conflicting with an existing local
+database.
 
 If you want to customize the image tag, local secrets, or ports before running:
 
@@ -61,12 +64,19 @@ cp .env.public.example .env
 docker compose -f docker-compose.public.yml --env-file .env up -d
 ```
 
-If `5432` or `8081` are already in use on your machine, set
-`IDENTRAIL_POSTGRES_PORT` or `IDENTRAIL_WEB_PORT` in the downloaded `.env`
-file before starting the stack. If you change `IDENTRAIL_WEB_PORT`, update
-`IDENTRAIL_CORS_ALLOWED_ORIGINS` to the matching `http://localhost:<port>`
-value too. The public web image is published against `http://localhost:8080`
-for the API, so the no-clone quickstart keeps the API port fixed on `8080`.
+If `8081` is already in use on your machine, set `IDENTRAIL_WEB_PORT` in the
+downloaded `.env` file before starting the stack. If you change
+`IDENTRAIL_WEB_PORT`, update `IDENTRAIL_CORS_ALLOWED_ORIGINS` to the matching
+`http://localhost:<port>` value too. The public web image is published against
+`http://localhost:8080` for the API, so the no-clone quickstart keeps the API
+port fixed on `8080`.
+
+If you need direct access to the quickstart database for debugging, use
+`docker compose exec` instead of exposing the port by default:
+
+```bash
+docker compose -f docker-compose.public.yml exec postgres psql -U identrail -d identrail
+```
 
 You can still pull the main image directly when you want to inspect or run just
 the API server:
@@ -102,8 +112,10 @@ The public stack starts Postgres, API, worker, and web without building from
 source. Open `http://localhost:8081` for the web UI and use
 `http://localhost:8080` for the API. The public profile enables the new auth
 flow in local-only manual mode, so the dashboard can establish a disposable
-session without any hosted identity provider. For anything beyond localhost
-evaluation, rotate the example secrets and disable manual mode.
+session without any hosted identity provider. Postgres is intentionally not
+published onto the host in this profile, so existing local database services do
+not block the quickstart. For anything beyond localhost evaluation, rotate the
+example secrets and disable manual mode.
 
 Supporting images are published for multi-service deployments:
 
