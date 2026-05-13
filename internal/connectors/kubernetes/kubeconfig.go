@@ -27,6 +27,7 @@ type kubeconfigDocument struct {
 		Name    string `yaml:"name"`
 		Context struct {
 			Cluster string `yaml:"cluster"`
+			User    string `yaml:"user"`
 		} `yaml:"context"`
 	} `yaml:"contexts"`
 	Users []struct {
@@ -55,13 +56,25 @@ func ValidateKubeconfig(payload string, preferredContext string) (KubeconfigSumm
 		return KubeconfigSummary{}, ErrInvalidKubeconfig
 	}
 	clusterName := ""
+	userName := ""
 	for _, context := range doc.Contexts {
 		if strings.TrimSpace(context.Name) == contextName {
 			clusterName = strings.TrimSpace(context.Context.Cluster)
+			userName = strings.TrimSpace(context.Context.User)
 			break
 		}
 	}
-	if clusterName == "" {
+	if clusterName == "" || userName == "" {
+		return KubeconfigSummary{}, ErrInvalidKubeconfig
+	}
+	userFound := false
+	for _, user := range doc.Users {
+		if strings.TrimSpace(user.Name) == userName {
+			userFound = true
+			break
+		}
+	}
+	if !userFound {
 		return KubeconfigSummary{}, ErrInvalidKubeconfig
 	}
 	server := ""

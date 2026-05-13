@@ -100,6 +100,8 @@ func TestValidateKubeconfigRejectsInvalidPayloads(t *testing.T) {
 		{name: "missing users", payload: "current-context: prod\nclusters:\n- name: prod\n  cluster:\n    server: https://example.test\ncontexts:\n- name: prod\n  context:\n    cluster: prod\n"},
 		{name: "missing current context", payload: "clusters:\n- name: prod\n  cluster:\n    server: https://example.test\ncontexts:\n- name: prod\n  context:\n    cluster: prod\nusers:\n- name: prod\n"},
 		{name: "unknown context", payload: "current-context: prod\nclusters:\n- name: prod\n  cluster:\n    server: https://example.test\ncontexts:\n- name: prod\n  context:\n    cluster: prod\nusers:\n- name: prod\n", context: "missing"},
+		{name: "selected context missing user", payload: "current-context: prod\nclusters:\n- name: prod\n  cluster:\n    server: https://example.test\ncontexts:\n- name: prod\n  context:\n    cluster: prod\nusers:\n- name: prod-user\n"},
+		{name: "selected context unknown user", payload: "current-context: prod\nclusters:\n- name: prod\n  cluster:\n    server: https://example.test\ncontexts:\n- name: prod\n  context:\n    cluster: prod\n    user: missing-user\nusers:\n- name: prod-user\n"},
 		{name: "missing server", payload: "current-context: prod\nclusters:\n- name: prod\n  cluster: {}\ncontexts:\n- name: prod\n  context:\n    cluster: prod\nusers:\n- name: prod\n"},
 	}
 
