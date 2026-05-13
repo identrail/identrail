@@ -775,8 +775,10 @@ func appendTerraformOpenSSHRDPenaltyFindingFromIngressAttribute(
 	if ingressAttribute == nil {
 		return false
 	}
-	value, diagnostics := ingressAttribute.Expr.Value(nil)
-	if diagnostics.HasErrors() || !value.IsKnown() || value.IsNull() {
+	// Preserve literal inspection when some sub-values are unknown (for example `var.X`
+	// alongside concrete CIDR/port literals).
+	value, _ := ingressAttribute.Expr.Value(nil)
+	if !value.IsKnown() || value.IsNull() {
 		return false
 	}
 
