@@ -266,6 +266,24 @@ describe('App', () => {
           ]
         });
       }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({
+          items: [
+            {
+              scan_id: 'repo-scan-1',
+              started_at: '2026-01-01T00:00:00Z',
+              total: 1,
+              by_severity: {
+                critical: 0,
+                high: 1,
+                medium: 0,
+                low: 0,
+                info: 0
+              }
+            }
+          ]
+        });
+      }
       if (url.includes('/v1/repo-findings')) {
         return okJSON({
           items: [
@@ -286,24 +304,6 @@ describe('App', () => {
               source_url: 'https://github.com/owner/repo/blob/abc123/config/app.env#L7',
               remediation: 'Rotate the key and move the credential to a secret manager.',
               created_at: '2026-01-01T00:00:00Z'
-            }
-          ]
-        });
-      }
-      if (url.includes('/v1/repo-findings/trends')) {
-        return okJSON({
-          items: [
-            {
-              scan_id: 'repo-scan-1',
-              started_at: '2026-01-01T00:00:00Z',
-              total: 1,
-              by_severity: {
-                critical: 0,
-                high: 1,
-                medium: 0,
-                low: 0,
-                info: 0
-              }
             }
           ]
         });

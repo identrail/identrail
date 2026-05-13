@@ -3166,12 +3166,13 @@ export function ProductFindingsPage() {
 
   const totalTrendItems = trendPoints.reduce((acc, point) => acc + point.total, 0);
   const trendRows = trendPoints.map((point, index) => {
+    const bySeverity = point.by_severity ?? ({} as Record<string, number>);
     const severityValues = {
-      critical: point.by_severity.critical ?? 0,
-      high: point.by_severity.high ?? 0,
-      medium: point.by_severity.medium ?? 0,
-      low: point.by_severity.low ?? 0,
-      info: point.by_severity.info ?? 0
+      critical: bySeverity.critical ?? 0,
+      high: bySeverity.high ?? 0,
+      medium: bySeverity.medium ?? 0,
+      low: bySeverity.low ?? 0,
+      info: bySeverity.info ?? 0
     };
     const percentage = trendMaxTotal > 0 ? Math.round((point.total / trendMaxTotal) * 100) : 0;
     const startedAt = new Date(point.started_at);
