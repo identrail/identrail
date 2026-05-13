@@ -1111,6 +1111,88 @@ func TestServiceImportFindingBaselineSkipsChangedVariants(t *testing.T) {
 	}
 }
 
+func TestServiceImportFindingBaselinePagesLargeScansForFingerprintFallback(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 23, 11, 0, 0, 0, time.UTC)
+	sourceScan, _ := store.CreateScan(defaultScopeContext(), "aws", now)
+	targetScan, _ := store.CreateScan(defaultScopeContext(), "aws", now.Add(2*time.Hour))
+
+	sourceFinding := domain.Finding{
+		ID:           "finding-source",
+		Type:         domain.FindingOwnerless,
+		Severity:     domain.SeverityHigh,
+		Title:        "Ownerless identity: payments-role",
+		HumanSummary: "No ownership metadata is attached to this identity.",
+		Path:         []string{"identity:payments-role"},
+		Evidence:     map[string]any{"identity_id": "identity:payments-role"},
+		CreatedAt:    now,
+	}
+	targetFinding := sourceFinding
+	targetFinding.ID = "finding-target"
+	targetFinding.CreatedAt = now
+
+	if err := store.UpsertFindings(defaultScopeContext(), sourceScan.ID, []domain.Finding{sourceFinding}); err != nil {
+		t.Fatalf("upsert source findings: %v", err)
+	}
+
+	targetFindings := make([]domain.Finding, 0, 5201)
+	for i := 0; i < 5200; i++ {
+		targetFindings = append(targetFindings, domain.Finding{
+			ID:           fmt.Sprintf("noise-%04d", i),
+			Type:         domain.FindingOwnerless,
+			Severity:     domain.SeverityLow,
+			Title:        fmt.Sprintf("Noise finding %04d", i),
+			HumanSummary: "Synthetic filler finding",
+			Path:         []string{fmt.Sprintf("identity:noise-%04d", i)},
+			Evidence:     map[string]any{"identity_id": fmt.Sprintf("identity:noise-%04d", i)},
+			CreatedAt:    now.Add(time.Duration(i+1) * time.Second),
+		})
+	}
+	targetFindings = append(targetFindings, targetFinding)
+	if err := store.UpsertFindings(defaultScopeContext(), targetScan.ID, targetFindings); err != nil {
+		t.Fatalf("upsert target findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	suppressed := string(domain.FindingLifecycleSuppressed)
+	expiry := now.Add(24 * time.Hour).Format(time.RFC3339)
+	if _, err := svc.TriageFinding(defaultScopeContext(), sourceFinding.ID, sourceScan.ID, FindingTriageRequest{
+		Status:               &suppressed,
+		SuppressionExpiresAt: &expiry,
+		Comment:              "known false positive",
+	}, "subject:owner"); err != nil {
+		t.Fatalf("triage source finding: %v", err)
+	}
+
+	baseline, err := svc.ExportFindingBaseline(defaultScopeContext(), sourceScan.ID, 10)
+	if err != nil {
+		t.Fatalf("export baseline: %v", err)
+	}
+
+	imported, err := svc.ImportFindingBaseline(defaultScopeContext(), FindingBaselineImportRequest{
+		ScanID:   targetScan.ID,
+		Baseline: baseline,
+	}, "subject:owner")
+	if err != nil {
+		t.Fatalf("import baseline: %v", err)
+	}
+	if imported.AppliedCount != 1 || imported.SkippedCount != 0 {
+		t.Fatalf("unexpected import counts for paged scan: %+v", imported)
+	}
+	if imported.Items[0].FindingID != targetFinding.ID || imported.Items[0].Status != "applied" {
+		t.Fatalf("expected paged fallback to apply to target finding, got %+v", imported.Items[0])
+	}
+
+	applied, err := svc.GetFinding(defaultScopeContext(), targetFinding.ID, targetScan.ID)
+	if err != nil {
+		t.Fatalf("get paged target finding: %v", err)
+	}
+	if applied.Triage.Status != domain.FindingLifecycleSuppressed || applied.Triage.SuppressionExpiresAt == nil {
+		t.Fatalf("expected paged target finding to be suppressed, got %+v", applied.Triage)
+	}
+}
+
 func TestServiceGetFindingExports(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 )
 
 const (
 	findingBaselineSchemaVersion        = "v1"
 	findingBaselineImportMatchThreshold = 0.95
+	findingBaselineImportPageSize       = 1000
 )
 
 // ErrInvalidFindingBaselineRequest indicates invalid baseline export/import input.
@@ -121,22 +123,9 @@ func (s *Service) ImportFindingBaseline(ctx context.Context, request FindingBase
 		}
 		normalizedScanID = latest
 	}
-	targetFindings, err := s.ListFindingsFiltered(ctx, max(len(request.Baseline.Items)*4, 5000), FindingsFilter{
-		ScanID: normalizedScanID,
-		SortBy: "created_at",
-	})
+	findingsByID, findingsByFingerprint, err := s.loadTargetFindingsForBaselineImport(ctx, normalizedScanID, now)
 	if err != nil {
 		return FindingBaselineImportResult{}, err
-	}
-	findingsByID := make(map[string]domain.Finding, len(targetFindings))
-	findingsByFingerprint := make(map[string][]domain.Finding, len(targetFindings))
-	for _, finding := range targetFindings {
-		findingsByID[strings.TrimSpace(finding.ID)] = finding
-		fingerprint := findingBaselineFingerprint(finding)
-		if fingerprint == "" {
-			continue
-		}
-		findingsByFingerprint[fingerprint] = append(findingsByFingerprint[fingerprint], finding)
 	}
 
 	result := FindingBaselineImportResult{
@@ -223,6 +212,52 @@ func (s *Service) ImportFindingBaseline(ctx context.Context, request FindingBase
 	}
 
 	return result, nil
+}
+
+func (s *Service) loadTargetFindingsForBaselineImport(
+	ctx context.Context,
+	scanID string,
+	now time.Time,
+) (map[string]domain.Finding, map[string][]domain.Finding, error) {
+	findingsByID := map[string]domain.Finding{}
+	findingsByFingerprint := map[string][]domain.Finding{}
+	offset := 0
+
+	for {
+		page, err := s.Store.ListFindingsFiltered(ctx, db.FindingListFilter{
+			ScanID:   scanID,
+			SortBy:   "created_at",
+			SortDesc: true,
+			Limit:    findingBaselineImportPageSize,
+			Offset:   offset,
+			Now:      now,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+
+		hasMore := len(page) > findingBaselineImportPageSize
+		if hasMore {
+			page = page[:findingBaselineImportPageSize]
+		}
+		for _, finding := range enrichFindings(page) {
+			findingsByID[strings.TrimSpace(finding.ID)] = finding
+			fingerprint := findingBaselineFingerprint(finding)
+			if fingerprint == "" {
+				continue
+			}
+			findingsByFingerprint[fingerprint] = append(findingsByFingerprint[fingerprint], finding)
+		}
+		if !hasMore {
+			break
+		}
+		offset += findingBaselineImportPageSize
+	}
+
+	return findingsByID, findingsByFingerprint, nil
 }
 
 func scoreFindingConfidence(finding domain.Finding) float64 {
