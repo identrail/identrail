@@ -2145,6 +2145,29 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 	return result, nil
 }
 
+// ListRepoFindingClusters returns repository finding clusters using store-backed pagination semantics.
+func (m *MemoryStore) ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error) {
+	findings, err := m.ListRepoFindings(ctx, RepoFindingFilter{
+		RepoScanID: filter.RepoScanID,
+		Severity:   filter.Severity,
+		Type:       filter.Type,
+	}, 0)
+	if err != nil {
+		return nil, err
+	}
+	normalized := NormalizeRepoFindingClusterListFilter(filter)
+	clusters := domain.BuildRepoFindingClusters(findings)
+	domain.SortRepoFindingClusters(clusters, normalized.SortBy, normalized.SortDesc)
+	if normalized.Offset >= len(clusters) {
+		return []domain.RepoFindingCluster{}, nil
+	}
+	end := normalized.Offset + normalized.Limit + 1
+	if end > len(clusters) {
+		end = len(clusters)
+	}
+	return append([]domain.RepoFindingCluster(nil), clusters[normalized.Offset:end]...), nil
+}
+
 // Close closes store resources.
 func (m *MemoryStore) Close() error {
 	return nil

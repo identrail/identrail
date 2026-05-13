@@ -769,10 +769,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		}
 		items, err := svc.ListRepoFindingClusters(
 			c.Request.Context(),
-			db.RepoFindingFilter{
+			limit,
+			RepoFindingClusterFilter{
 				RepoScanID: repoScanID,
 				Severity:   strings.TrimSpace(c.Query("severity")),
 				Type:       strings.TrimSpace(c.Query("type")),
+				SortBy:     sortBy,
+				SortDesc:   sortDesc,
+				Offset:     offset,
 			},
 		)
 		if err != nil {
@@ -784,8 +788,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list repo finding clusters"})
 			return
 		}
-		sortRepoFindingClusters(items, sortBy, sortDesc)
-		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
+		c.JSON(http.StatusOK, paginatedItemsResponseWithBaseOffset(items, offset, limit))
 	})
 
 	v1.POST("/scans", func(c *gin.Context) {
@@ -1818,35 +1821,7 @@ func sortFindings(items []domain.Finding, sortBy string, desc bool) {
 }
 
 func sortRepoFindingClusters(items []domain.RepoFindingCluster, sortBy string, desc bool) {
-	sort.SliceStable(items, func(i, j int) bool {
-		left := items[i]
-		right := items[j]
-		var cmp int
-		switch sortBy {
-		case "count":
-			cmp = compareInt(left.Count, right.Count)
-		case "severity":
-			cmp = compareInt(severityOrder(left.Severity), severityOrder(right.Severity))
-		case "repository":
-			cmp = compareString(left.Repository, right.Repository)
-		case "detector":
-			cmp = compareString(left.Detector, right.Detector)
-		case "first_seen_at":
-			cmp = compareTime(left.FirstSeenAt, right.FirstSeenAt)
-		default:
-			cmp = compareTime(left.LastSeenAt, right.LastSeenAt)
-		}
-		if cmp == 0 {
-			cmp = compareInt(left.Count, right.Count)
-		}
-		if cmp == 0 {
-			cmp = compareString(left.ID, right.ID)
-		}
-		if desc {
-			return cmp > 0
-		}
-		return cmp < 0
-	})
+	domain.SortRepoFindingClusters(items, sortBy, desc)
 }
 
 func sortScans(items []db.ScanRecord, sortBy string, desc bool) {

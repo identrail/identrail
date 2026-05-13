@@ -98,9 +98,9 @@ type failingAnyScopeDepthStore struct {
 	*db.MemoryStore
 }
 
-type repoFindingLimitCaptureStore struct {
+type repoFindingClusterFilterCaptureStore struct {
 	*db.MemoryStore
-	lastRepoFindingLimit int
+	lastRepoFindingClusterFilter db.RepoFindingClusterListFilter
 }
 
 func (s *failingAnyScopeDepthStore) CountQueuedScansAnyScope(context.Context, string) (int, error) {
@@ -111,9 +111,9 @@ func (s *failingAnyScopeDepthStore) CountQueuedRepoScansAnyScope(context.Context
 	return 0, errors.New("count queued repo scans any scope failed")
 }
 
-func (s *repoFindingLimitCaptureStore) ListRepoFindings(ctx context.Context, filter db.RepoFindingFilter, limit int) ([]domain.Finding, error) {
-	s.lastRepoFindingLimit = limit
-	return s.MemoryStore.ListRepoFindings(ctx, filter, limit)
+func (s *repoFindingClusterFilterCaptureStore) ListRepoFindingClusters(ctx context.Context, filter db.RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error) {
+	s.lastRepoFindingClusterFilter = filter
+	return s.MemoryStore.ListRepoFindingClusters(ctx, filter)
 }
 
 func (s *completionContextStore) CompleteScan(
@@ -1583,7 +1583,7 @@ func TestServiceListRepoFindingClusters(t *testing.T) {
 		t.Fatalf("upsert second repo findings: %v", err)
 	}
 
-	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), db.RepoFindingFilter{})
+	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), 100, RepoFindingClusterFilter{})
 	if err != nil {
 		t.Fatalf("list repo finding clusters: %v", err)
 	}
@@ -1604,8 +1604,8 @@ func TestServiceListRepoFindingClusters(t *testing.T) {
 	}
 }
 
-func TestServiceListRepoFindingClustersFetchesUnboundedMatches(t *testing.T) {
-	store := &repoFindingLimitCaptureStore{MemoryStore: db.NewMemoryStore()}
+func TestServiceListRepoFindingClustersUsesBoundedPageFilter(t *testing.T) {
+	store := &repoFindingClusterFilterCaptureStore{MemoryStore: db.NewMemoryStore()}
 	svc := NewService(store, fakeScanner{}, "aws")
 
 	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
@@ -1623,11 +1623,17 @@ func TestServiceListRepoFindingClustersFetchesUnboundedMatches(t *testing.T) {
 		t.Fatalf("upsert repo finding: %v", err)
 	}
 
-	if _, err := svc.ListRepoFindingClusters(defaultScopeContext(), db.RepoFindingFilter{}); err != nil {
+	if _, err := svc.ListRepoFindingClusters(defaultScopeContext(), 25, RepoFindingClusterFilter{
+		SortBy: "count",
+		Offset: 10,
+	}); err != nil {
 		t.Fatalf("list repo finding clusters: %v", err)
 	}
-	if store.lastRepoFindingLimit != 0 {
-		t.Fatalf("expected unbounded repo finding fetch for clusters, got limit %d", store.lastRepoFindingLimit)
+	if store.lastRepoFindingClusterFilter.Limit != 25 || store.lastRepoFindingClusterFilter.Offset != 10 {
+		t.Fatalf("expected bounded repo finding cluster page filter, got %+v", store.lastRepoFindingClusterFilter)
+	}
+	if store.lastRepoFindingClusterFilter.SortBy != "count" || store.lastRepoFindingClusterFilter.SortDesc {
+		t.Fatalf("expected explicit count sort to pass through unchanged, got %+v", store.lastRepoFindingClusterFilter)
 	}
 }
 
@@ -1667,7 +1673,7 @@ func TestServiceListRepoFindingClustersBackfillsLegacyRepositoryContext(t *testi
 		}
 	}
 
-	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), db.RepoFindingFilter{})
+	clusters, err := svc.ListRepoFindingClusters(defaultScopeContext(), 100, RepoFindingClusterFilter{})
 	if err != nil {
 		t.Fatalf("list repo finding clusters: %v", err)
 	}

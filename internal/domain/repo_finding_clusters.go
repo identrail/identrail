@@ -68,7 +68,7 @@ func BuildRepoFindingClusters(findings []Finding) []RepoFindingCluster {
 		if !exists {
 			accumulator = &repoFindingClusterAccumulator{
 				cluster: RepoFindingCluster{
-					ID:           repoFindingClusterID(key),
+					ID:           RepoFindingClusterIDForKey(key),
 					Repository:   strings.TrimSpace(finding.Repository),
 					Type:         finding.Type,
 					Severity:     finding.Severity,
@@ -214,9 +214,76 @@ func repoFindingSecretFingerprint(finding Finding) string {
 	return strings.TrimSpace(stringFromAny(finding.Evidence["secret_fingerprint"]))
 }
 
-func repoFindingClusterID(key string) string {
+// RepoFindingClusterIDForKey returns the stable public cluster identifier for one grouping key.
+func RepoFindingClusterIDForKey(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return "repo-cluster:" + hex.EncodeToString(sum[:16])
+}
+
+// SortRepoFindingClusters applies the API ordering rules for repository finding clusters.
+func SortRepoFindingClusters(items []RepoFindingCluster, sortBy string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i]
+		right := items[j]
+		var cmp int
+		switch sortBy {
+		case "count":
+			cmp = compareInt(left.Count, right.Count)
+		case "severity":
+			cmp = compareInt(repoFindingSeverityOrder(left.Severity), repoFindingSeverityOrder(right.Severity))
+		case "repository":
+			cmp = compareString(left.Repository, right.Repository)
+		case "detector":
+			cmp = compareString(left.Detector, right.Detector)
+		case "first_seen_at":
+			cmp = compareTime(left.FirstSeenAt, right.FirstSeenAt)
+		default:
+			cmp = compareTime(left.LastSeenAt, right.LastSeenAt)
+		}
+		if cmp == 0 {
+			cmp = compareInt(left.Count, right.Count)
+		}
+		if cmp == 0 {
+			cmp = compareString(left.ID, right.ID)
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func compareInt(left int, right int) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareString(left string, right string) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareTime(left time.Time, right time.Time) int {
+	switch {
+	case left.Before(right):
+		return -1
+	case left.After(right):
+		return 1
+	default:
+		return 0
+	}
 }
 
 func higherRepoFindingSeverity(left FindingSeverity, right FindingSeverity) bool {

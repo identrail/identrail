@@ -1597,6 +1597,17 @@ type RepoFindingFilter struct {
 	Type       string
 }
 
+// RepoFindingClusterListFilter controls repository finding cluster list queries.
+type RepoFindingClusterListFilter struct {
+	RepoScanID string
+	Severity   string
+	Type       string
+	SortBy     string
+	SortDesc   bool
+	Limit      int
+	Offset     int
+}
+
 // FindingListFilter controls filtered finding list queries.
 type FindingListFilter struct {
 	ScanID          string
@@ -1640,6 +1651,31 @@ func NormalizeFindingListFilter(filter FindingListFilter) FindingListFilter {
 	}
 	if normalized.Now.IsZero() {
 		normalized.Now = time.Now().UTC()
+	}
+	return normalized
+}
+
+// NormalizeRepoFindingClusterListFilter trims inputs and applies stable defaults.
+func NormalizeRepoFindingClusterListFilter(filter RepoFindingClusterListFilter) RepoFindingClusterListFilter {
+	normalized := RepoFindingClusterListFilter{
+		RepoScanID: strings.TrimSpace(filter.RepoScanID),
+		Severity:   strings.ToLower(strings.TrimSpace(filter.Severity)),
+		Type:       strings.ToLower(strings.TrimSpace(filter.Type)),
+		SortDesc:   filter.SortDesc,
+		Limit:      filter.Limit,
+		Offset:     filter.Offset,
+	}
+	switch strings.ToLower(strings.TrimSpace(filter.SortBy)) {
+	case "count", "severity", "repository", "detector", "first_seen_at":
+		normalized.SortBy = strings.ToLower(strings.TrimSpace(filter.SortBy))
+	default:
+		normalized.SortBy = "last_seen_at"
+	}
+	if normalized.Limit <= 0 {
+		normalized.Limit = 100
+	}
+	if normalized.Offset < 0 {
+		normalized.Offset = 0
 	}
 	return normalized
 }
@@ -1798,5 +1834,6 @@ type Store interface {
 	UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error
 	ListRepoScans(ctx context.Context, limit int) ([]RepoScanRecord, error)
 	ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error)
+	ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error)
 	Close() error
 }

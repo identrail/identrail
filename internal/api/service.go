@@ -226,6 +226,16 @@ type FindingsFilter struct {
 	Offset          int
 }
 
+// RepoFindingClusterFilter narrows repository finding cluster list queries.
+type RepoFindingClusterFilter struct {
+	RepoScanID string
+	Severity   string
+	Type       string
+	SortBy     string
+	SortDesc   bool
+	Offset     int
+}
+
 // FindingsPage captures one paginated findings response.
 type FindingsPage struct {
 	Items      []domain.Finding
@@ -1254,13 +1264,26 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 }
 
 // ListRepoFindingClusters returns duplicate-aware repository finding clusters.
-func (s *Service) ListRepoFindingClusters(ctx context.Context, filter db.RepoFindingFilter) ([]domain.RepoFindingCluster, error) {
+func (s *Service) ListRepoFindingClusters(ctx context.Context, limit int, filter RepoFindingClusterFilter) ([]domain.RepoFindingCluster, error) {
 	ctx = s.scopeContext(ctx)
-	findings, err := s.Store.ListRepoFindings(ctx, filter, 0)
+	sortBy := strings.TrimSpace(filter.SortBy)
+	sortDesc := filter.SortDesc
+	if sortBy == "" {
+		sortDesc = true
+	}
+	items, err := s.Store.ListRepoFindingClusters(ctx, db.RepoFindingClusterListFilter{
+		RepoScanID: filter.RepoScanID,
+		Severity:   filter.Severity,
+		Type:       filter.Type,
+		SortBy:     sortBy,
+		SortDesc:   sortDesc,
+		Limit:      limit,
+		Offset:     filter.Offset,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return domain.BuildRepoFindingClusters(enrichFindingsWithRepoContext(findings)), nil
+	return enrichRepoFindingClusters(items), nil
 }
 
 // GetOrganization returns the current scoped organization record.
@@ -2138,6 +2161,28 @@ func enrichFindingsWithRepoContext(findings []domain.Finding, repositoryHints ..
 			finding.SourceURL = repoFindingSourceURL(finding.Repository, finding.Commit, finding.FilePath, finding.LineNumber)
 		}
 		enriched = append(enriched, standards.EnrichFinding(finding))
+	}
+	return enriched
+}
+
+func enrichRepoFindingClusters(clusters []domain.RepoFindingCluster) []domain.RepoFindingCluster {
+	if len(clusters) == 0 {
+		return clusters
+	}
+	enriched := make([]domain.RepoFindingCluster, 0, len(clusters))
+	for _, cluster := range clusters {
+		copyCluster := cluster
+		if len(cluster.Members) > 0 {
+			copyCluster.Members = make([]domain.RepoFindingClusterMember, 0, len(cluster.Members))
+			for _, member := range cluster.Members {
+				copyMember := member
+				if copyMember.SourceURL == "" {
+					copyMember.SourceURL = repoFindingSourceURL(copyMember.Repository, copyMember.Commit, copyMember.FilePath, copyMember.LineNumber)
+				}
+				copyCluster.Members = append(copyCluster.Members, copyMember)
+			}
+		}
+		enriched = append(enriched, copyCluster)
 	}
 	return enriched
 }
