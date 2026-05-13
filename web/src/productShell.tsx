@@ -8,11 +8,13 @@ import {
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type Finding as ApiFinding,
+  type FindingLifecycleStatus,
   type GitHubConnectorStartResponse,
   type GitHubConnectionStatus,
   type KubernetesConnectionStatus,
   type ProjectRecord,
   type RepoScanRecord,
+  type TrendPoint,
   type RequestAuthContext,
   type ScanPolicyRecord,
   type ScanTriggerMode,
@@ -134,6 +136,46 @@ const SOURCE_ORDER: SourceProvider[] = FEATURE_CONNECTOR_GITHUB_V2
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
+const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
+const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolved'] as const;
+
+const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], string> = {
+  severity: 'Risk (high → low)',
+  created_at: 'Newest first',
+  type: 'Finding type',
+  title: 'Finding title'
+};
+
+const TREND_POINTS = 10;
+const SEVERITY_ORDER: string[] = ['critical', 'high', 'medium', 'low', 'info', 'unknown'];
+
+function formatConfidenceScore(value: number | undefined): string {
+  if (!Number.isFinite(value ?? NaN)) {
+    return 'N/A';
+  }
+  const clamped = Math.max(0, Math.min(100, Math.round(value * 100)));
+  return `${clamped}%`;
+}
+
+function formatDateLabel(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString();
+}
+
+function normalizeFindingStatus(value: string | undefined): FindingLifecycleStatus {
+  const normalized = normalizeValue(value ?? '').toLowerCase();
+  if (normalized === 'ack' || normalized === 'suppressed' || normalized === 'resolved') {
+    return normalized;
+  }
+  return 'open';
+}
+
+function repoFindingStatusClass(status: FindingLifecycleStatus): string {
+  return `idt-repo-finding-status is-${status}`;
+}
 
 function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
   return {
@@ -2764,16 +2806,42 @@ export function ProductProjectDetailPage() {
 export function ProductFindingsPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
+  const { me } = useMe();
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [signalsLoading, setSignalsLoading] = useState(false);
+  const [signalsRefreshing, setSignalsRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [signalError, setSignalError] = useState('');
+  const [trendError, setTrendError] = useState('');
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
   const [repoScanFilter, setRepoScanFilter] = useState('');
   const [severityFilter, setSeverityFilter] = useState<(typeof REPO_FINDING_SEVERITY_FILTERS)[number]>('all');
   const [typeFilter, setTypeFilter] = useState<(typeof REPO_FINDING_TYPE_FILTERS)[number]>('all');
+  const [statusFilter, setStatusFilter] = useState<(typeof REPO_FINDING_STATUS_FILTERS)[number]>('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedFindingID, setSelectedFindingID] = useState('');
+  const [workflowStatus, setWorkflowStatus] = useState<FindingLifecycleStatus>('open');
+  const [workflowAssignee, setWorkflowAssignee] = useState('');
+  const [workflowComment, setWorkflowComment] = useState('');
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowSuccess, setWorkflowSuccess] = useState('');
+  const [workflowError, setWorkflowError] = useState('');
+
   const requestRef = useRef(0);
+  const signalRequestRef = useRef(0);
+
+  const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
+
+  const trendMaxTotal = useMemo(() => {
+    const totals = trendPoints.map((point) => point.total);
+    return totals.length ? Math.max(...totals) : 0;
+  }, [trendPoints]);
 
   const repoScansByID = useMemo(
     () =>
@@ -2784,25 +2852,70 @@ export function ProductFindingsPage() {
     [repoScans]
   );
 
+  const filteredFindings = useMemo(() => {
+    const normalizedAssigneeFilter = normalizeValue(assigneeFilter).toLowerCase();
+    return repoFindings.filter((finding) => {
+      const status = normalizeFindingStatus(finding.triage?.status);
+      const assignee = normalizeValue(finding.triage?.assignee ?? '').toLowerCase();
+      const matchesStatus = statusFilter === 'all' || status === statusFilter;
+      const matchesAssignee = !normalizedAssigneeFilter || assignee.includes(normalizedAssigneeFilter);
+
+      return matchesStatus && matchesAssignee;
+    });
+  }, [repoFindings, statusFilter, assigneeFilter]);
+
+  const groupedFindings = useMemo(() => {
+    const buckets: Record<string, ApiFinding[]> = {};
+
+    for (const finding of filteredFindings) {
+      const bucket = normalizeValue(finding.severity).toLowerCase() || 'unknown';
+      const bucketEntries = buckets[bucket] ?? [];
+      bucketEntries.push(finding);
+      buckets[bucket] = bucketEntries;
+    }
+
+    return SEVERITY_ORDER.reduce<Record<string, ApiFinding[]>>((acc, severity) => {
+      const items = buckets[severity];
+      if (items && items.length > 0) {
+        acc[severity] = items;
+      }
+      return acc;
+    }, {});
+  }, [filteredFindings]);
+
   const selectedFinding = useMemo(
-    () => repoFindings.find((finding) => finding.id === selectedFindingID) ?? repoFindings[0] ?? null,
-    [repoFindings, selectedFindingID]
+    () => filteredFindings.find((finding) => finding.id === selectedFindingID) ?? filteredFindings[0] ?? null,
+    [filteredFindings, selectedFindingID]
   );
 
   const linkedFindingCount = useMemo(
-    () => repoFindings.filter((finding) => normalizeValue(finding.source_url ?? '')).length,
-    [repoFindings]
+    () => filteredFindings.filter((finding) => normalizeValue(finding.source_url ?? '')).length,
+    [filteredFindings]
   );
 
   const criticalFindingCount = useMemo(
-    () => repoFindings.filter((finding) => normalizeValue(finding.severity).toLowerCase() === 'critical').length,
-    [repoFindings]
+    () => filteredFindings.filter((finding) => normalizeValue(finding.severity).toLowerCase() === 'critical').length,
+    [filteredFindings]
   );
 
   const activeScanCount = useMemo(
     () => repoScans.filter((scan) => normalizeValue(scan.status).toLowerCase() === 'succeeded').length,
     [repoScans]
   );
+
+  const openFindingCount = useMemo(
+    () => filteredFindings.filter((finding) => normalizeFindingStatus(finding.triage?.status) === 'open').length,
+    [filteredFindings]
+  );
+
+  const averageConfidence = useMemo(() => {
+    const findingsWithConfidence = filteredFindings.filter((finding) => Number.isFinite(finding.confidence_score ?? NaN));
+    if (findingsWithConfidence.length === 0) {
+      return 'N/A';
+    }
+    const sum = findingsWithConfidence.reduce((acc, finding) => acc + (finding.confidence_score ?? 0), 0);
+    return formatConfidenceScore(sum / findingsWithConfidence.length);
+  }, [filteredFindings]);
 
   const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
     const requestID = ++requestRef.current;
@@ -2821,7 +2934,11 @@ export function ProductFindingsPage() {
             limit: 100,
             repo_scan_id: normalizeValue(repoScanFilter) || undefined,
             severity: severityFilter !== 'all' ? severityFilter : undefined,
-            type: typeFilter !== 'all' ? typeFilter : undefined
+            type: typeFilter !== 'all' ? typeFilter : undefined,
+            lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined,
+            assignee: normalizeValue(assigneeFilter) || undefined,
+            sort_by: sortBy,
+            sort_order: sortOrder
           },
           auth
         )
@@ -2845,6 +2962,93 @@ export function ProductFindingsPage() {
     }
   };
 
+  const loadTrendSignals = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+    const requestID = ++signalRequestRef.current;
+    if (mode === 'initial') {
+      setSignalsLoading(true);
+    } else {
+      setSignalsRefreshing(true);
+    }
+    setSignalError('');
+    setTrendError('');
+    try {
+      const auth = buildProductAuthContext(targetScope);
+      const trendResponse = await apiClient.getFindingsTrends(
+        {
+          points: TREND_POINTS,
+          severity: severityFilter !== 'all' ? severityFilter : undefined,
+          type: typeFilter !== 'all' ? typeFilter : undefined
+        },
+        auth
+      );
+      if (requestID !== signalRequestRef.current) {
+        return;
+      }
+      setTrendPoints(trendResponse.items);
+    } catch (requestError) {
+      if (requestID !== signalRequestRef.current) {
+        return;
+      }
+      const message = requestError instanceof Error ? requestError.message : 'Failed to load finding trend metrics.';
+      setTrendError(message);
+    } finally {
+      if (requestID === signalRequestRef.current) {
+        setSignalsLoading(false);
+        setSignalsRefreshing(false);
+      }
+    }
+  };
+
+  const handleApplyWorkflow = async () => {
+    if (!scope || !selectedFinding || workflowLoading) {
+      return;
+    }
+
+    const nextStatus = normalizeFindingStatus(workflowStatus);
+    const nextAssignee = normalizeValue(workflowAssignee);
+    const currentStatus = normalizeFindingStatus(selectedFinding.triage?.status);
+    const currentAssignee = normalizeValue(selectedFinding.triage?.assignee ?? '');
+    const hasChanges =
+      nextStatus !== currentStatus ||
+      nextAssignee !== currentAssignee ||
+      normalizeValue(workflowComment).length > 0;
+
+    if (!hasChanges) {
+      setWorkflowError('Make a workflow change before saving.');
+      return;
+    }
+
+    setWorkflowLoading(true);
+    setWorkflowError('');
+    setWorkflowSuccess('');
+    try {
+      const auth = buildProductAuthContext(scope);
+      const request: { status?: FindingLifecycleStatus; assignee?: string; comment?: string } = {};
+      if (nextStatus !== currentStatus) {
+        request.status = nextStatus;
+      }
+      if (nextAssignee !== currentAssignee) {
+        request.assignee = nextAssignee;
+      }
+      const trimmedComment = normalizeValue(workflowComment);
+      if (trimmedComment) {
+        request.comment = trimmedComment;
+      }
+      const response = await apiClient.triageFinding(selectedFinding.id, request, selectedFinding.scan_id, auth);
+      setRepoFindings((current) =>
+        current.map((finding) => (finding.id === response.finding.id ? { ...finding, ...response.finding } : finding))
+      );
+      setWorkflowSuccess('Workflow state updated successfully.');
+      setWorkflowComment('');
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : 'Failed to update workflow state.';
+      setWorkflowError(message);
+    } finally {
+      setWorkflowLoading(false);
+      setTimeout(() => setWorkflowSuccess(''), 2200);
+    }
+  };
+
   useEffect(() => {
     if (!scope) {
       setLoading(false);
@@ -2852,22 +3056,47 @@ export function ProductFindingsPage() {
       return;
     }
     void loadRepoFindings(scope, 'initial');
+    void loadTrendSignals(scope, 'initial');
     return () => {
       requestRef.current += 1;
+      signalRequestRef.current += 1;
     };
-  }, [scope?.tenantID, scope?.workspaceID, repoScanFilter, severityFilter, typeFilter]);
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    repoScanFilter,
+    severityFilter,
+    typeFilter,
+    statusFilter,
+    assigneeFilter,
+    sortBy,
+    sortOrder
+  ]);
 
   useEffect(() => {
-    if (repoFindings.length === 0) {
+    if (!selectedFinding) {
+      setWorkflowStatus('open');
+      setWorkflowAssignee('');
+      setWorkflowComment('');
+      return;
+    }
+
+    setWorkflowStatus(normalizeFindingStatus(selectedFinding.triage?.status));
+    setWorkflowAssignee(selectedFinding.triage?.assignee ?? '');
+    setWorkflowComment('');
+  }, [selectedFinding?.id, selectedFinding?.triage?.status, selectedFinding?.triage?.assignee]);
+
+  useEffect(() => {
+    if (filteredFindings.length === 0) {
       if (selectedFindingID) {
         setSelectedFindingID('');
       }
       return;
     }
-    if (!repoFindings.some((finding) => finding.id === selectedFindingID)) {
-      setSelectedFindingID(repoFindings[0].id);
+    if (!filteredFindings.some((finding) => finding.id === selectedFindingID)) {
+      setSelectedFindingID(filteredFindings[0].id);
     }
-  }, [repoFindings, selectedFindingID]);
+  }, [filteredFindings, selectedFindingID]);
 
   if (!scope) {
     return (
@@ -2885,7 +3114,28 @@ export function ProductFindingsPage() {
 
   const handleRefresh = () => {
     void loadRepoFindings(scope, 'refresh');
+    void loadTrendSignals(scope, 'refresh');
   };
+
+  const totalTrendItems = trendPoints.reduce((acc, point) => acc + point.total, 0);
+  const trendRows = trendPoints.map((point, index) => {
+    const severityValues = {
+      critical: point.by_severity.critical ?? 0,
+      high: point.by_severity.high ?? 0,
+      medium: point.by_severity.medium ?? 0,
+      low: point.by_severity.low ?? 0,
+      info: point.by_severity.info ?? 0
+    };
+    const percentage = trendMaxTotal > 0 ? Math.round((point.total / trendMaxTotal) * 100) : 0;
+    const startedAt = new Date(point.started_at);
+    const pointLabel =
+      Number.isNaN(startedAt.getTime()) ?
+      'Unknown scan'
+      : startedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return { ...severityValues, key: `${point.started_at}-${index}`, percentage, label: pointLabel, total: point.total };
+  });
+
+  const trendDisplayLoading = signalsLoading;
 
   return (
     <section className="idt-app-panel">
@@ -2899,6 +3149,15 @@ export function ProductFindingsPage() {
           <button className="idt-btn idt-btn-ghost" type="button" onClick={handleRefresh} disabled={refreshing}>
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
+          <button
+            className="idt-btn idt-btn-ghost"
+            type="button"
+            onClick={handleRefresh}
+            disabled={signalsRefreshing || signalsLoading}
+            style={{ marginLeft: '0.45rem' }}
+          >
+            {signalsRefreshing ? 'Loading signals...' : 'Reload trend'}
+          </button>
           {selectedFinding?.source_url ? (
             <a className="idt-btn idt-btn-primary" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
               Open in GitHub
@@ -2908,24 +3167,65 @@ export function ProductFindingsPage() {
       </div>
 
       {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
+      {signalError ? <div className="idt-app-alert idt-app-alert-error">{signalError}</div> : null}
+      {trendError ? <div className="idt-app-alert idt-app-alert-error">{trendError}</div> : null}
 
       <div className="idt-repo-finding-stats" aria-label="Repository finding summary">
         <article className="idt-repo-finding-stat">
           <span>Total repo findings</span>
-          <strong>{repoFindings.length}</strong>
+          <strong>{filteredFindings.length}</strong>
         </article>
         <article className="idt-repo-finding-stat">
           <span>GitHub-linked findings</span>
           <strong>{linkedFindingCount}</strong>
         </article>
         <article className="idt-repo-finding-stat">
+          <span>Open findings</span>
+          <strong>{openFindingCount}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
           <span>Critical findings</span>
           <strong>{criticalFindingCount}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>Avg confidence</span>
+          <strong>{averageConfidence}</strong>
         </article>
         <article className="idt-repo-finding-stat">
           <span>Completed repo scans</span>
           <strong>{activeScanCount}</strong>
         </article>
+      </div>
+
+      <div className="idt-repo-finding-trend">
+        <div className="idt-repo-finding-trend-head">
+          <h3>Finding trend</h3>
+          {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading trend</span> : null}
+          <span className="idt-repo-finding-trend-subtitle">{totalTrendItems > 0 ? `${totalTrendItems} total events in window` : 'No trend items yet'}</span>
+        </div>
+        <div className="idt-repo-finding-trend-rows">
+          {trendRows.length === 0 ? (
+            <AppShellEmptyState
+              title="Trend unavailable"
+              body="Run a scan so finding trend snapshots can appear with severity distribution over time."
+            />
+          ) : (
+            trendRows.map((row) => (
+              <article key={row.key} className="idt-repo-finding-trend-row">
+                <div className="idt-repo-finding-trend-meta">
+                  <span>{row.label}</span>
+                  <strong>{row.total}</strong>
+                </div>
+                <div className="idt-repo-finding-trend-bar-track" role="img" aria-label={`Trend point ${row.label}`}>
+                  <div className="idt-repo-finding-trend-bar" style={{ width: `${row.percentage}%` }} />
+                </div>
+                <p>
+                  {`Critical ${row.critical} / High ${row.high} / Medium ${row.medium} / Low ${row.low} / Info ${row.info}`}
+                </p>
+              </article>
+            ))
+          )}
+        </div>
       </div>
 
       <div className="idt-repo-finding-filters">
@@ -2963,46 +3263,97 @@ export function ProductFindingsPage() {
             ))}
           </select>
         </label>
+        <label>
+          Sort by
+          <select value={sortBy} onChange={(event) => setSortBy(event.target.value as (typeof REPO_FINDING_SORT_FIELDS)[number])}>
+            {REPO_FINDING_SORT_FIELDS.map((value) => (
+              <option key={value} value={value}>
+                {SORT_LABEL_BY_FIELD[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Sort order
+          <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as 'asc' | 'desc')}>
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </label>
+        <label>
+          Lifecycle status
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof REPO_FINDING_STATUS_FILTERS)[number])}>
+            {REPO_FINDING_STATUS_FILTERS.map((value) => (
+              <option key={value} value={value}>
+                {formatTokenLabel(value)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Assignee
+          <input
+            type="text"
+            placeholder="Filter by assignee"
+            value={assigneeFilter}
+            onChange={(event) => setAssigneeFilter(event.target.value)}
+          />
+        </label>
       </div>
 
       <div className="idt-repo-finding-layout">
         <div className="idt-repo-finding-list">
           <div className="idt-repo-finding-list-header">
             <h3>Repository findings</h3>
-            <p>{repoFindings.length ? `${repoFindings.length} findings in scope` : 'No findings match the current filters.'}</p>
+            <p>{filteredFindings.length ? `${filteredFindings.length} findings in scope` : 'No findings match the current filters.'}</p>
           </div>
-          {repoFindings.length === 0 ? (
+          {Object.keys(groupedFindings).length === 0 ? (
             <AppShellEmptyState
               title="No repository findings"
               body="Run a repository exposure scan or loosen the current filters to inspect GitHub-linked findings."
             />
           ) : (
-            <div className="idt-repo-finding-items" role="list">
-              {repoFindings.map((finding) => {
-                const repositoryValue = repoFindingRepositoryValue(finding, repoScansByID);
-                const repositoryLabel = canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
-                const isSelected = selectedFinding?.id === finding.id;
-                return (
-                  <button
-                    key={finding.id}
-                    type="button"
-                    role="listitem"
-                    className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
-                    onClick={() => setSelectedFindingID(finding.id)}
-                  >
-                    <div className="idt-repo-finding-row-top">
-                      <strong>{finding.title}</strong>
-                      <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
-                    </div>
-                    <p>{finding.human_summary}</p>
-                    <div className="idt-repo-finding-row-meta">
-                      <span>{repositoryLabel}</span>
-                      <span>{repoFindingLocationLabel(finding)}</span>
-                      <span>{formatTokenLabel(finding.type)}</span>
-                    </div>
-                  </button>
-                );
-              })}
+            <div>
+              {Object.entries(groupedFindings).map(([severity, findings]) => (
+                <section className="idt-repo-finding-group" key={severity}>
+                  <h4>
+                    {formatTokenLabel(severity)} · {findings.length}
+                  </h4>
+                  <div className="idt-repo-finding-items" role="list">
+                    {findings.map((finding) => {
+                      const repositoryValue = repoFindingRepositoryValue(finding, repoScansByID);
+                      const repositoryLabel = canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
+                      const isSelected = selectedFinding?.id === finding.id;
+                      const lifecycle = normalizeFindingStatus(finding.triage?.status);
+                      return (
+                        <button
+                          key={finding.id}
+                          type="button"
+                          role="listitem"
+                          className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
+                          onClick={() => setSelectedFindingID(finding.id)}
+                        >
+                          <div className="idt-repo-finding-row-top">
+                            <strong>{finding.title}</strong>
+                            <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
+                          </div>
+                          <p>{finding.human_summary}</p>
+                          <div className="idt-repo-finding-row-meta">
+                            <span>{repositoryLabel}</span>
+                            <span>{repoFindingLocationLabel(finding)}</span>
+                            <span>{formatTokenLabel(finding.type)}</span>
+                            <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
+                          </div>
+                          <div className="idt-repo-finding-row-meta">
+                            <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
+                            <span>{`Assignee ${finding.triage?.assignee || 'Unassigned'}`}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </div>
@@ -3022,6 +3373,10 @@ export function ProductFindingsPage() {
                   <dd>{canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(selectedFinding, repoScansByID)) || 'Unavailable'}</dd>
                 </div>
                 <div>
+                  <dt>Confidence</dt>
+                  <dd>{formatConfidenceScore(selectedFinding.confidence_score)}</dd>
+                </div>
+                <div>
                   <dt>Location</dt>
                   <dd>{repoFindingLocationLabel(selectedFinding)}</dd>
                 </div>
@@ -3030,8 +3385,20 @@ export function ProductFindingsPage() {
                   <dd>{selectedFinding.commit || 'Unavailable'}</dd>
                 </div>
                 <div>
+                  <dt>Lifecycle status</dt>
+                  <dd>{formatTokenLabel(normalizeFindingStatus(selectedFinding.triage?.status))}</dd>
+                </div>
+                <div>
+                  <dt>Assignee</dt>
+                  <dd>{selectedFinding.triage?.assignee || 'Unassigned'}</dd>
+                </div>
+                <div>
                   <dt>Detector</dt>
                   <dd>{selectedFinding.detector ? formatTokenLabel(selectedFinding.detector) : 'Unavailable'}</dd>
+                </div>
+                <div>
+                  <dt>Last triage update</dt>
+                  <dd>{selectedFinding.triage?.updated_at ? formatDateLabel(selectedFinding.triage.updated_at) : 'Never'}</dd>
                 </div>
               </dl>
 
@@ -3055,6 +3422,55 @@ export function ProductFindingsPage() {
               <div className="idt-repo-finding-remediation">
                 <h4>Remediation</h4>
                 <p>{selectedFinding.remediation}</p>
+              </div>
+
+              <div className="idt-repo-finding-triage-form">
+                <h4>Workflow controls</h4>
+                {workflowError ? <div className="idt-app-alert idt-app-alert-error">{workflowError}</div> : null}
+                {workflowSuccess ? <div className="idt-app-alert idt-app-alert-success">{workflowSuccess}</div> : null}
+                <label>
+                  Status
+                  <select
+                    value={workflowStatus}
+                    onChange={(event) => setWorkflowStatus(event.target.value as FindingLifecycleStatus)}
+                    disabled={workflowLoading || !hasTriageAccess}
+                  >
+                    {REPO_FINDING_STATUS_FILTERS.filter((status) => status !== 'all').map((status) => (
+                      <option key={status} value={status}>
+                        {formatTokenLabel(status)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Assignee
+                  <input
+                    type="text"
+                    value={workflowAssignee}
+                    onChange={(event) => setWorkflowAssignee(event.target.value)}
+                    disabled={workflowLoading || !hasTriageAccess}
+                    placeholder="analyst handle"
+                  />
+                </label>
+                <label>
+                  Comment
+                  <textarea
+                    rows={3}
+                    value={workflowComment}
+                    onChange={(event) => setWorkflowComment(event.target.value)}
+                    disabled={workflowLoading || !hasTriageAccess}
+                    placeholder="Optional workflow comment"
+                    maxLength={500}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="idt-btn idt-btn-primary"
+                  onClick={handleApplyWorkflow}
+                  disabled={workflowLoading || !hasTriageAccess}
+                >
+                  {workflowLoading ? 'Saving...' : 'Apply workflow'}
+                </button>
               </div>
             </>
           ) : (

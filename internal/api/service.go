@@ -1264,11 +1264,24 @@ func (s *Service) GetRepoScan(ctx context.Context, repoScanID string) (db.RepoSc
 // ListRepoFindings returns repository findings using optional filters.
 func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.RepoFindingFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
-	findings, err := s.Store.ListRepoFindings(ctx, filter, limit)
+	normalized := db.NormalizeRepoFindingFilter(filter)
+	findings, err := s.Store.ListRepoFindings(ctx, normalized, limit)
 	if err != nil {
 		return nil, err
 	}
-	return enrichFindingsWithRepoContext(findings), nil
+	findings = enrichFindingsWithRepoContext(findings)
+	withTriage, err := s.applyFindingTriageStates(ctx, findings)
+	if err != nil {
+		return nil, err
+	}
+	if normalized.LifecycleStatus == "" && normalized.Assignee == "" {
+		return withTriage, nil
+	}
+	filtered := filterRepoFindingsByTriage(withTriage, normalized.LifecycleStatus, normalized.Assignee)
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	return filtered, nil
 }
 
 // ListRepoFindingClusters returns duplicate-aware repository finding clusters.
@@ -1625,7 +1638,20 @@ func (s *Service) GetFinding(ctx context.Context, findingID string, scanID strin
 	}
 	item, err := s.Store.GetFinding(ctx, id, strings.TrimSpace(scanID))
 	if err != nil {
-		return domain.Finding{}, err
+		if !errors.Is(err, db.ErrNotFound) {
+			return domain.Finding{}, err
+		}
+		fallback, fallbackErr := s.ListRepoFindings(ctx, maxCursorFetchLimit, db.RepoFindingFilter{
+			FindingID:  id,
+			RepoScanID: strings.TrimSpace(scanID),
+		})
+		if fallbackErr != nil {
+			return domain.Finding{}, fallbackErr
+		}
+		if len(fallback) == 0 {
+			return domain.Finding{}, db.ErrNotFound
+		}
+		return fallback[0], nil
 	}
 	enriched := enrichFindings([]domain.Finding{item})
 	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
@@ -1636,6 +1662,37 @@ func (s *Service) GetFinding(ctx context.Context, findingID string, scanID strin
 		return domain.Finding{}, db.ErrNotFound
 	}
 	return withTriage[0], nil
+}
+
+func filterRepoFindingsByTriage(
+	findings []domain.Finding,
+	rawStatus string,
+	rawAssignee string,
+) []domain.Finding {
+	statusFilter := domain.FindingLifecycleStatus(strings.ToLower(strings.TrimSpace(rawStatus)))
+	assigneeFilter := strings.ToLower(strings.TrimSpace(rawAssignee))
+	if statusFilter == "" && assigneeFilter == "" {
+		return findings
+	}
+	if !isValidFindingLifecycleStatus(statusFilter) {
+		return nil
+	}
+	filtered := make([]domain.Finding, 0, len(findings))
+	for _, finding := range findings {
+		triage := finding.Triage
+		status := triage.Status
+		if !isValidFindingLifecycleStatus(status) {
+			status = domain.FindingLifecycleOpen
+		}
+		if statusFilter != "" && status != statusFilter {
+			continue
+		}
+		if assigneeFilter != "" && strings.ToLower(strings.TrimSpace(triage.Assignee)) != assigneeFilter {
+			continue
+		}
+		filtered = append(filtered, finding)
+	}
+	return filtered
 }
 
 // TriageFinding applies one workflow mutation and records audit history.

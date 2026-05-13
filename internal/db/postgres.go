@@ -3020,20 +3020,22 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 		 FROM repo_findings rf
 		 JOIN repo_scans rs ON rs.id = rf.repo_scan_id
 		 WHERE ($1 = '' OR rf.repo_scan_id = $1::uuid)
-		   AND ($2 = '' OR rf.severity = $2)
-		   AND ($3 = '' OR rf.type = $3)
-		   AND rs.tenant_id = $4
-		   AND rs.workspace_id = $5
+		   AND ($2 = '' OR rf.finding_id = $2)
+		   AND ($3 = '' OR rf.severity = $3)
+		   AND ($4 = '' OR rf.type = $4)
+		   AND rs.tenant_id = $5
+		   AND rs.workspace_id = $6
 		 ORDER BY rf.created_at DESC`
 	args := []any{
 		repoScanID,
+		strings.TrimSpace(filter.FindingID),
 		strings.TrimSpace(filter.Severity),
 		strings.TrimSpace(filter.Type),
 		scope.TenantID,
 		scope.WorkspaceID,
 	}
 	if limit > 0 {
-		query += "\n\t\t LIMIT $6"
+		query += "\n\t\t LIMIT $7"
 		args = append(args, limit)
 	}
 	rows, err := p.queryContext(

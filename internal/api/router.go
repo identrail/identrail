@@ -833,9 +833,11 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.Request.Context(),
 			maxCursorFetchLimit,
 			db.RepoFindingFilter{
-				RepoScanID: repoScanID,
-				Severity:   strings.TrimSpace(c.Query("severity")),
-				Type:       strings.TrimSpace(c.Query("type")),
+				RepoScanID:      repoScanID,
+				Severity:        strings.TrimSpace(c.Query("severity")),
+				Type:            strings.TrimSpace(c.Query("type")),
+				LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
+				Assignee:        strings.TrimSpace(c.Query("assignee")),
 			},
 		)
 		if err != nil {

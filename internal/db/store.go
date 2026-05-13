@@ -1593,8 +1593,11 @@ type RelationshipFilter struct {
 // RepoFindingFilter controls repository finding list queries.
 type RepoFindingFilter struct {
 	RepoScanID string
+	FindingID  string
 	Severity   string
 	Type       string
+	LifecycleStatus string
+	Assignee   string
 }
 
 // RepoFindingClusterListFilter controls repository finding cluster list queries.
@@ -1676,6 +1679,19 @@ func NormalizeRepoFindingClusterListFilter(filter RepoFindingClusterListFilter) 
 	}
 	if normalized.Offset < 0 {
 		normalized.Offset = 0
+	}
+	return normalized
+}
+
+// NormalizeRepoFindingFilter trims optional filters for repository findings.
+func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
+	normalized := RepoFindingFilter{
+		RepoScanID:      strings.TrimSpace(filter.RepoScanID),
+		FindingID:       strings.TrimSpace(filter.FindingID),
+		Severity:        strings.ToLower(strings.TrimSpace(filter.Severity)),
+		Type:            strings.ToLower(strings.TrimSpace(filter.Type)),
+		LifecycleStatus: strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),
+		Assignee:        strings.ToLower(strings.TrimSpace(filter.Assignee)),
 	}
 	return normalized
 }

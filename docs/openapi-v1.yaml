@@ -2903,6 +2903,15 @@ paths:
           name: type
           schema:
             $ref: "#/components/schemas/FindingType"
+        - in: query
+          name: lifecycle_status
+          schema:
+            type: string
+            enum: [open, ack, suppressed, resolved]
+        - in: query
+          name: assignee
+          schema:
+            type: string
       responses:
         "200":
           description: Repository findings page

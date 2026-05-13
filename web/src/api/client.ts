@@ -9,6 +9,7 @@ export type Finding = {
   scan_id: string;
   type: string;
   severity: string;
+  confidence_score?: number;
   title: string;
   human_summary: string;
   path?: string[];
@@ -946,6 +947,8 @@ export const apiClient = {
       repo_scan_id?: string;
       severity?: string;
       type?: string;
+      lifecycle_status?: FindingLifecycleStatus;
+      assignee?: string;
       sort_by?: string;
       sort_order?: 'asc' | 'desc';
     } = {},
