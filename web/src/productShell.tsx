@@ -153,7 +153,7 @@ function formatConfidenceScore(value: number | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return 'N/A';
   }
-  const clamped = Math.max(0, Math.min(100, Math.round(value * 100)));
+  const clamped = Math.max(0, Math.min(100, Math.round((value ?? 0) * 100)));
   return `${clamped}%`;
 }
 

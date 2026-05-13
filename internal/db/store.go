@@ -1592,12 +1592,12 @@ type RelationshipFilter struct {
 
 // RepoFindingFilter controls repository finding list queries.
 type RepoFindingFilter struct {
-	RepoScanID string
-	FindingID  string
-	Severity   string
-	Type       string
+	RepoScanID      string
+	FindingID       string
+	Severity        string
+	Type            string
 	LifecycleStatus string
-	Assignee   string
+	Assignee        string
 }
 
 // RepoFindingClusterListFilter controls repository finding cluster list queries.
