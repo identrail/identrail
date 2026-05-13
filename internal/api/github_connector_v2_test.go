@@ -251,6 +251,44 @@ func TestRouterGitHubConnectorV2WebhookQueuesAndDisconnects(t *testing.T) {
 		t.Fatalf("expected matched github app webhook, got %+v", pushBody.Webhook)
 	}
 
+	addedPayload := []byte(`{"action":"added","installation":{"id":12345},"repositories_added":[{"full_name":"identrail/new"}]}`)
+	addedResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "installation_repositories", "delivery-added", "global-webhook-secret", addedPayload)
+	if addedResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github repository added webhook 202, got %d body=%s", addedResp.Code, addedResp.Body.String())
+	}
+	newRepoPayload := []byte(`{"repository":{"full_name":"identrail/new"},"installation":{"id":12345}}`)
+	newRepoResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "push", "delivery-new-repo", "global-webhook-secret", newRepoPayload)
+	if newRepoResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github new repo push webhook 202, got %d body=%s", newRepoResp.Code, newRepoResp.Body.String())
+	}
+	var newRepoBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(newRepoResp.Body.Bytes(), &newRepoBody); err != nil {
+		t.Fatalf("decode new repo webhook response: %v", err)
+	}
+	if newRepoBody.Webhook.MatchedProjects != 1 {
+		t.Fatalf("expected added repository to match webhook, got %+v", newRepoBody.Webhook)
+	}
+	removedPayload := []byte(`{"action":"removed","installation":{"id":12345},"repositories_removed":[{"full_name":"identrail/new"}]}`)
+	removedResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "installation_repositories", "delivery-removed", "global-webhook-secret", removedPayload)
+	if removedResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github repository removed webhook 202, got %d body=%s", removedResp.Code, removedResp.Body.String())
+	}
+	removedRepoResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "push", "delivery-removed-repo", "global-webhook-secret", newRepoPayload)
+	if removedRepoResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github removed repo push webhook 202, got %d body=%s", removedRepoResp.Code, removedRepoResp.Body.String())
+	}
+	var removedRepoBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(removedRepoResp.Body.Bytes(), &removedRepoBody); err != nil {
+		t.Fatalf("decode removed repo webhook response: %v", err)
+	}
+	if removedRepoBody.Webhook.MatchedProjects != 0 {
+		t.Fatalf("expected removed repository to stop matching webhook, got %+v", removedRepoBody.Webhook)
+	}
+
 	deletedPayload := []byte(`{"action":"deleted","installation":{"id":12345,"account":{"login":"identrail"}}}`)
 	deletedResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "installation", "delivery-delete", "global-webhook-secret", deletedPayload)
 	if deletedResp.Code != http.StatusAccepted {
@@ -272,7 +310,7 @@ func TestRouterGitHubConnectorV2PATStoresEncryptedToken(t *testing.T) {
 		result: githubconnector.PATValidationResult{Login: "sec-eng", Scopes: []string{"repo"}},
 	}
 	store := db.NewMemoryStore()
-	r := newGitHubConnectorV2TestRouterWithStore(t, store, validator, nil)
+	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, validator, nil)
 
 	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/pat", `{
 		"workspace_id":"workspace-a",
@@ -337,6 +375,18 @@ func TestRouterGitHubConnectorV2PATStoresEncryptedToken(t *testing.T) {
 	}
 	if repoBody.Provider != "github_pat" || len(repoBody.Repositories) != 1 || repoBody.Repositories[0].FullName != "identrail/platform" {
 		t.Fatalf("unexpected pat repositories %+v", repoBody)
+	}
+
+	policyStatus, err := svc.GetGitHubConnection(
+		db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}),
+		"workspace-a",
+		"project-1",
+	)
+	if err != nil {
+		t.Fatalf("load pat connector through policy path: %v", err)
+	}
+	if policyStatus.Provider != "github_pat" || !policyStatus.Connected || len(policyStatus.SelectedRepositories) != 1 {
+		t.Fatalf("expected policy path to see active pat connector, got %+v", policyStatus)
 	}
 }
 

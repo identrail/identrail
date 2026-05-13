@@ -739,13 +739,13 @@ func (s *Service) GetGitHubConnection(ctx context.Context, workspaceID string, p
 			return GitHubConnectionStatus{}, loadErr
 		}
 		if !loaded {
-			return GitHubConnectionStatus{Provider: "github_app", Connected: false, SelectedRepositories: []string{}}, nil
+			return s.GetGitHubConnectorStatus(ctx, project.WorkspaceID, project.ProjectID)
 		}
 		s.githubConnectMu.RLock()
 		connection, exists = s.githubConnections[key]
 		s.githubConnectMu.RUnlock()
 		if !exists {
-			return GitHubConnectionStatus{Provider: "github_app", Connected: false, SelectedRepositories: []string{}}, nil
+			return s.GetGitHubConnectorStatus(ctx, project.WorkspaceID, project.ProjectID)
 		}
 	}
 	return s.toGitHubConnectionStatus(connection), nil
@@ -918,7 +918,7 @@ func (s *Service) HandleGitHubAppWebhook(ctx context.Context, eventType string, 
 	if !githubconnector.VerifyWebhookSignature(s.GitHubAppWebhookSecret, payload, signature) {
 		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
 	}
-	if normalizedEventType == "installation" || normalizedEventType == "installation_repositories" {
+	if normalizedEventType == "installation" {
 		event, err := githubconnector.ParseInstallationEvent(payload)
 		if err != nil {
 			return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
@@ -926,6 +926,16 @@ func (s *Service) HandleGitHubAppWebhook(ctx context.Context, eventType string, 
 		return GitHubWebhookResult{
 			EventType:       event.Action,
 			MatchedProjects: s.markGitHubInstallationDisconnected(ctx, event),
+		}, nil
+	}
+	if normalizedEventType == "installation_repositories" {
+		event, err := githubconnector.ParseInstallationRepositoriesEvent(payload)
+		if err != nil {
+			return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
+		}
+		return GitHubWebhookResult{
+			EventType:       event.Action,
+			MatchedProjects: s.reconcileGitHubInstallationRepositories(ctx, event),
 		}, nil
 	}
 	var envelope githubWebhookEnvelope
@@ -1082,6 +1092,46 @@ func (s *Service) markGitHubInstallationDisconnected(ctx context.Context, event 
 		state.Metadata = metadata
 		state.ObservedAt = now
 		state.UpdatedAt = now
+		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: item.Connector.TenantID, WorkspaceID: item.Connector.WorkspaceID})
+		_ = s.Store.UpsertTenancyConnector(scopedCtx, connector, state)
+	}
+	if matched > 0 {
+		s.hydrateGitHubConnections(ctx)
+	}
+	return matched
+}
+
+func (s *Service) reconcileGitHubInstallationRepositories(ctx context.Context, event githubconnector.InstallationRepositoriesEvent) int {
+	items, err := s.Store.ListTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		return 0
+	}
+	now := s.Now().UTC()
+	matched := 0
+	added := normalizeGitHubRepositoriesLenient(event.AddedRepositories)
+	removed := normalizeGitHubRepositoriesLenient(event.RemovedRepositories)
+	for _, item := range items {
+		if metadataInt64(item.State.Metadata, "installation_id") != event.InstallationID {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
+			continue
+		}
+		matched++
+		metadata := copyMetadata(item.State.Metadata)
+		metadata["installation_repositories_action"] = event.Action
+		metadata["last_repository_selection_event_at"] = now.Format(time.RFC3339Nano)
+		metadata["selected_repositories"] = reconcileGitHubRepositorySelection(
+			metadataStringSlice(metadata, "selected_repositories"),
+			added,
+			removed,
+		)
+		state := item.State
+		state.Metadata = metadata
+		state.ObservedAt = now
+		state.UpdatedAt = now
+		connector := item.Connector
+		connector.UpdatedAt = now
 		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: item.Connector.TenantID, WorkspaceID: item.Connector.WorkspaceID})
 		_ = s.Store.UpsertTenancyConnector(scopedCtx, connector, state)
 	}
@@ -1320,22 +1370,31 @@ func (s *Service) loadGitHubConnection(ctx context.Context, scope db.Scope, work
 		TenantID:    scope.TenantID,
 		WorkspaceID: workspaceID,
 	})
-	item, err := s.Store.GetTenancyConnector(scopedCtx, workspaceID, projectID, githubConnectorID)
+	items, err := s.Store.ListTenancyConnectors(scopedCtx, workspaceID, projectID, domain.ConnectorTypeGitHub, 10)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return false, nil
 		}
-		return false, fmt.Errorf("load github connector: %w", err)
+		return false, fmt.Errorf("list github connectors: %w", err)
 	}
-	connection, err := s.githubConnectionFromStored(scopedCtx, item)
-	if err != nil {
-		return false, err
+	for _, item := range items {
+		if item.Connector.Status != domain.ConnectorStatusActive {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
+			continue
+		}
+		connection, err := s.githubConnectionFromStored(scopedCtx, item)
+		if err != nil {
+			return false, err
+		}
+		s.githubConnectMu.Lock()
+		s.ensureGitHubConnectionsState()
+		s.githubConnections[githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)] = connection
+		s.githubConnectMu.Unlock()
+		return true, nil
 	}
-	s.githubConnectMu.Lock()
-	s.ensureGitHubConnectionsState()
-	s.githubConnections[githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)] = connection
-	s.githubConnectMu.Unlock()
-	return true, nil
+	return false, nil
 }
 
 func (s *Service) persistGitHubConnection(ctx context.Context, connection githubProjectConnection) error {
@@ -1636,6 +1695,45 @@ func normalizeGitHubRepositories(repositories []string) ([]string, error) {
 	}
 	sort.Strings(normalized)
 	return normalized, nil
+}
+
+func normalizeGitHubRepositoriesLenient(repositories []string) []string {
+	normalized := make([]string, 0, len(repositories))
+	for _, repository := range repositories {
+		item := normalizeGitHubRepository(repository)
+		if item == "" || !githubRepositoryPattern.MatchString(item) {
+			continue
+		}
+		normalized = append(normalized, item)
+	}
+	return normalized
+}
+
+func reconcileGitHubRepositorySelection(existing []string, added []string, removed []string) []string {
+	selected := make(map[string]struct{}, len(existing)+len(added))
+	for _, repository := range existing {
+		item := normalizeGitHubRepository(repository)
+		if item == "" || !githubRepositoryPattern.MatchString(item) {
+			continue
+		}
+		selected[item] = struct{}{}
+	}
+	for _, repository := range added {
+		item := normalizeGitHubRepository(repository)
+		if item == "" || !githubRepositoryPattern.MatchString(item) {
+			continue
+		}
+		selected[item] = struct{}{}
+	}
+	for _, repository := range removed {
+		delete(selected, normalizeGitHubRepository(repository))
+	}
+	reconciled := make([]string, 0, len(selected))
+	for repository := range selected {
+		reconciled = append(reconciled, repository)
+	}
+	sort.Strings(reconciled)
+	return reconciled
 }
 
 func normalizeGitHubRepository(repository string) string {

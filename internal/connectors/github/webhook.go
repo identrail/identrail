@@ -18,6 +18,15 @@ type InstallationEvent struct {
 	AccountLogin   string
 }
 
+// InstallationRepositoriesEvent is the subset of GitHub repository-selection
+// webhooks needed to keep connector repository allowlists current.
+type InstallationRepositoriesEvent struct {
+	Action              string
+	InstallationID      int64
+	AddedRepositories   []string
+	RemovedRepositories []string
+}
+
 // VerifyWebhookSignature verifies GitHub's X-Hub-Signature-256 value.
 func VerifyWebhookSignature(secret string, payload []byte, signature string) bool {
 	normalizedSecret := strings.TrimSpace(secret)
@@ -57,6 +66,46 @@ func ParseInstallationEvent(payload []byte) (InstallationEvent, error) {
 	}
 	if event.InstallationID <= 0 {
 		return InstallationEvent{}, fmt.Errorf("installation id is required")
+	}
+	return event, nil
+}
+
+// ParseInstallationRepositoriesEvent extracts added and removed repositories
+// from an installation_repositories webhook.
+func ParseInstallationRepositoriesEvent(payload []byte) (InstallationRepositoriesEvent, error) {
+	var body struct {
+		Action       string `json:"action"`
+		Installation struct {
+			ID int64 `json:"id"`
+		} `json:"installation"`
+		RepositoriesAdded []struct {
+			FullName string `json:"full_name"`
+		} `json:"repositories_added"`
+		RepositoriesRemoved []struct {
+			FullName string `json:"full_name"`
+		} `json:"repositories_removed"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return InstallationRepositoriesEvent{}, err
+	}
+	event := InstallationRepositoriesEvent{
+		Action:         strings.ToLower(strings.TrimSpace(body.Action)),
+		InstallationID: body.Installation.ID,
+	}
+	if event.InstallationID <= 0 {
+		return InstallationRepositoriesEvent{}, fmt.Errorf("installation id is required")
+	}
+	for _, repository := range body.RepositoriesAdded {
+		fullName := strings.ToLower(strings.TrimSpace(repository.FullName))
+		if fullName != "" {
+			event.AddedRepositories = append(event.AddedRepositories, fullName)
+		}
+	}
+	for _, repository := range body.RepositoriesRemoved {
+		fullName := strings.ToLower(strings.TrimSpace(repository.FullName))
+		if fullName != "" {
+			event.RemovedRepositories = append(event.RemovedRepositories, fullName)
+		}
 	}
 	return event, nil
 }
