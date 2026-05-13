@@ -23,6 +23,33 @@ func TestNormalizeScanEventLevel(t *testing.T) {
 	}
 }
 
+func TestNormalizeRepoFindingClusterListFilter(t *testing.T) {
+	normalized := NormalizeRepoFindingClusterListFilter(RepoFindingClusterListFilter{
+		RepoScanID: " repo-scan-1 ",
+		Severity:   " HIGH ",
+		Type:       " SECRET_EXPOSURE ",
+		SortBy:     "repository",
+		SortDesc:   true,
+		Limit:      25,
+		Offset:     7,
+	})
+	if normalized.RepoScanID != "repo-scan-1" || normalized.Severity != "high" || normalized.Type != "secret_exposure" {
+		t.Fatalf("expected trimmed and normalized filter, got %+v", normalized)
+	}
+	if normalized.SortBy != "repository" || !normalized.SortDesc || normalized.Limit != 25 || normalized.Offset != 7 {
+		t.Fatalf("expected explicit page and sort controls to pass through, got %+v", normalized)
+	}
+
+	fallback := NormalizeRepoFindingClusterListFilter(RepoFindingClusterListFilter{
+		SortBy: "unsupported",
+		Limit:  -1,
+		Offset: -5,
+	})
+	if fallback.SortBy != "last_seen_at" || fallback.Limit != 100 || fallback.Offset != 0 {
+		t.Fatalf("expected stable defaults for unsupported inputs, got %+v", fallback)
+	}
+}
+
 func TestStoreCloseHelpers(t *testing.T) {
 	mem := NewMemoryStore()
 	if err := mem.Close(); err != nil {

@@ -182,3 +182,65 @@ func TestBuildRepoFindingClustersPromotesHighestSeverity(t *testing.T) {
 		t.Fatalf("expected highest cluster severity to win, got %+v", clusters[0])
 	}
 }
+
+func TestSortRepoFindingClusters(t *testing.T) {
+	clusters := []RepoFindingCluster{
+		{
+			ID:          "cluster-b",
+			Repository:  "owner/repo-b",
+			Severity:    SeverityHigh,
+			Detector:    "workflow_pull_request_target",
+			Count:       2,
+			FirstSeenAt: time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC),
+			LastSeenAt:  time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          "cluster-a",
+			Repository:  "owner/repo-a",
+			Severity:    SeverityCritical,
+			Detector:    "aws_access_key_id",
+			Count:       5,
+			FirstSeenAt: time.Date(2026, 4, 28, 9, 0, 0, 0, time.UTC),
+			LastSeenAt:  time.Date(2026, 5, 1, 12, 5, 0, 0, time.UTC),
+		},
+		{
+			ID:          "cluster-c",
+			Repository:  "owner/repo-c",
+			Severity:    SeverityLow,
+			Detector:    "docker_latest_tag",
+			Count:       1,
+			FirstSeenAt: time.Date(2026, 4, 30, 9, 0, 0, 0, time.UTC),
+			LastSeenAt:  time.Date(2026, 5, 1, 11, 0, 0, 0, time.UTC),
+		},
+	}
+
+	SortRepoFindingClusters(clusters, "count", true)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected count-desc sort, got %+v", clusters)
+	}
+
+	SortRepoFindingClusters(clusters, "severity", true)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected severity-desc sort, got %+v", clusters)
+	}
+
+	SortRepoFindingClusters(clusters, "first_seen_at", false)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected first_seen_at-asc sort, got %+v", clusters)
+	}
+
+	SortRepoFindingClusters(clusters, "detector", false)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected detector-asc sort, got %+v", clusters)
+	}
+
+	SortRepoFindingClusters(clusters, "repository", false)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected repository-asc sort, got %+v", clusters)
+	}
+
+	SortRepoFindingClusters(clusters, "last_seen_at", true)
+	if clusters[0].ID != "cluster-a" {
+		t.Fatalf("expected last_seen_at-desc sort, got %+v", clusters)
+	}
+}

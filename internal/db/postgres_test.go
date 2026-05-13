@@ -828,6 +828,61 @@ func TestPostgresStoreListRepoFindingClustersPagesInStore(t *testing.T) {
 	}
 }
 
+func TestRepoFindingClusterQueryHelpers(t *testing.T) {
+	scope := Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	query, args, nextArg := repoFindingClusterFilteredCTE(scope, RepoFindingClusterListFilter{
+		RepoScanID: "repo-scan-1",
+		Severity:   "high",
+		Type:       "secret_exposure",
+	})
+	if nextArg != 6 {
+		t.Fatalf("expected next arg index 6, got %d", nextArg)
+	}
+	if len(args) != 5 || args[0] != "tenant-a" || args[1] != "workspace-a" || args[2] != "repo-scan-1" || args[3] != "high" || args[4] != "secret_exposure" {
+		t.Fatalf("unexpected filtered CTE args: %+v", args)
+	}
+	for _, expected := range []string{
+		"WITH filtered AS",
+		"rf.repo_scan_id = $3::uuid",
+		"LOWER(rf.severity) = $4",
+		"LOWER(rf.type) = $5",
+		"rf.evidence->>'secret_fingerprint'",
+		"jsonb_array_length(rf.path) > 0",
+		"CASE LOWER(rf.severity)",
+	} {
+		if !strings.Contains(query, expected) {
+			t.Fatalf("expected filtered CTE query to contain %q, got %s", expected, query)
+		}
+	}
+
+	orderCases := map[string]string{
+		"count":         "s.finding_count DESC, s.cluster_key ASC",
+		"severity":      "s.severity_rank DESC, s.finding_count DESC, s.cluster_key ASC",
+		"repository":    "s.repository ASC, s.finding_count ASC, s.cluster_key ASC",
+		"detector":      "s.detector ASC, s.finding_count ASC, s.cluster_key ASC",
+		"first_seen_at": "s.first_seen_at ASC, s.finding_count ASC, s.cluster_key ASC",
+		"last_seen_at":  "s.last_seen_at DESC, s.finding_count DESC, s.cluster_key ASC",
+	}
+	if got := repoFindingClusterOrderClause("count", true); got != orderCases["count"] {
+		t.Fatalf("unexpected count order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("severity", true); got != orderCases["severity"] {
+		t.Fatalf("unexpected severity order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("repository", false); got != orderCases["repository"] {
+		t.Fatalf("unexpected repository order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("detector", false); got != orderCases["detector"] {
+		t.Fatalf("unexpected detector order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("first_seen_at", false); got != orderCases["first_seen_at"] {
+		t.Fatalf("unexpected first_seen_at order clause: %s", got)
+	}
+	if got := repoFindingClusterOrderClause("last_seen_at", true); got != orderCases["last_seen_at"] {
+		t.Fatalf("unexpected last_seen_at order clause: %s", got)
+	}
+}
+
 func TestPostgresStoreFindingTriageStateAndHistory(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
