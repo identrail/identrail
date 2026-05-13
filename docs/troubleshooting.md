@@ -47,17 +47,18 @@ Checks:
 ## GitHub Action says missing `VITE_IDENTRAIL_API_URL`
 
 Symptoms:
-1. `Vercel Production Deploy` workflow logs show missing `vars.VITE_IDENTRAIL_API_URL`.
-2. Vercel dashboard still shows successful deployments.
+1. Older `Vercel Production Deploy` workflow logs show missing `vars.VITE_IDENTRAIL_API_URL`.
+2. The browser sign-in page shows `Identrail API URL is not configured`.
+3. Vercel dashboard still shows successful deployments.
 
 Why this happens:
-1. GitHub workflow checks repository variable `vars.VITE_IDENTRAIL_API_URL`.
-2. Vercel can still deploy successfully when the variable already exists directly in Vercel project settings.
-3. Hook-only fallback deploys use the env already configured in Vercel and cannot upsert or inspect that value from GitHub Actions.
+1. Vite bakes `VITE_IDENTRAIL_API_URL` into the production web bundle at build time.
+2. Token-based GitHub deploys now default Identrail Cloud to `https://api.identrail.com` and upsert that value into Vercel when the GitHub variable is missing.
+3. Hook-only fallback deploys use the env already configured in Vercel and cannot upsert or inspect that value from GitHub Actions, so canonical Identrail Cloud domains rely on the runtime default while custom domains still need an explicit value.
 
 Checks:
-1. In GitHub: `Settings` -> `Secrets and variables` -> `Actions` -> `Variables`, confirm `VITE_IDENTRAIL_API_URL` exists.
-2. In Vercel: `Project` -> `Settings` -> `Environment Variables`, confirm `VITE_IDENTRAIL_API_URL` exists for Production.
+1. In GitHub: `Settings` -> `Secrets and variables` -> `Actions` -> `Variables`, confirm `VITE_IDENTRAIL_API_URL` exists if using a custom API origin.
+2. In Vercel: `Project` -> `Settings` -> `Environment Variables`, confirm `VITE_IDENTRAIL_API_URL` exists for custom domains or non-hook deploys that must avoid the Identrail Cloud default.
 3. Ensure the value points to the public API URL (not the web frontend URL).
 
 For Identrail Cloud, the intended value is:

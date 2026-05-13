@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiClient, buildQuery, mergeRequestHeaders } from './client';
+import { IDENTRAIL_CLOUD_API_URL, apiClient, buildQuery, mergeRequestHeaders, resolveAPIBaseURL } from './client';
 
 describe('buildQuery', () => {
   it('encodes defined query params only', () => {
@@ -11,6 +11,26 @@ describe('buildQuery', () => {
       missing: undefined
     });
     expect(query).toBe('?scan_id=scan-1&severity=high&include_archived=true');
+  });
+});
+
+describe('resolveAPIBaseURL', () => {
+  it('uses the configured API URL when one is provided', () => {
+    expect(resolveAPIBaseURL(' https://api.example.com ', true, 'identrail.com')).toBe('https://api.example.com');
+  });
+
+  it('uses the Identrail Cloud API default for canonical production hosts', () => {
+    for (const hostname of ['identrail.com', 'www.identrail.com', 'app.identrail.com']) {
+      expect(resolveAPIBaseURL(undefined, true, hostname)).toBe(IDENTRAIL_CLOUD_API_URL);
+    }
+  });
+
+  it('requires explicit configuration for custom production hosts', () => {
+    expect(resolveAPIBaseURL(undefined, true, 'customer.example.com')).toBe('');
+  });
+
+  it('uses localhost for unconfigured development builds', () => {
+    expect(resolveAPIBaseURL(undefined, false, 'localhost')).toBe('http://localhost:8080');
   });
 });
 

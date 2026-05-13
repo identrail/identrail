@@ -70,16 +70,19 @@ jobs:
         if: steps.normalize-token.outputs.has_token == 'true'
         env:
           VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
+          IDENTRAIL_CLOUD_API_URL: https://api.identrail.com
           IDENTRAIL_WEB_ORIGINS: https://identrail.com,https://www.identrail.com,https://app.identrail.com
         run: |
           set -euo pipefail
+          api_url="$(printf '%s' "${VITE_IDENTRAIL_API_URL:-${IDENTRAIL_CLOUD_API_URL}}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           if [ -z "${VITE_IDENTRAIL_API_URL}" ]; then
-            echo "Missing vars.VITE_IDENTRAIL_API_URL."
-            echo "Set this GitHub Actions variable before production deploys."
-            exit 1
+            echo "vars.VITE_IDENTRAIL_API_URL is not set; using Identrail Cloud default ${IDENTRAIL_CLOUD_API_URL}."
           fi
-          ./scripts/check_public_api_url.sh "${VITE_IDENTRAIL_API_URL}"
-          echo "has_api_url=true" >> "$GITHUB_OUTPUT"
+          ./scripts/check_public_api_url.sh "${api_url}"
+          {
+            echo "api_url=${api_url}"
+            echo "has_api_url=true"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upsert Vercel env VITE_IDENTRAIL_API_URL
         if: steps.normalize-token.outputs.has_token == 'true' && steps.check-api-url.outputs.has_api_url == 'true'
@@ -87,7 +90,7 @@ jobs:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
+          VITE_IDENTRAIL_API_URL: ${{ steps.check-api-url.outputs.api_url }}
         run: |
           set -euo pipefail
           payload="$(jq -n --arg value "${VITE_IDENTRAIL_API_URL}" '{

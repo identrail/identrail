@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added an Identrail Cloud API URL fallback for production web deploys:
+  - canonical hosted web domains now use `https://api.identrail.com` when no build-time API URL is injected
+  - Vercel production deploys default and upsert the same API URL when the GitHub Actions variable is absent
+  - refreshed frontend/auth deployment docs so the `api.identrail.com` split is documented consistently
 - Added expiring suppression baselines for findings:
   - findings now expose deterministic `confidence_score` values to help analysts judge likely false positives
   - finding suppressions now require a future `suppression_expires_at` when a finding is moved into `suppressed`

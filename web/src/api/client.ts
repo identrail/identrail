@@ -498,18 +498,45 @@ export type GitHubConnectionStatus = {
 
 const viteEnv = ((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<string, unknown>;
 const isProd = viteEnv.PROD === true || viteEnv.PROD === 'true';
-const configuredURL = typeof viteEnv.VITE_IDENTRAIL_API_URL === 'string' ? viteEnv.VITE_IDENTRAIL_API_URL : undefined;
+const configuredURL = typeof viteEnv.VITE_IDENTRAIL_API_URL === 'string' ? trimOrUndefined(viteEnv.VITE_IDENTRAIL_API_URL) : undefined;
+const IDENTRAIL_CLOUD_WEB_HOSTNAMES = new Set(['identrail.com', 'www.identrail.com', 'app.identrail.com']);
+export const IDENTRAIL_CLOUD_API_URL = 'https://api.identrail.com';
+
+function trimOrUndefined(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function currentBrowserHostname(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  return window.location.hostname;
+}
+
+export function resolveAPIBaseURL(configuredAPIURL: string | undefined, production: boolean, hostname?: string): string {
+  const trimmedConfiguredURL = trimOrUndefined(configuredAPIURL);
+  if (trimmedConfiguredURL) {
+    return trimmedConfiguredURL;
+  }
+  const normalizedHostname = hostname?.trim().toLowerCase();
+  if (production && normalizedHostname && IDENTRAIL_CLOUD_WEB_HOSTNAMES.has(normalizedHostname)) {
+    return IDENTRAIL_CLOUD_API_URL;
+  }
+  return production ? '' : 'http://localhost:8080';
+}
+
+const baseURL = resolveAPIBaseURL(configuredURL, isProd, currentBrowserHostname());
 
 // Never silently fall back to localhost in production builds (for example on Vercel).
-// If the API URL is not configured, requests should fail loudly when invoked.
-if (isProd && configuredURL) {
-  const parsed = new URL(configuredURL);
+// Hosted Identrail domains use the canonical cloud API default; custom
+// production hosts still fail loudly unless explicitly configured.
+if (isProd && baseURL) {
+  const parsed = new URL(baseURL);
   if (parsed.protocol === 'http:' && parsed.hostname !== 'localhost') {
     throw new Error('VITE_IDENTRAIL_API_URL must use HTTPS in production (HTTP only allowed for localhost)');
   }
 }
-
-const baseURL = configuredURL ?? (isProd ? '' : 'http://localhost:8080');
 
 type IdentrailRequestInit = RequestInit & {
   redirectOnUnauthorized?: boolean;
@@ -526,17 +553,12 @@ export class ApiError extends Error {
 }
 
 export function buildAPIURL(path: string): string {
-  if (isProd && !configuredURL) {
+  if (isProd && !baseURL) {
     throw new Error(
-      'Identrail API URL is not configured. Set VITE_IDENTRAIL_API_URL in Vercel project environment variables.'
+      'Identrail API URL is not configured. Set VITE_IDENTRAIL_API_URL or use an Identrail Cloud web domain.'
     );
   }
   return `${baseURL}${path}`;
-}
-
-function trimOrUndefined(value?: string): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
 }
 
 function buildRequestHeaders(auth?: RequestAuthContext): Record<string, string> {
@@ -586,9 +608,9 @@ function redirectToSignInForUnauthorized() {
 }
 
 async function request<T>(path: string, auth?: RequestAuthContext, init: IdentrailRequestInit = {}): Promise<T> {
-  if (isProd && !configuredURL) {
+  if (isProd && !baseURL) {
     throw new Error(
-      'Identrail API URL is not configured. Set VITE_IDENTRAIL_API_URL in Vercel project environment variables.'
+      'Identrail API URL is not configured. Set VITE_IDENTRAIL_API_URL or use an Identrail Cloud web domain.'
     );
   }
   const { redirectOnUnauthorized = true, ...fetchInit } = init;

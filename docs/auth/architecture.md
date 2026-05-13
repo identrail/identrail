@@ -106,16 +106,15 @@ See [`cookie-and-session-spec.md`](./cookie-and-session-spec.md) for the full co
 
 ## Domains
 
-Identrail uses two public domains.
+Identrail uses three public domain roles.
 
 | Purpose | Domain | What lives here |
 | --- | --- | --- |
-| Marketing | `www.identrail.com` and apex `identrail.com` | The marketing site. No app code, no cookies. |
-| Application | `app.identrail.com` | The product UI, the API endpoints (`/v1/*`), and the auth endpoints (`/auth/*`). |
+| Marketing | `www.identrail.com` and apex `identrail.com` | The marketing site and public auth entry points. No session cookies. |
+| Application | `app.identrail.com` | The product UI. |
+| API | `api.identrail.com` | API endpoints (`/v1/*`) and auth endpoints (`/auth/*`). |
 
-Cookies are scoped to `app.identrail.com` only, with no leading dot. The marketing site never sees the session cookie.
-
-We do not use `api.identrail.com`. Same-origin between the UI and API simplifies CORS, lets the cookie ride along automatically, and reduces operational surface. If a future API customer use case demands a stable `api.` host, we add it as an alias without changing this architecture.
+Cookies are scoped to the API host that issues them, with no leading dot. The marketing site never sees the session cookie. Browser calls from the web origins to `api.identrail.com` require the production CORS allowlist and credentialed requests described in [`production-api-readiness.md`](./production-api-readiness.md).
 
 The canonical production base URL lives in `IDENTRAIL_PUBLIC_BASE_URL`. The doc references this env var rather than hardcoding the string. See [`env-vars-reference.md`](./env-vars-reference.md).
 

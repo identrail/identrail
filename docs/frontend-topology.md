@@ -11,7 +11,7 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
   - Scoped shell paths: `/app/:tenantID/:workspaceID/*`
 - Typical runtime: containerized deployment (`deploy/docker/Dockerfile.web`, optional Helm `web.enabled`)
 - API URL input: `VITE_IDENTRAIL_API_URL`
-- Vercel (marketing/demo deploy): set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables (or set GitHub Actions variable `VITE_IDENTRAIL_API_URL` so the deploy workflow upserts it).
+- Vercel (marketing/demo deploy): Identrail Cloud domains default to `https://api.identrail.com`; custom domains should set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables or as a GitHub Actions variable so the deploy workflow upserts it.
 - Production deploys should be triggered from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
 
 ### `VITE_IDENTRAIL_API_URL` value source
@@ -20,8 +20,8 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
 - Typical value shape: `https://api.<your-domain>`
 - If the API is served from the same domain via reverse proxy, use that public API base path.
 - Configure the API deployment with `IDENTRAIL_CORS_ALLOWED_ORIGINS` set to the web app origin when the frontend and API use different origins.
-- The default Vercel CSP allows `https://api.identrail.io`; update `connect-src` when using a custom API host.
-- For Identrail Cloud, use `https://api.identrail.com` once that API domain is live. Do not use `https://identrail.com`, `https://www.identrail.com`, or `https://app.identrail.com`; those are web origins.
+- The default Vercel CSP allows `https://api.identrail.com`, the legacy `https://api.identrail.io`, and any configured `VITE_IDENTRAIL_API_URL` origin; update `connect-src` when using another custom API host.
+- For Identrail Cloud, the production web bundle falls back to `https://api.identrail.com` when it is served from `identrail.com`, `www.identrail.com`, or `app.identrail.com`. Do not use `https://identrail.com`, `https://www.identrail.com`, or `https://app.identrail.com`; those are web origins.
 
 ### Where to configure it
 
@@ -32,7 +32,7 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
    - `Project` -> `Settings` -> `Environment Variables`
    - Add `VITE_IDENTRAIL_API_URL` for Production (and Preview if needed)
 
-For token-based Vercel deployments, if the GitHub Actions variable is missing, the production deploy workflow fails before deployment so the web app cannot ship without an explicit API URL. Hook-only fallback deployments cannot read Vercel project env values from GitHub Actions; keep `VITE_IDENTRAIL_API_URL` configured directly in Vercel and run the preflight manually before relying on the hook fallback.
+For token-based Vercel deployments, if the GitHub Actions variable is missing, the production deploy workflow uses the Identrail Cloud default and upserts `VITE_IDENTRAIL_API_URL=https://api.identrail.com` into Vercel. Hook-only fallback deployments cannot upsert or inspect Vercel project env values from GitHub Actions, so the runtime fallback still protects the canonical Identrail Cloud domains while custom domains must keep `VITE_IDENTRAIL_API_URL` configured directly in Vercel.
 
 ### Production API preflight
 

@@ -18,6 +18,7 @@ function originFromURL(value?: string): string | null {
 function buildConnectSrc(env: Record<string, string>, isProduction: boolean): string {
   const allowlist = new Set<string>([
     "'self'",
+    'https://api.identrail.com',
     'https://api.identrail.io',
     'https://api.github.com',
     'https://img.shields.io'

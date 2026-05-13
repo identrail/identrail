@@ -20,6 +20,11 @@ VITE_IDENTRAIL_API_URL=https://api.identrail.com
 ```
 
 It must not point at `https://identrail.com`, `https://www.identrail.com`, or `https://app.identrail.com`.
+When the production web bundle is served from the canonical Identrail Cloud
+domains (`identrail.com`, `www.identrail.com`, or `app.identrail.com`), it uses
+`https://api.identrail.com` as a safe default if `VITE_IDENTRAIL_API_URL` was not
+injected at build time. Self-hosted and custom-domain deployments still need an
+explicit `VITE_IDENTRAIL_API_URL` value so they never guess the wrong API.
 
 ## API Requirements
 
