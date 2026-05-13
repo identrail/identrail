@@ -4,6 +4,8 @@ fail-on-severity: high
 license-check: true
 allow-dependencies-licenses:
   - pkg:golang/github.com/apparentlymart/go-textseg/v15
+  - pkg:golang/golang.org/x/mod
+  - pkg:golang/golang.org/x/tools
 allow-licenses:
   - MIT
   - Apache-2.0
