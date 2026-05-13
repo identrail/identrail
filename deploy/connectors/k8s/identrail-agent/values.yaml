@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/identrail/identrail-agent
-  tag: latest
+  tag: dev
   pullPolicy: IfNotPresent
 
 api:

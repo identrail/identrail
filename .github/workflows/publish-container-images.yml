@@ -113,6 +113,18 @@ jobs:
             .
 
           docker buildx build \
+            --platform "${backend_platforms}" \
+            --push \
+            "${common_labels[@]}" \
+            --label "org.opencontainers.image.title=Identrail Agent" \
+            --label "org.opencontainers.image.description=Identrail Kubernetes connector agent" \
+            -t "${base}-agent:${channel_tag}" \
+            -t "${base}-agent:${sha_tag}" \
+            -f deploy/docker/Dockerfile.backend \
+            --build-arg TARGET=identrail-agent \
+            .
+
+          docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --push \
             "${common_labels[@]}" \

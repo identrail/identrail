@@ -263,6 +263,69 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 	if !heartbeatBody.Connection.Connected || heartbeatBody.Connection.LastHeartbeatAt == nil {
 		t.Fatalf("expected active heartbeat connection, got %+v", heartbeatBody.Connection)
 	}
+
+	statusResp := doKubernetesConnectionAPI(t, r, http.MethodGet, "/v1/connectors/k8s?workspace_id=workspace-a&project_id=project-1", "")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("expected connector status 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusBody struct {
+		Connection KubernetesConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
+		t.Fatalf("decode status response: %v", err)
+	}
+	if statusBody.Connection.ConnectorID != "kubernetes-prod" || statusBody.Connection.AgentID != "agent-a" {
+		t.Fatalf("expected persisted agent status, got %+v", statusBody.Connection)
+	}
+}
+
+func TestRouterKubernetesConnectorUsesForwardedBaseURL(t *testing.T) {
+	r, _ := newKubernetesConnectorV2TestRouterWithPublicBaseURL(t, "")
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/k8s", bytes.NewBufferString(`{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"kubernetes-forwarded"
+	}`))
+	req.Header.Set("X-API-Key", "writer-key")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "http")
+	req.Header.Set("X-Forwarded-Host", "api.forwarded.test")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected start connector 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body KubernetesConnectorStartResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if !bytes.Contains([]byte(body.HelmCommand), []byte(`api.url="http://api.forwarded.test"`)) {
+		t.Fatalf("helm command did not use forwarded base URL: %q", body.HelmCommand)
+	}
+}
+
+func TestRouterKubernetesConnectorRejectsInvalidAgentRequests(t *testing.T) {
+	r, _ := newKubernetesConnectorV2TestRouter(t)
+
+	malformedEnroll := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{`, "")
+	if malformedEnroll.Code != http.StatusBadRequest {
+		t.Fatalf("expected malformed enroll 400, got %d body=%s", malformedEnroll.Code, malformedEnroll.Body.String())
+	}
+
+	invalidHeartbeat := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{"connector_id":"kubernetes-prod"}`, "not-a-token")
+	if invalidHeartbeat.Code != http.StatusUnauthorized {
+		t.Fatalf("expected invalid heartbeat 401, got %d body=%s", invalidHeartbeat.Code, invalidHeartbeat.Body.String())
+	}
+
+	invalidKubeconfig := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/kubeconfig", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"kubernetes-kubeconfig",
+		"kubeconfig":"not a kubeconfig"
+	}`)
+	if invalidKubeconfig.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid kubeconfig 400, got %d body=%s", invalidKubeconfig.Code, invalidKubeconfig.Body.String())
+	}
 }
 
 func TestRouterKubernetesConnectorFeatureFlagDisabled(t *testing.T) {
@@ -345,6 +408,10 @@ func newKubernetesConnectionTestRouter(t *testing.T, factory KubernetesConnector
 }
 
 func newKubernetesConnectorV2TestRouter(t *testing.T) (*gin.Engine, *db.MemoryStore) {
+	return newKubernetesConnectorV2TestRouterWithPublicBaseURL(t, "https://api.identrail.test")
+}
+
+func newKubernetesConnectorV2TestRouterWithPublicBaseURL(t *testing.T, publicBaseURL string) (*gin.Engine, *db.MemoryStore) {
 	t.Helper()
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "kubernetes")
@@ -354,7 +421,7 @@ func newKubernetesConnectorV2TestRouter(t *testing.T) (*gin.Engine, *db.MemorySt
 		DefaultTenantID:     "tenant-a",
 		DefaultWorkspaceID:  "workspace-a",
 		FeatureConnectorK8S: true,
-		PublicBaseURL:       "https://api.identrail.test",
+		PublicBaseURL:       publicBaseURL,
 	})
 	_ = doKubernetesConnectionAPI(t, r, http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`)
 	_ = doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`)
