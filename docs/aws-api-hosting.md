@@ -20,7 +20,10 @@ The ECS task definition sets production-oriented runtime defaults for the hosted
 API: `IDENTRAIL_AWS_SOURCE=sdk`, `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`, and
 `IDENTRAIL_AWS_REGION` from `aws_region`. It also sets `IDENTRAIL_HTTP_ADDR`
 from `api_container_port` so the app listens on the port exposed to the load
-balancer. Terraform refuses overrides that would move the hosted API back to
+balancer, `IDENTRAIL_CORS_ALLOWED_ORIGINS` from `api_cors_allowed_origins`, and
+`IDENTRAIL_TRUSTED_PROXIES` from `api_trusted_proxy_cidr_blocks` so browser
+requests from the Vercel app and ALB forwarded client IPs work before DNS
+cutover. Terraform refuses overrides that would move the hosted API back to
 fixture-backed AWS scans.
 
 The API task role receives the read-only IAM discovery permissions that the live
@@ -37,6 +40,9 @@ Before a manual apply, operators must provide:
 - `api_private_subnet_ids` for Fargate tasks
 - `api_certificate_arn` for HTTPS on `api.identrail.com`
 - `api_container_image` pinned to an immutable release tag
+- `api_cors_allowed_origins`, defaulting to the Identrail Cloud web origins
+- `api_trusted_proxy_cidr_blocks`, defaulting to private VPC ranges used by ALB
+  nodes in common AWS VPCs
 - `api_secrets`, including `IDENTRAIL_DATABASE_URL` as a Secrets Manager ARN
 - `api_secret_kms_key_arns` when any referenced secret uses a
   customer-managed KMS key
@@ -61,7 +67,9 @@ For the first manual AWS plan, prefer Secrets Manager references for
 `IDENTRAIL_DATABASE_URL`, `IDENTRAIL_API_KEY_SCOPES`, and, when tenant/workspace
 isolation is ready, `IDENTRAIL_API_KEY_SCOPE_BINDINGS`. The Terraform guard will
 refuse to plan API hosting without a database reference and at least one auth
-mode so ECS tasks do not boot into a known-bad configuration.
+mode so ECS tasks do not boot into a known-bad configuration. It also refuses to
+plan API hosting without at least one HTTPS CORS origin and at least one trusted
+proxy CIDR.
 
 Leave `api_connector_role_arns` empty for the first single-account API hosting
 plan. Populate it later with reviewed AWS connector role ARNs when the hosted API

@@ -14,16 +14,26 @@ locals {
     "16384" = range(32768, 122881, 8192)
   }
   api_fargate_memory_options = lookup(local.api_fargate_memory_by_cpu, tostring(var.api_task_cpu), [])
+  api_cors_allowed_origins   = join(",", var.api_cors_allowed_origins)
+  api_trusted_proxies        = join(",", var.api_trusted_proxy_cidr_blocks)
   api_default_environment_variables = {
     IDENTRAIL_AWS_REGION           = var.aws_region
     IDENTRAIL_AWS_SOURCE           = "sdk"
+    IDENTRAIL_CORS_ALLOWED_ORIGINS = local.api_cors_allowed_origins
     IDENTRAIL_HTTP_ADDR            = ":${var.api_container_port}"
     IDENTRAIL_REQUIRE_LIVE_SOURCES = "true"
+    IDENTRAIL_TRUSTED_PROXIES      = local.api_trusted_proxies
   }
   api_runtime_environment_variables = merge(local.api_default_environment_variables, var.api_environment_variables)
   api_config_names                  = toset(concat(keys(local.api_runtime_environment_variables), keys(var.api_secrets)))
   api_secret_config_names           = toset(keys(var.api_secrets))
-  api_new_auth_enabled              = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_NEW_AUTH", "")) == "true"
+  api_runtime_cors_allowed_origins = compact([
+    for origin in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_CORS_ALLOWED_ORIGINS", "")) : trimspace(origin)
+  ])
+  api_runtime_trusted_proxies = compact([
+    for cidr_block in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_TRUSTED_PROXIES", "")) : trimspace(cidr_block)
+  ])
+  api_new_auth_enabled = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_NEW_AUTH", "")) == "true"
   api_has_supported_auth = (
     contains(local.api_secret_config_names, "IDENTRAIL_API_KEY_SCOPES") ||
     (contains(local.api_secret_config_names, "IDENTRAIL_API_KEYS") && contains(local.api_secret_config_names, "IDENTRAIL_WRITE_API_KEYS")) ||
@@ -92,6 +102,20 @@ resource "terraform_data" "api_inputs" {
     precondition {
       condition     = local.api_has_supported_auth
       error_message = "API hosting requires at least one supported auth mode: IDENTRAIL_API_KEY_SCOPES in api_secrets, legacy IDENTRAIL_API_KEYS plus IDENTRAIL_WRITE_API_KEYS in api_secrets, OIDC issuer plus audience, or new auth with IDENTRAIL_FEATURE_NEW_AUTH=true, IDENTRAIL_PUBLIC_BASE_URL, and IDENTRAIL_SESSION_KEY in api_secrets."
+    }
+
+    precondition {
+      condition = length(local.api_runtime_cors_allowed_origins) > 0 && alltrue([
+        for origin in local.api_runtime_cors_allowed_origins : can(regex("^https://[^, ]+$", origin))
+      ])
+      error_message = "API hosting requires IDENTRAIL_CORS_ALLOWED_ORIGINS to contain at least one HTTPS web origin."
+    }
+
+    precondition {
+      condition = length(local.api_runtime_trusted_proxies) > 0 && alltrue([
+        for cidr_block in local.api_runtime_trusted_proxies : can(cidrhost(cidr_block, 0)) && can(cidrnetmask(cidr_block))
+      ])
+      error_message = "API hosting requires IDENTRAIL_TRUSTED_PROXIES to contain at least one trusted ALB/VPC proxy CIDR."
     }
 
     precondition {

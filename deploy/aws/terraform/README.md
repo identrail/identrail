@@ -33,7 +33,10 @@ before it will plan ECS resources.
 The hosted API task also defaults to live AWS collection with
 `IDENTRAIL_AWS_SOURCE=sdk`, `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`, and
 `IDENTRAIL_AWS_REGION` from `aws_region`. It binds the API process with
-`IDENTRAIL_HTTP_ADDR` from `api_container_port`.
+`IDENTRAIL_HTTP_ADDR` from `api_container_port`, allows the Identrail Cloud web
+origins through `IDENTRAIL_CORS_ALLOWED_ORIGINS`, and configures
+`IDENTRAIL_TRUSTED_PROXIES` from `api_trusted_proxy_cidr_blocks` so ALB
+`X-Forwarded-For` client IPs are honored by audit and rate-limit paths.
 The task role includes the read-only IAM discovery calls required by that live
 collector. Optional `sts:AssumeRole` access is limited to ARNs listed in
 `api_connector_role_arns`.
@@ -86,6 +89,8 @@ terraform plan \
   -var='api_private_subnet_ids=["<private-subnet-a>","<private-subnet-b>"]' \
   -var='api_certificate_arn=<api-certificate-arn>' \
   -var='api_container_image=ghcr.io/identrail/identrail-api:<immutable-release-tag>' \
+  -var='api_cors_allowed_origins=["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' \
+  -var='api_trusted_proxy_cidr_blocks=["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' \
   -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_API_KEY_SCOPES":"<api-key-scopes-secret-arn>"}' \
   -var='api_secret_kms_key_arns=[]' \
   -var='api_connector_role_arns=[]'

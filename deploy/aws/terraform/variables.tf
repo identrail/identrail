@@ -122,6 +122,38 @@ variable "api_allowed_cidr_blocks" {
   }
 }
 
+variable "api_cors_allowed_origins" {
+  description = "HTTPS web origins allowed to call the hosted API from browsers. Defaults to Identrail Cloud web origins."
+  type        = list(string)
+  default = [
+    "https://app.identrail.com",
+    "https://identrail.com",
+    "https://www.identrail.com",
+  ]
+  validation {
+    condition = alltrue([
+      for origin in var.api_cors_allowed_origins : can(regex("^https://[^, ]+$", origin))
+    ])
+    error_message = "api_cors_allowed_origins must contain HTTPS origins such as https://app.identrail.com."
+  }
+}
+
+variable "api_trusted_proxy_cidr_blocks" {
+  description = "CIDR blocks for ALB/VPC proxy IPs trusted by the hosted API when reading X-Forwarded-For."
+  type        = list(string)
+  default = [
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+  ]
+  validation {
+    condition = alltrue([
+      for cidr_block in var.api_trusted_proxy_cidr_blocks : can(cidrhost(cidr_block, 0)) && can(cidrnetmask(cidr_block))
+    ])
+    error_message = "api_trusted_proxy_cidr_blocks must contain valid IPv4 CIDR blocks."
+  }
+}
+
 variable "api_certificate_arn" {
   description = "ACM certificate ARN for the API HTTPS listener. Required when create_api_hosting_resources=true."
   type        = string

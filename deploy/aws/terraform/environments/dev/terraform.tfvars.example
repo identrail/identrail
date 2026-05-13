@@ -16,6 +16,12 @@ log_retention_days    = 30
 # api_private_subnet_ids = ["<private-subnet-a>", "<private-subnet-b>"]
 # api_certificate_arn    = "<api-certificate-arn>"
 # api_container_image    = "ghcr.io/identrail/identrail-api:<immutable-release-tag>"
+# api_cors_allowed_origins = [
+#   "https://app.identrail.com",
+#   "https://identrail.com",
+#   "https://www.identrail.com",
+# ]
+# api_trusted_proxy_cidr_blocks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 # Non-secret task settings only. Put database URLs, API keys, session keys, and
 # OAuth/webhook/HMAC secrets in api_secrets instead.
 # api_environment_variables = {
