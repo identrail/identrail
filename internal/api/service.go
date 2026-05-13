@@ -1265,7 +1265,13 @@ func (s *Service) GetRepoScan(ctx context.Context, repoScanID string) (db.RepoSc
 func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.RepoFindingFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
 	normalized := db.NormalizeRepoFindingFilter(filter)
-	findings, err := s.Store.ListRepoFindings(ctx, normalized, limit)
+	repoLimit := limit
+	if normalized.LifecycleStatus != "" || normalized.Assignee != "" {
+		// Apply triage filters in memory before slicing so older matching rows are not
+		// dropped by the fetch window.
+		repoLimit = 0
+	}
+	findings, err := s.Store.ListRepoFindings(ctx, normalized, repoLimit)
 	if err != nil {
 		return nil, err
 	}

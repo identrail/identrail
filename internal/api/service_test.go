@@ -816,6 +816,54 @@ func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testin
 	}
 }
 
+func TestServiceListRepoFindingsFilterTriagedResultsBeyondLegacyWindow(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+
+	repoFindings := make([]domain.Finding, 0, 5001)
+	for i := 0; i < 5001; i++ {
+		id := fmt.Sprintf("repo-finding-%04d", i)
+		repoFindings = append(repoFindings, domain.Finding{
+			ID:        id,
+			Type:      domain.FindingSecretExposure,
+			Severity:  domain.SeverityHigh,
+			CreatedAt: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, repoFindings); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	ack := string(domain.FindingLifecycleAck)
+	_, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"repo-finding-0000",
+		repoScan.ID,
+		FindingTriageRequest{Status: &ack},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("triage oldest repo finding: %v", err)
+	}
+
+	filtered, err := svc.ListRepoFindings(
+		defaultScopeContext(),
+		maxCursorFetchLimit,
+		db.RepoFindingFilter{
+			RepoScanID:      repoScan.ID,
+			LifecycleStatus: string(domain.FindingLifecycleAck),
+		},
+	)
+	if err != nil {
+		t.Fatalf("list repo findings by lifecycle status: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != "repo-finding-0000" {
+		t.Fatalf("expected oldest triaged repo finding to be returned, got %+v", filtered)
+	}
+}
+
 func TestServiceGetFinding(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
