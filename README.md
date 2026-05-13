@@ -118,31 +118,14 @@ Choose the rollout path that matches your environment maturity:
 
 See [Deployment Anywhere](./docs/deployment-anywhere.md) for exact commands.
 
-## Project Status
-
-Status: **Active** (v1 line in active support).
-
-Current focus:
-
-- Production hardening for scan reliability and auth safety defaults.
-- Stronger backward-compatibility and contract testing.
-- Operator readiness for repeatable multi-environment rollouts.
-
-Reference docs:
-
-- [Versioning and Support Policy](./docs/versioning-support-policy.md)
-- [Architecture](./docs/architecture.md)
-- [OpenAPI v1](./docs/openapi-v1.yaml)
-
-Demo video: _coming soon_.
-
 ## Comparison (Where Identrail Fits)
 
 - Versus broad CSPM tools: Identrail is narrower and deeper on machine identity trust and authorization workflows.
 - Versus secret scanners alone: Identrail includes optional repo exposure scanning, but also links findings into identity risk context.
 - Versus policy engines alone: Identrail adds discovery + risk evidence, not only policy evaluation.
 
-## Security and Support SLA
+<details>
+  <summary><strong>Security and Support SLA</strong></summary>
 
 If you discover a vulnerability, please use private reporting only:
 
@@ -157,8 +140,13 @@ Maintainer targets for supported versions:
 
 Full policy: [SECURITY.md](./SECURITY.md).
 
-## Contributing
+</details>
+
+<details>
+  <summary><strong>Contributing</strong></summary>
 
 - [Contributing Guide](./CONTRIBUTING.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Issues](https://github.com/identrail/identrail/issues)
+
+</details>
