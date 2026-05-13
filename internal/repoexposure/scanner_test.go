@@ -192,11 +192,21 @@ resource "aws_security_group" "sg" {
     ]
   }
 }
+
+resource "aws_security_group_rule" "sg_rule" {
+  type              = "ingress"
+  from_port         = 3389
+  to_port           = 3389
+  protocol          = "tcp"
+  cidr_blocks       = ["::/0"]
+  ipv6_cidr_blocks  = ["::/0"]
+  security_group_id = "sg-12345"
+}
 `)
 
 	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
-	if len(findings) < 2 {
-		t.Fatalf("expected at least two terraform findings, got %d", len(findings))
+	if len(findings) < 3 {
+		t.Fatalf("expected at least three terraform findings, got %d", len(findings))
 	}
 
 	seen := map[string]bool{}

@@ -503,8 +503,8 @@ func detectYAMLMisconfigFindings(
 			}
 		}
 
-			findings = append(findings, findYAMLPrivilegedFindings(repo, commit, path, ast, seen, detectedAt)...)
-		}
+		findings = append(findings, findYAMLPrivilegedFindings(repo, commit, path, ast, seen, detectedAt)...)
+	}
 
 	if !documentParsed {
 		return nil, false
@@ -709,6 +709,41 @@ func detectTerraformMisconfigFindings(
 						"match_snippet":         "ingress",
 					})
 			}
+		case "aws_security_group_rule":
+			ruleType, ok := terraformStringAttribute(block.Body.Attributes["type"])
+			if !ok {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(ruleType), "ingress") {
+				continue
+			}
+
+			fromPort, fromFound := terraformIntAttribute(block.Body.Attributes["from_port"])
+			toPort, toFound := terraformIntAttribute(block.Body.Attributes["to_port"])
+			if !fromFound && !toFound {
+				continue
+			}
+			if !containsSensitivePortRange(fromPort, toPort, fromFound, toFound) {
+				continue
+			}
+			if !containsPublicCidr(block.Body.Attributes["cidr_blocks"]) && !containsPublicCidr(block.Body.Attributes["ipv6_cidr_blocks"]) {
+				continue
+			}
+
+			lineNumber := terraformAttributeLine(block.Body.Attributes["from_port"])
+			if !fromFound && block.Body.Attributes["to_port"] != nil {
+				lineNumber = terraformAttributeLine(block.Body.Attributes["to_port"])
+			}
+
+			appendMisconfigFinding(&findings, seen, repo, commit, path, lineNumber, "terraform_open_ssh_rdp", domain.SeverityHigh,
+				"Terraform security group exposes SSH/RDP to the internet", "Config appears to allow 0.0.0.0/0 access to privileged management ports.",
+				"Restrict source CIDRs and route administrative access through bastion/VPN controls.",
+				"security group rule exposes internet-managed ports", detectedAt, map[string]any{
+					"line_snippet":          "resource \"aws_security_group_rule\" exposes internet-managed ports",
+					"line_snippet_redacted": false,
+					"history_source":        "head_snapshot",
+					"match_snippet":         "resource \"aws_security_group_rule\"",
+				})
 		}
 	}
 
@@ -732,11 +767,7 @@ func terraformStringAttribute(attribute *hclsyntax.Attribute) (string, bool) {
 	if attribute == nil {
 		return "", false
 	}
-	lit, ok := attribute.Expr.(*hclsyntax.LiteralValueExpr)
-	if !ok {
-		return "", false
-	}
-	value, diagnostics := lit.Value(nil)
+	value, diagnostics := attribute.Expr.Value(nil)
 	if diagnostics.HasErrors() {
 		return "", false
 	}
@@ -753,11 +784,7 @@ func terraformIntAttribute(attribute *hclsyntax.Attribute) (int, bool) {
 	if attribute == nil {
 		return 0, false
 	}
-	lit, ok := attribute.Expr.(*hclsyntax.LiteralValueExpr)
-	if !ok {
-		return 0, false
-	}
-	value, diagnostics := lit.Value(nil)
+	value, diagnostics := attribute.Expr.Value(nil)
 	if diagnostics.HasErrors() {
 		return 0, false
 	}
@@ -821,43 +848,26 @@ func terraformStringListExpr(expression hclsyntax.Expression) ([]string, bool) {
 		return nil, false
 	}
 
-	lit, ok := expression.(*hclsyntax.LiteralValueExpr)
-	if ok {
-		value, diagnostics := lit.Value(nil)
-		if diagnostics.HasErrors() || !value.IsKnown() || value.IsNull() {
-			return nil, false
-		}
-		if value.Type() == cty.String {
-			return []string{strings.TrimSpace(value.AsString())}, true
-		}
-		if value.Type().IsTupleType() || value.Type().IsListType() || value.Type().IsSetType() {
-			ret := make([]string, 0)
-			iterator := value.ElementIterator()
-			for iterator.Next() {
-				_, childValue := iterator.Element()
-				if !childValue.IsKnown() || childValue.IsNull() || childValue.Type() != cty.String {
-					return nil, false
-				}
-				ret = append(ret, strings.TrimSpace(childValue.AsString()))
-			}
-			if len(ret) > 0 {
-				return ret, true
-			}
-		}
+	value, diagnostics := expression.Value(nil)
+	if diagnostics.HasErrors() || !value.IsKnown() || value.IsNull() {
 		return nil, false
 	}
-
-	switch typed := expression.(type) {
-	case *hclsyntax.TupleConsExpr:
-		ret := make([]string, 0, len(typed.Exprs))
-		for _, child := range typed.Exprs {
-			values, ok := terraformStringListExpr(child)
-			if !ok {
+	if value.Type() == cty.String {
+		return []string{strings.TrimSpace(value.AsString())}, true
+	}
+	if value.Type().IsTupleType() || value.Type().IsListType() || value.Type().IsSetType() {
+		ret := make([]string, 0)
+		iterator := value.ElementIterator()
+		for iterator.Next() {
+			_, childValue := iterator.Element()
+			if !childValue.IsKnown() || childValue.IsNull() || childValue.Type() != cty.String {
 				return nil, false
 			}
-			ret = append(ret, values...)
+			ret = append(ret, strings.TrimSpace(childValue.AsString()))
 		}
-		return ret, true
+		if len(ret) > 0 {
+			return ret, true
+		}
 	}
 
 	return nil, false
