@@ -87,7 +87,7 @@ variable "api_vpc_id" {
 }
 
 variable "api_public_subnet_ids" {
-  description = "Public subnet IDs for the API application load balancer. Provide at least two distinct subnets in different Availability Zones when API hosting is enabled."
+  description = "Public subnet IDs for the API application load balancer. Provide at least two distinct subnets in different Availability Zones with Internet Gateway default routes when API hosting is enabled."
   type        = list(string)
   default     = []
   validation {

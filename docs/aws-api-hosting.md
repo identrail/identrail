@@ -39,7 +39,8 @@ Before a manual apply, operators must provide:
 - `api_public_subnet_ids` for the load balancer, with at least two distinct
   public subnets in different Availability Zones; Terraform reads the subnet
   metadata and refuses to plan API hosting when the public subnets collapse to
-  one Availability Zone or do not belong to `api_vpc_id`
+  one Availability Zone, do not belong to `api_vpc_id`, or do not have route
+  tables with an Internet Gateway default route
 - `api_private_subnet_ids` for Fargate tasks, with at least two distinct private
   subnets that belong to `api_vpc_id`
 - `api_certificate_arn` for HTTPS on `api.identrail.com`

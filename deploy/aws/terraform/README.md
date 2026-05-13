@@ -82,7 +82,8 @@ immutable API image, database, auth configuration, and Secrets Manager
 references are ready. The API-hosting plan reads public and private subnet
 metadata from AWS and fails before apply if the load balancer subnets are not
 spread across at least two Availability Zones or if any provided subnet is
-outside `api_vpc_id`:
+outside `api_vpc_id`. It also reads the public subnet route tables and requires
+an Internet Gateway default route so the public API load balancer is reachable:
 
 ```bash
 cd deploy/aws/terraform

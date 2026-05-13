@@ -5,7 +5,7 @@
   - defines ECS/Fargate API service, HTTPS load balancer, task roles, security groups, health checks, and CPU autoscaling primitives
   - keeps API hosting resource creation disabled by default for cost-safe CI validation
   - configures hosted API CORS origins and trusted ALB proxy CIDRs so the split web/API domains preserve browser access and real client IPs
-  - validates distinct public/private subnet inputs, public subnet Availability Zone spread, and subnet VPC membership before planning the load balancer and Fargate service
+  - validates distinct public/private subnet inputs, public subnet Availability Zone spread, subnet VPC membership, and public-subnet Internet Gateway routes before planning the load balancer and Fargate service
   - grants ECS secret injection IAM permissions on base Secrets Manager ARNs when `api_secrets` use JSON-key or version selectors
   - documents operator inputs, Secrets Manager references, DNS cutover, and rollback expectations for `api.identrail.com`
 - Added clickable GitHub line links for repository findings:

@@ -71,6 +71,12 @@ data "aws_subnet" "api_private" {
   id = var.api_private_subnet_ids[count.index]
 }
 
+data "aws_route_table" "api_public" {
+  count = var.create_api_hosting_resources ? length(var.api_public_subnet_ids) : 0
+
+  subnet_id = var.api_public_subnet_ids[count.index]
+}
+
 resource "terraform_data" "api_inputs" {
   count = var.create_api_hosting_resources ? 1 : 0
 
@@ -99,6 +105,15 @@ resource "terraform_data" "api_inputs" {
         for subnet in data.aws_subnet.api_public : subnet.vpc_id == var.api_vpc_id
       ])
       error_message = "api_public_subnet_ids must all belong to api_vpc_id when create_api_hosting_resources=true."
+    }
+
+    precondition {
+      condition = alltrue([
+        for route_table in data.aws_route_table.api_public : anytrue([
+          for route in route_table.routes : route.cidr_block == "0.0.0.0/0" && can(regex("^igw-", route.gateway_id))
+        ])
+      ])
+      error_message = "api_public_subnet_ids must be associated with route tables that have a 0.0.0.0/0 Internet Gateway route when create_api_hosting_resources=true."
     }
 
     precondition {
