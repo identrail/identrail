@@ -3006,9 +3006,6 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 
 // ListRepoFindings returns latest repository findings first with optional filters.
 func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error) {
-	if limit <= 0 {
-		limit = 100
-	}
 	repoScanID := strings.TrimSpace(filter.RepoScanID)
 	if repoScanID != "" {
 		if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
@@ -3019,24 +3016,30 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	if err != nil {
 		return nil, err
 	}
-	rows, err := p.queryContext(
-		ctx,
-		`SELECT rf.repo_scan_id, rf.finding_id, rf.type, rf.severity, rf.title, rf.human_summary, rf.path, rf.evidence, COALESCE(rf.remediation, ''), rf.created_at
+	query := `SELECT rf.repo_scan_id, rf.finding_id, rf.type, rf.severity, rf.title, rf.human_summary, rf.path, rf.evidence, COALESCE(rf.remediation, ''), rf.created_at
 		 FROM repo_findings rf
 		 JOIN repo_scans rs ON rs.id = rf.repo_scan_id
 		 WHERE ($1 = '' OR rf.repo_scan_id = $1::uuid)
 		   AND ($2 = '' OR rf.severity = $2)
 		   AND ($3 = '' OR rf.type = $3)
-		   AND rs.tenant_id = $5
-		   AND rs.workspace_id = $6
-		 ORDER BY rf.created_at DESC
-		 LIMIT $4`,
+		   AND rs.tenant_id = $4
+		   AND rs.workspace_id = $5
+		 ORDER BY rf.created_at DESC`
+	args := []any{
 		repoScanID,
 		strings.TrimSpace(filter.Severity),
 		strings.TrimSpace(filter.Type),
-		limit,
 		scope.TenantID,
 		scope.WorkspaceID,
+	}
+	if limit > 0 {
+		query += "\n\t\t LIMIT $6"
+		args = append(args, limit)
+	}
+	rows, err := p.queryContext(
+		ctx,
+		query,
+		args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query repo findings: %w", err)

@@ -1256,7 +1256,7 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 // ListRepoFindingClusters returns duplicate-aware repository finding clusters.
 func (s *Service) ListRepoFindingClusters(ctx context.Context, filter db.RepoFindingFilter) ([]domain.RepoFindingCluster, error) {
 	ctx = s.scopeContext(ctx)
-	findings, err := s.Store.ListRepoFindings(ctx, filter, maxCursorFetchLimit)
+	findings, err := s.Store.ListRepoFindings(ctx, filter, 0)
 	if err != nil {
 		return nil, err
 	}

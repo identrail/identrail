@@ -199,7 +199,7 @@ func repoFindingClusterKey(finding Finding) string {
 	case finding.Type == FindingSecretExposure && detector != "" && fingerprint != "":
 		return strings.Join([]string{"secret", repository, string(finding.Type), detector, fingerprint}, "\x1f")
 	case finding.Type == FindingSecretExposure:
-		return strings.Join([]string{"finding", repository, string(finding.Type), strings.TrimSpace(finding.ID)}, "\x1f")
+		return strings.Join([]string{"finding", repository, string(finding.Type), strings.TrimSpace(finding.ScanID), strings.TrimSpace(finding.ID)}, "\x1f")
 	case detector != "":
 		return strings.Join([]string{"detector", repository, string(finding.Type), detector}, "\x1f")
 	default:

@@ -98,12 +98,22 @@ type failingAnyScopeDepthStore struct {
 	*db.MemoryStore
 }
 
+type repoFindingLimitCaptureStore struct {
+	*db.MemoryStore
+	lastRepoFindingLimit int
+}
+
 func (s *failingAnyScopeDepthStore) CountQueuedScansAnyScope(context.Context, string) (int, error) {
 	return 0, errors.New("count queued scans any scope failed")
 }
 
 func (s *failingAnyScopeDepthStore) CountQueuedRepoScansAnyScope(context.Context) (int, error) {
 	return 0, errors.New("count queued repo scans any scope failed")
+}
+
+func (s *repoFindingLimitCaptureStore) ListRepoFindings(ctx context.Context, filter db.RepoFindingFilter, limit int) ([]domain.Finding, error) {
+	s.lastRepoFindingLimit = limit
+	return s.MemoryStore.ListRepoFindings(ctx, filter, limit)
 }
 
 func (s *completionContextStore) CompleteScan(
@@ -1591,6 +1601,33 @@ func TestServiceListRepoFindingClusters(t *testing.T) {
 	}
 	if clusters[1].Spread.Paths != 2 || clusters[1].Members[0].SourceURL != "https://github.com/owner/repo/blob/def456/.github/workflows/release.yml#L11" {
 		t.Fatalf("expected member source URLs and path spread, got %+v", clusters[1])
+	}
+}
+
+func TestServiceListRepoFindingClustersFetchesUnboundedMatches(t *testing.T) {
+	store := &repoFindingLimitCaptureStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{{
+		ID:         "rf-1",
+		Type:       domain.FindingRepoMisconfig,
+		Severity:   domain.SeverityMedium,
+		Repository: "owner/repo",
+		Detector:   "workflow_pull_request_target",
+		CreatedAt:  time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+	}}); err != nil {
+		t.Fatalf("upsert repo finding: %v", err)
+	}
+
+	if _, err := svc.ListRepoFindingClusters(defaultScopeContext(), db.RepoFindingFilter{}); err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	if store.lastRepoFindingLimit != 0 {
+		t.Fatalf("expected unbounded repo finding fetch for clusters, got limit %d", store.lastRepoFindingLimit)
 	}
 }
 

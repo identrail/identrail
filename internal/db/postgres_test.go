@@ -699,13 +699,33 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", 100, "default", "default").WillReturnRows(repoFindingsRows)
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "default", "default", 100).WillReturnRows(repoFindingsRows)
 	repoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 100)
 	if err != nil {
 		t.Fatalf("list repo findings failed: %v", err)
 	}
 	if len(repoFindings) != 1 || repoFindings[0].ID != "rf-1" {
 		t.Fatalf("unexpected repo findings: %+v", repoFindings)
+	}
+
+	unboundedRepoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).
+		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM repo_scans
+			WHERE id = $1
+			  AND tenant_id = $2
+			  AND workspace_id = $3
+		)`)).
+		WithArgs(record.ID, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "default", "default").WillReturnRows(unboundedRepoFindingsRows)
+	unboundedRepoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 0)
+	if err != nil {
+		t.Fatalf("list repo findings unbounded failed: %v", err)
+	}
+	if len(unboundedRepoFindings) != 1 || unboundedRepoFindings[0].ID != "rf-1" {
+		t.Fatalf("unexpected unbounded repo findings: %+v", unboundedRepoFindings)
 	}
 
 	repoScanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "error_message", "history_limit", "max_findings_limit"}).

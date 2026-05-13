@@ -118,7 +118,7 @@ func TestBuildRepoFindingClustersGroupsSecretsByFingerprint(t *testing.T) {
 func TestBuildRepoFindingClustersDoesNotMergeSecretsWithoutFingerprint(t *testing.T) {
 	findings := []Finding{
 		{
-			ID:         "secret-1",
+			ID:         "legacy-secret",
 			ScanID:     "scan-1",
 			Type:       FindingSecretExposure,
 			Severity:   SeverityHigh,
@@ -127,7 +127,7 @@ func TestBuildRepoFindingClustersDoesNotMergeSecretsWithoutFingerprint(t *testin
 			CreatedAt:  time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC),
 		},
 		{
-			ID:         "secret-2",
+			ID:         "legacy-secret",
 			ScanID:     "scan-2",
 			Type:       FindingSecretExposure,
 			Severity:   SeverityHigh,
