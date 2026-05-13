@@ -697,35 +697,21 @@ func detectTerraformMisconfigFindings(
 
 		case "aws_security_group":
 			for _, child := range block.Body.Blocks {
-				if child.Type != "ingress" {
+				if child.Type == "ingress" {
+					appendTerraformOpenSSHRDPPenaltyFinding(&findings, seen, repo, commit, path, child.Body.Attributes, detectedAt)
 					continue
 				}
-				fromPort, fromFound := terraformIntAttribute(child.Body.Attributes["from_port"])
-				toPort, toFound := terraformIntAttribute(child.Body.Attributes["to_port"])
-				if !fromFound && !toFound {
+				if child.Type != "dynamic" || len(child.Labels) == 0 {
 					continue
 				}
-				if !containsSensitivePortRange(fromPort, toPort, fromFound, toFound) {
+				if child.Labels[0] != "ingress" {
 					continue
 				}
-				if !containsPublicCidr(child.Body.Attributes["cidr_blocks"]) && !containsPublicCidr(child.Body.Attributes["ipv6_cidr_blocks"]) {
-					continue
+				for _, dynamicChild := range child.Body.Blocks {
+					if dynamicChild.Type == "content" {
+						appendTerraformOpenSSHRDPPenaltyFinding(&findings, seen, repo, commit, path, dynamicChild.Body.Attributes, detectedAt)
+					}
 				}
-
-				lineNumber := terraformAttributeLine(child.Body.Attributes["from_port"])
-				if !fromFound && child.Body.Attributes["to_port"] != nil {
-					lineNumber = terraformAttributeLine(child.Body.Attributes["to_port"])
-				}
-
-				appendMisconfigFinding(&findings, seen, repo, commit, path, lineNumber, "terraform_open_ssh_rdp", domain.SeverityHigh,
-					"Terraform security group exposes SSH/RDP to the internet", "Config appears to allow 0.0.0.0/0 access to privileged management ports.",
-					"Restrict source CIDRs and route administrative access through bastion/VPN controls.",
-					"network ingress block exposes internet-managed ports", detectedAt, map[string]any{
-						"line_snippet":          "ingress block exposes internet-managed ports",
-						"line_snippet_redacted": false,
-						"history_source":        "head_snapshot",
-						"match_snippet":         "ingress",
-					})
 			}
 		case "aws_security_group_rule":
 			ruleType, ok := terraformStringAttribute(block.Body.Attributes["type"])
@@ -766,6 +752,44 @@ func detectTerraformMisconfigFindings(
 	}
 
 	return findings, true
+}
+
+func appendTerraformOpenSSHRDPPenaltyFinding(
+	findings *[]domain.Finding,
+	seen map[string]struct{},
+	repo string,
+	commit string,
+	path string,
+	attributes map[string]*hclsyntax.Attribute,
+	detectedAt time.Time,
+) bool {
+	fromPort, fromFound := terraformIntAttribute(attributes["from_port"])
+	toPort, toFound := terraformIntAttribute(attributes["to_port"])
+	if !fromFound && !toFound {
+		return false
+	}
+	if !containsSensitivePortRange(fromPort, toPort, fromFound, toFound) {
+		return false
+	}
+	if !containsPublicCidr(attributes["cidr_blocks"]) && !containsPublicCidr(attributes["ipv6_cidr_blocks"]) {
+		return false
+	}
+
+	lineNumber := terraformAttributeLine(attributes["from_port"])
+	if !fromFound && attributes["to_port"] != nil {
+		lineNumber = terraformAttributeLine(attributes["to_port"])
+	}
+
+	appendMisconfigFinding(findings, seen, repo, commit, path, lineNumber, "terraform_open_ssh_rdp", domain.SeverityHigh,
+		"Terraform security group exposes SSH/RDP to the internet", "Config appears to allow 0.0.0.0/0 access to privileged management ports.",
+		"Restrict source CIDRs and route administrative access through bastion/VPN controls.",
+		"security group rule exposes internet-managed ports", detectedAt, map[string]any{
+			"line_snippet":          "security group rule exposes internet-managed ports",
+			"line_snippet_redacted": false,
+			"history_source":        "head_snapshot",
+			"match_snippet":         "ingress",
+		})
+	return true
 }
 
 func terraformAttributeLine(attribute *hclsyntax.Attribute) int {

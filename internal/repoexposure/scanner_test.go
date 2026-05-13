@@ -226,6 +226,39 @@ resource "aws_security_group_rule" "sg_rule" {
 	}
 }
 
+func TestDetectMisconfigFindingsSupportsDynamicIngressTerraformSignals(t *testing.T) {
+	content := []byte(`resource "aws_security_group" "sg" {
+  dynamic "ingress" {
+    for_each = [1]
+    content {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", "terraform/main.tf", content, time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC))
+	if len(findings) == 0 {
+		t.Fatal("expected dynamic ingress terraform finding")
+	}
+
+	found := false
+	for _, finding := range findings {
+		if finding.Detector == "terraform_open_ssh_rdp" {
+			found = true
+			if finding.LineNumber == 0 {
+				t.Fatalf("expected non-zero line number: %+v", finding)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected terraform_open_ssh_rdp finding, got %+v", findings)
+	}
+}
+
 func TestDetectMisconfigFindingsParsesDockerfileFromLine(t *testing.T) {
 	content := []byte(`FROM golang:latest
 FROM --platform=linux/amd64 nginx:1.25
