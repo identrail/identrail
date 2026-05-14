@@ -70,6 +70,52 @@ Before a manual apply, operators must provide:
   - hosted session auth with non-secret `IDENTRAIL_FEATURE_NEW_AUTH=true` and
     `IDENTRAIL_PUBLIC_BASE_URL`, plus `IDENTRAIL_SESSION_KEY` in `api_secrets`
 
+## Manual GitHub Actions Deployment
+
+Use the `AWS API Manual Deploy` workflow for the first controlled
+`api.identrail.com` cutover. The workflow is manual by design: it plans by
+default, stores Terraform state in S3, and only applies when an operator selects
+`apply` and types `apply-api.identrail.com` in the confirmation field.
+Run it from the `dev` branch because the AWS OIDC deployment role trust is
+intentionally scoped to that branch.
+
+Repository configuration required before the workflow can plan:
+
+- secret `AWS_ROLE_ARN`: GitHub OIDC deployment role ARN
+- variable `AWS_REGION`: AWS region, such as `us-east-1`
+- variable `AWS_TERRAFORM_STATE_BUCKET`: existing S3 bucket for Terraform state
+- optional variable `AWS_TERRAFORM_STATE_KEY`: defaults to
+  `identrail/dev/aws-api.tfstate`
+- variable `API_VPC_ID`: VPC for the API load balancer and ECS service
+- variable `API_PUBLIC_SUBNET_IDS_JSON`: JSON array of at least two public
+  subnet IDs, for example `["subnet-aaa","subnet-bbb"]`
+- optional variable `API_TASK_SUBNET_IDS_JSON`: JSON array of task subnet IDs;
+  leave blank for the low-cost public-task bootstrap path
+- variable `API_CERTIFICATE_ARN`: ACM certificate ARN for `api.identrail.com`
+- secret `API_DATABASE_URL_SECRET_ARN`: Secrets Manager ARN containing
+  `IDENTRAIL_DATABASE_URL`
+- secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
+  `IDENTRAIL_SESSION_KEY`
+
+The workflow dispatch input `api_container_image` must be immutable, such as
+`ghcr.io/identrail/identrail-api:sha-<commit>`. Do not deploy the mutable `dev`
+tag to this hosted API path.
+
+Optional repository variables:
+
+- `API_ALLOWED_CIDR_BLOCKS_JSON`
+- `API_CORS_ALLOWED_ORIGINS_JSON`
+- `API_TRUSTED_PROXY_CIDR_BLOCKS_JSON`
+- `API_EXTRA_ENVIRONMENT_JSON`
+- `API_SECRET_KMS_KEY_ARNS_JSON`
+- `API_CONNECTOR_ROLE_ARNS_JSON`
+
+Optional repository secret:
+
+- `API_EXTRA_SECRETS_JSON`: JSON object mapping additional runtime secret
+  environment variable names to Secrets Manager ARNs, such as WorkOS or future
+  provider secrets.
+
 Do not put database URLs, API keys, cookie secrets, or OAuth credentials directly
 in tfvars files, docs, GitHub variables, or Terraform state. Use Secrets Manager
 references through `api_secrets`. Terraform rejects known secret-bearing
@@ -101,6 +147,11 @@ instead. This is cheaper because it avoids NAT Gateway, but it is still treated
 as a bootstrap mode: keep task security-group ingress limited to the ALB, keep
 `api_allowed_cidr_blocks` on the ALB, and move to private task subnets when
 traffic, compliance, or customer requirements justify the extra cost.
+
+The manual workflow uses the low-cost bootstrap mode by default: public task
+subnets, `api_task_assign_public_ip=true`, and inbound service traffic limited
+to the load balancer security group. That avoids NAT Gateway and private VPC
+endpoint hourly charges during first launch.
 
 Run database migrations as a separate one-off operation before deploying or
 upgrading the hosted API service. Keep long-running API tasks non-migrating.

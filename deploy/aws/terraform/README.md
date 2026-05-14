@@ -63,6 +63,11 @@ The default configuration sets both `create_foundation_resources=false` and
 `terraform init`, `terraform validate`, and `terraform plan` without creating
 billable AWS resources.
 
+The checked-in root stays backendless for validation-only plans. The manual
+GitHub Actions deploy workflow writes a temporary S3 backend file at runtime and
+initializes it with the configured S3 state bucket and key before planning or
+applying AWS API hosting.
+
 ## Local Validation
 
 ```bash
@@ -148,6 +153,12 @@ internet. The public IP is used for task egress to pull images, read Secrets
 Manager, and write logs without a NAT Gateway. Treat it as a budget-conscious
 bootstrap path and migrate to private task subnets plus NAT/VPC endpoints when
 traffic or compliance needs justify the extra cost.
+
+For hosted pre-PR 11 cutover preparation, prefer the `AWS API Manual Deploy`
+GitHub Actions workflow over running `terraform apply` from a laptop. It uses
+the GitHub OIDC deployment role, requires S3-backed Terraform state, plans by
+default, and requires the exact confirmation string `apply-api.identrail.com`
+before it applies.
 
 Do not run `terraform apply` until the database, runtime secrets, container
 image tag, health checks, rollback plan, and DNS cutover plan have all been

@@ -1,0 +1,219 @@
+name: AWS API Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Run a Terraform plan or apply for the AWS API hosting stack."
+        required: true
+        type: choice
+        default: plan
+        options:
+          - plan
+          - apply
+      confirm_apply:
+        description: "Required for apply: type apply-api.identrail.com"
+        required: false
+        type: string
+      api_container_image:
+        description: "Immutable API image, for example ghcr.io/identrail/identrail-api:sha-<commit>."
+        required: true
+        type: string
+      api_vpc_id:
+        description: "VPC ID. Leave blank to use repository variable API_VPC_ID."
+        required: false
+        type: string
+      api_public_subnet_ids_json:
+        description: "JSON array of two public subnet IDs. Leave blank to use repository variable API_PUBLIC_SUBNET_IDS_JSON."
+        required: false
+        type: string
+      api_task_subnet_ids_json:
+        description: "Optional JSON array of task subnet IDs. Blank uses the public subnets for low-cost bootstrap mode."
+        required: false
+        type: string
+      api_certificate_arn:
+        description: "ACM certificate ARN. Leave blank to use repository variable API_CERTIFICATE_ARN."
+        required: false
+        type: string
+      terraform_state_bucket:
+        description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
+        required: false
+        type: string
+      terraform_state_key:
+        description: "S3 key for Terraform state."
+        required: false
+        type: string
+        default: identrail/dev/aws-api.tfstate
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-api-manual-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: ${{ inputs.operation == 'apply' && 'Apply AWS API hosting' || 'Plan AWS API hosting' }}
+    if: github.repository == 'identrail/identrail'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      API_DEPLOY_OPERATION: ${{ inputs.operation }}
+      API_DEPLOY_CONFIRM: ${{ inputs.confirm_apply }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      TF_STATE_BUCKET: ${{ inputs.terraform_state_bucket || vars.AWS_TERRAFORM_STATE_BUCKET }}
+      TF_STATE_KEY: ${{ inputs.terraform_state_key || vars.AWS_TERRAFORM_STATE_KEY || 'identrail/dev/aws-api.tfstate' }}
+      API_VPC_ID: ${{ inputs.api_vpc_id || vars.API_VPC_ID }}
+      API_PUBLIC_SUBNET_IDS_JSON: ${{ inputs.api_public_subnet_ids_json || vars.API_PUBLIC_SUBNET_IDS_JSON }}
+      API_TASK_SUBNET_IDS_JSON: ${{ inputs.api_task_subnet_ids_json || vars.API_TASK_SUBNET_IDS_JSON }}
+      API_CERTIFICATE_ARN: ${{ inputs.api_certificate_arn || vars.API_CERTIFICATE_ARN }}
+      API_CONTAINER_IMAGE: ${{ inputs.api_container_image }}
+      API_DATABASE_URL_SECRET_ARN: ${{ secrets.API_DATABASE_URL_SECRET_ARN }}
+      API_SESSION_KEY_SECRET_ARN: ${{ secrets.API_SESSION_KEY_SECRET_ARN }}
+      API_ALLOWED_CIDR_BLOCKS_JSON: ${{ vars.API_ALLOWED_CIDR_BLOCKS_JSON || '["0.0.0.0/0"]' }}
+      API_CORS_ALLOWED_ORIGINS_JSON: ${{ vars.API_CORS_ALLOWED_ORIGINS_JSON || '["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' }}
+      API_TRUSTED_PROXY_CIDR_BLOCKS_JSON: ${{ vars.API_TRUSTED_PROXY_CIDR_BLOCKS_JSON || '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' }}
+      API_EXTRA_ENVIRONMENT_JSON: ${{ vars.API_EXTRA_ENVIRONMENT_JSON || '{}' }}
+      API_EXTRA_SECRETS_JSON: ${{ secrets.API_EXTRA_SECRETS_JSON || '{}' }}
+      API_SECRET_KMS_KEY_ARNS_JSON: ${{ vars.API_SECRET_KMS_KEY_ARNS_JSON || '[]' }}
+      API_CONNECTOR_ROLE_ARNS_JSON: ${{ vars.API_CONNECTOR_ROLE_ARNS_JSON || '[]' }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85
+
+      - name: Validate workflow ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "dev" ]; then
+            echo "Run this workflow from the dev branch. The AWS OIDC role trust is intentionally scoped to refs/heads/dev."
+            exit 1
+          fi
+
+      - name: Validate AWS deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_ROLE_ARN}" ]; then
+            echo "Missing repository secret AWS_ROLE_ARN."
+            exit 1
+          fi
+          if ! [[ "${AWS_ROLE_ARN}" =~ ^arn:aws:iam::[0-9]{12}:role/.+$ ]]; then
+            echo "AWS_ROLE_ARN must look like arn:aws:iam::<account-id>:role/<role-name>."
+            exit 1
+          fi
+          echo "::add-mask::${AWS_ROLE_ARN}"
+          if [ -z "${API_DATABASE_URL_SECRET_ARN}" ]; then
+            echo "Missing repository secret API_DATABASE_URL_SECRET_ARN."
+            exit 1
+          fi
+          if [ -z "${API_SESSION_KEY_SECRET_ARN}" ]; then
+            echo "Missing repository secret API_SESSION_KEY_SECRET_ARN."
+            exit 1
+          fi
+          echo "::add-mask::${API_DATABASE_URL_SECRET_ARN}"
+          echo "::add-mask::${API_SESSION_KEY_SECRET_ARN}"
+
+      - name: Configure AWS credentials from GitHub OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          token_response="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
+          oidc_token="$(jq -r '.value // empty' <<< "${token_response}")"
+          if [ -z "${oidc_token}" ]; then
+            echo "GitHub did not return an OIDC token."
+            exit 1
+          fi
+
+          credentials="$(
+            aws sts assume-role-with-web-identity \
+              --role-arn "${AWS_ROLE_ARN}" \
+              --role-session-name "identrail-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --web-identity-token "${oidc_token}" \
+              --duration-seconds 1800 \
+              --query 'Credentials' \
+              --output json
+          )"
+          access_key_id="$(jq -r '.AccessKeyId' <<< "${credentials}")"
+          secret_access_key="$(jq -r '.SecretAccessKey' <<< "${credentials}")"
+          session_token="$(jq -r '.SessionToken' <<< "${credentials}")"
+          echo "::add-mask::${access_key_id}"
+          echo "::add-mask::${secret_access_key}"
+          echo "::add-mask::${session_token}"
+          {
+            echo "AWS_ACCESS_KEY_ID=${access_key_id}"
+            echo "AWS_SECRET_ACCESS_KEY=${secret_access_key}"
+            echo "AWS_SESSION_TOKEN=${session_token}"
+            echo "AWS_REGION=${AWS_REGION}"
+            echo "AWS_DEFAULT_REGION=${AWS_REGION}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Prepare Terraform inputs
+        id: prepare
+        run: ./scripts/prepare_aws_api_deploy.sh
+
+      - name: Verify Terraform state bucket
+        run: aws s3api head-bucket --bucket "${TF_STATE_BUCKET}"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive deploy/aws/terraform
+
+      - name: Configure S3 backend
+        run: |
+          cat > deploy/aws/terraform/backend.generated.tf <<'EOF'
+          terraform {
+            backend "s3" {}
+          }
+          EOF
+          terraform fmt deploy/aws/terraform/backend.generated.tf
+
+      - name: Terraform Init
+        working-directory: deploy/aws/terraform
+        run: terraform init -backend-config="${{ steps.prepare.outputs.backend_config_path }}"
+
+      - name: Terraform Validate
+        working-directory: deploy/aws/terraform
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: deploy/aws/terraform
+        run: |
+          terraform plan \
+            -input=false \
+            -out="${RUNNER_TEMP}/identrail-api.tfplan" \
+            -var-file="${{ steps.prepare.outputs.tfvars_path }}"
+
+      - name: Terraform Apply
+        if: inputs.operation == 'apply'
+        working-directory: deploy/aws/terraform
+        run: terraform apply -input=false -auto-approve "${RUNNER_TEMP}/identrail-api.tfplan"
+
+      - name: Publish Apply Outputs
+        if: inputs.operation == 'apply'
+        working-directory: deploy/aws/terraform
+        run: |
+          set -euo pipefail
+          api_lb_dns="$(terraform output -raw api_load_balancer_dns_name)"
+          api_service="$(terraform output -raw api_service_name)"
+          api_cluster="$(terraform output -raw api_ecs_cluster_name)"
+          {
+            echo "## AWS API deploy outputs"
+            echo
+            echo "- API load balancer DNS: \`${api_lb_dns}\`"
+            echo "- ECS cluster: \`${api_cluster}\`"
+            echo "- ECS service: \`${api_service}\`"
+            echo "- Terraform state key: \`${{ steps.prepare.outputs.state_key }}\`"
+            echo
+            echo "After health checks pass, create the Namecheap CNAME for \`api.identrail.com\` to the load balancer DNS name."
+          } >> "${GITHUB_STEP_SUMMARY}"

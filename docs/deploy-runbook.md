@@ -107,6 +107,11 @@ Manager references are ready. Plan the stack first, verify the load balancer
 health endpoint, and only then point `api.identrail.com` at the load balancer.
 Keep `app.identrail.com` on Vercel.
 
+Use the `AWS API Manual Deploy` GitHub Actions workflow for pre-PR 11 cutover
+preparation. Run `plan` first. Use `apply` only after reviewing the plan; the
+workflow requires the explicit confirmation string `apply-api.identrail.com` and
+persists Terraform state in the configured S3 state bucket.
+
 For the first cost-controlled Identrail Cloud cutover, prefer the documented
 public-task bootstrap mode instead of creating NAT Gateways. Set
 `api_task_subnet_ids` to two public subnets and `api_task_assign_public_ip=true`
