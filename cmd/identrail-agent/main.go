@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-const (
+var (
 	kubernetesServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	kubernetesServiceAccountCAPath    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 	kubernetesAPITimeout              = 8 * time.Second

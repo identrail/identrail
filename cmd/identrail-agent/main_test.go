@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -112,6 +115,127 @@ func healthyTestKubernetesProbe() kubernetesProbe {
 			Scope:    "cluster",
 			Allowed:  true,
 		}},
+	}
+}
+
+func useTestServiceAccountFiles(t *testing.T, token string, caPEM []byte) {
+	t.Helper()
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "token")
+	caPath := filepath.Join(dir, "ca.crt")
+	if err := os.WriteFile(tokenPath, []byte(token), 0o600); err != nil {
+		t.Fatalf("write service account token: %v", err)
+	}
+	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
+		t.Fatalf("write service account CA: %v", err)
+	}
+	previousTokenPath := kubernetesServiceAccountTokenPath
+	previousCAPath := kubernetesServiceAccountCAPath
+	kubernetesServiceAccountTokenPath = tokenPath
+	kubernetesServiceAccountCAPath = caPath
+	t.Cleanup(func() {
+		kubernetesServiceAccountTokenPath = previousTokenPath
+		kubernetesServiceAccountCAPath = previousCAPath
+	})
+}
+
+func useTestKubernetesService(t *testing.T, rawURL string) {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse Kubernetes service URL: %v", err)
+	}
+	t.Setenv("KUBERNETES_SERVICE_HOST", parsed.Hostname())
+	t.Setenv("KUBERNETES_SERVICE_PORT", parsed.Port())
+}
+
+func testKubernetesServerCA(t *testing.T, server *httptest.Server) []byte {
+	t.Helper()
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+}
+
+func TestDiscoverInClusterKubernetesReportsHealthyProbe(t *testing.T) {
+	allowedPaths := map[string]bool{
+		"/api/v1/serviceaccounts":                                true,
+		"/apis/rbac.authorization.k8s.io/v1/rolebindings":        true,
+		"/apis/rbac.authorization.k8s.io/v1/clusterrolebindings": true,
+		"/apis/rbac.authorization.k8s.io/v1/roles":               true,
+		"/apis/rbac.authorization.k8s.io/v1/clusterroles":        true,
+		"/api/v1/pods": true,
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer service-token" {
+			t.Fatalf("authorization = %q", got)
+		}
+		switch {
+		case r.URL.Path == "/version":
+			_, _ = w.Write([]byte(`{"gitVersion":"v1.30.4","platform":"linux/amd64"}`))
+		case allowedPaths[r.URL.Path] && r.URL.Query().Get("limit") == "1":
+			_, _ = w.Write([]byte(`{"items":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	useTestKubernetesService(t, server.URL)
+	useTestServiceAccountFiles(t, "service-token", testKubernetesServerCA(t, server))
+	t.Setenv("IDENTRAIL_K8S_CLUSTER_NAME", "prod-cluster")
+
+	probe := discoverInClusterKubernetes(context.Background())
+	if probe.Cluster != "prod-cluster" || probe.Server == "" || probe.GitVersion != "v1.30.4" || probe.Platform != "linux/amd64" {
+		t.Fatalf("unexpected probe identity: %+v", probe)
+	}
+	if len(probe.Diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics, got %+v", probe.Diagnostics)
+	}
+	if len(probe.PermissionChecks) != len(allowedPaths) {
+		t.Fatalf("permission checks = %d, want %d", len(probe.PermissionChecks), len(allowedPaths))
+	}
+	for _, check := range probe.PermissionChecks {
+		if !check.Allowed {
+			t.Fatalf("expected %s to be allowed: %+v", check.Resource, check)
+		}
+	}
+}
+
+func TestDiscoverInClusterKubernetesReportsRBACDenial(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/version" {
+			_, _ = w.Write([]byte(`{"gitVersion":"v1.30.4"}`))
+			return
+		}
+		if r.URL.Path == "/api/v1/pods" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[]}`))
+	}))
+	defer server.Close()
+
+	useTestKubernetesService(t, server.URL)
+	useTestServiceAccountFiles(t, "service-token", testKubernetesServerCA(t, server))
+
+	probe := discoverInClusterKubernetes(context.Background())
+	var podsCheck agentPermissionCheck
+	for _, check := range probe.PermissionChecks {
+		if check.Resource == "pods" {
+			podsCheck = check
+			break
+		}
+	}
+	if podsCheck.Allowed || !strings.Contains(podsCheck.Diagnostic, "HTTP 403") {
+		t.Fatalf("expected pods denial diagnostic, got %+v", podsCheck)
+	}
+}
+
+func TestDiscoverInClusterKubernetesRequiresClusterEnvironment(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	t.Setenv("KUBERNETES_SERVICE_PORT", "")
+
+	probe := discoverInClusterKubernetes(context.Background())
+	if len(probe.Diagnostics) != 1 || probe.Diagnostics[0].Code != "kubernetes_agent_not_in_cluster" {
+		t.Fatalf("expected not-in-cluster diagnostic, got %+v", probe.Diagnostics)
 	}
 }
 

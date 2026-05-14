@@ -337,10 +337,21 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 	if enrollBody.AgentToken == "" || enrollBody.HeartbeatURL != "https://api.identrail.test/v1/connectors/k8s/heartbeat" {
 		t.Fatalf("expected agent token and heartbeat URL, got %+v", enrollBody)
 	}
+	if enrollBody.AgentToken == startBody.EnrollmentToken {
+		t.Fatal("agent token must be distinct from the single-use enrollment token")
+	}
 
 	reuseResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`}`)
 	if reuseResp.Code != http.StatusGone {
 		t.Fatalf("expected reused token 410, got %d body=%s", reuseResp.Code, reuseResp.Body.String())
+	}
+
+	enrollmentTokenHeartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{
+		"connector_id":"kubernetes-prod",
+		"agent_id":"agent-a"
+	}`, startBody.EnrollmentToken)
+	if enrollmentTokenHeartbeatResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected enrollment token heartbeat 401, got %d body=%s", enrollmentTokenHeartbeatResp.Code, enrollmentTokenHeartbeatResp.Body.String())
 	}
 
 	heartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{

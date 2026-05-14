@@ -163,6 +163,14 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	if !k8sconnector.CredentialMatches(token, metadata.EnrollmentTokenHash) {
 		return KubernetesAgentEnrollResponse{}, ErrKubernetesConnectorTokenInvalid
 	}
+	agentSecret, err := k8sconnector.GenerateCredential()
+	if err != nil {
+		return KubernetesAgentEnrollResponse{}, err
+	}
+	agentToken, err := buildKubernetesEnrollmentToken(locator.TenantID, locator.WorkspaceID, locator.ProjectID, locator.ConnectorID, agentSecret)
+	if err != nil {
+		return KubernetesAgentEnrollResponse{}, err
+	}
 	agentID := strings.TrimSpace(request.AgentID)
 	if agentID == "" {
 		agentID = "identrail-agent-" + locator.ConnectorID
@@ -170,7 +178,7 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	usedAt := now
 	metadata.ConnectionMode = k8sconnector.AgentMode
 	metadata.EnrollmentTokenUsedAt = &usedAt
-	metadata.AgentCredentialHash = k8sconnector.HashCredential(token)
+	metadata.AgentCredentialHash = k8sconnector.HashCredential(agentToken)
 	metadata.AgentID = agentID
 	metadata.LastHeartbeatAt = &now
 	metadata.Cluster = firstNonEmptyKubernetesValue(request.Cluster, metadata.Cluster)
@@ -184,7 +192,7 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	return s.persistKubernetesAgentMetadata(scopedCtx, stored, metadata, status, health, now, KubernetesAgentEnrollResponse{
 		ConnectorID:  locator.ConnectorID,
 		AgentID:      agentID,
-		AgentToken:   token,
+		AgentToken:   agentToken,
 		HeartbeatURL: strings.TrimRight(apiBaseURL, "/") + k8sconnector.DefaultAgentHeartbeatPath,
 		ExpiresAt:    now.Add(365 * 24 * time.Hour),
 	})
