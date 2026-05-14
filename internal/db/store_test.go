@@ -50,6 +50,41 @@ func TestNormalizeRepoFindingClusterListFilter(t *testing.T) {
 	}
 }
 
+func TestNormalizeRepoFindingFilter(t *testing.T) {
+	normalized := NormalizeRepoFindingFilter(RepoFindingFilter{
+		RepoScanID:      " repo-scan-1 ",
+		FindingID:       " finding-1 ",
+		Severity:        " HIGH ",
+		Type:            " SECRET_EXPOSURE ",
+		LifecycleStatus: " ACK ",
+		Assignee:        " Platform ",
+		SortBy:          "severity",
+		SortDesc:        true,
+	})
+	if normalized.RepoScanID != "repo-scan-1" || normalized.FindingID != "finding-1" {
+		t.Fatalf("expected trimmed identifiers, got %+v", normalized)
+	}
+	if normalized.Severity != "high" || normalized.Type != "secret_exposure" {
+		t.Fatalf("expected normalized severity/type filters, got %+v", normalized)
+	}
+	if normalized.LifecycleStatus != "ack" || normalized.Assignee != "platform" {
+		t.Fatalf("expected normalized triage filters, got %+v", normalized)
+	}
+	if normalized.SortBy != "severity" || !normalized.SortDesc {
+		t.Fatalf("expected explicit sort controls to pass through, got %+v", normalized)
+	}
+
+	defaults := NormalizeRepoFindingFilter(RepoFindingFilter{})
+	if defaults.SortBy != "created_at" || !defaults.SortDesc {
+		t.Fatalf("expected created_at desc defaults, got %+v", defaults)
+	}
+
+	fallback := NormalizeRepoFindingFilter(RepoFindingFilter{SortBy: "unsupported"})
+	if fallback.SortBy != "created_at" || fallback.SortDesc {
+		t.Fatalf("expected unsupported sort to fall back without flipping direction, got %+v", fallback)
+	}
+}
+
 func TestStoreCloseHelpers(t *testing.T) {
 	mem := NewMemoryStore()
 	if err := mem.Close(); err != nil {

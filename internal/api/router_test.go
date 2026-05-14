@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -571,6 +572,13 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 		t.Fatalf("expected filtered trends 200, got %d", trendsFilteredW.Code)
 	}
 
+	repoTrendsReq := httptest.NewRequest(http.MethodGet, "/v1/repo-findings/trends", nil)
+	repoTrendsW := httptest.NewRecorder()
+	r.ServeHTTP(repoTrendsW, repoTrendsReq)
+	if repoTrendsW.Code != http.StatusOK {
+		t.Fatalf("expected repo findings trends 200, got %d", repoTrendsW.Code)
+	}
+
 	identitiesReq := httptest.NewRequest(http.MethodGet, "/v1/identities", nil)
 	identitiesW := httptest.NewRecorder()
 	r.ServeHTTP(identitiesW, identitiesReq)
@@ -805,6 +813,168 @@ func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
 	r.ServeHTTP(repoFindingsW, repoFindingsReq)
 	if repoFindingsW.Code != http.StatusOK {
 		t.Fatalf("expected repo findings 200 without service, got %d", repoFindingsW.Code)
+	}
+
+	repoTrendsReq := httptest.NewRequest(http.MethodGet, "/v1/repo-findings/trends", nil)
+	repoTrendsW := httptest.NewRecorder()
+	r.ServeHTTP(repoTrendsW, repoTrendsReq)
+	if repoTrendsW.Code != http.StatusOK {
+		t.Fatalf("expected repo findings trends 200 without service, got %d", repoTrendsW.Code)
+	}
+}
+
+func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{
+		{
+			ID:           "repo-open",
+			Type:         domain.FindingSecretExposure,
+			Severity:     domain.SeverityMedium,
+			Title:        "open finding",
+			HumanSummary: "open finding",
+			CreatedAt:    now,
+		},
+		{
+			ID:           "repo-ack",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityHigh,
+			Title:        "ack finding",
+			HumanSummary: "ack finding",
+			CreatedAt:    now.Add(5 * time.Minute),
+		},
+	}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	if err := store.UpsertFindingTriageState(defaultScopeContext(), db.FindingTriageState{
+		FindingID: findingTriageStateKey(domain.Finding{
+			ID:         "repo-ack",
+			ScanID:     repoScan.ID,
+			Repository: "owner/repo",
+		}),
+		Status:    domain.FindingLifecycleAck,
+		Assignee:  "platform",
+		UpdatedAt: now.Add(10 * time.Minute),
+		UpdatedBy: "robot",
+	}); err != nil {
+		t.Fatalf("upsert finding triage state: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	filteredReq := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&lifecycle_status=ack&assignee=platform&limit=50",
+		nil,
+	)
+	filteredW := httptest.NewRecorder()
+	r.ServeHTTP(filteredW, filteredReq)
+	if filteredW.Code != http.StatusOK {
+		t.Fatalf("expected filtered repo findings 200, got %d body=%s", filteredW.Code, filteredW.Body.String())
+	}
+
+	var filteredBody struct {
+		Items []domain.Finding `json:"items"`
+	}
+	if err := json.Unmarshal(filteredW.Body.Bytes(), &filteredBody); err != nil {
+		t.Fatalf("decode filtered repo findings: %v", err)
+	}
+	if len(filteredBody.Items) != 1 {
+		t.Fatalf("expected one ack repo finding, got %+v", filteredBody.Items)
+	}
+	if filteredBody.Items[0].ID != "repo-ack" {
+		t.Fatalf("expected repo-ack, got %q", filteredBody.Items[0].ID)
+	}
+	if filteredBody.Items[0].Triage.Status != domain.FindingLifecycleAck {
+		t.Fatalf("expected triage status ack, got %q", filteredBody.Items[0].Triage.Status)
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/v1/findings/repo-ack?scan_id="+repoScan.ID, nil)
+	detailW := httptest.NewRecorder()
+	r.ServeHTTP(detailW, detailReq)
+	if detailW.Code != http.StatusOK {
+		t.Fatalf("expected repo finding detail via unified endpoint 200, got %d body=%s", detailW.Code, detailW.Body.String())
+	}
+	var detailBody domain.Finding
+	if err := json.Unmarshal(detailW.Body.Bytes(), &detailBody); err != nil {
+		t.Fatalf("decode repo finding detail: %v", err)
+	}
+	if detailBody.ID != "repo-ack" {
+		t.Fatalf("unexpected finding detail ID: %q", detailBody.ID)
+	}
+	if detailBody.Triage.Status != domain.FindingLifecycleAck {
+		t.Fatalf("expected triage status ack in unified finding detail, got %q", detailBody.Triage.Status)
+	}
+}
+
+func TestRouterRepoFindingsSeveritySortUsesFullResultSet(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+
+	repoFindings := make([]domain.Finding, 0, 5001)
+	for i := 0; i < 5001; i++ {
+		severity := domain.SeverityLow
+		if i == 0 {
+			severity = domain.SeverityCritical
+		}
+		repoFindings = append(repoFindings, domain.Finding{
+			ID:           fmt.Sprintf("repo-finding-%04d", i),
+			Type:         domain.FindingSecretExposure,
+			Severity:     severity,
+			Title:        fmt.Sprintf("finding-%04d", i),
+			HumanSummary: "repo finding",
+			CreatedAt:    now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, repoFindings); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&sort_by=severity&sort_order=desc&limit=1",
+		nil,
+	)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected prioritized repo findings 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Items      []domain.Finding `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode prioritized repo findings: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("expected one prioritized repo finding, got %+v", body.Items)
+	}
+	if body.Items[0].ID != "repo-finding-0000" || body.Items[0].Severity != domain.SeverityCritical {
+		t.Fatalf("expected oldest critical repo finding first, got %+v", body.Items[0])
+	}
+	if body.NextCursor == "" {
+		t.Fatal("expected prioritized repo findings next_cursor")
 	}
 }
 

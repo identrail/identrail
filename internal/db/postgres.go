@@ -1587,6 +1587,74 @@ func (p *PostgresStore) ListFindingTrendCounts(ctx context.Context, scanIDs []st
 	return result, nil
 }
 
+// ListRepoFindingTrendCounts aggregates repository finding totals by repo scan and severity.
+func (p *PostgresStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unique := make([]string, 0, len(repoScanIDs))
+	seen := map[string]struct{}{}
+	for _, repoScanID := range repoScanIDs {
+		normalized := strings.TrimSpace(repoScanID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		unique = append(unique, normalized)
+	}
+	if len(unique) == 0 {
+		return []FindingTrendCount{}, nil
+	}
+
+	placeholders := make([]string, 0, len(unique))
+	args := make([]any, 0, len(unique)+4)
+	args = append(args, scope.TenantID, scope.WorkspaceID, strings.ToLower(strings.TrimSpace(severity)), strings.ToLower(strings.TrimSpace(findingType)))
+	for i, repoScanID := range unique {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+5))
+		args = append(args, repoScanID)
+	}
+
+	rows, err := p.queryContext(
+		ctx,
+		fmt.Sprintf(`SELECT rs.id, rs.started_at, rf.severity, COUNT(rf.finding_id)
+		 FROM repo_scans rs
+		 LEFT JOIN repo_findings rf
+		   ON rf.repo_scan_id = rs.id
+		  AND ($3 = '' OR LOWER(rf.severity) = $3)
+		  AND ($4 = '' OR LOWER(rf.type) = $4)
+		 WHERE rs.tenant_id = $1
+		   AND rs.workspace_id = $2
+		   AND rs.id IN (%s)
+		 GROUP BY rs.id, rs.started_at, rf.severity`, strings.Join(placeholders, ",")),
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query repo finding trend counts: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]FindingTrendCount, 0)
+	for rows.Next() {
+		var count FindingTrendCount
+		var severityValue sql.NullString
+		if err := rows.Scan(&count.ScanID, &count.StartedAt, &severityValue, &count.TotalCount); err != nil {
+			return nil, fmt.Errorf("repo finding trend row: %w", err)
+		}
+		if severityValue.Valid {
+			count.Severity = severityValue.String
+		}
+		result = append(result, count)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("repo finding trend rows: %w", err)
+	}
+	return result, nil
+}
+
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
 func (p *PostgresStore) UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error {
 	scope, err := RequireScope(ctx)
@@ -3006,7 +3074,8 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 
 // ListRepoFindings returns latest repository findings first with optional filters.
 func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error) {
-	repoScanID := strings.TrimSpace(filter.RepoScanID)
+	normalized := NormalizeRepoFindingFilter(filter)
+	repoScanID := normalized.RepoScanID
 	if repoScanID != "" {
 		if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
 			return nil, err
@@ -3020,20 +3089,22 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 		 FROM repo_findings rf
 		 JOIN repo_scans rs ON rs.id = rf.repo_scan_id
 		 WHERE ($1 = '' OR rf.repo_scan_id = $1::uuid)
-		   AND ($2 = '' OR rf.severity = $2)
-		   AND ($3 = '' OR rf.type = $3)
-		   AND rs.tenant_id = $4
-		   AND rs.workspace_id = $5
-		 ORDER BY rf.created_at DESC`
+		   AND ($2 = '' OR rf.finding_id = $2)
+		   AND ($3 = '' OR rf.severity = $3)
+		   AND ($4 = '' OR rf.type = $4)
+		   AND rs.tenant_id = $5
+		   AND rs.workspace_id = $6
+		 ORDER BY ` + repoFindingOrderClause(normalized.SortBy, normalized.SortDesc)
 	args := []any{
 		repoScanID,
-		strings.TrimSpace(filter.Severity),
-		strings.TrimSpace(filter.Type),
+		normalized.FindingID,
+		normalized.Severity,
+		normalized.Type,
 		scope.TenantID,
 		scope.WorkspaceID,
 	}
 	if limit > 0 {
-		query += "\n\t\t LIMIT $6"
+		query += "\n\t\t LIMIT $7"
 		args = append(args, limit)
 	}
 	rows, err := p.queryContext(
@@ -4256,6 +4327,30 @@ func findingOrderClause(sortBy string, desc bool) string {
 		return fmt.Sprintf("LOWER(f.title) %s, f.scan_id %s, f.finding_id %s", direction, direction, direction)
 	default:
 		return fmt.Sprintf("f.created_at %s, f.scan_id %s, f.finding_id %s", direction, direction, direction)
+	}
+}
+
+func repoFindingOrderClause(sortBy string, desc bool) string {
+	direction := "ASC"
+	if desc {
+		direction = "DESC"
+	}
+	switch sortBy {
+	case "severity":
+		return fmt.Sprintf(`CASE LOWER(rf.severity)
+			WHEN 'critical' THEN 5
+			WHEN 'high' THEN 4
+			WHEN 'medium' THEN 3
+			WHEN 'low' THEN 2
+			WHEN 'info' THEN 1
+			ELSE 0
+		END %s, rf.repo_scan_id %s, rf.finding_id %s`, direction, direction, direction)
+	case "type":
+		return fmt.Sprintf("LOWER(rf.type) %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
+	case "title":
+		return fmt.Sprintf("LOWER(rf.title) %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
+	default:
+		return fmt.Sprintf("rf.created_at %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
 	}
 }
 

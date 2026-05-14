@@ -9,6 +9,7 @@ export type Finding = {
   scan_id: string;
   type: string;
   severity: string;
+  confidence_score?: number;
   title: string;
   human_summary: string;
   path?: string[];
@@ -932,8 +933,14 @@ export const apiClient = {
   getFindingsTrends(
     filters: { points?: number; severity?: string; type?: string } = {},
     auth?: RequestAuthContext
-  ) {
+    ) {
     return request<{ items: TrendPoint[] }>(`/v1/findings/trends${buildQuery(filters)}`, auth);
+  },
+  getRepoFindingsTrends(
+    filters: { points?: number; severity?: string; type?: string } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<{ items: TrendPoint[] }>(`/v1/repo-findings/trends${buildQuery(filters)}`, auth);
   },
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
@@ -974,6 +981,8 @@ export const apiClient = {
       repo_scan_id?: string;
       severity?: string;
       type?: string;
+      lifecycle_status?: FindingLifecycleStatus;
+      assignee?: string;
       sort_by?: string;
       sort_order?: 'asc' | 'desc';
     } = {},

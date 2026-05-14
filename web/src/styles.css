@@ -4328,7 +4328,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-repo-finding-stats {
   margin-top: 1rem;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
@@ -4362,7 +4362,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-repo-finding-filters {
   margin-top: 1rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
@@ -4379,6 +4379,154 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   background: rgba(9, 15, 26, 0.84);
   color: #e4efff;
   padding: 0.5rem 0.6rem;
+}
+
+.idt-repo-finding-filters input {
+  border: 1px solid rgba(126, 157, 211, 0.35);
+  border-radius: 0.55rem;
+  background: rgba(9, 15, 26, 0.84);
+  color: #e4efff;
+  padding: 0.5rem 0.6rem;
+}
+
+.idt-repo-finding-trend {
+  margin-top: 1rem;
+  border: 1px solid rgba(126, 157, 211, 0.24);
+  border-radius: 0.8rem;
+  background: rgba(9, 15, 26, 0.56);
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-repo-finding-trend-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.58rem;
+}
+
+.idt-repo-finding-trend-head h3 {
+  margin: 0;
+}
+
+.idt-repo-finding-trend-subtitle {
+  color: #9fb5d8;
+  font-size: 0.82rem;
+}
+
+.idt-repo-finding-trend-rows {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.idt-repo-finding-trend-row {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.idt-repo-finding-trend-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.idt-repo-finding-trend-meta strong {
+  color: #f4f8ff;
+}
+
+.idt-repo-finding-trend-meta span {
+  color: #9fb5d8;
+}
+
+.idt-repo-finding-trend-bar-track {
+  width: 100%;
+  border-radius: 999px;
+  border: 1px solid rgba(126, 157, 211, 0.25);
+  background: rgba(6, 11, 20, 0.78);
+  overflow: hidden;
+  height: 0.8rem;
+}
+
+.idt-repo-finding-trend-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7f8ffc, #46bb9f);
+  transition: width 0.2s ease;
+}
+
+.idt-repo-finding-group {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
+}
+
+.idt-repo-finding-group h4 {
+  margin: 0;
+  color: #b8cdf6;
+  font-size: 0.86rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-repo-finding-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.24rem 0.58rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.idt-repo-finding-status.is-open {
+  background: rgba(56, 132, 255, 0.22);
+  color: #b8d9ff;
+}
+
+.idt-repo-finding-status.is-ack {
+  background: rgba(255, 181, 67, 0.22);
+  color: #ffd8aa;
+}
+
+.idt-repo-finding-status.is-suppressed {
+  background: rgba(137, 145, 181, 0.24);
+  color: #ced8f2;
+}
+
+.idt-repo-finding-status.is-resolved {
+  background: rgba(81, 188, 132, 0.25);
+  color: #c8f3dc;
+}
+
+.idt-repo-finding-triage-form {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.idt-repo-finding-triage-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #d3e1f7;
+  font-size: 0.95rem;
+}
+
+.idt-repo-finding-triage-form select,
+.idt-repo-finding-triage-form input,
+.idt-repo-finding-triage-form textarea {
+  border: 1px solid rgba(126, 157, 211, 0.35);
+  border-radius: 0.55rem;
+  background: rgba(9, 15, 26, 0.84);
+  color: #e4efff;
+  padding: 0.5rem 0.6rem;
+}
+
+.idt-repo-finding-triage-form textarea {
+  resize: vertical;
+  min-height: 6rem;
 }
 
 .idt-repo-finding-layout {
@@ -4578,6 +4726,10 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   .idt-repo-finding-layout,
   .idt-repo-finding-facts {
     grid-template-columns: 1fr;
+  }
+
+  .idt-repo-finding-trend-meta {
+    flex-direction: column;
   }
 }
 
@@ -5785,7 +5937,8 @@ html[data-theme='light'] .idt-app-alert-success {
 
 html[data-theme='light'] .idt-repo-finding-stat,
 html[data-theme='light'] .idt-repo-finding-list,
-html[data-theme='light'] .idt-repo-finding-detail {
+html[data-theme='light'] .idt-repo-finding-detail,
+html[data-theme='light'] .idt-repo-finding-trend {
   background: rgba(255, 255, 255, 0.94);
   border-color: rgba(42, 71, 119, 0.18);
 }
@@ -5817,6 +5970,40 @@ html[data-theme='light'] .idt-repo-finding-filters select {
 html[data-theme='light'] .idt-repo-finding-row {
   background: rgba(245, 249, 255, 0.98);
   border-color: rgba(42, 71, 119, 0.18);
+}
+
+html[data-theme='light'] .idt-repo-finding-trend {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+html[data-theme='light'] .idt-repo-finding-trend-subtitle,
+html[data-theme='light'] .idt-repo-finding-trend-meta span,
+html[data-theme='light'] .idt-repo-finding-group h4 {
+  color: #486b9d;
+}
+
+html[data-theme='light'] .idt-repo-finding-trend-meta strong {
+  color: #132b4d;
+}
+
+html[data-theme='light'] .idt-repo-finding-trend-row p,
+html[data-theme='light'] .idt-repo-finding-status,
+html[data-theme='light'] .idt-repo-finding-triage-form label {
+  color: #233f66;
+}
+
+html[data-theme='light'] .idt-repo-finding-trend-bar-track {
+  border-color: rgba(42, 71, 119, 0.25);
+  background: rgba(228, 237, 248, 0.9);
+}
+
+html[data-theme='light'] .idt-repo-finding-triage-form select,
+html[data-theme='light'] .idt-repo-finding-triage-form input,
+html[data-theme='light'] .idt-repo-finding-triage-form textarea,
+html[data-theme='light'] .idt-repo-finding-filters input {
+  color: #1c355d;
+  background: #ffffff;
+  border-color: rgba(42, 71, 119, 0.32);
 }
 
 html[data-theme='light'] .idt-repo-finding-row:hover,

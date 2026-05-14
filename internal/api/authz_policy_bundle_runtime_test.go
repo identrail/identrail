@@ -78,6 +78,20 @@ func TestCompileRouteAuthorizationPolicyBundleRejectsInvalidReBACRelation(t *tes
 	}
 }
 
+func TestDefaultRoutePolicyBundleUsesRepoScansReadForRepoFindingsTrends(t *testing.T) {
+	compiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
+	if err != nil {
+		t.Fatalf("compile built-in policy bundle: %v", err)
+	}
+	policy, exists := compiled.RouteRegistry.lookup("GET", "/v1/repo-findings/trends")
+	if !exists {
+		t.Fatal("expected built-in authz policy for GET /v1/repo-findings/trends")
+	}
+	if policy.Action != policyActionRepoScansRead {
+		t.Fatalf("expected action %q, got %q", policyActionRepoScansRead, policy.Action)
+	}
+}
+
 func TestCentralPolicyRuntimeResolverFallsBackWhenNoActiveRollout(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := testAuthzPolicyScopeContext()

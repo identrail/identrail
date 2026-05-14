@@ -54,6 +54,10 @@ x-identrail-route-authorizations:
     action: findings.read
     resource_type: finding_trend
   - method: GET
+    path: /v1/repo-findings/trends
+    action: repo_scans.read
+    resource_type: finding_trend
+  - method: GET
     path: /v1/findings/summary
     action: findings.read
     resource_type: finding_summary
@@ -2562,6 +2566,40 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/TrendPoint"
+  /v1/repo-findings/trends:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [RepositoryExposure]
+      summary: Repository findings trend over recent repository scans
+      operationId: getRepoFindingsTrends
+      parameters:
+        - in: query
+          name: points
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: severity
+          schema:
+            $ref: "#/components/schemas/FindingSeverity"
+        - in: query
+          name: type
+          schema:
+            $ref: "#/components/schemas/FindingType"
+      responses:
+        "200":
+          description: Trend points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrendPoint"
   /v1/findings/{finding_id}:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -3065,6 +3103,15 @@ paths:
           name: type
           schema:
             $ref: "#/components/schemas/FindingType"
+        - in: query
+          name: lifecycle_status
+          schema:
+            type: string
+            enum: [open, ack, suppressed, resolved]
+        - in: query
+          name: assignee
+          schema:
+            type: string
       responses:
         "200":
           description: Repository findings page

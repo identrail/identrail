@@ -1592,9 +1592,14 @@ type RelationshipFilter struct {
 
 // RepoFindingFilter controls repository finding list queries.
 type RepoFindingFilter struct {
-	RepoScanID string
-	Severity   string
-	Type       string
+	RepoScanID      string
+	FindingID       string
+	Severity        string
+	Type            string
+	LifecycleStatus string
+	Assignee        string
+	SortBy          string
+	SortDesc        bool
 }
 
 // RepoFindingClusterListFilter controls repository finding cluster list queries.
@@ -1680,6 +1685,33 @@ func NormalizeRepoFindingClusterListFilter(filter RepoFindingClusterListFilter) 
 	return normalized
 }
 
+// NormalizeRepoFindingFilter trims optional filters for repository findings.
+func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
+	rawSortBy := strings.ToLower(strings.TrimSpace(filter.SortBy))
+	sortBy := rawSortBy
+	sortDesc := filter.SortDesc
+	switch sortBy {
+	case "severity", "type", "title", "created_at":
+	default:
+		sortBy = "created_at"
+		if rawSortBy == "" {
+			sortDesc = true
+		}
+	}
+
+	normalized := RepoFindingFilter{
+		RepoScanID:      strings.TrimSpace(filter.RepoScanID),
+		FindingID:       strings.TrimSpace(filter.FindingID),
+		Severity:        strings.ToLower(strings.TrimSpace(filter.Severity)),
+		Type:            strings.ToLower(strings.TrimSpace(filter.Type)),
+		LifecycleStatus: strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),
+		Assignee:        strings.ToLower(strings.TrimSpace(filter.Assignee)),
+		SortBy:          sortBy,
+		SortDesc:        sortDesc,
+	}
+	return normalized
+}
+
 // NormalizeFindingTriage returns a stable, API-shaped finding triage state.
 func NormalizeFindingTriage(triage domain.FindingTriage, now time.Time) domain.FindingTriage {
 	normalized := triage
@@ -1750,6 +1782,7 @@ type Store interface {
 	ListFindingMetasByScan(ctx context.Context, scanID string) ([]FindingMeta, error)
 	ListFindingsByScanAndIDs(ctx context.Context, scanID string, findingIDs []string) ([]domain.Finding, error)
 	ListFindingTrendCounts(ctx context.Context, scanIDs []string, severity string, findingType string) ([]FindingTrendCount, error)
+	ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string) ([]FindingTrendCount, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
 	GetAuthzEntityAttributes(ctx context.Context, entityKind string, entityType string, entityID string) (AuthzEntityAttributes, error)
 	UpsertAuthzRelationship(ctx context.Context, relationship AuthzRelationship) error

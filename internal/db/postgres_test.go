@@ -699,7 +699,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "default", "default", 100).WillReturnRows(repoFindingsRows)
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "default", "default", 100).WillReturnRows(repoFindingsRows)
 	repoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 100)
 	if err != nil {
 		t.Fatalf("list repo findings failed: %v", err)
@@ -722,7 +722,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "default", "default").WillReturnRows(unboundedRepoFindingsRows)
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "default", "default").WillReturnRows(unboundedRepoFindingsRows)
 	unboundedRepoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 0)
 	if err != nil {
 		t.Fatalf("list repo findings unbounded failed: %v", err)
@@ -2801,6 +2801,45 @@ func TestPostgresStoreListFindingTrendCounts(t *testing.T) {
 	}
 	if len(trend) != 2 || trend[0].ScanID != "scan-1" || trend[1].ScanID != "scan-2" {
 		t.Fatalf("unexpected trend counts: %+v", trend)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListRepoFindingTrendCounts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+
+	trendRows := sqlmock.NewRows([]string{"id", "started_at", "severity", "count"}).
+		AddRow("scan-1", now, "critical", 1).
+		AddRow("scan-2", now.Add(time.Minute), nil, 0)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT rs.id, rs.started_at, rf.severity, COUNT(rf.finding_id)
+		 FROM repo_scans rs
+		 LEFT JOIN repo_findings rf
+		   ON rf.repo_scan_id = rs.id
+		  AND ($3 = '' OR LOWER(rf.severity) = $3)
+		  AND ($4 = '' OR LOWER(rf.type) = $4)
+		 WHERE rs.tenant_id = $1
+		   AND rs.workspace_id = $2
+		   AND rs.id IN ($5,$6)
+		 GROUP BY rs.id, rs.started_at, rf.severity`)).
+		WithArgs("default", "default", "critical", "escalation_path", "scan-1", "scan-2").
+		WillReturnRows(trendRows)
+
+	trend, err := store.ListRepoFindingTrendCounts(defaultScopeContext(), []string{"scan-1", "scan-2", "scan-1"}, "critical", "escalation_path")
+	if err != nil {
+		t.Fatalf("list repo finding trend counts: %v", err)
+	}
+	if len(trend) != 2 || trend[0].ScanID != "scan-1" || trend[1].ScanID != "scan-2" {
+		t.Fatalf("unexpected repo trend counts: %+v", trend)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -378,6 +378,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/findings/trends", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.GET("/repo-findings/trends", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"items": []any{}})
+		})
 		v1.GET("/findings/summary", func(c *gin.Context) {
 			c.JSON(http.StatusOK, FindingsSummary{
 				Total:      0,
@@ -600,6 +603,22 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		if err != nil {
 			logger.Error("findings trends", telemetry.ZapError(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build findings trends"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
+
+	v1.GET("/repo-findings/trends", func(c *gin.Context) {
+		points := parseLimit(c.Query("points"), 10, 100)
+		items, err := svc.GetRepoFindingsTrendFiltered(
+			c.Request.Context(),
+			points,
+			strings.TrimSpace(c.Query("severity")),
+			strings.TrimSpace(c.Query("type")),
+		)
+		if err != nil {
+			logger.Error("repo findings trends", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build repository findings trends"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"items": items})
@@ -835,11 +854,15 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		}
 		items, err := svc.ListRepoFindings(
 			c.Request.Context(),
-			maxCursorFetchLimit,
+			pageFetchLimit(offset, limit),
 			db.RepoFindingFilter{
-				RepoScanID: repoScanID,
-				Severity:   strings.TrimSpace(c.Query("severity")),
-				Type:       strings.TrimSpace(c.Query("type")),
+				RepoScanID:      repoScanID,
+				Severity:        strings.TrimSpace(c.Query("severity")),
+				Type:            strings.TrimSpace(c.Query("type")),
+				LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
+				Assignee:        strings.TrimSpace(c.Query("assignee")),
+				SortBy:          sortBy,
+				SortDesc:        sortDesc,
 			},
 		)
 		if err != nil {
@@ -851,7 +874,6 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list repo findings"})
 			return
 		}
-		sortFindings(items, sortBy, sortDesc)
 		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 

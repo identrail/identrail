@@ -502,6 +502,53 @@ func TestMemoryStoreListFindingTrendCounts(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListRepoFindingTrendCounts(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	ctx := defaultScopeContext()
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", now)
+	if err != nil {
+		t.Fatalf("create repo scan A: %v", err)
+	}
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create repo scan B: %v", err)
+	}
+	if err := store.UpsertRepoFindings(ctx, scanA.ID, []domain.Finding{
+		{ID: "f1", ScanID: scanA.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(time.Second)},
+		{ID: "f2", ScanID: scanA.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical, CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan A: %v", err)
+	}
+	if err := store.UpsertRepoFindings(ctx, scanB.ID, []domain.Finding{
+		{ID: "f3", ScanID: scanB.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now.Add(3 * time.Second)},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan B: %v", err)
+	}
+
+	trend, err := store.ListRepoFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "", "")
+	if err != nil {
+		t.Fatalf("list repo finding trend counts: %v", err)
+	}
+	if len(trend) != 3 {
+		t.Fatalf("expected 3 repo trend rows, got %+v", trend)
+	}
+
+	filteredTrend, err := store.ListRepoFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "critical", "escalation_path")
+	if err != nil {
+		t.Fatalf("list filtered repo finding trend counts: %v", err)
+	}
+	if len(filteredTrend) != 2 {
+		t.Fatalf("expected 2 filtered repo trend rows (one per scan), got %+v", filteredTrend)
+	}
+	if filteredTrend[0].ScanID != scanA.ID || filteredTrend[0].Severity != "critical" || filteredTrend[0].TotalCount != 1 {
+		t.Fatalf("unexpected filtered repo trend row for scan A: %+v", filteredTrend[0])
+	}
+	if filteredTrend[1].ScanID != scanB.ID || filteredTrend[1].TotalCount != 0 {
+		t.Fatalf("unexpected filtered repo trend row for scan B: %+v", filteredTrend[1])
+	}
+}
+
 func TestMemoryStoreIdentityAndRelationshipFilters(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

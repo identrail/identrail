@@ -266,6 +266,24 @@ describe('App', () => {
           ]
         });
       }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({
+          items: [
+            {
+              scan_id: 'repo-scan-1',
+              started_at: '2026-01-01T00:00:00Z',
+              total: 1,
+              by_severity: {
+                critical: 0,
+                high: 1,
+                medium: 0,
+                low: 0,
+                info: 0
+              }
+            }
+          ]
+        });
+      }
       if (url.includes('/v1/repo-findings')) {
         return okJSON({
           items: [
@@ -299,6 +317,9 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Findings/i })).toBeInTheDocument();
     expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Finding trend/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Critical 0 \/ High 1 \/ Medium 0 \/ Low 0 \/ Info 0/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Risk/i)).toBeInTheDocument();
 
     const openInGitHub = await screen.findByRole('link', { name: /Open in GitHub/i });
     expect(openInGitHub).toHaveAttribute('href', 'https://github.com/owner/repo/blob/abc123/config/app.env#L7');

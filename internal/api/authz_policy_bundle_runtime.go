@@ -645,6 +645,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/findings/baseline/export", Action: policyActionFindingsRead, ResourceType: "finding_baseline"},
 		{Method: http.MethodPost, Path: "/v1/findings/baseline/import", Action: policyActionFindingsTriage, ResourceType: "finding_baseline"},
 		{Method: http.MethodGet, Path: "/v1/findings/trends", Action: policyActionFindingsRead, ResourceType: "finding_trend"},
+		{Method: http.MethodGet, Path: "/v1/repo-findings/trends", Action: policyActionRepoScansRead, ResourceType: "finding_trend"},
 		{Method: http.MethodGet, Path: "/v1/findings/summary", Action: policyActionFindingsRead, ResourceType: "finding_summary"},
 		{Method: http.MethodPatch, Path: "/v1/findings/:finding_id/triage", Action: policyActionFindingsTriage, ResourceType: "finding", ResourceIDParam: "finding_id"},
 		{Method: http.MethodGet, Path: "/v1/identities", Action: policyActionGraphRead, ResourceType: "identity"},
