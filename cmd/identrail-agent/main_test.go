@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -236,6 +237,56 @@ func TestDiscoverInClusterKubernetesRequiresClusterEnvironment(t *testing.T) {
 	probe := discoverInClusterKubernetes(context.Background())
 	if len(probe.Diagnostics) != 1 || probe.Diagnostics[0].Code != "kubernetes_agent_not_in_cluster" {
 		t.Fatalf("expected not-in-cluster diagnostic, got %+v", probe.Diagnostics)
+	}
+}
+
+func TestPersistKubernetesAgentTokenPatchesConfiguredSecret(t *testing.T) {
+	var patchedToken string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Fatalf("method = %s, want PATCH", r.Method)
+		}
+		if r.URL.Path != "/api/v1/namespaces/identrail/secrets/identrail-agent-enrollment" {
+			t.Fatalf("unexpected secret path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer service-token" {
+			t.Fatalf("authorization = %q", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/merge-patch+json" {
+			t.Fatalf("content-type = %q", got)
+		}
+		var payload struct {
+			Data map[string]string `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode patch: %v", err)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(payload.Data["agent-token"])
+		if err != nil {
+			t.Fatalf("decode token: %v", err)
+		}
+		patchedToken = string(decoded)
+		_, _ = w.Write([]byte(`{"kind":"Secret"}`))
+	}))
+	defer server.Close()
+
+	useTestKubernetesService(t, server.URL)
+	useTestServiceAccountFiles(t, "service-token", testKubernetesServerCA(t, server))
+	t.Setenv("IDENTRAIL_AGENT_NAMESPACE", "identrail")
+	t.Setenv("IDENTRAIL_AGENT_TOKEN_SECRET_NAME", "identrail-agent-enrollment")
+	t.Setenv("IDENTRAIL_AGENT_TOKEN_SECRET_KEY", "agent-token")
+
+	if err := persistKubernetesAgentToken(context.Background(), "issued-agent-token"); err != nil {
+		t.Fatalf("persistKubernetesAgentToken(): %v", err)
+	}
+	if patchedToken != "issued-agent-token" {
+		t.Fatalf("patched token = %q", patchedToken)
+	}
+}
+
+func TestPersistKubernetesAgentTokenSkipsWhenSecretConfigMissing(t *testing.T) {
+	if err := persistKubernetesAgentToken(context.Background(), "issued-agent-token"); err != nil {
+		t.Fatalf("persistKubernetesAgentToken() with no secret config: %v", err)
 	}
 }
 

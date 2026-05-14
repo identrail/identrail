@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -144,6 +146,9 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 				credential = enrollmentToken
 				usingEnrollmentRecoveryCredential = true
 			} else {
+				if err := persistKubernetesAgentToken(ctx, response.AgentToken); err != nil {
+					log.Printf("persist kubernetes agent token failed; continuing with in-memory credential: %v", err)
+				}
 				credential = response.AgentToken
 				connectorID = response.ConnectorID
 				agentID = response.AgentID
@@ -408,6 +413,58 @@ func kubernetesGet(ctx context.Context, client *http.Client, url string, token s
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return resp.StatusCode, strings.TrimSpace(string(body)), nil
+}
+
+func persistKubernetesAgentToken(ctx context.Context, agentToken string) error {
+	agentToken = strings.TrimSpace(agentToken)
+	namespace := strings.TrimSpace(os.Getenv("IDENTRAIL_AGENT_NAMESPACE"))
+	secretName := strings.TrimSpace(os.Getenv("IDENTRAIL_AGENT_TOKEN_SECRET_NAME"))
+	secretKey := strings.TrimSpace(os.Getenv("IDENTRAIL_AGENT_TOKEN_SECRET_KEY"))
+	if agentToken == "" || namespace == "" || secretName == "" {
+		return nil
+	}
+	if secretKey == "" {
+		secretKey = "agent-token"
+	}
+	host := strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_HOST"))
+	port := strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_PORT"))
+	if host == "" || port == "" {
+		return errors.New("Kubernetes service discovery environment variables are not available")
+	}
+	serviceAccountToken, err := os.ReadFile(kubernetesServiceAccountTokenPath)
+	if err != nil {
+		return fmt.Errorf("read Kubernetes service account token: %w", err)
+	}
+	client, err := kubernetesAPIClient()
+	if err != nil {
+		return err
+	}
+	patchBody, err := json.Marshal(map[string]any{
+		"data": map[string]string{
+			secretKey: base64.StdEncoding.EncodeToString([]byte(agentToken)),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	secretURL := "https://" + host + ":" + port + "/api/v1/namespaces/" + url.PathEscape(namespace) + "/secrets/" + url.PathEscape(secretName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, secretURL, bytes.NewReader(patchBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(serviceAccountToken)))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/merge-patch+json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("patch Kubernetes agent token secret returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func env(key string, fallback string) string {

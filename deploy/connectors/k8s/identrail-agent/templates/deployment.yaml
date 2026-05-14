@@ -35,6 +35,20 @@ spec:
                 secretKeyRef:
                   name: {{ include "identrail-agent.fullname" . }}-enrollment
                   key: enrollment-token
+            - name: IDENTRAIL_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "identrail-agent.fullname" . }}-enrollment
+                  key: agent-token
+                  optional: true
+            - name: IDENTRAIL_AGENT_TOKEN_SECRET_NAME
+              value: {{ include "identrail-agent.fullname" . }}-enrollment
+            - name: IDENTRAIL_AGENT_TOKEN_SECRET_KEY
+              value: agent-token
+            - name: IDENTRAIL_AGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           securityContext:
 {{ toYaml .Values.securityContext | indent 12 }}
           resources:
