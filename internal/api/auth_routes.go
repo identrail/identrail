@@ -116,7 +116,9 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 		screenHint := ""
 		action := "auth.login.start"
 		if intent == "signup" {
-			screenHint = "sign-up"
+			if provider == "authkit" {
+				screenHint = "sign-up"
+			}
 			action = "auth.signup"
 		}
 		auditAuthAction(c.Request.Context(), action, "", "success")

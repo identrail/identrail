@@ -161,6 +161,48 @@ func TestWorkOSStartRoutesConfiguredSocialProviders(t *testing.T) {
 	}
 }
 
+func TestWorkOSSignupOnlySendsScreenHintForAuthKit(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		provider       string
+		wantProvider   string
+		wantScreenHint string
+	}{
+		{name: "google", provider: "google_oauth", wantProvider: "GoogleOAuth"},
+		{name: "github", provider: "github_oauth", wantProvider: "GitHubOAuth"},
+		{name: "authkit", provider: "authkit", wantProvider: "authkit", wantScreenHint: "sign-up"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			svc := NewService(store, fakeScanner{}, "aws")
+			workOS := &fakeWorkOSClient{}
+			router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+				FeatureNewAuth:      true,
+				FeatureWorkOSLogin:  true,
+				PublicBaseURL:       "https://app.identrail.test",
+				SessionKey:          strings.Repeat("a", 64),
+				WorkOSClientID:      "client_123",
+				WorkOSWebhookSecret: "whsec_123",
+				WorkOSAuthClient:    workOS,
+				RateLimitRPM:        1000,
+				RateLimitBurst:      1000,
+			})
+
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider="+tc.provider, nil))
+			if resp.Code != http.StatusFound {
+				t.Fatalf("expected signup redirect, got %d body=%s", resp.Code, resp.Body.String())
+			}
+			if workOS.authorizationInput.Provider != tc.wantProvider {
+				t.Fatalf("expected provider %q, got %q", tc.wantProvider, workOS.authorizationInput.Provider)
+			}
+			if workOS.authorizationInput.ScreenHint != tc.wantScreenHint {
+				t.Fatalf("expected screen hint %q, got %q", tc.wantScreenHint, workOS.authorizationInput.ScreenHint)
+			}
+		})
+	}
+}
+
 func TestWorkOSStartRejectsUnsupportedProvider(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
