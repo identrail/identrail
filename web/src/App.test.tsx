@@ -234,6 +234,15 @@ describe('App', () => {
     );
   });
 
+  it('shows a clear API reachability error when auth config cannot be fetched', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')));
+
+    setCurrentPath('/signin');
+    render(<App />);
+
+    expect(await screen.findByText(/Identrail API is not reachable yet/i)).toBeInTheDocument();
+  });
+
   it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a'))));
     setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');

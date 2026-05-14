@@ -20,6 +20,13 @@ When `create_api_hosting_resources=true`, the root can also create:
 - API load balancer and ECS service security groups
 - task execution and task IAM roles
 
+The default network shape keeps API tasks in private subnets. For the first
+Identrail Cloud cutover, operators may opt into a lower-cost bootstrap mode by
+setting `api_task_subnet_ids` to public subnets and `api_task_assign_public_ip=true`.
+That avoids NAT Gateway or private VPC endpoint hourly charges while preserving
+the public ingress boundary at the load balancer security group. Move back to
+private task subnets before higher-volume production use.
+
 It does not write secret values. Runtime secrets should be created by the
 operator or a dedicated secrets workflow and referenced through `api_secrets`.
 If those secrets use customer-managed KMS keys, list the key ARNs in
@@ -82,15 +89,14 @@ terraform plan \
 ## Manual Dev Plan With API Hosting Enabled
 
 Only run this after the VPC, at least two distinct public subnets in different
-Availability Zones, at least two distinct private subnets, ACM certificate,
-immutable API image, database, auth configuration, and Secrets Manager
-references are ready. The API-hosting plan reads public and private subnet
-metadata from AWS and fails before apply if the load balancer subnets are not
-spread across at least two Availability Zones or if any provided subnet is
-outside `api_vpc_id`. It also reads the public subnet route tables and requires
-an Internet Gateway default route so the public API load balancer is reachable.
-public subnets may use either an explicit subnet route-table association or the
-VPC main route table.
+Availability Zones, task subnets, ACM certificate, immutable API image,
+database, auth configuration, and Secrets Manager references are ready. The
+API-hosting plan reads subnet metadata from AWS and fails before apply if the
+load balancer or task subnets are not spread across at least two Availability
+Zones or if any provided subnet is outside `api_vpc_id`. It also reads route
+tables and requires an Internet Gateway default route for public load balancer
+subnets. Public subnets may use either an explicit subnet route-table
+association or the VPC main route table.
 
 ```bash
 cd deploy/aws/terraform
@@ -112,6 +118,37 @@ terraform plan \
   -var='api_connector_role_arns=[]'
 ```
 
+For the lowest-cost first cutover, avoid NAT Gateway by using public task
+subnets with public IP assignment:
+
+```bash
+cd deploy/aws/terraform
+terraform plan \
+  -input=false \
+  -var-file=environments/dev/terraform.tfvars.example \
+  -var='create_foundation_resources=true' \
+  -var='create_api_hosting_resources=true' \
+  -var='api_vpc_id=<vpc-id>' \
+  -var='api_public_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
+  -var='api_task_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
+  -var='api_task_assign_public_ip=true' \
+  -var='api_certificate_arn=<api-certificate-arn>' \
+  -var='api_container_image=ghcr.io/identrail/identrail-api:<immutable-release-tag>' \
+  -var='api_cors_allowed_origins=["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' \
+  -var='api_trusted_proxy_cidr_blocks=["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' \
+  -var='api_environment_variables={"IDENTRAIL_FEATURE_NEW_AUTH":"true","IDENTRAIL_PUBLIC_BASE_URL":"https://api.identrail.com"}' \
+  -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_SESSION_KEY":"<session-key-secret-arn>"}' \
+  -var='api_secret_kms_key_arns=[]' \
+  -var='api_connector_role_arns=[]'
+```
+
+This mode is intentionally still behind the ALB. The ECS service security group
+allows inbound traffic only from the ALB security group, not directly from the
+internet. The public IP is used for task egress to pull images, read Secrets
+Manager, and write logs without a NAT Gateway. Treat it as a budget-conscious
+bootstrap path and migrate to private task subnets plus NAT/VPC endpoints when
+traffic or compliance needs justify the extra cost.
+
 Do not run `terraform apply` until the database, runtime secrets, container
 image tag, health checks, rollback plan, and DNS cutover plan have all been
 reviewed.
@@ -124,6 +161,8 @@ Set `api_private_subnet_egress_ready=true` only after the private task subnets
 have NAT egress or private VPC endpoints for the services Fargate needs at
 startup, including ECR API, ECR Docker, CloudWatch Logs, Secrets Manager, and
 S3 access for image layers. Identrail API tasks run with `assign_public_ip=false`.
+If using the low-cost bootstrap path, leave `api_private_subnet_egress_ready=false`
+and set `api_task_assign_public_ip=true` with public `api_task_subnet_ids`.
 
 Set `api_enable_execute_command=true` only when operator IAM and audit
 expectations are ready. The task role receives the required SSM Messages

@@ -16,6 +16,7 @@ locals {
   api_fargate_memory_options = lookup(local.api_fargate_memory_by_cpu, tostring(var.api_task_cpu), [])
   api_cors_allowed_origins   = join(",", var.api_cors_allowed_origins)
   api_trusted_proxies        = join(",", var.api_trusted_proxy_cidr_blocks)
+  api_task_subnet_ids        = length(var.api_task_subnet_ids) > 0 ? var.api_task_subnet_ids : var.api_private_subnet_ids
   api_default_environment_variables = {
     IDENTRAIL_AWS_REGION           = var.aws_region
     IDENTRAIL_AWS_SOURCE           = "sdk"
@@ -55,6 +56,19 @@ locals {
       local.api_main_route_table_ids
     )
   }
+  api_task_subnet_explicit_route_table_ids = {
+    for subnet_id in local.api_task_subnet_ids : subnet_id => [
+      for route_table_id, route_table in data.aws_route_table.api_vpc : route_table_id
+      if anytrue([for association in route_table.associations : association.subnet_id == subnet_id])
+    ]
+  }
+  api_task_subnet_effective_route_table_ids = {
+    for subnet_id in local.api_task_subnet_ids : subnet_id => (
+      length(local.api_task_subnet_explicit_route_table_ids[subnet_id]) > 0 ?
+      local.api_task_subnet_explicit_route_table_ids[subnet_id] :
+      local.api_main_route_table_ids
+    )
+  }
   api_new_auth_enabled = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_NEW_AUTH", "")) == "true"
   api_has_supported_auth = (
     contains(local.api_secret_config_names, "IDENTRAIL_API_KEY_SCOPES") ||
@@ -84,10 +98,10 @@ data "aws_subnet" "api_public" {
   id = var.api_public_subnet_ids[count.index]
 }
 
-data "aws_subnet" "api_private" {
-  count = var.create_api_hosting_resources ? length(var.api_private_subnet_ids) : 0
+data "aws_subnet" "api_task" {
+  count = var.create_api_hosting_resources ? length(local.api_task_subnet_ids) : 0
 
-  id = var.api_private_subnet_ids[count.index]
+  id = local.api_task_subnet_ids[count.index]
 }
 
 data "aws_route_tables" "api_vpc" {
@@ -144,17 +158,22 @@ resource "terraform_data" "api_inputs" {
     }
 
     precondition {
-      condition = length(distinct(var.api_private_subnet_ids)) >= 2 && alltrue([
-        for subnet_id in var.api_private_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
+      condition = length(distinct(local.api_task_subnet_ids)) >= 2 && alltrue([
+        for subnet_id in local.api_task_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
       ])
-      error_message = "api_private_subnet_ids must include at least two distinct valid subnet IDs when create_api_hosting_resources=true."
+      error_message = "API hosting requires at least two distinct valid ECS task subnet IDs. Set api_task_subnet_ids, or leave it empty and set api_private_subnet_ids."
     }
 
     precondition {
       condition = alltrue([
-        for subnet in data.aws_subnet.api_private : subnet.vpc_id == var.api_vpc_id
+        for subnet in data.aws_subnet.api_task : subnet.vpc_id == var.api_vpc_id
       ])
-      error_message = "api_private_subnet_ids must all belong to api_vpc_id when create_api_hosting_resources=true."
+      error_message = "ECS task subnets must all belong to api_vpc_id when create_api_hosting_resources=true."
+    }
+
+    precondition {
+      condition     = length(distinct(data.aws_subnet.api_task[*].availability_zone_id)) >= 2
+      error_message = "ECS task subnets must span at least two distinct Availability Zones when create_api_hosting_resources=true."
     }
 
     precondition {
@@ -166,8 +185,19 @@ resource "terraform_data" "api_inputs" {
     }
 
     precondition {
-      condition     = var.api_private_subnet_egress_ready
-      error_message = "api_private_subnet_egress_ready must be true when create_api_hosting_resources=true after confirming private API subnets have NAT egress or VPC endpoints for ECR, Secrets Manager, and CloudWatch Logs."
+      condition     = var.api_task_assign_public_ip || var.api_private_subnet_egress_ready
+      error_message = "API hosting requires egress for ECS tasks: set api_private_subnet_egress_ready=true for private task subnets, or set api_task_assign_public_ip=true with public task subnets for the low-cost first cutover path."
+    }
+
+    precondition {
+      condition = !var.api_task_assign_public_ip || alltrue([
+        for route_table_ids in values(local.api_task_subnet_effective_route_table_ids) : anytrue([
+          for route_table_id in route_table_ids : anytrue([
+            for route in data.aws_route_table.api_vpc[route_table_id].routes : route.cidr_block == "0.0.0.0/0" && can(regex("^igw-", route.gateway_id))
+          ])
+        ])
+      ])
+      error_message = "api_task_assign_public_ip=true requires ECS task subnets to have an Internet Gateway default route."
     }
 
     precondition {
@@ -554,10 +584,12 @@ resource "aws_ecs_service" "api" {
   }
 
   network_configuration {
-    assign_public_ip = false
+    assign_public_ip = var.api_task_assign_public_ip
     security_groups  = [aws_security_group.api_service[0].id]
-    # terraform_data.api_inputs requires operator-confirmed NAT or VPC endpoints before these private subnets are used.
-    subnets = var.api_private_subnet_ids
+    # Private tasks require operator-confirmed NAT/VPC endpoints. The optional
+    # public-IP path keeps ingress restricted to the ALB security group while
+    # avoiding NAT Gateway cost for the first cutover.
+    subnets = local.api_task_subnet_ids
   }
 
   depends_on = [

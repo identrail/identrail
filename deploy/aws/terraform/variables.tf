@@ -110,8 +110,26 @@ variable "api_private_subnet_ids" {
   }
 }
 
+variable "api_task_subnet_ids" {
+  description = "Optional ECS task subnet IDs. Leave empty to use api_private_subnet_ids. For a low-cost first cutover, operators may set this to public subnets and enable api_task_assign_public_ip to avoid NAT Gateway or VPC endpoint costs."
+  type        = list(string)
+  default     = []
+  validation {
+    condition = length(var.api_task_subnet_ids) == length(distinct(var.api_task_subnet_ids)) && alltrue([
+      for subnet_id in var.api_task_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
+    ])
+    error_message = "api_task_subnet_ids must contain distinct valid subnet IDs."
+  }
+}
+
+variable "api_task_assign_public_ip" {
+  description = "Assign public IPs to API ECS tasks. Keep false for private-subnet production; set true only for the low-cost first cutover path where task subnets are public and service ingress remains restricted to the ALB security group."
+  type        = bool
+  default     = false
+}
+
 variable "api_private_subnet_egress_ready" {
-  description = "Set true only after private API subnets have NAT egress or VPC endpoints for ECR, Secrets Manager, and CloudWatch Logs. Required when API hosting is enabled because Fargate tasks run with assign_public_ip=false."
+  description = "Set true only after private API task subnets have NAT egress or VPC endpoints for ECR, Secrets Manager, and CloudWatch Logs. Required when API hosting uses private tasks with api_task_assign_public_ip=false."
   type        = bool
   default     = false
 }

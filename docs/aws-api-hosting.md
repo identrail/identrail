@@ -49,6 +49,10 @@ Before a manual apply, operators must provide:
 - `api_private_subnet_egress_ready=true` after confirming those private subnets
   have NAT egress or VPC endpoints for ECR, Secrets Manager, CloudWatch Logs,
   and S3 image-layer access; API tasks run with `assign_public_ip=false`
+- for the low-cost first cutover only, `api_task_subnet_ids` may point at the
+  same two public subnets used by the load balancer with
+  `api_task_assign_public_ip=true`; this avoids NAT Gateway or VPC endpoint
+  hourly charges while keeping task ingress restricted to the ALB security group
 - `api_certificate_arn` for HTTPS on `api.identrail.com`
 - `api_container_image` pinned to an immutable release tag
 - `api_cors_allowed_origins`, defaulting to the Identrail Cloud web origins;
@@ -87,10 +91,16 @@ mode so ECS tasks do not boot into a known-bad configuration. It also refuses to
 plan API hosting without at least one HTTPS CORS origin and at least one trusted
 proxy CIDR.
 
-Terraform requires `api_private_subnet_egress_ready=true` before creating API
-hosting resources. Use that only after the private task subnets can pull the
-image, read injected secrets, and write logs through NAT or private VPC
-endpoints.
+Terraform requires either private task egress or the explicit low-cost public
+task mode before creating API hosting resources. Use
+`api_private_subnet_egress_ready=true` only after the private task subnets can
+pull the image, read injected secrets, and write logs through NAT or private VPC
+endpoints. For the first budget-conscious Identrail Cloud cutover, set
+`api_task_subnet_ids` to two public subnets and `api_task_assign_public_ip=true`
+instead. This is cheaper because it avoids NAT Gateway, but it is still treated
+as a bootstrap mode: keep task security-group ingress limited to the ALB, keep
+`api_allowed_cidr_blocks` on the ALB, and move to private task subnets when
+traffic, compliance, or customer requirements justify the extra cost.
 
 Run database migrations as a separate one-off operation before deploying or
 upgrading the hosted API service. Keep long-running API tasks non-migrating.

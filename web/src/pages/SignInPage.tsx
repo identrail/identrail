@@ -45,6 +45,13 @@ function authReasonMessage(reason: string): string {
   }
 }
 
+function authConfigErrorMessage(error: unknown): string {
+  if (error instanceof TypeError && /fetch/i.test(error.message)) {
+    return 'Identrail API is not reachable yet. Please retry after the production API is online.';
+  }
+  return error instanceof Error ? error.message : 'Unable to load authentication options.';
+}
+
 function workOSURL(intent: AuthIntent, returnTo: string): string {
   const query = new URLSearchParams();
   const webReturnTo = typeof window === 'undefined' ? returnTo : new URL(returnTo, window.location.origin).toString();
@@ -108,8 +115,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
         }
       } catch (error) {
         if (mounted) {
-          const message = error instanceof Error ? error.message : 'Unable to load authentication options.';
-          setConfigError(message);
+          setConfigError(authConfigErrorMessage(error));
         }
       } finally {
         if (mounted) {

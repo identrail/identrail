@@ -107,6 +107,15 @@ Manager references are ready. Plan the stack first, verify the load balancer
 health endpoint, and only then point `api.identrail.com` at the load balancer.
 Keep `app.identrail.com` on Vercel.
 
+For the first cost-controlled Identrail Cloud cutover, prefer the documented
+public-task bootstrap mode instead of creating NAT Gateways. Set
+`api_task_subnet_ids` to two public subnets and `api_task_assign_public_ip=true`
+so ECS tasks can pull images, read Secrets Manager, and write logs without NAT
+hourly charges. The service security group still accepts inbound traffic only
+from the ALB security group. Revisit private task subnets plus NAT/VPC endpoints
+after the API is live and traffic or customer requirements justify the added
+cost.
+
 ## 3) Rollback Sequence
 
 Before any migration or rollback, capture a fresh Postgres backup or managed database

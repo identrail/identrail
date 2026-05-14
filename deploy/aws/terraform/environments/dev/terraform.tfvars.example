@@ -15,6 +15,11 @@ log_retention_days    = 30
 # api_public_subnet_ids  = ["<public-subnet-a>", "<public-subnet-b>"]
 # api_private_subnet_ids = ["<private-subnet-a>", "<private-subnet-b>"]
 # api_private_subnet_egress_ready = true
+# Low-cost first cutover option: use public task subnets and public task egress
+# to avoid NAT Gateway or VPC endpoint hourly costs. Keep service ingress
+# restricted to the ALB security group, and move to private task subnets later.
+# api_task_subnet_ids       = ["<public-subnet-a>", "<public-subnet-b>"]
+# api_task_assign_public_ip = true
 # api_certificate_arn    = "<api-certificate-arn>"
 # api_container_image    = "ghcr.io/identrail/identrail-api:<immutable-release-tag>"
 # api_cors_allowed_origins = [
