@@ -25,6 +25,7 @@ import {
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { useMe } from './hooks/useMe';
+import { groupRepoFindingsForDisplay } from './repoFindingDisplay';
 
 type ProductSession = {
   tenantID: string;
@@ -147,8 +148,6 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
 };
 
 const TREND_POINTS = 10;
-const SEVERITY_ORDER: string[] = ['critical', 'high', 'medium', 'low', 'info', 'unknown'];
-
 function formatConfidenceScore(value: number | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return 'N/A';
@@ -2874,24 +2873,7 @@ export function ProductFindingsPage() {
     });
   }, [repoFindings, statusFilter, assigneeFilter]);
 
-  const groupedFindings = useMemo(() => {
-    const buckets: Record<string, ApiFinding[]> = {};
-
-    for (const finding of filteredFindings) {
-      const bucket = normalizeValue(finding.severity).toLowerCase() || 'unknown';
-      const bucketEntries = buckets[bucket] ?? [];
-      bucketEntries.push(finding);
-      buckets[bucket] = bucketEntries;
-    }
-
-    return SEVERITY_ORDER.reduce<Record<string, ApiFinding[]>>((acc, severity) => {
-      const items = buckets[severity];
-      if (items && items.length > 0) {
-        acc[severity] = items;
-      }
-      return acc;
-    }, {});
-  }, [filteredFindings]);
+  const findingGroups = useMemo(() => groupRepoFindingsForDisplay(filteredFindings, sortBy), [filteredFindings, sortBy]);
 
   const selectedFinding = useMemo(
     () => filteredFindings.find((finding) => finding.id === selectedFindingID) ?? filteredFindings[0] ?? null,
@@ -3355,20 +3337,17 @@ export function ProductFindingsPage() {
             <h3>Repository findings</h3>
             <p>{filteredFindings.length ? `${filteredFindings.length} findings in scope` : 'No findings match the current filters.'}</p>
           </div>
-          {Object.keys(groupedFindings).length === 0 ? (
+          {findingGroups.length === 0 ? (
             <AppShellEmptyState
               title="No repository findings"
               body="Run a repository exposure scan or loosen the current filters to inspect GitHub-linked findings."
             />
           ) : (
             <div>
-              {Object.entries(groupedFindings).map(([severity, findings]) => (
-                <section className="idt-repo-finding-group" key={severity}>
-                  <h4>
-                    {formatTokenLabel(severity)} · {findings.length}
-                  </h4>
+              {findingGroups.map((group) => {
+                const items = (
                   <div className="idt-repo-finding-items" role="list">
-                    {findings.map((finding) => {
+                    {group.findings.map((finding) => {
                       const repositoryValue = repoFindingRepositoryValue(finding, repoScansByID);
                       const repositoryLabel = canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
                       const isSelected = selectedFinding?.id === finding.id;
@@ -3400,8 +3379,21 @@ export function ProductFindingsPage() {
                       );
                     })}
                   </div>
-                </section>
-              ))}
+                );
+
+                if (!group.label) {
+                  return <div key={group.key}>{items}</div>;
+                }
+
+                return (
+                  <section className="idt-repo-finding-group" key={group.key}>
+                    <h4>
+                      {formatTokenLabel(group.label)} · {group.findings.length}
+                    </h4>
+                    {items}
+                  </section>
+                );
+              })}
             </div>
           )}
         </div>
