@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -3248,9 +3250,30 @@ func rateLimitKey(c *gin.Context) string {
 		return ip + "|api"
 	}
 	if bearer := readBearerToken(c); bearer != "" {
+		if isKubernetesAgentHeartbeatRequest(c) {
+			return ip + "|k8s-heartbeat|" + shortRateLimitCredentialHash(bearer)
+		}
 		return ip + "|bearer"
 	}
 	return ip + "|anon"
+}
+
+func isKubernetesAgentHeartbeatRequest(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	if c.Request.Method != http.MethodPost {
+		return false
+	}
+	if c.FullPath() == "/v1/connectors/k8s/heartbeat" {
+		return true
+	}
+	return c.Request.URL != nil && c.Request.URL.Path == "/v1/connectors/k8s/heartbeat"
+}
+
+func shortRateLimitCredentialHash(credential string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(credential)))
+	return hex.EncodeToString(sum[:8])
 }
 
 func requireMetricsScopeMiddleware(writeKeys []string, scopedKeys map[string][]string) gin.HandlerFunc {

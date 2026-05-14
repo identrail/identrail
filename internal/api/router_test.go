@@ -4026,3 +4026,38 @@ func TestSetAuditActorOnRequestContextKeepsAPIKeyActorsRedactedForActionEvents(t
 		t.Fatalf("expected redacted api key actor, got %+v", event)
 	}
 }
+
+func TestRateLimitKeySeparatesKubernetesHeartbeatBearerCredentials(t *testing.T) {
+	first := testRateLimitKey(t, http.MethodPost, "/v1/connectors/k8s/heartbeat", "agent-token-a")
+	second := testRateLimitKey(t, http.MethodPost, "/v1/connectors/k8s/heartbeat", "agent-token-b")
+	if first == second {
+		t.Fatalf("expected different heartbeat credentials to use separate buckets, got %q", first)
+	}
+	if !strings.Contains(first, "|k8s-heartbeat|"+shortRateLimitCredentialHash("agent-token-a")) {
+		t.Fatalf("expected heartbeat key to include credential hash, got %q", first)
+	}
+	if strings.Contains(first, "agent-token-a") || strings.Contains(second, "agent-token-b") {
+		t.Fatalf("rate limit keys must not expose raw bearer credentials: %q %q", first, second)
+	}
+}
+
+func TestRateLimitKeyKeepsGenericBearerBucketOutsideKubernetesHeartbeat(t *testing.T) {
+	first := testRateLimitKey(t, http.MethodPost, "/v1/connectors/k8s/enroll", "agent-token-a")
+	second := testRateLimitKey(t, http.MethodPost, "/v1/connectors/k8s/enroll", "agent-token-b")
+	if first != second {
+		t.Fatalf("expected non-heartbeat bearer traffic to keep generic bucket, got %q and %q", first, second)
+	}
+	if !strings.HasSuffix(first, "|bearer") {
+		t.Fatalf("expected generic bearer bucket, got %q", first)
+	}
+}
+
+func testRateLimitKey(t *testing.T, method string, path string, bearer string) string {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	c.Request = req
+	return rateLimitKey(c)
+}
