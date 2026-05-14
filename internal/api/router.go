@@ -850,7 +850,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		}
 		items, err := svc.ListRepoFindings(
 			c.Request.Context(),
-			maxCursorFetchLimit,
+			pageFetchLimit(offset, limit),
 			db.RepoFindingFilter{
 				RepoScanID:      repoScanID,
 				Severity:        strings.TrimSpace(c.Query("severity")),
