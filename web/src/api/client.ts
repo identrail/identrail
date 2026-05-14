@@ -190,6 +190,44 @@ export type CurrentUserContext = {
   project?: ProjectRecord;
 };
 
+export type OnboardingStep = 'org' | 'workspace' | 'connect' | 'scan' | 'invite' | 'complete';
+
+export type OnboardingState = {
+  user_id: string;
+  current_step: OnboardingStep;
+  org_id?: string;
+  workspace_id?: string;
+  project_id?: string;
+  connector_id?: string;
+  connector_type?: 'aws' | 'github' | 'kubernetes';
+  connector_skipped: boolean;
+  scan_skipped: boolean;
+  dashboard_tour_dismissed_at?: string;
+  completed_at?: string;
+  started_at: string;
+  updated_at: string;
+};
+
+export type OnboardingStateUpdateRequest = {
+  current_step?: Exclude<OnboardingStep, 'complete'>;
+  org_name?: string;
+  org_slug?: string;
+  workspace_name?: string;
+  workspace_slug?: string;
+  project_name?: string;
+  project_id?: string;
+  connector_id?: string;
+  connector_type?: 'aws' | 'github' | 'kubernetes';
+  connector_skipped?: boolean;
+  scan_skipped?: boolean;
+  dashboard_tour_dismissed?: boolean;
+};
+
+export type OnboardingStateResponse = {
+  state: OnboardingState;
+  redirect_path?: string;
+};
+
 export type SessionListItem = {
   id: string;
   ip?: string;
@@ -944,6 +982,30 @@ export const apiClient = {
   },
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
+  },
+  startScan(auth?: RequestAuthContext) {
+    return request<{ scan: ScanRecord }>('/v1/scans', auth, {
+      method: 'POST'
+    });
+  },
+  startOnboarding(auth?: RequestAuthContext) {
+    return request<OnboardingStateResponse>('/v1/onboarding/start', auth, {
+      method: 'POST'
+    });
+  },
+  getOnboardingState(auth?: RequestAuthContext) {
+    return request<OnboardingStateResponse>('/v1/onboarding/state', auth);
+  },
+  updateOnboardingState(payload: OnboardingStateUpdateRequest, auth?: RequestAuthContext) {
+    return request<OnboardingStateResponse>('/v1/onboarding/state', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  completeOnboarding(auth?: RequestAuthContext) {
+    return request<OnboardingStateResponse>('/v1/onboarding/complete', auth, {
+      method: 'POST'
+    });
   },
   listRepoScans(
     filters: {

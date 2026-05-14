@@ -79,6 +79,43 @@ describe('apiClient', () => {
     expect(url).toContain('/v1/scans?sort_by=started_at&sort_order=desc');
   });
 
+  it('starts scans through the authenticated scan endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ scan: { id: 'scan-1' } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.startScan({ tenantID: 'tenant-a', workspaceID: 'workspace-a' });
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/scans');
+    expect(options.method).toBe('POST');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace-a');
+  });
+
+  it('persists onboarding state through server endpoints', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: { current_step: 'workspace' } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.startOnboarding();
+    await apiClient.getOnboardingState();
+    await apiClient.updateOnboardingState({ current_step: 'org', org_name: 'Acme Security' });
+    await apiClient.completeOnboarding();
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toContain('/v1/onboarding/start');
+    expect((fetchMock.mock.calls[1] as [string, RequestInit])[0]).toContain('/v1/onboarding/state');
+    const [, updateOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(updateOptions.method).toBe('POST');
+    expect(updateOptions.body).toBe(JSON.stringify({ current_step: 'org', org_name: 'Acme Security' }));
+    expect((fetchMock.mock.calls[3] as [string, RequestInit])[0]).toContain('/v1/onboarding/complete');
+  });
+
   it('uses default repo scan listing sort contract', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

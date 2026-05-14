@@ -30,6 +30,8 @@ const (
 	policyActionAuthzRollback   = "authz.policies.rollback"
 	policyActionMeRead          = "me.read"
 	policyActionMeWrite         = "me.write"
+	policyActionOnboardingRead  = "onboarding.read"
+	policyActionOnboardingWrite = "onboarding.write"
 	policyActionTenancyRead     = "tenancy.read"
 	policyActionTenancyWrite    = "tenancy.write"
 	policyActionEnterpriseRead  = "enterprise.read"
@@ -76,15 +78,17 @@ func defaultRouteActionRoleGrants() map[string][]string {
 		policyActionFindingsRead:    readRoles,
 		policyActionFindingsTriage:  writeRoles,
 		policyActionGraphRead:       readRoles,
-		policyActionScansRead:       readRoles,
-		policyActionScansRun:        writeRoles,
-		policyActionScansReplay:     writeRoles,
+		policyActionScansRead:       tenancyReadRoles,
+		policyActionScansRun:        tenancyWriteRoles,
+		policyActionScansReplay:     tenancyWriteRoles,
 		policyActionRepoScansRead:   readRoles,
 		policyActionRepoScansRun:    writeRoles,
 		policyActionAuthzSimulate:   {scopeAdmin},
 		policyActionAuthzRollback:   {scopeAdmin},
 		policyActionMeRead:          authenticatedRoles,
 		policyActionMeWrite:         authenticatedRoles,
+		policyActionOnboardingRead:  authenticatedRoles,
+		policyActionOnboardingWrite: authenticatedRoles,
 		policyActionTenancyRead:     tenancyReadRoles,
 		policyActionTenancyWrite:    tenancyWriteRoles,
 		policyActionEnterpriseRead:  enterpriseReadRoles,
@@ -116,6 +120,8 @@ func defaultRouteActionABACPolicies() map[string]abacActionPolicy {
 		policyActionAuthzRollback:   passThroughPolicy,
 		policyActionMeRead:          passThroughPolicy,
 		policyActionMeWrite:         passThroughPolicy,
+		policyActionOnboardingRead:  passThroughPolicy,
+		policyActionOnboardingWrite: passThroughPolicy,
 		policyActionTenancyRead:     passThroughPolicy,
 		policyActionTenancyWrite:    passThroughPolicy,
 		policyActionEnterpriseRead:  passThroughPolicy,

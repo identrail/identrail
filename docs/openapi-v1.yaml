@@ -148,6 +148,22 @@ x-identrail-route-authorizations:
     action: me.write
     resource_type: session
   - method: POST
+    path: /v1/onboarding/start
+    action: onboarding.write
+    resource_type: onboarding_state
+  - method: GET
+    path: /v1/onboarding/state
+    action: onboarding.read
+    resource_type: onboarding_state
+  - method: POST
+    path: /v1/onboarding/state
+    action: onboarding.write
+    resource_type: onboarding_state
+  - method: POST
+    path: /v1/onboarding/complete
+    action: onboarding.write
+    resource_type: onboarding_state
+  - method: POST
     path: /auth/manual
     action: auth.login
     resource_type: session
@@ -416,6 +432,22 @@ x-identrail-action-role-grants:
     - owner
     - analyst
     - viewer
+  onboarding.read:
+    - authenticated
+    - read
+    - write
+    - admin
+    - owner
+    - analyst
+    - viewer
+  onboarding.write:
+    - authenticated
+    - read
+    - write
+    - admin
+    - owner
+    - analyst
+    - viewer
   repo_scans.read:
     - read
     - write
@@ -427,12 +459,17 @@ x-identrail-action-role-grants:
     - read
     - write
     - admin
+    - owner
+    - analyst
+    - viewer
   scans.run:
     - write
     - admin
+    - owner
   scans.replay:
     - write
     - admin
+    - owner
   tenancy.read:
     - read
     - write
@@ -822,6 +859,114 @@ paths:
                         type: array
                         items:
                           type: string
+  /v1/onboarding/start:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Authorization]
+      summary: Start or resume onboarding
+      operationId: startOnboarding
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Current onboarding state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/onboarding/state:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Authorization]
+      summary: Get onboarding state
+      operationId: getOnboardingState
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Current onboarding state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Authorization]
+      summary: Update onboarding state
+      operationId: updateOnboardingState
+      security:
+        - CookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingStateUpdateRequest"
+      responses:
+        "200":
+          description: Updated onboarding state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/onboarding/complete:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Authorization]
+      summary: Complete onboarding
+      operationId: completeOnboarding
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Completed onboarding state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/me:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -3391,6 +3536,61 @@ components:
         updated_at:
           type: string
           format: date-time
+    OnboardingState:
+      type: object
+      required: [user_id, current_step, connector_skipped, scan_skipped, started_at, updated_at]
+      properties:
+        user_id: { type: string, format: uuid }
+        current_step:
+          type: string
+          enum: [org, workspace, connect, scan, invite, complete]
+        org_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        connector_type:
+          type: string
+          enum: [aws, github, kubernetes]
+        connector_skipped: { type: boolean }
+        scan_skipped: { type: boolean }
+        dashboard_tour_dismissed_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OnboardingStateUpdateRequest:
+      type: object
+      properties:
+        current_step:
+          type: string
+          enum: [org, workspace, connect, scan, invite]
+        org_name: { type: string }
+        org_slug: { type: string }
+        workspace_name: { type: string }
+        workspace_slug: { type: string }
+        project_name: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        connector_type:
+          type: string
+          enum: [aws, github, kubernetes]
+        connector_skipped: { type: boolean }
+        scan_skipped: { type: boolean }
+        dashboard_tour_dismissed: { type: boolean }
+    OnboardingStateResponse:
+      type: object
+      required: [state]
+      properties:
+        state:
+          $ref: "#/components/schemas/OnboardingState"
+        redirect_path: { type: string }
     User:
       type: object
       properties:

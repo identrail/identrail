@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added a feature-gated authenticated onboarding wizard:
+  - persists server-owned setup progress for organization, workspace, connector, first scan, invite, and dashboard-tour steps
+  - adds `/v1/onboarding/*` APIs with OpenAPI/authz metadata and memory/Postgres storage
+  - wires the web app to resume onboarding safely and hides the wizard unless both backend and frontend flags are enabled
 - Added the standard Kubernetes connector foundation:
   - `/v1/connectors/k8s`, `/v1/connectors/k8s/enroll`, `/v1/connectors/k8s/heartbeat`, and `/v1/connectors/k8s/kubeconfig`
   - single-use 24-hour agent enrollment tokens, hashed agent credentials, stale heartbeat degradation, and encrypted kubeconfig fallback storage

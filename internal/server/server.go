@@ -146,6 +146,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		FeatureConnectorAWS:      cfg.FeatureConnectorAWS,
 		FeatureConnectorGitHubV2: cfg.FeatureConnectorGitHubV2,
 		FeatureConnectorK8S:      cfg.FeatureConnectorK8S,
+		FeatureOnboardingWizard:  cfg.FeatureOnboardingWizard,
 		PublicBaseURL:            cfg.PublicBaseURL,
 		SessionKey:               cfg.SessionKey,
 		AuthManualMode:           cfg.AuthManualMode,

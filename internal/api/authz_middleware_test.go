@@ -153,6 +153,60 @@ func TestRequireCentralPolicyMiddlewareTenancyRoleMatrix(t *testing.T) {
 	}
 }
 
+func TestRequireCentralPolicyMiddlewareScanRoleMatrix(t *testing.T) {
+	testCases := []struct {
+		name       string
+		role       string
+		readStatus int
+		runStatus  int
+	}{
+		{
+			name:       "owner can read and run scans",
+			role:       "owner",
+			readStatus: http.StatusNoContent,
+			runStatus:  http.StatusNoContent,
+		},
+		{
+			name:       "admin can read and run scans",
+			role:       "admin",
+			readStatus: http.StatusNoContent,
+			runStatus:  http.StatusNoContent,
+		},
+		{
+			name:       "analyst can read but cannot run scans",
+			role:       "analyst",
+			readStatus: http.StatusNoContent,
+			runStatus:  http.StatusForbidden,
+		},
+		{
+			name:       "viewer can read but cannot run scans",
+			role:       "viewer",
+			readStatus: http.StatusNoContent,
+			runStatus:  http.StatusForbidden,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newPolicyTenancyRoleRouter(tc.role)
+
+			readReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+			readW := httptest.NewRecorder()
+			r.ServeHTTP(readW, readReq)
+			if readW.Code != tc.readStatus {
+				t.Fatalf("expected scan read status %d for role %q, got %d", tc.readStatus, tc.role, readW.Code)
+			}
+
+			runReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+			runW := httptest.NewRecorder()
+			r.ServeHTTP(runW, runReq)
+			if runW.Code != tc.runStatus {
+				t.Fatalf("expected scan run status %d for role %q, got %d", tc.runStatus, tc.role, runW.Code)
+			}
+		})
+	}
+}
+
 func TestRequireCentralPolicyMiddlewareSetsAuditDecisionContextOnDeny(t *testing.T) {
 	sink := &middlewareRecordingAuditSink{}
 	router := newPolicyAuditTestRouter(newScopeSet([]string{scopeRead}), true, newCentralPolicyRuntimeResolver(nil), telemetry.NewMetrics(), sink)
@@ -964,6 +1018,12 @@ func newPolicyTenancyRoleRouter(role string) *gin.Engine {
 		c.Status(http.StatusNoContent)
 	})
 	r.POST("/v1/workspaces", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	r.GET("/v1/scans", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	r.POST("/v1/scans", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
 	return r

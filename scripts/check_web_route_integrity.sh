@@ -13,7 +13,14 @@ function read(rel) {
 
 function parseAppRoutes(src) {
   const routes = new Set();
-  const runtimeOnlyRoutes = new Set(['/auth/callback']);
+  const runtimeOnlyRoutes = new Set([
+    '/auth/callback',
+    '/onboarding/connect',
+    '/onboarding/invite',
+    '/onboarding/org',
+    '/onboarding/scan',
+    '/onboarding/workspace',
+  ]);
 
   // Identify routes that exist purely to 301-redirect a legacy URL
   // (`element={<Navigate ... />}`). These should NOT appear in

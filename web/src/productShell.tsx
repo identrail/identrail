@@ -26,6 +26,7 @@ import {
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { useMe } from './hooks/useMe';
+import { FEATURE_ONBOARDING_WIZARD } from './pages/onboarding/onboardingUtils';
 import {
   buildRepoFindingSelectionKey,
   findRepoFindingBySelectionKey,
@@ -710,6 +711,9 @@ export function ProductAppIndexRedirect() {
     );
   }
   if (!me?.org_id || !me.workspace_id) {
+    if (FEATURE_ONBOARDING_WIZARD) {
+      return <Navigate to="/onboarding/org" replace />;
+    }
     return (
       <section className="idt-app-shell-screen">
         <article className="idt-app-panel">
@@ -835,14 +839,67 @@ function ScopedShellPage({ title, description, actionLabel, actionTo }: ScopedSh
 export function ProductOverviewPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
+  const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    if (!FEATURE_ONBOARDING_WIZARD) {
+      return;
+    }
+    let mounted = true;
+    const run = async () => {
+      try {
+        const response = await apiClient.getOnboardingState();
+        if (!mounted) {
+          return;
+        }
+        setShowTour(response.state.current_step === 'complete' && !response.state.dashboard_tour_dismissed_at);
+      } catch {
+        if (mounted) {
+          setShowTour(false);
+        }
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const dismissTour = async () => {
+    setShowTour(false);
+    try {
+      await apiClient.updateOnboardingState({ dashboard_tour_dismissed: true });
+    } catch {
+      // The dashboard should remain usable even if tour dismissal cannot persist.
+    }
+  };
 
   return (
-    <ScopedShellPage
-      title="Overview"
-      description={`Choose a project for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'} before connecting source telemetry.`}
-      actionLabel="Select project"
-      actionTo={scope ? buildProjectsPath(scope) : undefined}
-    />
+    <>
+      <ScopedShellPage
+        title="Overview"
+        description={`Choose a project for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'} before connecting source telemetry.`}
+        actionLabel="Select project"
+        actionTo={scope ? buildProjectsPath(scope) : undefined}
+      />
+      {showTour ? (
+        <aside className="idt-onboarding-tour" aria-label="Onboarding tour">
+          <div>
+            <p className="idt-app-kicker">Next best actions</p>
+            <h2>Turn setup into operating rhythm</h2>
+          </div>
+          <ol>
+            <li>Review connector health</li>
+            <li>Open the latest scan</li>
+            <li>Triage the first finding</li>
+            <li>Invite a teammate</li>
+          </ol>
+          <button type="button" className="idt-btn idt-btn-primary" onClick={dismissTour}>
+            Got it
+          </button>
+        </aside>
+      ) : null}
+    </>
   );
 }
 

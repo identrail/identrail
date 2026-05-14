@@ -52,6 +52,7 @@ const (
 	defaultFeatureConnectorAWS         = false
 	defaultFeatureConnectorGitHubV2    = false
 	defaultFeatureConnectorK8S         = false
+	defaultFeatureOnboardingWizard     = false
 	defaultAuthManualMode              = false
 	defaultAppModeEnabled              = false
 	defaultAppModeConnectorsEnabled    = false
@@ -162,6 +163,7 @@ type Config struct {
 	FeatureConnectorAWS          bool
 	FeatureConnectorGitHubV2     bool
 	FeatureConnectorK8S          bool
+	FeatureOnboardingWizard      bool
 	GitHubAppID                  string
 	GitHubAppName                string
 	GitHubAppPrivateKey          string
@@ -306,6 +308,7 @@ func Load() Config {
 		FeatureConnectorAWS:          boolEnv("IDENTRAIL_FEATURE_CONNECTOR_AWS", defaultFeatureConnectorAWS),
 		FeatureConnectorGitHubV2:     boolEnv("IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2", defaultFeatureConnectorGitHubV2),
 		FeatureConnectorK8S:          boolEnv("IDENTRAIL_FEATURE_CONNECTOR_K8S", defaultFeatureConnectorK8S),
+		FeatureOnboardingWizard:      boolEnv("IDENTRAIL_FEATURE_ONBOARDING_WIZARD", defaultFeatureOnboardingWizard),
 		GitHubAppID:                  getEnv("IDENTRAIL_GITHUB_APP_ID", ""),
 		GitHubAppName:                getEnv("IDENTRAIL_GITHUB_APP_NAME", ""),
 		GitHubAppPrivateKey:          getEnv("IDENTRAIL_GITHUB_APP_PRIVATE_KEY", ""),

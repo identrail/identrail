@@ -981,6 +981,16 @@ func TestValidateSecurityAllowsDatabaseModeWithoutConnectorSecretKeysWhenConnect
 	}
 }
 
+func TestValidateSecurityOnboardingRequiresNewAuth(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:            map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		FeatureOnboardingWizard: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true requires IDENTRAIL_FEATURE_NEW_AUTH=true") {
+		t.Fatalf("expected onboarding new auth dependency error, got %v", err)
+	}
+}
+
 func TestValidateSecurityGitHubV2AllowsPATOnlyConfig(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes:             map[string][]string{"reader-key-12345678901234567890": {"read"}},

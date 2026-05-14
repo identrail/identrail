@@ -430,6 +430,23 @@ type Session struct {
 	User               *User      `json:"user,omitempty"`
 }
 
+// OnboardingState stores the server-driven account setup progress for one user.
+type OnboardingState struct {
+	UserID                   string     `json:"user_id"`
+	CurrentStep              string     `json:"current_step"`
+	OrgID                    string     `json:"org_id,omitempty"`
+	WorkspaceID              string     `json:"workspace_id,omitempty"`
+	ProjectID                string     `json:"project_id,omitempty"`
+	ConnectorID              string     `json:"connector_id,omitempty"`
+	ConnectorType            string     `json:"connector_type,omitempty"`
+	ConnectorSkipped         bool       `json:"connector_skipped"`
+	ScanSkipped              bool       `json:"scan_skipped"`
+	DashboardTourDismissedAt *time.Time `json:"dashboard_tour_dismissed_at,omitempty"`
+	CompletedAt              *time.Time `json:"completed_at,omitempty"`
+	StartedAt                time.Time  `json:"started_at"`
+	UpdatedAt                time.Time  `json:"updated_at"`
+}
+
 // Invitation stores one organization invitation scaffold for later invite flows.
 type Invitation struct {
 	ID              string     `json:"id"`
@@ -1065,6 +1082,59 @@ func NormalizeSessionForWrite(session Session) (Session, error) {
 	if normalized.User != nil {
 		user := *normalized.User
 		normalized.User = &user
+	}
+	return normalized, nil
+}
+
+var validOnboardingSteps = map[string]struct{}{
+	"org":       {},
+	"workspace": {},
+	"connect":   {},
+	"scan":      {},
+	"invite":    {},
+	"complete":  {},
+}
+
+// NormalizeOnboardingStateForWrite validates and canonicalizes one onboarding state row.
+func NormalizeOnboardingStateForWrite(state OnboardingState) (OnboardingState, error) {
+	normalized := state
+	normalized.UserID = strings.TrimSpace(state.UserID)
+	if normalized.UserID == "" {
+		return OnboardingState{}, fmt.Errorf("user id is required")
+	}
+	if _, err := uuid.Parse(normalized.UserID); err != nil {
+		return OnboardingState{}, fmt.Errorf("invalid user id")
+	}
+	normalized.CurrentStep = strings.ToLower(strings.TrimSpace(state.CurrentStep))
+	if normalized.CurrentStep == "" {
+		normalized.CurrentStep = "org"
+	}
+	if _, ok := validOnboardingSteps[normalized.CurrentStep]; !ok {
+		return OnboardingState{}, fmt.Errorf("onboarding step is invalid")
+	}
+	normalized.OrgID = strings.TrimSpace(state.OrgID)
+	normalized.WorkspaceID = strings.TrimSpace(state.WorkspaceID)
+	normalized.ProjectID = strings.TrimSpace(state.ProjectID)
+	normalized.ConnectorID = strings.TrimSpace(state.ConnectorID)
+	normalized.ConnectorType = strings.ToLower(strings.TrimSpace(state.ConnectorType))
+	if normalized.DashboardTourDismissedAt != nil {
+		dismissedAt := normalized.DashboardTourDismissedAt.UTC()
+		normalized.DashboardTourDismissedAt = &dismissedAt
+	}
+	if normalized.CompletedAt != nil {
+		completedAt := normalized.CompletedAt.UTC()
+		normalized.CompletedAt = &completedAt
+		normalized.CurrentStep = "complete"
+	}
+	if normalized.StartedAt.IsZero() {
+		normalized.StartedAt = time.Now().UTC()
+	} else {
+		normalized.StartedAt = normalized.StartedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.StartedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
 	}
 	return normalized, nil
 }
@@ -1839,6 +1909,8 @@ type Store interface {
 	RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error)
 	RevokeOtherUserSessions(ctx context.Context, userID string, currentSessionIDHash []byte, revokedAt time.Time) (int, error)
 	RevokeAllUserSessions(ctx context.Context, userID string, revokedAt time.Time) (int, error)
+	UpsertOnboardingState(ctx context.Context, state OnboardingState) (OnboardingState, error)
+	GetOnboardingState(ctx context.Context, userID string) (OnboardingState, error)
 	FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error)
 	FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) (TenancyWorkspaceMember, error)
 	CreateInvitation(ctx context.Context, invitation Invitation) (Invitation, error)

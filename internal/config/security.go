@@ -222,6 +222,9 @@ func ValidateSecurity(cfg Config) error {
 	if cfg.FeatureWorkOSLogin && !cfg.FeatureNewAuth {
 		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
 	}
+	if cfg.FeatureOnboardingWizard && !cfg.FeatureNewAuth {
+		return fmt.Errorf("IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
+	}
 	if cfg.FeatureNewAuth {
 		if err := validatePublicBaseURL(cfg.PublicBaseURL); err != nil {
 			return err

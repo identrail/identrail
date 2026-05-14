@@ -16,6 +16,12 @@ import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
 import { WhyNoPasswordsPage } from './pages/WhyNoPasswordsPage';
+import { ConnectPage } from './pages/onboarding/ConnectPage';
+import { InvitePage } from './pages/onboarding/InvitePage';
+import { OrgPage } from './pages/onboarding/OrgPage';
+import { ScanPage } from './pages/onboarding/ScanPage';
+import { WorkspacePage } from './pages/onboarding/WorkspacePage';
+import { FEATURE_ONBOARDING_WIZARD } from './pages/onboarding/onboardingUtils';
 import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
@@ -3342,6 +3348,7 @@ export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
   const isProductShellRoute = location.pathname.startsWith('/app');
+  const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup';
 
@@ -3360,7 +3367,7 @@ export function RoutedSite() {
         Skip to content
       </a>
 
-      {!isProductShellRoute && !isAuthChoiceRoute ? (
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? (
         <Header
           navLinks={NAV_LINKS}
           githubRepo={GITHUB_REPO}
@@ -3384,6 +3391,46 @@ export function RoutedSite() {
             }
           />
           <Route path="/app/logout" element={<ProductLogoutPage />} />
+          <Route
+            path="/onboarding/org"
+            element={
+              <RequireProductAuth>
+                {FEATURE_ONBOARDING_WIZARD ? <OrgPage /> : <ProductAppIndexRedirect />}
+              </RequireProductAuth>
+            }
+          />
+          <Route
+            path="/onboarding/workspace"
+            element={
+              <RequireProductAuth>
+                {FEATURE_ONBOARDING_WIZARD ? <WorkspacePage /> : <ProductAppIndexRedirect />}
+              </RequireProductAuth>
+            }
+          />
+          <Route
+            path="/onboarding/connect"
+            element={
+              <RequireProductAuth>
+                {FEATURE_ONBOARDING_WIZARD ? <ConnectPage /> : <ProductAppIndexRedirect />}
+              </RequireProductAuth>
+            }
+          />
+          <Route
+            path="/onboarding/scan"
+            element={
+              <RequireProductAuth>
+                {FEATURE_ONBOARDING_WIZARD ? <ScanPage /> : <ProductAppIndexRedirect />}
+              </RequireProductAuth>
+            }
+          />
+          <Route
+            path="/onboarding/invite"
+            element={
+              <RequireProductAuth>
+                {FEATURE_ONBOARDING_WIZARD ? <InvitePage /> : <ProductAppIndexRedirect />}
+              </RequireProductAuth>
+            }
+          />
           <Route
             path="/app/account/security"
             element={
@@ -3446,7 +3493,7 @@ export function RoutedSite() {
         </Routes>
       </main>
 
-      {!isProductShellRoute && !isAuthChoiceRoute ? (
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? (
         <>
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
         </>

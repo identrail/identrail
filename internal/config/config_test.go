@@ -431,6 +431,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "true")
 	t.Setenv("IDENTRAIL_FEATURE_NEW_AUTH", "true")
 	t.Setenv("IDENTRAIL_FEATURE_CONNECTOR_AWS", "true")
+	t.Setenv("IDENTRAIL_FEATURE_ONBOARDING_WIZARD", "true")
 	t.Setenv("IDENTRAIL_PUBLIC_BASE_URL", "https://app.identrail.example")
 	t.Setenv("IDENTRAIL_SESSION_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -666,6 +667,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if !cfg.FeatureConnectorAWS {
 		t.Fatal("expected AWS connector feature enabled from env")
+	}
+	if !cfg.FeatureOnboardingWizard {
+		t.Fatal("expected onboarding wizard feature enabled from env")
 	}
 	if cfg.PublicBaseURL != "https://app.identrail.example" {
 		t.Fatalf("unexpected public base url: %q", cfg.PublicBaseURL)

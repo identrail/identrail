@@ -78,6 +78,7 @@ type RouterOptions struct {
 	FeatureConnectorAWS      bool
 	FeatureConnectorGitHubV2 bool
 	FeatureConnectorK8S      bool
+	FeatureOnboardingWizard  bool
 	PublicBaseURL            string
 	SessionKey               string
 	AuthManualMode           bool
@@ -351,6 +352,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
 	if opts.FeatureNewAuth {
 		registerMeRoutes(v1, logger, svc, sessionManager)
+		registerOnboardingRoutes(v1, logger, svc, opts.FeatureOnboardingWizard)
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
 	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS, opts.FeatureConnectorGitHubV2)
@@ -2687,7 +2689,7 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string, r
 		if workspaceID == "" {
 			workspaceID = defaultScope.WorkspaceID
 		}
-		if explicitScope && !isCurrentUserRoute(c.FullPath()) && (!tenantProvided || !workspaceProvided) {
+		if explicitScope && !isScopelessSessionRoute(c.FullPath()) && (!tenantProvided || !workspaceProvided) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"error": "explicit tenant and workspace scope are required",
 			})
@@ -2702,9 +2704,15 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string, r
 	}
 }
 
-func isCurrentUserRoute(path string) bool {
+func isScopelessSessionRoute(path string) bool {
 	switch path {
-	case "/v1/me", "/v1/me/sessions", "/v1/me/sessions/:session_id", "/v1/me/sessions/revoke-others":
+	case "/v1/me",
+		"/v1/me/sessions",
+		"/v1/me/sessions/:session_id",
+		"/v1/me/sessions/revoke-others",
+		"/v1/onboarding/start",
+		"/v1/onboarding/state",
+		"/v1/onboarding/complete":
 		return true
 	default:
 		return false
