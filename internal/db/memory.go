@@ -2155,8 +2155,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 	if err != nil {
 		return nil, err
 	}
-	repoScanID := strings.TrimSpace(filter.RepoScanID)
-	findingID := strings.TrimSpace(filter.FindingID)
+	normalized := NormalizeRepoFindingFilter(filter)
+	repoScanID := normalized.RepoScanID
+	findingID := normalized.FindingID
 	repoScanRepository := ""
 	if repoScanID != "" {
 		record, exists := m.repoScans[repoScanID]
@@ -2165,8 +2166,6 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 		}
 		repoScanRepository = strings.TrimSpace(record.Repository)
 	}
-	severity := strings.ToLower(strings.TrimSpace(filter.Severity))
-	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
 
 	result := make([]domain.Finding, 0, len(m.repoFindings))
 	if repoScanID != "" {
@@ -2178,10 +2177,10 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if findingID != "" && finding.ID != findingID {
 				continue
 			}
-			if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
+			if normalized.Severity != "" && strings.ToLower(string(finding.Severity)) != normalized.Severity {
 				continue
 			}
-			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
+			if normalized.Type != "" && strings.ToLower(string(finding.Type)) != normalized.Type {
 				continue
 			}
 			if finding.Repository == "" {
@@ -2199,10 +2198,10 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if findingID != "" && finding.ID != findingID {
 				continue
 			}
-			if severity != "" && strings.ToLower(string(finding.Severity)) != severity {
+			if normalized.Severity != "" && strings.ToLower(string(finding.Severity)) != normalized.Severity {
 				continue
 			}
-			if findingType != "" && strings.ToLower(string(finding.Type)) != findingType {
+			if normalized.Type != "" && strings.ToLower(string(finding.Type)) != normalized.Type {
 				continue
 			}
 			if finding.Repository == "" {
@@ -2212,7 +2211,7 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			result = append(result, finding)
 		}
 	}
-	sortFindingsForQuery(result, "created_at", true)
+	sortFindingsForQuery(result, normalized.SortBy, normalized.SortDesc)
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]
 	}

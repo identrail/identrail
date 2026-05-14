@@ -864,6 +864,49 @@ func TestServiceListRepoFindingsFilterTriagedResultsBeyondLegacyWindow(t *testin
 	}
 }
 
+func TestServiceListRepoFindingsSortBySeverityBeyondLegacyWindow(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+
+	repoFindings := make([]domain.Finding, 0, 5001)
+	for i := 0; i < 5001; i++ {
+		severity := domain.SeverityLow
+		if i == 0 {
+			severity = domain.SeverityCritical
+		}
+		repoFindings = append(repoFindings, domain.Finding{
+			ID:        fmt.Sprintf("repo-finding-%04d", i),
+			Type:      domain.FindingSecretExposure,
+			Severity:  severity,
+			CreatedAt: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, repoFindings); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	sorted, err := svc.ListRepoFindings(
+		defaultScopeContext(),
+		maxCursorFetchLimit,
+		db.RepoFindingFilter{
+			RepoScanID: repoScan.ID,
+			SortBy:     "severity",
+			SortDesc:   true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("list repo findings by severity: %v", err)
+	}
+	if len(sorted) != 5001 {
+		t.Fatalf("expected full result set for prioritized sorting, got %d items", len(sorted))
+	}
+	if sorted[0].ID != "repo-finding-0000" || sorted[0].Severity != domain.SeverityCritical {
+		t.Fatalf("expected oldest critical repo finding to lead prioritized results, got %+v", sorted[0])
+	}
+}
+
 func TestServiceGetFinding(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

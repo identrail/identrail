@@ -1598,6 +1598,8 @@ type RepoFindingFilter struct {
 	Type            string
 	LifecycleStatus string
 	Assignee        string
+	SortBy          string
+	SortDesc        bool
 }
 
 // RepoFindingClusterListFilter controls repository finding cluster list queries.
@@ -1685,6 +1687,18 @@ func NormalizeRepoFindingClusterListFilter(filter RepoFindingClusterListFilter) 
 
 // NormalizeRepoFindingFilter trims optional filters for repository findings.
 func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
+	rawSortBy := strings.ToLower(strings.TrimSpace(filter.SortBy))
+	sortBy := rawSortBy
+	sortDesc := filter.SortDesc
+	switch sortBy {
+	case "severity", "type", "title", "created_at":
+	default:
+		sortBy = "created_at"
+		if rawSortBy == "" {
+			sortDesc = true
+		}
+	}
+
 	normalized := RepoFindingFilter{
 		RepoScanID:      strings.TrimSpace(filter.RepoScanID),
 		FindingID:       strings.TrimSpace(filter.FindingID),
@@ -1692,6 +1706,8 @@ func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
 		Type:            strings.ToLower(strings.TrimSpace(filter.Type)),
 		LifecycleStatus: strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),
 		Assignee:        strings.ToLower(strings.TrimSpace(filter.Assignee)),
+		SortBy:          sortBy,
+		SortDesc:        sortDesc,
 	}
 	return normalized
 }

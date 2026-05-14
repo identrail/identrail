@@ -1266,9 +1266,9 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 	ctx = s.scopeContext(ctx)
 	normalized := db.NormalizeRepoFindingFilter(filter)
 	repoLimit := limit
-	if normalized.LifecycleStatus != "" || normalized.Assignee != "" {
-		// Apply triage filters in memory before slicing so older matching rows are not
-		// dropped by the fetch window.
+	if normalized.LifecycleStatus != "" || normalized.Assignee != "" || normalized.SortBy != "created_at" {
+		// Apply triage filters and non-recency sorts across the full result set so
+		// older matches are not dropped by the legacy fetch window.
 		repoLimit = 0
 	}
 	findings, err := s.Store.ListRepoFindings(ctx, normalized, repoLimit)

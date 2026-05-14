@@ -54,6 +54,10 @@ x-identrail-route-authorizations:
     action: findings.read
     resource_type: finding_trend
   - method: GET
+    path: /v1/repo-findings/trends
+    action: findings.read
+    resource_type: finding_trend
+  - method: GET
     path: /v1/findings/summary
     action: findings.read
     resource_type: finding_summary

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -908,6 +909,68 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 	}
 	if detailBody.Triage.Status != domain.FindingLifecycleAck {
 		t.Fatalf("expected triage status ack in unified finding detail, got %q", detailBody.Triage.Status)
+	}
+}
+
+func TestRouterRepoFindingsSeveritySortUsesFullResultSet(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+
+	repoFindings := make([]domain.Finding, 0, 5001)
+	for i := 0; i < 5001; i++ {
+		severity := domain.SeverityLow
+		if i == 0 {
+			severity = domain.SeverityCritical
+		}
+		repoFindings = append(repoFindings, domain.Finding{
+			ID:           fmt.Sprintf("repo-finding-%04d", i),
+			Type:         domain.FindingSecretExposure,
+			Severity:     severity,
+			Title:        fmt.Sprintf("finding-%04d", i),
+			HumanSummary: "repo finding",
+			CreatedAt:    now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, repoFindings); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&sort_by=severity&sort_order=desc&limit=1",
+		nil,
+	)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected prioritized repo findings 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Items      []domain.Finding `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode prioritized repo findings: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("expected one prioritized repo finding, got %+v", body.Items)
+	}
+	if body.Items[0].ID != "repo-finding-0000" || body.Items[0].Severity != domain.SeverityCritical {
+		t.Fatalf("expected oldest critical repo finding first, got %+v", body.Items[0])
+	}
+	if body.NextCursor == "" {
+		t.Fatal("expected prioritized repo findings next_cursor")
 	}
 }
 

@@ -3074,7 +3074,8 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 
 // ListRepoFindings returns latest repository findings first with optional filters.
 func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error) {
-	repoScanID := strings.TrimSpace(filter.RepoScanID)
+	normalized := NormalizeRepoFindingFilter(filter)
+	repoScanID := normalized.RepoScanID
 	if repoScanID != "" {
 		if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
 			return nil, err
@@ -3093,12 +3094,12 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 		   AND ($4 = '' OR rf.type = $4)
 		   AND rs.tenant_id = $5
 		   AND rs.workspace_id = $6
-		 ORDER BY rf.created_at DESC`
+		 ORDER BY ` + repoFindingOrderClause(normalized.SortBy, normalized.SortDesc)
 	args := []any{
 		repoScanID,
-		strings.TrimSpace(filter.FindingID),
-		strings.TrimSpace(filter.Severity),
-		strings.TrimSpace(filter.Type),
+		normalized.FindingID,
+		normalized.Severity,
+		normalized.Type,
 		scope.TenantID,
 		scope.WorkspaceID,
 	}
@@ -4326,6 +4327,30 @@ func findingOrderClause(sortBy string, desc bool) string {
 		return fmt.Sprintf("LOWER(f.title) %s, f.scan_id %s, f.finding_id %s", direction, direction, direction)
 	default:
 		return fmt.Sprintf("f.created_at %s, f.scan_id %s, f.finding_id %s", direction, direction, direction)
+	}
+}
+
+func repoFindingOrderClause(sortBy string, desc bool) string {
+	direction := "ASC"
+	if desc {
+		direction = "DESC"
+	}
+	switch sortBy {
+	case "severity":
+		return fmt.Sprintf(`CASE LOWER(rf.severity)
+			WHEN 'critical' THEN 5
+			WHEN 'high' THEN 4
+			WHEN 'medium' THEN 3
+			WHEN 'low' THEN 2
+			WHEN 'info' THEN 1
+			ELSE 0
+		END %s, rf.repo_scan_id %s, rf.finding_id %s`, direction, direction, direction)
+	case "type":
+		return fmt.Sprintf("LOWER(rf.type) %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
+	case "title":
+		return fmt.Sprintf("LOWER(rf.title) %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
+	default:
+		return fmt.Sprintf("rf.created_at %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
 	}
 }
 

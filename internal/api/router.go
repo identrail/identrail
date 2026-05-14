@@ -857,6 +857,8 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				Type:            strings.TrimSpace(c.Query("type")),
 				LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
 				Assignee:        strings.TrimSpace(c.Query("assignee")),
+				SortBy:          sortBy,
+				SortDesc:        sortDesc,
 			},
 		)
 		if err != nil {
@@ -868,7 +870,6 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list repo findings"})
 			return
 		}
-		sortFindings(items, sortBy, sortDesc)
 		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
