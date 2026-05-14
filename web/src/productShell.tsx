@@ -2878,7 +2878,10 @@ export function ProductFindingsPage() {
     });
   }, [repoFindings, statusFilter, assigneeFilter]);
 
-  const findingGroups = useMemo(() => groupRepoFindingsForDisplay(filteredFindings, sortBy), [filteredFindings, sortBy]);
+  const findingGroups = useMemo(
+    () => groupRepoFindingsForDisplay(filteredFindings, sortBy, sortOrder),
+    [filteredFindings, sortBy, sortOrder]
+  );
 
   const selectedFinding = useMemo(
     () => findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey) ?? filteredFindings[0] ?? null,

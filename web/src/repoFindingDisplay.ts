@@ -3,6 +3,7 @@ import type { Finding as ApiFinding } from './api/client';
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info', 'unknown'] as const;
 
 export type RepoFindingSortField = 'severity' | 'created_at' | 'type' | 'title';
+export type RepoFindingSortOrder = 'asc' | 'desc';
 
 export type RepoFindingDisplayGroup = {
   key: string;
@@ -22,7 +23,8 @@ function normalizeSeverityBucket(value: string): (typeof SEVERITY_ORDER)[number]
 
 export function groupRepoFindingsForDisplay(
   findings: ApiFinding[],
-  sortBy: RepoFindingSortField
+  sortBy: RepoFindingSortField,
+  sortOrder: RepoFindingSortOrder = 'desc'
 ): RepoFindingDisplayGroup[] {
   if (findings.length === 0) {
     return [];
@@ -39,7 +41,9 @@ export function groupRepoFindingsForDisplay(
     buckets[bucket] = bucketFindings;
   }
 
-  return SEVERITY_ORDER.reduce<RepoFindingDisplayGroup[]>((groups, severity) => {
+  const severityBuckets = sortOrder === 'asc' ? [...SEVERITY_ORDER].reverse() : [...SEVERITY_ORDER];
+
+  return severityBuckets.reduce<RepoFindingDisplayGroup[]>((groups, severity) => {
     const bucketFindings = buckets[severity];
     if (bucketFindings && bucketFindings.length > 0) {
       groups.push({

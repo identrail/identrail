@@ -855,7 +855,11 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 	}
 
 	if err := store.UpsertFindingTriageState(defaultScopeContext(), db.FindingTriageState{
-		FindingID: "repo-ack",
+		FindingID: findingTriageStateKey(domain.Finding{
+			ID:         "repo-ack",
+			ScanID:     repoScan.ID,
+			Repository: "owner/repo",
+		}),
 		Status:    domain.FindingLifecycleAck,
 		Assignee:  "platform",
 		UpdatedAt: now.Add(10 * time.Minute),

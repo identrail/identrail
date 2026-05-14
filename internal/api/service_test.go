@@ -907,6 +907,96 @@ func TestServiceListRepoFindingsSortBySeverityHonorsLimitBeyondLegacyWindow(t *t
 	}
 }
 
+func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	firstScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	secondScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now.Add(time.Hour))
+
+	if err := store.UpsertRepoFindings(defaultScopeContext(), firstScan.ID, []domain.Finding{{
+		ID:        "shared-id",
+		Type:      domain.FindingSecretExposure,
+		Severity:  domain.SeverityHigh,
+		CreatedAt: now,
+	}}); err != nil {
+		t.Fatalf("upsert first repo findings: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), secondScan.ID, []domain.Finding{{
+		ID:        "shared-id",
+		Type:      domain.FindingSecretExposure,
+		Severity:  domain.SeverityMedium,
+		CreatedAt: now.Add(time.Hour),
+	}}); err != nil {
+		t.Fatalf("upsert second repo findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	ack := string(domain.FindingLifecycleAck)
+	firstAssignee := "platform-a"
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"shared-id",
+		firstScan.ID,
+		FindingTriageRequest{Status: &ack, Assignee: &firstAssignee},
+		"subject:user-1",
+	); err != nil {
+		t.Fatalf("triage first repo finding: %v", err)
+	}
+
+	resolved := string(domain.FindingLifecycleResolved)
+	secondAssignee := "platform-b"
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"shared-id",
+		secondScan.ID,
+		FindingTriageRequest{Status: &resolved, Assignee: &secondAssignee},
+		"subject:user-2",
+	); err != nil {
+		t.Fatalf("triage second repo finding: %v", err)
+	}
+
+	findings, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{})
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(findings) != 2 {
+		t.Fatalf("expected two repo findings, got %+v", findings)
+	}
+
+	triageByScan := map[string]domain.FindingTriage{}
+	for _, finding := range findings {
+		triageByScan[finding.ScanID] = finding.Triage
+	}
+	if triageByScan[firstScan.ID].Status != domain.FindingLifecycleAck || triageByScan[firstScan.ID].Assignee != firstAssignee {
+		t.Fatalf("expected first scan triage to stay isolated, got %+v", triageByScan[firstScan.ID])
+	}
+	if triageByScan[secondScan.ID].Status != domain.FindingLifecycleResolved || triageByScan[secondScan.ID].Assignee != secondAssignee {
+		t.Fatalf("expected second scan triage to stay isolated, got %+v", triageByScan[secondScan.ID])
+	}
+
+	filtered, err := svc.ListRepoFindings(
+		defaultScopeContext(),
+		10,
+		db.RepoFindingFilter{
+			LifecycleStatus: string(domain.FindingLifecycleAck),
+		},
+	)
+	if err != nil {
+		t.Fatalf("list repo findings by lifecycle status: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ScanID != firstScan.ID {
+		t.Fatalf("expected ack filter to return only first scan row, got %+v", filtered)
+	}
+
+	history, err := svc.ListFindingTriageHistory(defaultScopeContext(), "shared-id", secondScan.ID, 10)
+	if err != nil {
+		t.Fatalf("list repo triage history: %v", err)
+	}
+	if len(history) != 1 || history[0].ToStatus != domain.FindingLifecycleResolved || history[0].Assignee != secondAssignee {
+		t.Fatalf("expected second scan history to stay isolated, got %+v", history)
+	}
+}
+
 func TestServiceGetFinding(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

@@ -1707,7 +1707,8 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 	if id == "" {
 		return domain.Finding{}, db.ErrNotFound
 	}
-	if _, err := s.GetFinding(ctx, id, scanID); err != nil {
+	finding, err := s.GetFinding(ctx, id, scanID)
+	if err != nil {
 		return domain.Finding{}, err
 	}
 	if request.Status == nil && request.Assignee == nil && request.SuppressionExpiresAt == nil && strings.TrimSpace(request.Comment) == "" {
@@ -1715,13 +1716,14 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 	}
 
 	now := s.Now().UTC()
-	currentState, err := s.Store.GetFindingTriageState(ctx, id)
+	stateKey := findingTriageStateKey(finding)
+	currentState, err := s.Store.GetFindingTriageState(ctx, stateKey)
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return domain.Finding{}, err
 	}
 	if errors.Is(err, db.ErrNotFound) {
 		currentState = db.FindingTriageState{
-			FindingID: id,
+			FindingID: stateKey,
 			Status:    domain.FindingLifecycleOpen,
 		}
 	}
@@ -1771,7 +1773,7 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}
 
-	nextState.FindingID = id
+	nextState.FindingID = stateKey
 	nextState.UpdatedAt = now
 	nextState.UpdatedBy = normalizeActor(actor)
 	if nextState.Status == "" {
@@ -1780,7 +1782,7 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 
 	action := deriveFindingTriageAction(currentState, nextState, comment)
 	if err := s.Store.ApplyFindingTriageTransition(ctx, nextState, db.FindingTriageEvent{
-		FindingID:            id,
+		FindingID:            stateKey,
 		Action:               action,
 		FromStatus:           currentState.Status,
 		ToStatus:             nextState.Status,
@@ -1802,10 +1804,11 @@ func (s *Service) ListFindingTriageHistory(ctx context.Context, findingID string
 	if id == "" {
 		return nil, db.ErrNotFound
 	}
-	if _, err := s.GetFinding(ctx, id, scanID); err != nil {
+	finding, err := s.GetFinding(ctx, id, scanID)
+	if err != nil {
 		return nil, err
 	}
-	return s.Store.ListFindingTriageEvents(ctx, id, limit)
+	return s.Store.ListFindingTriageEvents(ctx, findingTriageStateKey(finding), limit)
 }
 
 // GetFindingExports returns OCSF-aligned and ASFF payloads for one finding.
@@ -2389,7 +2392,7 @@ func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domai
 	ids := make([]string, 0, len(findings))
 	seen := map[string]struct{}{}
 	for _, finding := range findings {
-		id := strings.TrimSpace(finding.ID)
+		id := findingTriageStateKey(finding)
 		if id == "" {
 			continue
 		}
@@ -2412,7 +2415,7 @@ func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domai
 	result := make([]domain.Finding, 0, len(findings))
 	for _, finding := range findings {
 		triage := domain.DefaultFindingTriage()
-		if state, exists := byID[strings.TrimSpace(finding.ID)]; exists {
+		if state, exists := byID[findingTriageStateKey(finding)]; exists {
 			updatedAt := state.UpdatedAt.UTC()
 			triage = domain.FindingTriage{
 				Status:               state.Status,
@@ -2426,6 +2429,30 @@ func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domai
 		result = append(result, finding)
 	}
 	return result, nil
+}
+
+const repoFindingTriageStatePrefix = "repo-finding-triage"
+
+func findingTriageStateKey(finding domain.Finding) string {
+	id := strings.TrimSpace(finding.ID)
+	if id == "" {
+		return ""
+	}
+	if !isRepoFinding(finding) {
+		return id
+	}
+	scanID := strings.TrimSpace(finding.ScanID)
+	if scanID == "" {
+		return id
+	}
+	return repoFindingTriageStatePrefix + "|" + scanID + "|" + id
+}
+
+func isRepoFinding(finding domain.Finding) bool {
+	return strings.TrimSpace(finding.Repository) != "" ||
+		strings.TrimSpace(finding.Commit) != "" ||
+		strings.TrimSpace(finding.FilePath) != "" ||
+		strings.TrimSpace(finding.SourceURL) != ""
 }
 
 func normalizeFindingTriageState(state db.FindingTriageState, now time.Time) db.FindingTriageState {

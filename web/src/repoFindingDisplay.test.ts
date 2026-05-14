@@ -42,6 +42,17 @@ describe('groupRepoFindingsForDisplay', () => {
     expect(groups[2].findings.map((item) => item.id)).toEqual(['unknown-item']);
   });
 
+  it('groups severity sort in ascending severity buckets when requested', () => {
+    const findings = [finding('medium-item', 'medium'), finding('unknown-item', 'unexpected'), finding('critical-item', 'critical')];
+
+    const groups = groupRepoFindingsForDisplay(findings, 'severity', 'asc');
+
+    expect(groups.map((group) => group.key)).toEqual(['unknown', 'medium', 'critical']);
+    expect(groups[0].findings.map((item) => item.id)).toEqual(['unknown-item']);
+    expect(groups[1].findings.map((item) => item.id)).toEqual(['medium-item']);
+    expect(groups[2].findings.map((item) => item.id)).toEqual(['critical-item']);
+  });
+
   it('selects findings by scan id and finding id together', () => {
     const first = finding('shared-id', 'high');
     const second = { ...finding('shared-id', 'low'), scan_id: 'scan-2', title: 'scan-2 finding' };
