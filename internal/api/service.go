@@ -38,6 +38,8 @@ const (
 	defaultGitHubWebhookReplayWindow = 24 * time.Hour
 	defaultGitHubWebhookBurstWindow  = 30 * time.Second
 	maxSourceErrorsInEvent           = 25
+	repoFindingsTriageFilterStep     = maxCursorFetchLimit
+	repoFindingsTriageFilterCap      = maxCursorFetchLimit * 4
 )
 
 const (
@@ -1265,12 +1267,20 @@ func (s *Service) GetRepoScan(ctx context.Context, repoScanID string) (db.RepoSc
 func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.RepoFindingFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
 	normalized := db.NormalizeRepoFindingFilter(filter)
-	repoLimit := limit
-	if normalized.LifecycleStatus != "" || normalized.Assignee != "" {
-		// Apply triage filters across the full result set so older matches are not
-		// dropped before triage state filtering runs in the service layer.
-		repoLimit = 0
+	hasTriageFilter := normalized.LifecycleStatus != "" || normalized.Assignee != ""
+	requestLimit := limit
+	if requestLimit <= 0 {
+		requestLimit = defaultFindingsLimit
 	}
+	repoLimit := requestLimit
+	if hasTriageFilter && repoLimit < repoFindingsTriageFilterStep {
+		repoLimit = repoFindingsTriageFilterStep
+	}
+
+	if hasTriageFilter {
+		return s.listRepoFindingsWithTriageFilter(ctx, repoLimit, requestLimit, normalized)
+	}
+
 	findings, err := s.Store.ListRepoFindings(ctx, normalized, repoLimit)
 	if err != nil {
 		return nil, err
@@ -1284,10 +1294,47 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 		return withTriage, nil
 	}
 	filtered := filterRepoFindingsByTriage(withTriage, normalized.LifecycleStatus, normalized.Assignee)
-	if limit > 0 && len(filtered) > limit {
-		filtered = filtered[:limit]
+	if len(filtered) > requestLimit {
+		filtered = filtered[:requestLimit]
 	}
 	return filtered, nil
+}
+
+func (s *Service) listRepoFindingsWithTriageFilter(
+	ctx context.Context,
+	repoLimit int,
+	requestLimit int,
+	filter db.RepoFindingFilter,
+) ([]domain.Finding, error) {
+	for {
+		findings, err := s.Store.ListRepoFindings(ctx, filter, repoLimit)
+		if err != nil {
+			return nil, err
+		}
+
+		findings = enrichFindingsWithRepoContext(findings)
+		withTriage, err := s.applyFindingTriageStates(ctx, findings)
+		if err != nil {
+			return nil, err
+		}
+		filtered := filterRepoFindingsByTriage(withTriage, filter.LifecycleStatus, filter.Assignee)
+		if len(filtered) > requestLimit {
+			filtered = filtered[:requestLimit]
+		}
+
+		// Keep bounded reads while scanning until we find enough triaged rows for
+		// the caller's requested window or we hit the safety cap.
+		if len(filtered) >= requestLimit || len(findings) < repoLimit {
+			return filtered, nil
+		}
+		if repoLimit >= repoFindingsTriageFilterCap {
+			return filtered, nil
+		}
+		repoLimit *= 2
+		if repoLimit > repoFindingsTriageFilterCap {
+			repoLimit = repoFindingsTriageFilterCap
+		}
+	}
 }
 
 // ListRepoFindingClusters returns duplicate-aware repository finding clusters.
