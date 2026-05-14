@@ -438,11 +438,11 @@ func kubernetesAgentStatus(metadata *persistedKubernetesConnectorState) (domain.
 			Remediation: "Upgrade or restart the identrail-agent deployment so it can report in-cluster API discovery.",
 		})
 	}
-	if len(metadata.PermissionChecks) == 0 {
+	if missingChecks := missingKubernetesAgentPermissionChecks(metadata.PermissionChecks); len(missingChecks) > 0 {
 		diagnostics = append(diagnostics, k8sprovider.KubernetesPreflightDiagnostic{
 			Code:        "kubernetes_agent_rbac_probe_missing",
 			Severity:    "error",
-			Message:     "The Kubernetes agent heartbeat did not include RBAC read checks.",
+			Message:     "The Kubernetes agent heartbeat did not include every required RBAC read check: " + describeKubernetesPermissionChecks(missingChecks) + ".",
 			Remediation: "Upgrade or restart the identrail-agent deployment with the standard read-only ClusterRole.",
 		})
 	}
@@ -470,6 +470,33 @@ func kubernetesAgentStatus(metadata *persistedKubernetesConnectorState) (domain.
 		return domain.ConnectorStatusActive, string(connectors.HealthStatusHealthy)
 	}
 	return domain.ConnectorStatusDegraded, string(health)
+}
+
+func missingKubernetesAgentPermissionChecks(checks []k8sprovider.KubernetesPermissionCheckResult) []k8sprovider.KubernetesPermissionCheck {
+	reported := make(map[string]struct{}, len(checks))
+	for _, check := range checks {
+		reported[kubernetesPermissionCheckKey(check.Verb, check.Resource, check.Scope)] = struct{}{}
+	}
+	required := k8sprovider.RequiredKubernetesPreflightChecks()
+	missing := make([]k8sprovider.KubernetesPermissionCheck, 0, len(required))
+	for _, check := range required {
+		if _, ok := reported[kubernetesPermissionCheckKey(check.Verb, check.Resource, check.Scope)]; !ok {
+			missing = append(missing, check)
+		}
+	}
+	return missing
+}
+
+func kubernetesPermissionCheckKey(verb string, resource string, scope string) string {
+	return strings.ToLower(strings.TrimSpace(verb)) + "/" + strings.ToLower(strings.TrimSpace(resource)) + "/" + strings.ToLower(strings.TrimSpace(scope))
+}
+
+func describeKubernetesPermissionChecks(checks []k8sprovider.KubernetesPermissionCheck) string {
+	labels := make([]string, 0, len(checks))
+	for _, check := range checks {
+		labels = append(labels, strings.Trim(strings.Join([]string{strings.TrimSpace(check.Verb), strings.TrimSpace(check.Resource), strings.TrimSpace(check.Scope)}, " "), " "))
+	}
+	return strings.Join(labels, ", ")
 }
 
 func (s *Service) persistKubernetesKubeconfig(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, kubeconfig string, rotatedAt time.Time) error {

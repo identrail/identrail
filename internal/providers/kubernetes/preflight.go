@@ -20,6 +20,13 @@ var requiredKubernetesPreflightChecks = []KubernetesPermissionCheck{
 	{Verb: "list", Resource: "pods", Scope: "cluster"},
 }
 
+// RequiredKubernetesPreflightChecks returns the complete read-only RBAC proof expected from Kubernetes connectors.
+func RequiredKubernetesPreflightChecks() []KubernetesPermissionCheck {
+	checks := make([]KubernetesPermissionCheck, len(requiredKubernetesPreflightChecks))
+	copy(checks, requiredKubernetesPreflightChecks)
+	return checks
+}
+
 // KubernetesPermissionCheck describes one read permission required for safe cluster scans.
 type KubernetesPermissionCheck struct {
 	Verb     string `json:"verb"`

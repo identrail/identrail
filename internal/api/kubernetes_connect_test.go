@@ -607,6 +607,27 @@ func TestRouterKubernetesAgentHeartbeatWithoutProbeDegradesConnector(t *testing.
 	assertKubernetesDiagnosticCode(t, heartbeatBody.Connection.Diagnostics, "kubernetes_agent_rbac_probe_missing")
 }
 
+func TestKubernetesAgentStatusRequiresCompleteRBACProbe(t *testing.T) {
+	metadata := persistedKubernetesConnectorState{
+		Cluster: "prod-cluster",
+		Server:  "https://kubernetes.example",
+		PermissionChecks: []k8sprovider.KubernetesPermissionCheckResult{{
+			KubernetesPermissionCheck: k8sprovider.KubernetesPermissionCheck{
+				Verb:     "list",
+				Resource: "pods",
+				Scope:    "cluster",
+			},
+			Allowed: true,
+		}},
+	}
+
+	status, health := kubernetesAgentStatus(&metadata)
+	if status != domain.ConnectorStatusDegraded || health != string(connectors.HealthStatusError) {
+		t.Fatalf("expected partial RBAC probe to degrade connector, got status=%q health=%q metadata=%+v", status, health, metadata)
+	}
+	assertKubernetesDiagnosticCode(t, metadata.Diagnostics, "kubernetes_agent_rbac_probe_missing")
+}
+
 func TestKubernetesHelmCommandShellQuotesValues(t *testing.T) {
 	command := kubernetesHelmCommand("https://api.example/$(touch bad)'x", "token'$(whoami)")
 	if bytes.Contains([]byte(command), []byte(`api.url="`)) || bytes.Contains([]byte(command), []byte(`enrollment.token="`)) {
