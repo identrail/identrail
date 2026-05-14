@@ -37,6 +37,9 @@ func (f *fakeWorkOSClient) AuthorizationURL(input sessionauth.WorkOSAuthorizatio
 	if input.ScreenHint != "" {
 		values.Set("screen_hint", input.ScreenHint)
 	}
+	if input.Provider != "" {
+		values.Set("provider", input.Provider)
+	}
 	return "https://authkit.example/authorize?" + values.Encode(), nil
 }
 
@@ -91,6 +94,9 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	if workOS.authorizationInput.RedirectURI != "https://app.identrail.test/auth/callback" {
 		t.Fatalf("unexpected callback url: %q", workOS.authorizationInput.RedirectURI)
 	}
+	if workOS.authorizationInput.Provider != "authkit" {
+		t.Fatalf("expected default authkit provider, got %q", workOS.authorizationInput.Provider)
+	}
 
 	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil)
 	callbackResp := httptest.NewRecorder()
@@ -114,6 +120,66 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	}
 	if user.PrimaryEmail != "new@example.com" || user.DisplayName != "New User" {
 		t.Fatalf("unexpected user: %+v", user)
+	}
+}
+
+func TestWorkOSStartRoutesConfiguredSocialProviders(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		provider string
+		want     string
+	}{
+		{name: "google", provider: "google_oauth", want: "GoogleOAuth"},
+		{name: "github", provider: "github_oauth", want: "GitHubOAuth"},
+		{name: "authkit", provider: "authkit", want: "authkit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			svc := NewService(store, fakeScanner{}, "aws")
+			workOS := &fakeWorkOSClient{}
+			router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+				FeatureNewAuth:      true,
+				FeatureWorkOSLogin:  true,
+				PublicBaseURL:       "https://app.identrail.test",
+				SessionKey:          strings.Repeat("a", 64),
+				WorkOSClientID:      "client_123",
+				WorkOSWebhookSecret: "whsec_123",
+				WorkOSAuthClient:    workOS,
+				RateLimitRPM:        1000,
+				RateLimitBurst:      1000,
+			})
+
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/auth/login?provider="+tc.provider, nil))
+			if resp.Code != http.StatusFound {
+				t.Fatalf("expected login redirect, got %d body=%s", resp.Code, resp.Body.String())
+			}
+			if workOS.authorizationInput.Provider != tc.want {
+				t.Fatalf("expected provider %q, got %q", tc.want, workOS.authorizationInput.Provider)
+			}
+		})
+	}
+}
+
+func TestWorkOSStartRejectsUnsupportedProvider(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    &fakeWorkOSClient{},
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=apple_oauth", nil))
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected unsupported provider 400, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 

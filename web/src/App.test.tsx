@@ -230,7 +230,7 @@ describe('App', () => {
     expect(hostedSignIn).toBeInTheDocument();
     expect(hostedSignIn).toHaveAttribute(
       'href',
-      `http://localhost:8080/auth/login?return_to=${encodeURIComponent(`${window.location.origin}/app/team/workspace`)}`
+      `http://localhost:8080/auth/login?return_to=${encodeURIComponent(`${window.location.origin}/app/team/workspace`)}&provider=google_oauth`
     );
   });
 

@@ -52,10 +52,11 @@ function authConfigErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to load authentication options.';
 }
 
-function workOSURL(intent: AuthIntent, returnTo: string): string {
+function workOSURL(intent: AuthIntent, returnTo: string, provider: HostedProvider): string {
   const query = new URLSearchParams();
   const webReturnTo = typeof window === 'undefined' ? returnTo : new URL(returnTo, window.location.origin).toString();
   query.set('return_to', webReturnTo);
+  query.set('provider', provider.id);
   return buildAPIURL(`/auth/${intent === 'signup' ? 'signup' : 'login'}?${query.toString()}`);
 }
 
@@ -188,7 +189,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
                 className={`idt-auth-provider ${
                   intent === 'signup' && provider.signUpTone === 'dark' ? 'idt-auth-provider-dark' : ''
                 }`}
-                href={workOSURL(intent, returnTo)}
+                href={workOSURL(intent, returnTo, provider)}
               >
                 {providerIcon(provider)}
                 <span>{provider.label}</span>

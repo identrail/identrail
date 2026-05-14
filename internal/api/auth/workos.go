@@ -18,6 +18,7 @@ type WorkOSAuthorizationRequest struct {
 	RedirectURI string
 	State       string
 	ScreenHint  string
+	Provider    string
 }
 
 type WorkOSAuthenticationRequest struct {
@@ -67,8 +68,11 @@ func (c *WorkOSSDKClient) AuthorizationURL(input WorkOSAuthorizationRequest) (st
 	opts := usermanagement.GetAuthorizationURLOpts{
 		ClientID:    c.clientID,
 		RedirectURI: strings.TrimSpace(input.RedirectURI),
-		Provider:    "authkit",
+		Provider:    strings.TrimSpace(input.Provider),
 		State:       strings.TrimSpace(input.State),
+	}
+	if opts.Provider == "" {
+		opts.Provider = "authkit"
 	}
 	if strings.EqualFold(strings.TrimSpace(input.ScreenHint), "sign-up") {
 		opts.ScreenHint = usermanagement.SignUp

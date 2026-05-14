@@ -562,6 +562,13 @@ paths:
           required: false
           schema:
             type: string
+        - in: query
+          name: provider
+          required: false
+          description: Optional hosted provider selector. Defaults to AuthKit when omitted.
+          schema:
+            type: string
+            enum: [authkit, google_oauth, github_oauth]
       responses:
         "302":
           description: Redirect to WorkOS AuthKit
@@ -579,6 +586,13 @@ paths:
           required: false
           schema:
             type: string
+        - in: query
+          name: provider
+          required: false
+          description: Optional hosted provider selector. Defaults to AuthKit when omitted.
+          schema:
+            type: string
+            enum: [authkit, google_oauth, github_oauth]
       responses:
         "302":
           description: Redirect to WorkOS AuthKit sign-up screen
