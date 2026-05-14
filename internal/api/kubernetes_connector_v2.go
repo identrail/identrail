@@ -346,6 +346,18 @@ func (s *Service) normalizeKubernetesConnectorStart(ctx context.Context, request
 	if err != nil {
 		return db.TenancyProject{}, db.Scope{}, KubernetesConnectionUpsertRequest{}, err
 	}
+	if strings.TrimSpace(request.ConnectorID) == "" {
+		items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeKubernetes, 1)
+		if err != nil {
+			return db.TenancyProject{}, db.Scope{}, KubernetesConnectionUpsertRequest{}, fmt.Errorf("list kubernetes connectors: %w", err)
+		}
+		if len(items) > 0 {
+			normalized.ConnectorID = items[0].Connector.ConnectorID
+			if strings.TrimSpace(request.DisplayName) == "" {
+				normalized.DisplayName = firstNonEmptyKubernetesValue(items[0].Connector.DisplayName, normalized.DisplayName)
+			}
+		}
+	}
 	return project, scope, normalized, nil
 }
 

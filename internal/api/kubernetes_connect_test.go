@@ -396,6 +396,104 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 	}
 }
 
+func TestKubernetesConnectorStartReusesExistingConnectorWhenIDEmpty(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	svc := NewService(store, routerScanner{}, "kubernetes")
+
+	first, err := svc.StartKubernetesConnector(ctx, KubernetesConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		DisplayName: "Production Cluster",
+		APIURL:      "https://api.identrail.test",
+	})
+	if err != nil {
+		t.Fatalf("start first kubernetes connector: %v", err)
+	}
+	second, err := svc.StartKubernetesConnector(ctx, KubernetesConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		APIURL:      "https://api.identrail.test",
+	})
+	if err != nil {
+		t.Fatalf("restart kubernetes connector: %v", err)
+	}
+	if second.Connection.ConnectorID != first.Connection.ConnectorID {
+		t.Fatalf("expected retry without connector_id to reuse %q, got %q", first.Connection.ConnectorID, second.Connection.ConnectorID)
+	}
+	if second.Connection.DisplayName != "Production Cluster" {
+		t.Fatalf("expected retry to preserve display name, got %q", second.Connection.DisplayName)
+	}
+	if second.EnrollmentToken == first.EnrollmentToken {
+		t.Fatal("expected retry to rotate the enrollment token")
+	}
+	items, err := store.ListTenancyConnectors(ctx, "workspace-a", "project-1", domain.ConnectorTypeKubernetes, 10)
+	if err != nil {
+		t.Fatalf("list kubernetes connectors: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one reused kubernetes connector, got %d", len(items))
+	}
+}
+
+func TestKubernetesKubeconfigFallbackReusesExistingConnectorWhenIDEmpty(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	svc := NewService(store, routerScanner{}, "kubernetes")
+
+	start, err := svc.StartKubernetesConnector(ctx, KubernetesConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		DisplayName: "Production Cluster",
+		APIURL:      "https://api.identrail.test",
+	})
+	if err != nil {
+		t.Fatalf("start kubernetes connector: %v", err)
+	}
+	kubeconfig := `apiVersion: v1
+clusters:
+- name: prod
+  cluster:
+    server: https://kubernetes.example
+contexts:
+- name: prod
+  context:
+    cluster: prod
+    user: identrail
+current-context: prod
+users:
+- name: identrail
+  user:
+    token: super-secret-token
+`
+	status, err := svc.UpsertKubernetesKubeconfigConnector(ctx, KubernetesConnectorKubeconfigRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Kubeconfig:  kubeconfig,
+	})
+	if err != nil {
+		t.Fatalf("upsert kubeconfig connector: %v", err)
+	}
+	if status.ConnectorID != start.Connection.ConnectorID {
+		t.Fatalf("expected kubeconfig fallback without connector_id to reuse %q, got %q", start.Connection.ConnectorID, status.ConnectorID)
+	}
+	if status.DisplayName != "Production Cluster" {
+		t.Fatalf("expected kubeconfig fallback to preserve display name, got %q", status.DisplayName)
+	}
+	items, err := store.ListTenancyConnectors(ctx, "workspace-a", "project-1", domain.ConnectorTypeKubernetes, 10)
+	if err != nil {
+		t.Fatalf("list kubernetes connectors: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one reused kubernetes connector, got %d", len(items))
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", start.Connection.ConnectorID, "kubeconfig"); err != nil {
+		t.Fatalf("expected kubeconfig secret under reused connector id: %v", err)
+	}
+}
+
 func TestRouterKubernetesConnectorUsesForwardedBaseURL(t *testing.T) {
 	r, _ := newKubernetesConnectorV2TestRouterWithPublicBaseURL(t, "")
 	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/k8s", bytes.NewBufferString(`{
