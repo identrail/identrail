@@ -76,6 +76,7 @@ services:
         VITE_OIDC_WORKSPACE_CLAIM: "${VITE_OIDC_WORKSPACE_CLAIM:-}"
         VITE_OIDC_ROLES_CLAIM: "${VITE_OIDC_ROLES_CLAIM:-}"
         VITE_FEATURE_CONNECTOR_AWS: "${VITE_FEATURE_CONNECTOR_AWS:-false}"
+        VITE_FEATURE_CONNECTOR_K8S: "${VITE_FEATURE_CONNECTOR_K8S:-false}"
         NGINX_CONF: default.local.conf
     image: identrail/web:local
     container_name: identrail-web

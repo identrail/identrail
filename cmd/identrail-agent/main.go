@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,18 +13,27 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
+const (
+	kubernetesServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	kubernetesServiceAccountCAPath    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	kubernetesAPITimeout              = 8 * time.Second
+)
+
 type enrollRequest struct {
-	EnrollmentToken string `json:"enrollment_token"`
-	ConnectorID     string `json:"connector_id,omitempty"`
-	AgentID         string `json:"agent_id,omitempty"`
-	Cluster         string `json:"cluster,omitempty"`
-	Server          string `json:"server,omitempty"`
-	GitVersion      string `json:"git_version,omitempty"`
-	Platform        string `json:"platform,omitempty"`
+	EnrollmentToken  string                 `json:"enrollment_token"`
+	ConnectorID      string                 `json:"connector_id,omitempty"`
+	AgentID          string                 `json:"agent_id,omitempty"`
+	Cluster          string                 `json:"cluster,omitempty"`
+	Server           string                 `json:"server,omitempty"`
+	GitVersion       string                 `json:"git_version,omitempty"`
+	Platform         string                 `json:"platform,omitempty"`
+	PermissionChecks []agentPermissionCheck `json:"permission_checks,omitempty"`
+	Diagnostics      []agentDiagnostic      `json:"diagnostics,omitempty"`
 }
 
 type enrollResponse struct {
@@ -33,13 +44,42 @@ type enrollResponse struct {
 }
 
 type heartbeatRequest struct {
-	ConnectorID string `json:"connector_id,omitempty"`
-	AgentID     string `json:"agent_id,omitempty"`
-	Cluster     string `json:"cluster,omitempty"`
-	Server      string `json:"server,omitempty"`
-	GitVersion  string `json:"git_version,omitempty"`
-	Platform    string `json:"platform,omitempty"`
+	ConnectorID      string                 `json:"connector_id,omitempty"`
+	AgentID          string                 `json:"agent_id,omitempty"`
+	Cluster          string                 `json:"cluster,omitempty"`
+	Server           string                 `json:"server,omitempty"`
+	GitVersion       string                 `json:"git_version,omitempty"`
+	Platform         string                 `json:"platform,omitempty"`
+	PermissionChecks []agentPermissionCheck `json:"permission_checks,omitempty"`
+	Diagnostics      []agentDiagnostic      `json:"diagnostics,omitempty"`
 }
+
+type agentPermissionCheck struct {
+	Verb        string `json:"verb"`
+	Resource    string `json:"resource"`
+	Scope       string `json:"scope"`
+	Allowed     bool   `json:"allowed"`
+	Diagnostic  string `json:"diagnostic,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
+}
+
+type agentDiagnostic struct {
+	Code        string `json:"code"`
+	Severity    string `json:"severity"`
+	Message     string `json:"message"`
+	Remediation string `json:"remediation,omitempty"`
+}
+
+type kubernetesProbe struct {
+	Cluster          string
+	Server           string
+	GitVersion       string
+	Platform         string
+	PermissionChecks []agentPermissionCheck
+	Diagnostics      []agentDiagnostic
+}
+
+var collectKubernetesProbe = discoverInClusterKubernetes
 
 func main() {
 	var apiURL string
@@ -87,10 +127,17 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 		var lastErr error
 		usingEnrollmentRecoveryCredential := false
 		if credential == "" {
+			probe := collectKubernetesProbe(ctx)
 			response, err := enroll(ctx, client, apiURL, enrollRequest{
-				EnrollmentToken: enrollmentToken,
-				ConnectorID:     connectorID,
-				AgentID:         agentID,
+				EnrollmentToken:  enrollmentToken,
+				ConnectorID:      connectorID,
+				AgentID:          agentID,
+				Cluster:          probe.Cluster,
+				Server:           probe.Server,
+				GitVersion:       probe.GitVersion,
+				Platform:         probe.Platform,
+				PermissionChecks: probe.PermissionChecks,
+				Diagnostics:      probe.Diagnostics,
 			})
 			if err != nil {
 				log.Printf("enroll failed; trying enrollment credential for heartbeat recovery: %v", err)
@@ -104,10 +151,18 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 			}
 		}
 
-		if err := heartbeat(ctx, client, apiURL, credential, heartbeatRequest{
-			ConnectorID: connectorID,
-			AgentID:     agentID,
-		}); err != nil {
+		probe := collectKubernetesProbe(ctx)
+		payload := heartbeatRequest{
+			ConnectorID:      connectorID,
+			AgentID:          agentID,
+			Cluster:          probe.Cluster,
+			Server:           probe.Server,
+			GitVersion:       probe.GitVersion,
+			Platform:         probe.Platform,
+			PermissionChecks: probe.PermissionChecks,
+			Diagnostics:      probe.Diagnostics,
+		}
+		if err := heartbeat(ctx, client, apiURL, credential, payload); err != nil {
 			log.Printf("heartbeat failed: %v", err)
 			lastErr = fmt.Errorf("send kubernetes agent heartbeat: %w", err)
 			if usingEnrollmentRecoveryCredential {
@@ -170,6 +225,189 @@ func postJSON(ctx context.Context, client *http.Client, url string, bearer strin
 		return fmt.Errorf("decode identrail API response: %w", err)
 	}
 	return nil
+}
+
+func discoverInClusterKubernetes(ctx context.Context) kubernetesProbe {
+	host := strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_HOST"))
+	port := strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_PORT"))
+	if host == "" || port == "" {
+		return kubernetesProbe{
+			Diagnostics: []agentDiagnostic{{
+				Code:        "kubernetes_agent_not_in_cluster",
+				Severity:    "error",
+				Message:     "Kubernetes service discovery environment variables are not available.",
+				Remediation: "Run identrail-agent inside the target Kubernetes cluster using the Helm chart.",
+			}},
+		}
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		return kubernetesProbe{
+			Diagnostics: []agentDiagnostic{{
+				Code:        "kubernetes_agent_service_port_invalid",
+				Severity:    "error",
+				Message:     fmt.Sprintf("KUBERNETES_SERVICE_PORT is invalid: %s", port),
+				Remediation: "Run identrail-agent with the standard Kubernetes service environment injected by the cluster.",
+			}},
+		}
+	}
+	tokenBytes, err := os.ReadFile(kubernetesServiceAccountTokenPath)
+	if err != nil {
+		return kubernetesProbe{
+			Server: "https://" + host + ":" + port,
+			Diagnostics: []agentDiagnostic{{
+				Code:        "kubernetes_agent_service_account_token_missing",
+				Severity:    "error",
+				Message:     fmt.Sprintf("read Kubernetes service account token: %v", err),
+				Remediation: "Mount the Kubernetes service account token into the identrail-agent pod.",
+			}},
+		}
+	}
+	client, err := kubernetesAPIClient()
+	if err != nil {
+		return kubernetesProbe{
+			Server: "https://" + host + ":" + port,
+			Diagnostics: []agentDiagnostic{{
+				Code:        "kubernetes_agent_tls_config_invalid",
+				Severity:    "error",
+				Message:     err.Error(),
+				Remediation: "Mount the Kubernetes service account CA bundle into the identrail-agent pod.",
+			}},
+		}
+	}
+
+	baseURL := "https://" + host + ":" + port
+	token := strings.TrimSpace(string(tokenBytes))
+	probe := kubernetesProbe{
+		Cluster: strings.TrimSpace(os.Getenv("IDENTRAIL_K8S_CLUSTER_NAME")),
+		Server:  baseURL,
+	}
+	if probe.Cluster == "" {
+		probe.Cluster = host
+	}
+
+	var version struct {
+		GitVersion string `json:"gitVersion"`
+		Platform   string `json:"platform"`
+	}
+	if status, body, err := kubernetesGetJSON(ctx, client, baseURL+"/version", token, &version); err != nil {
+		probe.Diagnostics = append(probe.Diagnostics, agentDiagnostic{
+			Code:        "kubernetes_agent_version_unavailable",
+			Severity:    "warning",
+			Message:     fmt.Sprintf("read Kubernetes server version: %v", err),
+			Remediation: "Verify the agent service account can reach the Kubernetes API server.",
+		})
+	} else if status < 200 || status >= 300 {
+		probe.Diagnostics = append(probe.Diagnostics, agentDiagnostic{
+			Code:        "kubernetes_agent_version_unavailable",
+			Severity:    "warning",
+			Message:     fmt.Sprintf("read Kubernetes server version returned HTTP %d: %s", status, body),
+			Remediation: "Verify the Kubernetes API server is reachable from the agent pod.",
+		})
+	} else {
+		probe.GitVersion = strings.TrimSpace(version.GitVersion)
+		probe.Platform = strings.TrimSpace(version.Platform)
+	}
+
+	for _, check := range requiredAgentPermissionChecks() {
+		probe.PermissionChecks = append(probe.PermissionChecks, runAgentPermissionCheck(ctx, client, baseURL, token, check))
+	}
+	return probe
+}
+
+func kubernetesAPIClient() (*http.Client, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if caBytes, err := os.ReadFile(kubernetesServiceAccountCAPath); err == nil {
+		if ok := pool.AppendCertsFromPEM(caBytes); !ok {
+			return nil, errors.New("service account CA bundle did not contain a valid PEM certificate")
+		}
+	} else {
+		return nil, fmt.Errorf("read Kubernetes service account CA bundle: %w", err)
+	}
+	return &http.Client{
+		Timeout: kubernetesAPITimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+		},
+	}, nil
+}
+
+func requiredAgentPermissionChecks() []agentPermissionCheck {
+	return []agentPermissionCheck{
+		{Verb: "list", Resource: "serviceaccounts", Scope: "cluster", Remediation: "Grant the identrail-agent service account list access to serviceaccounts."},
+		{Verb: "list", Resource: "rolebindings", Scope: "cluster", Remediation: "Grant the identrail-agent service account list access to rolebindings."},
+		{Verb: "list", Resource: "clusterrolebindings", Scope: "cluster", Remediation: "Grant the identrail-agent service account list access to clusterrolebindings."},
+		{Verb: "list", Resource: "roles", Scope: "cluster", Remediation: "Grant the identrail-agent service account list access to roles."},
+		{Verb: "list", Resource: "clusterroles", Scope: "cluster", Remediation: "Grant the identrail-agent service account list access to clusterroles."},
+		{Verb: "list", Resource: "pods", Scope: "cluster", Remediation: "Grant the identrail-agent service account list access to pods."},
+	}
+}
+
+func runAgentPermissionCheck(ctx context.Context, client *http.Client, baseURL string, token string, check agentPermissionCheck) agentPermissionCheck {
+	path := kubernetesResourceListPath(check.Resource)
+	if path == "" {
+		check.Diagnostic = "unsupported Kubernetes resource check"
+		return check
+	}
+	status, body, err := kubernetesGet(ctx, client, baseURL+path+"?limit=1", token)
+	if err != nil {
+		check.Diagnostic = fmt.Sprintf("list Kubernetes %s: %v", check.Resource, err)
+		return check
+	}
+	if status >= 200 && status < 300 {
+		check.Allowed = true
+		return check
+	}
+	check.Diagnostic = fmt.Sprintf("list Kubernetes %s returned HTTP %d: %s", check.Resource, status, body)
+	return check
+}
+
+func kubernetesResourceListPath(resource string) string {
+	switch strings.TrimSpace(resource) {
+	case "serviceaccounts":
+		return "/api/v1/serviceaccounts"
+	case "pods":
+		return "/api/v1/pods"
+	case "rolebindings":
+		return "/apis/rbac.authorization.k8s.io/v1/rolebindings"
+	case "roles":
+		return "/apis/rbac.authorization.k8s.io/v1/roles"
+	case "clusterrolebindings":
+		return "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings"
+	case "clusterroles":
+		return "/apis/rbac.authorization.k8s.io/v1/clusterroles"
+	default:
+		return ""
+	}
+}
+
+func kubernetesGetJSON(ctx context.Context, client *http.Client, url string, token string, target any) (int, string, error) {
+	status, body, err := kubernetesGet(ctx, client, url, token)
+	if err != nil || status < 200 || status >= 300 || len(body) == 0 {
+		return status, body, err
+	}
+	if err := json.Unmarshal([]byte(body), target); err != nil {
+		return status, body, fmt.Errorf("decode Kubernetes API response: %w", err)
+	}
+	return status, body, nil
+}
+
+func kubernetesGet(ctx context.Context, client *http.Client, url string, token string) (int, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode, strings.TrimSpace(string(body)), nil
 }
 
 func env(key string, fallback string) string {

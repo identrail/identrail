@@ -3790,6 +3790,14 @@ components:
           type: string
         platform:
           type: string
+        permission_checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/KubernetesPermissionCheck"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/KubernetesPreflightDiagnostic"
     KubernetesAgentEnrollResponse:
       type: object
       properties:
@@ -3820,6 +3828,14 @@ components:
           type: string
         platform:
           type: string
+        permission_checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/KubernetesPermissionCheck"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/KubernetesPreflightDiagnostic"
     KubernetesAgentHeartbeatResponse:
       type: object
       properties:

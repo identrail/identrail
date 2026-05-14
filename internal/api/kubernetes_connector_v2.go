@@ -13,6 +13,7 @@ import (
 	k8sconnector "github.com/identrail/identrail/internal/connectors/kubernetes"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
 )
 
 var (
@@ -176,8 +177,11 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	metadata.Server = firstNonEmptyKubernetesValue(request.Server, metadata.Server)
 	metadata.GitVersion = firstNonEmptyKubernetesValue(request.GitVersion, metadata.GitVersion)
 	metadata.Platform = firstNonEmptyKubernetesValue(request.Platform, metadata.Platform)
+	metadata.PermissionChecks = kubernetesAgentPermissionChecks(request.PermissionChecks)
+	metadata.Diagnostics = kubernetesAgentDiagnostics(request.Diagnostics)
 	metadata.LastValidatedAt = &now
-	return s.persistKubernetesAgentMetadata(scopedCtx, stored, metadata, domain.ConnectorStatusActive, string(connectors.HealthStatusHealthy), now, KubernetesAgentEnrollResponse{
+	status, health := kubernetesAgentStatus(&metadata)
+	return s.persistKubernetesAgentMetadata(scopedCtx, stored, metadata, status, health, now, KubernetesAgentEnrollResponse{
 		ConnectorID:  locator.ConnectorID,
 		AgentID:      agentID,
 		AgentToken:   token,
@@ -215,9 +219,12 @@ func (s *Service) HeartbeatKubernetesAgent(ctx context.Context, request k8sconne
 	metadata.Server = firstNonEmptyKubernetesValue(request.Server, metadata.Server)
 	metadata.GitVersion = firstNonEmptyKubernetesValue(request.GitVersion, metadata.GitVersion)
 	metadata.Platform = firstNonEmptyKubernetesValue(request.Platform, metadata.Platform)
+	metadata.PermissionChecks = kubernetesAgentPermissionChecks(request.PermissionChecks)
+	metadata.Diagnostics = kubernetesAgentDiagnostics(request.Diagnostics)
 	metadata.LastValidatedAt = &now
 	response := KubernetesAgentEnrollResponse{}
-	_, err = s.persistKubernetesAgentMetadata(scopedCtx, stored, metadata, domain.ConnectorStatusActive, string(connectors.HealthStatusHealthy), now, response)
+	status, health := kubernetesAgentStatus(&metadata)
+	_, err = s.persistKubernetesAgentMetadata(scopedCtx, stored, metadata, status, health, now, response)
 	if err != nil {
 		return KubernetesAgentHeartbeatResponse{}, err
 	}
@@ -225,12 +232,12 @@ func (s *Service) HeartbeatKubernetesAgent(ctx context.Context, request k8sconne
 	if err != nil {
 		return KubernetesAgentHeartbeatResponse{}, err
 	}
-	status, err := s.kubernetesConnectionStatusFromStored(reloaded)
+	connectionStatus, err := s.kubernetesConnectionStatusFromStored(reloaded)
 	if err != nil {
 		return KubernetesAgentHeartbeatResponse{}, err
 	}
 	return KubernetesAgentHeartbeatResponse{
-		Connection: status,
+		Connection: connectionStatus,
 		DegradedAt: now.Add(k8sconnector.HeartbeatDegradedAfter),
 	}, nil
 }
@@ -349,10 +356,100 @@ func (s *Service) persistKubernetesAgentMetadata(ctx context.Context, stored db.
 	state.UpdatedAt = observedAt
 	state.LastErrorCode = ""
 	state.LastErrorMessage = ""
+	if status != domain.ConnectorStatusActive || health != string(connectors.HealthStatusHealthy) {
+		state.LastErrorCode = "kubernetes_agent_probe_failed"
+		state.LastErrorMessage = firstKubernetesRemediation(metadata.Diagnostics, metadata.PermissionChecks)
+	}
 	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
 		return KubernetesAgentEnrollResponse{}, fmt.Errorf("persist kubernetes agent metadata: %w", err)
 	}
 	return response, nil
+}
+
+func kubernetesAgentPermissionChecks(checks []k8sconnector.AgentPermissionCheckResult) []k8sprovider.KubernetesPermissionCheckResult {
+	if len(checks) == 0 {
+		return []k8sprovider.KubernetesPermissionCheckResult{}
+	}
+	result := make([]k8sprovider.KubernetesPermissionCheckResult, 0, len(checks))
+	for _, check := range checks {
+		result = append(result, k8sprovider.KubernetesPermissionCheckResult{
+			KubernetesPermissionCheck: k8sprovider.KubernetesPermissionCheck{
+				Verb:     strings.TrimSpace(check.Verb),
+				Resource: strings.TrimSpace(check.Resource),
+				Scope:    strings.TrimSpace(check.Scope),
+			},
+			Allowed:     check.Allowed,
+			Diagnostic:  strings.TrimSpace(check.Diagnostic),
+			Remediation: strings.TrimSpace(check.Remediation),
+		})
+	}
+	return result
+}
+
+func kubernetesAgentDiagnostics(diagnostics []k8sconnector.AgentDiagnostic) []k8sprovider.KubernetesPreflightDiagnostic {
+	result := make([]k8sprovider.KubernetesPreflightDiagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		code := strings.TrimSpace(diagnostic.Code)
+		message := strings.TrimSpace(diagnostic.Message)
+		if code == "" || message == "" {
+			continue
+		}
+		severity := strings.ToLower(strings.TrimSpace(diagnostic.Severity))
+		if severity == "" {
+			severity = "warning"
+		}
+		result = append(result, k8sprovider.KubernetesPreflightDiagnostic{
+			Code:        code,
+			Severity:    severity,
+			Message:     message,
+			Remediation: strings.TrimSpace(diagnostic.Remediation),
+		})
+	}
+	return result
+}
+
+func kubernetesAgentStatus(metadata *persistedKubernetesConnectorState) (domain.ConnectorStatus, string) {
+	diagnostics := copyKubernetesDiagnostics(metadata.Diagnostics)
+	if strings.TrimSpace(metadata.Cluster) == "" || strings.TrimSpace(metadata.Server) == "" {
+		diagnostics = append(diagnostics, k8sprovider.KubernetesPreflightDiagnostic{
+			Code:        "kubernetes_agent_cluster_probe_missing",
+			Severity:    "error",
+			Message:     "The Kubernetes agent heartbeat did not include verified cluster identity.",
+			Remediation: "Upgrade or restart the identrail-agent deployment so it can report in-cluster API discovery.",
+		})
+	}
+	if len(metadata.PermissionChecks) == 0 {
+		diagnostics = append(diagnostics, k8sprovider.KubernetesPreflightDiagnostic{
+			Code:        "kubernetes_agent_rbac_probe_missing",
+			Severity:    "error",
+			Message:     "The Kubernetes agent heartbeat did not include RBAC read checks.",
+			Remediation: "Upgrade or restart the identrail-agent deployment with the standard read-only ClusterRole.",
+		})
+	}
+	health := connectors.HealthStatusHealthy
+	for _, check := range metadata.PermissionChecks {
+		if !check.Allowed {
+			health = connectors.HealthStatusError
+			break
+		}
+	}
+	if health != connectors.HealthStatusError {
+		for _, diagnostic := range diagnostics {
+			switch strings.ToLower(strings.TrimSpace(diagnostic.Severity)) {
+			case "error":
+				health = connectors.HealthStatusError
+			case "warning":
+				if health == connectors.HealthStatusHealthy {
+					health = connectors.HealthStatusWarning
+				}
+			}
+		}
+	}
+	metadata.Diagnostics = diagnostics
+	if health == connectors.HealthStatusHealthy {
+		return domain.ConnectorStatusActive, string(connectors.HealthStatusHealthy)
+	}
+	return domain.ConnectorStatusDegraded, string(health)
 }
 
 func (s *Service) persistKubernetesKubeconfig(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, kubeconfig string, rotatedAt time.Time) error {

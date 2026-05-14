@@ -315,7 +315,17 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 		"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`,
 		"agent_id":"agent-a",
 		"cluster":"prod-cluster",
-		"server":"https://kubernetes.example"
+		"server":"https://kubernetes.example",
+		"git_version":"v1.30.4",
+		"platform":"linux/amd64",
+		"permission_checks":[
+			{"verb":"list","resource":"serviceaccounts","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"rolebindings","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"clusterrolebindings","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"roles","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"clusterroles","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"pods","scope":"cluster","allowed":true}
+		]
 	}`)
 	if enrollResp.Code != http.StatusOK {
 		t.Fatalf("expected enroll 200, got %d body=%s", enrollResp.Code, enrollResp.Body.String())
@@ -335,7 +345,19 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 
 	heartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{
 		"connector_id":"kubernetes-prod",
-		"agent_id":"agent-a"
+		"agent_id":"agent-a",
+		"cluster":"prod-cluster",
+		"server":"https://kubernetes.example",
+		"git_version":"v1.30.4",
+		"platform":"linux/amd64",
+		"permission_checks":[
+			{"verb":"list","resource":"serviceaccounts","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"rolebindings","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"clusterrolebindings","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"roles","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"clusterroles","scope":"cluster","allowed":true},
+			{"verb":"list","resource":"pods","scope":"cluster","allowed":true}
+		]
 	}`, enrollBody.AgentToken)
 	if heartbeatResp.Code != http.StatusOK {
 		t.Fatalf("expected heartbeat 200, got %d body=%s", heartbeatResp.Code, heartbeatResp.Body.String())
@@ -386,6 +408,53 @@ func TestRouterKubernetesConnectorUsesForwardedBaseURL(t *testing.T) {
 	if !bytes.Contains([]byte(body.HelmCommand), []byte(`api.url='http://api.forwarded.test'`)) {
 		t.Fatalf("helm command did not use forwarded base URL: %q", body.HelmCommand)
 	}
+}
+
+func TestRouterKubernetesAgentHeartbeatWithoutProbeDegradesConnector(t *testing.T) {
+	r, _ := newKubernetesConnectorV2TestRouter(t)
+	startResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"kubernetes-prod"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected start connector 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody KubernetesConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+
+	enrollResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{
+		"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`,
+		"agent_id":"agent-a",
+		"cluster":"prod-cluster",
+		"server":"https://kubernetes.example",
+		"permission_checks":[{"verb":"list","resource":"pods","scope":"cluster","allowed":true}]
+	}`)
+	if enrollResp.Code != http.StatusOK {
+		t.Fatalf("expected enroll 200, got %d body=%s", enrollResp.Code, enrollResp.Body.String())
+	}
+	var enrollBody KubernetesAgentEnrollResponse
+	if err := json.Unmarshal(enrollResp.Body.Bytes(), &enrollBody); err != nil {
+		t.Fatalf("decode enroll response: %v", err)
+	}
+
+	heartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{
+		"connector_id":"kubernetes-prod",
+		"agent_id":"agent-a"
+	}`, enrollBody.AgentToken)
+	if heartbeatResp.Code != http.StatusOK {
+		t.Fatalf("expected degraded heartbeat 200, got %d body=%s", heartbeatResp.Code, heartbeatResp.Body.String())
+	}
+	var heartbeatBody KubernetesAgentHeartbeatResponse
+	if err := json.Unmarshal(heartbeatResp.Body.Bytes(), &heartbeatBody); err != nil {
+		t.Fatalf("decode heartbeat response: %v", err)
+	}
+	if heartbeatBody.Connection.Connected || heartbeatBody.Connection.Status != domain.ConnectorStatusDegraded {
+		t.Fatalf("expected heartbeat without probe to degrade connector, got %+v", heartbeatBody.Connection)
+	}
+	assertKubernetesDiagnosticCode(t, heartbeatBody.Connection.Diagnostics, "kubernetes_agent_rbac_probe_missing")
 }
 
 func TestKubernetesHelmCommandShellQuotesValues(t *testing.T) {
@@ -676,6 +745,16 @@ func doKubernetesAgentAPI(t *testing.T, r *gin.Engine, method string, path strin
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
+}
+
+func assertKubernetesDiagnosticCode(t *testing.T, diagnostics []k8sprovider.KubernetesPreflightDiagnostic, code string) {
+	t.Helper()
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return
+		}
+	}
+	t.Fatalf("expected diagnostic %q in %+v", code, diagnostics)
 }
 
 func quoteJSON(value string) string {

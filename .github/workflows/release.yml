@@ -232,6 +232,8 @@ jobs:
           revision="$(git rev-parse HEAD)"
           release_web_env="deploy/docker/release-web.env"
           web_api_url_source="${release_web_env}"
+          web_feature_connector_aws="false"
+          web_feature_connector_k8s="false"
           backend_platforms="linux/amd64,linux/arm64"
 
           if [ ! -f "${release_web_env}" ]; then
@@ -248,17 +250,35 @@ jobs:
               awk -F= '$1 == "VITE_IDENTRAIL_API_URL" {print substr($0, index($0, "=") + 1)}' "${release_web_env}" \
                 | tail -n1
             )"
+            web_feature_connector_aws="$(
+              awk -F= '$1 == "VITE_FEATURE_CONNECTOR_AWS" {print substr($0, index($0, "=") + 1)}' "${release_web_env}" \
+                | tail -n1
+            )"
+            web_feature_connector_k8s="$(
+              awk -F= '$1 == "VITE_FEATURE_CONNECTOR_K8S" {print substr($0, index($0, "=") + 1)}' "${release_web_env}" \
+                | tail -n1
+            )"
           fi
 
           if [ -z "${web_api_url}" ]; then
             echo "${release_web_env} must define VITE_IDENTRAIL_API_URL." >&2
             exit 1
           fi
+          web_feature_connector_aws="${web_feature_connector_aws:-false}"
+          web_feature_connector_k8s="${web_feature_connector_k8s:-false}"
 
           if [[ ! "${web_api_url}" =~ ^https:// ]]; then
             echo "VITE_IDENTRAIL_API_URL must start with https:// for release images: ${web_api_url}" >&2
             exit 1
           fi
+          for flag in \
+            VITE_FEATURE_CONNECTOR_AWS="${web_feature_connector_aws}" \
+            VITE_FEATURE_CONNECTOR_K8S="${web_feature_connector_k8s}"; do
+            if [[ ! "${flag}" =~ ^[A-Z0-9_]+=(true|false)$ ]]; then
+              echo "${flag%%=*} must be true or false in ${release_web_env}; got ${flag#*=}." >&2
+              exit 1
+            fi
+          done
 
           if ! grep -Eq '^ARG[[:space:]]+TARGETARCH([[:space:]=]|$)' deploy/docker/Dockerfile.backend; then
             echo "deploy/docker/Dockerfile.backend does not support TARGETARCH; publishing backend images for linux/amd64 only." >&2
@@ -268,6 +288,8 @@ jobs:
           mkdir -p dist
           {
             printf 'VITE_IDENTRAIL_API_URL=%s\n' "${web_api_url}"
+            printf 'VITE_FEATURE_CONNECTOR_AWS=%s\n' "${web_feature_connector_aws}"
+            printf 'VITE_FEATURE_CONNECTOR_K8S=%s\n' "${web_feature_connector_k8s}"
             printf 'VITE_IDENTRAIL_API_URL_SOURCE=%s\n' "${web_api_url_source}"
           } > dist/release-web-build.txt
 
@@ -329,7 +351,12 @@ jobs:
 
           build_server
           build_and_push "worker" "Identrail Worker" "${backend_platforms}" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
-          build_and_push "web" "Identrail Web" "linux/amd64,linux/arm64" -f deploy/docker/Dockerfile.web --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" .
+          build_and_push "web" "Identrail Web" "linux/amd64,linux/arm64" \
+            -f deploy/docker/Dockerfile.web \
+            --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" \
+            --build-arg "VITE_FEATURE_CONNECTOR_AWS=${web_feature_connector_aws}" \
+            --build-arg "VITE_FEATURE_CONNECTOR_K8S=${web_feature_connector_k8s}" \
+            .
 
       - name: Upload image metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

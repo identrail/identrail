@@ -89,6 +89,32 @@ func TestPostJSONAddsHeadersAndDecodesResponse(t *testing.T) {
 	}
 }
 
+func useTestKubernetesProbe(t *testing.T, probe kubernetesProbe) {
+	t.Helper()
+	previous := collectKubernetesProbe
+	collectKubernetesProbe = func(context.Context) kubernetesProbe {
+		return probe
+	}
+	t.Cleanup(func() {
+		collectKubernetesProbe = previous
+	})
+}
+
+func healthyTestKubernetesProbe() kubernetesProbe {
+	return kubernetesProbe{
+		Cluster:    "prod-cluster",
+		Server:     "https://kubernetes.default.svc",
+		GitVersion: "v1.30.4",
+		Platform:   "linux/amd64",
+		PermissionChecks: []agentPermissionCheck{{
+			Verb:     "list",
+			Resource: "pods",
+			Scope:    "cluster",
+			Allowed:  true,
+		}},
+	}
+}
+
 func TestPostJSONReportsAPIErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid enrollment", http.StatusUnauthorized)
@@ -157,6 +183,7 @@ func TestEnrollAndHeartbeatUseExpectedEndpoints(t *testing.T) {
 }
 
 func TestMainSendsOneHeartbeatWithExistingAgentToken(t *testing.T) {
+	useTestKubernetesProbe(t, healthyTestKubernetesProbe())
 	var heartbeatCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/connectors/k8s/heartbeat" {
@@ -171,6 +198,9 @@ func TestMainSendsOneHeartbeatWithExistingAgentToken(t *testing.T) {
 		}
 		if payload.ConnectorID != "connector-1" || payload.AgentID != "agent-1" {
 			t.Fatalf("unexpected heartbeat payload: %+v", payload)
+		}
+		if payload.Cluster != "prod-cluster" || payload.Server == "" || len(payload.PermissionChecks) == 0 {
+			t.Fatalf("expected heartbeat to include Kubernetes probe proof, got %+v", payload)
 		}
 		atomic.AddInt32(&heartbeatCount, 1)
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -201,6 +231,7 @@ func TestMainSendsOneHeartbeatWithExistingAgentToken(t *testing.T) {
 }
 
 func TestMainEnrollsBeforeHeartbeat(t *testing.T) {
+	useTestKubernetesProbe(t, healthyTestKubernetesProbe())
 	var paths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
@@ -212,6 +243,9 @@ func TestMainEnrollsBeforeHeartbeat(t *testing.T) {
 			}
 			if payload.EnrollmentToken != "enrollment-token" || payload.AgentID != "agent-1" {
 				t.Fatalf("unexpected enrollment payload: %+v", payload)
+			}
+			if payload.Cluster != "prod-cluster" || payload.Server == "" || len(payload.PermissionChecks) == 0 {
+				t.Fatalf("expected enrollment to include Kubernetes probe proof, got %+v", payload)
 			}
 			_, _ = w.Write([]byte(`{"connector_id":"connector-1","agent_id":"agent-1","agent_token":"issued-agent-token","heartbeat_url":"/v1/connectors/k8s/heartbeat"}`))
 		case "/v1/connectors/k8s/heartbeat":
@@ -249,6 +283,7 @@ func TestMainEnrollsBeforeHeartbeat(t *testing.T) {
 }
 
 func TestRunAgentRetriesEnrollmentAfterStartupFailure(t *testing.T) {
+	useTestKubernetesProbe(t, healthyTestKubernetesProbe())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var enrollAttempts int32
@@ -292,6 +327,7 @@ func TestRunAgentRetriesEnrollmentAfterStartupFailure(t *testing.T) {
 }
 
 func TestRunAgentReturnsOneShotFailure(t *testing.T) {
+	useTestKubernetesProbe(t, healthyTestKubernetesProbe())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/connectors/k8s/heartbeat" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)

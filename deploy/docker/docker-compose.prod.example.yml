@@ -47,5 +47,6 @@ services:
       args:
         VITE_IDENTRAIL_API_URL: "${VITE_IDENTRAIL_API_URL:?set the public HTTPS API URL}"
         VITE_FEATURE_CONNECTOR_AWS: "${VITE_FEATURE_CONNECTOR_AWS:-false}"
+        VITE_FEATURE_CONNECTOR_K8S: "${VITE_FEATURE_CONNECTOR_K8S:-false}"
         NGINX_CONF: "default.conf"
     ports: !reset []
