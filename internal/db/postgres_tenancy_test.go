@@ -214,7 +214,7 @@ func TestPostgresStoreKubernetesEnrollmentTokenClaim(t *testing.T) {
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	now := time.Now().UTC()
 	updatedMetadata := map[string]any{
-		"enrollment_token_sha256": "token-hash",
+		"enrollment_token_sha256":  "token-hash",
 		"enrollment_token_used_at": now.Format(time.RFC3339Nano),
 	}
 	payload, err := json.Marshal(updatedMetadata)

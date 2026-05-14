@@ -240,7 +240,7 @@ func TestMemoryStoreClaimKubernetesEnrollmentToken(t *testing.T) {
 
 	now := time.Now().UTC()
 	payload := map[string]any{
-		"enrollment_token_sha256": tokenHash,
+		"enrollment_token_sha256":  tokenHash,
 		"enrollment_token_used_at": now.Format(time.RFC3339Nano),
 	}
 
