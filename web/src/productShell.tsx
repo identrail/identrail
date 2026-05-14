@@ -25,7 +25,7 @@ import {
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { useMe } from './hooks/useMe';
-import { groupRepoFindingsForDisplay } from './repoFindingDisplay';
+import { buildRepoFindingSelectionKey, findRepoFindingBySelectionKey, groupRepoFindingsForDisplay } from './repoFindingDisplay';
 
 type ProductSession = {
   tenantID: string;
@@ -2833,7 +2833,7 @@ export function ProductFindingsPage() {
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [selectedFindingID, setSelectedFindingID] = useState('');
+  const [selectedFindingKey, setSelectedFindingKey] = useState('');
   const [workflowStatus, setWorkflowStatus] = useState<FindingLifecycleStatus>('open');
   const [workflowAssignee, setWorkflowAssignee] = useState('');
   const [workflowComment, setWorkflowComment] = useState('');
@@ -2876,8 +2876,8 @@ export function ProductFindingsPage() {
   const findingGroups = useMemo(() => groupRepoFindingsForDisplay(filteredFindings, sortBy), [filteredFindings, sortBy]);
 
   const selectedFinding = useMemo(
-    () => filteredFindings.find((finding) => finding.id === selectedFindingID) ?? filteredFindings[0] ?? null,
-    [filteredFindings, selectedFindingID]
+    () => findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey) ?? filteredFindings[0] ?? null,
+    [filteredFindings, selectedFindingKey]
   );
 
   const linkedFindingCount = useMemo(
@@ -3110,6 +3110,7 @@ export function ProductFindingsPage() {
     );
   }, [
     selectedFinding?.id,
+    selectedFinding?.scan_id,
     selectedFinding?.triage?.status,
     selectedFinding?.triage?.assignee,
     selectedFinding?.triage?.suppression_expires_at
@@ -3117,15 +3118,15 @@ export function ProductFindingsPage() {
 
   useEffect(() => {
     if (filteredFindings.length === 0) {
-      if (selectedFindingID) {
-        setSelectedFindingID('');
+      if (selectedFindingKey) {
+        setSelectedFindingKey('');
       }
       return;
     }
-    if (!filteredFindings.some((finding) => finding.id === selectedFindingID)) {
-      setSelectedFindingID(filteredFindings[0].id);
+    if (!findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey)) {
+      setSelectedFindingKey(buildRepoFindingSelectionKey(filteredFindings[0]));
     }
-  }, [filteredFindings, selectedFindingID]);
+  }, [filteredFindings, selectedFindingKey]);
 
   if (!scope) {
     return (
@@ -3350,15 +3351,16 @@ export function ProductFindingsPage() {
                     {group.findings.map((finding) => {
                       const repositoryValue = repoFindingRepositoryValue(finding, repoScansByID);
                       const repositoryLabel = canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
-                      const isSelected = selectedFinding?.id === finding.id;
+                      const selectionKey = buildRepoFindingSelectionKey(finding);
+                      const isSelected = selectedFindingKey === selectionKey;
                       const lifecycle = normalizeFindingStatus(finding.triage?.status);
                       return (
                         <button
-                          key={finding.id}
+                          key={selectionKey}
                           type="button"
                           role="listitem"
                           className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
-                          onClick={() => setSelectedFindingID(finding.id)}
+                          onClick={() => setSelectedFindingKey(selectionKey)}
                         >
                           <div className="idt-repo-finding-row-top">
                             <strong>{finding.title}</strong>

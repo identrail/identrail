@@ -10,6 +10,8 @@ export type RepoFindingDisplayGroup = {
   findings: ApiFinding[];
 };
 
+export type RepoFindingSelection = Pick<ApiFinding, 'id' | 'scan_id'>;
+
 function normalizeSeverityBucket(value: string): (typeof SEVERITY_ORDER)[number] {
   const normalized = value.trim().toLowerCase();
   if (SEVERITY_ORDER.includes(normalized as (typeof SEVERITY_ORDER)[number])) {
@@ -48,4 +50,15 @@ export function groupRepoFindingsForDisplay(
     }
     return groups;
   }, []);
+}
+
+export function buildRepoFindingSelectionKey(finding: RepoFindingSelection): string {
+  return `${finding.scan_id}::${finding.id}`;
+}
+
+export function findRepoFindingBySelectionKey(findings: ApiFinding[], selectionKey: string): ApiFinding | null {
+  if (!selectionKey) {
+    return null;
+  }
+  return findings.find((finding) => buildRepoFindingSelectionKey(finding) === selectionKey) ?? null;
 }

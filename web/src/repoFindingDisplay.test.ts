@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Finding as ApiFinding } from './api/client';
-import { groupRepoFindingsForDisplay } from './repoFindingDisplay';
+import { buildRepoFindingSelectionKey, findRepoFindingBySelectionKey, groupRepoFindingsForDisplay } from './repoFindingDisplay';
 
 function finding(id: string, severity: string): ApiFinding {
   return {
@@ -35,5 +35,16 @@ describe('groupRepoFindingsForDisplay', () => {
     expect(groups[0].findings.map((item) => item.id)).toEqual(['critical-item']);
     expect(groups[1].findings.map((item) => item.id)).toEqual(['medium-item']);
     expect(groups[2].findings.map((item) => item.id)).toEqual(['unknown-item']);
+  });
+
+  it('selects findings by scan id and finding id together', () => {
+    const first = finding('shared-id', 'high');
+    const second = { ...finding('shared-id', 'low'), scan_id: 'scan-2', title: 'scan-2 finding' };
+    const findings = [first, second];
+
+    const selected = findRepoFindingBySelectionKey(findings, buildRepoFindingSelectionKey(second));
+
+    expect(selected?.scan_id).toBe('scan-2');
+    expect(selected?.title).toBe('scan-2 finding');
   });
 });
