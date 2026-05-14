@@ -938,7 +938,7 @@ func (m *MemoryStore) GetTenancyConnector(ctx context.Context, workspaceID strin
 }
 
 // ClaimKubernetesEnrollmentToken marks a single connector enrollment token as consumed.
-func (m *MemoryStore) ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, observedAt time.Time, updatedAt time.Time) (bool, error) {
+func (m *MemoryStore) ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, status domain.ConnectorStatus, health string, lastErrorCode string, lastErrorMessage string, observedAt time.Time, updatedAt time.Time) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -963,9 +963,20 @@ func (m *MemoryStore) ClaimKubernetesEnrollmentToken(ctx context.Context, worksp
 		return false, nil
 	}
 
+	conn, exists := m.connectors[key]
+	if !exists {
+		return false, ErrNotFound
+	}
+
 	state.Metadata = cloneMetadataMap(updatedMetadata)
+	state.HealthStatus = strings.TrimSpace(health)
+	state.LastErrorCode = strings.TrimSpace(lastErrorCode)
+	state.LastErrorMessage = strings.TrimSpace(lastErrorMessage)
 	state.ObservedAt = observedAt.UTC()
 	state.UpdatedAt = updatedAt.UTC()
+	conn.Status = status
+	conn.UpdatedAt = updatedAt.UTC()
+	m.connectors[key] = conn
 	m.connStates[key] = state
 	return true, nil
 }

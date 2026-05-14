@@ -1276,7 +1276,7 @@ func (p *PostgresStore) GetTenancyConnector(ctx context.Context, workspaceID str
 }
 
 // ClaimKubernetesEnrollmentToken atomically consumes one connector enrollment token if unused.
-func (p *PostgresStore) ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, observedAt time.Time, updatedAt time.Time) (bool, error) {
+func (p *PostgresStore) ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, status domain.ConnectorStatus, health string, lastErrorCode string, lastErrorMessage string, observedAt time.Time, updatedAt time.Time) (bool, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return false, err
@@ -1289,37 +1289,81 @@ func (p *PostgresStore) ClaimKubernetesEnrollmentToken(ctx context.Context, work
 	if err != nil {
 		return false, fmt.Errorf("marshal connector state metadata: %w", err)
 	}
-	result, err := p.execContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin kubernetes enrollment token claim transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE tenancy_connector_states
 		 SET metadata = $5::jsonb,
-		     observed_at = $6,
-		     updated_at = $7
+		     health_status = $6,
+		     last_error_code = $7,
+		     last_error_message = $8,
+		     observed_at = $9,
+		     updated_at = $10
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND project_id = $3
 		   AND connector_id = $4
-		   AND metadata ->> 'enrollment_token_sha256' = $8
+		   AND metadata ->> 'enrollment_token_sha256' = $11
 		   AND metadata ->> 'enrollment_token_used_at' IS NULL`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		strings.TrimSpace(projectID),
 		strings.TrimSpace(connectorID),
 		metadataPayload,
+		strings.TrimSpace(string(health)),
+		strings.TrimSpace(lastErrorCode),
+		strings.TrimSpace(lastErrorMessage),
 		observedAt.UTC(),
 		updatedAt.UTC(),
 		strings.TrimSpace(expectedEnrollmentTokenHash),
 	)
 	if err != nil {
+		_ = tx.Rollback()
 		return false, fmt.Errorf("claim kubernetes enrollment token: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
+		_ = tx.Rollback()
 		return false, err
 	}
 	if affected == 0 {
+		_ = tx.Rollback()
 		return false, nil
 	}
+
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE tenancy_connectors
+		   SET status = $5,
+		       updated_at = $6
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+		strings.TrimSpace(string(status)),
+		updatedAt.UTC(),
+	); err != nil {
+		_ = tx.Rollback()
+		return false, fmt.Errorf("update kubernetes connector status for enrollment claim: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit kubernetes enrollment token claim: %w", err)
+	}
+	err = nil
 	return true, nil
 }
 

@@ -251,7 +251,20 @@ func TestMemoryStoreClaimKubernetesEnrollmentToken(t *testing.T) {
 		wg.Add(1)
 		go func(claimIndex int) {
 			defer wg.Done()
-			claimed, err := store.ClaimKubernetesEnrollmentToken(ctx, "workspace-a", "project-1", "kubernetes-agent", tokenHash, payload, now, now.Add(time.Duration(claimIndex)*time.Millisecond))
+			claimed, err := store.ClaimKubernetesEnrollmentToken(
+				ctx,
+				"workspace-a",
+				"project-1",
+				"kubernetes-agent",
+				tokenHash,
+				payload,
+				domain.ConnectorStatusActive,
+				"healthy",
+				"",
+				"",
+				now,
+				now.Add(time.Duration(claimIndex)*time.Millisecond),
+			)
 			if err != nil {
 				errors <- err
 				return
@@ -288,6 +301,12 @@ func TestMemoryStoreClaimKubernetesEnrollmentToken(t *testing.T) {
 	}
 	if usedAt != now.Format(time.RFC3339Nano) {
 		t.Fatalf("expected enrollment token used time to match claim payload, expected %s got %s", now.Format(time.RFC3339Nano), usedAt)
+	}
+	if reloaded.State.HealthStatus != "healthy" {
+		t.Fatalf("expected connector health status to be persisted as healthy, got %q", reloaded.State.HealthStatus)
+	}
+	if reloaded.Connector.Status != domain.ConnectorStatusActive {
+		t.Fatalf("expected connector status to be active, got %q", reloaded.Connector.Status)
 	}
 }
 

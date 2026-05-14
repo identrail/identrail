@@ -193,20 +193,39 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	if err != nil {
 		return KubernetesAgentEnrollResponse{}, fmt.Errorf("encode kubernetes agent metadata: %w", err)
 	}
-	claimed, err := s.Store.ClaimKubernetesEnrollmentToken(scopedCtx, locator.WorkspaceID, locator.ProjectID, locator.ConnectorID, metadata.EnrollmentTokenHash, metadataPayload, now, now)
+	lastErrorCode := ""
+	lastErrorMessage := ""
+	if status != domain.ConnectorStatusActive || health != string(connectors.HealthStatusHealthy) {
+		lastErrorCode = "kubernetes_agent_probe_failed"
+		lastErrorMessage = firstKubernetesRemediation(metadata.Diagnostics, metadata.PermissionChecks)
+	}
+	claimed, err := s.Store.ClaimKubernetesEnrollmentToken(
+		scopedCtx,
+		locator.WorkspaceID,
+		locator.ProjectID,
+		locator.ConnectorID,
+		metadata.EnrollmentTokenHash,
+		metadataPayload,
+		status,
+		health,
+		lastErrorCode,
+		lastErrorMessage,
+		now,
+		now,
+	)
 	if err != nil {
 		return KubernetesAgentEnrollResponse{}, err
 	}
 	if !claimed {
 		return KubernetesAgentEnrollResponse{}, ErrKubernetesConnectorTokenUsed
 	}
-	return s.persistKubernetesAgentMetadata(scopedCtx, stored, metadata, status, health, now, KubernetesAgentEnrollResponse{
+	return KubernetesAgentEnrollResponse{
 		ConnectorID:  locator.ConnectorID,
 		AgentID:      agentID,
 		AgentToken:   agentToken,
 		HeartbeatURL: strings.TrimRight(apiBaseURL, "/") + k8sconnector.DefaultAgentHeartbeatPath,
 		ExpiresAt:    now.Add(365 * 24 * time.Hour),
-	})
+	}, nil
 }
 
 func (s *Service) HeartbeatKubernetesAgent(ctx context.Context, request k8sconnector.AgentHeartbeatRequest, bearerToken string) (KubernetesAgentHeartbeatResponse, error) {
