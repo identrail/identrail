@@ -219,11 +219,11 @@ func requestBaseURL(c *gin.Context, publicBaseURL string) string {
 	if trimmed := strings.TrimRight(strings.TrimSpace(publicBaseURL), "/"); trimmed != "" {
 		return trimmed
 	}
-	scheme := "https"
-	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+	scheme := "http"
+	if forwardedProto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); strings.EqualFold(forwardedProto, "http") || strings.EqualFold(forwardedProto, "https") {
+		scheme = strings.ToLower(forwardedProto)
+	} else if c.Request.TLS != nil {
 		scheme = "https"
-	} else if strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "http") {
-		scheme = "http"
 	}
 	if host := strings.TrimSpace(c.GetHeader("X-Forwarded-Host")); host != "" {
 		return scheme + "://" + host

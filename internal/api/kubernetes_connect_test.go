@@ -421,6 +421,47 @@ func TestRouterKubernetesConnectorUsesForwardedBaseURL(t *testing.T) {
 	}
 }
 
+func TestRouterKubernetesConnectorUsesPlainRequestBaseURL(t *testing.T) {
+	r, _ := newKubernetesConnectorV2TestRouterWithPublicBaseURL(t, "")
+	startReq := httptest.NewRequest(http.MethodPost, "http://api.local.test/v1/connectors/k8s", bytes.NewBufferString(`{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"kubernetes-local"
+	}`))
+	startReq.Header.Set("X-API-Key", "writer-key")
+	startReq.Header.Set("Content-Type", "application/json")
+	startResp := httptest.NewRecorder()
+	r.ServeHTTP(startResp, startReq)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected start connector 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody KubernetesConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if !bytes.Contains([]byte(startBody.HelmCommand), []byte(`api.url='http://api.local.test'`)) {
+		t.Fatalf("helm command did not use plain request base URL: %q", startBody.HelmCommand)
+	}
+
+	enrollReq := httptest.NewRequest(http.MethodPost, "http://api.local.test/v1/connectors/k8s/enroll", bytes.NewBufferString(`{
+		"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`,
+		"agent_id":"agent-local"
+	}`))
+	enrollReq.Header.Set("Content-Type", "application/json")
+	enrollResp := httptest.NewRecorder()
+	r.ServeHTTP(enrollResp, enrollReq)
+	if enrollResp.Code != http.StatusOK {
+		t.Fatalf("expected enroll 200, got %d body=%s", enrollResp.Code, enrollResp.Body.String())
+	}
+	var enrollBody KubernetesAgentEnrollResponse
+	if err := json.Unmarshal(enrollResp.Body.Bytes(), &enrollBody); err != nil {
+		t.Fatalf("decode enroll response: %v", err)
+	}
+	if enrollBody.HeartbeatURL != "http://api.local.test/v1/connectors/k8s/heartbeat" {
+		t.Fatalf("expected plain request heartbeat URL, got %+v", enrollBody)
+	}
+}
+
 func TestRouterKubernetesAgentHeartbeatWithoutProbeDegradesConnector(t *testing.T) {
 	r, _ := newKubernetesConnectorV2TestRouter(t)
 	startResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s", `{
