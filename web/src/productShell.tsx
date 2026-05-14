@@ -25,7 +25,12 @@ import {
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { useMe } from './hooks/useMe';
-import { buildRepoFindingSelectionKey, findRepoFindingBySelectionKey, groupRepoFindingsForDisplay } from './repoFindingDisplay';
+import {
+  buildRepoFindingSelectionKey,
+  findRepoFindingBySelectionKey,
+  groupRepoFindingsForDisplay,
+  mergeUpdatedRepoFinding
+} from './repoFindingDisplay';
 
 type ProductSession = {
   tenantID: string;
@@ -3055,9 +3060,7 @@ export function ProductFindingsPage() {
         request.comment = trimmedComment;
       }
       const response = await apiClient.triageFinding(selectedFinding.id, request, selectedFinding.scan_id, auth);
-      setRepoFindings((current) =>
-        current.map((finding) => (finding.id === response.finding.id ? { ...finding, ...response.finding } : finding))
-      );
+      setRepoFindings((current) => mergeUpdatedRepoFinding(current, response.finding));
       setWorkflowSuccess('Workflow state updated successfully.');
       setWorkflowComment('');
     } catch (requestError) {

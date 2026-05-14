@@ -62,3 +62,10 @@ export function findRepoFindingBySelectionKey(findings: ApiFinding[], selectionK
   }
   return findings.find((finding) => buildRepoFindingSelectionKey(finding) === selectionKey) ?? null;
 }
+
+export function mergeUpdatedRepoFinding(findings: ApiFinding[], updatedFinding: ApiFinding): ApiFinding[] {
+  const updatedKey = buildRepoFindingSelectionKey(updatedFinding);
+  return findings.map((finding) =>
+    buildRepoFindingSelectionKey(finding) === updatedKey ? { ...finding, ...updatedFinding } : finding
+  );
+}

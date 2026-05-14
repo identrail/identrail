@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Finding as ApiFinding } from './api/client';
-import { buildRepoFindingSelectionKey, findRepoFindingBySelectionKey, groupRepoFindingsForDisplay } from './repoFindingDisplay';
+import {
+  buildRepoFindingSelectionKey,
+  findRepoFindingBySelectionKey,
+  groupRepoFindingsForDisplay,
+  mergeUpdatedRepoFinding
+} from './repoFindingDisplay';
 
 function finding(id: string, severity: string): ApiFinding {
   return {
@@ -46,5 +51,22 @@ describe('groupRepoFindingsForDisplay', () => {
 
     expect(selected?.scan_id).toBe('scan-2');
     expect(selected?.title).toBe('scan-2 finding');
+  });
+
+  it('merges workflow updates only into the matching scan and finding pair', () => {
+    const first = finding('shared-id', 'high');
+    const second = { ...finding('shared-id', 'low'), scan_id: 'scan-2', title: 'scan-2 finding' };
+
+    const merged = mergeUpdatedRepoFinding([first, second], {
+      ...second,
+      title: 'updated second finding',
+      repository: 'owner/repo-b'
+    });
+
+    expect(merged[0].title).toBe(first.title);
+    expect(merged[0].scan_id).toBe(first.scan_id);
+    expect(merged[1].title).toBe('updated second finding');
+    expect(merged[1].repository).toBe('owner/repo-b');
+    expect(merged[1].scan_id).toBe('scan-2');
   });
 });
