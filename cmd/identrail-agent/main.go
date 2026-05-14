@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -265,10 +266,11 @@ func discoverInClusterKubernetes(ctx context.Context) kubernetesProbe {
 			}},
 		}
 	}
+	baseURL := kubernetesAPIBaseURL(host, port)
 	tokenBytes, err := os.ReadFile(kubernetesServiceAccountTokenPath)
 	if err != nil {
 		return kubernetesProbe{
-			Server: "https://" + host + ":" + port,
+			Server: baseURL,
 			Diagnostics: []agentDiagnostic{{
 				Code:        "kubernetes_agent_service_account_token_missing",
 				Severity:    "error",
@@ -280,7 +282,7 @@ func discoverInClusterKubernetes(ctx context.Context) kubernetesProbe {
 	client, err := kubernetesAPIClient()
 	if err != nil {
 		return kubernetesProbe{
-			Server: "https://" + host + ":" + port,
+			Server: baseURL,
 			Diagnostics: []agentDiagnostic{{
 				Code:        "kubernetes_agent_tls_config_invalid",
 				Severity:    "error",
@@ -290,7 +292,6 @@ func discoverInClusterKubernetes(ctx context.Context) kubernetesProbe {
 		}
 	}
 
-	baseURL := "https://" + host + ":" + port
 	token := strings.TrimSpace(string(tokenBytes))
 	probe := kubernetesProbe{
 		Cluster: strings.TrimSpace(os.Getenv("IDENTRAIL_K8S_CLUSTER_NAME")),
@@ -327,6 +328,10 @@ func discoverInClusterKubernetes(ctx context.Context) kubernetesProbe {
 		probe.PermissionChecks = append(probe.PermissionChecks, runAgentPermissionCheck(ctx, client, baseURL, token, check))
 	}
 	return probe
+}
+
+func kubernetesAPIBaseURL(host string, port string) string {
+	return "https://" + net.JoinHostPort(strings.TrimSpace(host), strings.TrimSpace(port))
 }
 
 func kubernetesAPIClient() (*http.Client, error) {
@@ -441,6 +446,7 @@ func persistKubernetesAgentToken(ctx context.Context, agentToken string) error {
 	if host == "" || port == "" {
 		return errors.New("Kubernetes service discovery environment variables are not available")
 	}
+	baseURL := kubernetesAPIBaseURL(host, port)
 	serviceAccountToken, err := os.ReadFile(kubernetesServiceAccountTokenPath)
 	if err != nil {
 		return fmt.Errorf("read Kubernetes service account token: %w", err)
@@ -457,7 +463,7 @@ func persistKubernetesAgentToken(ctx context.Context, agentToken string) error {
 	if err != nil {
 		return err
 	}
-	secretURL := "https://" + host + ":" + port + "/api/v1/namespaces/" + url.PathEscape(namespace) + "/secrets/" + url.PathEscape(secretName)
+	secretURL := baseURL + "/api/v1/namespaces/" + url.PathEscape(namespace) + "/secrets/" + url.PathEscape(secretName)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, secretURL, bytes.NewReader(patchBody))
 	if err != nil {
 		return err

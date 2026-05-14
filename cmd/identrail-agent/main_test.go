@@ -150,6 +150,12 @@ func useTestKubernetesService(t *testing.T, rawURL string) {
 	t.Setenv("KUBERNETES_SERVICE_PORT", parsed.Port())
 }
 
+func useTestKubernetesServiceHostPort(t *testing.T, host string, port string) {
+	t.Helper()
+	t.Setenv("KUBERNETES_SERVICE_HOST", host)
+	t.Setenv("KUBERNETES_SERVICE_PORT", port)
+}
+
 func testKubernetesServerCA(t *testing.T, server *httptest.Server) []byte {
 	t.Helper()
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
@@ -237,6 +243,29 @@ func TestDiscoverInClusterKubernetesRequiresClusterEnvironment(t *testing.T) {
 	probe := discoverInClusterKubernetes(context.Background())
 	if len(probe.Diagnostics) != 1 || probe.Diagnostics[0].Code != "kubernetes_agent_not_in_cluster" {
 		t.Fatalf("expected not-in-cluster diagnostic, got %+v", probe.Diagnostics)
+	}
+}
+
+func TestKubernetesAPIBaseURLBracketsIPv6Hosts(t *testing.T) {
+	if got := kubernetesAPIBaseURL("fd00::1", "443"); got != "https://[fd00::1]:443" {
+		t.Fatalf("kubernetesAPIBaseURL() = %q", got)
+	}
+	if got := kubernetesAPIBaseURL("10.0.0.1", "443"); got != "https://10.0.0.1:443" {
+		t.Fatalf("kubernetesAPIBaseURL() IPv4 = %q", got)
+	}
+}
+
+func TestDiscoverInClusterKubernetesUsesBracketedIPv6ServerOnTokenError(t *testing.T) {
+	useTestKubernetesServiceHostPort(t, "fd00::1", "443")
+	previousTokenPath := kubernetesServiceAccountTokenPath
+	kubernetesServiceAccountTokenPath = filepath.Join(t.TempDir(), "missing-token")
+	t.Cleanup(func() {
+		kubernetesServiceAccountTokenPath = previousTokenPath
+	})
+
+	probe := discoverInClusterKubernetes(context.Background())
+	if probe.Server != "https://[fd00::1]:443" {
+		t.Fatalf("server = %q", probe.Server)
 	}
 }
 
