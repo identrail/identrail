@@ -79,6 +79,10 @@ func registerKubernetesConnectionRoutes(v1 *gin.RouterGroup, logger *zap.Logger,
 	})
 
 	v1.POST("/workspaces/:workspace_id/projects/:project_id/kubernetes/connection", func(c *gin.Context) {
+		if !featureConnectorK8S {
+			c.Status(http.StatusNotFound)
+			return
+		}
 		if svc == nil {
 			tenancyServiceUnavailable(c)
 			return
@@ -109,6 +113,10 @@ func registerKubernetesConnectionRoutes(v1 *gin.RouterGroup, logger *zap.Logger,
 	})
 
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/kubernetes/connection", func(c *gin.Context) {
+		if !featureConnectorK8S {
+			c.Status(http.StatusNotFound)
+			return
+		}
 		if svc == nil {
 			tenancyServiceUnavailable(c)
 			return

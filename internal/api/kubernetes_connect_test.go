@@ -518,6 +518,16 @@ func TestRouterKubernetesConnectorFeatureFlagDisabled(t *testing.T) {
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("expected disabled connector 404, got %d body=%s", resp.Code, resp.Body.String())
 	}
+
+	legacyPostResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/kubernetes/connection", `{}`)
+	if legacyPostResp.Code != http.StatusNotFound {
+		t.Fatalf("expected disabled legacy connector POST 404, got %d body=%s", legacyPostResp.Code, legacyPostResp.Body.String())
+	}
+
+	legacyGetResp := doKubernetesConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/kubernetes/connection", "")
+	if legacyGetResp.Code != http.StatusNotFound {
+		t.Fatalf("expected disabled legacy connector GET 404, got %d body=%s", legacyGetResp.Code, legacyGetResp.Body.String())
+	}
 }
 
 func TestKubernetesKubeconfigFallbackEncryptsSecret(t *testing.T) {
@@ -694,10 +704,11 @@ func newKubernetesConnectionTestRouter(t *testing.T, factory KubernetesConnector
 	svc := NewService(store, routerScanner{}, "kubernetes")
 	svc.KubernetesPreflightFactory = factory
 	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
-		APIKeys:            []string{"writer-key"},
-		WriteAPIKeys:       []string{"writer-key"},
-		DefaultTenantID:    "tenant-a",
-		DefaultWorkspaceID: "workspace-a",
+		APIKeys:             []string{"writer-key"},
+		WriteAPIKeys:        []string{"writer-key"},
+		DefaultTenantID:     "tenant-a",
+		DefaultWorkspaceID:  "workspace-a",
+		FeatureConnectorK8S: true,
 	})
 
 	_ = doKubernetesConnectionAPI(t, r, http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`)
