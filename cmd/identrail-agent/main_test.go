@@ -457,6 +457,69 @@ func TestMainEnrollsBeforeHeartbeat(t *testing.T) {
 	}
 }
 
+func TestRunAgentPrefersFreshEnrollmentOverPersistedAgentToken(t *testing.T) {
+	useTestKubernetesProbe(t, healthyTestKubernetesProbe())
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/v1/connectors/k8s/enroll":
+			var payload enrollRequest
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode enrollment: %v", err)
+			}
+			if payload.EnrollmentToken != "fresh-enrollment-token" {
+				t.Fatalf("enrollment token = %q", payload.EnrollmentToken)
+			}
+			_, _ = w.Write([]byte(`{"connector_id":"connector-2","agent_id":"agent-2","agent_token":"fresh-agent-token","heartbeat_url":"/v1/connectors/k8s/heartbeat"}`))
+		case "/v1/connectors/k8s/heartbeat":
+			if got := r.Header.Get("Authorization"); got != "Bearer fresh-agent-token" {
+				t.Fatalf("authorization = %q, want fresh agent token", got)
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err := runAgent(context.Background(), server.Client(), server.URL, "fresh-enrollment-token", "stale-agent-token", "connector-1", "agent-1", true, time.Second)
+	if err != nil {
+		t.Fatalf("runAgent(): %v", err)
+	}
+	if got := strings.Join(paths, ","); got != "/v1/connectors/k8s/enroll,/v1/connectors/k8s/heartbeat" {
+		t.Fatalf("paths = %s", got)
+	}
+}
+
+func TestRunAgentFallsBackToPersistedAgentTokenWhenEnrollmentAlreadyUsed(t *testing.T) {
+	useTestKubernetesProbe(t, healthyTestKubernetesProbe())
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/v1/connectors/k8s/enroll":
+			http.Error(w, "kubernetes enrollment token is no longer usable", http.StatusGone)
+		case "/v1/connectors/k8s/heartbeat":
+			if got := r.Header.Get("Authorization"); got != "Bearer persisted-agent-token" {
+				t.Fatalf("authorization = %q, want persisted agent token", got)
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err := runAgent(context.Background(), server.Client(), server.URL, "already-used-enrollment-token", "persisted-agent-token", "connector-1", "agent-1", true, time.Second)
+	if err != nil {
+		t.Fatalf("runAgent(): %v", err)
+	}
+	if got := strings.Join(paths, ","); got != "/v1/connectors/k8s/enroll,/v1/connectors/k8s/heartbeat" {
+		t.Fatalf("paths = %s", got)
+	}
+}
+
 func TestRunAgentRetriesEnrollmentAfterStartupFailure(t *testing.T) {
 	useTestKubernetesProbe(t, healthyTestKubernetesProbe())
 	ctx, cancel := context.WithCancel(context.Background())

@@ -125,10 +125,12 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 		return errors.New("enrollment-token or agent-token is required")
 	}
 
+	enrollmentAttempted := false
 	for {
 		var lastErr error
 		usingEnrollmentRecoveryCredential := false
-		if credential == "" {
+		if enrollmentToken != "" && !enrollmentAttempted {
+			enrollmentAttempted = true
 			probe := collectKubernetesProbe(ctx)
 			response, err := enroll(ctx, client, apiURL, enrollRequest{
 				EnrollmentToken:  enrollmentToken,
@@ -142,9 +144,13 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 				Diagnostics:      probe.Diagnostics,
 			})
 			if err != nil {
-				log.Printf("enroll failed; trying enrollment credential for heartbeat recovery: %v", err)
-				credential = enrollmentToken
-				usingEnrollmentRecoveryCredential = true
+				if credential == "" {
+					log.Printf("enroll failed; trying enrollment credential for heartbeat recovery: %v", err)
+					credential = enrollmentToken
+					usingEnrollmentRecoveryCredential = true
+				} else {
+					log.Printf("enroll failed; using existing agent credential: %v", err)
+				}
 			} else {
 				if err := persistKubernetesAgentToken(ctx, response.AgentToken); err != nil {
 					log.Printf("persist kubernetes agent token failed; continuing with in-memory credential: %v", err)
@@ -154,6 +160,9 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 				agentID = response.AgentID
 				log.Printf("enrolled connector %s as %s", connectorID, agentID)
 			}
+		}
+		if credential == "" {
+			return errors.New("agent credential is required")
 		}
 
 		probe := collectKubernetesProbe(ctx)
@@ -172,6 +181,7 @@ func runAgent(ctx context.Context, client *http.Client, apiURL string, enrollmen
 			lastErr = fmt.Errorf("send kubernetes agent heartbeat: %w", err)
 			if usingEnrollmentRecoveryCredential {
 				credential = ""
+				enrollmentAttempted = false
 			}
 		} else {
 			log.Printf("heartbeat sent for connector %s", connectorID)
