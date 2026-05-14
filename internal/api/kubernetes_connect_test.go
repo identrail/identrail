@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -393,6 +394,61 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 	}
 	if statusBody.Connection.ConnectorID != "kubernetes-prod" || statusBody.Connection.AgentID != "agent-a" {
 		t.Fatalf("expected persisted agent status, got %+v", statusBody.Connection)
+	}
+}
+
+func TestRouterKubernetesAgentEnrollmentConcurrentSingleUse(t *testing.T) {
+	r, _ := newKubernetesConnectorV2TestRouter(t)
+	startResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"connector_id":"kubernetes-prod",
+		"display_name":"Production Cluster",
+		"api_url":"https://api.identrail.test"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected start connector 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody KubernetesConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+
+	body := `{
+		"enrollment_token":` + quoteJSON(startBody.EnrollmentToken) + `,
+		"agent_id":"agent-a",
+		"cluster":"prod-cluster"
+	}`
+	var wg sync.WaitGroup
+	codes := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", body)
+			codes <- resp.Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+
+	successes := 0
+	rejects := 0
+	for code := range codes {
+		switch code {
+		case http.StatusOK:
+			successes++
+		case http.StatusGone:
+			rejects++
+		default:
+			t.Fatalf("unexpected enrollment response code: %d", code)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("expected exactly one successful enrollment, got %d", successes)
+	}
+	if rejects != 1 {
+		t.Fatalf("expected exactly one rejected enrollment, got %d", rejects)
 	}
 }
 

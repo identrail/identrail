@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"testing"
@@ -197,6 +198,69 @@ func TestPostgresStoreListTenancyConnectors(t *testing.T) {
 	if len(connectors) != 1 || connectors[0].Connector.ConnectorID != "aws-123456789012" {
 		t.Fatalf("unexpected connectors: %+v", connectors)
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreKubernetesEnrollmentTokenClaim(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Now().UTC()
+	updatedMetadata := map[string]any{
+		"enrollment_token_sha256": "token-hash",
+		"enrollment_token_used_at": now.Format(time.RFC3339Nano),
+	}
+	payload, err := json.Marshal(updatedMetadata)
+	if err != nil {
+		t.Fatalf("marshal updated metadata: %v", err)
+	}
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE tenancy_connector_states
+		 SET metadata = $5::jsonb,
+		     observed_at = $6,
+		     updated_at = $7
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND metadata ->> 'enrollment_token_sha256' = $8
+		   AND metadata ->> 'enrollment_token_used_at' IS NULL`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "kubernetes-agent", payload, now, now, "token-hash").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	claimed, err := store.ClaimKubernetesEnrollmentToken(ctx, "workspace-a", "project-1", "kubernetes-agent", "token-hash", updatedMetadata, now, now)
+	if err != nil {
+		t.Fatalf("claim token first attempt: %v", err)
+	}
+	if !claimed {
+		t.Fatalf("expected first claim to return true")
+	}
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE tenancy_connector_states
+		 SET metadata = $5::jsonb,
+		     observed_at = $6,
+		     updated_at = $7
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND metadata ->> 'enrollment_token_sha256' = $8
+		   AND metadata ->> 'enrollment_token_used_at' IS NULL`)).
+		WithArgs("tenant-a", "workspace-a", "project-1", "kubernetes-agent", payload, now, now.Add(time.Minute), "token-hash").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	claimed, err = store.ClaimKubernetesEnrollmentToken(ctx, "workspace-a", "project-1", "kubernetes-agent", "token-hash", updatedMetadata, now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim token second attempt: %v", err)
+	}
+	if claimed {
+		t.Fatalf("expected second claim to return false")
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

@@ -189,6 +189,17 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	metadata.Diagnostics = kubernetesAgentDiagnostics(request.Diagnostics)
 	metadata.LastValidatedAt = &now
 	status, health := kubernetesAgentStatus(&metadata)
+	metadataPayload, err := metadata.toMap()
+	if err != nil {
+		return KubernetesAgentEnrollResponse{}, fmt.Errorf("encode kubernetes agent metadata: %w", err)
+	}
+	claimed, err := s.Store.ClaimKubernetesEnrollmentToken(scopedCtx, locator.WorkspaceID, locator.ProjectID, locator.ConnectorID, metadata.EnrollmentTokenHash, metadataPayload, now, now)
+	if err != nil {
+		return KubernetesAgentEnrollResponse{}, err
+	}
+	if !claimed {
+		return KubernetesAgentEnrollResponse{}, ErrKubernetesConnectorTokenUsed
+	}
 	return s.persistKubernetesAgentMetadata(scopedCtx, stored, metadata, status, health, now, KubernetesAgentEnrollResponse{
 		ConnectorID:  locator.ConnectorID,
 		AgentID:      agentID,

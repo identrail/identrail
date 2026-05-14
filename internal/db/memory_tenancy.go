@@ -937,6 +937,39 @@ func (m *MemoryStore) GetTenancyConnector(ctx context.Context, workspaceID strin
 	return TenancyConnectorWithState{Connector: connector, State: state}, nil
 }
 
+// ClaimKubernetesEnrollmentToken marks a single connector enrollment token as consumed.
+func (m *MemoryStore) ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, observedAt time.Time, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return false, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	key := tenancyConnectorKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
+	state, exists := m.connStates[key]
+	if !exists {
+		return false, ErrNotFound
+	}
+	currentHash, ok := state.Metadata["enrollment_token_sha256"].(string)
+	if !ok || strings.TrimSpace(currentHash) != strings.TrimSpace(expectedEnrollmentTokenHash) {
+		return false, nil
+	}
+	if _, wasUsed := state.Metadata["enrollment_token_used_at"]; wasUsed {
+		return false, nil
+	}
+
+	state.Metadata = cloneMetadataMap(updatedMetadata)
+	state.ObservedAt = observedAt.UTC()
+	state.UpdatedAt = updatedAt.UTC()
+	m.connStates[key] = state
+	return true, nil
+}
+
 // ListTenancyConnectors returns scoped connectors ordered by most recent update.
 func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
 	m.mu.RLock()

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -187,6 +188,106 @@ func TestMemoryStoreListTenancyConnectorsUnscopedWithoutLimit(t *testing.T) {
 	}
 	if len(connectors) != 2 {
 		t.Fatalf("expected both connectors without limit, got %+v", connectors)
+	}
+}
+
+func TestMemoryStoreClaimKubernetesEnrollmentToken(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seededAt := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	tokenHash := "kubernetes-token-hash"
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{
+		WorkspaceID: "workspace-a",
+		DisplayName: "Workspace A",
+		Slug:        "workspace-a",
+	}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		Name:        "Project 1",
+		Slug:        "project-1",
+	}); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "kubernetes-agent",
+		Type:        domain.ConnectorTypeKubernetes,
+		DisplayName: "Agent cluster",
+		Status:      domain.ConnectorStatusPending,
+		CreatedAt:   seededAt,
+		UpdatedAt:   seededAt,
+	}, TenancyConnectorState{
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "kubernetes-agent",
+		HealthStatus: "unknown",
+		Metadata: map[string]any{
+			"enrollment_token_sha256": tokenHash,
+		},
+		ObservedAt: seededAt,
+		UpdatedAt:  seededAt,
+	}); err != nil {
+		t.Fatalf("seed kubernetes connector: %v", err)
+	}
+
+	now := time.Now().UTC()
+	payload := map[string]any{
+		"enrollment_token_sha256": tokenHash,
+		"enrollment_token_used_at": now.Format(time.RFC3339Nano),
+	}
+
+	var wg sync.WaitGroup
+	claims := make(chan bool, 2)
+	errors := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(claimIndex int) {
+			defer wg.Done()
+			claimed, err := store.ClaimKubernetesEnrollmentToken(ctx, "workspace-a", "project-1", "kubernetes-agent", tokenHash, payload, now, now.Add(time.Duration(claimIndex)*time.Millisecond))
+			if err != nil {
+				errors <- err
+				return
+			}
+			claims <- claimed
+		}(i)
+	}
+	wg.Wait()
+	close(errors)
+	close(claims)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("claim kubernetes enrollment token: %v", err)
+		}
+	}
+
+	successes := 0
+	for claimed := range claims {
+		if claimed {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("expected exactly one claim success, got %d", successes)
+	}
+
+	reloaded, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "kubernetes-agent")
+	if err != nil {
+		t.Fatalf("reload connector: %v", err)
+	}
+	usedAt, ok := reloaded.State.Metadata["enrollment_token_used_at"].(string)
+	if !ok || usedAt == "" {
+		t.Fatalf("expected enrollment_token_used_at to be persisted, got %+v", reloaded.State.Metadata["enrollment_token_used_at"])
+	}
+	if usedAt != now.Format(time.RFC3339Nano) {
+		t.Fatalf("expected enrollment token used time to match claim payload, expected %s got %s", now.Format(time.RFC3339Nano), usedAt)
 	}
 }
 

@@ -1275,6 +1275,54 @@ func (p *PostgresStore) GetTenancyConnector(ctx context.Context, workspaceID str
 	return rows[0], nil
 }
 
+// ClaimKubernetesEnrollmentToken atomically consumes one connector enrollment token if unused.
+func (p *PostgresStore) ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, observedAt time.Time, updatedAt time.Time) (bool, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return false, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	metadataPayload, err := json.Marshal(updatedMetadata)
+	if err != nil {
+		return false, fmt.Errorf("marshal connector state metadata: %w", err)
+	}
+	result, err := p.execContext(
+		ctx,
+		`UPDATE tenancy_connector_states
+		 SET metadata = $5::jsonb,
+		     observed_at = $6,
+		     updated_at = $7
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4
+		   AND metadata ->> 'enrollment_token_sha256' = $8
+		   AND metadata ->> 'enrollment_token_used_at' IS NULL`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+		metadataPayload,
+		observedAt.UTC(),
+		updatedAt.UTC(),
+		strings.TrimSpace(expectedEnrollmentTokenHash),
+	)
+	if err != nil {
+		return false, fmt.Errorf("claim kubernetes enrollment token: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
 // ListTenancyConnectors returns scoped connectors ordered by most recent update.
 func (p *PostgresStore) ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
 	scope, err := RequireScope(ctx)
