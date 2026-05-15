@@ -47,15 +47,19 @@ func defaultEnterpriseSAMLMetadataFetcher() *enterpriseSAMLMetadataFetcher {
 // touched certificate_pem would silently clear both security toggles back to
 // their Go zero value (false).
 type samlConnectionRequest struct {
-	Type                   string            `json:"type"`
-	DisplayName            string            `json:"display_name,omitempty"`
-	EntityID               string            `json:"entity_id"`
-	SSOURL                 string            `json:"sso_url"`
-	CertificatePEM         string            `json:"certificate_pem"`
-	AttributeMapping       map[string]string `json:"attribute_mapping,omitempty"`
-	JITProvisioningEnabled *bool             `json:"jit_provisioning_enabled,omitempty"`
-	SSORequired            *bool             `json:"sso_required,omitempty"`
-	GroupRoleMap           map[string]string `json:"group_role_map,omitempty"`
+	Type           string `json:"type"`
+	DisplayName    string `json:"display_name,omitempty"`
+	EntityID       string `json:"entity_id"`
+	SSOURL         string `json:"sso_url"`
+	CertificatePEM string `json:"certificate_pem"`
+	// AttributeMapping and GroupRoleMap are pointers so the PUT handler can
+	// distinguish "field omitted" (preserve existing) from "explicit empty
+	// map" (clear all entries). Without that distinction an admin could not
+	// remove stale SAML group-to-role grants through the update API.
+	AttributeMapping       *map[string]string `json:"attribute_mapping,omitempty"`
+	GroupRoleMap           *map[string]string `json:"group_role_map,omitempty"`
+	JITProvisioningEnabled *bool              `json:"jit_provisioning_enabled,omitempty"`
+	SSORequired            *bool              `json:"sso_required,omitempty"`
 }
 
 // samlConnectionResponse is the outbound shape, augmented with the one-time
@@ -151,8 +155,8 @@ func createNativeSAMLConnection(logger *zap.Logger, svc *Service) gin.HandlerFun
 			EntityID:               req.EntityID,
 			SSOURL:                 req.SSOURL,
 			CertificatePEM:         req.CertificatePEM,
-			AttributeMapping:       req.AttributeMapping,
-			GroupRoleMap:           req.GroupRoleMap,
+			AttributeMapping:       mapOrNil(req.AttributeMapping),
+			GroupRoleMap:           mapOrNil(req.GroupRoleMap),
 			JITProvisioningEnabled: boolOrFalse(req.JITProvisioningEnabled),
 			SSORequired:            boolOrFalse(req.SSORequired),
 			SCIMBearerTokenHash:    hash,
@@ -169,6 +173,17 @@ func createNativeSAMLConnection(logger *zap.Logger, svc *Service) gin.HandlerFun
 
 		saved, err := svc.Store.CreateIdentityConnection(c.Request.Context(), connection)
 		if err != nil {
+			// The (org_id, provider, type) UNIQUE constraint blocks creating a
+			// native SAML row when a WorkOS-managed SAML row already occupies
+			// the same tuple. Until the schema gains a side-by-side staging
+			// mode, surface a clear admin-actionable error instead of the bare
+			// 409 the store returns. Tracked as a follow-up to PR #1139.
+			if errors.Is(err, db.ErrConflict) && existingWorkOSSAMLBlocking(c.Request.Context(), svc, orgID, connection.Type) {
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "this org already has a WorkOS-managed SAML " + connection.Type + " connection; disable or delete it before staging a native SAML connection of the same type",
+				})
+				return
+			}
 			writeIdentityConnectionError(c, logger, err, "create native saml connection")
 			return
 		}
@@ -272,11 +287,15 @@ func updateNativeSAMLConnection(logger *zap.Logger, svc *Service) gin.HandlerFun
 		if req.CertificatePEM != "" {
 			updated.CertificatePEM = req.CertificatePEM
 		}
-		if len(req.AttributeMapping) > 0 {
-			updated.AttributeMapping = req.AttributeMapping
+		// Maps follow the same merge-vs-clear semantics as the booleans:
+		// nil pointer == omitted (preserve existing value), an explicit empty
+		// map clears all entries. Without this, an admin could not remove
+		// stale group-to-role grants through the API.
+		if req.AttributeMapping != nil {
+			updated.AttributeMapping = *req.AttributeMapping
 		}
-		if len(req.GroupRoleMap) > 0 {
-			updated.GroupRoleMap = req.GroupRoleMap
+		if req.GroupRoleMap != nil {
+			updated.GroupRoleMap = *req.GroupRoleMap
 		}
 		// Boolean toggles are merge-style: an omitted field preserves the
 		// existing value, so a routine cert rotation cannot silently disable
@@ -382,6 +401,34 @@ func boolOrFalse(v *bool) bool {
 		return false
 	}
 	return *v
+}
+
+// mapOrNil dereferences an optional inbound map. A nil pointer leaves the
+// stored value untouched at the store layer (which falls back to an empty
+// map); an explicit empty map propagates as an empty map so the value can be
+// cleared.
+func mapOrNil(v *map[string]string) map[string]string {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+// existingWorkOSSAMLBlocking reports whether an UNIQUE-constraint conflict on
+// create is caused by a pre-existing WorkOS-managed SAML row of the same type.
+// The check loops through the org's connections rather than introducing a new
+// store query so the failure-path lookup stays at most O(connections-per-org).
+func existingWorkOSSAMLBlocking(ctx context.Context, svc *Service, orgID, connectionType string) bool {
+	connections, err := svc.Store.ListIdentityConnections(ctx, orgID, 100)
+	if err != nil {
+		return false
+	}
+	for _, conn := range connections {
+		if conn.Provider == "saml" && conn.Type == connectionType && conn.WorkOSConnectionID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultSAMLConnectionType(value string) string {

@@ -72,12 +72,13 @@ func generateTestCertPEM(t *testing.T) string {
 }
 
 func validSAMLRequest(t *testing.T) samlConnectionRequest {
+	mapping := map[string]string{"email": "urn:oid:0.9.2342.19200300.100.1.3"}
 	return samlConnectionRequest{
 		Type:             "sso",
 		EntityID:         "https://idp.example.com/entity",
 		SSOURL:           "https://idp.example.com/sso",
 		CertificatePEM:   generateTestCertPEM(t),
-		AttributeMapping: map[string]string{"email": "urn:oid:0.9.2342.19200300.100.1.3"},
+		AttributeMapping: &mapping,
 	}
 }
 
@@ -284,13 +285,12 @@ func TestNativeSAMLRoutes_UpdatePreservesBooleansWhenOmitted(t *testing.T) {
 	// Send a routine cert rotation that omits the boolean fields. Regression
 	// against Codex review feedback: previously the zero-value bools would
 	// silently flip both toggles back to false.
+	rotateMapping := map[string]string{"email": "urn:oid:0.9.2342.19200300.100.1.3"}
 	rotate := samlConnectionRequest{
-		EntityID:       created.Connection.EntityID,
-		SSOURL:         created.Connection.SSOURL,
-		CertificatePEM: generateTestCertPEM(t),
-		AttributeMapping: map[string]string{
-			"email": "urn:oid:0.9.2342.19200300.100.1.3",
-		},
+		EntityID:         created.Connection.EntityID,
+		SSOURL:           created.Connection.SSOURL,
+		CertificatePEM:   generateTestCertPEM(t),
+		AttributeMapping: &rotateMapping,
 	}
 	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, rotate)
 	if w.Code != http.StatusOK {
@@ -329,6 +329,66 @@ func TestNativeSAMLRoutes_UpdateAllowsExplicitFalse(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &after)
 	if after.Connection.SSORequired {
 		t.Error("sso_required must honor an explicit false in the payload")
+	}
+}
+
+func TestNativeSAMLRoutes_UpdateClearsGroupRoleMapOnExplicitEmpty(t *testing.T) {
+	svc, inject, fetcher := newSAMLTestRig(t)
+	r := newTestRouterFor(t, svc, inject, fetcher, true)
+
+	createReq := validSAMLRequest(t)
+	groups := map[string]string{"Engineering": "admin", "Support": "viewer"}
+	createReq.GroupRoleMap = &groups
+	createResp := doJSON(t, r, http.MethodPost, "/v1/enterprise/identity-connections/saml", createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var created samlConnectionResponse
+	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
+	if len(created.Connection.GroupRoleMap) != 2 {
+		t.Fatalf("seed: expected 2 group bindings, got %v", created.Connection.GroupRoleMap)
+	}
+
+	// Regression: an explicit empty map must clear all bindings, not be
+	// confused with "field omitted".
+	empty := map[string]string{}
+	update := validSAMLRequest(t)
+	update.GroupRoleMap = &empty
+	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, update)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", w.Code, w.Body.String())
+	}
+	var after samlConnectionResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &after)
+	if len(after.Connection.GroupRoleMap) != 0 {
+		t.Errorf("explicit empty group_role_map must clear all bindings, got %v", after.Connection.GroupRoleMap)
+	}
+}
+
+func TestNativeSAMLRoutes_CreateReturnsActionableConflictWhenWorkOSExists(t *testing.T) {
+	svc, inject, fetcher := newSAMLTestRig(t)
+	r := newTestRouterFor(t, svc, inject, fetcher, true)
+
+	// Seed a WorkOS-managed SAML SSO row directly via the store.
+	seedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if _, err := svc.Store.CreateIdentityConnection(seedCtx, db.IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_existing",
+	}); err != nil {
+		t.Fatalf("seed workos row: %v", err)
+	}
+
+	// Now an admin trying to create a native SAML SSO connection should get a
+	// 409 with an actionable message, not the bare uniqueness violation.
+	w := doJSON(t, r, http.MethodPost, "/v1/enterprise/identity-connections/saml", validSAMLRequest(t))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "WorkOS-managed") {
+		t.Errorf("expected admin-actionable error mentioning WorkOS, got: %s", w.Body.String())
 	}
 }
 
