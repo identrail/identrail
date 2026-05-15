@@ -61,8 +61,8 @@ jobs:
             echo "Missing repository secret AWS_ROLE_ARN."
             exit 1
           fi
-          if [[ ! "${aws_role_arn}" =~ ^arn:aws:iam::[0-9]{12}:role/.+$ ]]; then
-            echo "AWS_ROLE_ARN must look like arn:aws:iam::<account-id>:role/<role-name>."
+          if [[ ! "${aws_role_arn}" =~ ^arn:aws(-[a-z0-9]+)*:iam::[0-9]{12}:role/.+$ ]]; then
+            echo "AWS_ROLE_ARN must look like arn:aws[-partition]:iam::<account-id>:role/<role-name>."
             exit 1
           fi
           echo "::add-mask::${aws_role_arn}"
@@ -139,6 +139,7 @@ jobs:
             --log-group-name "${LOG_GROUP_NAME}"
             --start-time "${start_time_ms}"
             --limit "${MAX_EVENTS}"
+            --max-items "${MAX_EVENTS}"
             --output json
           )
           if [ -n "${FILTER_PATTERN}" ]; then
@@ -176,8 +177,11 @@ jobs:
           jq -r '.events[] | [.timestamp, (.logStreamName // "-"), (.message // "")] | @tsv' "${events_file}" |
             while IFS=$'\t' read -r timestamp stream message; do
               iso_time="$(date -u -d "@$((timestamp / 1000))" +"%Y-%m-%dT%H:%M:%SZ")"
+              stop_marker="identrail_log_${GITHUB_RUN_ID}_${RANDOM}_${RANDOM}"
               safe_message="$(printf '%s' "${message}" | redact)"
               echo "::group::${iso_time} ${stream}"
+              echo "::stop-commands::${stop_marker}"
               printf '%s\n' "${safe_message}"
+              echo "::${stop_marker}::"
               echo "::endgroup::"
             done
