@@ -79,6 +79,7 @@ type RouterOptions struct {
 	FeatureConnectorGitHubV2 bool
 	FeatureConnectorK8S      bool
 	FeatureOnboardingWizard  bool
+	FeatureNativeSSO         bool
 	PublicBaseURL            string
 	SessionKey               string
 	AuthManualMode           bool
@@ -355,6 +356,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		registerOnboardingRoutes(v1, logger, svc, opts.FeatureOnboardingWizard)
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
+	registerNativeSAMLAdminRoutes(v1, logger, svc, nativeSAMLRouteOptions{
+		Enabled: opts.FeatureNativeSSO,
+	})
 	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS, opts.FeatureConnectorGitHubV2)
 	registerKubernetesConnectionRoutes(v1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 

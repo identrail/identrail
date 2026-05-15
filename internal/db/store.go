@@ -2069,6 +2069,8 @@ type Store interface {
 	CreateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	GetIdentityConnection(ctx context.Context, orgID string, connectionID string) (IdentityConnection, error)
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
+	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
+	DeleteIdentityConnection(ctx context.Context, orgID string, connectionID string) error
 	CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error)
 	ListSCIMProvisioningEvents(ctx context.Context, orgID string, connectionID string, limit int) ([]SCIMProvisioningEventRecord, error)
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)

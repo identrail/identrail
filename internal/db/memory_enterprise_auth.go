@@ -258,6 +258,53 @@ func (m *MemoryStore) ListIdentityConnections(ctx context.Context, orgID string,
 	return items, nil
 }
 
+// UpdateIdentityConnection replaces one persisted identity connection scoped
+// to the (org_id, id) pair. The caller is expected to have read the existing
+// row first; the normalizer enforces the same invariants as Create.
+func (m *MemoryStore) UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error) {
+	normalized, err := NormalizeIdentityConnectionForWrite(connection)
+	if err != nil {
+		return IdentityConnection{}, err
+	}
+	m.mu.Lock()
+	key := orgScopedKey(normalized.OrgID, normalized.ID)
+	if _, exists := m.identityConnections[key]; !exists {
+		m.mu.Unlock()
+		return IdentityConnection{}, ErrNotFound
+	}
+	m.identityConnections[key] = normalized
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity_connection.update",
+		TenantID:     normalized.OrgID,
+		ResourceType: "identity_connection",
+		ResourceID:   normalized.ID,
+		Outcome:      "success",
+	})
+	return normalized, nil
+}
+
+// DeleteIdentityConnection removes one persisted identity connection scoped
+// to the (org_id, id) pair. Returns ErrNotFound if the row does not exist.
+func (m *MemoryStore) DeleteIdentityConnection(ctx context.Context, orgID, connectionID string) error {
+	m.mu.Lock()
+	key := orgScopedKey(strings.TrimSpace(orgID), strings.TrimSpace(connectionID))
+	if _, exists := m.identityConnections[key]; !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	delete(m.identityConnections, key)
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity_connection.delete",
+		TenantID:     strings.TrimSpace(orgID),
+		ResourceType: "identity_connection",
+		ResourceID:   strings.TrimSpace(connectionID),
+		Outcome:      "success",
+	})
+	return nil
+}
+
 // CreateSCIMProvisioningEvent appends one SCIM provisioning event to the
 // append-only audit log scoped to the org + connection.
 func (m *MemoryStore) CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error) {

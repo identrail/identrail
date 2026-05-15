@@ -190,6 +190,33 @@ x-identrail-route-authorizations:
     action: enterprise.read
     resource_type: identity_connection
     resource_id_param: id
+  - method: POST
+    path: /v1/enterprise/identity-connections/saml
+    action: enterprise.write
+    resource_type: identity_connection
+  - method: GET
+    path: /v1/enterprise/identity-connections/saml
+    action: enterprise.read
+    resource_type: identity_connection
+  - method: GET
+    path: /v1/enterprise/identity-connections/saml/{id}
+    action: enterprise.read
+    resource_type: identity_connection
+    resource_id_param: id
+  - method: PUT
+    path: /v1/enterprise/identity-connections/saml/{id}
+    action: enterprise.write
+    resource_type: identity_connection
+    resource_id_param: id
+  - method: DELETE
+    path: /v1/enterprise/identity-connections/saml/{id}
+    action: enterprise.write
+    resource_type: identity_connection
+    resource_id_param: id
+  - method: POST
+    path: /v1/enterprise/identity-connections/saml/from-metadata
+    action: enterprise.write
+    resource_type: identity_connection
   - method: GET
     path: /v1/whoami
     action: tenancy.read
