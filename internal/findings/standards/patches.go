@@ -22,14 +22,25 @@ type PatchTemplate struct {
 
 // SuggestPatch returns a deterministic, evidence-aware patch suggestion for a finding.
 // Returns false if no patch template is registered for the finding type.
+//
+// For finding types emitted by multiple providers (overprivileged_identity,
+// escalation_path), the template is routed by provider so AWS findings receive
+// IAM guidance and Kubernetes findings receive RBAC guidance.
 func SuggestPatch(finding domain.Finding) (PatchTemplate, bool) {
+	provider := inferProvider(finding)
 	switch finding.Type {
 	case domain.FindingOverPrivileged:
-		return overprivilegedPatch(finding), true
+		if provider == "kubernetes" {
+			return overprivilegedKubernetesPatch(finding), true
+		}
+		return overprivilegedAWSPatch(finding), true
 	case domain.FindingRiskyTrustPolicy:
 		return riskyTrustPatch(finding), true
 	case domain.FindingEscalationPath:
-		return escalationPatch(finding), true
+		if provider == "kubernetes" {
+			return escalationKubernetesPatch(finding), true
+		}
+		return escalationAWSPatch(finding), true
 	case domain.FindingStaleIdentity:
 		return staleIdentityPatch(finding), true
 	case domain.FindingOwnerless:
@@ -38,7 +49,7 @@ func SuggestPatch(finding domain.Finding) (PatchTemplate, bool) {
 	return PatchTemplate{}, false
 }
 
-func overprivilegedPatch(finding domain.Finding) PatchTemplate {
+func overprivilegedAWSPatch(finding domain.Finding) PatchTemplate {
 	arn := stringEvidence(finding.Evidence, "identity_arn")
 	displayARN := arn
 	if displayARN == "" {
@@ -90,7 +101,7 @@ func riskyTrustPatch(finding domain.Finding) PatchTemplate {
 	}
 }
 
-func escalationPatch(finding domain.Finding) PatchTemplate {
+func escalationAWSPatch(finding domain.Finding) PatchTemplate {
 	arn := stringEvidence(finding.Evidence, "identity_arn")
 	action := stringEvidence(finding.Evidence, "escalation_action")
 	resource := stringEvidence(finding.Evidence, "resource")
@@ -122,6 +133,72 @@ func escalationPatch(finding domain.Finding) PatchTemplate {
 			"Prefer an explicit Deny for escalation verbs over removal alone when policies are shared.",
 		},
 		Template: escalationDenyPolicyJSON(arn),
+	}
+}
+
+func overprivilegedKubernetesPatch(finding domain.Finding) PatchTemplate {
+	identityID := stringEvidence(finding.Evidence, "identity_id")
+	displayID := identityID
+	if displayID == "" {
+		displayID = "the service account"
+	}
+	sample := sampleEvidence(finding.Evidence)
+	return PatchTemplate{
+		RuleID:  domain.FindingOverPrivileged,
+		Summary: "Replace broad ClusterRole/Role bindings with least-privilege RBAC scoped to required namespaces and verbs.",
+		Steps: []string{
+			fmt.Sprintf("Review the cluster bindings for %s and identify broad verbs or wildcard resources (e.g., %s).", displayID, sample),
+			"Define a namespaced Role (or ClusterRole if cluster-scoped resources are required) with only the verbs/resources the workload needs.",
+			"Replace the existing ClusterRoleBinding/RoleBinding with one that targets the scoped Role.",
+			"Audit with `kubectl auth can-i --list --as=system:serviceaccount:<namespace>:<name>` after the change.",
+			"Validate workload behavior in a non-production namespace before applying to production.",
+		},
+		SafetyNotes: []string{
+			"Confirm the workload's required verbs and resources before narrowing scope.",
+			"Prefer namespaced Role over ClusterRole when the workload only needs same-namespace access.",
+			"Avoid `verbs: [\"*\"]` and `resources: [\"*\"]` in the replacement Role.",
+		},
+		Template: scopedRBACYAML(identityID),
+	}
+}
+
+func escalationKubernetesPatch(finding domain.Finding) PatchTemplate {
+	identityID := stringEvidence(finding.Evidence, "identity_id")
+	workloadID := stringEvidence(finding.Evidence, "workload_id")
+	action := stringEvidence(finding.Evidence, "action")
+	resource := stringEvidence(finding.Evidence, "resource")
+	displayID := identityID
+	if displayID == "" {
+		displayID = "the service account"
+	}
+	displayWorkload := workloadID
+	if displayWorkload == "" {
+		displayWorkload = "the workload"
+	}
+	displayAction := action
+	if displayAction == "" {
+		displayAction = "the escalation verb"
+	}
+	displayResource := resource
+	if displayResource == "" {
+		displayResource = "the target resource"
+	}
+	return PatchTemplate{
+		RuleID:  domain.FindingEscalationPath,
+		Summary: "Break the RBAC escalation path by removing escalation verbs and isolating the workload to a dedicated service account.",
+		Steps: []string{
+			fmt.Sprintf("Locate the ClusterRole/Role granting '%s' on '%s' bound to %s via %s.", displayAction, displayResource, displayID, displayWorkload),
+			"Remove escalation verbs (`bind`, `escalate`, `impersonate`) and wildcard rules from the bound Role/ClusterRole.",
+			fmt.Sprintf("Create a dedicated service account for %s rather than sharing a broadly privileged one.", displayWorkload),
+			"Replace the binding to target the new dedicated service account with the minimum required Role.",
+			"Verify with `kubectl auth can-i bind clusterroles --as=system:serviceaccount:<namespace>:<name>` returns 'no' after the change.",
+		},
+		SafetyNotes: []string{
+			"Removing `bind`/`escalate` may break controllers that legitimately manage RBAC — confirm before applying.",
+			"Use audit logs to confirm no other workload depends on the same broadly privileged binding.",
+			"Prefer creating a new dedicated service account over editing a shared one in place.",
+		},
+		Template: rbacEscalationFixYAML(identityID),
 	}
 }
 
@@ -256,6 +333,79 @@ func escalationDenyPolicyJSON(arn string) string {
 	return mustJSON(doc)
 }
 
+func scopedRBACYAML(identityID string) string {
+	displayID := identityID
+	if displayID == "" {
+		displayID = "<service-account-name>"
+	}
+	return strings.Join([]string{
+		fmt.Sprintf("# Scoped Role for %s — replace placeholders with the minimum required verbs/resources.", displayID),
+		"apiVersion: rbac.authorization.k8s.io/v1",
+		"kind: Role",
+		"metadata:",
+		"  name: <scoped-role-name>",
+		"  namespace: <namespace>",
+		"rules:",
+		"  - apiGroups: [\"\"]",
+		"    resources: [\"<resource-type>\"]",
+		"    verbs: [\"get\", \"list\", \"watch\"]",
+		"---",
+		"apiVersion: rbac.authorization.k8s.io/v1",
+		"kind: RoleBinding",
+		"metadata:",
+		"  name: <scoped-binding-name>",
+		"  namespace: <namespace>",
+		"subjects:",
+		"  - kind: ServiceAccount",
+		"    name: <service-account-name>",
+		"    namespace: <namespace>",
+		"roleRef:",
+		"  kind: Role",
+		"  name: <scoped-role-name>",
+		"  apiGroup: rbac.authorization.k8s.io",
+	}, "\n")
+}
+
+func rbacEscalationFixYAML(identityID string) string {
+	displayID := identityID
+	if displayID == "" {
+		displayID = "<workload-service-account>"
+	}
+	return strings.Join([]string{
+		fmt.Sprintf("# Dedicated service account for %s — replace placeholders for your workload.", displayID),
+		"apiVersion: v1",
+		"kind: ServiceAccount",
+		"metadata:",
+		"  name: <workload-service-account>",
+		"  namespace: <namespace>",
+		"---",
+		"# Minimal Role without bind/escalate/impersonate verbs.",
+		"apiVersion: rbac.authorization.k8s.io/v1",
+		"kind: Role",
+		"metadata:",
+		"  name: <workload-role>",
+		"  namespace: <namespace>",
+		"rules:",
+		"  - apiGroups: [\"\"]",
+		"    resources: [\"<resource-type>\"]",
+		"    verbs: [\"get\", \"list\"]",
+		"---",
+		"apiVersion: rbac.authorization.k8s.io/v1",
+		"kind: RoleBinding",
+		"metadata:",
+		"  name: <workload-binding>",
+		"  namespace: <namespace>",
+		"subjects:",
+		"  - kind: ServiceAccount",
+		"    name: <workload-service-account>",
+		"    namespace: <namespace>",
+		"roleRef:",
+		"  kind: Role",
+		"  name: <workload-role>",
+		"  apiGroup: rbac.authorization.k8s.io",
+	}, "\n")
+}
+
 func ownerTagTemplate(arn string) string {
 	arnLine := `"arn:aws:<service>:<region>:<account-id>:<resource-type>/<resource-name>"`
 	if arn != "" {
@@ -314,6 +464,34 @@ func stringsEvidence(evidence map[string]any, key string) []string {
 		return out
 	}
 	return nil
+}
+
+// sampleEvidence renders the kubernetes overprivileged 'sample' evidence as a
+// human-readable "verb on resource" string, falling back to a placeholder when
+// the evidence is absent or malformed.
+func sampleEvidence(evidence map[string]any) string {
+	if evidence == nil {
+		return "wildcard verbs or resources"
+	}
+	raw, ok := evidence["sample"]
+	if !ok {
+		return "wildcard verbs or resources"
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return "wildcard verbs or resources"
+	}
+	action, _ := m["action"].(string)
+	resource, _ := m["resource"].(string)
+	switch {
+	case action != "" && resource != "":
+		return fmt.Sprintf("%s on %s", action, resource)
+	case action != "":
+		return action
+	case resource != "":
+		return resource
+	}
+	return "wildcard verbs or resources"
 }
 
 func joinOrUnknown(ss []string) string {

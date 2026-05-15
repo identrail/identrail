@@ -1,6 +1,7 @@
 package standards
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -102,7 +103,7 @@ func TestSuggestPatch_EvidenceIncorporatedInSteps(t *testing.T) {
 	}
 }
 
-func TestSuggestPatch_PolicyTemplatesAreJSON(t *testing.T) {
+func TestSuggestPatch_AWSPolicyTemplatesAreValidJSON(t *testing.T) {
 	policyTypes := []domain.FindingType{
 		domain.FindingOverPrivileged,
 		domain.FindingRiskyTrustPolicy,
@@ -110,13 +111,19 @@ func TestSuggestPatch_PolicyTemplatesAreJSON(t *testing.T) {
 	}
 	for _, ft := range policyTypes {
 		t.Run(string(ft), func(t *testing.T) {
-			patch, _ := SuggestPatch(domain.Finding{Type: ft})
+			// Force AWS routing by adding an aws: path node.
+			patch, ok := SuggestPatch(domain.Finding{
+				Type: ft,
+				Path: []string{"aws:iam::123456789012:role/Example"},
+			})
+			if !ok {
+				t.Fatalf("expected patch for %s", ft)
+			}
 			if patch.Template == "" {
 				t.Fatalf("expected non-empty template for %s", ft)
 			}
-			trimmed := strings.TrimSpace(patch.Template)
-			if !strings.HasPrefix(trimmed, "{") {
-				t.Errorf("expected JSON template for %s, got prefix: %s", ft, trimmed[:min(60, len(trimmed))])
+			if !json.Valid([]byte(patch.Template)) {
+				t.Errorf("template for %s is not valid JSON:\n%s", ft, patch.Template)
 			}
 		})
 	}
@@ -152,5 +159,100 @@ func TestSuggestPatch_NoEvidenceProducesValidPatch(t *testing.T) {
 				t.Errorf("patch for %s has empty summary or steps with no evidence", ft)
 			}
 		})
+	}
+}
+
+func TestSuggestPatch_KubernetesOverprivilegedReturnsRBACTemplate(t *testing.T) {
+	patch, ok := SuggestPatch(domain.Finding{
+		Type: domain.FindingOverPrivileged,
+		Path: []string{"k8s:serviceaccount:default/worker", "k8s:role:cluster-admin"},
+		Evidence: map[string]any{
+			"identity_id": "k8s:serviceaccount:default/worker",
+			"sample": map[string]any{
+				"action":   "*",
+				"resource": "*",
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("expected patch for k8s overprivileged")
+	}
+	if strings.Contains(patch.Template, "iam:") || strings.Contains(patch.Template, "aws:") {
+		t.Errorf("k8s overprivileged template must not contain IAM identifiers, got:\n%s", patch.Template)
+	}
+	if !strings.Contains(patch.Template, "rbac.authorization.k8s.io") {
+		t.Errorf("expected RBAC YAML template, got:\n%s", patch.Template)
+	}
+	hasRBACGuidance := false
+	for _, step := range patch.Steps {
+		if strings.Contains(step, "ClusterRole") || strings.Contains(step, "kubectl auth can-i") {
+			hasRBACGuidance = true
+			break
+		}
+	}
+	if !hasRBACGuidance {
+		t.Errorf("expected K8s RBAC guidance in steps, got: %v", patch.Steps)
+	}
+}
+
+func TestSuggestPatch_KubernetesEscalationReturnsRBACTemplate(t *testing.T) {
+	patch, ok := SuggestPatch(domain.Finding{
+		Type: domain.FindingEscalationPath,
+		Path: []string{"k8s:deployment:ns/web", "k8s:serviceaccount:ns/web", "k8s:clusterrole:admin"},
+		Evidence: map[string]any{
+			"workload_id": "k8s:deployment:ns/web",
+			"identity_id": "k8s:serviceaccount:ns/web",
+			"action":      "bind",
+			"resource":    "clusterroles",
+		},
+	})
+	if !ok {
+		t.Fatal("expected patch for k8s escalation")
+	}
+	for _, step := range patch.Steps {
+		if strings.Contains(step, "iam:PassRole") || strings.Contains(step, "IAM Access Analyzer") {
+			t.Errorf("k8s escalation steps leaked IAM guidance: %s", step)
+		}
+	}
+	if !strings.Contains(patch.Template, "rbac.authorization.k8s.io") {
+		t.Errorf("expected RBAC YAML template, got:\n%s", patch.Template)
+	}
+	foundRBACVerb := false
+	for _, step := range patch.Steps {
+		if strings.Contains(step, "bind") && strings.Contains(step, "clusterroles") {
+			foundRBACVerb = true
+			break
+		}
+	}
+	if !foundRBACVerb {
+		t.Errorf("expected RBAC verb/resource in steps, got: %v", patch.Steps)
+	}
+}
+
+func TestSuggestPatch_AWSEscalationKeepsIAMGuidance(t *testing.T) {
+	patch, ok := SuggestPatch(domain.Finding{
+		Type: domain.FindingEscalationPath,
+		Path: []string{"aws:iam::111111111111:role/AttackerRole", "aws:iam::222222222222:role/Target"},
+		Evidence: map[string]any{
+			"identity_arn":      "arn:aws:iam::222222222222:role/Target",
+			"escalation_action": "iam:PassRole",
+			"resource":          "*",
+		},
+	})
+	if !ok {
+		t.Fatal("expected patch for aws escalation")
+	}
+	if strings.Contains(patch.Template, "rbac.authorization.k8s.io") {
+		t.Errorf("aws escalation template leaked RBAC content:\n%s", patch.Template)
+	}
+	hasIAMGuidance := false
+	for _, step := range patch.Steps {
+		if strings.Contains(step, "iam:PassRole") {
+			hasIAMGuidance = true
+			break
+		}
+	}
+	if !hasIAMGuidance {
+		t.Errorf("expected IAM guidance in steps, got: %v", patch.Steps)
 	}
 }
