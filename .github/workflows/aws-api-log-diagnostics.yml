@@ -139,7 +139,7 @@ jobs:
             --log-group-name "${LOG_GROUP_NAME}"
             --start-time "${start_time_ms}"
             --limit "${MAX_EVENTS}"
-            --max-items "${MAX_EVENTS}"
+            --no-paginate
             --output json
           )
           if [ -n "${FILTER_PATTERN}" ]; then
