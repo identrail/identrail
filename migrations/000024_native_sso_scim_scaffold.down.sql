@@ -7,10 +7,6 @@ DROP TABLE IF EXISTS scim_provisioning_events;
 
 DROP INDEX IF EXISTS uq_identity_connections_org_id;
 
-DROP INDEX IF EXISTS idx_users_scim_external_id;
-ALTER TABLE users
-    DROP COLUMN IF EXISTS scim_external_id;
-
 ALTER TABLE identity_connections
     DROP CONSTRAINT IF EXISTS identity_connections_attribute_mapping_object,
     DROP CONSTRAINT IF EXISTS identity_connections_saml_completeness,

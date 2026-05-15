@@ -70,7 +70,7 @@ Current sequence in `migrations/`:
 24. `000021_scan_policy_scheduler_state` - scan policy scheduler tick state and due-policy lookup index
 25. `000022_scan_retry_dlq_replay` - scan retry / DLQ replay scaffolding
 26. `000023_onboarding_state` - onboarding wizard server-owned state
-27. `000024_native_sso_scim_scaffold` - native SAML and SCIM 2.0 schema scaffolding on `identity_connections`, plus `users.scim_external_id` and the `scim_provisioning_events` audit log
+27. `000024_native_sso_scim_scaffold` - native SAML and SCIM 2.0 schema scaffolding: extends `identity_connections` with native SAML fields + a SCIM bearer token hash, adds a composite-FK-backed `scim_provisioning_events` audit table, and reuses the existing `user_identities` table for SCIM-assigned external ids (no new column on `users`)
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

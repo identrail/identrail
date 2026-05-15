@@ -73,17 +73,12 @@ $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_identity_connections_org_id
     ON identity_connections (org_id, id);
 
-------------------------------------------------------------------------------
--- users.scim_external_id: stable foreign id from the IdP (Okta/Azure user id)
-------------------------------------------------------------------------------
-
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS scim_external_id TEXT;
-
--- Unique only when populated; one IdP-assigned id per Identrail user.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_scim_external_id
-    ON users (scim_external_id)
-    WHERE scim_external_id IS NOT NULL;
+-- Note: the SCIM-assigned external id is a per-connection identifier — two
+-- IdPs (or two tenants on the same IdP) can legitimately emit the same value
+-- without conflict. Identrail therefore stores SCIM identities in the existing
+-- user_identities table with provider = 'scim:<connection_uuid>', reusing its
+-- UNIQUE (provider, subject) contract instead of carrying a per-user column
+-- on users that would either force global uniqueness or violate it.
 
 ------------------------------------------------------------------------------
 -- scim_provisioning_events: append-only audit of every SCIM op
