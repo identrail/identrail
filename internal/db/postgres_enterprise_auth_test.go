@@ -114,8 +114,8 @@ func TestPostgresEnterpriseAuthStores(t *testing.T) {
 	}
 
 	mock.ExpectQuery("INSERT INTO identity_connections").
-		WithArgs("44444444-4444-4444-4444-444444444444", "tenant-a", "workos", "sso", sqlmock.AnyArg(), "active", `{"Engineering":"admin"}`, true, now, now).
-		WillReturnRows(postgresEnterpriseConnectionRows().AddRow("44444444-4444-4444-4444-444444444444", "tenant-a", "workos", "sso", nil, "active", []byte(`{"Engineering":"admin"}`), true, now, now))
+		WithArgs("44444444-4444-4444-4444-444444444444", "tenant-a", "workos", "sso", sqlmock.AnyArg(), "active", `{"Engineering":"admin"}`, true, false, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), `{}`, sqlmock.AnyArg(), now, now).
+		WillReturnRows(postgresEnterpriseConnectionRows().AddRow("44444444-4444-4444-4444-444444444444", "tenant-a", "workos", "sso", nil, "active", []byte(`{"Engineering":"admin"}`), true, false, nil, nil, nil, []byte(`{}`), nil, now, now))
 	connection, err := store.CreateIdentityConnection(ctx, IdentityConnection{
 		ID:           "44444444-4444-4444-4444-444444444444",
 		OrgID:        "tenant-a",
@@ -136,7 +136,7 @@ func TestPostgresEnterpriseAuthStores(t *testing.T) {
 
 	mock.ExpectQuery("FROM identity_connections").
 		WithArgs("tenant-a", connection.ID).
-		WillReturnRows(postgresEnterpriseConnectionRows().AddRow(connection.ID, "tenant-a", "workos", "sso", nil, "active", []byte(`{"Engineering":"admin"}`), true, now, now))
+		WillReturnRows(postgresEnterpriseConnectionRows().AddRow(connection.ID, "tenant-a", "workos", "sso", nil, "active", []byte(`{"Engineering":"admin"}`), true, false, nil, nil, nil, []byte(`{}`), nil, now, now))
 	gotConnection, err := store.GetIdentityConnection(ctx, "tenant-a", connection.ID)
 	if err != nil {
 		t.Fatalf("get identity connection: %v", err)
@@ -147,7 +147,7 @@ func TestPostgresEnterpriseAuthStores(t *testing.T) {
 
 	mock.ExpectQuery("FROM identity_connections").
 		WithArgs("tenant-a", 10).
-		WillReturnRows(postgresEnterpriseConnectionRows().AddRow(connection.ID, "tenant-a", "workos", "sso", nil, "active", []byte(`{"Engineering":"admin"}`), true, now, now))
+		WillReturnRows(postgresEnterpriseConnectionRows().AddRow(connection.ID, "tenant-a", "workos", "sso", nil, "active", []byte(`{"Engineering":"admin"}`), true, false, nil, nil, nil, []byte(`{}`), nil, now, now))
 	connections, err := store.ListIdentityConnections(ctx, "tenant-a", 10)
 	if err != nil {
 		t.Fatalf("list identity connections: %v", err)
@@ -236,7 +236,7 @@ func TestPostgresEnterpriseAuthUniqueViolationsReturnConflict(t *testing.T) {
 	}
 
 	mock.ExpectQuery("INSERT INTO identity_connections").
-		WithArgs("33333333-3333-3333-3333-333333333333", "tenant-a", "workos", "sso", sqlmock.AnyArg(), "pending", `{}`, false, now, now).
+		WithArgs("33333333-3333-3333-3333-333333333333", "tenant-a", "workos", "sso", sqlmock.AnyArg(), "pending", `{}`, false, false, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), `{}`, sqlmock.AnyArg(), now, now).
 		WillReturnError(testSQLStateError("23505"))
 	if _, err := store.CreateIdentityConnection(ctx, IdentityConnection{
 		ID:        "33333333-3333-3333-3333-333333333333",
@@ -263,5 +263,13 @@ func postgresEnterpriseDomainRows() *sqlmock.Rows {
 }
 
 func postgresEnterpriseConnectionRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "org_id", "provider", "type", "workos_connection_id", "status", "group_role_map", "sso_required", "created_at", "updated_at"})
+	return sqlmock.NewRows([]string{
+		"id", "org_id", "provider", "type", "workos_connection_id", "status", "group_role_map",
+		"sso_required", "jit_provisioning_enabled", "entity_id", "sso_url", "certificate_pem",
+		"attribute_mapping", "scim_bearer_token_hash", "created_at", "updated_at",
+	})
+}
+
+func postgresSCIMProvisioningEventRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "org_id", "connection_id", "op", "external_id", "user_id", "payload", "occurred_at"})
 }

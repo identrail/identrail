@@ -472,18 +472,51 @@ type VerifiedDomain struct {
 	CreatedAt          time.Time  `json:"created_at"`
 }
 
-// IdentityConnection stores one enterprise SSO or directory-sync connection scaffold.
+// IdentityConnection stores one enterprise SSO or directory-sync connection.
+//
+// A row with Provider == "saml" must be either WorkOS-backed (the legacy path,
+// WorkOSConnectionID populated and native fields zero) or native (EntityID,
+// SSOURL, and CertificatePEM all populated; SSOURL must use https). The two
+// modes are mutually exclusive at write time so callers cannot end up with a
+// half-configured connection.
 type IdentityConnection struct {
-	ID                 string            `json:"id"`
-	OrgID              string            `json:"org_id"`
-	Provider           string            `json:"provider"`
-	Type               string            `json:"type"`
-	WorkOSConnectionID string            `json:"workos_connection_id,omitempty"`
-	Status             string            `json:"status"`
-	GroupRoleMap       map[string]string `json:"group_role_map"`
-	SSORequired        bool              `json:"sso_required"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
+	ID                     string            `json:"id"`
+	OrgID                  string            `json:"org_id"`
+	Provider               string            `json:"provider"`
+	Type                   string            `json:"type"`
+	WorkOSConnectionID     string            `json:"workos_connection_id,omitempty"`
+	Status                 string            `json:"status"`
+	GroupRoleMap           map[string]string `json:"group_role_map"`
+	SSORequired            bool              `json:"sso_required"`
+	JITProvisioningEnabled bool              `json:"jit_provisioning_enabled"`
+	EntityID               string            `json:"entity_id,omitempty"`
+	SSOURL                 string            `json:"sso_url,omitempty"`
+	CertificatePEM         string            `json:"certificate_pem,omitempty"`
+	AttributeMapping       map[string]string `json:"attribute_mapping,omitempty"`
+	SCIMBearerTokenHash    string            `json:"scim_bearer_token_hash,omitempty"`
+	CreatedAt              time.Time         `json:"created_at"`
+	UpdatedAt              time.Time         `json:"updated_at"`
+}
+
+// IsNativeSAML reports whether this connection drives native SAML directly
+// (as opposed to delegating to WorkOS). Only meaningful when Provider=="saml".
+func (c IdentityConnection) IsNativeSAML() bool {
+	return strings.ToLower(strings.TrimSpace(c.Provider)) == "saml" &&
+		strings.TrimSpace(c.WorkOSConnectionID) == "" &&
+		strings.TrimSpace(c.EntityID) != ""
+}
+
+// SCIMProvisioningEventRecord is the persisted form of one SCIM op recorded
+// for tenant-visible governance audit. Append-only.
+type SCIMProvisioningEventRecord struct {
+	ID           string         `json:"id"`
+	OrgID        string         `json:"org_id"`
+	ConnectionID string         `json:"connection_id"`
+	Op           string         `json:"op"`
+	ExternalID   string         `json:"external_id,omitempty"`
+	UserID       string         `json:"user_id,omitempty"`
+	Payload      map[string]any `json:"payload,omitempty"`
+	OccurredAt   time.Time      `json:"occurred_at"`
 }
 
 // TenancyProject stores one project metadata record.
@@ -1266,6 +1299,16 @@ func NormalizeIdentityConnectionForWrite(connection IdentityConnection) (Identit
 		return IdentityConnection{}, fmt.Errorf("invalid identity connection status")
 	}
 	normalized.GroupRoleMap = normalizeGroupRoleMap(connection.GroupRoleMap)
+	normalized.EntityID = strings.TrimSpace(connection.EntityID)
+	normalized.SSOURL = strings.TrimSpace(connection.SSOURL)
+	normalized.CertificatePEM = strings.TrimSpace(connection.CertificatePEM)
+	normalized.SCIMBearerTokenHash = strings.TrimSpace(connection.SCIMBearerTokenHash)
+	normalized.AttributeMapping = normalizeAttributeMapping(connection.AttributeMapping)
+
+	if err := validateSAMLCompleteness(normalized); err != nil {
+		return IdentityConnection{}, err
+	}
+
 	if normalized.CreatedAt.IsZero() {
 		normalized.CreatedAt = time.Now().UTC()
 	} else {
@@ -1275,6 +1318,100 @@ func NormalizeIdentityConnectionForWrite(connection IdentityConnection) (Identit
 		normalized.UpdatedAt = normalized.CreatedAt
 	} else {
 		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+// validateSAMLCompleteness mirrors the identity_connections_saml_completeness
+// CHECK constraint at the Go layer so memory-mode CRUD enforces the same
+// contract as Postgres.
+func validateSAMLCompleteness(c IdentityConnection) error {
+	if c.Provider != "saml" {
+		return nil
+	}
+	if c.WorkOSConnectionID != "" {
+		return nil
+	}
+	missing := []string{}
+	if c.EntityID == "" {
+		missing = append(missing, "entity_id")
+	}
+	if c.CertificatePEM == "" {
+		missing = append(missing, "certificate_pem")
+	}
+	if c.SSOURL == "" {
+		missing = append(missing, "sso_url")
+	} else if !strings.HasPrefix(strings.ToLower(c.SSOURL), "https://") {
+		return fmt.Errorf("saml sso_url must use https://")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("native saml connection is missing required fields: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func normalizeAttributeMapping(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		key := strings.TrimSpace(k)
+		val := strings.TrimSpace(v)
+		if key == "" || val == "" {
+			continue
+		}
+		out[key] = val
+	}
+	return out
+}
+
+var validSCIMProvisioningOps = map[string]struct{}{
+	"create":     {},
+	"update":     {},
+	"deactivate": {},
+	"delete":     {},
+}
+
+// NormalizeSCIMProvisioningEventForWrite validates and canonicalizes one
+// persisted SCIM provisioning event prior to insert.
+func NormalizeSCIMProvisioningEventForWrite(event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error) {
+	normalized := event
+	normalized.ID = strings.TrimSpace(event.ID)
+	if normalized.ID == "" {
+		normalized.ID = uuid.NewString()
+	} else if _, err := uuid.Parse(normalized.ID); err != nil {
+		return SCIMProvisioningEventRecord{}, fmt.Errorf("invalid scim provisioning event id")
+	}
+	normalized.OrgID = strings.TrimSpace(event.OrgID)
+	if normalized.OrgID == "" {
+		return SCIMProvisioningEventRecord{}, fmt.Errorf("org id is required")
+	}
+	normalized.ConnectionID = strings.TrimSpace(event.ConnectionID)
+	if normalized.ConnectionID == "" {
+		return SCIMProvisioningEventRecord{}, fmt.Errorf("connection id is required")
+	}
+	if _, err := uuid.Parse(normalized.ConnectionID); err != nil {
+		return SCIMProvisioningEventRecord{}, fmt.Errorf("invalid connection id")
+	}
+	normalized.Op = strings.ToLower(strings.TrimSpace(event.Op))
+	if _, ok := validSCIMProvisioningOps[normalized.Op]; !ok {
+		return SCIMProvisioningEventRecord{}, fmt.Errorf("invalid scim provisioning op %q", event.Op)
+	}
+	normalized.ExternalID = strings.TrimSpace(event.ExternalID)
+	normalized.UserID = strings.TrimSpace(event.UserID)
+	if normalized.UserID != "" {
+		if _, err := uuid.Parse(normalized.UserID); err != nil {
+			return SCIMProvisioningEventRecord{}, fmt.Errorf("invalid user id")
+		}
+	}
+	if normalized.Payload == nil {
+		normalized.Payload = map[string]any{}
+	}
+	if normalized.OccurredAt.IsZero() {
+		normalized.OccurredAt = time.Now().UTC()
+	} else {
+		normalized.OccurredAt = normalized.OccurredAt.UTC()
 	}
 	return normalized, nil
 }
@@ -1923,6 +2060,8 @@ type Store interface {
 	CreateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	GetIdentityConnection(ctx context.Context, orgID string, connectionID string) (IdentityConnection, error)
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
+	CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error)
+	ListSCIMProvisioningEvents(ctx context.Context, orgID string, connectionID string, limit int) ([]SCIMProvisioningEventRecord, error)
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error

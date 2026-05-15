@@ -272,7 +272,12 @@ func (p *PostgresStore) ListVerifiedDomains(ctx context.Context, orgID string, l
 func scanIdentityConnection(row rowScanner) (IdentityConnection, error) {
 	var connection IdentityConnection
 	var workOSConnectionID sql.NullString
+	var entityID sql.NullString
+	var ssoURL sql.NullString
+	var certificatePEM sql.NullString
+	var scimBearerTokenHash sql.NullString
 	var groupRoleMap []byte
+	var attributeMapping []byte
 	if err := row.Scan(
 		&connection.ID,
 		&connection.OrgID,
@@ -282,6 +287,12 @@ func scanIdentityConnection(row rowScanner) (IdentityConnection, error) {
 		&connection.Status,
 		&groupRoleMap,
 		&connection.SSORequired,
+		&connection.JITProvisioningEnabled,
+		&entityID,
+		&ssoURL,
+		&certificatePEM,
+		&attributeMapping,
+		&scimBearerTokenHash,
 		&connection.CreatedAt,
 		&connection.UpdatedAt,
 	); err != nil {
@@ -296,6 +307,18 @@ func scanIdentityConnection(row rowScanner) (IdentityConnection, error) {
 	if workOSConnectionID.Valid {
 		connection.WorkOSConnectionID = workOSConnectionID.String
 	}
+	if entityID.Valid {
+		connection.EntityID = entityID.String
+	}
+	if ssoURL.Valid {
+		connection.SSOURL = ssoURL.String
+	}
+	if certificatePEM.Valid {
+		connection.CertificatePEM = certificatePEM.String
+	}
+	if scimBearerTokenHash.Valid {
+		connection.SCIMBearerTokenHash = scimBearerTokenHash.String
+	}
 	if len(groupRoleMap) > 0 {
 		if err := json.Unmarshal(groupRoleMap, &connection.GroupRoleMap); err != nil {
 			return IdentityConnection{}, err
@@ -304,8 +327,18 @@ func scanIdentityConnection(row rowScanner) (IdentityConnection, error) {
 	if connection.GroupRoleMap == nil {
 		connection.GroupRoleMap = map[string]string{}
 	}
+	if len(attributeMapping) > 0 {
+		if err := json.Unmarshal(attributeMapping, &connection.AttributeMapping); err != nil {
+			return IdentityConnection{}, err
+		}
+	}
+	if connection.AttributeMapping == nil {
+		connection.AttributeMapping = map[string]string{}
+	}
 	return connection, nil
 }
+
+const identityConnectionColumns = "id::text, org_id, provider, type, workos_connection_id, status, group_role_map, sso_required, jit_provisioning_enabled, entity_id, sso_url, certificate_pem, attribute_mapping, scim_bearer_token_hash, created_at, updated_at"
 
 // CreateIdentityConnection persists one enterprise identity connection scaffold.
 func (p *PostgresStore) CreateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error) {
@@ -317,13 +350,19 @@ func (p *PostgresStore) CreateIdentityConnection(ctx context.Context, connection
 	if err != nil {
 		return IdentityConnection{}, err
 	}
+	attributeMapping, err := json.Marshal(normalized.AttributeMapping)
+	if err != nil {
+		return IdentityConnection{}, err
+	}
 	saved, err := scanIdentityConnection(p.queryRowContext(
 		ctx,
 		`INSERT INTO identity_connections (
-		     id, org_id, provider, type, workos_connection_id, status, group_role_map, sso_required, created_at, updated_at
+		     id, org_id, provider, type, workos_connection_id, status, group_role_map, sso_required,
+		     jit_provisioning_enabled, entity_id, sso_url, certificate_pem, attribute_mapping,
+		     scim_bearer_token_hash, created_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
-		 RETURNING id::text, org_id, provider, type, workos_connection_id, status, group_role_map, sso_required, created_at, updated_at`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16)
+		 RETURNING `+identityConnectionColumns,
 		normalized.ID,
 		normalized.OrgID,
 		normalized.Provider,
@@ -332,6 +371,12 @@ func (p *PostgresStore) CreateIdentityConnection(ctx context.Context, connection
 		normalized.Status,
 		string(groupRoleMap),
 		normalized.SSORequired,
+		normalized.JITProvisioningEnabled,
+		nullString(normalized.EntityID),
+		nullString(normalized.SSOURL),
+		nullString(normalized.CertificatePEM),
+		string(attributeMapping),
+		nullString(normalized.SCIMBearerTokenHash),
 		normalized.CreatedAt,
 		normalized.UpdatedAt,
 	))
@@ -355,7 +400,7 @@ func (p *PostgresStore) CreateIdentityConnection(ctx context.Context, connection
 func (p *PostgresStore) GetIdentityConnection(ctx context.Context, orgID string, connectionID string) (IdentityConnection, error) {
 	return scanIdentityConnection(p.queryRowContext(
 		ctx,
-		`SELECT id::text, org_id, provider, type, workos_connection_id, status, group_role_map, sso_required, created_at, updated_at
+		`SELECT `+identityConnectionColumns+`
 		 FROM identity_connections
 		 WHERE org_id = $1
 		   AND id = NULLIF($2, '')::uuid`,
@@ -371,7 +416,7 @@ func (p *PostgresStore) ListIdentityConnections(ctx context.Context, orgID strin
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT id::text, org_id, provider, type, workos_connection_id, status, group_role_map, sso_required, created_at, updated_at
+		`SELECT `+identityConnectionColumns+`
 		 FROM identity_connections
 		 WHERE org_id = $1
 		 ORDER BY created_at DESC
@@ -386,6 +431,127 @@ func (p *PostgresStore) ListIdentityConnections(ctx context.Context, orgID strin
 	items := make([]IdentityConnection, 0)
 	for rows.Next() {
 		item, err := scanIdentityConnection(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const scimProvisioningEventColumns = "id::text, org_id, connection_id::text, op, external_id, user_id::text, payload, occurred_at"
+
+func scanSCIMProvisioningEvent(row rowScanner) (SCIMProvisioningEventRecord, error) {
+	var event SCIMProvisioningEventRecord
+	var externalID sql.NullString
+	var userID sql.NullString
+	var payload []byte
+	if err := row.Scan(
+		&event.ID,
+		&event.OrgID,
+		&event.ConnectionID,
+		&event.Op,
+		&externalID,
+		&userID,
+		&payload,
+		&event.OccurredAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return SCIMProvisioningEventRecord{}, ErrNotFound
+		}
+		if isTenancyFKViolation(err) {
+			return SCIMProvisioningEventRecord{}, ErrNotFound
+		}
+		return SCIMProvisioningEventRecord{}, err
+	}
+	if externalID.Valid {
+		event.ExternalID = externalID.String
+	}
+	if userID.Valid {
+		event.UserID = userID.String
+	}
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &event.Payload); err != nil {
+			return SCIMProvisioningEventRecord{}, err
+		}
+	}
+	if event.Payload == nil {
+		event.Payload = map[string]any{}
+	}
+	return event, nil
+}
+
+// CreateSCIMProvisioningEvent appends one SCIM provisioning event to the audit
+// log scoped to the org + connection. Append-only by design.
+func (p *PostgresStore) CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error) {
+	normalized, err := NormalizeSCIMProvisioningEventForWrite(event)
+	if err != nil {
+		return SCIMProvisioningEventRecord{}, err
+	}
+	payload, err := json.Marshal(normalized.Payload)
+	if err != nil {
+		return SCIMProvisioningEventRecord{}, err
+	}
+	saved, err := scanSCIMProvisioningEvent(p.queryRowContext(
+		ctx,
+		`INSERT INTO scim_provisioning_events (
+		     id, org_id, connection_id, op, external_id, user_id, payload, occurred_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, '')::uuid, $7::jsonb, $8)
+		 RETURNING `+scimProvisioningEventColumns,
+		normalized.ID,
+		normalized.OrgID,
+		normalized.ConnectionID,
+		normalized.Op,
+		nullString(normalized.ExternalID),
+		normalized.UserID,
+		string(payload),
+		normalized.OccurredAt,
+	))
+	if err != nil {
+		if isTenancyUniqueViolation(err) {
+			return SCIMProvisioningEventRecord{}, ErrConflict
+		}
+		return SCIMProvisioningEventRecord{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.scim_provisioning_event.create",
+		TenantID:     saved.OrgID,
+		ResourceType: "scim_provisioning_event",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
+}
+
+// ListSCIMProvisioningEvents returns events for one connection ordered newest
+// first, capped at limit (default 100).
+func (p *PostgresStore) ListSCIMProvisioningEvents(ctx context.Context, orgID string, connectionID string, limit int) ([]SCIMProvisioningEventRecord, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`SELECT `+scimProvisioningEventColumns+`
+		 FROM scim_provisioning_events
+		 WHERE org_id = $1
+		   AND connection_id = NULLIF($2, '')::uuid
+		 ORDER BY occurred_at DESC
+		 LIMIT $3`,
+		strings.TrimSpace(orgID),
+		strings.TrimSpace(connectionID),
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]SCIMProvisioningEventRecord, 0)
+	for rows.Next() {
+		item, err := scanSCIMProvisioningEvent(rows)
 		if err != nil {
 			return nil, err
 		}

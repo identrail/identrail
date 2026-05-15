@@ -1,0 +1,275 @@
+package db
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+// ---------- NormalizeIdentityConnectionForWrite: SAML completeness ----------
+
+func TestNormalize_AcceptsLegacyWorkOSSAML(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	connection, err := NormalizeIdentityConnectionForWrite(IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_123",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("legacy WorkOS-SAML row rejected: %v", err)
+	}
+	if connection.EntityID != "" || connection.SSOURL != "" || connection.CertificatePEM != "" {
+		t.Errorf("native fields should remain zero for WorkOS-SAML row: %+v", connection)
+	}
+}
+
+func TestNormalize_AcceptsNativeSAML(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	connection, err := NormalizeIdentityConnectionForWrite(IdentityConnection{
+		OrgID:          "tenant-a",
+		Provider:       "saml",
+		Type:           "sso",
+		Status:         "pending",
+		EntityID:       "https://idp.example.com/entity",
+		SSOURL:         "https://idp.example.com/sso",
+		CertificatePEM: "-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+		AttributeMapping: map[string]string{
+			"email": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+		},
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("native SAML row rejected: %v", err)
+	}
+	if !connection.IsNativeSAML() {
+		t.Errorf("IsNativeSAML should be true, got: %+v", connection)
+	}
+	if connection.AttributeMapping["email"] == "" {
+		t.Errorf("attribute mapping not preserved: %+v", connection.AttributeMapping)
+	}
+}
+
+func TestNormalize_RejectsHalfConfiguredNativeSAML(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name    string
+		mutate  func(*IdentityConnection)
+		wantMsg string
+	}{
+		{
+			"missing_entity_id",
+			func(c *IdentityConnection) { c.EntityID = "" },
+			"entity_id",
+		},
+		{
+			"missing_cert",
+			func(c *IdentityConnection) { c.CertificatePEM = "" },
+			"certificate_pem",
+		},
+		{
+			"missing_sso_url",
+			func(c *IdentityConnection) { c.SSOURL = "" },
+			"sso_url",
+		},
+		{
+			"http_sso_url",
+			func(c *IdentityConnection) { c.SSOURL = "http://idp.example.com/sso" },
+			"https",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := IdentityConnection{
+				OrgID:          "tenant-a",
+				Provider:       "saml",
+				Type:           "sso",
+				Status:         "pending",
+				EntityID:       "https://idp.example.com/entity",
+				SSOURL:         "https://idp.example.com/sso",
+				CertificatePEM: "-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+				CreatedAt:      now,
+			}
+			tc.mutate(&base)
+			_, err := NormalizeIdentityConnectionForWrite(base)
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("error should mention %q, got: %v", tc.wantMsg, err)
+			}
+		})
+	}
+}
+
+func TestNormalize_NonSAMLProvidersIgnoreNativeFields(t *testing.T) {
+	// A workos or oidc provider does not need native SAML fields, so leaving
+	// them empty must remain valid.
+	for _, provider := range []string{"workos", "oidc"} {
+		t.Run(provider, func(t *testing.T) {
+			_, err := NormalizeIdentityConnectionForWrite(IdentityConnection{
+				OrgID:    "tenant-a",
+				Provider: provider,
+				Type:     "sso",
+				Status:   "pending",
+			})
+			if err != nil {
+				t.Errorf("%s provider rejected: %v", provider, err)
+			}
+		})
+	}
+}
+
+func TestNormalize_DefaultsJITProvisioningDisabled(t *testing.T) {
+	connection, err := NormalizeIdentityConnectionForWrite(IdentityConnection{
+		OrgID:    "tenant-a",
+		Provider: "workos",
+		Type:     "sso",
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if connection.JITProvisioningEnabled {
+		t.Error("JIT provisioning must default to false")
+	}
+}
+
+func TestNormalize_AttributeMappingTrimsAndDropsEmptyEntries(t *testing.T) {
+	connection, err := NormalizeIdentityConnectionForWrite(IdentityConnection{
+		OrgID:    "tenant-a",
+		Provider: "workos",
+		Type:     "sso",
+		AttributeMapping: map[string]string{
+			"email":  "  http://schemas/email  ",
+			"":       "discarded",
+			"name":   "",
+			"groups": "http://schemas/groups",
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if connection.AttributeMapping["email"] != "http://schemas/email" {
+		t.Errorf("email mapping should be trimmed: %q", connection.AttributeMapping["email"])
+	}
+	if _, ok := connection.AttributeMapping[""]; ok {
+		t.Error("empty key should be dropped")
+	}
+	if _, ok := connection.AttributeMapping["name"]; ok {
+		t.Error("empty value should be dropped")
+	}
+}
+
+// ---------- SCIM provisioning events: memory CRUD ----------
+
+func TestMemoryStore_SCIMProvisioningEventLifecycle(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	connection, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "directory_sync",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_123",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	first, err := store.CreateSCIMProvisioningEvent(ctx, SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: connection.ID,
+		Op:           "create",
+		ExternalID:   "okta-user-1",
+		Payload:      map[string]any{"userName": "alice@example.com"},
+		OccurredAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("create scim event: %v", err)
+	}
+	second, err := store.CreateSCIMProvisioningEvent(ctx, SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: connection.ID,
+		Op:           "deactivate",
+		ExternalID:   "okta-user-1",
+		OccurredAt:   now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create second scim event: %v", err)
+	}
+
+	events, err := store.ListSCIMProvisioningEvents(ctx, "tenant-a", connection.ID, 10)
+	if err != nil {
+		t.Fatalf("list scim events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("event count: want 2, got %d", len(events))
+	}
+	// Newest first.
+	if events[0].ID != second.ID {
+		t.Errorf("expected newest event first, got %+v", events[0])
+	}
+	if events[1].ID != first.ID {
+		t.Errorf("expected oldest event second, got %+v", events[1])
+	}
+}
+
+func TestMemoryStore_SCIMProvisioningEvent_RejectsUnknownConnection(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	_, err := store.CreateSCIMProvisioningEvent(ctx, SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: "99999999-9999-9999-9999-999999999999",
+		Op:           "create",
+		OccurredAt:   time.Now(),
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound for unknown connection, got: %v", err)
+	}
+}
+
+func TestNormalizeSCIMProvisioningEvent_RejectsUnknownOp(t *testing.T) {
+	_, err := NormalizeSCIMProvisioningEventForWrite(SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: "33333333-3333-3333-3333-333333333333",
+		Op:           "rename",
+		OccurredAt:   time.Now(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid scim provisioning op") {
+		t.Errorf("expected invalid op error, got: %v", err)
+	}
+}
+
+func TestNormalizeSCIMProvisioningEvent_AssignsIDAndDefaultsPayload(t *testing.T) {
+	event, err := NormalizeSCIMProvisioningEventForWrite(SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: "33333333-3333-3333-3333-333333333333",
+		Op:           "create",
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if event.ID == "" {
+		t.Error("expected normalizer to assign id")
+	}
+	if event.Payload == nil {
+		t.Error("expected payload to default to empty map")
+	}
+	if event.OccurredAt.IsZero() {
+		t.Error("expected occurred_at to default to now")
+	}
+}

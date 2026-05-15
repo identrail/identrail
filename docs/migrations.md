@@ -68,6 +68,9 @@ Current sequence in `migrations/`:
 22. `000019_scan_policy_repo_bounds` - scan policy history and finding limit bounds
 23. `000020_invitations_domains_connections` - invitation, verified-domain, and enterprise identity connection scaffolding
 24. `000021_scan_policy_scheduler_state` - scan policy scheduler tick state and due-policy lookup index
+25. `000022_scan_retry_dlq_replay` - scan retry / DLQ replay scaffolding
+26. `000023_onboarding_state` - onboarding wizard server-owned state
+27. `000024_native_sso_scim_scaffold` - native SAML and SCIM 2.0 schema scaffolding on `identity_connections`, plus `users.scim_external_id` and the `scim_provisioning_events` audit log
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

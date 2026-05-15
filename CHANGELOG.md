@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added schema scaffolding for native SAML SSO and SCIM 2.0 provisioning alongside the existing WorkOS-managed path (migration `000024_native_sso_scim_scaffold`):
+  - `identity_connections` gains nullable `entity_id`, `sso_url`, `certificate_pem`, `attribute_mapping` (JSONB), `jit_provisioning_enabled`, and `scim_bearer_token_hash` columns; a SAML completeness CHECK constraint requires each `provider='saml'` row to be either WorkOS-backed or fully native (https sso_url + entity_id + certificate_pem)
+  - `users.scim_external_id` (nullable, unique-when-set) records the stable IdP-assigned id
+  - New append-only `scim_provisioning_events` table captures every SCIM op for tenant-visible audit; standard RLS tenant-isolation policy applied
+  - `IdentityConnection` Go struct and memory + Postgres CRUD updated; `SCIMProvisioningEventRecord` + `CreateSCIMProvisioningEvent`/`ListSCIMProvisioningEvents` added behind the existing `Store` interface
+  - No HTTP routes, no SAML protocol code, and no SCIM endpoints in this change; the WorkOS sign-in/sign-up path is untouched
 - Added the foundational enterprise-tier domain models in `internal/enterprise`:
   - `SCIMUser` + `SCIMProvisioningEvent` modelling the core SCIM 2.0 user schema and lifecycle operations (create/update/deactivate/delete) for directory-sync sources
   - `SAMLConnection` with PEM X.509 certificate parsing, https-only SSO URL enforcement, attribute mapping, and `pending → active → disabled` status transitions

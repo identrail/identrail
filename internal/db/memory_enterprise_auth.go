@@ -257,3 +257,61 @@ func (m *MemoryStore) ListIdentityConnections(ctx context.Context, orgID string,
 	}
 	return items, nil
 }
+
+// CreateSCIMProvisioningEvent appends one SCIM provisioning event to the
+// append-only audit log scoped to the org + connection.
+func (m *MemoryStore) CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error) {
+	normalized, err := NormalizeSCIMProvisioningEventForWrite(event)
+	if err != nil {
+		return SCIMProvisioningEventRecord{}, err
+	}
+	m.mu.Lock()
+	if _, exists := m.organizations[normalized.OrgID]; !exists {
+		m.mu.Unlock()
+		return SCIMProvisioningEventRecord{}, ErrNotFound
+	}
+	if _, exists := m.identityConnections[orgScopedKey(normalized.OrgID, normalized.ConnectionID)]; !exists {
+		m.mu.Unlock()
+		return SCIMProvisioningEventRecord{}, ErrNotFound
+	}
+	if _, exists := m.scimEvents[normalized.ID]; exists {
+		m.mu.Unlock()
+		return SCIMProvisioningEventRecord{}, ErrConflict
+	}
+	m.scimEvents[normalized.ID] = normalized
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.scim_provisioning_event.create",
+		TenantID:     normalized.OrgID,
+		ResourceType: "scim_provisioning_event",
+		ResourceID:   normalized.ID,
+		Outcome:      "success",
+	})
+	return normalized, nil
+}
+
+// ListSCIMProvisioningEvents returns events for one connection ordered newest
+// first, capped at limit (default 100).
+func (m *MemoryStore) ListSCIMProvisioningEvents(ctx context.Context, orgID string, connectionID string, limit int) ([]SCIMProvisioningEventRecord, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	orgID = strings.TrimSpace(orgID)
+	connectionID = strings.TrimSpace(connectionID)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	items := make([]SCIMProvisioningEventRecord, 0)
+	for _, event := range m.scimEvents {
+		if event.OrgID != orgID || event.ConnectionID != connectionID {
+			continue
+		}
+		items = append(items, event)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].OccurredAt.After(items[j].OccurredAt)
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
