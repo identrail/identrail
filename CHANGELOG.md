@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added the foundational enterprise-tier domain models in `internal/enterprise`:
+  - `SCIMUser` + `SCIMProvisioningEvent` modelling the core SCIM 2.0 user schema and lifecycle operations (create/update/deactivate/delete) for directory-sync sources
+  - `SAMLConnection` with PEM X.509 certificate parsing, https-only SSO URL enforcement, attribute mapping, and `pending → active → disabled` status transitions
+  - `ResidencyPolicy` with a curated region allowlist, advisory/strict enforcement modes, case-insensitive evaluation, and deterministic region ordering for governance hashing
+  - `BuildExecutiveReport` aggregator producing open findings by severity/type, top-N callouts, and a week-over-week trend rollup; expired suppressions are normalized back to open before rollup so leadership metrics do not under-count lapsed work
 - Added a feature-gated authenticated onboarding wizard:
   - persists server-owned setup progress for organization, workspace, connector, first scan, invite, and dashboard-tour steps
   - adds `/v1/onboarding/*` APIs with OpenAPI/authz metadata and memory/Postgres storage
