@@ -86,6 +86,11 @@ type SCIMProvisioningEvent struct {
 }
 
 // Validate enforces the invariants every provisioning consumer relies on.
+//
+// For delete events the SCIM DELETE protocol does not carry a user resource
+// body — only the resource ID in the path — so this method requires just
+// User.ID for that op and falls back to the full SCIMUser.Validate for any op
+// that semantically updates user state.
 func (e SCIMProvisioningEvent) Validate() error {
 	if !validSCIMProvisioningOp(e.Op) {
 		return fmt.Errorf("scim provisioning op %q is not recognized", e.Op)
@@ -95,6 +100,12 @@ func (e SCIMProvisioningEvent) Validate() error {
 	}
 	if e.OccurredAt.IsZero() {
 		return fmt.Errorf("scim provisioning event occurred_at is required")
+	}
+	if e.Op == SCIMProvisioningDelete {
+		if strings.TrimSpace(e.User.ID) == "" {
+			return fmt.Errorf("scim provisioning delete event requires user.id")
+		}
+		return nil
 	}
 	if err := e.User.Validate(); err != nil {
 		return fmt.Errorf("scim provisioning event user invalid: %w", err)

@@ -99,6 +99,28 @@ func TestSCIMProvisioningEvent_Validate(t *testing.T) {
 	}
 }
 
+func TestSCIMProvisioningEvent_DeleteAcceptsIDOnlyPayload(t *testing.T) {
+	// SCIM DELETE /Users/{id} carries no resource body, so the event only
+	// needs the user ID — full user payload validation must not be required.
+	event := SCIMProvisioningEvent{
+		Op:           SCIMProvisioningDelete,
+		User:         SCIMUser{ID: "scim-user-1"},
+		SourceTenant: "tenant-1",
+		OccurredAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := event.Validate(); err != nil {
+		t.Errorf("id-only delete event should pass: %v", err)
+	}
+
+	// But the user ID itself remains mandatory so the consumer knows what to
+	// deprovision.
+	noID := event
+	noID.User = SCIMUser{}
+	if err := noID.Validate(); err == nil {
+		t.Error("delete event without user.id should be rejected")
+	}
+}
+
 // ---------- SAML ----------
 
 // generateSelfSignedCertPEM produces a short-lived self-signed certificate so
