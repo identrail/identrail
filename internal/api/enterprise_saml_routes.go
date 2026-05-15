@@ -40,6 +40,12 @@ func defaultEnterpriseSAMLMetadataFetcher() *enterpriseSAMLMetadataFetcher {
 // samlConnectionRequest is the inbound shape for native SAML CRUD calls.
 // Provider/Type/Status defaults and the SCIM bearer token are managed by the
 // handler so the admin payload stays focused on connection-specific fields.
+//
+// Boolean settings (jit_provisioning_enabled, sso_required) are modeled as
+// pointers so the PUT handler can distinguish "field omitted" from
+// "field explicitly set to false". Without this, a partial update that only
+// touched certificate_pem would silently clear both security toggles back to
+// their Go zero value (false).
 type samlConnectionRequest struct {
 	Type                   string            `json:"type"`
 	DisplayName            string            `json:"display_name,omitempty"`
@@ -47,8 +53,8 @@ type samlConnectionRequest struct {
 	SSOURL                 string            `json:"sso_url"`
 	CertificatePEM         string            `json:"certificate_pem"`
 	AttributeMapping       map[string]string `json:"attribute_mapping,omitempty"`
-	JITProvisioningEnabled bool              `json:"jit_provisioning_enabled"`
-	SSORequired            bool              `json:"sso_required"`
+	JITProvisioningEnabled *bool             `json:"jit_provisioning_enabled,omitempty"`
+	SSORequired            *bool             `json:"sso_required,omitempty"`
 	GroupRoleMap           map[string]string `json:"group_role_map,omitempty"`
 }
 
@@ -147,8 +153,8 @@ func createNativeSAMLConnection(logger *zap.Logger, svc *Service) gin.HandlerFun
 			CertificatePEM:         req.CertificatePEM,
 			AttributeMapping:       req.AttributeMapping,
 			GroupRoleMap:           req.GroupRoleMap,
-			JITProvisioningEnabled: req.JITProvisioningEnabled,
-			SSORequired:            req.SSORequired,
+			JITProvisioningEnabled: boolOrFalse(req.JITProvisioningEnabled),
+			SSORequired:            boolOrFalse(req.SSORequired),
 			SCIMBearerTokenHash:    hash,
 		}
 		// Defense in depth: also validate the SAML attribute mapping with the
@@ -272,8 +278,15 @@ func updateNativeSAMLConnection(logger *zap.Logger, svc *Service) gin.HandlerFun
 		if len(req.GroupRoleMap) > 0 {
 			updated.GroupRoleMap = req.GroupRoleMap
 		}
-		updated.JITProvisioningEnabled = req.JITProvisioningEnabled
-		updated.SSORequired = req.SSORequired
+		// Boolean toggles are merge-style: an omitted field preserves the
+		// existing value, so a routine cert rotation cannot silently disable
+		// sso_required or jit_provisioning_enabled.
+		if req.JITProvisioningEnabled != nil {
+			updated.JITProvisioningEnabled = *req.JITProvisioningEnabled
+		}
+		if req.SSORequired != nil {
+			updated.SSORequired = *req.SSORequired
+		}
 		updated.UpdatedAt = time.Now().UTC()
 
 		if err := preflightNativeSAML(updated); err != nil {
@@ -360,6 +373,16 @@ func samlMetadataImport(logger *zap.Logger, fetcher *enterpriseSAMLMetadataFetch
 }
 
 // --- helpers ---
+
+// boolOrFalse dereferences an optional inbound boolean. A nil pointer (field
+// omitted from the JSON payload) becomes the documented create-time default
+// of false; a present-and-true pointer flips the toggle on.
+func boolOrFalse(v *bool) bool {
+	if v == nil {
+		return false
+	}
+	return *v
+}
 
 func defaultSAMLConnectionType(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))

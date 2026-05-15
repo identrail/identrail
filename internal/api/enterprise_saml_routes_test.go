@@ -245,7 +245,8 @@ func TestNativeSAMLRoutes_UpdateSetsSSORequiredAndPreservesToken(t *testing.T) {
 	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
 
 	update := validSAMLRequest(t)
-	update.SSORequired = true
+	ssoRequired := true
+	update.SSORequired = &ssoRequired
 	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, update)
 	if w.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", w.Code, w.Body.String())
@@ -257,6 +258,77 @@ func TestNativeSAMLRoutes_UpdateSetsSSORequiredAndPreservesToken(t *testing.T) {
 	}
 	if !updated.Connection.HasSCIMBearerToken {
 		t.Error("scim bearer token must survive update")
+	}
+}
+
+func TestNativeSAMLRoutes_UpdatePreservesBooleansWhenOmitted(t *testing.T) {
+	svc, inject, fetcher := newSAMLTestRig(t)
+	r := newTestRouterFor(t, svc, inject, fetcher, true)
+
+	// Create a connection with sso_required=true and jit_provisioning_enabled=true.
+	createReq := validSAMLRequest(t)
+	ssoRequired := true
+	jitEnabled := true
+	createReq.SSORequired = &ssoRequired
+	createReq.JITProvisioningEnabled = &jitEnabled
+	createResp := doJSON(t, r, http.MethodPost, "/v1/enterprise/identity-connections/saml", createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var created samlConnectionResponse
+	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
+	if !created.Connection.SSORequired || !created.Connection.JITProvisioningEnabled {
+		t.Fatalf("seed: expected both toggles enabled, got sso=%v jit=%v", created.Connection.SSORequired, created.Connection.JITProvisioningEnabled)
+	}
+
+	// Send a routine cert rotation that omits the boolean fields. Regression
+	// against Codex review feedback: previously the zero-value bools would
+	// silently flip both toggles back to false.
+	rotate := samlConnectionRequest{
+		EntityID:       created.Connection.EntityID,
+		SSOURL:         created.Connection.SSOURL,
+		CertificatePEM: generateTestCertPEM(t),
+		AttributeMapping: map[string]string{
+			"email": "urn:oid:0.9.2342.19200300.100.1.3",
+		},
+	}
+	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, rotate)
+	if w.Code != http.StatusOK {
+		t.Fatalf("rotate: %d %s", w.Code, w.Body.String())
+	}
+	var after samlConnectionResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &after)
+	if !after.Connection.SSORequired {
+		t.Error("sso_required must be preserved when omitted from PUT body")
+	}
+	if !after.Connection.JITProvisioningEnabled {
+		t.Error("jit_provisioning_enabled must be preserved when omitted from PUT body")
+	}
+}
+
+func TestNativeSAMLRoutes_UpdateAllowsExplicitFalse(t *testing.T) {
+	svc, inject, fetcher := newSAMLTestRig(t)
+	r := newTestRouterFor(t, svc, inject, fetcher, true)
+
+	createReq := validSAMLRequest(t)
+	ssoRequired := true
+	createReq.SSORequired = &ssoRequired
+	createResp := doJSON(t, r, http.MethodPost, "/v1/enterprise/identity-connections/saml", createReq)
+	var created samlConnectionResponse
+	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
+
+	// Explicit false in the payload still works — admins can flip toggles off.
+	off := false
+	update := validSAMLRequest(t)
+	update.SSORequired = &off
+	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, update)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", w.Code, w.Body.String())
+	}
+	var after samlConnectionResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &after)
+	if after.Connection.SSORequired {
+		t.Error("sso_required must honor an explicit false in the payload")
 	}
 }
 
