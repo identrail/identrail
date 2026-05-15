@@ -356,9 +356,15 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		registerOnboardingRoutes(v1, logger, svc, opts.FeatureOnboardingWizard)
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
-	registerNativeSAMLAdminRoutes(v1, logger, svc, nativeSAMLRouteOptions{
-		Enabled: opts.FeatureNativeSSO,
-	})
+	// Native SAML admin routes depend on session-auth middleware to populate
+	// `auth.session`. Without FeatureNewAuth the middleware is not installed,
+	// so the handlers would always return 401 — register only when the new
+	// auth stack is on, regardless of the native-SSO feature flag.
+	if opts.FeatureNewAuth {
+		registerNativeSAMLAdminRoutes(v1, logger, svc, nativeSAMLRouteOptions{
+			Enabled: opts.FeatureNativeSSO,
+		})
+	}
 	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS, opts.FeatureConnectorGitHubV2)
 	registerKubernetesConnectionRoutes(v1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 

@@ -117,7 +117,7 @@ func TestFetchSAMLMetadataXML_HappyPath(t *testing.T) {
 		t.Fatalf("fetch metadata: %v", err)
 	}
 	if !strings.Contains(string(body), "EntityDescriptor") {
-		t.Errorf("unexpected body: %q", string(body)[:80])
+		t.Errorf("unexpected body: %q", string(body))
 	}
 }
 
