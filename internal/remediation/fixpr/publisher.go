@@ -97,7 +97,10 @@ func (p GitHubPublisher) getBaseRef(ctx context.Context, owner, repo, token, bas
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	refPath := fmt.Sprintf("/repos/%s/%s/git/ref/heads/%s", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(base))
+	// GitHub's git refs endpoint expects the branch portion of the path to
+	// preserve "/" separators (e.g. "release/2026.05"); escape each segment
+	// individually instead of treating the whole ref as one component.
+	refPath := fmt.Sprintf("/repos/%s/%s/git/ref/heads/%s", url.PathEscape(owner), url.PathEscape(repo), escapeRefPath(base))
 	if err := p.doJSON(ctx, http.MethodGet, refPath, token, nil, &refBody); err != nil {
 		return "", "", err
 	}
@@ -221,6 +224,16 @@ func (p GitHubPublisher) doJSON(ctx context.Context, method, path, token string,
 		return fmt.Errorf("decode github response: %w", err)
 	}
 	return nil
+}
+
+// escapeRefPath escapes a git ref so it can be safely interpolated into a URL
+// path while preserving the "/" separators that GitHub's ref endpoints require.
+func escapeRefPath(ref string) string {
+	parts := strings.Split(ref, "/")
+	for i, segment := range parts {
+		parts[i] = url.PathEscape(segment)
+	}
+	return strings.Join(parts, "/")
 }
 
 func (p GitHubPublisher) apiBaseURL() string {

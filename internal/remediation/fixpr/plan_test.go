@@ -167,6 +167,13 @@ func TestBuildPlan_BranchSlugIsSafe(t *testing.T) {
 		{"finding/abc:123", "identrail/fix/finding-abc-123"},
 		{"  FINDING-X  ", "identrail/fix/finding-x"},
 		{"ARN:aws:iam::1:role/My Role", "identrail/fix/arn-aws-iam-1-role-my-role"},
+		// git-check-ref-format rejects refs starting with "." or containing "..".
+		{".hidden-finding", "identrail/fix/hidden-finding"},
+		{"..relative", "identrail/fix/relative"},
+		{"finding..with..dots", "identrail/fix/finding-with-dots"},
+		{"trailing-dot.", "identrail/fix/trailing-dot"},
+		{"finding.lock", "identrail/fix/finding-lock"},
+		{"...", "identrail/fix/finding"},
 	}
 	template := standards.PatchTemplate{Summary: "test"}
 	for _, tc := range cases {

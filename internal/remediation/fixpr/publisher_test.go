@@ -210,6 +210,52 @@ func TestGitHubPublisher_Publish_RejectsMissingInputs(t *testing.T) {
 	}
 }
 
+func TestGitHubPublisher_Publish_PreservesSlashesInBaseBranchRef(t *testing.T) {
+	srv, recorded, mu := newFakeGitHubServer(t)
+
+	plan := FixPRPlan{
+		BaseBranch:    "release/2026.05",
+		BranchName:    "identrail/fix/finding-2",
+		CommitMessage: "identrail: fix",
+		PRTitle:       "title",
+		PRBody:        "body",
+		Files:         []PlanFile{{Path: "x", Content: "y"}},
+	}
+	publisher := GitHubPublisher{APIBaseURL: srv.URL}
+	if _, err := publisher.Publish(context.Background(), "acme", "repo", "tok", plan); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	first := (*recorded)[0]
+	want := "/repos/acme/repo/git/ref/heads/release/2026.05"
+	if first.Path != want {
+		t.Errorf("base ref path: want %s, got %s", want, first.Path)
+	}
+	if strings.Contains(first.Path, "%2F") {
+		t.Errorf("base branch slash was URL-encoded: %s", first.Path)
+	}
+}
+
+func TestEscapeRefPath_PreservesSlashesEscapesSegments(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"main", "main"},
+		{"release/2026.05", "release/2026.05"},
+		{"feature/with space", "feature/with%20space"},
+		{"a/b/c", "a/b/c"},
+	}
+	for _, tc := range cases {
+		got := escapeRefPath(tc.in)
+		if got != tc.want {
+			t.Errorf("escapeRefPath(%q): want %q, got %q", tc.in, tc.want, got)
+		}
+	}
+}
+
 func TestGitHubPublisher_Publish_ReturnsErrorOnAPIFailure(t *testing.T) {
 	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"ref not found"}`, http.StatusNotFound)

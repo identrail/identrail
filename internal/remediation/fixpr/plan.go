@@ -170,18 +170,37 @@ func buildCommitMessage(finding domain.Finding, template standards.PatchTemplate
 	return fmt.Sprintf("identrail: %s\n\nFinding: %s (%s)\n", subject, finding.ID, finding.Type)
 }
 
-var slugRe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+var (
+	slugRe        = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+	multiDotRe    = regexp.MustCompile(`\.{2,}`)
+	leadingDotRe  = regexp.MustCompile(`(^|/)\.+`)
+	trailingDotRe = regexp.MustCompile(`\.+(/|$)`)
+)
 
+// slugifyFindingID produces a string that is safe to use as a single git ref
+// component. git-check-ref-format(1) rejects refs that begin with ".", contain
+// "..", or end in ".lock", so those patterns are normalized to "-" rather than
+// preserved.
 func slugifyFindingID(id string) string {
 	s := slugRe.ReplaceAllString(strings.TrimSpace(id), "-")
-	s = strings.Trim(s, "-")
+	s = multiDotRe.ReplaceAllString(s, "-")
+	s = leadingDotRe.ReplaceAllString(s, "${1}")
+	s = trailingDotRe.ReplaceAllString(s, "${1}")
+	s = strings.Trim(s, "-.")
+	s = strings.ToLower(s)
+	if strings.HasSuffix(s, ".lock") {
+		s = strings.TrimSuffix(s, ".lock") + "-lock"
+	}
 	if s == "" {
 		return "finding"
 	}
 	if len(s) > 80 {
-		s = s[:80]
+		s = strings.TrimRight(s[:80], "-.")
 	}
-	return strings.ToLower(s)
+	if s == "" {
+		return "finding"
+	}
+	return s
 }
 
 func templateExtension(template standards.PatchTemplate) string {
