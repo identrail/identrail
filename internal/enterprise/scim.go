@@ -25,29 +25,67 @@ type SCIMUserActiveStatus bool
 // provider can drive create / update / deactivate without leaking provider
 // specifics into the rest of the system.
 //
-// JSON tags use the SCIM 2.0 on-wire attribute names (camelCase) so the
-// future /scim/v2/Users handler can decode standard provider payloads (Okta,
-// Azure AD, OneLogin, etc.) directly into this struct without an intermediate
-// wire DTO. CreatedAt/UpdatedAt are exposed under the SCIM `meta` semantics.
+// JSON tags follow the SCIM 2.0 on-wire shape so the future /scim/v2/Users
+// handler can decode standard provider payloads (Okta, Azure AD, OneLogin,
+// etc.) directly into this struct without an intermediate wire DTO. In
+// particular, email addresses are carried in the SCIM `emails` multi-valued
+// attribute and resource timestamps live under the SCIM `meta` complex
+// attribute (`meta.created`, `meta.lastModified`).
 type SCIMUser struct {
-	ID          string    `json:"id"`
-	ExternalID  string    `json:"externalId,omitempty"`
-	UserName    string    `json:"userName"`
-	Email       string    `json:"email"`
-	DisplayName string    `json:"displayName,omitempty"`
-	Active      bool      `json:"active"`
-	Groups      []string  `json:"groups,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string      `json:"id"`
+	ExternalID  string      `json:"externalId,omitempty"`
+	UserName    string      `json:"userName"`
+	DisplayName string      `json:"displayName,omitempty"`
+	Active      bool        `json:"active"`
+	Emails      []SCIMEmail `json:"emails,omitempty"`
+	Groups      []string    `json:"groups,omitempty"`
+	Meta        SCIMMeta    `json:"meta"`
+}
+
+// SCIMEmail mirrors one entry of the SCIM `emails` multi-valued attribute.
+type SCIMEmail struct {
+	Value   string `json:"value"`
+	Type    string `json:"type,omitempty"`
+	Primary bool   `json:"primary,omitempty"`
+}
+
+// SCIMMeta carries the SCIM `meta` complex attribute. Only the fields
+// Identrail relies on are modeled.
+type SCIMMeta struct {
+	ResourceType string    `json:"resourceType,omitempty"`
+	Created      time.Time `json:"created,omitempty"`
+	LastModified time.Time `json:"lastModified,omitempty"`
+	Location     string    `json:"location,omitempty"`
+	Version      string    `json:"version,omitempty"`
+}
+
+// PrimaryEmail returns the canonical login identifier for the user: the
+// primary entry in Emails when one is marked, otherwise the first non-empty
+// value. Empty string when no usable email is present.
+func (u SCIMUser) PrimaryEmail() string {
+	firstNonEmpty := ""
+	for _, e := range u.Emails {
+		value := strings.TrimSpace(e.Value)
+		if value == "" {
+			continue
+		}
+		if e.Primary {
+			return value
+		}
+		if firstNonEmpty == "" {
+			firstNonEmpty = value
+		}
+	}
+	return firstNonEmpty
 }
 
 // Validate enforces SCIM core schema invariants relevant to Identrail.
 //
-// The email field must be a plain addr-spec (e.g. "alice@example.com") rather
-// than the mailbox display syntax accepted by net/mail ("Alice
-// <alice@example.com>"). The downstream provisioning path upserts this string
-// into the users/identities tables as a login identifier, so accepting display
-// syntax would persist a non-canonical email.
+// The selected primary email must be a plain addr-spec (e.g.
+// "alice@example.com") rather than the mailbox display syntax accepted by
+// net/mail ("Alice <alice@example.com>"). The downstream provisioning path
+// upserts this string into the users/identities tables as a login identifier,
+// so accepting display syntax would persist a non-canonical email.
 func (u SCIMUser) Validate() error {
 	if strings.TrimSpace(u.ID) == "" {
 		return fmt.Errorf("scim user id is required")
@@ -55,13 +93,16 @@ func (u SCIMUser) Validate() error {
 	if strings.TrimSpace(u.UserName) == "" {
 		return fmt.Errorf("scim user userName is required")
 	}
-	trimmedEmail := strings.TrimSpace(u.Email)
-	parsed, err := mail.ParseAddress(trimmedEmail)
-	if err != nil {
-		return fmt.Errorf("scim user email %q is invalid: %w", u.Email, err)
+	email := u.PrimaryEmail()
+	if email == "" {
+		return fmt.Errorf("scim user must include at least one email value")
 	}
-	if !strings.EqualFold(parsed.Address, trimmedEmail) {
-		return fmt.Errorf("scim user email %q must be a plain address without display name", u.Email)
+	parsed, err := mail.ParseAddress(email)
+	if err != nil {
+		return fmt.Errorf("scim user email %q is invalid: %w", email, err)
+	}
+	if !strings.EqualFold(parsed.Address, email) {
+		return fmt.Errorf("scim user email %q must be a plain address without display name", email)
 	}
 	return nil
 }

@@ -21,11 +21,16 @@ func sampleSCIMUser() SCIMUser {
 	return SCIMUser{
 		ID:          "scim-user-1",
 		UserName:    "alice@example.com",
-		Email:       "alice@example.com",
 		DisplayName: "Alice Example",
 		Active:      true,
-		CreatedAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		Emails: []SCIMEmail{
+			{Value: "alice@example.com", Type: "work", Primary: true},
+		},
+		Meta: SCIMMeta{
+			ResourceType: "User",
+			Created:      time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			LastModified: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		},
 	}
 }
 
@@ -39,11 +44,17 @@ func TestSCIMUser_Validate(t *testing.T) {
 	}{
 		{"missing_id", func(u *SCIMUser) { u.ID = "" }},
 		{"missing_username", func(u *SCIMUser) { u.UserName = "" }},
-		{"invalid_email", func(u *SCIMUser) { u.Email = "not-an-email" }},
-		// mail.ParseAddress accepts these mailbox/display forms; SCIMUser.Email
+		{"no_emails", func(u *SCIMUser) { u.Emails = nil }},
+		{"emails_all_empty_values", func(u *SCIMUser) { u.Emails = []SCIMEmail{{Value: "   "}, {Value: ""}} }},
+		{"invalid_email", func(u *SCIMUser) { u.Emails = []SCIMEmail{{Value: "not-an-email", Primary: true}} }},
+		// mail.ParseAddress accepts these mailbox/display forms; SCIM emails
 		// must persist as a canonical addr-spec only.
-		{"email_with_display_name", func(u *SCIMUser) { u.Email = "Alice <alice@example.com>" }},
-		{"email_with_trailing_comment", func(u *SCIMUser) { u.Email = "alice@example.com (Alice)" }},
+		{"email_with_display_name", func(u *SCIMUser) {
+			u.Emails = []SCIMEmail{{Value: "Alice <alice@example.com>", Primary: true}}
+		}},
+		{"email_with_trailing_comment", func(u *SCIMUser) {
+			u.Emails = []SCIMEmail{{Value: "alice@example.com (Alice)", Primary: true}}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,18 +112,26 @@ func TestSCIMProvisioningEvent_Validate(t *testing.T) {
 }
 
 func TestSCIMUser_DecodesStandardSCIMWirePayload(t *testing.T) {
-	// Verbatim payload shape an Okta/Azure AD SCIM client would POST. The
-	// struct tags must use SCIM camelCase attribute names so a future
-	// /scim/v2/Users handler can decode directly without an intermediate DTO.
+	// Verbatim payload shape an Okta/Azure AD SCIM client would POST per
+	// RFC 7643: emails is multi-valued and resource timestamps live under
+	// meta.created / meta.lastModified.
 	const payload = `{
+		"schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
 		"id": "scim-user-1",
 		"externalId": "ext-1",
 		"userName": "alice@example.com",
 		"displayName": "Alice Example",
-		"email": "alice@example.com",
 		"active": true,
-		"createdAt": "2026-05-01T00:00:00Z",
-		"updatedAt": "2026-05-01T00:00:00Z"
+		"emails": [
+			{"value": "alice.alt@example.com", "type": "home", "primary": false},
+			{"value": "alice@example.com", "type": "work", "primary": true}
+		],
+		"meta": {
+			"resourceType": "User",
+			"created": "2026-05-01T00:00:00Z",
+			"lastModified": "2026-05-01T00:00:00Z",
+			"location": "https://scim.example.com/v2/Users/scim-user-1"
+		}
 	}`
 	var u SCIMUser
 	if err := json.Unmarshal([]byte(payload), &u); err != nil {
@@ -127,6 +146,15 @@ func TestSCIMUser_DecodesStandardSCIMWirePayload(t *testing.T) {
 	if u.DisplayName != "Alice Example" {
 		t.Errorf("DisplayName: want Alice Example, got %q", u.DisplayName)
 	}
+	if got := u.PrimaryEmail(); got != "alice@example.com" {
+		t.Errorf("PrimaryEmail: want alice@example.com, got %q", got)
+	}
+	if u.Meta.ResourceType != "User" {
+		t.Errorf("Meta.ResourceType: want User, got %q", u.Meta.ResourceType)
+	}
+	if u.Meta.Created.IsZero() {
+		t.Error("Meta.Created should be populated from meta.created")
+	}
 	if err := u.Validate(); err != nil {
 		t.Errorf("decoded SCIM user should validate: %v", err)
 	}
@@ -139,17 +167,38 @@ func TestSCIMUser_MarshalsToSCIMCamelCase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	want := []string{`"userName":`, `"externalId":`, `"displayName":`, `"createdAt":`, `"updatedAt":`}
+	want := []string{`"userName":`, `"externalId":`, `"displayName":`, `"emails":`, `"meta":`, `"created":`, `"lastModified":`}
 	for _, key := range want {
 		if !strings.Contains(string(encoded), key) {
 			t.Errorf("marshaled output missing SCIM key %s; got %s", key, string(encoded))
 		}
 	}
-	forbidden := []string{`"user_name":`, `"external_id":`, `"display_name":`, `"created_at":`, `"updated_at":`}
+	forbidden := []string{`"user_name":`, `"external_id":`, `"display_name":`, `"created_at":`, `"updated_at":`, `"createdAt":`, `"updatedAt":`}
 	for _, key := range forbidden {
 		if strings.Contains(string(encoded), key) {
-			t.Errorf("marshaled output should not use snake_case key %s; got %s", key, string(encoded))
+			t.Errorf("marshaled output should not use non-SCIM key %s; got %s", key, string(encoded))
 		}
+	}
+}
+
+func TestSCIMUser_PrimaryEmail_PrefersPrimaryThenFirstNonEmpty(t *testing.T) {
+	cases := []struct {
+		name   string
+		emails []SCIMEmail
+		want   string
+	}{
+		{"primary_wins", []SCIMEmail{{Value: "a@example.com"}, {Value: "b@example.com", Primary: true}}, "b@example.com"},
+		{"first_non_empty_when_no_primary", []SCIMEmail{{Value: "   "}, {Value: "c@example.com"}, {Value: "d@example.com"}}, "c@example.com"},
+		{"all_empty", []SCIMEmail{{Value: "  "}, {Value: ""}}, ""},
+		{"nil", nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (SCIMUser{Emails: tc.emails}).PrimaryEmail()
+			if got != tc.want {
+				t.Errorf("PrimaryEmail: want %q, got %q", tc.want, got)
+			}
+		})
 	}
 }
 
