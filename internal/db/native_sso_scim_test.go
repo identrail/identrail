@@ -106,6 +106,25 @@ func TestNormalize_RejectsHalfConfiguredNativeSAML(t *testing.T) {
 	}
 }
 
+func TestNormalize_RejectsMixedModeSAML(t *testing.T) {
+	// A WorkOS-backed SAML row must not also carry native fields, otherwise it
+	// is ambiguous which protocol path owns the connection at runtime.
+	_, err := NormalizeIdentityConnectionForWrite(IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_123",
+		EntityID:           "https://idp.example.com/entity",
+	})
+	if err == nil {
+		t.Fatal("expected mixed-mode SAML row to be rejected")
+	}
+	if !strings.Contains(err.Error(), "cannot set native fields") {
+		t.Errorf("error should call out mixed mode, got: %v", err)
+	}
+}
+
 func TestNormalize_NonSAMLProvidersIgnoreNativeFields(t *testing.T) {
 	// A workos or oidc provider does not need native SAML fields, so leaving
 	// them empty must remain valid.
@@ -221,6 +240,79 @@ func TestMemoryStore_SCIMProvisioningEventLifecycle(t *testing.T) {
 	}
 	if events[1].ID != first.ID {
 		t.Errorf("expected oldest event second, got %+v", events[1])
+	}
+}
+
+func TestMemoryStore_SCIMProvisioningEvent_RejectsUnknownUser(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	connection, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "directory_sync",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_123",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	// Postgres FK on users(id) rejects events that reference a non-existent
+	// user; memory store must enforce the same contract.
+	_, err = store.CreateSCIMProvisioningEvent(ctx, SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: connection.ID,
+		Op:           "create",
+		UserID:       "99999999-9999-9999-9999-999999999999",
+		OccurredAt:   now,
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound for unknown user, got: %v", err)
+	}
+}
+
+func TestMemoryStore_SCIMProvisioningEvent_RejectsCrossTenantConnection(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	ctxA := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	ctxB := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	if err := store.UpsertOrganization(ctxA, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org A: %v", err)
+	}
+	if err := store.UpsertOrganization(ctxB, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("upsert org B: %v", err)
+	}
+	connectionB, err := store.CreateIdentityConnection(ctxB, IdentityConnection{
+		OrgID:              "tenant-b",
+		Provider:           "saml",
+		Type:               "directory_sync",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_b",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create connection B: %v", err)
+	}
+
+	// Attempt to forge an event under tenant A that references tenant B's
+	// connection. Must be rejected — this is the cross-tenant exploit the
+	// composite FK closes in Postgres.
+	_, err = store.CreateSCIMProvisioningEvent(ctxA, SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: connectionB.ID,
+		Op:           "create",
+		OccurredAt:   now,
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected cross-tenant connection reference to be rejected, got: %v", err)
 	}
 }
 

@@ -32,9 +32,18 @@ BEGIN
         ALTER TABLE identity_connections
             ADD CONSTRAINT identity_connections_saml_completeness CHECK (
                 provider <> 'saml'
-                OR workos_connection_id IS NOT NULL
                 OR (
-                    entity_id IS NOT NULL AND LENGTH(TRIM(entity_id)) > 0
+                    -- WorkOS-backed: workos_connection_id set, native fields empty.
+                    workos_connection_id IS NOT NULL
+                    AND entity_id IS NULL
+                    AND certificate_pem IS NULL
+                    AND sso_url IS NULL
+                )
+                OR (
+                    -- Native: entity_id + certificate_pem + https sso_url all set,
+                    -- workos_connection_id empty.
+                    workos_connection_id IS NULL
+                    AND entity_id IS NOT NULL AND LENGTH(TRIM(entity_id)) > 0
                     AND certificate_pem IS NOT NULL AND LENGTH(TRIM(certificate_pem)) > 0
                     AND sso_url IS NOT NULL AND sso_url ~* '^https://'
                 )
@@ -56,6 +65,14 @@ BEGIN
 END;
 $$;
 
+-- A composite (org_id, id) unique index lets scim_provisioning_events install
+-- a composite foreign key that enforces tenant scope, not just "the connection
+-- uuid exists". Without it, a tenant could insert an event referencing a
+-- connection owned by a different tenant — and the RLS policy on the events
+-- table would then expose that cross-tenant row.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_identity_connections_org_id
+    ON identity_connections (org_id, id);
+
 ------------------------------------------------------------------------------
 -- users.scim_external_id: stable foreign id from the IdP (Okta/Azure user id)
 ------------------------------------------------------------------------------
@@ -75,14 +92,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_scim_external_id
 CREATE TABLE IF NOT EXISTS scim_provisioning_events (
     id UUID PRIMARY KEY,
     org_id TEXT NOT NULL REFERENCES tenancy_organizations(tenant_id) ON DELETE CASCADE,
-    connection_id UUID NOT NULL REFERENCES identity_connections(id) ON DELETE CASCADE,
+    connection_id UUID NOT NULL,
     op TEXT NOT NULL,
     external_id TEXT,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (op IN ('create', 'update', 'deactivate', 'delete')),
-    CHECK (jsonb_typeof(payload) = 'object')
+    CHECK (jsonb_typeof(payload) = 'object'),
+    -- Composite foreign key forces (org_id, connection_id) to identify a row
+    -- in identity_connections that belongs to the same tenant. Without this,
+    -- an attacker (or buggy caller) with a valid connection uuid from tenant B
+    -- could insert an event under tenant A; the table's RLS scopes by org_id,
+    -- so that cross-tenant row would then be visible to tenant A.
+    CONSTRAINT scim_provisioning_events_connection_in_org
+        FOREIGN KEY (org_id, connection_id)
+        REFERENCES identity_connections (org_id, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_scim_provisioning_events_connection_time

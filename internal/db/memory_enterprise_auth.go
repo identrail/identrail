@@ -274,6 +274,15 @@ func (m *MemoryStore) CreateSCIMProvisioningEvent(ctx context.Context, event SCI
 		m.mu.Unlock()
 		return SCIMProvisioningEventRecord{}, ErrNotFound
 	}
+	// Mirror the Postgres FK on users(id): a non-null UserID must reference an
+	// existing user row. Memory mode otherwise silently accepts events that
+	// would FK-fail in production.
+	if normalized.UserID != "" {
+		if _, exists := m.users[normalized.UserID]; !exists {
+			m.mu.Unlock()
+			return SCIMProvisioningEventRecord{}, ErrNotFound
+		}
+	}
 	if _, exists := m.scimEvents[normalized.ID]; exists {
 		m.mu.Unlock()
 		return SCIMProvisioningEventRecord{}, ErrConflict

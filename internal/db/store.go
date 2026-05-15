@@ -1324,12 +1324,21 @@ func NormalizeIdentityConnectionForWrite(connection IdentityConnection) (Identit
 
 // validateSAMLCompleteness mirrors the identity_connections_saml_completeness
 // CHECK constraint at the Go layer so memory-mode CRUD enforces the same
-// contract as Postgres.
+// contract as Postgres. A SAML row must be exactly one of:
+//   - WorkOS-backed: workos_connection_id set, native fields empty
+//   - Native: entity_id + certificate_pem + https sso_url all set,
+//     workos_connection_id empty
+//
+// Mixed-mode rows are rejected so the runtime cannot end up confused about
+// which protocol path owns the connection.
 func validateSAMLCompleteness(c IdentityConnection) error {
 	if c.Provider != "saml" {
 		return nil
 	}
 	if c.WorkOSConnectionID != "" {
+		if c.EntityID != "" || c.CertificatePEM != "" || c.SSOURL != "" {
+			return fmt.Errorf("workos-backed saml connection cannot set native fields (entity_id, certificate_pem, sso_url)")
+		}
 		return nil
 	}
 	missing := []string{}
