@@ -173,6 +173,108 @@ func TestRouter_RejectsInvalidEvent(t *testing.T) {
 	}
 }
 
+func TestRouter_SkipsNilDestinationsAndSurfacesMisconfig(t *testing.T) {
+	ok := &recordingDestination{name: "slack"}
+	router := Router{
+		Destinations: []RoutedDestination{
+			{Destination: nil, Policy: AlertPolicy{}},
+			{Destination: ok, Policy: AlertPolicy{}},
+		},
+	}
+	records, err := router.Dispatch(context.Background(), sampleEvent(EventFindingCreated))
+	if err == nil {
+		t.Fatal("expected error for nil destination")
+	}
+	if ok.calls != 1 {
+		t.Errorf("subsequent valid destination should still be reached, got %d calls", ok.calls)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records (nil + valid), got %d", len(records))
+	}
+	if records[0].Success {
+		t.Errorf("nil destination record should be failure")
+	}
+	if !strings.Contains(records[0].Error, "nil destination") {
+		t.Errorf("expected nil destination error message, got: %q", records[0].Error)
+	}
+}
+
+type failingAuditSink struct {
+	err error
+}
+
+func (f failingAuditSink) Record(context.Context, DispatchRecord) error { return f.err }
+
+func TestRouter_SurfacesAuditSinkFailure(t *testing.T) {
+	ok := &recordingDestination{name: "slack"}
+	router := Router{
+		Destinations: []RoutedDestination{
+			{Destination: ok, Policy: AlertPolicy{}},
+		},
+		Audit: failingAuditSink{err: errors.New("disk full")},
+	}
+	_, err := router.Dispatch(context.Background(), sampleEvent(EventFindingCreated))
+	if err == nil {
+		t.Fatal("expected dispatch error when audit sink fails")
+	}
+	if !strings.Contains(err.Error(), "audit sink") || !strings.Contains(err.Error(), "disk full") {
+		t.Errorf("expected wrapped audit-sink error, got: %v", err)
+	}
+	if ok.calls != 1 {
+		t.Errorf("destination should still receive event even if audit fails, got %d calls", ok.calls)
+	}
+}
+
+func TestRouter_DestinationErrorTakesPrecedenceOverAuditError(t *testing.T) {
+	failing := &recordingDestination{name: "slack", err: errors.New("network down")}
+	router := Router{
+		Destinations: []RoutedDestination{
+			{Destination: failing, Policy: AlertPolicy{}},
+		},
+		Audit: failingAuditSink{err: errors.New("audit failed too")},
+	}
+	_, err := router.Dispatch(context.Background(), sampleEvent(EventFindingCreated))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "network down") {
+		t.Errorf("expected destination error to be returned first, got: %v", err)
+	}
+}
+
+func TestAlertPolicy_UnknownSeverityFailsClosed(t *testing.T) {
+	policy := AlertPolicy{MinSeverity: domain.FindingSeverity("not-a-real-severity")}
+	if policy.Allow(sampleEvent(EventFindingCreated)) {
+		t.Error("policy with unknown MinSeverity should reject all events")
+	}
+}
+
+func TestAlertPolicy_Validate(t *testing.T) {
+	if err := (AlertPolicy{}).Validate(); err != nil {
+		t.Errorf("empty policy should validate, got: %v", err)
+	}
+	if err := (AlertPolicy{MinSeverity: domain.SeverityHigh}).Validate(); err != nil {
+		t.Errorf("valid severity should validate, got: %v", err)
+	}
+	if err := (AlertPolicy{MinSeverity: "bogus"}).Validate(); err == nil {
+		t.Error("expected validation error for unrecognized severity")
+	}
+}
+
+func TestLinearDestination_Send_TrimsAPIKeyWhitespace(t *testing.T) {
+	srv, captured := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"i1","identifier":"OPS-1","url":"https://linear.app/x"}}}}`))
+	})
+	dest := LinearDestination{APIURL: srv.URL, APIKey: "  lin_xxx  \n", TeamID: "team-1"}
+	if err := dest.Send(context.Background(), sampleEvent(EventFindingCreated)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got := captured.Headers.Get("Authorization"); got != "lin_xxx" {
+		t.Errorf("authorization header should be trimmed: %q", got)
+	}
+}
+
 // ---------- Audit ----------
 
 func TestJSONLineAuditSink_ConcurrentWritesAreLineSafe(t *testing.T) {
@@ -236,6 +338,21 @@ type recordedHTTPRequest struct {
 	Body    []byte
 }
 
+func captureTLSRequest(t *testing.T, handler func(w http.ResponseWriter, r *http.Request)) (*httptest.Server, *recordedHTTPRequest) {
+	t.Helper()
+	var captured recordedHTTPRequest
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.Method = r.Method
+		captured.Path = r.URL.Path
+		captured.Headers = r.Header.Clone()
+		captured.Body, _ = io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		handler(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &captured
+}
+
 func TestSlackDestination_Send_HappyPath(t *testing.T) {
 	srv, captured := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -283,15 +400,16 @@ func TestSlackDestination_Send_RejectsEmptyURL(t *testing.T) {
 // ---------- Jira ----------
 
 func TestJiraDestination_Send_HappyPath(t *testing.T) {
-	srv, captured := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, captured := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"10001","key":"OPS-1"}`))
 	})
 	dest := JiraDestination{
-		BaseURL:    srv.URL,
+		BaseURL:    srv.URL, // https:// from httptest.NewTLSServer
 		Email:      "ops@example.com",
 		APIToken:   "tok",
 		ProjectKey: "OPS",
+		HTTPClient: srv.Client(),
 	}
 	if err := dest.Send(context.Background(), sampleEvent(EventFindingCreated)); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -352,6 +470,22 @@ func TestJiraDestination_Send_ValidatesConfig(t *testing.T) {
 				t.Error("expected error")
 			}
 		})
+	}
+}
+
+func TestJiraDestination_Send_RejectsHTTPBaseURL(t *testing.T) {
+	dest := JiraDestination{
+		BaseURL:    "http://acme.atlassian.net",
+		Email:      "ops@example.com",
+		APIToken:   "tok",
+		ProjectKey: "OPS",
+	}
+	err := dest.Send(context.Background(), sampleEvent(EventFindingCreated))
+	if err == nil {
+		t.Fatal("expected http:// base URL to be rejected")
+	}
+	if !strings.Contains(err.Error(), "https") {
+		t.Errorf("expected https requirement in error, got: %v", err)
 	}
 }
 

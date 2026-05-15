@@ -58,8 +58,14 @@ func (j JiraDestination) Send(ctx context.Context, event Event) error {
 }
 
 func (j JiraDestination) validate() error {
-	if strings.TrimSpace(j.BaseURL) == "" {
+	base := strings.TrimSpace(j.BaseURL)
+	if base == "" {
 		return fmt.Errorf("jira base URL is required")
+	}
+	// Refuse to send Basic-auth credentials over plaintext transport. The
+	// only acceptable scheme is HTTPS so the email + API token cannot leak.
+	if !strings.HasPrefix(strings.ToLower(base), "https://") {
+		return fmt.Errorf("jira base URL must use https:// to protect basic-auth credentials")
 	}
 	if strings.TrimSpace(j.Email) == "" || strings.TrimSpace(j.APIToken) == "" {
 		return fmt.Errorf("jira email and api token are required")

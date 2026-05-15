@@ -29,7 +29,8 @@ func (l LinearDestination) Name() string { return linearDestinationName }
 
 // Send creates one Linear issue per event.
 func (l LinearDestination) Send(ctx context.Context, event Event) error {
-	if strings.TrimSpace(l.APIKey) == "" {
+	apiKey := strings.TrimSpace(l.APIKey)
+	if apiKey == "" {
 		return fmt.Errorf("linear API key is required")
 	}
 	if strings.TrimSpace(l.TeamID) == "" {
@@ -65,7 +66,7 @@ func (l LinearDestination) Send(ctx context.Context, event Event) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", l.APIKey)
+	req.Header.Set("Authorization", apiKey)
 
 	res, err := l.client().Do(req)
 	if err != nil {

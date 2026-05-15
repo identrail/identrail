@@ -43,8 +43,13 @@ type Router struct {
 }
 
 // Dispatch routes one event. Returns a record per destination considered and
-// the first delivery error encountered. Errors from one destination do not
-// stop fan-out to the others; every attempted delivery is still recorded.
+// the first error encountered. Errors from one destination do not stop fan-out
+// to the others; every attempted delivery is still recorded.
+//
+// Audit failures are surfaced through the returned error so callers can fail
+// closed when the governance trail cannot be persisted. Nil destinations in
+// the configured slice are skipped defensively and recorded as misconfiguration
+// rather than panicking on Name()/Send().
 func (r Router) Dispatch(ctx context.Context, event Event) ([]DispatchRecord, error) {
 	if err := event.Validate(); err != nil {
 		return nil, err
@@ -52,7 +57,25 @@ func (r Router) Dispatch(ctx context.Context, event Event) ([]DispatchRecord, er
 	now := r.now()
 	records := make([]DispatchRecord, 0, len(r.Destinations))
 	var firstErr error
-	for _, routed := range r.Destinations {
+	for i, routed := range r.Destinations {
+		if routed.Destination == nil {
+			rec := DispatchRecord{
+				EventKind:   event.Kind,
+				FindingID:   event.Finding.ID,
+				Destination: fmt.Sprintf("invalid-route-%d", i),
+				AttemptedAt: now,
+				Success:     false,
+				Error:       "nil destination in router configuration",
+			}
+			if err := r.recordAudit(ctx, rec); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("audit sink: %w", err)
+			}
+			if firstErr == nil {
+				firstErr = fmt.Errorf("router: %s", rec.Error)
+			}
+			records = append(records, rec)
+			continue
+		}
 		if !routed.Policy.Allow(event) {
 			continue
 		}
@@ -71,12 +94,22 @@ func (r Router) Dispatch(ctx context.Context, event Event) ([]DispatchRecord, er
 		} else {
 			rec.Success = true
 		}
-		if r.Audit != nil {
-			_ = r.Audit.Record(ctx, rec)
+		if err := r.recordAudit(ctx, rec); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("audit sink: %w", err)
 		}
 		records = append(records, rec)
 	}
 	return records, firstErr
+}
+
+// recordAudit forwards a record to the configured AuditSink. Returns nil when
+// no sink is configured; otherwise propagates the sink's error so dispatch can
+// surface it.
+func (r Router) recordAudit(ctx context.Context, record DispatchRecord) error {
+	if r.Audit == nil {
+		return nil
+	}
+	return r.Audit.Record(ctx, record)
 }
 
 func (r Router) now() time.Time {

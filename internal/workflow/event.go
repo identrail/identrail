@@ -57,9 +57,20 @@ type AlertPolicy struct {
 }
 
 // Allow reports whether the event passes the policy.
+//
+// A policy with an unrecognized MinSeverity fails closed (no events admitted)
+// so a typo in configuration cannot accidentally fan low-severity events out
+// to ticketing/chat destinations.
 func (p AlertPolicy) Allow(event Event) bool {
-	if p.MinSeverity != "" && !severityAtLeast(event.Finding.Severity, p.MinSeverity) {
-		return false
+	if p.MinSeverity != "" {
+		ok, floorRank := severityRankOf(p.MinSeverity)
+		if !ok {
+			return false
+		}
+		eventOK, eventRank := severityRankOf(event.Finding.Severity)
+		if !eventOK || eventRank < floorRank {
+			return false
+		}
 	}
 	if len(p.AllowKinds) > 0 && !containsKind(p.AllowKinds, event.Kind) {
 		return false
@@ -70,6 +81,18 @@ func (p AlertPolicy) Allow(event Event) bool {
 	return true
 }
 
+// Validate reports whether the policy is internally consistent. An unset
+// MinSeverity is valid (no floor); a set MinSeverity must be a recognized
+// severity value so the policy cannot silently fail open at runtime.
+func (p AlertPolicy) Validate() error {
+	if p.MinSeverity != "" {
+		if ok, _ := severityRankOf(p.MinSeverity); !ok {
+			return fmt.Errorf("unrecognized min severity %q", p.MinSeverity)
+		}
+	}
+	return nil
+}
+
 var severityRank = map[domain.FindingSeverity]int{
 	domain.SeverityInfo:     1,
 	domain.SeverityLow:      2,
@@ -78,8 +101,9 @@ var severityRank = map[domain.FindingSeverity]int{
 	domain.SeverityCritical: 5,
 }
 
-func severityAtLeast(s, min domain.FindingSeverity) bool {
-	return severityRank[s] >= severityRank[min]
+func severityRankOf(s domain.FindingSeverity) (bool, int) {
+	rank, ok := severityRank[s]
+	return ok, rank
 }
 
 func containsKind(allow []EventKind, candidate EventKind) bool {
