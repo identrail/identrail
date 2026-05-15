@@ -1,0 +1,434 @@
+package enterprise
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/identrail/identrail/internal/domain"
+)
+
+// ---------- SCIM ----------
+
+func sampleSCIMUser() SCIMUser {
+	return SCIMUser{
+		ID:          "scim-user-1",
+		UserName:    "alice@example.com",
+		Email:       "alice@example.com",
+		DisplayName: "Alice Example",
+		Active:      true,
+		CreatedAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+}
+
+func TestSCIMUser_Validate(t *testing.T) {
+	if err := sampleSCIMUser().Validate(); err != nil {
+		t.Errorf("valid user rejected: %v", err)
+	}
+	cases := []struct {
+		name   string
+		mutate func(*SCIMUser)
+	}{
+		{"missing_id", func(u *SCIMUser) { u.ID = "" }},
+		{"missing_username", func(u *SCIMUser) { u.UserName = "" }},
+		{"invalid_email", func(u *SCIMUser) { u.Email = "not-an-email" }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			u := sampleSCIMUser()
+			tc.mutate(&u)
+			if err := u.Validate(); err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}
+
+func TestSCIMProvisioningEvent_Validate(t *testing.T) {
+	base := SCIMProvisioningEvent{
+		Op:           SCIMProvisioningCreate,
+		User:         sampleSCIMUser(),
+		SourceTenant: "tenant-1",
+		OccurredAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := base.Validate(); err != nil {
+		t.Errorf("valid event rejected: %v", err)
+	}
+
+	bad := base
+	bad.Op = "rename"
+	if err := bad.Validate(); err == nil {
+		t.Error("expected unknown op rejection")
+	}
+
+	bad = base
+	bad.SourceTenant = ""
+	if err := bad.Validate(); err == nil {
+		t.Error("expected missing tenant rejection")
+	}
+
+	bad = base
+	bad.OccurredAt = time.Time{}
+	if err := bad.Validate(); err == nil {
+		t.Error("expected missing timestamp rejection")
+	}
+
+	bad = base
+	bad.Op = SCIMProvisioningDeactivate
+	bad.User.Active = true
+	if err := bad.Validate(); err == nil {
+		t.Error("deactivate event with active=true should be rejected")
+	}
+
+	bad = base
+	bad.Op = SCIMProvisioningDeactivate
+	bad.User.Active = false
+	if err := bad.Validate(); err != nil {
+		t.Errorf("deactivate with active=false should pass: %v", err)
+	}
+}
+
+// ---------- SAML ----------
+
+// generateSelfSignedCertPEM produces a short-lived self-signed certificate so
+// SAML validation can be exercised without committing real cert material.
+func generateSelfSignedCertPEM(t *testing.T) string {
+	t.Helper()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("rsa keygen: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "identrail-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+func sampleSAMLConnection(t *testing.T) SAMLConnection {
+	t.Helper()
+	return SAMLConnection{
+		ID:             "saml-1",
+		OrganizationID: "org-1",
+		DisplayName:    "Okta",
+		EntityID:       "https://idp.example.com/entity",
+		SSOURL:         "https://idp.example.com/sso",
+		CertificatePEM: generateSelfSignedCertPEM(t),
+		AttributeMapping: AttributeMapping{
+			Email:  "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+			Name:   "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+			Groups: "http://schemas.xmlsoap.org/claims/Group",
+		},
+		Status:    SAMLConnectionPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+}
+
+func TestSAMLConnection_Validate(t *testing.T) {
+	if err := sampleSAMLConnection(t).Validate(); err != nil {
+		t.Errorf("valid connection rejected: %v", err)
+	}
+	cases := []struct {
+		name    string
+		mutate  func(*SAMLConnection)
+		wantMsg string
+	}{
+		{"missing_org", func(c *SAMLConnection) { c.OrganizationID = "" }, "organization_id"},
+		{"missing_entity", func(c *SAMLConnection) { c.EntityID = "" }, "entity_id"},
+		{"http_sso_url", func(c *SAMLConnection) { c.SSOURL = "http://idp.example.com/sso" }, "https"},
+		{"empty_attribute_email", func(c *SAMLConnection) { c.AttributeMapping.Email = "" }, "attribute_mapping.email"},
+		{"invalid_status", func(c *SAMLConnection) { c.Status = "rejected" }, "status"},
+		{"bad_certificate", func(c *SAMLConnection) { c.CertificatePEM = "not-a-pem" }, "certificate"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := sampleSAMLConnection(t)
+			tc.mutate(&c)
+			err := c.Validate()
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("error should mention %q, got: %v", tc.wantMsg, err)
+			}
+		})
+	}
+}
+
+func TestParseSAMLCertificate_RejectsNonCertPEMBlock(t *testing.T) {
+	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
+	keyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(priv),
+	})
+	_, err := ParseSAMLCertificate(string(keyPEM))
+	if err == nil || !strings.Contains(err.Error(), "CERTIFICATE") {
+		t.Errorf("expected non-cert PEM rejection, got: %v", err)
+	}
+}
+
+func TestCanTransitionSAMLStatus(t *testing.T) {
+	cases := []struct {
+		from, to SAMLConnectionStatus
+		want     bool
+	}{
+		{SAMLConnectionPending, SAMLConnectionActive, true},
+		{SAMLConnectionPending, SAMLConnectionDisabled, true},
+		{SAMLConnectionActive, SAMLConnectionDisabled, true},
+		{SAMLConnectionDisabled, SAMLConnectionActive, true},
+		{SAMLConnectionActive, SAMLConnectionPending, false},
+		{SAMLConnectionDisabled, SAMLConnectionPending, false},
+		{"unknown", SAMLConnectionActive, false},
+		{SAMLConnectionActive, "unknown", false},
+	}
+	for _, tc := range cases {
+		got := CanTransitionSAMLStatus(tc.from, tc.to)
+		if got != tc.want {
+			t.Errorf("%s -> %s: want %v, got %v", tc.from, tc.to, tc.want, got)
+		}
+	}
+}
+
+// ---------- Residency ----------
+
+func TestResidencyPolicy_Validate(t *testing.T) {
+	base := ResidencyPolicy{
+		OrganizationID: "org-1",
+		AllowedRegions: []string{"us-east-1"},
+		Mode:           ResidencyModeStrict,
+		UpdatedAt:      time.Now(),
+	}
+	if err := base.Validate(); err != nil {
+		t.Errorf("valid policy rejected: %v", err)
+	}
+
+	bad := base
+	bad.OrganizationID = ""
+	if err := bad.Validate(); err == nil {
+		t.Error("expected missing org rejection")
+	}
+
+	bad = base
+	bad.Mode = "loose"
+	if err := bad.Validate(); err == nil {
+		t.Error("expected unknown mode rejection")
+	}
+
+	bad = base
+	bad.AllowedRegions = nil
+	if err := bad.Validate(); err == nil {
+		t.Error("expected empty allowlist rejection")
+	}
+
+	bad = base
+	bad.AllowedRegions = []string{"us-east1"} // typo
+	if err := bad.Validate(); err == nil {
+		t.Error("expected unrecognized region rejection")
+	}
+}
+
+func TestResidencyPolicy_Evaluate(t *testing.T) {
+	strict := ResidencyPolicy{
+		OrganizationID: "org-1",
+		AllowedRegions: []string{"us-east-1", "eu-west-1"},
+		Mode:           ResidencyModeStrict,
+	}
+	if d := strict.Evaluate("us-east-1"); !d.Allowed {
+		t.Errorf("strict mode should allow us-east-1, got: %+v", d)
+	}
+	if d := strict.Evaluate("ap-northeast-1"); d.Allowed {
+		t.Errorf("strict mode must block disallowed region, got: %+v", d)
+	} else if !strings.Contains(d.Reason, "not in the organization's allowed residency set") {
+		t.Errorf("expected reason text, got: %q", d.Reason)
+	}
+
+	advisory := strict
+	advisory.Mode = ResidencyModeAdvisory
+	d := advisory.Evaluate("ap-northeast-1")
+	if !d.Allowed {
+		t.Error("advisory mode should always allow")
+	}
+	if d.Reason == "" {
+		t.Error("advisory mode should record reason on violation")
+	}
+}
+
+func TestResidencyPolicy_EvaluateNormalizesCase(t *testing.T) {
+	p := ResidencyPolicy{
+		OrganizationID: "org-1",
+		AllowedRegions: []string{"US-East-1"},
+		Mode:           ResidencyModeStrict,
+	}
+	if d := p.Evaluate("us-east-1"); !d.Allowed {
+		t.Errorf("region comparison must be case-insensitive, got: %+v", d)
+	}
+}
+
+func TestIsRecognizedResidencyRegion(t *testing.T) {
+	if !IsRecognizedResidencyRegion("us-east-1") {
+		t.Error("us-east-1 should be recognized")
+	}
+	if !IsRecognizedResidencyRegion("EU-WEST-1") {
+		t.Error("case-insensitive match expected")
+	}
+	if IsRecognizedResidencyRegion("us-east1") {
+		t.Error("us-east1 typo must not be recognized")
+	}
+}
+
+func TestResidencyPolicy_SortedAllowedRegionsDeterministic(t *testing.T) {
+	p := ResidencyPolicy{AllowedRegions: []string{"eu-west-1", "us-east-1", "ap-southeast-1"}}
+	got := p.SortedAllowedRegions()
+	want := []string{"ap-southeast-1", "eu-west-1", "us-east-1"}
+	if len(got) != len(want) {
+		t.Fatalf("length: want %d, got %d", len(want), len(got))
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("position %d: want %s, got %s", i, w, got[i])
+		}
+	}
+}
+
+// ---------- Executive report ----------
+
+func ptrTime(t time.Time) *time.Time { return &t }
+
+func TestBuildExecutiveReport_RollsUpOpenBySeverityAndType(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	findings := []domain.Finding{
+		{
+			ID: "f1", Type: domain.FindingOverPrivileged, Severity: domain.SeverityHigh,
+			CreatedAt: now.Add(-3 * 24 * time.Hour),
+			Triage:    domain.FindingTriage{Status: domain.FindingLifecycleOpen},
+		},
+		{
+			ID: "f2", Type: domain.FindingOverPrivileged, Severity: domain.SeverityCritical,
+			CreatedAt: now.Add(-2 * 24 * time.Hour),
+			Triage:    domain.FindingTriage{Status: domain.FindingLifecycleAck},
+		},
+		{
+			ID: "f3", Type: domain.FindingStaleIdentity, Severity: domain.SeverityMedium,
+			CreatedAt: now.Add(-1 * 24 * time.Hour),
+			Triage:    domain.FindingTriage{Status: domain.FindingLifecycleSuppressed},
+		},
+		{
+			ID: "f4", Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical,
+			CreatedAt: now.Add(-30 * 24 * time.Hour),
+			Triage: domain.FindingTriage{
+				Status:    domain.FindingLifecycleResolved,
+				UpdatedAt: ptrTime(now.Add(-15 * 24 * time.Hour)),
+			},
+		},
+	}
+	report := BuildExecutiveReport(findings, ReportOptions{
+		OrganizationID: "org-1",
+		Now:            func() time.Time { return now },
+	})
+
+	if report.TotalOpenFindings != 2 {
+		t.Errorf("total open: want 2 (open + ack), got %d", report.TotalOpenFindings)
+	}
+	if report.OpenBySeverity[domain.SeverityHigh] != 1 {
+		t.Errorf("severity high count: want 1, got %d", report.OpenBySeverity[domain.SeverityHigh])
+	}
+	if report.OpenBySeverity[domain.SeverityCritical] != 1 {
+		t.Errorf("severity critical count: want 1, got %d", report.OpenBySeverity[domain.SeverityCritical])
+	}
+	if _, ok := report.OpenByType[domain.FindingStaleIdentity]; ok {
+		t.Errorf("suppressed findings must not count toward open type rollup")
+	}
+	if report.MeanTimeToResolve != 15*24*time.Hour {
+		t.Errorf("MTTR: want 360h, got %v", report.MeanTimeToResolve)
+	}
+}
+
+func TestBuildExecutiveReport_TopFindingTypesAreOrderedAndCapped(t *testing.T) {
+	now := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+	findings := []domain.Finding{}
+	add := func(typ domain.FindingType, n int) {
+		for i := 0; i < n; i++ {
+			findings = append(findings, domain.Finding{
+				ID: string(typ) + "-" + string(rune('a'+i)), Type: typ, Severity: domain.SeverityHigh,
+				CreatedAt: now.Add(-1 * time.Hour),
+				Triage:    domain.FindingTriage{Status: domain.FindingLifecycleOpen},
+			})
+		}
+	}
+	add(domain.FindingOverPrivileged, 5)
+	add(domain.FindingStaleIdentity, 3)
+	add(domain.FindingEscalationPath, 4)
+	add(domain.FindingOwnerless, 1)
+
+	report := BuildExecutiveReport(findings, ReportOptions{
+		OrganizationID: "org-1",
+		Now:            func() time.Time { return now },
+		TopN:           3,
+	})
+
+	if len(report.TopFindingTypes) != 3 {
+		t.Fatalf("top types: want 3, got %d", len(report.TopFindingTypes))
+	}
+	if report.TopFindingTypes[0].Type != domain.FindingOverPrivileged || report.TopFindingTypes[0].Count != 5 {
+		t.Errorf("top entry: want overprivileged(5), got %+v", report.TopFindingTypes[0])
+	}
+	if report.TopFindingTypes[1].Type != domain.FindingEscalationPath || report.TopFindingTypes[1].Count != 4 {
+		t.Errorf("second entry: want escalation(4), got %+v", report.TopFindingTypes[1])
+	}
+}
+
+func TestBuildExecutiveReport_WeekOverWeekTrend(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	findings := []domain.Finding{
+		// Current week (within 7 days).
+		{ID: "a", Type: domain.FindingOverPrivileged, CreatedAt: now.Add(-2 * 24 * time.Hour)},
+		{ID: "b", Type: domain.FindingOverPrivileged, CreatedAt: now.Add(-3 * 24 * time.Hour)},
+		// Previous week (7-14 days ago).
+		{ID: "c", Type: domain.FindingOverPrivileged, CreatedAt: now.Add(-9 * 24 * time.Hour)},
+		// Older — should not count in either window.
+		{ID: "d", Type: domain.FindingOverPrivileged, CreatedAt: now.Add(-30 * 24 * time.Hour)},
+	}
+	report := BuildExecutiveReport(findings, ReportOptions{
+		OrganizationID: "org-1",
+		Now:            func() time.Time { return now },
+	})
+	if report.WeekOverWeek.CurrentCount != 2 {
+		t.Errorf("current count: want 2, got %d", report.WeekOverWeek.CurrentCount)
+	}
+	if report.WeekOverWeek.PreviousCount != 1 {
+		t.Errorf("previous count: want 1, got %d", report.WeekOverWeek.PreviousCount)
+	}
+	if report.WeekOverWeek.Delta != 1 {
+		t.Errorf("delta: want 1, got %d", report.WeekOverWeek.Delta)
+	}
+}
+
+func TestBuildExecutiveReport_EmptyInputIsSafe(t *testing.T) {
+	report := BuildExecutiveReport(nil, ReportOptions{
+		OrganizationID: "org-1",
+		Now:            func() time.Time { return time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC) },
+	})
+	if report.TotalOpenFindings != 0 {
+		t.Errorf("empty input: want 0 open, got %d", report.TotalOpenFindings)
+	}
+	if report.MeanTimeToResolve != 0 {
+		t.Errorf("MTTR with no resolved: want 0, got %v", report.MeanTimeToResolve)
+	}
+	if report.TopFindingTypes != nil {
+		t.Errorf("top types must be nil when no findings, got %v", report.TopFindingTypes)
+	}
+}
