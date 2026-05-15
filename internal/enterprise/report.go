@@ -9,8 +9,15 @@ import (
 )
 
 // ExecutiveReport is a deterministic rollup of finding state suitable for
-// leadership consumption: open volume by severity, top finding types, mean
-// time to resolve, and week-over-week trend.
+// leadership consumption: open volume by severity, top finding types, and
+// week-over-week trend.
+//
+// MeanTimeToResolve is deliberately omitted from this first cut: the current
+// FindingTriage schema only records a `last-updated` timestamp that mutates on
+// every triage change (including comment-only and assignee edits), so deriving
+// a faithful MTTR requires a dedicated resolved-at timestamp or a lifecycle
+// history table. That work is tracked separately so the executive report
+// cannot silently surface a materially incorrect figure.
 type ExecutiveReport struct {
 	OrganizationID    string                         `json:"organization_id"`
 	GeneratedAt       time.Time                      `json:"generated_at"`
@@ -20,7 +27,6 @@ type ExecutiveReport struct {
 	OpenBySeverity    map[domain.FindingSeverity]int `json:"open_by_severity"`
 	OpenByType        map[domain.FindingType]int     `json:"open_by_type"`
 	TopFindingTypes   []TopFindingType               `json:"top_finding_types"`
-	MeanTimeToResolve time.Duration                  `json:"mean_time_to_resolve"`
 	WeekOverWeek      WeekOverWeekTrend              `json:"week_over_week"`
 }
 
@@ -68,30 +74,17 @@ func BuildExecutiveReport(findings []domain.Finding, opts ReportOptions) Executi
 		OpenByType:     map[domain.FindingType]int{},
 	}
 
-	var totalResolveDuration time.Duration
-	var resolvedCount int
 	currentWeek := 0
 	previousWeek := 0
 
 	for _, finding := range findings {
-		status := finding.Triage.Status
-		if status == "" {
-			status = domain.FindingLifecycleOpen
-		}
+		status := effectiveStatus(finding, now)
 
 		// Open rollups exclude suppressed/resolved findings.
 		if status == domain.FindingLifecycleOpen || status == domain.FindingLifecycleAck {
 			report.TotalOpenFindings++
 			report.OpenBySeverity[finding.Severity]++
 			report.OpenByType[finding.Type]++
-		}
-
-		if status == domain.FindingLifecycleResolved && !finding.CreatedAt.IsZero() {
-			resolvedAt := triageResolutionTime(finding)
-			if !resolvedAt.IsZero() && resolvedAt.After(finding.CreatedAt) {
-				totalResolveDuration += resolvedAt.Sub(finding.CreatedAt)
-				resolvedCount++
-			}
 		}
 
 		created := finding.CreatedAt
@@ -106,9 +99,6 @@ func BuildExecutiveReport(findings []domain.Finding, opts ReportOptions) Executi
 		}
 	}
 
-	if resolvedCount > 0 {
-		report.MeanTimeToResolve = totalResolveDuration / time.Duration(resolvedCount)
-	}
 	report.WeekOverWeek = WeekOverWeekTrend{
 		CurrentCount:  currentWeek,
 		PreviousCount: previousWeek,
@@ -138,15 +128,22 @@ func topFindingTypes(counts map[domain.FindingType]int, topN int) []TopFindingTy
 	return items
 }
 
-// triageResolutionTime returns the most reliable resolution timestamp we can
-// derive from the finding's triage metadata. Triage.UpdatedAt is the moment of
-// the most recent lifecycle transition; for findings whose terminal status is
-// "resolved", that timestamp is a faithful proxy for resolution time.
-func triageResolutionTime(finding domain.Finding) time.Time {
-	if finding.Triage.UpdatedAt != nil && !finding.Triage.UpdatedAt.IsZero() {
-		return *finding.Triage.UpdatedAt
+// effectiveStatus normalizes a finding's triage status against the current
+// clock so the executive rollup does not under-count open work. A finding
+// marked suppressed whose SuppressionExpiresAt has already passed is treated
+// as open again — the suppression has lapsed even if the persistence layer has
+// not yet rewritten the row.
+func effectiveStatus(finding domain.Finding, now time.Time) domain.FindingLifecycleStatus {
+	status := finding.Triage.Status
+	if status == "" {
+		return domain.FindingLifecycleOpen
 	}
-	return time.Time{}
+	if status == domain.FindingLifecycleSuppressed {
+		if expires := finding.Triage.SuppressionExpiresAt; expires != nil && !expires.IsZero() && !now.Before(*expires) {
+			return domain.FindingLifecycleOpen
+		}
+	}
+	return status
 }
 
 func (o ReportOptions) now() time.Time {

@@ -92,8 +92,10 @@ func ParseSAMLCertificate(pemEncoded string) (*x509.Certificate, error) {
 }
 
 // CanTransitionSAMLStatus reports whether a SAML connection may move from one
-// status to another. Connections must enroll via pending → active and may be
-// disabled/re-enabled afterward; outright deletion is handled separately.
+// status to another. Connections must enroll via pending → active before they
+// can be disabled/re-enabled; jumping straight from pending to disabled is
+// rejected so that a connection cannot be parked in a disabled state without
+// ever having proved a successful IdP handshake.
 func CanTransitionSAMLStatus(from, to SAMLConnectionStatus) bool {
 	if !validSAMLConnectionStatus(from) || !validSAMLConnectionStatus(to) {
 		return false
@@ -103,7 +105,7 @@ func CanTransitionSAMLStatus(from, to SAMLConnectionStatus) bool {
 	}
 	switch from {
 	case SAMLConnectionPending:
-		return to == SAMLConnectionActive || to == SAMLConnectionDisabled
+		return to == SAMLConnectionActive
 	case SAMLConnectionActive:
 		return to == SAMLConnectionDisabled
 	case SAMLConnectionDisabled:

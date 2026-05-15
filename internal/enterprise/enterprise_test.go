@@ -187,7 +187,9 @@ func TestCanTransitionSAMLStatus(t *testing.T) {
 		want     bool
 	}{
 		{SAMLConnectionPending, SAMLConnectionActive, true},
-		{SAMLConnectionPending, SAMLConnectionDisabled, true},
+		// Pending -> disabled is rejected: a connection must prove a successful
+		// IdP handshake before it can be parked in a disabled state.
+		{SAMLConnectionPending, SAMLConnectionDisabled, false},
 		{SAMLConnectionActive, SAMLConnectionDisabled, true},
 		{SAMLConnectionDisabled, SAMLConnectionActive, true},
 		{SAMLConnectionActive, SAMLConnectionPending, false},
@@ -352,8 +354,45 @@ func TestBuildExecutiveReport_RollsUpOpenBySeverityAndType(t *testing.T) {
 	if _, ok := report.OpenByType[domain.FindingStaleIdentity]; ok {
 		t.Errorf("suppressed findings must not count toward open type rollup")
 	}
-	if report.MeanTimeToResolve != 15*24*time.Hour {
-		t.Errorf("MTTR: want 360h, got %v", report.MeanTimeToResolve)
+}
+
+func TestBuildExecutiveReport_ExpiredSuppressionCountsAsOpen(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	expired := now.Add(-2 * 24 * time.Hour)   // suppression lapsed two days ago
+	stillValid := now.Add(7 * 24 * time.Hour) // suppression still in effect
+
+	findings := []domain.Finding{
+		// Lapsed suppression — should count as open again.
+		{
+			ID: "lapsed", Type: domain.FindingOverPrivileged, Severity: domain.SeverityHigh,
+			CreatedAt: now.Add(-3 * 24 * time.Hour),
+			Triage: domain.FindingTriage{
+				Status:               domain.FindingLifecycleSuppressed,
+				SuppressionExpiresAt: &expired,
+			},
+		},
+		// Still-valid suppression — must remain excluded.
+		{
+			ID: "active-suppression", Type: domain.FindingStaleIdentity, Severity: domain.SeverityMedium,
+			CreatedAt: now.Add(-3 * 24 * time.Hour),
+			Triage: domain.FindingTriage{
+				Status:               domain.FindingLifecycleSuppressed,
+				SuppressionExpiresAt: &stillValid,
+			},
+		},
+	}
+	report := BuildExecutiveReport(findings, ReportOptions{
+		OrganizationID: "org-1",
+		Now:            func() time.Time { return now },
+	})
+	if report.TotalOpenFindings != 1 {
+		t.Errorf("expired suppression should count as open: want 1, got %d", report.TotalOpenFindings)
+	}
+	if report.OpenByType[domain.FindingOverPrivileged] != 1 {
+		t.Errorf("expired suppression should appear in open type rollup, got %v", report.OpenByType)
+	}
+	if _, ok := report.OpenByType[domain.FindingStaleIdentity]; ok {
+		t.Errorf("active suppression must not appear in open type rollup, got %v", report.OpenByType)
 	}
 }
 
@@ -424,9 +463,6 @@ func TestBuildExecutiveReport_EmptyInputIsSafe(t *testing.T) {
 	})
 	if report.TotalOpenFindings != 0 {
 		t.Errorf("empty input: want 0 open, got %d", report.TotalOpenFindings)
-	}
-	if report.MeanTimeToResolve != 0 {
-		t.Errorf("MTTR with no resolved: want 0, got %v", report.MeanTimeToResolve)
 	}
 	if report.TopFindingTypes != nil {
 		t.Errorf("top types must be nil when no findings, got %v", report.TopFindingTypes)
