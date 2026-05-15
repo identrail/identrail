@@ -179,6 +179,9 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 		})
 		if err != nil {
 			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+			if logger != nil {
+				logger.Warn("authenticate workos callback", telemetry.ZapError(err))
+			}
 			if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
 				c.Header("Retry-After", "30")
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth provider unavailable"})
