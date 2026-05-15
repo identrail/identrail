@@ -87,3 +87,6 @@ build/
 
 # Legacy/optional frontend worktree snapshots (not part of active dev branch)
 site/
+
+# Claude Code local agent state (transcripts, scheduled task locks, memory)
+.claude/
