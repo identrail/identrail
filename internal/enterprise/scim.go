@@ -79,7 +79,16 @@ func (u SCIMUser) PrimaryEmail() string {
 	return firstNonEmpty
 }
 
-// Validate enforces SCIM core schema invariants relevant to Identrail.
+// Validate enforces SCIM core schema invariants relevant to Identrail. The
+// `id` attribute is intentionally NOT required here because SCIM 2.0 servers
+// assign it on a successful POST /Users create — the resource arrives without
+// one. Operations that semantically require an existing identifier
+// (update/deactivate/delete) are enforced in SCIMProvisioningEvent.Validate.
+//
+// At most one email entry may be marked primary. Standard SCIM clients honor
+// the multi-valued `primary` sub-attribute and assume it is unique; accepting
+// duplicates silently would let a provider quirk reorder the login-identity
+// selection on every payload.
 //
 // The selected primary email must be a plain addr-spec (e.g.
 // "alice@example.com") rather than the mailbox display syntax accepted by
@@ -87,11 +96,17 @@ func (u SCIMUser) PrimaryEmail() string {
 // upserts this string into the users/identities tables as a login identifier,
 // so accepting display syntax would persist a non-canonical email.
 func (u SCIMUser) Validate() error {
-	if strings.TrimSpace(u.ID) == "" {
-		return fmt.Errorf("scim user id is required")
-	}
 	if strings.TrimSpace(u.UserName) == "" {
 		return fmt.Errorf("scim user userName is required")
+	}
+	primaryCount := 0
+	for _, e := range u.Emails {
+		if e.Primary {
+			primaryCount++
+		}
+	}
+	if primaryCount > 1 {
+		return fmt.Errorf("scim user must declare at most one primary email, got %d", primaryCount)
 	}
 	email := u.PrimaryEmail()
 	if email == "" {
@@ -133,10 +148,11 @@ type SCIMProvisioningEvent struct {
 
 // Validate enforces the invariants every provisioning consumer relies on.
 //
-// For delete events the SCIM DELETE protocol does not carry a user resource
-// body — only the resource ID in the path — so this method requires just
-// User.ID for that op and falls back to the full SCIMUser.Validate for any op
-// that semantically updates user state.
+// Per RFC 7644, SCIM `id` is server-assigned on POST /Users (create), so it
+// is intentionally optional on create events; update/deactivate/delete events
+// must carry the resource id since they reference an existing user. The SCIM
+// DELETE protocol does not carry a user body at all — only the id in the path
+// — so this method skips the full SCIMUser.Validate for that op.
 func (e SCIMProvisioningEvent) Validate() error {
 	if !validSCIMProvisioningOp(e.Op) {
 		return fmt.Errorf("scim provisioning op %q is not recognized", e.Op)
@@ -152,6 +168,9 @@ func (e SCIMProvisioningEvent) Validate() error {
 			return fmt.Errorf("scim provisioning delete event requires user.id")
 		}
 		return nil
+	}
+	if e.Op != SCIMProvisioningCreate && strings.TrimSpace(e.User.ID) == "" {
+		return fmt.Errorf("scim provisioning %s event requires user.id", e.Op)
 	}
 	if err := e.User.Validate(); err != nil {
 		return fmt.Errorf("scim provisioning event user invalid: %w", err)

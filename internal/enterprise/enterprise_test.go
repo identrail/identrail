@@ -42,11 +42,16 @@ func TestSCIMUser_Validate(t *testing.T) {
 		name   string
 		mutate func(*SCIMUser)
 	}{
-		{"missing_id", func(u *SCIMUser) { u.ID = "" }},
 		{"missing_username", func(u *SCIMUser) { u.UserName = "" }},
 		{"no_emails", func(u *SCIMUser) { u.Emails = nil }},
 		{"emails_all_empty_values", func(u *SCIMUser) { u.Emails = []SCIMEmail{{Value: "   "}, {Value: ""}} }},
 		{"invalid_email", func(u *SCIMUser) { u.Emails = []SCIMEmail{{Value: "not-an-email", Primary: true}} }},
+		{"multiple_primaries", func(u *SCIMUser) {
+			u.Emails = []SCIMEmail{
+				{Value: "alice@example.com", Primary: true},
+				{Value: "alice.alt@example.com", Primary: true},
+			}
+		}},
 		// mail.ParseAddress accepts these mailbox/display forms; SCIM emails
 		// must persist as a canonical addr-spec only.
 		{"email_with_display_name", func(u *SCIMUser) {
@@ -199,6 +204,49 @@ func TestSCIMUser_PrimaryEmail_PrefersPrimaryThenFirstNonEmpty(t *testing.T) {
 				t.Errorf("PrimaryEmail: want %q, got %q", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestSCIMUser_ValidateAcceptsMissingIDForCreatePath(t *testing.T) {
+	// SCIM 2.0 servers assign `id` on POST /Users, so the resource arrives
+	// without one. The user-level validator must not block that case; the
+	// provisioning event validator enforces id for update/deactivate/delete.
+	u := sampleSCIMUser()
+	u.ID = ""
+	if err := u.Validate(); err != nil {
+		t.Errorf("SCIMUser.Validate must accept a missing id (create path): %v", err)
+	}
+}
+
+func TestSCIMProvisioningEvent_CreateAllowsMissingUserID(t *testing.T) {
+	user := sampleSCIMUser()
+	user.ID = ""
+	event := SCIMProvisioningEvent{
+		Op:           SCIMProvisioningCreate,
+		User:         user,
+		SourceTenant: "tenant-1",
+		OccurredAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := event.Validate(); err != nil {
+		t.Errorf("create event must accept missing user.id: %v", err)
+	}
+}
+
+func TestSCIMProvisioningEvent_UpdateRequiresUserID(t *testing.T) {
+	user := sampleSCIMUser()
+	user.ID = ""
+	event := SCIMProvisioningEvent{
+		Op:           SCIMProvisioningUpdate,
+		User:         user,
+		SourceTenant: "tenant-1",
+		OccurredAt:   time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+	}
+	err := event.Validate()
+	if err == nil {
+		t.Fatal("update event without user.id should be rejected")
+	}
+	if !strings.Contains(err.Error(), "user.id") {
+		t.Errorf("error should mention user.id, got: %v", err)
 	}
 }
 
