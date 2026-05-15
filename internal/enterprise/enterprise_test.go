@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"strings"
@@ -96,6 +97,59 @@ func TestSCIMProvisioningEvent_Validate(t *testing.T) {
 	bad.User.Active = false
 	if err := bad.Validate(); err != nil {
 		t.Errorf("deactivate with active=false should pass: %v", err)
+	}
+}
+
+func TestSCIMUser_DecodesStandardSCIMWirePayload(t *testing.T) {
+	// Verbatim payload shape an Okta/Azure AD SCIM client would POST. The
+	// struct tags must use SCIM camelCase attribute names so a future
+	// /scim/v2/Users handler can decode directly without an intermediate DTO.
+	const payload = `{
+		"id": "scim-user-1",
+		"externalId": "ext-1",
+		"userName": "alice@example.com",
+		"displayName": "Alice Example",
+		"email": "alice@example.com",
+		"active": true,
+		"createdAt": "2026-05-01T00:00:00Z",
+		"updatedAt": "2026-05-01T00:00:00Z"
+	}`
+	var u SCIMUser
+	if err := json.Unmarshal([]byte(payload), &u); err != nil {
+		t.Fatalf("unmarshal SCIM payload: %v", err)
+	}
+	if u.UserName != "alice@example.com" {
+		t.Errorf("UserName: want alice@example.com, got %q", u.UserName)
+	}
+	if u.ExternalID != "ext-1" {
+		t.Errorf("ExternalID: want ext-1, got %q", u.ExternalID)
+	}
+	if u.DisplayName != "Alice Example" {
+		t.Errorf("DisplayName: want Alice Example, got %q", u.DisplayName)
+	}
+	if err := u.Validate(); err != nil {
+		t.Errorf("decoded SCIM user should validate: %v", err)
+	}
+}
+
+func TestSCIMUser_MarshalsToSCIMCamelCase(t *testing.T) {
+	u := sampleSCIMUser()
+	u.ExternalID = "ext-99"
+	encoded, err := json.Marshal(u)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	want := []string{`"userName":`, `"externalId":`, `"displayName":`, `"createdAt":`, `"updatedAt":`}
+	for _, key := range want {
+		if !strings.Contains(string(encoded), key) {
+			t.Errorf("marshaled output missing SCIM key %s; got %s", key, string(encoded))
+		}
+	}
+	forbidden := []string{`"user_name":`, `"external_id":`, `"display_name":`, `"created_at":`, `"updated_at":`}
+	for _, key := range forbidden {
+		if strings.Contains(string(encoded), key) {
+			t.Errorf("marshaled output should not use snake_case key %s; got %s", key, string(encoded))
+		}
 	}
 }
 

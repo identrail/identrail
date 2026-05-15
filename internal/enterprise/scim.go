@@ -24,16 +24,21 @@ type SCIMUserActiveStatus bool
 // for tenant onboarding and lifecycle are modeled here so a directory-sync
 // provider can drive create / update / deactivate without leaking provider
 // specifics into the rest of the system.
+//
+// JSON tags use the SCIM 2.0 on-wire attribute names (camelCase) so the
+// future /scim/v2/Users handler can decode standard provider payloads (Okta,
+// Azure AD, OneLogin, etc.) directly into this struct without an intermediate
+// wire DTO. CreatedAt/UpdatedAt are exposed under the SCIM `meta` semantics.
 type SCIMUser struct {
 	ID          string    `json:"id"`
-	ExternalID  string    `json:"external_id,omitempty"`
-	UserName    string    `json:"user_name"`
+	ExternalID  string    `json:"externalId,omitempty"`
+	UserName    string    `json:"userName"`
 	Email       string    `json:"email"`
-	DisplayName string    `json:"display_name,omitempty"`
+	DisplayName string    `json:"displayName,omitempty"`
 	Active      bool      `json:"active"`
 	Groups      []string  `json:"groups,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // Validate enforces SCIM core schema invariants relevant to Identrail.
