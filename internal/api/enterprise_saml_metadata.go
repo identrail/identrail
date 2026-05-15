@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -183,7 +184,11 @@ func wrapCertAsPEM(b64Body string) (string, error) {
 // FetchSAMLMetadataXML retrieves an IdP metadata document over HTTPS. The
 // caller is expected to validate the returned draft via ParseSAMLMetadataXML.
 // A 10-second timeout and a 256 KiB response cap keep an untrusted URL from
-// stalling or overwhelming the API server.
+// stalling or overwhelming the API server. The host is resolved up-front and
+// any address resolving to loopback, link-local, multicast, broadcast,
+// unspecified, or RFC1918/RFC4193 private ranges is refused — without that
+// guard, an enterprise-write caller could turn this endpoint into an SSRF
+// primitive against the API server's internal network.
 func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL string) ([]byte, error) {
 	parsed, err := url.Parse(strings.TrimSpace(metadataURL))
 	if err != nil {
@@ -192,8 +197,12 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 	if !strings.EqualFold(parsed.Scheme, "https") {
 		return nil, fmt.Errorf("metadata_url must use https://")
 	}
-	if parsed.Host == "" {
+	host := parsed.Hostname()
+	if host == "" {
 		return nil, fmt.Errorf("metadata_url has no host")
+	}
+	if err := metadataHostGuard(ctx, host); err != nil {
+		return nil, err
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
@@ -216,6 +225,65 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 		return nil, fmt.Errorf("read metadata body: %w", err)
 	}
 	return body, nil
+}
+
+// metadataResolver is the DNS resolver used by assertMetadataHostIsExternal.
+// Tests override it with a deterministic in-memory resolver so the SSRF guard
+// can be exercised without depending on real DNS.
+var metadataResolver = func(ctx context.Context, host string) ([]net.IP, error) {
+	return net.DefaultResolver.LookupIP(ctx, "ip", host)
+}
+
+// metadataHostGuard is the SSRF guard called before issuing the metadata
+// fetch. Production wiring uses assertMetadataHostIsExternal; tests that need
+// to point at a httptest server (which binds to 127.0.0.1) swap in a no-op
+// for the duration of the test.
+var metadataHostGuard = assertMetadataHostIsExternal
+
+// assertMetadataHostIsExternal refuses to fetch from a host that resolves to
+// any address Identrail considers internal: loopback, link-local, multicast,
+// broadcast, unspecified, or RFC1918/RFC4193 private ranges. The metadata
+// fetcher is callable by enterprise.write actors, so without this an admin
+// could probe the API server's internal network by pasting a metadata URL
+// pointing at e.g. 169.254.169.254 (cloud metadata) or a private subnet.
+func assertMetadataHostIsExternal(ctx context.Context, host string) error {
+	if ip := net.ParseIP(host); ip != nil {
+		return rejectInternalIP(ip, host)
+	}
+	addrs, err := metadataResolver(ctx, host)
+	if err != nil {
+		return fmt.Errorf("resolve metadata_url host %q: %w", host, err)
+	}
+	if len(addrs) == 0 {
+		return fmt.Errorf("metadata_url host %q resolved to no addresses", host)
+	}
+	for _, ip := range addrs {
+		if err := rejectInternalIP(ip, host); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rejectInternalIP(ip net.IP, host string) error {
+	switch {
+	case ip.IsLoopback():
+		return fmt.Errorf("metadata_url host %q resolves to a loopback address (%s)", host, ip)
+	case ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast():
+		return fmt.Errorf("metadata_url host %q resolves to a link-local address (%s)", host, ip)
+	case ip.IsMulticast():
+		return fmt.Errorf("metadata_url host %q resolves to a multicast address (%s)", host, ip)
+	case ip.IsUnspecified():
+		return fmt.Errorf("metadata_url host %q resolves to the unspecified address (%s)", host, ip)
+	case ip.IsPrivate():
+		return fmt.Errorf("metadata_url host %q resolves to a private address (%s)", host, ip)
+	}
+	// Reject IPv4 broadcast 255.255.255.255 explicitly; IsMulticast catches
+	// only 224.0.0.0/4.
+	if v4 := ip.To4(); v4 != nil && v4.Equal(net.IPv4bcast) {
+		return fmt.Errorf("metadata_url host %q resolves to the broadcast address", host)
+	}
+	return nil
 }
 
 // NewSCIMBearerToken generates a fresh per-connection SCIM bearer token and

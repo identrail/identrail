@@ -94,6 +94,13 @@ func TestNormalize_RejectsHalfConfiguredNativeSAML(t *testing.T) {
 			func(c *IdentityConnection) { c.SSOURL = "https://%zz" },
 			"valid",
 		},
+		{
+			// Port-only authority: parsed.Host == ":443" is non-empty, but
+			// parsed.Hostname() correctly returns "" so we reject it.
+			"https_port_only_authority",
+			func(c *IdentityConnection) { c.SSOURL = "https://:443/sso" },
+			"host",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

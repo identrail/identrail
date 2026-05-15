@@ -1361,10 +1361,15 @@ func validateSAMLCompleteness(c IdentityConnection) error {
 }
 
 // validateNativeSSOURL enforces that the persisted SSO URL is not just a
-// string starting with https:// but a parseable absolute URL with a host.
-// Without this, payloads like "https://", "https://%zz", or "https:///path"
-// would pass the SQL CHECK and the prefix check yet fail the first time the
-// SAML ACS handler tries to redirect the user to the IdP.
+// string starting with https:// but a parseable absolute URL with an actual
+// hostname. Without this, payloads like "https://", "https://%zz",
+// "https:///path", or port-only authorities like "https://:443/path" would
+// pass the SQL CHECK and the prefix check yet fail the first time the SAML
+// ACS handler tries to redirect the user to the IdP.
+//
+// Hostname() is used over Host so a "https://:443" port-only authority is
+// correctly rejected — Host returns ":443" (non-empty) but Hostname returns
+// the empty string.
 func validateNativeSSOURL(raw string) error {
 	if !strings.HasPrefix(strings.ToLower(raw), "https://") {
 		return fmt.Errorf("saml sso_url must use https://")
@@ -1373,7 +1378,7 @@ func validateNativeSSOURL(raw string) error {
 	if err != nil {
 		return fmt.Errorf("saml sso_url is not a valid URL: %w", err)
 	}
-	if parsed.Host == "" {
+	if parsed.Hostname() == "" {
 		return fmt.Errorf("saml sso_url must include a host")
 	}
 	return nil

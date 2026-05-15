@@ -4,11 +4,37 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+// withPermissiveHostGuard swaps out the SSRF guard for the duration of the
+// test so a httptest.NewTLSServer (which binds to 127.0.0.1) is reachable.
+// Production wiring keeps the strict guard.
+func withPermissiveHostGuard(t *testing.T) {
+	t.Helper()
+	prev := metadataHostGuard
+	metadataHostGuard = func(context.Context, string) error { return nil }
+	t.Cleanup(func() { metadataHostGuard = prev })
+}
+
+// withFakeResolver lets a test pretend that a public-looking hostname resolves
+// to a controlled IP set, exercising the real assertMetadataHostIsExternal
+// without depending on DNS.
+func withFakeResolver(t *testing.T, mapping map[string][]net.IP) {
+	t.Helper()
+	prev := metadataResolver
+	metadataResolver = func(_ context.Context, host string) ([]net.IP, error) {
+		if ips, ok := mapping[host]; ok {
+			return ips, nil
+		}
+		return nil, &net.DNSError{Err: "not found", Name: host, IsNotFound: true}
+	}
+	t.Cleanup(func() { metadataResolver = prev })
+}
 
 const oktaMetadataFixture = `<?xml version="1.0" encoding="UTF-8"?>
 <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="http://www.okta.com/exk1abc23DEF">
@@ -112,6 +138,7 @@ func TestFetchSAMLMetadataXML_HappyPath(t *testing.T) {
 		_, _ = w.Write([]byte(oktaMetadataFixture))
 	}))
 	t.Cleanup(srv.Close)
+	withPermissiveHostGuard(t)
 	body, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
 	if err != nil {
 		t.Fatalf("fetch metadata: %v", err)
@@ -125,6 +152,54 @@ func TestFetchSAMLMetadataXML_RejectsHTTP(t *testing.T) {
 	_, err := FetchSAMLMetadataXML(context.Background(), nil, "http://idp.example.com/metadata")
 	if err == nil || !strings.Contains(err.Error(), "https") {
 		t.Errorf("expected https requirement, got: %v", err)
+	}
+}
+
+func TestFetchSAMLMetadataXML_BlocksLiteralLoopbackIP(t *testing.T) {
+	_, err := FetchSAMLMetadataXML(context.Background(), nil, "https://127.0.0.1/metadata")
+	if err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Errorf("expected loopback rejection, got: %v", err)
+	}
+}
+
+func TestFetchSAMLMetadataXML_BlocksLiteralPrivateIP(t *testing.T) {
+	_, err := FetchSAMLMetadataXML(context.Background(), nil, "https://10.0.0.1/metadata")
+	if err == nil || !strings.Contains(err.Error(), "private") {
+		t.Errorf("expected private-range rejection, got: %v", err)
+	}
+}
+
+func TestFetchSAMLMetadataXML_BlocksLinkLocalCloudMetadata(t *testing.T) {
+	// 169.254.169.254 is the AWS/Azure/GCP instance metadata endpoint — the
+	// canonical SSRF target.
+	_, err := FetchSAMLMetadataXML(context.Background(), nil, "https://169.254.169.254/latest/meta-data/")
+	if err == nil || !strings.Contains(err.Error(), "link-local") {
+		t.Errorf("expected link-local rejection, got: %v", err)
+	}
+}
+
+func TestFetchSAMLMetadataXML_BlocksHostnameResolvingToPrivate(t *testing.T) {
+	// A public-looking hostname that DNS resolves to a private IP must be
+	// rejected after resolution, not just on the literal IP.
+	withFakeResolver(t, map[string][]net.IP{
+		"idp.attacker.example.com": {net.ParseIP("10.4.5.6")},
+	})
+	_, err := FetchSAMLMetadataXML(context.Background(), nil, "https://idp.attacker.example.com/metadata")
+	if err == nil || !strings.Contains(err.Error(), "private") {
+		t.Errorf("expected post-resolution private-range rejection, got: %v", err)
+	}
+}
+
+func TestFetchSAMLMetadataXML_AllowsPublicResolution(t *testing.T) {
+	// Resolving to a public IP must pass the SSRF guard. A hostname that
+	// resolves to a non-RFC1918 address (here 198.51.100.1, TEST-NET-2)
+	// should be accepted by the guard. We don't actually issue the request —
+	// the assertion is that the guard does not reject.
+	withFakeResolver(t, map[string][]net.IP{
+		"idp.example.com": {net.ParseIP("198.51.100.1")},
+	})
+	if err := assertMetadataHostIsExternal(context.Background(), "idp.example.com"); err != nil {
+		t.Errorf("public IP should pass the SSRF guard, got: %v", err)
 	}
 }
 
