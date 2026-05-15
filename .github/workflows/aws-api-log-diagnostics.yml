@@ -9,7 +9,7 @@ on:
         type: string
         default: "60"
       filter_pattern:
-        description: "CloudWatch Logs filter pattern. Leave blank to fetch recent API events."
+        description: "CloudWatch Logs filter pattern. Use <none> to fetch recent API events without a filter."
         required: false
         type: string
         default: '"authenticate workos callback"'
@@ -136,6 +136,13 @@ jobs:
           start_time_ms="$(( $(date +%s) * 1000 - LOOKBACK_MINUTES * 60 * 1000 ))"
           events_file="${RUNNER_TEMP}/identrail-api-log-events.json"
           printf '{"events":[]}\n' > "${events_file}"
+          filter_pattern="$(printf '%s' "${FILTER_PATTERN}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          filter_pattern_lower="${filter_pattern,,}"
+          case "${filter_pattern_lower}" in
+            "<none>"|"none"|"no-filter"|"all")
+              filter_pattern=""
+              ;;
+          esac
           next_token=""
           pages_scanned=0
           max_pages=20
@@ -149,8 +156,8 @@ jobs:
               --no-paginate
               --output json
             )
-            if [ -n "${FILTER_PATTERN}" ]; then
-              args+=(--filter-pattern "${FILTER_PATTERN}")
+            if [ -n "${filter_pattern}" ]; then
+              args+=(--filter-pattern "${filter_pattern}")
             fi
             if [ -n "${next_token}" ]; then
               args+=(--next-token "${next_token}")
@@ -177,7 +184,7 @@ jobs:
             echo
             echo "- Log group: \`${LOG_GROUP_NAME}\`"
             echo "- Lookback: \`${LOOKBACK_MINUTES}\` minutes"
-            echo "- Filter pattern: \`${FILTER_PATTERN:-<none>}\`"
+            echo "- Filter pattern: \`${filter_pattern:-<none>}\`"
             echo "- CloudWatch pages scanned: \`${pages_scanned}\`"
             echo "- Events returned: \`${event_count}\`"
             if [ -n "${next_token}" ] && [ "${event_count}" -lt "${MAX_EVENTS}" ]; then

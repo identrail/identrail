@@ -198,8 +198,12 @@ events.
 
 The default filter pattern is `"authenticate workos callback"`, which targets
 the callback exchange failure log emitted before the API returns
-`{"error":"login failed"}`. Leave the filter blank to inspect recent API events
-without narrowing to that auth path.
+`{"error":"login failed"}`. To inspect recent API events without narrowing to
+that auth path, use this exact filter pattern:
+
+```text
+<none>
+```
 
 ## DNS Cutover
 
