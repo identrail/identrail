@@ -203,6 +203,50 @@ func TestFetchSAMLMetadataXML_AllowsPublicResolution(t *testing.T) {
 	}
 }
 
+func TestFetchSAMLMetadataXML_BlocksRedirectToHTTP(t *testing.T) {
+	// httptest.NewTLSServer binds to 127.0.0.1; bypass the literal-IP guard
+	// for the original host so we can exercise the redirect path. The
+	// CheckRedirect we install must run the scheme check on the redirect
+	// target regardless of the original-host bypass.
+	withPermissiveHostGuard(t)
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://idp.example.com/metadata", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	_, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	if err == nil || !strings.Contains(err.Error(), "non-https") {
+		t.Errorf("expected non-https redirect rejection, got: %v", err)
+	}
+}
+
+func TestFetchSAMLMetadataXML_BlocksRedirectToPrivateIP(t *testing.T) {
+	// Bypass the loopback check on the original httptest URL but reinstall
+	// the strict guard for the redirect target. This exercises the SSRF
+	// protection against an attacker-controlled public endpoint that 30x'es
+	// to a private IP.
+	prev := metadataHostGuard
+	t.Cleanup(func() { metadataHostGuard = prev })
+	allowFirst := true
+	metadataHostGuard = func(ctx context.Context, host string) error {
+		if allowFirst {
+			allowFirst = false
+			return nil
+		}
+		return assertMetadataHostIsExternal(ctx, host)
+	}
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Cloud metadata service — the canonical SSRF target.
+		http.Redirect(w, r, "https://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	_, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	if err == nil || !strings.Contains(err.Error(), "link-local") {
+		t.Errorf("expected link-local rejection on redirect target, got: %v", err)
+	}
+}
+
 func TestNewSCIMBearerToken_Format(t *testing.T) {
 	plain, hash, err := NewSCIMBearerToken()
 	if err != nil {

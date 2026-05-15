@@ -207,12 +207,19 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
+	// Shallow-clone the client so installing CheckRedirect does not mutate
+	// the caller's instance, then enforce the same scheme + host guard on
+	// every redirect hop. Without this, a public-facing https endpoint could
+	// 30x to a plain-http URL or to a private IP and bypass the up-front
+	// guard, restoring the SSRF surface this fetcher is meant to close.
+	guardedClient := *client
+	guardedClient.CheckRedirect = checkMetadataRedirect
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/samlmetadata+xml, application/xml, text/xml")
-	res, err := client.Do(req)
+	res, err := guardedClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch metadata: %w", err)
 	}
@@ -225,6 +232,26 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 		return nil, fmt.Errorf("read metadata body: %w", err)
 	}
 	return body, nil
+}
+
+// checkMetadataRedirect runs the same scheme + host guard that gates the
+// initial metadata_url request on every redirect hop. Without this, an
+// attacker-controlled public https endpoint could 302 to plain http or to a
+// private/loopback address and bypass the up-front SSRF guard. The standard
+// library follows up to 10 redirects by default; we cap at 5 since IdP
+// metadata endpoints in practice never redirect more than once.
+func checkMetadataRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return fmt.Errorf("metadata_url followed too many redirects (%d)", len(via))
+	}
+	if !strings.EqualFold(req.URL.Scheme, "https") {
+		return fmt.Errorf("metadata_url redirect to non-https scheme %q is not allowed", req.URL.Scheme)
+	}
+	host := req.URL.Hostname()
+	if host == "" {
+		return fmt.Errorf("metadata_url redirect has no host")
+	}
+	return metadataHostGuard(req.Context(), host)
 }
 
 // metadataResolver is the DNS resolver used by assertMetadataHostIsExternal.
