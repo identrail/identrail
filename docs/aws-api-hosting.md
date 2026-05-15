@@ -96,6 +96,10 @@ Repository configuration required before the workflow can plan:
   `IDENTRAIL_DATABASE_URL`
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
+
+Hosted WorkOS login is optional. Configure these values only when deploying the
+hosted sign-in/sign-up flow:
+
 - variable `API_WORKOS_CLIENT_ID`: WorkOS production client ID, such as
   `client_...`
 - variable `API_WORKOS_ENVIRONMENT_ID`: WorkOS production environment ID, such

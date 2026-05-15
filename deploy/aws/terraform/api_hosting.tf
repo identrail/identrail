@@ -218,12 +218,13 @@ resource "terraform_data" "api_inputs" {
 
     precondition {
       condition = !local.api_workos_login_enabled || (
+        local.api_new_auth_enabled &&
         contains(local.api_config_names, "IDENTRAIL_WORKOS_CLIENT_ID") &&
         contains(local.api_config_names, "IDENTRAIL_WORKOS_ENVIRONMENT_ID") &&
         contains(local.api_secret_config_names, "IDENTRAIL_WORKOS_API_KEY") &&
         contains(local.api_secret_config_names, "IDENTRAIL_WORKOS_WEBHOOK_SECRET")
       )
-      error_message = "WorkOS login requires IDENTRAIL_WORKOS_CLIENT_ID and IDENTRAIL_WORKOS_ENVIRONMENT_ID in api_environment_variables, plus IDENTRAIL_WORKOS_API_KEY and IDENTRAIL_WORKOS_WEBHOOK_SECRET in api_secrets."
+      error_message = "WorkOS login requires IDENTRAIL_FEATURE_NEW_AUTH=true, IDENTRAIL_WORKOS_CLIENT_ID, and IDENTRAIL_WORKOS_ENVIRONMENT_ID in api_environment_variables, plus IDENTRAIL_WORKOS_API_KEY and IDENTRAIL_WORKOS_WEBHOOK_SECRET in api_secrets."
     }
 
     precondition {
