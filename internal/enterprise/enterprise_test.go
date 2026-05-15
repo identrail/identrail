@@ -39,6 +39,10 @@ func TestSCIMUser_Validate(t *testing.T) {
 		{"missing_id", func(u *SCIMUser) { u.ID = "" }},
 		{"missing_username", func(u *SCIMUser) { u.UserName = "" }},
 		{"invalid_email", func(u *SCIMUser) { u.Email = "not-an-email" }},
+		// mail.ParseAddress accepts these mailbox/display forms; SCIMUser.Email
+		// must persist as a canonical addr-spec only.
+		{"email_with_display_name", func(u *SCIMUser) { u.Email = "Alice <alice@example.com>" }},
+		{"email_with_trailing_comment", func(u *SCIMUser) { u.Email = "alice@example.com (Alice)" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

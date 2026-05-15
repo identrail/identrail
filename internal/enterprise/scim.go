@@ -37,6 +37,12 @@ type SCIMUser struct {
 }
 
 // Validate enforces SCIM core schema invariants relevant to Identrail.
+//
+// The email field must be a plain addr-spec (e.g. "alice@example.com") rather
+// than the mailbox display syntax accepted by net/mail ("Alice
+// <alice@example.com>"). The downstream provisioning path upserts this string
+// into the users/identities tables as a login identifier, so accepting display
+// syntax would persist a non-canonical email.
 func (u SCIMUser) Validate() error {
 	if strings.TrimSpace(u.ID) == "" {
 		return fmt.Errorf("scim user id is required")
@@ -44,8 +50,13 @@ func (u SCIMUser) Validate() error {
 	if strings.TrimSpace(u.UserName) == "" {
 		return fmt.Errorf("scim user userName is required")
 	}
-	if _, err := mail.ParseAddress(u.Email); err != nil {
+	trimmedEmail := strings.TrimSpace(u.Email)
+	parsed, err := mail.ParseAddress(trimmedEmail)
+	if err != nil {
 		return fmt.Errorf("scim user email %q is invalid: %w", u.Email, err)
+	}
+	if !strings.EqualFold(parsed.Address, trimmedEmail) {
+		return fmt.Errorf("scim user email %q must be a plain address without display name", u.Email)
 	}
 	return nil
 }
