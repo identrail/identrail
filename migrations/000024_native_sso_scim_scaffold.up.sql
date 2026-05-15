@@ -24,6 +24,14 @@ ALTER TABLE identity_connections
 -- rows continue to satisfy the legacy contract (workos_connection_id set,
 -- native columns NULL). Native rows require entity_id, certificate_pem, and
 -- an https sso_url. Non-saml providers (workos, oidc) are unaffected.
+-- The constraint is added NOT VALID so the migration is forward-safe against
+-- databases that already contain bare provider='saml' scaffold rows created
+-- under the pre-#1138 schema (status='pending', no workos_connection_id, no
+-- native fields). Those legacy rows are grandfathered: they remain in place,
+-- but any subsequent INSERT or UPDATE on identity_connections must satisfy
+-- the constraint. Operators can run
+--   ALTER TABLE identity_connections VALIDATE CONSTRAINT identity_connections_saml_completeness;
+-- once they have backfilled or removed any leftover bare-pending SAML rows.
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -47,7 +55,7 @@ BEGIN
                     AND certificate_pem IS NOT NULL AND LENGTH(TRIM(certificate_pem)) > 0
                     AND sso_url IS NOT NULL AND sso_url ~* '^https://'
                 )
-            );
+            ) NOT VALID;
     END IF;
 END;
 $$;
