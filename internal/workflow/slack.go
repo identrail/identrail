@@ -24,14 +24,21 @@ func (s SlackDestination) Name() string { return slackDestinationName }
 
 // Send delivers the event as a formatted Slack message.
 func (s SlackDestination) Send(ctx context.Context, event Event) error {
-	if strings.TrimSpace(s.WebhookURL) == "" {
+	webhookURL := strings.TrimSpace(s.WebhookURL)
+	if webhookURL == "" {
 		return fmt.Errorf("slack webhook URL is empty")
+	}
+	// Slack incoming webhook URLs embed a secret token in the path itself.
+	// Refuse to send the request — and the finding payload — over plaintext
+	// transport, matching the Jira/Linear https-only posture.
+	if !strings.HasPrefix(strings.ToLower(webhookURL), "https://") {
+		return fmt.Errorf("slack webhook URL must use https:// to protect the embedded webhook secret")
 	}
 	body, err := json.Marshal(s.payload(event))
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.WebhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

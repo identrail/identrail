@@ -354,11 +354,11 @@ func captureTLSRequest(t *testing.T, handler func(w http.ResponseWriter, r *http
 }
 
 func TestSlackDestination_Send_HappyPath(t *testing.T) {
-	srv, captured := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, captured := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	dest := SlackDestination{WebhookURL: srv.URL}
+	dest := SlackDestination{WebhookURL: srv.URL, HTTPClient: srv.Client()}
 	if err := dest.Send(context.Background(), sampleEvent(EventFindingCreated)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -379,10 +379,10 @@ func TestSlackDestination_Send_HappyPath(t *testing.T) {
 }
 
 func TestSlackDestination_Send_ErrorsOn5xx(t *testing.T) {
-	srv, _ := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	})
-	dest := SlackDestination{WebhookURL: srv.URL}
+	dest := SlackDestination{WebhookURL: srv.URL, HTTPClient: srv.Client()}
 	err := dest.Send(context.Background(), sampleEvent(EventFindingCreated))
 	if err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500 error, got: %v", err)
@@ -394,6 +394,17 @@ func TestSlackDestination_Send_RejectsEmptyURL(t *testing.T) {
 	err := dest.Send(context.Background(), sampleEvent(EventFindingCreated))
 	if err == nil {
 		t.Error("expected error for empty webhook URL")
+	}
+}
+
+func TestSlackDestination_Send_RejectsHTTPWebhookURL(t *testing.T) {
+	dest := SlackDestination{WebhookURL: "http://hooks.slack.example.com/services/T/B/secret"}
+	err := dest.Send(context.Background(), sampleEvent(EventFindingCreated))
+	if err == nil {
+		t.Fatal("expected http:// webhook URL to be rejected")
+	}
+	if !strings.Contains(err.Error(), "https") {
+		t.Errorf("expected https requirement in error, got: %v", err)
 	}
 }
 
