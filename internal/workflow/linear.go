@@ -60,7 +60,12 @@ func (l LinearDestination) Send(ctx context.Context, event Event) error {
 		return err
 	}
 
-	apiURL := valueOrFallback(l.APIURL, defaultLinearAPIURL)
+	apiURL := strings.TrimSpace(valueOrFallback(l.APIURL, defaultLinearAPIURL))
+	// Refuse to send the API key over plaintext transport. The default Linear
+	// endpoint is HTTPS; a custom override must keep that property.
+	if !strings.HasPrefix(strings.ToLower(apiURL), "https://") {
+		return fmt.Errorf("linear API URL must use https:// to protect the API key")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
 	if err != nil {
 		return err

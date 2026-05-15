@@ -262,11 +262,11 @@ func TestAlertPolicy_Validate(t *testing.T) {
 }
 
 func TestLinearDestination_Send_TrimsAPIKeyWhitespace(t *testing.T) {
-	srv, captured := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, captured := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"i1","identifier":"OPS-1","url":"https://linear.app/x"}}}}`))
 	})
-	dest := LinearDestination{APIURL: srv.URL, APIKey: "  lin_xxx  \n", TeamID: "team-1"}
+	dest := LinearDestination{APIURL: srv.URL, APIKey: "  lin_xxx  \n", TeamID: "team-1", HTTPClient: srv.Client()}
 	if err := dest.Send(context.Background(), sampleEvent(EventFindingCreated)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -492,11 +492,11 @@ func TestJiraDestination_Send_RejectsHTTPBaseURL(t *testing.T) {
 // ---------- Linear ----------
 
 func TestLinearDestination_Send_HappyPath(t *testing.T) {
-	srv, captured := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, captured := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"i1","identifier":"OPS-1","url":"https://linear.app/x"}}}}`))
 	})
-	dest := LinearDestination{APIURL: srv.URL, APIKey: "lin_xxx", TeamID: "team-1"}
+	dest := LinearDestination{APIURL: srv.URL, APIKey: "lin_xxx", TeamID: "team-1", HTTPClient: srv.Client()}
 	if err := dest.Send(context.Background(), sampleEvent(EventFindingCreated)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -520,11 +520,11 @@ func TestLinearDestination_Send_HappyPath(t *testing.T) {
 }
 
 func TestLinearDestination_Send_PropagatesGraphQLErrors(t *testing.T) {
-	srv, _ := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"errors":[{"message":"unauthenticated"}]}`))
 	})
-	dest := LinearDestination{APIURL: srv.URL, APIKey: "lin", TeamID: "t"}
+	dest := LinearDestination{APIURL: srv.URL, APIKey: "lin", TeamID: "t", HTTPClient: srv.Client()}
 	err := dest.Send(context.Background(), sampleEvent(EventFindingCreated))
 	if err == nil || !strings.Contains(err.Error(), "unauthenticated") {
 		t.Errorf("expected graphql error propagated, got: %v", err)
@@ -532,10 +532,10 @@ func TestLinearDestination_Send_PropagatesGraphQLErrors(t *testing.T) {
 }
 
 func TestLinearDestination_Send_ErrorsOnSuccessFalse(t *testing.T) {
-	srv, _ := captureRequest(t, func(w http.ResponseWriter, r *http.Request) {
+	srv, _ := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":false}}}`))
 	})
-	dest := LinearDestination{APIURL: srv.URL, APIKey: "k", TeamID: "t"}
+	dest := LinearDestination{APIURL: srv.URL, APIKey: "k", TeamID: "t", HTTPClient: srv.Client()}
 	err := dest.Send(context.Background(), sampleEvent(EventFindingCreated))
 	if err == nil || !strings.Contains(err.Error(), "success=false") {
 		t.Errorf("expected success=false error, got: %v", err)
@@ -548,5 +548,20 @@ func TestLinearDestination_Send_ValidatesConfig(t *testing.T) {
 	}
 	if err := (LinearDestination{APIKey: "k"}).Send(context.Background(), sampleEvent(EventFindingCreated)); err == nil {
 		t.Error("expected error for missing team id")
+	}
+}
+
+func TestLinearDestination_Send_RejectsHTTPAPIURL(t *testing.T) {
+	dest := LinearDestination{
+		APIURL: "http://api.linear.app/graphql",
+		APIKey: "lin",
+		TeamID: "t",
+	}
+	err := dest.Send(context.Background(), sampleEvent(EventFindingCreated))
+	if err == nil {
+		t.Fatal("expected http:// API URL to be rejected")
+	}
+	if !strings.Contains(err.Error(), "https") {
+		t.Errorf("expected https requirement in error, got: %v", err)
 	}
 }
