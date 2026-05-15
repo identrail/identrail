@@ -187,6 +187,20 @@ curl -fsS --resolve "api.identrail.com:443:${load_balancer_ip}" \
   "https://api.identrail.com/healthz"
 ```
 
+## Log Diagnostics
+
+Use the `AWS API Log Diagnostics` workflow when the hosted API is healthy but an
+operator needs recent CloudWatch application logs, such as a failed WorkOS auth
+callback. The workflow is read-only: it assumes the same GitHub OIDC AWS role as
+the deployment workflow, reads `/identrail/dev/api`, and redacts common secret,
+token, database URL, OAuth code, and OAuth state shapes before printing matching
+events.
+
+The default filter pattern is `"authenticate workos callback"`, which targets
+the callback exchange failure log emitted before the API returns
+`{"error":"login failed"}`. Leave the filter blank to inspect recent API events
+without narrowing to that auth path.
+
 ## DNS Cutover
 
 Do not point `api.identrail.com` at the load balancer until:

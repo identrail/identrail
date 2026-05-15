@@ -1,0 +1,183 @@
+name: AWS API Log Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How many recent minutes of API logs to inspect."
+        required: true
+        type: string
+        default: "60"
+      filter_pattern:
+        description: "CloudWatch Logs filter pattern. Leave blank to fetch recent API events."
+        required: false
+        type: string
+        default: '"authenticate workos callback"'
+      max_events:
+        description: "Maximum matching log events to print."
+        required: true
+        type: string
+        default: "25"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-api-log-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect AWS API logs
+    if: github.repository == 'identrail/identrail'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      LOG_GROUP_NAME: /identrail/dev/api
+      FILTER_PATTERN: ${{ inputs.filter_pattern }}
+      LOOKBACK_MINUTES: ${{ inputs.minutes }}
+      MAX_EVENTS: ${{ inputs.max_events }}
+    steps:
+      - name: Validate diagnostic inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws_region="$(printf '%s' "${AWS_REGION}" | tr -d '[:space:]')"
+          if [ -z "${aws_region}" ]; then
+            echo "Missing repository variable AWS_REGION."
+            exit 1
+          fi
+          if [[ ! "${aws_region}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "AWS_REGION must be an AWS region such as us-east-1."
+            exit 1
+          fi
+
+          aws_role_arn="$(printf '%s' "${AWS_ROLE_ARN}" | tr -d '[:space:]')"
+          if [ -z "${aws_role_arn}" ]; then
+            echo "Missing repository secret AWS_ROLE_ARN."
+            exit 1
+          fi
+          if [[ ! "${aws_role_arn}" =~ ^arn:aws:iam::[0-9]{12}:role/.+$ ]]; then
+            echo "AWS_ROLE_ARN must look like arn:aws:iam::<account-id>:role/<role-name>."
+            exit 1
+          fi
+          echo "::add-mask::${aws_role_arn}"
+
+          if ! [[ "${LOOKBACK_MINUTES}" =~ ^[0-9]+$ ]]; then
+            echo "minutes must be a positive integer."
+            exit 1
+          fi
+          if [ "${LOOKBACK_MINUTES}" -lt 1 ] || [ "${LOOKBACK_MINUTES}" -gt 1440 ]; then
+            echo "minutes must be between 1 and 1440."
+            exit 1
+          fi
+
+          if ! [[ "${MAX_EVENTS}" =~ ^[0-9]+$ ]]; then
+            echo "max_events must be a positive integer."
+            exit 1
+          fi
+          if [ "${MAX_EVENTS}" -lt 1 ] || [ "${MAX_EVENTS}" -gt 200 ]; then
+            echo "max_events must be between 1 and 200."
+            exit 1
+          fi
+
+          {
+            echo "AWS_REGION=${aws_region}"
+            echo "AWS_DEFAULT_REGION=${aws_region}"
+            echo "AWS_ROLE_ARN=${aws_role_arn}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Configure AWS credentials from GitHub OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          token_response="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
+          oidc_token="$(jq -r '.value // empty' <<< "${token_response}")"
+          if [ -z "${oidc_token}" ]; then
+            echo "GitHub did not return an OIDC token."
+            exit 1
+          fi
+
+          credentials="$(
+            aws sts assume-role-with-web-identity \
+              --role-arn "${AWS_ROLE_ARN}" \
+              --role-session-name "identrail-api-logs-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --web-identity-token "${oidc_token}" \
+              --duration-seconds 900 \
+              --query 'Credentials' \
+              --output json
+          )"
+          access_key_id="$(jq -r '.AccessKeyId' <<< "${credentials}")"
+          secret_access_key="$(jq -r '.SecretAccessKey' <<< "${credentials}")"
+          session_token="$(jq -r '.SessionToken' <<< "${credentials}")"
+          echo "::add-mask::${access_key_id}"
+          echo "::add-mask::${secret_access_key}"
+          echo "::add-mask::${session_token}"
+          {
+            echo "AWS_ACCESS_KEY_ID=${access_key_id}"
+            echo "AWS_SECRET_ACCESS_KEY=${secret_access_key}"
+            echo "AWS_SESSION_TOKEN=${session_token}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Fetch sanitized API log events
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          start_time_ms="$(( $(date +%s) * 1000 - LOOKBACK_MINUTES * 60 * 1000 ))"
+          events_file="${RUNNER_TEMP}/identrail-api-log-events.json"
+          args=(
+            --log-group-name "${LOG_GROUP_NAME}"
+            --start-time "${start_time_ms}"
+            --limit "${MAX_EVENTS}"
+            --output json
+          )
+          if [ -n "${FILTER_PATTERN}" ]; then
+            args+=(--filter-pattern "${FILTER_PATTERN}")
+          fi
+
+          aws logs filter-log-events "${args[@]}" > "${events_file}"
+          event_count="$(jq '.events | length' "${events_file}")"
+
+          {
+            echo "## AWS API log diagnostics"
+            echo
+            echo "- Log group: \`${LOG_GROUP_NAME}\`"
+            echo "- Lookback: \`${LOOKBACK_MINUTES}\` minutes"
+            echo "- Filter pattern: \`${FILTER_PATTERN:-<none>}\`"
+            echo "- Events returned: \`${event_count}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${event_count}" -eq 0 ]; then
+            echo "No matching API log events found."
+            exit 0
+          fi
+
+          redact() {
+            sed -E \
+              -e 's/sk_[A-Za-z0-9._-]+/[REDACTED_WORKOS_KEY]/g' \
+              -e 's/whsec_[A-Za-z0-9._-]+/[REDACTED_WEBHOOK_SECRET]/g' \
+              -e 's#postgresql://[^[:space:]]+#postgresql://[REDACTED]#g' \
+              -e 's#postgres://[^[:space:]]+#postgres://[REDACTED]#g' \
+              -e 's/(code=)[^&[:space:]]+/\1[REDACTED_CODE]/g' \
+              -e 's/(state=)[^&[:space:]]+/\1[REDACTED_STATE]/g' \
+              -e 's/(Bearer )[A-Za-z0-9._=-]+/\1[REDACTED_TOKEN]/g'
+          }
+
+          jq -r '.events[] | [.timestamp, (.logStreamName // "-"), (.message // "")] | @tsv' "${events_file}" |
+            while IFS=$'\t' read -r timestamp stream message; do
+              iso_time="$(date -u -d "@$((timestamp / 1000))" +"%Y-%m-%dT%H:%M:%SZ")"
+              safe_message="$(printf '%s' "${message}" | redact)"
+              echo "::group::${iso_time} ${stream}"
+              printf '%s\n' "${safe_message}"
+              echo "::endgroup::"
+            done
