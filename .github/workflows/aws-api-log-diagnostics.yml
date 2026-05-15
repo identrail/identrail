@@ -135,18 +135,41 @@ jobs:
 
           start_time_ms="$(( $(date +%s) * 1000 - LOOKBACK_MINUTES * 60 * 1000 ))"
           events_file="${RUNNER_TEMP}/identrail-api-log-events.json"
-          args=(
-            --log-group-name "${LOG_GROUP_NAME}"
-            --start-time "${start_time_ms}"
-            --limit "${MAX_EVENTS}"
-            --max-items "${MAX_EVENTS}"
-            --output json
-          )
-          if [ -n "${FILTER_PATTERN}" ]; then
-            args+=(--filter-pattern "${FILTER_PATTERN}")
-          fi
+          printf '{"events":[]}\n' > "${events_file}"
+          next_token=""
+          pages_scanned=0
+          max_pages=20
 
-          aws logs filter-log-events "${args[@]}" > "${events_file}"
+          while :; do
+            page_file="${RUNNER_TEMP}/identrail-api-log-events-page-${pages_scanned}.json"
+            args=(
+              --log-group-name "${LOG_GROUP_NAME}"
+              --start-time "${start_time_ms}"
+              --limit "${MAX_EVENTS}"
+              --no-paginate
+              --output json
+            )
+            if [ -n "${FILTER_PATTERN}" ]; then
+              args+=(--filter-pattern "${FILTER_PATTERN}")
+            fi
+            if [ -n "${next_token}" ]; then
+              args+=(--next-token "${next_token}")
+            fi
+
+            aws logs filter-log-events "${args[@]}" > "${page_file}"
+            jq -s --argjson max_events "${MAX_EVENTS}" \
+              '{events: ([.[0].events[]?, .[1].events[]?] | .[:$max_events])}' \
+              "${events_file}" "${page_file}" > "${events_file}.next"
+            mv "${events_file}.next" "${events_file}"
+
+            pages_scanned="$((pages_scanned + 1))"
+            event_count="$(jq '.events | length' "${events_file}")"
+            next_token="$(jq -r '.nextToken // empty' "${page_file}")"
+            if [ "${event_count}" -ge "${MAX_EVENTS}" ] || [ -z "${next_token}" ] || [ "${pages_scanned}" -ge "${max_pages}" ]; then
+              break
+            fi
+          done
+
           event_count="$(jq '.events | length' "${events_file}")"
 
           {
@@ -155,7 +178,11 @@ jobs:
             echo "- Log group: \`${LOG_GROUP_NAME}\`"
             echo "- Lookback: \`${LOOKBACK_MINUTES}\` minutes"
             echo "- Filter pattern: \`${FILTER_PATTERN:-<none>}\`"
+            echo "- CloudWatch pages scanned: \`${pages_scanned}\`"
             echo "- Events returned: \`${event_count}\`"
+            if [ -n "${next_token}" ] && [ "${event_count}" -lt "${MAX_EVENTS}" ]; then
+              echo "- Note: stopped after the \`${max_pages}\` page diagnostic safety cap."
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [ "${event_count}" -eq 0 ]; then
