@@ -97,6 +97,18 @@ Repository configuration required before the workflow can plan:
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
 
+Hosted WorkOS login is optional. Configure these values only when deploying the
+hosted sign-in/sign-up flow:
+
+- variable `API_WORKOS_CLIENT_ID`: WorkOS production client ID, such as
+  `client_...`
+- variable `API_WORKOS_ENVIRONMENT_ID`: WorkOS production environment ID, such
+  as `environment_...`
+- secret `API_WORKOS_API_KEY_SECRET_ARN`: Secrets Manager ARN containing
+  `IDENTRAIL_WORKOS_API_KEY`
+- secret `API_WORKOS_WEBHOOK_SECRET_ARN`: Secrets Manager ARN containing
+  `IDENTRAIL_WORKOS_WEBHOOK_SECRET`
+
 The workflow dispatch input `api_container_image` must be immutable, such as
 `ghcr.io/identrail/identrail-api:sha-<commit>`. Do not deploy the mutable `dev`
 tag to this hosted API path.
@@ -106,6 +118,8 @@ Optional repository variables:
 - `API_ALLOWED_CIDR_BLOCKS_JSON`
 - `API_CORS_ALLOWED_ORIGINS_JSON`
 - `API_TRUSTED_PROXY_CIDR_BLOCKS_JSON`
+- `API_FEATURE_WORKOS_LOGIN`: defaults to `true` when the first-class WorkOS
+  deployment settings above are provided
 - `API_EXTRA_ENVIRONMENT_JSON`
 - `API_SECRET_KMS_KEY_ARNS_JSON`
 - `API_CONNECTOR_ROLE_ARNS_JSON`
@@ -113,8 +127,8 @@ Optional repository variables:
 Optional repository secret:
 
 - `API_EXTRA_SECRETS_JSON`: JSON object mapping additional runtime secret
-  environment variable names to Secrets Manager ARNs, such as WorkOS or future
-  provider secrets.
+  environment variable names to Secrets Manager ARNs for future provider
+  secrets. Prefer the first-class WorkOS settings above for hosted auth.
 
 Do not put database URLs, API keys, cookie secrets, or OAuth credentials directly
 in tfvars files, docs, GitHub variables, or Terraform state. Use Secrets Manager

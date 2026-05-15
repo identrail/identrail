@@ -118,6 +118,66 @@ secret_kms_keys="$(json_string_array API_SECRET_KMS_KEY_ARNS_JSON '[]')"
 extra_environment="$(json_string_map API_EXTRA_ENVIRONMENT_JSON)"
 extra_secrets="$(json_string_map API_EXTRA_SECRETS_JSON)"
 
+workos_feature_enabled="$(trim "${API_FEATURE_WORKOS_LOGIN:-}")"
+workos_client_id="$(trim "${API_WORKOS_CLIENT_ID:-}")"
+workos_environment_id="$(trim "${API_WORKOS_ENVIRONMENT_ID:-}")"
+workos_api_key_secret="$(trim "${API_WORKOS_API_KEY_SECRET_ARN:-}")"
+workos_webhook_secret="$(trim "${API_WORKOS_WEBHOOK_SECRET_ARN:-}")"
+workos_environment="{}"
+workos_secrets="{}"
+if [ -n "${workos_feature_enabled}" ] || [ -n "${workos_client_id}" ] || [ -n "${workos_environment_id}" ] || [ -n "${workos_api_key_secret}" ] || [ -n "${workos_webhook_secret}" ]; then
+  if [ -z "${workos_feature_enabled}" ]; then
+    workos_feature_enabled="true"
+  fi
+  case "${workos_feature_enabled}" in
+    true|false) ;;
+    *) fail "API_FEATURE_WORKOS_LOGIN must be true or false when set" ;;
+  esac
+  if [ "${workos_feature_enabled}" = "true" ]; then
+    if [ -z "${workos_client_id}" ]; then
+      fail "API_WORKOS_CLIENT_ID is required when WorkOS login is enabled"
+    fi
+    if [ -z "${workos_environment_id}" ]; then
+      fail "API_WORKOS_ENVIRONMENT_ID is required when WorkOS login is enabled"
+    fi
+    if [ -z "${workos_api_key_secret}" ]; then
+      fail "API_WORKOS_API_KEY_SECRET_ARN is required when WorkOS login is enabled"
+    fi
+    if [ -z "${workos_webhook_secret}" ]; then
+      fail "API_WORKOS_WEBHOOK_SECRET_ARN is required when WorkOS login is enabled"
+    fi
+  fi
+  if [ -n "${workos_client_id}" ] && ! [[ "${workos_client_id}" =~ ^client_[A-Za-z0-9]+$ ]]; then
+    fail "API_WORKOS_CLIENT_ID must look like client_<id>"
+  fi
+  if [ -n "${workos_environment_id}" ] && ! [[ "${workos_environment_id}" =~ ^environment_[A-Za-z0-9]+$ ]]; then
+    fail "API_WORKOS_ENVIRONMENT_ID must look like environment_<id>"
+  fi
+  for secret_arn in "${workos_api_key_secret}" "${workos_webhook_secret}"; do
+    if [ -n "${secret_arn}" ] && ! [[ "${secret_arn}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
+      fail "WorkOS secret references must be Secrets Manager ARNs in ${aws_region}"
+    fi
+  done
+  workos_environment="$(
+    jq -nce \
+      --arg enabled "${workos_feature_enabled}" \
+      --arg client_id "${workos_client_id}" \
+      --arg environment_id "${workos_environment_id}" \
+      '{
+        IDENTRAIL_FEATURE_WORKOS_LOGIN: $enabled
+      }
+      + (if $client_id != "" then {IDENTRAIL_WORKOS_CLIENT_ID: $client_id} else {} end)
+      + (if $environment_id != "" then {IDENTRAIL_WORKOS_ENVIRONMENT_ID: $environment_id} else {} end)'
+  )"
+  workos_secrets="$(
+    jq -nce \
+      --arg api_key_secret "${workos_api_key_secret}" \
+      --arg webhook_secret "${workos_webhook_secret}" \
+      '(if $api_key_secret != "" then {IDENTRAIL_WORKOS_API_KEY: $api_key_secret} else {} end)
+      + (if $webhook_secret != "" then {IDENTRAIL_WORKOS_WEBHOOK_SECRET: $webhook_secret} else {} end)'
+  )"
+fi
+
 api_desired_count="$(trim "${API_DESIRED_COUNT:-1}")"
 api_task_cpu="$(trim "${API_TASK_CPU:-512}")"
 api_task_memory="$(trim "${API_TASK_MEMORY:-1024}")"
@@ -147,6 +207,8 @@ jq -n \
   --argjson api_secret_kms_key_arns "${secret_kms_keys}" \
   --argjson extra_environment "${extra_environment}" \
   --argjson extra_secrets "${extra_secrets}" \
+  --argjson workos_environment "${workos_environment}" \
+  --argjson workos_secrets "${workos_secrets}" \
   --argjson api_desired_count "${api_desired_count}" \
   --argjson api_task_cpu "${api_task_cpu}" \
   --argjson api_task_memory "${api_task_memory}" \
@@ -170,11 +232,11 @@ jq -n \
     api_desired_count: $api_desired_count,
     api_task_cpu: $api_task_cpu,
     api_task_memory: $api_task_memory,
-    api_environment_variables: ($extra_environment + {
+    api_environment_variables: ($extra_environment + $workos_environment + {
       IDENTRAIL_FEATURE_NEW_AUTH: "true",
       IDENTRAIL_PUBLIC_BASE_URL: "https://api.identrail.com"
     }),
-    api_secrets: ($extra_secrets + {
+    api_secrets: ($extra_secrets + $workos_secrets + {
       IDENTRAIL_DATABASE_URL: $api_database_secret,
       IDENTRAIL_SESSION_KEY: $api_session_secret
     }),

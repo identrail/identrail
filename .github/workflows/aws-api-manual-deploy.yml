@@ -73,6 +73,11 @@ jobs:
       API_CONTAINER_IMAGE: ${{ inputs.api_container_image }}
       API_DATABASE_URL_SECRET_ARN: ${{ secrets.API_DATABASE_URL_SECRET_ARN }}
       API_SESSION_KEY_SECRET_ARN: ${{ secrets.API_SESSION_KEY_SECRET_ARN }}
+      API_FEATURE_WORKOS_LOGIN: ${{ vars.API_FEATURE_WORKOS_LOGIN || '' }}
+      API_WORKOS_CLIENT_ID: ${{ vars.API_WORKOS_CLIENT_ID || '' }}
+      API_WORKOS_ENVIRONMENT_ID: ${{ vars.API_WORKOS_ENVIRONMENT_ID || '' }}
+      API_WORKOS_API_KEY_SECRET_ARN: ${{ secrets.API_WORKOS_API_KEY_SECRET_ARN || '' }}
+      API_WORKOS_WEBHOOK_SECRET_ARN: ${{ secrets.API_WORKOS_WEBHOOK_SECRET_ARN || '' }}
       API_ALLOWED_CIDR_BLOCKS_JSON: ${{ vars.API_ALLOWED_CIDR_BLOCKS_JSON || '["0.0.0.0/0"]' }}
       API_CORS_ALLOWED_ORIGINS_JSON: ${{ vars.API_CORS_ALLOWED_ORIGINS_JSON || '["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' }}
       API_TRUSTED_PROXY_CIDR_BLOCKS_JSON: ${{ vars.API_TRUSTED_PROXY_CIDR_BLOCKS_JSON || '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' }}
@@ -120,6 +125,12 @@ jobs:
           fi
           echo "::add-mask::${API_DATABASE_URL_SECRET_ARN}"
           echo "::add-mask::${API_SESSION_KEY_SECRET_ARN}"
+          if [ -n "${API_WORKOS_API_KEY_SECRET_ARN}" ]; then
+            echo "::add-mask::${API_WORKOS_API_KEY_SECRET_ARN}"
+          fi
+          if [ -n "${API_WORKOS_WEBHOOK_SECRET_ARN}" ]; then
+            echo "::add-mask::${API_WORKOS_WEBHOOK_SECRET_ARN}"
+          fi
 
       - name: Configure AWS credentials from GitHub OIDC
         shell: bash

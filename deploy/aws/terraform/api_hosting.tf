@@ -39,6 +39,7 @@ locals {
   api_runtime_trusted_proxies = compact([
     for cidr_block in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_TRUSTED_PROXIES", "")) : trimspace(cidr_block)
   ])
+  api_workos_login_enabled = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_WORKOS_LOGIN", "")) == "true"
   api_main_route_table_ids = [
     for route_table_id, route_table in data.aws_route_table.api_vpc : route_table_id
     if anytrue([for association in route_table.associations : association.main])
@@ -213,6 +214,17 @@ resource "terraform_data" "api_inputs" {
     precondition {
       condition     = local.api_has_supported_auth
       error_message = "API hosting requires at least one supported auth mode: IDENTRAIL_API_KEY_SCOPES in api_secrets, legacy IDENTRAIL_API_KEYS plus IDENTRAIL_WRITE_API_KEYS in api_secrets, OIDC issuer plus audience, or new auth with IDENTRAIL_FEATURE_NEW_AUTH=true, IDENTRAIL_PUBLIC_BASE_URL, and IDENTRAIL_SESSION_KEY in api_secrets."
+    }
+
+    precondition {
+      condition = !local.api_workos_login_enabled || (
+        local.api_new_auth_enabled &&
+        contains(local.api_config_names, "IDENTRAIL_WORKOS_CLIENT_ID") &&
+        contains(local.api_config_names, "IDENTRAIL_WORKOS_ENVIRONMENT_ID") &&
+        contains(local.api_secret_config_names, "IDENTRAIL_WORKOS_API_KEY") &&
+        contains(local.api_secret_config_names, "IDENTRAIL_WORKOS_WEBHOOK_SECRET")
+      )
+      error_message = "WorkOS login requires IDENTRAIL_FEATURE_NEW_AUTH=true, IDENTRAIL_WORKOS_CLIENT_ID, and IDENTRAIL_WORKOS_ENVIRONMENT_ID in api_environment_variables, plus IDENTRAIL_WORKOS_API_KEY and IDENTRAIL_WORKOS_WEBHOOK_SECRET in api_secrets."
     }
 
     precondition {
