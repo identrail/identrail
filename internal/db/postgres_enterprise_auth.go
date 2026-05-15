@@ -492,6 +492,15 @@ func (p *PostgresStore) UpdateIdentityConnection(ctx context.Context, connection
 		normalized.UpdatedAt,
 	))
 	if err != nil {
+		// Translate uniqueness constraint violations into ErrConflict so the
+		// API can return 409 instead of 500. Mirrors the Create path and
+		// matches the memory store's UpdateIdentityConnection behavior, so an
+		// admin retyping an existing (org+provider+type) tuple — or moving a
+		// workos_connection_id onto a row another connection already owns —
+		// gets a user-correctable error.
+		if isTenancyUniqueViolation(err) {
+			return IdentityConnection{}, ErrConflict
+		}
 		return IdentityConnection{}, err
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{

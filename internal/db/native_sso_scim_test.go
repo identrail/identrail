@@ -81,6 +81,19 @@ func TestNormalize_RejectsHalfConfiguredNativeSAML(t *testing.T) {
 			func(c *IdentityConnection) { c.SSOURL = "http://idp.example.com/sso" },
 			"https",
 		},
+		{
+			// Without a host, the URL is unusable for SAML redirects even
+			// though it has the https:// prefix.
+			"https_no_host",
+			func(c *IdentityConnection) { c.SSOURL = "https:///path" },
+			"host",
+		},
+		{
+			// Malformed percent-encoding: parses as an error, not a usable URL.
+			"https_invalid_url",
+			func(c *IdentityConnection) { c.SSOURL = "https://%zz" },
+			"valid",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
