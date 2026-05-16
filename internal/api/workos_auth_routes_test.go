@@ -564,6 +564,7 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 	now := time.Date(2026, 5, 16, 18, 45, 0, 0, time.UTC)
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
+	sink := &recordingAuditSink{}
 	workOS := &fakeWorkOSClient{
 		err: &sessionauth.WorkOSMFARequired{
 			Mode:                       sessionauth.WorkOSMFAModeEnrollment,
@@ -588,6 +589,7 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 		FeatureWorkOSLogin: true,
 		PublicBaseURL:      "https://api.identrail.test",
 		CORSAllowedOrigins: []string{"https://app.identrail.test"},
+		AuditSink:          sink,
 		SessionKey:         strings.Repeat("a", 64),
 		WorkOSClientID:     "client_123",
 		WorkOSAuthClient:   workOS,
@@ -657,6 +659,13 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 	}
 	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_workos_mfa"); err != nil {
 		t.Fatalf("expected workos identity after mfa verify: %v", err)
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	for _, event := range sink.events {
+		if event.Action == "auth.login.failure" {
+			t.Fatalf("mfa continuation must not write denied login failure audit event: %+v", event)
+		}
 	}
 }
 

@@ -192,11 +192,11 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			UserAgent: c.Request.UserAgent(),
 		})
 		if err != nil {
-			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
 			if required, ok := sessionauth.AsWorkOSMFARequired(err); ok {
 				handleWorkOSMFARequired(c, logger, opts, state, required)
 				return
 			}
+			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
 			if logger != nil {
 				logger.Warn("authenticate workos callback", telemetry.ZapError(err))
 			}

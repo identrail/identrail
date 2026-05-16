@@ -117,6 +117,9 @@ func (m *MFAPendingStateManager) Open(raw string) (WorkOSMFAPendingState, error)
 	if err != nil {
 		return WorkOSMFAPendingState{}, err
 	}
+	if len(nonce) != gcm.NonceSize() {
+		return WorkOSMFAPendingState{}, ErrMFAPendingStateInvalid
+	}
 	payload, err := gcm.Open(nil, nonce, ciphertext, []byte(mfaPendingStateAAD))
 	if err != nil {
 		return WorkOSMFAPendingState{}, ErrMFAPendingStateInvalid

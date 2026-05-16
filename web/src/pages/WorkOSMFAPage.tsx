@@ -2,37 +2,45 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, apiClient, type WorkOSMFAPendingResponse } from '../api/client';
 
-function normalizeReturnTo(value: string | null): string {
-  const candidate = value?.trim() ?? '';
+function sameOriginPath(value: string | null | undefined, fallback: string, pathPrefix?: string): string {
+  const candidate = value?.trim();
   if (!candidate) {
-    return '/app';
+    return fallback;
   }
   try {
-    const parsed = new URL(candidate, window.location.origin);
-    if (parsed.origin === window.location.origin) {
-      return `${parsed.pathname}${parsed.search}${parsed.hash}` || '/app';
+    const parsed = new URL(candidate, `${window.location.origin}/`);
+    if (parsed.origin !== window.location.origin) {
+      return fallback;
     }
-    return parsed.toString();
+    if (pathPrefix && parsed.pathname !== pathPrefix && !parsed.pathname.startsWith(`${pathPrefix}/`)) {
+      return fallback;
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}` || fallback;
   } catch {
-    return '/app';
+    return fallback;
   }
+}
+
+export function normalizeReturnTo(value: string | null): string {
+  return sameOriginPath(value, '/app', '/app');
+}
+
+export function normalizeCompletedSessionRedirect(value: string | null | undefined): string {
+  return sameOriginPath(value, '/app');
 }
 
 function redirectToCompletedSession(target: string, navigate: ReturnType<typeof useNavigate>) {
-  try {
-    const parsed = new URL(target, window.location.origin);
-    if (parsed.origin !== window.location.origin) {
-      window.location.assign(parsed.toString());
-      return;
-    }
-    navigate(`${parsed.pathname}${parsed.search}${parsed.hash}` || '/app', { replace: true });
-  } catch {
-    navigate('/app', { replace: true });
-  }
+  navigate(normalizeCompletedSessionRedirect(target), { replace: true });
 }
 
-function mfaErrorMessage(error: unknown): string {
+export function mfaErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) {
+    if (error.message && error.message !== `Request failed (${error.status})`) {
+      if (error.message === 'mfa session expired') {
+        return 'This verification session expired. Start sign-in again.';
+      }
+      return error.message;
+    }
     return 'This verification session expired. Start sign-in again.';
   }
   return error instanceof Error ? error.message : 'Unable to continue verification.';

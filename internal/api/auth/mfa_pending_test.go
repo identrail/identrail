@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -67,5 +68,13 @@ func TestMFAPendingStateManagerRejectsInvalidState(t *testing.T) {
 	}
 	if _, err := manager.Open("bad"); !errors.Is(err, ErrMFAPendingStateInvalid) {
 		t.Fatalf("expected malformed state to fail, got %v", err)
+	}
+	badNonce := strings.Join([]string{
+		mfaPendingStateVersion,
+		base64.RawURLEncoding.EncodeToString([]byte("short")),
+		base64.RawURLEncoding.EncodeToString([]byte("ciphertext")),
+	}, ".")
+	if _, err := manager.Open(badNonce); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("expected short nonce state to fail, got %v", err)
 	}
 }
