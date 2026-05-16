@@ -167,8 +167,22 @@ subnets, `api_task_assign_public_ip=true`, and inbound service traffic limited
 to the load balancer security group. That avoids NAT Gateway and private VPC
 endpoint hourly charges during first launch.
 
-Run database migrations as a separate one-off operation before deploying or
-upgrading the hosted API service. Keep long-running API tasks non-migrating.
+Run database migrations with the `AWS API Database Migrations` workflow before
+deploying or upgrading the hosted API service. Keep long-running API tasks
+non-migrating.
+
+The migration workflow is intentionally manual and guarded:
+
+- run it from the `dev` branch
+- keep the default `migrations` directory unless a release note says otherwise
+- type `run-api-migrations` in the confirmation field
+- leave `database_url_secret_arn` blank to use the repository secret
+  `API_DATABASE_URL_SECRET_ARN`
+
+The workflow assumes the same `AWS_ROLE_ARN` OIDC deployment role as the manual
+deploy workflow, fetches the database URL from Secrets Manager at runtime, masks
+the secret value, and runs `go run ./cmd/migrate`. It does not print the
+database URL and it does not change the ECS service definition.
 
 Leave `api_connector_role_arns` empty for the first single-account API hosting
 plan. Populate it later with reviewed AWS connector role ARNs when the hosted API

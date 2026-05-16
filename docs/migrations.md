@@ -13,12 +13,19 @@ Simple migration strategy for production safety.
 
 - Shared API/worker deployments must run with `IDENTRAIL_RUN_MIGRATIONS=false`.
 - Run schema migrations in a single one-shot migrator process:
+  - AWS API hosting: `AWS API Database Migrations` GitHub Actions workflow
   - Kubernetes manifests: `deploy/kubernetes/migration-job.yaml`
   - Helm chart: pre-install/pre-upgrade migration Job hook
 - The migrator job sets:
   - `IDENTRAIL_RUN_MIGRATIONS=true`
   - `IDENTRAIL_RUN_MIGRATIONS_ONLY=true`
 - Down migrations are intentionally manual.
+
+For the hosted AWS API path, the GitHub Actions workflow fetches
+`IDENTRAIL_DATABASE_URL` from AWS Secrets Manager through the configured
+`API_DATABASE_URL_SECRET_ARN`, masks the value, and runs the dedicated
+`cmd/migrate` one-shot runner. The workflow must be dispatched from `dev` with
+the confirmation phrase `run-api-migrations`.
 
 ## Roll Forward (Preferred)
 

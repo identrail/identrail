@@ -1,0 +1,206 @@
+name: AWS API Database Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_migrations:
+        description: "Required: type run-api-migrations"
+        required: true
+        type: string
+      database_url_secret_arn:
+        description: "Optional Secrets Manager ARN. Blank uses repository secret API_DATABASE_URL_SECRET_ARN."
+        required: false
+        type: string
+      migrations_dir:
+        description: "Migration directory to apply."
+        required: true
+        type: string
+        default: migrations
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-api-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply hosted API database migrations
+    if: github.repository == 'identrail/identrail'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CONFIRM_MIGRATIONS: ${{ inputs.confirm_migrations }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      API_DATABASE_URL_SECRET_ARN: ${{ inputs.database_url_secret_arn || secrets.API_DATABASE_URL_SECRET_ARN }}
+      IDENTRAIL_MIGRATIONS_DIR: ${{ inputs.migrations_dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate migration inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_NAME}" != "dev" ]; then
+            echo "Run this workflow from the dev branch. The AWS OIDC role trust is intentionally scoped to refs/heads/dev."
+            exit 1
+          fi
+
+          if [ "${CONFIRM_MIGRATIONS}" != "run-api-migrations" ]; then
+            echo "To run migrations, type run-api-migrations in the confirmation field."
+            exit 1
+          fi
+
+          aws_region="$(printf '%s' "${AWS_REGION}" | tr -d '[:space:]')"
+          if [ -z "${aws_region}" ]; then
+            echo "Missing repository variable AWS_REGION."
+            exit 1
+          fi
+          if [[ ! "${aws_region}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "AWS_REGION must be an AWS region such as us-east-1."
+            exit 1
+          fi
+
+          aws_role_arn="$(printf '%s' "${AWS_ROLE_ARN}" | tr -d '[:space:]')"
+          if [ -z "${aws_role_arn}" ]; then
+            echo "Missing repository secret AWS_ROLE_ARN."
+            exit 1
+          fi
+          if [[ ! "${aws_role_arn}" =~ ^arn:aws(-[a-z0-9]+)*:iam::[0-9]{12}:role/.+$ ]]; then
+            echo "AWS_ROLE_ARN must look like arn:aws[-partition]:iam::<account-id>:role/<role-name>."
+            exit 1
+          fi
+          echo "::add-mask::${aws_role_arn}"
+
+          database_secret_arn="$(printf '%s' "${API_DATABASE_URL_SECRET_ARN}" | tr -d '[:space:]')"
+          if [ -z "${database_secret_arn}" ]; then
+            echo "Missing repository secret API_DATABASE_URL_SECRET_ARN or workflow input database_url_secret_arn."
+            exit 1
+          fi
+          if [[ ! "${database_secret_arn}" =~ ^arn:aws(-[a-z0-9]+)*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$ ]]; then
+            echo "API_DATABASE_URL_SECRET_ARN must be a Secrets Manager secret ARN."
+            exit 1
+          fi
+          echo "::add-mask::${database_secret_arn}"
+
+          migrations_dir="$(printf '%s' "${IDENTRAIL_MIGRATIONS_DIR}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          if [ -z "${migrations_dir}" ]; then
+            echo "migrations_dir is required."
+            exit 1
+          fi
+          if [[ "${migrations_dir}" = /* || "${migrations_dir}" == *..* ]]; then
+            echo "migrations_dir must be a repository-relative path without '..'."
+            exit 1
+          fi
+          if [ ! -d "${migrations_dir}" ]; then
+            echo "Migration directory ${migrations_dir} does not exist."
+            exit 1
+          fi
+          if ! find "${migrations_dir}" -maxdepth 1 -type f -name '*.up.sql' | grep -q .; then
+            echo "Migration directory ${migrations_dir} does not contain any .up.sql files."
+            exit 1
+          fi
+
+          {
+            echo "AWS_REGION=${aws_region}"
+            echo "AWS_DEFAULT_REGION=${aws_region}"
+            echo "AWS_ROLE_ARN=${aws_role_arn}"
+            echo "API_DATABASE_URL_SECRET_ARN=${database_secret_arn}"
+            echo "IDENTRAIL_MIGRATIONS_DIR=${migrations_dir}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Configure AWS credentials from GitHub OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          token_response="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
+          oidc_token="$(jq -r '.value // empty' <<< "${token_response}")"
+          if [ -z "${oidc_token}" ]; then
+            echo "GitHub did not return an OIDC token."
+            exit 1
+          fi
+
+          credentials="$(
+            aws sts assume-role-with-web-identity \
+              --role-arn "${AWS_ROLE_ARN}" \
+              --role-session-name "identrail-api-migrations-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --web-identity-token "${oidc_token}" \
+              --duration-seconds 900 \
+              --query 'Credentials' \
+              --output json
+          )"
+          access_key_id="$(jq -r '.AccessKeyId' <<< "${credentials}")"
+          secret_access_key="$(jq -r '.SecretAccessKey' <<< "${credentials}")"
+          session_token="$(jq -r '.SessionToken' <<< "${credentials}")"
+          echo "::add-mask::${access_key_id}"
+          echo "::add-mask::${secret_access_key}"
+          echo "::add-mask::${session_token}"
+          {
+            echo "AWS_ACCESS_KEY_ID=${access_key_id}"
+            echo "AWS_SECRET_ACCESS_KEY=${secret_access_key}"
+            echo "AWS_SESSION_TOKEN=${session_token}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Fetch database URL from Secrets Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          secret_payload="$(
+            aws secretsmanager get-secret-value \
+              --secret-id "${API_DATABASE_URL_SECRET_ARN}" \
+              --query SecretString \
+              --output text
+          )"
+          if [ -z "${secret_payload}" ] || [ "${secret_payload}" = "None" ]; then
+            echo "Database URL secret has no SecretString value."
+            exit 1
+          fi
+          echo "::add-mask::${secret_payload}"
+
+          database_url="${secret_payload}"
+          if jq -e . >/dev/null 2>&1 <<< "${secret_payload}"; then
+            database_url="$(jq -r '.IDENTRAIL_DATABASE_URL // .DATABASE_URL // .database_url // .url // empty' <<< "${secret_payload}")"
+          fi
+          if [[ ! "${database_url}" =~ ^postgres(ql)?:// ]]; then
+            echo "Database URL secret must contain a postgres:// or postgresql:// URL, either as plaintext or one of IDENTRAIL_DATABASE_URL, DATABASE_URL, database_url, or url in JSON."
+            exit 1
+          fi
+          echo "::add-mask::${database_url}"
+
+          {
+            echo "IDENTRAIL_DATABASE_URL<<EOF"
+            printf '%s\n' "${database_url}"
+            echo "EOF"
+          } >> "${GITHUB_ENV}"
+
+      - name: Apply database migrations
+        shell: bash
+        run: go run ./cmd/migrate
+
+      - name: Publish migration summary
+        shell: bash
+        run: |
+          {
+            echo "## AWS API database migrations"
+            echo
+            echo "- Branch: \`${GITHUB_REF_NAME}\`"
+            echo "- Migration directory: \`${IDENTRAIL_MIGRATIONS_DIR}\`"
+            echo "- Result: completed successfully"
+          } >> "${GITHUB_STEP_SUMMARY}"

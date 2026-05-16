@@ -43,6 +43,7 @@
   - validates the ACM certificate ARN partition against the active AWS provider partition
   - grants ECS secret injection IAM permissions on base Secrets Manager ARNs when `api_secrets` use JSON-key or version selectors
   - keeps long-running ECS API tasks non-migrating so schema changes stay in a dedicated migration step
+  - adds a guarded AWS API database migration workflow and dedicated one-shot runner so hosted auth schema changes can be applied deliberately from `dev`
   - rejects pathful CORS URLs so hosted API browser access uses exact bare origins
   - documents operator inputs, Secrets Manager references, DNS cutover, and rollback expectations for `api.identrail.com`
 - Added clickable GitHub line links for repository findings:
