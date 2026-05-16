@@ -255,12 +255,15 @@ type metadataProxyAddrKey struct{}
 func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
 	transport, ok := base.(*http.Transport)
 	if !ok || transport == nil {
+		// Fresh clone inherits http.ProxyFromEnvironment, so HTTPS_PROXY /
+		// HTTP_PROXY / NO_PROXY are honored for the default code path.
 		transport = http.DefaultTransport.(*http.Transport).Clone()
 	} else {
+		// Preserve the caller's Proxy decision, including an explicit nil
+		// (the "no proxy" sentinel). Overwriting nil with
+		// http.ProxyFromEnvironment would silently route a hermetic test
+		// transport through the deployment's env proxy.
 		transport = transport.Clone()
-	}
-	if transport.Proxy == nil {
-		transport.Proxy = http.ProxyFromEnvironment
 	}
 	// Clear any caller-supplied custom TLS dial hooks. Per the net/http docs,
 	// when DialTLSContext or DialTLS is set, the standard library skips the

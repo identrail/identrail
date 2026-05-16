@@ -14,6 +14,29 @@ import (
 	"time"
 )
 
+// hermeticClient returns an http.Client that explicitly disables proxy
+// resolution. Tests must use this (or otherwise null Proxy on their custom
+// transport) so an HTTPS_PROXY/HTTP_PROXY value inherited from the CI runner
+// or the operator's shell does not hijack requests away from the local
+// httptest server or away from the guarded dialer being exercised.
+func hermeticClient(base *http.Client) *http.Client {
+	clone := &http.Client{Timeout: 10 * time.Second}
+	if base != nil {
+		*clone = *base
+		clone.Transport = nil
+	}
+	source, _ := http.DefaultTransport.(*http.Transport)
+	if base != nil {
+		if t, ok := base.Transport.(*http.Transport); ok && t != nil {
+			source = t
+		}
+	}
+	transport := source.Clone()
+	transport.Proxy = nil
+	clone.Transport = transport
+	return clone
+}
+
 // withPermissiveHostGuard swaps out both SSRF guards for the duration of the
 // test so a httptest.NewTLSServer (which binds to 127.0.0.1) is reachable.
 // Production wiring keeps the strict guards.
@@ -147,7 +170,7 @@ func TestFetchSAMLMetadataXML_HappyPath(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	withPermissiveHostGuard(t)
-	body, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	body, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(srv.Client()), srv.URL+"/idp/metadata")
 	if err != nil {
 		t.Fatalf("fetch metadata: %v", err)
 	}
@@ -222,7 +245,7 @@ func TestFetchSAMLMetadataXML_BlocksRedirectToHTTP(t *testing.T) {
 		http.Redirect(w, r, "http://idp.example.com/metadata", http.StatusFound)
 	}))
 	t.Cleanup(srv.Close)
-	_, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	_, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(srv.Client()), srv.URL+"/idp/metadata")
 	if err == nil || !strings.Contains(err.Error(), "non-https") {
 		t.Errorf("expected non-https redirect rejection, got: %v", err)
 	}
@@ -259,7 +282,7 @@ func TestFetchSAMLMetadataXML_BlocksRedirectToPrivateIP(t *testing.T) {
 		http.Redirect(w, r, "https://169.254.169.254/latest/meta-data/", http.StatusFound)
 	}))
 	t.Cleanup(srv.Close)
-	_, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	_, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(srv.Client()), srv.URL+"/idp/metadata")
 	if err == nil || !strings.Contains(err.Error(), "link-local") {
 		t.Errorf("expected link-local rejection on redirect target, got: %v", err)
 	}
@@ -285,7 +308,7 @@ func TestFetchSAMLMetadataXML_BlocksDNSRebinding(t *testing.T) {
 		return nil, &net.DNSError{Err: "not found", Name: host, IsNotFound: true}
 	}
 
-	_, err := FetchSAMLMetadataXML(context.Background(), nil, "https://rebinding.example.com/metadata")
+	_, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(nil), "https://rebinding.example.com/metadata")
 	if err == nil || !strings.Contains(err.Error(), "private") {
 		t.Errorf("expected DNS-rebinding rejection at dial time, got: %v", err)
 	}
@@ -332,6 +355,11 @@ func TestFetchSAMLMetadataXML_FallsBackToSecondValidatedAddress(t *testing.T) {
 	}
 	t.Cleanup(func() { internalIPGuard = prevIP })
 
+	// Hermetic client: explicitly disable proxy resolution so an env
+	// HTTPS_PROXY/HTTP_PROXY does not hijack the request away from the
+	// local TLS server / guarded dialer being exercised.
+	caller := hermeticClient(srv.Client())
+
 	// Swap the dialer so 192.0.2.1 returns an instant refusal and 127.0.0.1
 	// uses the real net.Dialer. Track per-candidate calls so the assertion
 	// proves the second address was actually tried.
@@ -351,7 +379,7 @@ func TestFetchSAMLMetadataXML_FallsBackToSecondValidatedAddress(t *testing.T) {
 		}
 	}
 
-	body, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), "https://idp.example.com:"+srvURL.Port()+"/metadata")
+	body, err := FetchSAMLMetadataXML(context.Background(), caller, "https://idp.example.com:"+srvURL.Port()+"/metadata")
 	if err != nil {
 		t.Fatalf("expected fallback to succeed, got: %v", err)
 	}
