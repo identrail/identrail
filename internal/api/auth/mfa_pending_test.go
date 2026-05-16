@@ -48,3 +48,24 @@ func TestMFAPendingStateManagerRejectsExpiredState(t *testing.T) {
 		t.Fatalf("expected expired pending mfa state, got %v", err)
 	}
 }
+
+func TestMFAPendingStateManagerRejectsInvalidState(t *testing.T) {
+	if _, err := (*MFAPendingStateManager)(nil).Seal(WorkOSMFAPendingState{}); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("expected nil manager seal to fail, got %v", err)
+	}
+	manager := NewMFAPendingStateManager(strings.Repeat("a", 64), nil)
+	raw, err := manager.Seal(WorkOSMFAPendingState{
+		Mode:                       WorkOSMFAModeChallenge,
+		PendingAuthenticationToken: "pending-token",
+		User:                       WorkOSProfile{ID: "user_123", Email: "user@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("seal pending mfa state: %v", err)
+	}
+	if _, err := manager.Open(raw + "tampered"); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("expected tampered state to fail, got %v", err)
+	}
+	if _, err := manager.Open("bad"); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("expected malformed state to fail, got %v", err)
+	}
+}
