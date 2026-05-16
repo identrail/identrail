@@ -81,6 +81,26 @@ func TestNormalize_RejectsHalfConfiguredNativeSAML(t *testing.T) {
 			func(c *IdentityConnection) { c.SSOURL = "http://idp.example.com/sso" },
 			"https",
 		},
+		{
+			// Without a host, the URL is unusable for SAML redirects even
+			// though it has the https:// prefix.
+			"https_no_host",
+			func(c *IdentityConnection) { c.SSOURL = "https:///path" },
+			"host",
+		},
+		{
+			// Malformed percent-encoding: parses as an error, not a usable URL.
+			"https_invalid_url",
+			func(c *IdentityConnection) { c.SSOURL = "https://%zz" },
+			"valid",
+		},
+		{
+			// Port-only authority: parsed.Host == ":443" is non-empty, but
+			// parsed.Hostname() correctly returns "" so we reject it.
+			"https_port_only_authority",
+			func(c *IdentityConnection) { c.SSOURL = "https://:443/sso" },
+			"host",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -331,6 +351,123 @@ func TestMemoryStore_SCIMProvisioningEvent_RejectsUnknownConnection(t *testing.T
 	})
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound for unknown connection, got: %v", err)
+	}
+}
+
+func TestMemoryStore_UpdateIdentityConnection_PreservesSCIMTokenWhenOmitted(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	created, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:               "tenant-a",
+		Provider:            "saml",
+		Type:                "sso",
+		Status:              "active",
+		WorkOSConnectionID:  "conn_workos_abc",
+		SCIMBearerTokenHash: "test-hash-placeholder",
+		CreatedAt:           now,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// PUT-style update that does not carry the token hash — must NOT clear it.
+	updateInput := created
+	updateInput.SCIMBearerTokenHash = ""
+	updated, err := store.UpdateIdentityConnection(ctx, updateInput)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.SCIMBearerTokenHash != "test-hash-placeholder" {
+		t.Errorf("update must preserve existing SCIM token hash when caller omits it, got %q", updated.SCIMBearerTokenHash)
+	}
+}
+
+func TestMemoryStore_UpdateIdentityConnection_RejectsUniquenessCollision(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	first, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_first",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	second, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "directory_sync",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_second",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	// Try to update `second` to collide with `first` on workos_connection_id.
+	collision := second
+	collision.WorkOSConnectionID = first.WorkOSConnectionID
+	if _, err := store.UpdateIdentityConnection(ctx, collision); !errors.Is(err, ErrConflict) {
+		t.Errorf("update colliding workos_connection_id must return ErrConflict, got %v", err)
+	}
+	// And the (org+provider+type) tuple.
+	tupleCollision := second
+	tupleCollision.Type = first.Type
+	if _, err := store.UpdateIdentityConnection(ctx, tupleCollision); !errors.Is(err, ErrConflict) {
+		t.Errorf("update colliding (org+provider+type) must return ErrConflict, got %v", err)
+	}
+}
+
+func TestMemoryStore_DeleteIdentityConnection_CascadesSCIMEvents(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	connection, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "directory_sync",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_abc",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+	if _, err := store.CreateSCIMProvisioningEvent(ctx, SCIMProvisioningEventRecord{
+		OrgID:        "tenant-a",
+		ConnectionID: connection.ID,
+		Op:           "create",
+		ExternalID:   "okta-1",
+		OccurredAt:   now,
+	}); err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+
+	if err := store.DeleteIdentityConnection(ctx, "tenant-a", connection.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	events, err := store.ListSCIMProvisioningEvents(ctx, "tenant-a", connection.ID, 10)
+	if err != nil {
+		t.Fatalf("list events post-delete: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("delete must cascade to SCIM events (Postgres ON DELETE CASCADE parity); got %d remaining", len(events))
 	}
 }
 

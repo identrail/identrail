@@ -442,6 +442,106 @@ func (p *PostgresStore) ListIdentityConnections(ctx context.Context, orgID strin
 	return items, nil
 }
 
+// UpdateIdentityConnection replaces a persisted identity connection row keyed
+// on (org_id, id). Returns ErrNotFound when no matching row exists.
+func (p *PostgresStore) UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error) {
+	normalized, err := NormalizeIdentityConnectionForWrite(connection)
+	if err != nil {
+		return IdentityConnection{}, err
+	}
+	groupRoleMap, err := json.Marshal(normalized.GroupRoleMap)
+	if err != nil {
+		return IdentityConnection{}, err
+	}
+	attributeMapping, err := json.Marshal(normalized.AttributeMapping)
+	if err != nil {
+		return IdentityConnection{}, err
+	}
+	saved, err := scanIdentityConnection(p.queryRowContext(
+		ctx,
+		`UPDATE identity_connections SET
+		     provider = $3,
+		     type = $4,
+		     workos_connection_id = $5,
+		     status = $6,
+		     group_role_map = $7::jsonb,
+		     sso_required = $8,
+		     jit_provisioning_enabled = $9,
+		     entity_id = $10,
+		     sso_url = $11,
+		     certificate_pem = $12,
+		     attribute_mapping = $13::jsonb,
+		     scim_bearer_token_hash = COALESCE($14, scim_bearer_token_hash),
+		     updated_at = $15
+		 WHERE org_id = $1 AND id = NULLIF($2, '')::uuid
+		 RETURNING `+identityConnectionColumns,
+		normalized.OrgID,
+		normalized.ID,
+		normalized.Provider,
+		normalized.Type,
+		nullString(normalized.WorkOSConnectionID),
+		normalized.Status,
+		string(groupRoleMap),
+		normalized.SSORequired,
+		normalized.JITProvisioningEnabled,
+		nullString(normalized.EntityID),
+		nullString(normalized.SSOURL),
+		nullString(normalized.CertificatePEM),
+		string(attributeMapping),
+		nullString(normalized.SCIMBearerTokenHash),
+		normalized.UpdatedAt,
+	))
+	if err != nil {
+		// Translate uniqueness constraint violations into ErrConflict so the
+		// API can return 409 instead of 500. Mirrors the Create path and
+		// matches the memory store's UpdateIdentityConnection behavior, so an
+		// admin retyping an existing (org+provider+type) tuple — or moving a
+		// workos_connection_id onto a row another connection already owns —
+		// gets a user-correctable error.
+		if isTenancyUniqueViolation(err) {
+			return IdentityConnection{}, ErrConflict
+		}
+		return IdentityConnection{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity_connection.update",
+		TenantID:     saved.OrgID,
+		ResourceType: "identity_connection",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
+}
+
+// DeleteIdentityConnection removes one identity connection row keyed on
+// (org_id, id). Returns ErrNotFound when no matching row exists.
+func (p *PostgresStore) DeleteIdentityConnection(ctx context.Context, orgID, connectionID string) error {
+	res, err := p.execContext(
+		ctx,
+		`DELETE FROM identity_connections WHERE org_id = $1 AND id = NULLIF($2, '')::uuid`,
+		strings.TrimSpace(orgID),
+		strings.TrimSpace(connectionID),
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity_connection.delete",
+		TenantID:     strings.TrimSpace(orgID),
+		ResourceType: "identity_connection",
+		ResourceID:   strings.TrimSpace(connectionID),
+		Outcome:      "success",
+	})
+	return nil
+}
+
 const scimProvisioningEventColumns = "id::text, org_id, connection_id::text, op, external_id, user_id::text, payload, occurred_at"
 
 func scanSCIMProvisioningEvent(row rowScanner) (SCIMProvisioningEventRecord, error) {

@@ -258,6 +258,91 @@ func (m *MemoryStore) ListIdentityConnections(ctx context.Context, orgID string,
 	return items, nil
 }
 
+// UpdateIdentityConnection replaces one persisted identity connection scoped
+// to the (org_id, id) pair. The Postgres path enforces the create-time
+// uniqueness invariants via SQL UNIQUE constraints and preserves the SCIM
+// bearer token hash via COALESCE; this method mirrors both behaviors for
+// memory mode so a parity bug cannot let callers do something through the
+// memory store that Postgres would reject.
+func (m *MemoryStore) UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error) {
+	normalized, err := NormalizeIdentityConnectionForWrite(connection)
+	if err != nil {
+		return IdentityConnection{}, err
+	}
+	m.mu.Lock()
+	key := orgScopedKey(normalized.OrgID, normalized.ID)
+	existing, exists := m.identityConnections[key]
+	if !exists {
+		m.mu.Unlock()
+		return IdentityConnection{}, ErrNotFound
+	}
+	// Re-check the create-time uniqueness invariants against other rows so a
+	// caller cannot UPDATE one row to collide with another. Postgres has the
+	// equivalent UNIQUE constraints; memory mode would silently accept it.
+	for otherKey, other := range m.identityConnections {
+		if otherKey == key {
+			continue
+		}
+		if other.OrgID == normalized.OrgID &&
+			other.Provider == normalized.Provider &&
+			other.Type == normalized.Type {
+			m.mu.Unlock()
+			return IdentityConnection{}, ErrConflict
+		}
+		if normalized.WorkOSConnectionID != "" && other.WorkOSConnectionID == normalized.WorkOSConnectionID {
+			m.mu.Unlock()
+			return IdentityConnection{}, ErrConflict
+		}
+	}
+	// Preserve the SCIM bearer token hash when the caller omits it — matches
+	// the Postgres COALESCE($14, scim_bearer_token_hash) clause so a routine
+	// cert rotation through the admin API does not drop the token.
+	if normalized.SCIMBearerTokenHash == "" {
+		normalized.SCIMBearerTokenHash = existing.SCIMBearerTokenHash
+	}
+	m.identityConnections[key] = normalized
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity_connection.update",
+		TenantID:     normalized.OrgID,
+		ResourceType: "identity_connection",
+		ResourceID:   normalized.ID,
+		Outcome:      "success",
+	})
+	return normalized, nil
+}
+
+// DeleteIdentityConnection removes one persisted identity connection scoped
+// to the (org_id, id) pair, cascading to its SCIM provisioning events. The
+// cascade matches the ON DELETE CASCADE clause on scim_provisioning_events
+// in Postgres so memory mode does not retain orphan audit rows for a
+// connection that no longer exists.
+func (m *MemoryStore) DeleteIdentityConnection(ctx context.Context, orgID, connectionID string) error {
+	trimmedOrg := strings.TrimSpace(orgID)
+	trimmedID := strings.TrimSpace(connectionID)
+	m.mu.Lock()
+	key := orgScopedKey(trimmedOrg, trimmedID)
+	if _, exists := m.identityConnections[key]; !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	delete(m.identityConnections, key)
+	for eventID, event := range m.scimEvents {
+		if event.OrgID == trimmedOrg && event.ConnectionID == trimmedID {
+			delete(m.scimEvents, eventID)
+		}
+	}
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity_connection.delete",
+		TenantID:     trimmedOrg,
+		ResourceType: "identity_connection",
+		ResourceID:   trimmedID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
 // CreateSCIMProvisioningEvent appends one SCIM provisioning event to the
 // append-only audit log scoped to the org + connection.
 func (m *MemoryStore) CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error) {

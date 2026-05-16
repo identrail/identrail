@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added the org-admin API for managing native SAML identity connections (behind `IDENTRAIL_FEATURE_NATIVE_SSO`, defaulted off):
+  - `POST/GET/PUT/DELETE /v1/enterprise/identity-connections/saml(/:id)` covers the full connection lifecycle and is gated by org-admin RBAC via the existing route policy bundle
+  - `POST /v1/enterprise/identity-connections/saml/from-metadata` accepts either a `metadata_url` (https only, 256 KiB cap, 10s timeout) or an inline `metadata_xml` body and auto-fills `entity_id`, `sso_url`, and `certificate_pem` from Okta- or Azure AD-shaped IdP metadata
+  - On create, the API issues a per-connection SCIM bearer token, returns the plaintext value once in the response, and stores only its SHA-256 hash on `identity_connections.scim_bearer_token_hash`
+  - Connection list, get, update, and delete operate solely on native SAML rows; pre-existing WorkOS-managed rows are filtered out and remain visible only through the existing WorkOS path
+  - The WorkOS sign-in / sign-up flow is unchanged; both flows continue to share session storage and converge on `auth.session` with the appropriate `AuthMethod`
 - Added schema scaffolding for native SAML SSO and SCIM 2.0 provisioning alongside the existing WorkOS-managed path (migration `000024_native_sso_scim_scaffold`):
   - `identity_connections` gains nullable `entity_id`, `sso_url`, `certificate_pem`, `attribute_mapping` (JSONB), `jit_provisioning_enabled`, and `scim_bearer_token_hash` columns; a SAML completeness CHECK constraint requires each `provider='saml'` row to be either WorkOS-backed or fully native (https sso_url + entity_id + certificate_pem)
   - SCIM-assigned external ids are stored in the existing `user_identities` table with `provider = 'scim:<connection_uuid>'`, reusing its `UNIQUE (provider, subject)` contract so a per-connection identifier cannot collide with a different tenant's

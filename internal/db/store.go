@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -1350,11 +1351,35 @@ func validateSAMLCompleteness(c IdentityConnection) error {
 	}
 	if c.SSOURL == "" {
 		missing = append(missing, "sso_url")
-	} else if !strings.HasPrefix(strings.ToLower(c.SSOURL), "https://") {
-		return fmt.Errorf("saml sso_url must use https://")
+	} else if err := validateNativeSSOURL(c.SSOURL); err != nil {
+		return err
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("native saml connection is missing required fields: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// validateNativeSSOURL enforces that the persisted SSO URL is not just a
+// string starting with https:// but a parseable absolute URL with an actual
+// hostname. Without this, payloads like "https://", "https://%zz",
+// "https:///path", or port-only authorities like "https://:443/path" would
+// pass the SQL CHECK and the prefix check yet fail the first time the SAML
+// ACS handler tries to redirect the user to the IdP.
+//
+// Hostname() is used over Host so a "https://:443" port-only authority is
+// correctly rejected — Host returns ":443" (non-empty) but Hostname returns
+// the empty string.
+func validateNativeSSOURL(raw string) error {
+	if !strings.HasPrefix(strings.ToLower(raw), "https://") {
+		return fmt.Errorf("saml sso_url must use https://")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("saml sso_url is not a valid URL: %w", err)
+	}
+	if parsed.Hostname() == "" {
+		return fmt.Errorf("saml sso_url must include a host")
 	}
 	return nil
 }
@@ -2069,6 +2094,8 @@ type Store interface {
 	CreateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	GetIdentityConnection(ctx context.Context, orgID string, connectionID string) (IdentityConnection, error)
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
+	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
+	DeleteIdentityConnection(ctx context.Context, orgID string, connectionID string) error
 	CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error)
 	ListSCIMProvisioningEvents(ctx context.Context, orgID string, connectionID string, limit int) ([]SCIMProvisioningEventRecord, error)
 	ListIdentities(ctx context.Context, filter IdentityFilter, limit int) ([]domain.Identity, error)

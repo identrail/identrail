@@ -249,6 +249,22 @@ func TestPostgresEnterpriseAuthUniqueViolationsReturnConflict(t *testing.T) {
 		t.Fatalf("expected duplicate identity connection to return ErrConflict, got %v", err)
 	}
 
+	// UPDATE that violates the same UNIQUE constraint must also surface as
+	// ErrConflict so the API can return 409 instead of 500.
+	mock.ExpectQuery("UPDATE identity_connections").
+		WillReturnError(testSQLStateError("23505"))
+	if _, err := store.UpdateIdentityConnection(ctx, IdentityConnection{
+		ID:        "33333333-3333-3333-3333-333333333333",
+		OrgID:     "tenant-a",
+		Provider:  "workos",
+		Type:      "sso",
+		Status:    "active",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected update unique-violation to return ErrConflict, got %v", err)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
 	}
