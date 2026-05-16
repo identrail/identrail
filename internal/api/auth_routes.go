@@ -27,6 +27,7 @@ type authSessionRouteOptions struct {
 	WorkOSClient        sessionauth.WorkOSClient
 	WorkOSWebhookSecret string
 	StateManager        *sessionauth.OAuthStateManager
+	PendingMFAManager   *sessionauth.MFAPendingStateManager
 	PublicBaseURL       string
 	ReturnToOrigins     []string
 }
@@ -40,6 +41,10 @@ func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, 
 		authGroup.GET("/login", rateLimitMiddleware(10, 10), workOSStartHandler(logger, svc, opts, "login"))
 		authGroup.GET("/signup", rateLimitMiddleware(10, 10), workOSStartHandler(logger, svc, opts, "signup"))
 		authGroup.GET("/callback", rateLimitMiddleware(30, 30), workOSCallbackHandler(logger, svc, manager, opts))
+		authGroup.GET("/mfa/pending", rateLimitMiddleware(30, 30), workOSMFAPendingHandler(opts))
+		authGroup.POST("/mfa/enroll", rateLimitMiddleware(20, 20), workOSMFAEnrollHandler(logger, opts))
+		authGroup.POST("/mfa/challenge", rateLimitMiddleware(20, 20), workOSMFAChallengeHandler(logger, opts))
+		authGroup.POST("/mfa/verify", rateLimitMiddleware(30, 30), workOSMFAVerifyHandler(logger, svc, manager, opts))
 		authGroup.POST("/webhooks/workos", rateLimitMiddleware(60, 60), workOSWebhookHandler(logger, svc, opts))
 	}
 	if opts.ManualMode {
@@ -188,6 +193,10 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 		})
 		if err != nil {
 			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+			if required, ok := sessionauth.AsWorkOSMFARequired(err); ok {
+				handleWorkOSMFARequired(c, logger, opts, state, required)
+				return
+			}
 			if logger != nil {
 				logger.Warn("authenticate workos callback", telemetry.ZapError(err))
 			}
@@ -199,53 +208,427 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "login failed"})
 			return
 		}
-		profile := authenticated.User
-		if strings.TrimSpace(profile.OrganizationID) == "" {
-			profile.OrganizationID = authenticated.OrganizationID
-		}
-		result, err := svc.UpsertWorkOSUser(c.Request.Context(), profile)
-		if err != nil {
-			if errors.Is(err, ErrAuthIdentityConflict) {
-				c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
-				return
-			}
-			if logger != nil {
-				logger.Error("upsert workos user", telemetry.ZapError(err))
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete login"})
+		redirectTo, ok := completeWorkOSLogin(c, logger, svc, manager, opts, authenticated, state.ReturnTo)
+		if !ok {
 			return
-		}
-		now := time.Now().UTC()
-		if svc.Now != nil {
-			now = svc.Now().UTC()
-		}
-		cookieValue, _, err := manager.CreateSession(c.Request.Context(), db.Session{
-			UserID:             result.User.ID,
-			CurrentOrgID:       result.CurrentOrgID,
-			CurrentWorkspaceID: result.CurrentWorkspace,
-			AuthMethod:         sessionauth.WorkOSProvider,
-			IP:                 c.ClientIP(),
-			UserAgent:          c.Request.UserAgent(),
-			CreatedAt:          now,
-			LastSeenAt:         now,
-			IdleExpiresAt:      now.Add(sessionauth.IdleTimeout),
-			AbsoluteExpiresAt:  now.Add(sessionauth.AbsoluteTimeout),
-		})
-		if err != nil {
-			if logger != nil {
-				logger.Error("create workos session", telemetry.ZapError(err))
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
-			return
-		}
-		auditAuthAction(c.Request.Context(), "auth.login.success", result.User.ID, "success")
-		http.SetCookie(c.Writer, manager.Cookie(cookieValue))
-		redirectTo := sanitizeAuthReturnTo(state.ReturnTo, opts.ReturnToOrigins)
-		if redirectTo == "" || redirectTo == "/" {
-			redirectTo = result.RedirectPath
 		}
 		c.Redirect(http.StatusFound, redirectTo)
 	}
+}
+
+func handleWorkOSMFARequired(c *gin.Context, logger *zap.Logger, opts authSessionRouteOptions, state sessionauth.OAuthState, required *sessionauth.WorkOSMFARequired) {
+	if required == nil || opts.PendingMFAManager == nil || strings.TrimSpace(required.PendingAuthenticationToken) == "" {
+		if logger != nil {
+			logger.Warn("workos mfa required without resumable pending token")
+		}
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "mfa required"})
+		return
+	}
+	pending := sessionauth.WorkOSMFAPendingState{
+		Mode:                       required.Mode,
+		ReturnTo:                   sanitizeAuthReturnTo(state.ReturnTo, opts.ReturnToOrigins),
+		PendingAuthenticationToken: required.PendingAuthenticationToken,
+		User:                       required.User,
+		AuthenticationFactors:      required.AuthenticationFactors,
+	}
+	if pending.Mode == "" {
+		pending.Mode = sessionauth.WorkOSMFAModeChallenge
+	}
+	sealed, err := opts.PendingMFAManager.Seal(pending)
+	if err != nil {
+		if logger != nil {
+			logger.Error("seal workos mfa pending state", telemetry.ZapError(err))
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to continue login"})
+		return
+	}
+	if logger != nil {
+		logger.Info("workos mfa required", zap.String("mode", pending.Mode))
+	}
+	http.SetCookie(c.Writer, workOSMFAPendingCookie(opts.PublicBaseURL, sealed, opts.PendingMFAManager.TTL()))
+	c.Redirect(http.StatusFound, workOSMFARedirectURL(pending.ReturnTo, opts.PublicBaseURL, opts.ReturnToOrigins))
+}
+
+func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions, authenticated sessionauth.WorkOSAuthentication, returnTo string) (string, bool) {
+	profile := authenticated.User
+	if strings.TrimSpace(profile.OrganizationID) == "" {
+		profile.OrganizationID = authenticated.OrganizationID
+	}
+	result, err := svc.UpsertWorkOSUser(c.Request.Context(), profile)
+	if err != nil {
+		if errors.Is(err, ErrAuthIdentityConflict) {
+			c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
+			return "", false
+		}
+		if logger != nil {
+			logger.Error("upsert workos user", telemetry.ZapError(err))
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete login"})
+		return "", false
+	}
+	now := time.Now().UTC()
+	if svc.Now != nil {
+		now = svc.Now().UTC()
+	}
+	cookieValue, _, err := manager.CreateSession(c.Request.Context(), db.Session{
+		UserID:             result.User.ID,
+		CurrentOrgID:       result.CurrentOrgID,
+		CurrentWorkspaceID: result.CurrentWorkspace,
+		AuthMethod:         sessionauth.WorkOSProvider,
+		IP:                 c.ClientIP(),
+		UserAgent:          c.Request.UserAgent(),
+		CreatedAt:          now,
+		LastSeenAt:         now,
+		IdleExpiresAt:      now.Add(sessionauth.IdleTimeout),
+		AbsoluteExpiresAt:  now.Add(sessionauth.AbsoluteTimeout),
+	})
+	if err != nil {
+		if logger != nil {
+			logger.Error("create workos session", telemetry.ZapError(err))
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
+		return "", false
+	}
+	auditAuthAction(c.Request.Context(), "auth.login.success", result.User.ID, "success")
+	http.SetCookie(c.Writer, manager.Cookie(cookieValue))
+	redirectTo := sanitizeAuthReturnTo(returnTo, opts.ReturnToOrigins)
+	if redirectTo == "" || redirectTo == "/" {
+		redirectTo = result.RedirectPath
+	}
+	return redirectTo, true
+}
+
+func workOSMFAPendingHandler(opts authSessionRouteOptions) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		state, ok := readWorkOSMFAPendingState(c, opts)
+		if !ok {
+			return
+		}
+		c.JSON(http.StatusOK, workOSMFAPendingResponse(state))
+	}
+}
+
+type workOSMFAChallengeRequest struct {
+	FactorID string `json:"factor_id"`
+}
+
+type workOSMFAVerifyRequest struct {
+	Code string `json:"code"`
+}
+
+func workOSMFAEnrollHandler(logger *zap.Logger, opts authSessionRouteOptions) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		state, ok := readWorkOSMFAPendingState(c, opts)
+		if !ok {
+			return
+		}
+		if state.Mode != sessionauth.WorkOSMFAModeEnrollment {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mfa enrollment is not pending"})
+			return
+		}
+		if state.TOTP != nil && state.ChallengeID != "" {
+			c.JSON(http.StatusOK, workOSMFAEnrollResponse(state))
+			return
+		}
+		if opts.WorkOSClient == nil || strings.TrimSpace(state.User.ID) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mfa enrollment cannot be started"})
+			return
+		}
+		totpUser := strings.TrimSpace(state.User.Email)
+		if totpUser == "" {
+			totpUser = state.User.ID
+		}
+		enrolled, err := opts.WorkOSClient.EnrollAuthFactor(c.Request.Context(), sessionauth.WorkOSMFAEnrollRequest{
+			UserID:     state.User.ID,
+			TOTPIssuer: "Identrail",
+			TOTPUser:   totpUser,
+		})
+		if err != nil {
+			writeWorkOSMFAProviderError(c, logger, err, "enroll workos mfa factor")
+			return
+		}
+		state.ChallengeID = enrolled.ChallengeID
+		state.ChallengeExpiresAt = enrolled.ExpiresAt
+		state.AuthenticationFactors = []sessionauth.WorkOSMFAFactor{{
+			ID:   enrolled.FactorID,
+			Type: enrolled.FactorType,
+		}}
+		state.TOTP = &sessionauth.WorkOSPendingTOTP{
+			FactorID: enrolled.FactorID,
+			QRCode:   enrolled.TOTPQRCode,
+			Secret:   enrolled.TOTPSecret,
+			URI:      enrolled.TOTPURI,
+		}
+		if !writeWorkOSMFAPendingState(c, logger, opts, state) {
+			return
+		}
+		c.JSON(http.StatusOK, workOSMFAEnrollResponse(state))
+	}
+}
+
+func workOSMFAChallengeHandler(logger *zap.Logger, opts authSessionRouteOptions) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		state, ok := readWorkOSMFAPendingState(c, opts)
+		if !ok {
+			return
+		}
+		if state.Mode != sessionauth.WorkOSMFAModeChallenge {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mfa challenge is not pending"})
+			return
+		}
+		if opts.WorkOSClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
+			return
+		}
+		var req workOSMFAChallengeRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid challenge request"})
+			return
+		}
+		factorID := strings.TrimSpace(req.FactorID)
+		if !workOSMFAFactorAllowed(state.AuthenticationFactors, factorID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported mfa factor"})
+			return
+		}
+		challenge, err := opts.WorkOSClient.ChallengeAuthFactor(c.Request.Context(), sessionauth.WorkOSMFAChallengeRequest{
+			FactorID: factorID,
+		})
+		if err != nil {
+			writeWorkOSMFAProviderError(c, logger, err, "challenge workos mfa factor")
+			return
+		}
+		state.ChallengeID = challenge.ChallengeID
+		state.ChallengeExpiresAt = challenge.ExpiresAt
+		if !writeWorkOSMFAPendingState(c, logger, opts, state) {
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"challenge_started": true,
+			"factor_id":         factorID,
+			"expires_at":        challenge.ExpiresAt,
+		})
+	}
+}
+
+func workOSMFAVerifyHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if svc == nil || svc.Store == nil || opts.WorkOSClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
+			return
+		}
+		state, ok := readWorkOSMFAPendingState(c, opts)
+		if !ok {
+			return
+		}
+		var req workOSMFAVerifyRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification request"})
+			return
+		}
+		code := strings.TrimSpace(req.Code)
+		if code == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "verification code is required"})
+			return
+		}
+		if strings.TrimSpace(state.ChallengeID) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mfa challenge has not started"})
+			return
+		}
+		authenticated, err := opts.WorkOSClient.AuthenticateWithTOTP(c.Request.Context(), sessionauth.WorkOSMFAVerifyRequest{
+			PendingAuthenticationToken: state.PendingAuthenticationToken,
+			AuthenticationChallengeID:  state.ChallengeID,
+			Code:                       code,
+			IPAddress:                  c.ClientIP(),
+			UserAgent:                  c.Request.UserAgent(),
+		})
+		if err != nil {
+			writeWorkOSMFAVerifyError(c, logger, err)
+			return
+		}
+		redirectTo, ok := completeWorkOSLogin(c, logger, svc, manager, opts, authenticated, state.ReturnTo)
+		if !ok {
+			return
+		}
+		http.SetCookie(c.Writer, workOSMFAClearCookie(opts.PublicBaseURL))
+		c.JSON(http.StatusOK, gin.H{
+			"ok":          true,
+			"redirect_to": redirectTo,
+		})
+	}
+}
+
+func readWorkOSMFAPendingState(c *gin.Context, opts authSessionRouteOptions) (sessionauth.WorkOSMFAPendingState, bool) {
+	if opts.PendingMFAManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
+		return sessionauth.WorkOSMFAPendingState{}, false
+	}
+	cookie, err := c.Request.Cookie(sessionauth.PendingMFACookieName)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "mfa session expired"})
+		return sessionauth.WorkOSMFAPendingState{}, false
+	}
+	state, err := opts.PendingMFAManager.Open(cookie.Value)
+	if err != nil {
+		http.SetCookie(c.Writer, workOSMFAClearCookie(opts.PublicBaseURL))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "mfa session expired"})
+		return sessionauth.WorkOSMFAPendingState{}, false
+	}
+	return state, true
+}
+
+func writeWorkOSMFAPendingState(c *gin.Context, logger *zap.Logger, opts authSessionRouteOptions, state sessionauth.WorkOSMFAPendingState) bool {
+	sealed, err := opts.PendingMFAManager.Seal(state)
+	if err != nil {
+		if logger != nil {
+			logger.Error("seal workos mfa pending state", telemetry.ZapError(err))
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to continue login"})
+		return false
+	}
+	http.SetCookie(c.Writer, workOSMFAPendingCookie(opts.PublicBaseURL, sealed, opts.PendingMFAManager.TTL()))
+	return true
+}
+
+func workOSMFAPendingResponse(state sessionauth.WorkOSMFAPendingState) gin.H {
+	response := gin.H{
+		"mode":              state.Mode,
+		"user_email":        state.User.Email,
+		"challenge_started": strings.TrimSpace(state.ChallengeID) != "",
+		"factors":           workOSMFAFactorsResponse(state.AuthenticationFactors),
+	}
+	if state.TOTP != nil {
+		response["totp"] = gin.H{
+			"factor_id": state.TOTP.FactorID,
+			"qr_code":   state.TOTP.QRCode,
+			"secret":    state.TOTP.Secret,
+			"uri":       state.TOTP.URI,
+		}
+	}
+	return response
+}
+
+func workOSMFAEnrollResponse(state sessionauth.WorkOSMFAPendingState) gin.H {
+	response := workOSMFAPendingResponse(state)
+	response["expires_at"] = state.ChallengeExpiresAt
+	return response
+}
+
+func workOSMFAFactorsResponse(factors []sessionauth.WorkOSMFAFactor) []gin.H {
+	result := make([]gin.H, 0, len(factors))
+	for _, factor := range factors {
+		if strings.TrimSpace(factor.ID) == "" {
+			continue
+		}
+		result = append(result, gin.H{
+			"id":   factor.ID,
+			"type": factor.Type,
+		})
+	}
+	return result
+}
+
+func workOSMFAFactorAllowed(factors []sessionauth.WorkOSMFAFactor, factorID string) bool {
+	factorID = strings.TrimSpace(factorID)
+	if factorID == "" {
+		return false
+	}
+	for _, factor := range factors {
+		if strings.EqualFold(strings.TrimSpace(factor.ID), factorID) && strings.EqualFold(strings.TrimSpace(factor.Type), "totp") {
+			return true
+		}
+	}
+	return false
+}
+
+func writeWorkOSMFAProviderError(c *gin.Context, logger *zap.Logger, err error, message string) {
+	if logger != nil {
+		logger.Warn(message, zap.String("error", "workos mfa provider returned an error"))
+	}
+	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
+		c.Header("Retry-After", "30")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth provider unavailable"})
+		return
+	}
+	c.JSON(http.StatusBadGateway, gin.H{"error": "mfa provider failed"})
+}
+
+func writeWorkOSMFAVerifyError(c *gin.Context, logger *zap.Logger, err error) {
+	if logger != nil {
+		logger.Warn("verify workos mfa challenge", zap.String("error", "workos mfa verification failed"))
+	}
+	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
+		c.Header("Retry-After", "30")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth provider unavailable"})
+		return
+	}
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid verification code"})
+}
+
+func workOSMFAPendingCookie(publicBaseURL string, value string, ttl time.Duration) *http.Cookie {
+	if ttl <= 0 {
+		ttl = sessionauth.DefaultMFAPendingTTL
+	}
+	return &http.Cookie{
+		Name:     sessionauth.PendingMFACookieName,
+		Value:    value,
+		Path:     "/auth/mfa",
+		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   sessionauthCookieSecure(publicBaseURL),
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
+func workOSMFAClearCookie(publicBaseURL string) *http.Cookie {
+	return &http.Cookie{
+		Name:     sessionauth.PendingMFACookieName,
+		Value:    "",
+		Path:     "/auth/mfa",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   sessionauthCookieSecure(publicBaseURL),
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
+func sessionauthCookieSecure(publicBaseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(publicBaseURL))
+	if err != nil {
+		return true
+	}
+	return !strings.EqualFold(parsed.Scheme, "http")
+}
+
+func workOSMFARedirectURL(returnTo string, publicBaseURL string, allowedOrigins []string) string {
+	sanitizedReturnTo := sanitizeAuthReturnTo(returnTo, allowedOrigins)
+	if sanitizedReturnTo == "" {
+		sanitizedReturnTo = "/app"
+	}
+	targetOrigin := ""
+	if parsed, err := url.Parse(sanitizedReturnTo); err == nil && parsed.IsAbs() {
+		targetOrigin = strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+	}
+	if targetOrigin == "" {
+		targetOrigin = preferredAuthFrontendOrigin(publicBaseURL, allowedOrigins)
+	}
+	query := url.Values{}
+	query.Set("return_to", sanitizedReturnTo)
+	targetPath := "/auth/mfa?" + query.Encode()
+	if targetOrigin == "" {
+		return targetPath
+	}
+	return strings.TrimRight(targetOrigin, "/") + targetPath
+}
+
+func preferredAuthFrontendOrigin(publicBaseURL string, allowedOrigins []string) string {
+	publicOrigin, _ := authReturnToOrigin(publicBaseURL)
+	for _, allowed := range allowedOrigins {
+		origin, ok := authReturnToOrigin(allowed)
+		if ok && !strings.EqualFold(origin, publicOrigin) {
+			return origin
+		}
+	}
+	return publicOrigin
 }
 
 type manualLoginRequest struct {

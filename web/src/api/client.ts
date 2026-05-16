@@ -252,6 +252,38 @@ export type ManualLoginResponse = {
   redirect_to: string;
 };
 
+export type WorkOSMFAFactor = {
+  id: string;
+  type: string;
+};
+
+export type WorkOSMFATOTP = {
+  factor_id: string;
+  qr_code: string;
+  secret: string;
+  uri: string;
+};
+
+export type WorkOSMFAPendingResponse = {
+  mode: 'enrollment' | 'challenge' | string;
+  user_email?: string;
+  challenge_started: boolean;
+  factors: WorkOSMFAFactor[];
+  totp?: WorkOSMFATOTP;
+  expires_at?: string;
+};
+
+export type WorkOSMFAChallengeResponse = {
+  challenge_started: boolean;
+  factor_id: string;
+  expires_at?: string;
+};
+
+export type WorkOSMFAVerifyResponse = {
+  ok: boolean;
+  redirect_to: string;
+};
+
 export type ProjectRecord = {
   tenant_id: string;
   workspace_id: string;
@@ -809,6 +841,31 @@ export const apiClient = {
     return request<ManualLoginResponse>('/auth/manual', undefined, {
       method: 'POST',
       body: JSON.stringify(payload),
+      redirectOnUnauthorized: false
+    });
+  },
+  getWorkOSMFAPending() {
+    return request<WorkOSMFAPendingResponse>('/auth/mfa/pending', undefined, {
+      redirectOnUnauthorized: false
+    });
+  },
+  enrollWorkOSMFA() {
+    return request<WorkOSMFAPendingResponse>('/auth/mfa/enroll', undefined, {
+      method: 'POST',
+      redirectOnUnauthorized: false
+    });
+  },
+  challengeWorkOSMFA(factorID: string) {
+    return request<WorkOSMFAChallengeResponse>('/auth/mfa/challenge', undefined, {
+      method: 'POST',
+      body: JSON.stringify({ factor_id: factorID }),
+      redirectOnUnauthorized: false
+    });
+  },
+  verifyWorkOSMFA(code: string) {
+    return request<WorkOSMFAVerifyResponse>('/auth/mfa/verify', undefined, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
       redirectOnUnauthorized: false
     });
   },

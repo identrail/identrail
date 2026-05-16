@@ -1047,6 +1047,53 @@ describe('App', () => {
     expect(window.location.search).toContain('reason=callback_error');
   });
 
+  it('completes a WorkOS MFA enrollment challenge before opening the app', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          mode: 'enrollment',
+          user_email: 'owner@example.com',
+          challenge_started: false,
+          factors: []
+        })
+      )
+      .mockResolvedValueOnce(
+        okJSON({
+          mode: 'enrollment',
+          user_email: 'owner@example.com',
+          challenge_started: true,
+          factors: [{ id: 'auth_factor_1', type: 'totp' }],
+          totp: {
+            factor_id: 'auth_factor_1',
+            qr_code: 'data:image/png;base64,qr',
+            secret: 'SECRET',
+            uri: 'otpauth://totp/Identrail:owner@example.com'
+          }
+        })
+      )
+      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
+      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/auth/mfa?return_to=%2Fapp');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Set up two-factor authentication/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Set up authenticator app/i }));
+
+    expect(await screen.findByAltText(/Authenticator QR code/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /Verify and continue/i }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.objectContaining({ body: JSON.stringify({ code: '123456' }), credentials: 'include', method: 'POST' })
+    );
+  });
+
   it('lists account security sessions and revokes other browsers', async () => {
     const fetchMock = vi
       .fn()

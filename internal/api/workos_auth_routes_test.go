@@ -21,9 +21,15 @@ import (
 
 type fakeWorkOSClient struct {
 	authorizationInput sessionauth.WorkOSAuthorizationRequest
+	verifyInput        sessionauth.WorkOSMFAVerifyRequest
 	authentication     sessionauth.WorkOSAuthentication
+	enrollResponse     sessionauth.WorkOSMFAEnrollResponse
+	challengeResponse  sessionauth.WorkOSMFAChallengeResponse
 	authURLErr         error
 	err                error
+	enrollErr          error
+	challengeErr       error
+	verifyErr          error
 }
 
 func (f *fakeWorkOSClient) AuthorizationURL(input sessionauth.WorkOSAuthorizationRequest) (string, error) {
@@ -46,6 +52,41 @@ func (f *fakeWorkOSClient) AuthorizationURL(input sessionauth.WorkOSAuthorizatio
 func (f *fakeWorkOSClient) AuthenticateWithCode(ctx context.Context, input sessionauth.WorkOSAuthenticationRequest) (sessionauth.WorkOSAuthentication, error) {
 	if f.err != nil {
 		return sessionauth.WorkOSAuthentication{}, f.err
+	}
+	return f.authentication, nil
+}
+
+func (f *fakeWorkOSClient) EnrollAuthFactor(ctx context.Context, input sessionauth.WorkOSMFAEnrollRequest) (sessionauth.WorkOSMFAEnrollResponse, error) {
+	if f.enrollErr != nil {
+		return sessionauth.WorkOSMFAEnrollResponse{}, f.enrollErr
+	}
+	if f.enrollResponse.FactorID != "" {
+		return f.enrollResponse, nil
+	}
+	return sessionauth.WorkOSMFAEnrollResponse{
+		FactorID:    "auth_factor_1",
+		FactorType:  "totp",
+		ChallengeID: "auth_challenge_1",
+		TOTPQRCode:  "data:image/png;base64,qr",
+		TOTPSecret:  "secret",
+		TOTPURI:     "otpauth://totp/Identrail:user@example.com",
+	}, nil
+}
+
+func (f *fakeWorkOSClient) ChallengeAuthFactor(ctx context.Context, input sessionauth.WorkOSMFAChallengeRequest) (sessionauth.WorkOSMFAChallengeResponse, error) {
+	if f.challengeErr != nil {
+		return sessionauth.WorkOSMFAChallengeResponse{}, f.challengeErr
+	}
+	if f.challengeResponse.ChallengeID != "" {
+		return f.challengeResponse, nil
+	}
+	return sessionauth.WorkOSMFAChallengeResponse{ChallengeID: "auth_challenge_1", FactorID: input.FactorID}, nil
+}
+
+func (f *fakeWorkOSClient) AuthenticateWithTOTP(ctx context.Context, input sessionauth.WorkOSMFAVerifyRequest) (sessionauth.WorkOSAuthentication, error) {
+	f.verifyInput = input
+	if f.verifyErr != nil {
+		return sessionauth.WorkOSAuthentication{}, f.verifyErr
 	}
 	return f.authentication, nil
 }
@@ -514,6 +555,116 @@ func TestWorkOSCallbackRejectsInvalidStateAndUnavailableProvider(t *testing.T) {
 	if missingCodeResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected missing code 400, got %d", missingCodeResp.Code)
 	}
+}
+
+func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 16, 18, 45, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	workOS := &fakeWorkOSClient{
+		err: &sessionauth.WorkOSMFARequired{
+			Mode:                       sessionauth.WorkOSMFAModeEnrollment,
+			PendingAuthenticationToken: "pending-token",
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_mfa",
+				Email:         "mfa@example.com",
+				EmailVerified: true,
+			},
+		},
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_mfa",
+				Email:         "mfa@example.com",
+				EmailVerified: true,
+			},
+			AuthenticationMethod: "GitHubOAuth",
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:     true,
+		FeatureWorkOSLogin: true,
+		PublicBaseURL:      "https://api.identrail.test",
+		CORSAllowedOrigins: []string{"https://app.identrail.test"},
+		SessionKey:         strings.Repeat("a", 64),
+		WorkOSClientID:     "client_123",
+		WorkOSAuthClient:   workOS,
+		RateLimitRPM:       1000,
+		RateLimitBurst:     1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected mfa redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); !strings.HasPrefix(got, "https://app.identrail.test/auth/mfa?") || !strings.Contains(got, "return_to=https%3A%2F%2Fapp.identrail.test%2Fapp") {
+		t.Fatalf("unexpected mfa redirect: %q", got)
+	}
+	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingMFACookieName)
+	if pendingCookie == nil || pendingCookie.Value == "" {
+		t.Fatalf("expected pending mfa cookie, got %+v", callbackResp.Result().Cookies())
+	}
+	if strings.Contains(pendingCookie.Value, "pending-token") {
+		t.Fatalf("pending mfa cookie must not expose the raw workos token: %q", pendingCookie.Value)
+	}
+
+	pendingReq := httptest.NewRequest(http.MethodGet, "/auth/mfa/pending", nil)
+	pendingReq.AddCookie(pendingCookie)
+	pendingResp := httptest.NewRecorder()
+	router.ServeHTTP(pendingResp, pendingReq)
+	if pendingResp.Code != http.StatusOK || !strings.Contains(pendingResp.Body.String(), `"mode":"enrollment"`) {
+		t.Fatalf("unexpected pending response: code=%d body=%s", pendingResp.Code, pendingResp.Body.String())
+	}
+
+	enrollReq := httptest.NewRequest(http.MethodPost, "/auth/mfa/enroll", nil)
+	enrollReq.AddCookie(pendingCookie)
+	enrollResp := httptest.NewRecorder()
+	router.ServeHTTP(enrollResp, enrollReq)
+	if enrollResp.Code != http.StatusOK || !strings.Contains(enrollResp.Body.String(), `"qr_code":"data:image/png;base64,qr"`) {
+		t.Fatalf("unexpected enroll response: code=%d body=%s", enrollResp.Code, enrollResp.Body.String())
+	}
+	updatedPendingCookie := findTestCookie(enrollResp.Result().Cookies(), sessionauth.PendingMFACookieName)
+	if updatedPendingCookie == nil || updatedPendingCookie.Value == "" {
+		t.Fatalf("expected refreshed pending mfa cookie, got %+v", enrollResp.Result().Cookies())
+	}
+
+	verifyReq := httptest.NewRequest(http.MethodPost, "/auth/mfa/verify", strings.NewReader(`{"code":"123456"}`))
+	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyReq.AddCookie(updatedPendingCookie)
+	verifyResp := httptest.NewRecorder()
+	router.ServeHTTP(verifyResp, verifyReq)
+	if verifyResp.Code != http.StatusOK || !strings.Contains(verifyResp.Body.String(), `"redirect_to":"https://app.identrail.test/app"`) {
+		t.Fatalf("unexpected verify response: code=%d body=%s", verifyResp.Code, verifyResp.Body.String())
+	}
+	if workOS.verifyInput.PendingAuthenticationToken != "pending-token" || workOS.verifyInput.AuthenticationChallengeID != "auth_challenge_1" || workOS.verifyInput.Code != "123456" {
+		t.Fatalf("unexpected verify input: %+v", workOS.verifyInput)
+	}
+	if findTestCookie(verifyResp.Result().Cookies(), sessionauth.CookieName) == nil {
+		t.Fatalf("expected session cookie after mfa verify, got %+v", verifyResp.Result().Cookies())
+	}
+	clearedPending := findTestCookie(verifyResp.Result().Cookies(), sessionauth.PendingMFACookieName)
+	if clearedPending == nil || clearedPending.MaxAge >= 0 {
+		t.Fatalf("expected pending mfa cookie to be cleared, got %+v", verifyResp.Result().Cookies())
+	}
+	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_workos_mfa"); err != nil {
+		t.Fatalf("expected workos identity after mfa verify: %v", err)
+	}
+}
+
+func findTestCookie(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
 }
 
 func TestWorkOSUserDeletedWebhookRevokesSessions(t *testing.T) {

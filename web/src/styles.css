@@ -5017,6 +5017,62 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   padding: 0.65rem 0.8rem;
 }
 
+.idt-auth-mfa-panel {
+  width: min(100%, 25rem);
+}
+
+.idt-auth-mfa-subtitle {
+  margin: -0.45rem 0 0.35rem;
+  color: #525252;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.idt-auth-mfa-full {
+  width: 100%;
+}
+
+.idt-auth-mfa-setup {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+}
+
+.idt-auth-mfa-qr {
+  width: 11rem;
+  height: 11rem;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  background: #ffffff;
+  object-fit: contain;
+}
+
+.idt-auth-mfa-secret {
+  width: 100%;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 0.7rem;
+  color: #171717;
+  background: #fafafa;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.idt-auth-mfa-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.idt-auth-mfa-form input {
+  text-align: center;
+  font-size: 1.18rem;
+  letter-spacing: 0;
+}
+
 .idt-dev-mode-banner {
   width: fit-content;
   margin: 0;

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Added WorkOS MFA continuation for hosted sign-in: when GitHub OAuth requires MFA enrollment or an existing MFA challenge, Identrail now redirects to an app MFA page, keeps the WorkOS pending-auth token in an encrypted HttpOnly cookie, and completes session creation after TOTP verification.
 - Fixed hosted GitHub sign-in by requesting GitHub's verified-email OAuth scope through WorkOS, so GitHub users with private primary emails can complete the callback instead of failing during login.
 - Added the org-admin API for managing native SAML identity connections (behind `IDENTRAIL_FEATURE_NATIVE_SSO`, defaulted off):
   - `POST/GET/PUT/DELETE /v1/enterprise/identity-connections/saml(/:id)` covers the full connection lifecycle and is gated by org-admin RBAC via the existing route policy bundle

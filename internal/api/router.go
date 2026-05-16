@@ -313,6 +313,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			WorkOSClient:        workOSClient,
 			WorkOSWebhookSecret: opts.WorkOSWebhookSecret,
 			StateManager:        sessionauth.NewOAuthStateManager(opts.SessionKey, nil),
+			PendingMFAManager:   sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil),
 			PublicBaseURL:       opts.PublicBaseURL,
 			ReturnToOrigins:     authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
 		})

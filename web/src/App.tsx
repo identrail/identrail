@@ -15,6 +15,7 @@ import { AccountSecurityPage } from './pages/AccountSecurityPage';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
+import { WorkOSMFAPage } from './pages/WorkOSMFAPage';
 import { WhyNoPasswordsPage } from './pages/WhyNoPasswordsPage';
 import { ConnectPage } from './pages/onboarding/ConnectPage';
 import { InvitePage } from './pages/onboarding/InvitePage';
@@ -3350,7 +3351,7 @@ export function RoutedSite() {
   const isProductShellRoute = location.pathname.startsWith('/app');
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
-  const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup';
+  const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'light';
@@ -3379,6 +3380,7 @@ export function RoutedSite() {
           <Route path="/signin" element={<SignInPage />} />
           <Route path="/signup" element={<SignUpPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/auth/mfa" element={<WorkOSMFAPage />} />
           <Route path="/why-no-passwords" element={<WhyNoPasswordsPage />} />
           <Route path="/app/login" element={<ProductLoginPage />} />
           <Route path="/app/callback" element={<ProductAuthCallbackRedirectPage />} />

@@ -103,6 +103,8 @@ WorkOS is the primary IdP for hosted Identrail. The WorkOS user `sub` becomes `u
 
 When WorkOS sends a `user.deleted` webhook, we set the `users.status` to `deactivated`, revoke all sessions, but retain the row for audit. The `user_identities` row stays in place; it is the historical record of which WorkOS account was that user.
 
+If WorkOS requires MFA enrollment or an MFA challenge during hosted sign-in, Identrail does not create a local session from the first callback. The API stores the WorkOS pending-auth token only in a short-lived encrypted HttpOnly cookie scoped to `/auth/mfa`, redirects the browser to the app MFA page, and creates the Identrail session only after WorkOS accepts the TOTP verification response.
+
 ### GitHub
 
 GitHub identities use `provider="github"` and `subject` set to the GitHub user ID (numeric, stable, never reused). Do not use the GitHub username as the subject; usernames can be renamed and reassigned.
