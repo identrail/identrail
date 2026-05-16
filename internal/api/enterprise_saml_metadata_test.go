@@ -292,6 +292,67 @@ func TestFetchSAMLMetadataXML_BlocksDNSRebinding(t *testing.T) {
 	}
 }
 
+func TestFetchSAMLMetadataXML_FallsBackToSecondValidatedAddress(t *testing.T) {
+	// Stand up a real TLS server on 127.0.0.1 to serve as the "second" (working)
+	// address. The "first" address is a deliberately closed port on the same
+	// host that will refuse the connection. The resolver returns both, and
+	// the guarded dialer must walk past the first failure to succeed on the
+	// second — matching the fallback behavior of net.Dialer for hostnames.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/samlmetadata+xml")
+		_, _ = w.Write([]byte(oktaMetadataFixture))
+	}))
+	t.Cleanup(srv.Close)
+
+	// Reserve and close a port to guarantee dial refusal.
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	deadHost, deadPort, _ := net.SplitHostPort(closed.Addr().String())
+	_ = closed.Close()
+
+	srvURL, _ := url.Parse(srv.URL)
+	_, livePort, _ := net.SplitHostPort(srvURL.Host)
+	if deadPort == livePort {
+		t.Skip("OS reassigned the closed port to the live server; race avoided by skipping")
+	}
+
+	// Make idp.example.com resolve to the dead address first, then the live
+	// one. Both are loopback, so the test also swaps the IP guard to permit
+	// loopback only.
+	prevResolver := metadataResolver
+	t.Cleanup(func() { metadataResolver = prevResolver })
+	metadataResolver = func(_ context.Context, host string) ([]net.IP, error) {
+		if host == "idp.example.com" {
+			return []net.IP{net.ParseIP(deadHost), net.ParseIP(srvURL.Hostname())}, nil
+		}
+		return nil, &net.DNSError{Err: "not found", Name: host, IsNotFound: true}
+	}
+	withPermissiveHostGuard(t)
+	prevIP := internalIPGuard
+	internalIPGuard = func(ip net.IP, host string) error {
+		if ip.IsLoopback() {
+			return nil
+		}
+		return rejectInternalIP(ip, host)
+	}
+	t.Cleanup(func() { internalIPGuard = prevIP })
+
+	// Build a client that uses the test server's TLS root and points the URL
+	// hostname at idp.example.com on the live port. The guarded dial picks
+	// up the resolver's two-address list, fails on the dead port, then
+	// succeeds on the live one.
+	caller := srv.Client()
+	body, err := FetchSAMLMetadataXML(context.Background(), caller, "https://idp.example.com:"+livePort+"/metadata")
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got: %v", err)
+	}
+	if !strings.Contains(string(body), "EntityDescriptor") {
+		t.Errorf("unexpected body: %q", string(body))
+	}
+}
+
 func TestFetchSAMLMetadataXML_AllowsConfiguredProxyDial(t *testing.T) {
 	// Spin up a TCP-only listener on 127.0.0.1 to stand in for an internal
 	// HTTPS_PROXY. The transport's Proxy func points every request at it.

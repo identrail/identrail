@@ -285,10 +285,21 @@ func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
 				return nil, err
 			}
 		}
-		// Dial the first validated IP directly. The Transport above us still
-		// hands the original hostname to TLS for SNI + certificate
-		// verification, so server identity is enforced normally.
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
+		// Try every validated address in order before giving up. This mirrors
+		// the fallback behavior of net.Dialer when handed a hostname (e.g.,
+		// AAAA-first on an IPv4-only deployment, or a stale A record before a
+		// healthy one) and is safe because every candidate has already
+		// cleared internalIPGuard. TLS SNI + cert verification still use the
+		// URL's hostname so server identity is enforced normally.
+		var lastErr error
+		for _, ip := range ips {
+			conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			if dialErr == nil {
+				return conn, nil
+			}
+			lastErr = dialErr
+		}
+		return nil, fmt.Errorf("metadata dial %q: all %d validated addresses failed; last error: %w", host, len(ips), lastErr)
 	}
 	return &metadataProxyAwareTransport{base: transport}
 }
