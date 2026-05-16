@@ -235,13 +235,23 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 	return body, nil
 }
 
-// guardedMetadataTransport wraps base so every TCP dial re-validates the
-// destination IP. Without this, an attacker-controlled DNS could hand the
+// metadataProxyAddrKey carries the operator-configured proxy host:port (if
+// any) into DialContext via request context. The wrapping RoundTripper sets
+// the value once per request after consulting the transport's Proxy func, so
+// the dial guard can distinguish a proxy-bound dial (trusted egress) from a
+// direct dial to the metadata host (must be re-validated to close the
+// rebinding TOCTOU).
+type metadataProxyAddrKey struct{}
+
+// guardedMetadataTransport wraps base so every direct TCP dial re-validates
+// the destination IP. Without this, an attacker-controlled DNS could hand the
 // up-front host guard a public IP and then re-resolve to a private IP at
-// dial time (DNS rebinding). The dial-time guard resolves the hostname
-// itself, validates each candidate IP, and dials the validated IP directly
-// — the original hostname is preserved on the request so TLS SNI and cert
-// verification still use the URL's hostname.
+// dial time (DNS rebinding).
+//
+// Dials destined for an operator-configured HTTPS_PROXY are exempted: the
+// proxy is trusted egress, the metadata host has already been validated by
+// the up-front + redirect guards, and rejecting RFC1918 proxy addresses
+// would break every deployment behind an internal egress proxy.
 func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
 	transport, ok := base.(*http.Transport)
 	if !ok || transport == nil {
@@ -249,8 +259,16 @@ func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
 	} else {
 		transport = transport.Clone()
 	}
+	if transport.Proxy == nil {
+		transport.Proxy = http.ProxyFromEnvironment
+	}
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// Proxy-bound dial: addr is the operator-configured proxy host:port.
+		// Skip the IP guard so internal egress proxies stay reachable.
+		if proxyAddr, ok := ctx.Value(metadataProxyAddrKey{}).(string); ok && proxyAddr != "" && addr == proxyAddr {
+			return dialer.DialContext(ctx, network, addr)
+		}
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			return nil, fmt.Errorf("metadata dial: invalid address %q: %w", addr, err)
@@ -272,7 +290,37 @@ func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
 		// verification, so server identity is enforced normally.
 		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 	}
-	return transport
+	return &metadataProxyAwareTransport{base: transport}
+}
+
+// metadataProxyAwareTransport tags every outgoing request's context with the
+// proxy address derived from the transport's Proxy func, so the dial guard
+// can recognize and skip proxy-bound dials.
+type metadataProxyAwareTransport struct {
+	base *http.Transport
+}
+
+func (m *metadataProxyAwareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if m.base.Proxy != nil {
+		if proxyURL, err := m.base.Proxy(req); err == nil && proxyURL != nil {
+			proxyAddr := proxyURL.Host
+			if proxyAddr != "" {
+				if _, _, splitErr := net.SplitHostPort(proxyAddr); splitErr != nil {
+					// Fill in the protocol-default port so the eventual dial
+					// addr matches what we stash here.
+					switch strings.ToLower(proxyURL.Scheme) {
+					case "https":
+						proxyAddr = net.JoinHostPort(proxyAddr, "443")
+					case "http":
+						proxyAddr = net.JoinHostPort(proxyAddr, "80")
+					}
+				}
+				ctx := context.WithValue(req.Context(), metadataProxyAddrKey{}, proxyAddr)
+				req = req.Clone(ctx)
+			}
+		}
+	}
+	return m.base.RoundTrip(req)
 }
 
 // checkMetadataRedirect runs the same scheme + host guard that gates the

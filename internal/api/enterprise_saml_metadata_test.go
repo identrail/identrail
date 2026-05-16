@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -289,6 +290,53 @@ func TestFetchSAMLMetadataXML_BlocksDNSRebinding(t *testing.T) {
 	if calls < 2 {
 		t.Errorf("expected dial-time resolver to be called (calls=%d) — guard ran only at check time", calls)
 	}
+}
+
+func TestFetchSAMLMetadataXML_AllowsConfiguredProxyDial(t *testing.T) {
+	// Spin up a TCP-only listener on 127.0.0.1 to stand in for an internal
+	// HTTPS_PROXY. The transport's Proxy func points every request at it.
+	// We do not need a complete CONNECT-speaking proxy — the test only needs
+	// to prove that the dial-time IP guard is exempted for proxy-bound dials,
+	// and we verify that by observing whether internalIPGuard is invoked on
+	// the loopback proxy address.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	proxyURL := &url.URL{Scheme: "http", Host: ln.Addr().String()}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = func(*http.Request) (*url.URL, error) { return proxyURL, nil }
+	caller := &http.Client{Transport: transport}
+
+	// Bypass only the up-front host guard for the metadata host. The
+	// dial-time guard stays strict, and our spy variant fails the test if
+	// it is ever called with the loopback proxy address.
+	withPermissiveHostGuard(t)
+	prevIP := internalIPGuard
+	internalIPGuard = func(ip net.IP, host string) error {
+		if ip.IsLoopback() {
+			t.Fatalf("internalIPGuard was called with loopback %s — proxy exemption did not fire", ip)
+		}
+		return rejectInternalIP(ip, host)
+	}
+	t.Cleanup(func() { internalIPGuard = prevIP })
+
+	// We expect the dial to succeed (proving the guard exemption fired) and
+	// then for the request to fail downstream because the listener is not a
+	// real HTTP proxy. The success criterion is "internalIPGuard was NOT
+	// called for the loopback proxy address" — guarded by t.Fatalf above.
+	_, _ = FetchSAMLMetadataXML(context.Background(), caller, "https://idp.example.com/metadata")
 }
 
 func TestNewSCIMBearerToken_Format(t *testing.T) {
