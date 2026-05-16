@@ -118,6 +118,12 @@ secret_kms_keys="$(json_string_array API_SECRET_KMS_KEY_ARNS_JSON '[]')"
 extra_environment="$(json_string_map API_EXTRA_ENVIRONMENT_JSON)"
 extra_secrets="$(json_string_map API_EXTRA_SECRETS_JSON)"
 
+onboarding_feature_enabled="$(trim "${API_FEATURE_ONBOARDING_WIZARD:-true}")"
+case "${onboarding_feature_enabled}" in
+  true|false) ;;
+  *) fail "API_FEATURE_ONBOARDING_WIZARD must be true or false" ;;
+esac
+
 workos_feature_enabled="$(trim "${API_FEATURE_WORKOS_LOGIN:-}")"
 workos_client_id="$(trim "${API_WORKOS_CLIENT_ID:-}")"
 workos_environment_id="$(trim "${API_WORKOS_ENVIRONMENT_ID:-}")"
@@ -198,6 +204,7 @@ jq -n \
   --arg api_container_image "${api_container_image}" \
   --arg api_database_secret "${api_database_secret}" \
   --arg api_session_secret "${api_session_secret}" \
+  --arg onboarding_feature_enabled "${onboarding_feature_enabled}" \
   --argjson api_public_subnet_ids "${public_subnets}" \
   --argjson api_task_subnet_ids "${task_subnets}" \
   --argjson api_allowed_cidr_blocks "${allowed_cidrs}" \
@@ -234,6 +241,7 @@ jq -n \
     api_task_memory: $api_task_memory,
     api_environment_variables: ($extra_environment + $workos_environment + {
       IDENTRAIL_FEATURE_NEW_AUTH: "true",
+      IDENTRAIL_FEATURE_ONBOARDING_WIZARD: $onboarding_feature_enabled,
       IDENTRAIL_PUBLIC_BASE_URL: "https://api.identrail.com"
     }),
     api_secrets: ($extra_secrets + $workos_secrets + {

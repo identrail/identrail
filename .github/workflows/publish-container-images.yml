@@ -48,6 +48,7 @@ jobs:
           echo "sha_tag=${sha_tag}" >> "${GITHUB_OUTPUT}"
           echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
           echo "web_api_url=http://localhost:8080" >> "${GITHUB_OUTPUT}"
+          echo "web_onboarding_wizard=true" >> "${GITHUB_OUTPUT}"
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
@@ -135,5 +136,6 @@ jobs:
             -f deploy/docker/Dockerfile.web \
             --build-arg "VITE_IDENTRAIL_API_URL=${{ steps.meta.outputs.web_api_url }}" \
             --build-arg "VITE_ALLOW_MANUAL_PRODUCT_SESSION=true" \
+            --build-arg "VITE_FEATURE_ONBOARDING_WIZARD=${{ steps.meta.outputs.web_onboarding_wizard }}" \
             --build-arg "NGINX_CONF=default.local.conf" \
             .

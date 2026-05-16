@@ -94,6 +94,12 @@ Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` pat
 
 The common pattern is paired flags for UI-backed features: the backend flag (`IDENTRAIL_FEATURE_*`) gates API endpoints and the frontend flag (`VITE_FEATURE_*`) gates the UI surface. Both default off, and turning them on activates the PR's behavior. Backend-only capabilities may expose only an `IDENTRAIL_FEATURE_*` flag.
 
+Identrail Cloud production intentionally enables the onboarding pair during
+deployment: `IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true` on the API and
+`VITE_FEATURE_ONBOARDING_WIZARD=true` on the web build. Production-oriented
+self-hosted examples keep the default off until operators opt in and have new
+auth/session configuration ready.
+
 ## Existing Variables (Not Touched)
 
 For reference, the variables that already exist and stay unchanged:

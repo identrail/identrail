@@ -31,7 +31,9 @@ log_retention_days    = 30
 # Non-secret task settings only. Put database URLs, API keys, session keys, and
 # OAuth/webhook/HMAC secrets in api_secrets instead.
 # api_environment_variables = {
-#   IDENTRAIL_PUBLIC_BASE_URL = "https://app.identrail.com"
+#   IDENTRAIL_FEATURE_NEW_AUTH           = "true"
+#   IDENTRAIL_FEATURE_ONBOARDING_WIZARD = "true"
+#   IDENTRAIL_PUBLIC_BASE_URL           = "https://api.identrail.com"
 # }
 # api_secrets = {
 #   IDENTRAIL_DATABASE_URL    = "<database-url-secret-arn>"

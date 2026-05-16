@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Enabled Identrail Cloud self-serve onboarding deployment wiring:
+  - production AWS API deploys now set `IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true` by default alongside new auth, with `API_FEATURE_ONBOARDING_WIZARD=false` available as the explicit rollback knob
+  - Vercel production deploys upsert `VITE_FEATURE_ONBOARDING_WIZARD` before building the web app, defaulting to `true` and honoring a repository variable override for rollback
+  - release and public web image builds now carry the onboarding and GitHub connector build flags from the versioned web release environment
 - Added WorkOS MFA continuation for hosted sign-in: when GitHub OAuth requires MFA enrollment or an existing MFA challenge, Identrail now redirects to an app MFA page, keeps the WorkOS pending-auth token in an encrypted HttpOnly cookie, and completes session creation after TOTP verification.
 - Fixed hosted GitHub sign-in by requesting GitHub's verified-email OAuth scope through WorkOS, so GitHub users with private primary emails can complete the callback instead of failing during login.
 - Added the org-admin API for managing native SAML identity connections (behind `IDENTRAIL_FEATURE_NATIVE_SSO`, defaulted off):

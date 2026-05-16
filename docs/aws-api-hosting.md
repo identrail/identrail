@@ -70,6 +70,11 @@ Before a manual apply, operators must provide:
   - hosted session auth with non-secret `IDENTRAIL_FEATURE_NEW_AUTH=true` and
     `IDENTRAIL_PUBLIC_BASE_URL`, plus `IDENTRAIL_SESSION_KEY` in `api_secrets`
 
+Hosted self-serve onboarding is a post-login flow, not an auth mode. For the
+Identrail Cloud path, keep at least one auth mode above configured and enable
+`IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true` when first-time users should create
+their org and workspace after login.
+
 ## Manual GitHub Actions Deployment
 
 Use the `AWS API Manual Deploy` workflow for the first controlled
@@ -118,6 +123,8 @@ Optional repository variables:
 - `API_ALLOWED_CIDR_BLOCKS_JSON`
 - `API_CORS_ALLOWED_ORIGINS_JSON`
 - `API_TRUSTED_PROXY_CIDR_BLOCKS_JSON`
+- `API_FEATURE_ONBOARDING_WIZARD`: defaults to `true` for Identrail Cloud; set
+  to `false` only as a rollback knob for the onboarding API
 - `API_FEATURE_WORKOS_LOGIN`: defaults to `true` when the first-class WorkOS
   deployment settings above are provided
 - `API_EXTRA_ENVIRONMENT_JSON`

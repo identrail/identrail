@@ -111,11 +111,12 @@ docker compose -f deploy/docker/docker-compose.public.yml up -d
 The public stack starts Postgres, API, worker, and web without building from
 source. Open `http://localhost:8081` for the web UI and use
 `http://localhost:8080` for the API. The public profile enables the new auth
-flow in local-only manual mode, so the dashboard can establish a disposable
-session without any hosted identity provider. Postgres is intentionally not
-published onto the host in this profile, so existing local database services do
-not block the quickstart. For anything beyond localhost evaluation, rotate the
-example secrets and disable manual mode.
+flow and self-serve onboarding in local-only manual mode, so the dashboard can
+establish a disposable session and create its first workspace without any
+hosted identity provider. Postgres is intentionally not published onto the host
+in this profile, so existing local database services do not block the
+quickstart. For anything beyond localhost evaluation, rotate the example
+secrets and disable manual mode.
 
 Supporting images are published for multi-service deployments:
 

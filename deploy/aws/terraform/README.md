@@ -141,7 +141,7 @@ terraform plan \
   -var='api_container_image=ghcr.io/identrail/identrail-api:<immutable-release-tag>' \
   -var='api_cors_allowed_origins=["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' \
   -var='api_trusted_proxy_cidr_blocks=["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' \
-  -var='api_environment_variables={"IDENTRAIL_FEATURE_NEW_AUTH":"true","IDENTRAIL_PUBLIC_BASE_URL":"https://api.identrail.com"}' \
+  -var='api_environment_variables={"IDENTRAIL_FEATURE_NEW_AUTH":"true","IDENTRAIL_FEATURE_ONBOARDING_WIZARD":"true","IDENTRAIL_PUBLIC_BASE_URL":"https://api.identrail.com"}' \
   -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_SESSION_KEY":"<session-key-secret-arn>"}' \
   -var='api_secret_kms_key_arns=[]' \
   -var='api_connector_role_arns=[]'

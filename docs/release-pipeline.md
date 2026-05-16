@@ -13,11 +13,17 @@ Identrail release automation is defined in:
 ## Required Configuration
 
 - Keep the versioned web build inputs in `deploy/docker/release-web.env`.
-  `VITE_IDENTRAIL_API_URL` and `VITE_FEATURE_CONNECTOR_*` values are baked into release web images.
+  `VITE_IDENTRAIL_API_URL`, `VITE_FEATURE_CONNECTOR_*`, and
+  `VITE_FEATURE_ONBOARDING_WIZARD` values are baked into release web images.
 - For manual runs with `publish_images=false`, image configuration is not required.
 - Manual image backfills for historical tags that predate `deploy/docker/release-web.env`
   use the legacy release URL recorded by the workflow and attach that source in
   `release-web-build.txt`.
+
+For Identrail Cloud releases, `deploy/docker/release-web.env` should point at
+`https://api.identrail.com` and set `VITE_FEATURE_ONBOARDING_WIZARD=true`, so
+new GitHub/WorkOS users can create their first organization and workspace after
+login.
 
 ## What the Pipeline Publishes
 

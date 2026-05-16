@@ -11,7 +11,8 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
   - Scoped shell paths: `/app/:tenantID/:workspaceID/*`
 - Typical runtime: containerized deployment (`deploy/docker/Dockerfile.web`, optional Helm `web.enabled`)
 - API URL input: `VITE_IDENTRAIL_API_URL`
-- Vercel (marketing/demo deploy): Identrail Cloud domains default to `https://api.identrail.com`; custom domains should set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables or as a GitHub Actions variable so the deploy workflow upserts it.
+- Self-serve onboarding input: `VITE_FEATURE_ONBOARDING_WIZARD=true`
+- Vercel (marketing/demo deploy): Identrail Cloud domains default to `https://api.identrail.com`; custom domains should set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables or as a GitHub Actions variable so the deploy workflow upserts it. Identrail Cloud production deploys also upsert `VITE_FEATURE_ONBOARDING_WIZARD`, defaulting to `true`, so authenticated users without a workspace enter `/onboarding/org`.
 - Production deploys should be triggered from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
 
 ### `VITE_IDENTRAIL_API_URL` value source
@@ -31,6 +32,16 @@ Identrail uses `web/` as the active tracked frontend on `dev`.
 2. Vercel project environment variable:
    - `Project` -> `Settings` -> `Environment Variables`
    - Add `VITE_IDENTRAIL_API_URL` for Production (and Preview if needed)
+
+### Self-serve onboarding flag
+
+Identrail Cloud production web builds should set:
+
+```text
+VITE_FEATURE_ONBOARDING_WIZARD=true
+```
+
+The token-based Vercel production deploy workflow upserts this value before the deploy action runs. It defaults to `true` for Identrail Cloud and reads the repository variable `VITE_FEATURE_ONBOARDING_WIZARD` when an operator needs to set the matching web rollback value to `false`. If the workflow falls back to a deploy hook, GitHub Actions cannot update Vercel project env values; keep `VITE_FEATURE_ONBOARDING_WIZARD=true` configured directly in Vercel before using hook-only deploys, or flip that Vercel value directly during rollback.
 
 For token-based Vercel deployments, if the GitHub Actions variable is missing, the production deploy workflow uses the Identrail Cloud default and upserts `VITE_IDENTRAIL_API_URL=https://api.identrail.com` into Vercel. Hook-only fallback deployments cannot upsert or inspect Vercel project env values from GitHub Actions, so the runtime fallback still protects the canonical Identrail Cloud domains while custom domains must keep `VITE_IDENTRAIL_API_URL` configured directly in Vercel.
 

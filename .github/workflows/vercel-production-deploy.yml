@@ -84,30 +84,59 @@ jobs:
             echo "has_api_url=true"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Upsert Vercel env VITE_IDENTRAIL_API_URL
+      - name: Upsert Vercel production web env
         if: steps.normalize-token.outputs.has_token == 'true' && steps.check-api-url.outputs.has_api_url == 'true'
         env:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VITE_IDENTRAIL_API_URL: ${{ steps.check-api-url.outputs.api_url }}
+          VITE_FEATURE_ONBOARDING_WIZARD: ${{ vars.VITE_FEATURE_ONBOARDING_WIZARD || 'true' }}
         run: |
           set -euo pipefail
-          payload="$(jq -n --arg value "${VITE_IDENTRAIL_API_URL}" '{
-            key: "VITE_IDENTRAIL_API_URL",
-            value: $value,
-            type: "plain",
-            target: ["production", "preview"],
-            comment: "Identrail web -> API base URL (required for production builds)"
-          }')"
+          onboarding_flag="$(printf '%s' "${VITE_FEATURE_ONBOARDING_WIZARD}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          case "${onboarding_flag}" in
+            true|false) ;;
+            *)
+              echo "VITE_FEATURE_ONBOARDING_WIZARD must be true or false; got ${onboarding_flag}." >&2
+              exit 1
+              ;;
+          esac
 
-          curl -fsS -X POST \
-            "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?upsert=true&teamId=${VERCEL_ORG_ID}" \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "${payload}" \
-            > /tmp/vercel-env-upsert.json
-          jq -r '.created.key // "Vercel env upserted."' /tmp/vercel-env-upsert.json
+          upsert_env() {
+            local key="$1"
+            local value="$2"
+            local comment="$3"
+
+            payload="$(jq -n \
+              --arg key "${key}" \
+              --arg value "${value}" \
+              --arg comment "${comment}" \
+              '{
+                key: $key,
+                value: $value,
+                type: "plain",
+                target: ["production", "preview"],
+                comment: $comment
+              }')"
+
+            curl -fsS -X POST \
+              "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?upsert=true&teamId=${VERCEL_ORG_ID}" \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "${payload}" \
+              > "/tmp/vercel-env-upsert-${key}.json"
+            jq -r '.created.key // "Vercel env upserted."' "/tmp/vercel-env-upsert-${key}.json"
+          }
+
+          upsert_env \
+            "VITE_IDENTRAIL_API_URL" \
+            "${VITE_IDENTRAIL_API_URL}" \
+            "Identrail web -> API base URL (required for production builds)"
+          upsert_env \
+            "VITE_FEATURE_ONBOARDING_WIZARD" \
+            "${onboarding_flag}" \
+            "Enable self-serve onboarding for Identrail Cloud production builds"
 
       - name: Deploy to Vercel
         id: deploy-action
