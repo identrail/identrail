@@ -11,14 +11,19 @@ import (
 	"testing"
 )
 
-// withPermissiveHostGuard swaps out the SSRF guard for the duration of the
+// withPermissiveHostGuard swaps out both SSRF guards for the duration of the
 // test so a httptest.NewTLSServer (which binds to 127.0.0.1) is reachable.
-// Production wiring keeps the strict guard.
+// Production wiring keeps the strict guards.
 func withPermissiveHostGuard(t *testing.T) {
 	t.Helper()
-	prev := metadataHostGuard
+	prevHost := metadataHostGuard
+	prevIP := internalIPGuard
 	metadataHostGuard = func(context.Context, string) error { return nil }
-	t.Cleanup(func() { metadataHostGuard = prev })
+	internalIPGuard = func(net.IP, string) error { return nil }
+	t.Cleanup(func() {
+		metadataHostGuard = prevHost
+		internalIPGuard = prevIP
+	})
 }
 
 // withFakeResolver lets a test pretend that a public-looking hostname resolves
@@ -221,19 +226,29 @@ func TestFetchSAMLMetadataXML_BlocksRedirectToHTTP(t *testing.T) {
 }
 
 func TestFetchSAMLMetadataXML_BlocksRedirectToPrivateIP(t *testing.T) {
-	// Bypass the loopback check on the original httptest URL but reinstall
-	// the strict guard for the redirect target. This exercises the SSRF
-	// protection against an attacker-controlled public endpoint that 30x'es
-	// to a private IP.
-	prev := metadataHostGuard
-	t.Cleanup(func() { metadataHostGuard = prev })
-	allowFirst := true
+	// Bypass the loopback check just for the local httptest host but keep
+	// the strict guard for everything else. Both the up-front host guard
+	// and the dial-time guard now flow through internalIPGuard, so swapping
+	// it lets us exercise the SSRF protection against an attacker-controlled
+	// public endpoint that 30x'es to a private IP without losing coverage of
+	// the strict path.
+	prevHost := metadataHostGuard
+	prevIP := internalIPGuard
+	t.Cleanup(func() {
+		metadataHostGuard = prevHost
+		internalIPGuard = prevIP
+	})
 	metadataHostGuard = func(ctx context.Context, host string) error {
-		if allowFirst {
-			allowFirst = false
+		if host == "127.0.0.1" || host == "::1" {
 			return nil
 		}
 		return assertMetadataHostIsExternal(ctx, host)
+	}
+	internalIPGuard = func(ip net.IP, host string) error {
+		if ip.IsLoopback() {
+			return nil
+		}
+		return rejectInternalIP(ip, host)
 	}
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +259,35 @@ func TestFetchSAMLMetadataXML_BlocksRedirectToPrivateIP(t *testing.T) {
 	_, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
 	if err == nil || !strings.Contains(err.Error(), "link-local") {
 		t.Errorf("expected link-local rejection on redirect target, got: %v", err)
+	}
+}
+
+func TestFetchSAMLMetadataXML_BlocksDNSRebinding(t *testing.T) {
+	// DNS rebinding TOCTOU: the up-front host guard sees a public IP, but
+	// the dial-time resolver returns a private IP. Without the dial-time
+	// guard the request would still hit the internal address.
+	calls := 0
+	prev := metadataResolver
+	t.Cleanup(func() { metadataResolver = prev })
+	metadataResolver = func(_ context.Context, host string) ([]net.IP, error) {
+		if host == "rebinding.example.com" {
+			calls++
+			if calls == 1 {
+				// First call: up-front guard. Hand back a public IP.
+				return []net.IP{net.ParseIP("198.51.100.1")}, nil
+			}
+			// Second call (and later): dial-time. Now resolve to a private IP.
+			return []net.IP{net.ParseIP("10.0.0.99")}, nil
+		}
+		return nil, &net.DNSError{Err: "not found", Name: host, IsNotFound: true}
+	}
+
+	_, err := FetchSAMLMetadataXML(context.Background(), nil, "https://rebinding.example.com/metadata")
+	if err == nil || !strings.Contains(err.Error(), "private") {
+		t.Errorf("expected DNS-rebinding rejection at dial time, got: %v", err)
+	}
+	if calls < 2 {
+		t.Errorf("expected dial-time resolver to be called (calls=%d) — guard ran only at check time", calls)
 	}
 }
 

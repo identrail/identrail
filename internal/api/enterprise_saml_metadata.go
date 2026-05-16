@@ -207,13 +207,14 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	// Shallow-clone the client so installing CheckRedirect does not mutate
-	// the caller's instance, then enforce the same scheme + host guard on
-	// every redirect hop. Without this, a public-facing https endpoint could
-	// 30x to a plain-http URL or to a private IP and bypass the up-front
-	// guard, restoring the SSRF surface this fetcher is meant to close.
+	// Shallow-clone the client so installing CheckRedirect and the dial
+	// guard does not mutate the caller's instance, then enforce the same
+	// scheme + host guard on every redirect hop. Without this, a
+	// public-facing https endpoint could 30x to a plain-http URL or to a
+	// private IP and bypass the up-front guard.
 	guardedClient := *client
 	guardedClient.CheckRedirect = checkMetadataRedirect
+	guardedClient.Transport = guardedMetadataTransport(guardedClient.Transport)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return nil, err
@@ -232,6 +233,46 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 		return nil, fmt.Errorf("read metadata body: %w", err)
 	}
 	return body, nil
+}
+
+// guardedMetadataTransport wraps base so every TCP dial re-validates the
+// destination IP. Without this, an attacker-controlled DNS could hand the
+// up-front host guard a public IP and then re-resolve to a private IP at
+// dial time (DNS rebinding). The dial-time guard resolves the hostname
+// itself, validates each candidate IP, and dials the validated IP directly
+// — the original hostname is preserved on the request so TLS SNI and cert
+// verification still use the URL's hostname.
+func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
+	transport, ok := base.(*http.Transport)
+	if !ok || transport == nil {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+	} else {
+		transport = transport.Clone()
+	}
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("metadata dial: invalid address %q: %w", addr, err)
+		}
+		ips, err := metadataResolver(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("metadata dial: resolve %q: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("metadata dial: no addresses for %q", host)
+		}
+		for _, ip := range ips {
+			if err := internalIPGuard(ip, host); err != nil {
+				return nil, err
+			}
+		}
+		// Dial the first validated IP directly. The Transport above us still
+		// hands the original hostname to TLS for SNI + certificate
+		// verification, so server identity is enforced normally.
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
+	}
+	return transport
 }
 
 // checkMetadataRedirect runs the same scheme + host guard that gates the
@@ -254,18 +295,26 @@ func checkMetadataRedirect(req *http.Request, via []*http.Request) error {
 	return metadataHostGuard(req.Context(), host)
 }
 
-// metadataResolver is the DNS resolver used by assertMetadataHostIsExternal.
-// Tests override it with a deterministic in-memory resolver so the SSRF guard
-// can be exercised without depending on real DNS.
+// metadataResolver is the DNS resolver used by the SSRF guards. Tests
+// override it with a deterministic in-memory resolver so behavior can be
+// exercised without depending on real DNS.
 var metadataResolver = func(ctx context.Context, host string) ([]net.IP, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IP{ip}, nil
+	}
 	return net.DefaultResolver.LookupIP(ctx, "ip", host)
 }
 
-// metadataHostGuard is the SSRF guard called before issuing the metadata
-// fetch. Production wiring uses assertMetadataHostIsExternal; tests that need
-// to point at a httptest server (which binds to 127.0.0.1) swap in a no-op
-// for the duration of the test.
+// metadataHostGuard is the up-front SSRF guard called before issuing the
+// metadata fetch. Production wiring uses assertMetadataHostIsExternal; tests
+// that need to point at a httptest server (which binds to 127.0.0.1) swap in
+// a no-op for the duration of the test.
 var metadataHostGuard = assertMetadataHostIsExternal
+
+// internalIPGuard is the per-IP rejection used by both the up-front host
+// guard and the dial-time guard. Tests swap to a no-op so a httptest TLS
+// server bound on 127.0.0.1 is reachable.
+var internalIPGuard = rejectInternalIP
 
 // assertMetadataHostIsExternal refuses to fetch from a host that resolves to
 // any address Identrail considers internal: loopback, link-local, multicast,
@@ -275,7 +324,7 @@ var metadataHostGuard = assertMetadataHostIsExternal
 // pointing at e.g. 169.254.169.254 (cloud metadata) or a private subnet.
 func assertMetadataHostIsExternal(ctx context.Context, host string) error {
 	if ip := net.ParseIP(host); ip != nil {
-		return rejectInternalIP(ip, host)
+		return internalIPGuard(ip, host)
 	}
 	addrs, err := metadataResolver(ctx, host)
 	if err != nil {
@@ -285,7 +334,7 @@ func assertMetadataHostIsExternal(ctx context.Context, host string) error {
 		return fmt.Errorf("metadata_url host %q resolved to no addresses", host)
 	}
 	for _, ip := range addrs {
-		if err := rejectInternalIP(ip, host); err != nil {
+		if err := internalIPGuard(ip, host); err != nil {
 			return err
 		}
 	}
