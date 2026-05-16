@@ -123,10 +123,11 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 		}
 		auditAuthAction(c.Request.Context(), action, "", "success")
 		authorizationURL, err := opts.WorkOSClient.AuthorizationURL(sessionauth.WorkOSAuthorizationRequest{
-			RedirectURI: workOSCallbackURL(opts.PublicBaseURL),
-			State:       state,
-			ScreenHint:  screenHint,
-			Provider:    provider,
+			RedirectURI:    workOSCallbackURL(opts.PublicBaseURL),
+			State:          state,
+			ScreenHint:     screenHint,
+			Provider:       provider,
+			ProviderScopes: workOSProviderScopes(provider),
 		})
 		if err != nil {
 			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
@@ -152,6 +153,14 @@ func workOSProviderFromPublicID(provider string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func workOSProviderScopes(provider string) []string {
+	if strings.EqualFold(strings.TrimSpace(provider), "GitHubOAuth") {
+		// GitHub keeps many verified email addresses private unless this scope is requested.
+		return []string{"user:email"}
+	}
+	return nil
 }
 
 func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions) gin.HandlerFunc {

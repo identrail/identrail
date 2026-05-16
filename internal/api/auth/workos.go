@@ -15,10 +15,11 @@ const WorkOSProvider = "workos"
 var ErrWorkOSUnavailable = errors.New("workos unavailable")
 
 type WorkOSAuthorizationRequest struct {
-	RedirectURI string
-	State       string
-	ScreenHint  string
-	Provider    string
+	RedirectURI    string
+	State          string
+	ScreenHint     string
+	Provider       string
+	ProviderScopes []string
 }
 
 type WorkOSAuthenticationRequest struct {
@@ -66,10 +67,11 @@ func (c *WorkOSSDKClient) AuthorizationURL(input WorkOSAuthorizationRequest) (st
 		return "", ErrWorkOSUnavailable
 	}
 	opts := usermanagement.GetAuthorizationURLOpts{
-		ClientID:    c.clientID,
-		RedirectURI: strings.TrimSpace(input.RedirectURI),
-		Provider:    strings.TrimSpace(input.Provider),
-		State:       strings.TrimSpace(input.State),
+		ClientID:       c.clientID,
+		RedirectURI:    strings.TrimSpace(input.RedirectURI),
+		Provider:       strings.TrimSpace(input.Provider),
+		State:          strings.TrimSpace(input.State),
+		ProviderScopes: append([]string(nil), input.ProviderScopes...),
 	}
 	if opts.Provider == "" {
 		opts.Provider = "authkit"

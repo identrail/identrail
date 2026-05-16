@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fixed hosted GitHub sign-in by requesting GitHub's verified-email OAuth scope through WorkOS, so GitHub users with private primary emails can complete the callback instead of failing during login.
 - Added the org-admin API for managing native SAML identity connections (behind `IDENTRAIL_FEATURE_NATIVE_SSO`, defaulted off):
   - `POST/GET/PUT/DELETE /v1/enterprise/identity-connections/saml(/:id)` covers the full connection lifecycle and is gated by org-admin RBAC via the existing route policy bundle
   - `POST /v1/enterprise/identity-connections/saml/from-metadata` accepts either a `metadata_url` (https only, 256 KiB cap, 10s timeout) or an inline `metadata_xml` body and auto-fills `entity_id`, `sso_url`, and `certificate_pem` from Okta- or Azure AD-shaped IdP metadata

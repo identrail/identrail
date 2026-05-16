@@ -107,7 +107,7 @@ When WorkOS sends a `user.deleted` webhook, we set the `users.status` to `deacti
 
 GitHub identities use `provider="github"` and `subject` set to the GitHub user ID (numeric, stable, never reused). Do not use the GitHub username as the subject; usernames can be renamed and reassigned.
 
-GitHub returns multiple emails. We use the user's primary email if `verified=true`. If no email is verified, we treat the identity as having no email and do not auto-fill any user fields.
+GitHub returns multiple emails. Hosted WorkOS GitHub OAuth requests GitHub's `user:email` scope so users whose primary email is private can still complete sign-in with a verified email. We use the user's primary email if `verified=true`. If no email is verified, we treat the identity as having no email and do not auto-fill any user fields.
 
 ### Google and Microsoft
 

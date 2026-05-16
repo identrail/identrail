@@ -24,6 +24,22 @@ func TestWorkOSSDKClientAuthorizationURL(t *testing.T) {
 	}
 }
 
+func TestWorkOSSDKClientAuthorizationURLIncludesProviderScopes(t *testing.T) {
+	client := NewWorkOSSDKClient("sk_test", "client_123")
+	got, err := client.AuthorizationURL(WorkOSAuthorizationRequest{
+		RedirectURI:    "https://app.example.com/auth/callback",
+		State:          "state-1",
+		Provider:       "GitHubOAuth",
+		ProviderScopes: []string{"user:email"},
+	})
+	if err != nil {
+		t.Fatalf("authorization url: %v", err)
+	}
+	if !strings.Contains(got, "provider=GitHubOAuth") || !strings.Contains(got, "provider_scopes=user%3Aemail") {
+		t.Fatalf("expected github email provider scope in authorization url: %s", got)
+	}
+}
+
 func TestWorkOSSDKClientAuthenticateWithCode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/user_management/authenticate" {

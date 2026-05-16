@@ -125,12 +125,13 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 
 func TestWorkOSStartRoutesConfiguredSocialProviders(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		provider string
-		want     string
+		name       string
+		provider   string
+		want       string
+		wantScopes string
 	}{
 		{name: "google", provider: "google_oauth", want: "GoogleOAuth"},
-		{name: "github", provider: "github_oauth", want: "GitHubOAuth"},
+		{name: "github", provider: "github_oauth", want: "GitHubOAuth", wantScopes: "user:email"},
 		{name: "authkit", provider: "authkit", want: "authkit"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,6 +157,9 @@ func TestWorkOSStartRoutesConfiguredSocialProviders(t *testing.T) {
 			}
 			if workOS.authorizationInput.Provider != tc.want {
 				t.Fatalf("expected provider %q, got %q", tc.want, workOS.authorizationInput.Provider)
+			}
+			if gotScopes := strings.Join(workOS.authorizationInput.ProviderScopes, ","); gotScopes != tc.wantScopes {
+				t.Fatalf("expected provider scopes %q, got %q", tc.wantScopes, gotScopes)
 			}
 		})
 	}
