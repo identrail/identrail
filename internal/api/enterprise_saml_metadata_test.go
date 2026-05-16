@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // withPermissiveHostGuard swaps out both SSRF guards for the duration of the
@@ -293,63 +295,99 @@ func TestFetchSAMLMetadataXML_BlocksDNSRebinding(t *testing.T) {
 }
 
 func TestFetchSAMLMetadataXML_FallsBackToSecondValidatedAddress(t *testing.T) {
-	// Stand up a real TLS server on 127.0.0.1 to serve as the "second" (working)
-	// address. The "first" address is a deliberately closed port on the same
-	// host that will refuse the connection. The resolver returns both, and
-	// the guarded dialer must walk past the first failure to succeed on the
-	// second — matching the fallback behavior of net.Dialer for hostnames.
+	// Stand up a real TLS server on 127.0.0.1 — this is the "live" candidate.
+	// The "dead" candidate is the documentation address 192.0.2.1. The test
+	// must not depend on real-network behavior, so the dial function is
+	// swapped to a deterministic fake that returns ECONNREFUSED for
+	// 192.0.2.1 and forwards every other address to the standard dialer
+	// (so the httptest connection still completes).
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/samlmetadata+xml")
 		_, _ = w.Write([]byte(oktaMetadataFixture))
 	}))
 	t.Cleanup(srv.Close)
 
-	// Reserve and close a port to guarantee dial refusal.
-	closed, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	deadHost, deadPort, _ := net.SplitHostPort(closed.Addr().String())
-	_ = closed.Close()
-
 	srvURL, _ := url.Parse(srv.URL)
-	_, livePort, _ := net.SplitHostPort(srvURL.Host)
-	if deadPort == livePort {
-		t.Skip("OS reassigned the closed port to the live server; race avoided by skipping")
-	}
+	deadIP := net.ParseIP("192.0.2.1")
+	liveIP := net.ParseIP(srvURL.Hostname())
 
-	// Make idp.example.com resolve to the dead address first, then the live
-	// one. Both are loopback, so the test also swaps the IP guard to permit
-	// loopback only.
 	prevResolver := metadataResolver
 	t.Cleanup(func() { metadataResolver = prevResolver })
 	metadataResolver = func(_ context.Context, host string) ([]net.IP, error) {
 		if host == "idp.example.com" {
-			return []net.IP{net.ParseIP(deadHost), net.ParseIP(srvURL.Hostname())}, nil
+			return []net.IP{deadIP, liveIP}, nil
 		}
 		return nil, &net.DNSError{Err: "not found", Name: host, IsNotFound: true}
 	}
+
 	withPermissiveHostGuard(t)
+	// Permit just the loopback and dead-IP candidates past the guard so the
+	// strict path stays intact for everything else.
 	prevIP := internalIPGuard
 	internalIPGuard = func(ip net.IP, host string) error {
-		if ip.IsLoopback() {
+		if ip.IsLoopback() || ip.Equal(deadIP) {
 			return nil
 		}
 		return rejectInternalIP(ip, host)
 	}
 	t.Cleanup(func() { internalIPGuard = prevIP })
 
-	// Build a client that uses the test server's TLS root and points the URL
-	// hostname at idp.example.com on the live port. The guarded dial picks
-	// up the resolver's two-address list, fails on the dead port, then
-	// succeeds on the live one.
-	caller := srv.Client()
-	body, err := FetchSAMLMetadataXML(context.Background(), caller, "https://idp.example.com:"+livePort+"/metadata")
+	// Swap the dialer so 192.0.2.1 returns an instant refusal and 127.0.0.1
+	// uses the real net.Dialer. Track per-candidate calls so the assertion
+	// proves the second address was actually tried.
+	prevDial := metadataDialContext
+	t.Cleanup(func() { metadataDialContext = prevDial })
+	var dialedDead, dialedLive int
+	realDialer := &net.Dialer{Timeout: 5 * time.Second}
+	metadataDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, _ := net.SplitHostPort(addr)
+		switch host {
+		case deadIP.String():
+			dialedDead++
+			return nil, fmt.Errorf("connection refused (synthetic)")
+		default:
+			dialedLive++
+			return realDialer.DialContext(ctx, network, addr)
+		}
+	}
+
+	body, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), "https://idp.example.com:"+srvURL.Port()+"/metadata")
 	if err != nil {
 		t.Fatalf("expected fallback to succeed, got: %v", err)
 	}
 	if !strings.Contains(string(body), "EntityDescriptor") {
 		t.Errorf("unexpected body: %q", string(body))
+	}
+	if dialedDead == 0 {
+		t.Error("dead address was never attempted — fallback test is ineffective")
+	}
+	if dialedLive == 0 {
+		t.Error("live address was never attempted — fallback did not fire")
+	}
+}
+
+func TestGuardedMetadataTransport_ClearsCallerCustomTLSDialHooks(t *testing.T) {
+	// Per net/http docs, when DialTLSContext or DialTLS is set on the
+	// underlying transport, the standard library skips DialContext entirely
+	// for HTTPS requests — which would let an attacker-controlled DNS slip
+	// past our guard for non-proxied HTTPS. The wrapper must null those
+	// hooks so every dial goes through our guarded DialContext.
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.DialTLSContext = func(context.Context, string, string) (net.Conn, error) {
+		t.Fatalf("guarded transport must clear DialTLSContext")
+		return nil, nil
+	}
+	base.DialTLS = func(string, string) (net.Conn, error) {
+		t.Fatalf("guarded transport must clear DialTLS")
+		return nil, nil
+	}
+	wrapped := guardedMetadataTransport(base)
+	innerTransport := wrapped.(*metadataProxyAwareTransport).base
+	if innerTransport.DialTLSContext != nil {
+		t.Errorf("DialTLSContext was not cleared by guardedMetadataTransport")
+	}
+	if innerTransport.DialTLS != nil {
+		t.Errorf("DialTLS was not cleared by guardedMetadataTransport")
 	}
 }
 

@@ -262,12 +262,19 @@ func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
 	if transport.Proxy == nil {
 		transport.Proxy = http.ProxyFromEnvironment
 	}
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	// Clear any caller-supplied custom TLS dial hooks. Per the net/http docs,
+	// when DialTLSContext or DialTLS is set, the standard library skips the
+	// DialContext hook entirely — which would let an HTTPS request bypass
+	// our guarded dialer and reopen the DNS-rebinding gap this guard exists
+	// to close. The transport falls back to DialContext + TLSClientConfig,
+	// which is what we want.
+	transport.DialTLSContext = nil
+	transport.DialTLS = nil
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// Proxy-bound dial: addr is the operator-configured proxy host:port.
 		// Skip the IP guard so internal egress proxies stay reachable.
 		if proxyAddr, ok := ctx.Value(metadataProxyAddrKey{}).(string); ok && proxyAddr != "" && addr == proxyAddr {
-			return dialer.DialContext(ctx, network, addr)
+			return metadataDialContext(ctx, network, addr)
 		}
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
@@ -293,7 +300,7 @@ func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
 		// URL's hostname so server identity is enforced normally.
 		var lastErr error
 		for _, ip := range ips {
-			conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			conn, dialErr := metadataDialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 			if dialErr == nil {
 				return conn, nil
 			}
@@ -374,6 +381,12 @@ var metadataHostGuard = assertMetadataHostIsExternal
 // guard and the dial-time guard. Tests swap to a no-op so a httptest TLS
 // server bound on 127.0.0.1 is reachable.
 var internalIPGuard = rejectInternalIP
+
+// metadataDialContext is the dialer used by guardedMetadataTransport. It is
+// a package-level variable so tests can swap in a deterministic fake to
+// exercise the per-candidate fallback behavior without depending on
+// network-level race conditions.
+var metadataDialContext = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 
 // assertMetadataHostIsExternal refuses to fetch from a host that resolves to
 // any address Identrail considers internal: loopback, link-local, multicast,
