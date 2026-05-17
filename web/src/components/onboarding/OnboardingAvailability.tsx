@@ -7,6 +7,12 @@ import { isFeatureAvailable, useBackendFeatures } from '../../hooks/useBackendFe
 // route as missing. Returns undefined while backend availability is loading.
 export function useOnboardingAvailable(): boolean | undefined {
   const { features, loading } = useBackendFeatures();
+  if (!FEATURE_ONBOARDING_WIZARD) {
+    // The bundle does not ship the wizard, so onboarding can never be shown
+    // regardless of the API. Decide immediately instead of stranding a direct
+    // /onboarding/* visit on a loading panel while auth/config settles.
+    return false;
+  }
   if (loading) {
     return undefined;
   }
