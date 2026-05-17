@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Redesigned the product page as a full-bleed Vercel-style surface with a dark hero, spread-out trust graph connections, alternating neutral sections, and no centered container around the main product story.
 - Redesigned the read-only scan intake page with a full-width black Vercel-style hero, sharper SpaceX-inspired headline typography, and high-contrast intake controls with no blurred or gradient details.
 - Extended the production API preflight (`make production-api-preflight`) to probe
   `POST /v1/onboarding/start` so the frontend onboarding wizard cannot be wired

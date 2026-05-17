@@ -610,13 +610,13 @@ function ProductHeroVisual() {
             <span>Fixes</span>
           </div>
           <div className="idt-product-hero-graph">
-            <svg viewBox="0 0 440 290" aria-hidden="true" focusable="false">
-              <path className="is-muted" d="M142 76 C208 64 248 124 308 116 S384 94 404 122" />
-              <path className="is-risk" d="M146 122 C214 142 255 172 284 212 S352 248 404 234" />
-              <path className="is-safe" d="M193 205 C222 190 248 180 286 178" />
-              <circle className="idt-graph-node is-risk" cx="146" cy="122" r="5" />
-              <circle className="idt-graph-node is-risk" cx="286" cy="178" r="5" />
-              <circle className="idt-graph-node is-risk" cx="404" cy="234" r="5" />
+            <svg viewBox="0 0 720 420" aria-hidden="true" focusable="false">
+              <path className="is-muted" d="M118 118 C236 82 316 154 430 132 S600 92 658 166" />
+              <path className="is-risk" d="M310 236 C400 236 450 296 520 330 S620 358 675 318" />
+              <path className="is-safe" d="M196 330 C274 286 354 264 452 258" />
+              <circle className="idt-graph-node is-risk" cx="118" cy="118" r="6" />
+              <circle className="idt-graph-node is-risk" cx="452" cy="258" r="6" />
+              <circle className="idt-graph-node is-risk" cx="675" cy="318" r="6" />
             </svg>
             <div className="idt-graph-pill is-github">
               <strong>GitHub OIDC</strong>
@@ -2075,28 +2075,35 @@ function ProductPage() {
   });
 
   return (
-    <>
-      <PageHero
-        eyebrow="Product"
-        title="One platform for machine identity visibility, detection, and control"
-        body="Identrail unifies IAM graph discovery, repository exposure scanning, and rollout-safe authorization workflows into one operator-grade platform."
-        variant="product"
-        visual={<ProductHeroVisual />}
-        actions={
-          <>
+    <main className="idt-product-page">
+      <section className="idt-product-hero-full">
+        <div className="idt-product-hero-copy">
+          <p className="idt-eyebrow">Product</p>
+          <h1>Machine identity risk, mapped end to end</h1>
+          <p>
+            Identrail unifies IAM graph discovery, repository exposure scanning, and rollout-safe authorization
+            workflows into one operator-grade platform.
+          </p>
+          <div className="idt-inline-actions">
             <Link to="/demo" className="idt-btn idt-btn-primary">
               Explore Product Demo
             </Link>
             <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
               Start Free Risk Scan
             </Link>
-          </>
-        }
-      />
+          </div>
+        </div>
+        <ProductHeroVisual />
+      </section>
 
-      <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col idt-product-capabilities">
-          <article className="idt-card">
+      <section className="idt-product-capability-band" aria-labelledby="product-capabilities-title">
+        <div className="idt-product-section-heading">
+          <p className="idt-eyebrow">Platform map</p>
+          <h2 id="product-capabilities-title">Four connected surfaces, spread across one workflow.</h2>
+        </div>
+        <div className="idt-product-capability-grid">
+          <article>
+            <span>01</span>
             <h2>Trust Graph Explorer</h2>
             <p>Interactive mapping of principals, assumptions, actions, and reachable resources across cloud and Kubernetes.</p>
             <ul>
@@ -2105,7 +2112,8 @@ function ProductPage() {
               <li>Compare current and proposed policy states</li>
             </ul>
           </article>
-          <article className="idt-card">
+          <article>
+            <span>02</span>
             <h2>Detection and Triage Engine</h2>
             <p>High-signal detections for overprivileged paths, stale credentials, and risky identity chains.</p>
             <ul>
@@ -2114,7 +2122,8 @@ function ProductPage() {
               <li>Ticket and workflow integrations</li>
             </ul>
           </article>
-          <article className="idt-card">
+          <article>
+            <span>03</span>
             <h2>Repo Exposure Scanner</h2>
             <p>Continuously scan source repositories and CI artifacts for leaked credentials and unsafe patterns.</p>
             <ul>
@@ -2123,7 +2132,8 @@ function ProductPage() {
               <li>Correlates secret leaks to trust paths</li>
             </ul>
           </article>
-          <article className="idt-card">
+          <article>
+            <span>04</span>
             <h2>Rollout-Safe Authorization Controls</h2>
             <p>Enforce least privilege with policy simulation, staged rollout, and fast rollback safety rails.</p>
             <ul>
@@ -2135,23 +2145,53 @@ function ProductPage() {
         </div>
       </section>
 
-      <section className="idt-section idt-shell">
-        <SectionTitle
-          eyebrow="Hero Feature"
-          title="The Trust Graph: your control plane for machine identity risk"
-          body="Investigate every risky path from source identity to sensitive resource with explainable graph evidence."
-        />
-        <TrustGraphDemo />
+      <section className="idt-product-graph-band">
+        <div className="idt-product-section-heading">
+          <p className="idt-eyebrow">Hero feature</p>
+          <h2>The Trust Graph is the control plane for machine identity risk.</h2>
+          <p>
+            Investigate every risky path from source identity to sensitive resource with explainable graph evidence and
+            owner-ready remediation.
+          </p>
+        </div>
+        <TrustGraphDemo variant="full" />
       </section>
 
-      <section className="idt-section idt-shell">
-        <LeadCaptureForm
-          title="Want a technical walkthrough?"
-          caption="Book a product session with platform architects and security engineers."
-          ctaLabel="Book Demo"
-        />
+      <section className="idt-product-workflow-band" aria-labelledby="product-workflow-title">
+        <div className="idt-product-section-heading">
+          <p className="idt-eyebrow">Workflow</p>
+          <h2 id="product-workflow-title">From discovery to fix without collapsing the context.</h2>
+        </div>
+        <div className="idt-product-workflow-grid">
+          <article>
+            <span>Discover</span>
+            <strong>Map the reachable identity graph across repositories, cloud roles, and Kubernetes workloads.</strong>
+          </article>
+          <article>
+            <span>Prioritize</span>
+            <strong>Separate noisy permissions from the paths that can actually reach sensitive resources.</strong>
+          </article>
+          <article>
+            <span>Control</span>
+            <strong>Ship least-privilege fixes with simulation, audit history, and rollback-ready guardrails.</strong>
+          </article>
+        </div>
+        <div className="idt-product-cta-row">
+          <div>
+            <p className="idt-eyebrow">Technical walkthrough</p>
+            <h2>Bring one risky path. Leave with the evidence and rollout plan.</h2>
+          </div>
+          <div className="idt-inline-actions">
+            <Link to="/demo" className="idt-btn idt-btn-primary">
+              Book Demo
+            </Link>
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              Review Docs
+            </Link>
+          </div>
+        </div>
       </section>
-    </>
+    </main>
   );
 }
 
