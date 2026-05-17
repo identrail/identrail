@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -103,6 +104,16 @@ func authorizedReportWorkspaceIDs(ctx context.Context, svc *Service, userUUID st
 	return ordered, nil
 }
 
+// executiveReportCacheKey derives a cache key from the tenant and the exact
+// set of workspaces the report was built from. Sorting makes the key stable
+// regardless of resolution order, and including the set guarantees a caller
+// can only read a cached report built from the same authorized scope.
+func executiveReportCacheKey(tenantID string, workspaceIDs []string) string {
+	sorted := append([]string(nil), workspaceIDs...)
+	sort.Strings(sorted)
+	return tenantID + "\x00" + strings.Join(sorted, "\x1f")
+}
+
 func registerExecutiveReportRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service) {
 	if svc == nil {
 		return
@@ -129,29 +140,32 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 		}
 		now := clock()
 
-		// The report is organization-wide. The request scope's tenant id is the
-		// organization (session sets tenant_id from CurrentOrgID), so the cache
-		// is keyed by tenant: every workspace in the org shares one org-wide
-		// snapshot and cannot see a partial, workspace-scoped one.
 		reqCtx := c.Request.Context()
 		scope := db.ScopeFromContext(reqCtx)
-		cacheKey := scope.TenantID
-
-		if report, ok := cache.get(cacheKey, now); ok {
-			c.JSON(http.StatusOK, report)
-			return
-		}
 
 		// An executive report covers the organization, but findings are stored
 		// per workspace. Aggregate across the workspaces the caller is actually
 		// a member of — never every workspace in the tenant — so the report
 		// cannot expose findings from workspaces the user is not authorized for.
+		// This is resolved before the cache lookup because the report content
+		// depends on the authorized set, so it must be part of the cache key.
 		workspaceIDs, err := authorizedReportWorkspaceIDs(reqCtx, svc, strings.TrimSpace(current.Session.UserID), scope)
 		if err != nil {
 			if logger != nil {
 				logger.Error("resolve authorized workspaces for executive report", telemetry.ZapError(err))
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+			return
+		}
+
+		// Key the cache by tenant + the exact authorized workspace set. Two
+		// callers with the same membership set legitimately share one report;
+		// a narrower-access caller can never receive a broader caller's cached
+		// data, because their key differs.
+		cacheKey := executiveReportCacheKey(scope.TenantID, workspaceIDs)
+
+		if report, ok := cache.get(cacheKey, now); ok {
+			c.JSON(http.StatusOK, report)
 			return
 		}
 

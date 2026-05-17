@@ -275,21 +275,27 @@ func seedExecReportWorkspace(t *testing.T, store db.Store, tenant, ws string) {
 	}
 }
 
-// seedExecReportMembership grants the test user an active membership in one
-// workspace so the org report is authorized to aggregate it.
-func seedExecReportMembership(t *testing.T, store db.Store, tenant, ws string) {
+// seedExecReportMembershipFor grants one user an active membership in a
+// workspace so the org report is authorized to aggregate it for that user.
+func seedExecReportMembershipFor(t *testing.T, store db.Store, tenant, ws, userUUID string) {
 	t.Helper()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: tenant, WorkspaceID: ws})
 	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
 		WorkspaceID: ws,
-		MemberID:    "member-" + ws,
-		UserID:      execReportTestUser,
-		UserUUID:    execReportTestUser,
+		MemberID:    "member-" + ws + "-" + userUUID,
+		UserID:      userUUID,
+		UserUUID:    userUUID,
 		Role:        "viewer",
 		Status:      "active",
 	}); err != nil {
-		t.Fatalf("seed membership %s/%s: %v", tenant, ws, err)
+		t.Fatalf("seed membership %s/%s for %s: %v", tenant, ws, userUUID, err)
 	}
+}
+
+// seedExecReportMembership grants the default test user an active membership.
+func seedExecReportMembership(t *testing.T, store db.Store, tenant, ws string) {
+	t.Helper()
+	seedExecReportMembershipFor(t, store, tenant, ws, execReportTestUser)
 }
 
 func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
@@ -361,5 +367,67 @@ func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	}
 	if freshRep.TotalOpenFindings != 3 {
 		t.Fatalf("after TTL the org-wide report must rebuild; want 3, got %d", freshRep.TotalOpenFindings)
+	}
+}
+
+func TestExecutiveReport_CacheKeyIsolatesByAuthorizedWorkspaceSet(t *testing.T) {
+	now := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
+	clock := now
+	store := db.NewMemoryStore()
+
+	const org = "org-shared"
+	const userBroad = "11111111-1111-1111-1111-111111111111"
+	const userNarrow = "22222222-2222-2222-2222-222222222222"
+	seedExecReportWorkspace(t, store, org, "ws-1")
+	seedExecReportWorkspace(t, store, org, "ws-2")
+	// Broad user belongs to ws-1 + ws-2; narrow user only ws-1.
+	seedExecReportMembershipFor(t, store, org, "ws-1", userBroad)
+	seedExecReportMembershipFor(t, store, org, "ws-2", userBroad)
+	seedExecReportMembershipFor(t, store, org, "ws-1", userNarrow)
+
+	ws1Scope := db.Scope{TenantID: org, WorkspaceID: "ws-1"}
+	ws2Scope := db.Scope{TenantID: org, WorkspaceID: "ws-2"}
+	scan1 := seedExecReportScan(t, store, ws1Scope, now.Add(-2*24*time.Hour))
+	seedExecReportFinding(t, store, ws1Scope, scan1, "f1", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-1*24*time.Hour), nil)
+	scan2 := seedExecReportScan(t, store, ws2Scope, now.Add(-2*24*time.Hour))
+	seedExecReportFinding(t, store, ws2Scope, scan2, "f2", domain.SeverityCritical, domain.FindingEscalationPath, now.Add(-1*24*time.Hour), nil)
+
+	// One shared Service => one shared cache. The active workspace (and thus
+	// request scope) is ws-1 for both users; only the session user differs.
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.Now = func() time.Time { return clock }
+	sessionUser := userBroad
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(db.WithScope(c.Request.Context(), ws1Scope))
+		c.Set("auth.session", sessionauth.CurrentSession{
+			Session: db.Session{UserID: sessionUser, CurrentOrgID: org, CurrentWorkspaceID: "ws-1"},
+		})
+	})
+	v1 := r.Group("/v1")
+	registerExecutiveReportRoutes(v1, nil, svc)
+
+	// Broad user primes the cache (sees ws-1 + ws-2 => 2 open).
+	sessionUser = userBroad
+	wBroad := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	var repBroad enterprise.ExecutiveReport
+	if err := json.Unmarshal(wBroad.Body.Bytes(), &repBroad); err != nil {
+		t.Fatalf("decode broad: %v", err)
+	}
+	if repBroad.TotalOpenFindings != 2 {
+		t.Fatalf("broad user must see ws-1+ws-2; want 2, got %d", repBroad.TotalOpenFindings)
+	}
+
+	// Narrow user calls within the TTL: must NOT receive the broad cached
+	// report; only ws-1 (1 open). This is the cache-key authorization boundary.
+	sessionUser = userNarrow
+	clock = now.Add(10 * time.Second)
+	wNarrow := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	var repNarrow enterprise.ExecutiveReport
+	if err := json.Unmarshal(wNarrow.Body.Bytes(), &repNarrow); err != nil {
+		t.Fatalf("decode narrow: %v", err)
+	}
+	if repNarrow.TotalOpenFindings != 1 {
+		t.Fatalf("narrow user must not receive broad user's cached report; want 1, got %d", repNarrow.TotalOpenFindings)
 	}
 }
