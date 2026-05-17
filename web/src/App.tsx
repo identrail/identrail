@@ -26,6 +26,7 @@ import { FEATURE_ONBOARDING_WIZARD } from './pages/onboarding/onboardingUtils';
 import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
+  ProductExecutiveReportPage,
   ProductFindingsPage,
   ProductGitHubCallbackPage,
   ProductLoginPage,
@@ -3546,7 +3547,7 @@ function NotFoundPage() {
 export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
-  const isProductShellRoute = location.pathname.startsWith('/app');
+  const isProductShellRoute = location.pathname.startsWith('/app') || location.pathname.startsWith('/reports');
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
@@ -3591,6 +3592,14 @@ export function RoutedSite() {
             }
           />
           <Route path="/app/logout" element={<ProductLogoutPage />} />
+          <Route
+            path="/reports/executive"
+            element={
+              <RequireProductAuth>
+                <ProductExecutiveReportPage />
+              </RequireProductAuth>
+            }
+          />
           <Route
             path="/onboarding/org"
             element={

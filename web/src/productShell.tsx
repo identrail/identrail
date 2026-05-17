@@ -8,6 +8,7 @@ import {
   type AWSConnectionStatus,
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
+  type ExecutiveReport,
   type Finding as ApiFinding,
   type FindingLifecycleStatus,
   type GitHubConnectorStartResponse,
@@ -148,6 +149,7 @@ const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
+const EXECUTIVE_REPORT_SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
 const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], string> = {
   severity: 'Risk (high → low)',
@@ -208,6 +210,41 @@ function formatDateLabel(value: string): string {
     return value;
   }
   return parsed.toLocaleString();
+}
+
+function formatShortDateLabel(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function formatExecutiveDuration(seconds: number | undefined): string {
+  if (!Number.isFinite(seconds ?? NaN)) {
+    return 'N/A';
+  }
+  const totalSeconds = Math.max(0, Math.round(seconds ?? 0));
+  if (totalSeconds < 3600) {
+    if (totalSeconds === 0) {
+      return '0m';
+    }
+    return `${Math.max(1, Math.round(totalSeconds / 60))}m`;
+  }
+  if (totalSeconds >= 86400) {
+    const days = Math.round(totalSeconds / 86400);
+    return `${days}d`;
+  }
+  const hours = Math.round(totalSeconds / 3600);
+  return `${hours}h`;
+}
+
+function countHighPriorityExecutiveFindings(report: ExecutiveReport): number {
+  return (report.open_by_severity.critical ?? 0) + (report.open_by_severity.high ?? 0);
 }
 
 function toLocalDateTimeInputValue(value: string): string {
@@ -843,6 +880,7 @@ export function ProductShellLayout() {
           <NavLink to={`${basePath}/workspaces`}>Workspaces</NavLink>
           <NavLink to={`${basePath}/projects`}>Projects</NavLink>
           <NavLink to={`${basePath}/findings`}>Findings</NavLink>
+          <NavLink to="/reports/executive">Executive report</NavLink>
           <NavLink to={`${basePath}/settings`}>Settings</NavLink>
           <NavLink to="/app/account/security">Security</NavLink>
         </nav>
@@ -1188,6 +1226,251 @@ export function ProductOverviewPage() {
         </aside>
       ) : null}
     </>
+  );
+}
+
+export function ProductExecutiveReportPage() {
+  const { me, loading: sessionLoading, error: sessionError, unauthenticated } = useMe();
+  const [report, setReport] = useState<ExecutiveReport | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [reportError, setReportError] = useState('');
+
+  useEffect(() => {
+    if (!me?.org_id || !me.workspace_id) {
+      return;
+    }
+
+    let mounted = true;
+    const loadReport = async () => {
+      setLoadingReport(true);
+      setReportError('');
+      try {
+        const response = await apiClient.getExecutiveReport({
+          tenantID: me.org_id,
+          workspaceID: me.workspace_id
+        });
+        if (mounted) {
+          setReport(response);
+        }
+      } catch (requestError) {
+        if (!mounted) {
+          return;
+        }
+        if (requestError instanceof ApiError && requestError.status === 403) {
+          setReportError('You do not have access to the executive report for this organization.');
+          return;
+        }
+        const message = requestError instanceof Error ? requestError.message : 'Unable to load executive report.';
+        setReportError(message);
+      } finally {
+        if (mounted) {
+          setLoadingReport(false);
+        }
+      }
+    };
+
+    void loadReport();
+
+    return () => {
+      mounted = false;
+    };
+  }, [me?.org_id, me?.workspace_id]);
+
+  if (sessionLoading || loadingReport) {
+    return <AppShellLoading message="Loading executive report" />;
+  }
+
+  if (unauthenticated) {
+    return <Navigate to="/signin?return_to=%2Freports%2Fexecutive" replace />;
+  }
+
+  if (sessionError || reportError) {
+    return (
+      <section className="idt-app-shell-screen idt-executive-report-shell" role="alert">
+        <article className="idt-app-panel idt-app-panel-error">
+          <p className="idt-app-kicker">Executive report</p>
+          <h1>Unable to load executive report</h1>
+          <p>{sessionError || reportError}</p>
+          <Link className="idt-btn idt-btn-ghost" to="/app">
+            Return to app
+          </Link>
+        </article>
+      </section>
+    );
+  }
+
+  if (!me?.org_id || !me.workspace_id) {
+    return (
+      <section className="idt-app-shell-screen idt-executive-report-shell">
+        <article className="idt-app-panel">
+          <p className="idt-app-kicker">Executive report</p>
+          <h1>Organization context required</h1>
+          <p>Your account needs an active organization and workspace before the executive report can be rendered.</p>
+        </article>
+      </section>
+    );
+  }
+
+  if (!report) {
+    return <AppShellLoading message="Preparing executive report" />;
+  }
+
+  const highPriorityFindings = countHighPriorityExecutiveFindings(report);
+  const weekDelta = report.week_over_week.delta;
+  const topFindingTypes = report.top_finding_types ?? [];
+  const severityRows = EXECUTIVE_REPORT_SEVERITY_ORDER.map((severity) => ({
+    severity,
+    count: report.open_by_severity[severity] ?? 0
+  }));
+  const maxSeverityCount = Math.max(1, ...severityRows.map((row) => row.count));
+  const maxTypeCount = Math.max(1, ...topFindingTypes.map((item) => item.count));
+  const appPath = buildCurrentUserAppPath(me);
+
+  return (
+    <section className="idt-app-shell-screen idt-executive-report-shell">
+      <article className="idt-app-panel idt-executive-report-page">
+        <header className="idt-executive-report-header">
+          <div>
+            <p className="idt-app-kicker">Executive report</p>
+            <h1>Board-ready risk posture</h1>
+            <p>
+              Organization <strong>{report.organization_id}</strong> · {formatShortDateLabel(report.window_start)} to{' '}
+              {formatShortDateLabel(report.window_end)} · Generated {formatDateLabel(report.generated_at)}
+            </p>
+          </div>
+          <div className="idt-executive-report-actions">
+            <Link className="idt-btn idt-btn-ghost" to={appPath}>
+              Workspace
+            </Link>
+            <button className="idt-btn idt-btn-primary" type="button" onClick={() => window.print()}>
+              Print report
+            </button>
+          </div>
+        </header>
+
+        <div className="idt-executive-report-metrics" aria-label="Executive report summary">
+          <article>
+            <span>Open findings</span>
+            <strong>{report.total_open_findings}</strong>
+            <p>{highPriorityFindings} critical or high priority</p>
+          </article>
+          <article>
+            <span>Week trend</span>
+            <strong>{weekDelta > 0 ? `+${weekDelta}` : weekDelta}</strong>
+            <p>
+              {report.week_over_week.current_count} current · {report.week_over_week.previous_count} previous
+            </p>
+          </article>
+          <article>
+            <span>Mean time to resolve</span>
+            <strong>{formatExecutiveDuration(report.mean_time_to_resolve?.seconds)}</strong>
+            <p>
+              {report.mean_time_to_resolve
+                ? `${report.mean_time_to_resolve.resolved_count} resolved findings`
+                : 'No reliable resolved sample yet'}
+            </p>
+          </article>
+          <article>
+            <span>Top risk type</span>
+            <strong>{topFindingTypes[0] ? formatTokenLabel(topFindingTypes[0].type) : 'None'}</strong>
+            <p>{topFindingTypes[0] ? `${topFindingTypes[0].count} open findings` : 'No open findings in scope'}</p>
+          </article>
+        </div>
+
+        {report.total_open_findings === 0 ? (
+          <AppShellEmptyState
+            title="No open findings in this report window"
+            body="The current organization report has no open findings to prioritize."
+          />
+        ) : (
+          <div className="idt-executive-report-grid">
+            <section className="idt-executive-report-section">
+              <div className="idt-executive-report-section-header">
+                <div>
+                  <p className="idt-app-kicker">Current posture</p>
+                  <h2>Open findings by severity</h2>
+                </div>
+                <span className="idt-executive-report-scope">Authorized workspaces</span>
+              </div>
+              <div className="idt-executive-severity-list">
+                {severityRows.map((row) => (
+                  <article key={row.severity}>
+                    <div>
+                      <strong>{formatTokenLabel(row.severity)}</strong>
+                      <span>{row.count}</span>
+                    </div>
+                    <div className="idt-executive-bar" aria-hidden="true">
+                      <span style={{ width: `${Math.round((row.count / maxSeverityCount) * 100)}%` }} />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="idt-executive-report-section">
+              <div className="idt-executive-report-section-header">
+                <div>
+                  <p className="idt-app-kicker">Prioritized themes</p>
+                  <h2>Top finding types</h2>
+                </div>
+              </div>
+              {topFindingTypes.length > 0 ? (
+                <div className="idt-executive-type-list">
+                  {topFindingTypes.map((item) => (
+                    <article key={item.type}>
+                      <div>
+                        <strong>{formatTokenLabel(item.type)}</strong>
+                        <span>{item.count}</span>
+                      </div>
+                      <div className="idt-executive-bar" aria-hidden="true">
+                        <span style={{ width: `${Math.round((item.count / maxTypeCount) * 100)}%` }} />
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <AppShellEmptyState
+                  title="No dominant finding types"
+                  body="Finding type priorities will appear after open findings are present."
+                />
+              )}
+            </section>
+
+            <section className="idt-executive-report-section idt-executive-report-wide">
+              <div className="idt-executive-report-section-header">
+                <div>
+                  <p className="idt-app-kicker">Leadership interpretation</p>
+                  <h2>Trend and response signal</h2>
+                </div>
+              </div>
+              <div className="idt-executive-narrative">
+                <article>
+                  <strong>
+                    {weekDelta > 0
+                      ? 'Risk creation increased'
+                      : weekDelta < 0
+                        ? 'Risk creation decreased'
+                        : 'Risk creation is flat'}
+                  </strong>
+                  <p>
+                    The current seven-day window has {report.week_over_week.current_count} new findings versus{' '}
+                    {report.week_over_week.previous_count} in the prior window.
+                  </p>
+                </article>
+                <article>
+                  <strong>{report.mean_time_to_resolve ? 'Resolution sample is available' : 'Resolution sample is not available'}</strong>
+                  <p>
+                    {report.mean_time_to_resolve
+                      ? `Mean time to resolve is ${formatExecutiveDuration(report.mean_time_to_resolve.seconds)} across ${report.mean_time_to_resolve.resolved_count} findings with trustworthy resolved timestamps.`
+                      : 'MTTR is intentionally omitted until resolved findings carry trustworthy resolved timestamps.'}
+                  </p>
+                </article>
+              </div>
+            </section>
+          </div>
+        )}
+      </article>
+    </section>
   );
 }
 

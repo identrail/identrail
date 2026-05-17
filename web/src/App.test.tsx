@@ -1532,4 +1532,52 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/app/logout');
     expect(screen.queryByText(/Signed out successfully/i)).not.toBeInTheDocument();
   });
+
+  it('renders the printable executive report from the API response', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'viewer'));
+      }
+      if (url.endsWith('/v1/enterprise/reports/executive')) {
+        return okJSON({
+          organization_id: 'tenant-a',
+          generated_at: '2026-05-17T12:00:00Z',
+          window_start: '2026-05-10T12:00:00Z',
+          window_end: '2026-05-17T12:00:00Z',
+          total_open_findings: 7,
+          open_by_severity: { critical: 2, high: 3, medium: 1, low: 1 },
+          open_by_type: { secret_exposure: 4, repo_misconfiguration: 3 },
+          top_finding_types: [
+            { type: 'secret_exposure', count: 4 },
+            { type: 'repo_misconfiguration', count: 3 }
+          ],
+          week_over_week: { current_count: 5, previous_count: 2, delta: 3 },
+          mean_time_to_resolve: { resolved_count: 2, seconds: 1800 }
+        });
+      }
+      return errorJSON(404, `unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/reports/executive');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Board-ready risk posture/i })).toBeInTheDocument();
+    expect(screen.getByText('tenant-a')).toBeInTheDocument();
+    expect(screen.getByText('7')).toBeInTheDocument();
+    expect(screen.getByText('5 critical or high priority')).toBeInTheDocument();
+    expect(screen.getAllByText('30m').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Secret Exposure').length).toBeGreaterThan(0);
+    expect(screen.getByText('Authorized workspaces')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Review findings/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Print report/i })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/v1/enterprise/reports/executive',
+      expect.objectContaining({
+        credentials: 'include',
+        headers: expect.any(Headers)
+      })
+    );
+  });
 });

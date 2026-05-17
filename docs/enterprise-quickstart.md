@@ -42,6 +42,7 @@ Use the exact keys configured in `deploy/docker/.env`:
 
 ```bash
 export IDENTRAIL_API_URL="http://localhost:8080"
+export IDENTRAIL_WEB_URL="http://localhost:8081"
 export IDENTRAIL_TENANT_ID="tenant-a"
 export IDENTRAIL_WORKSPACE_ID="workspace-a"
 export IDENTRAIL_READER_KEY="<reader-key-from-.env>"
@@ -254,6 +255,15 @@ Confirm:
 Fetch the leadership rollup for the current organization. The response is
 JSON only — there is no server-side PDF; use the printable web report page
 and your browser's Save as PDF for a board-ready document.
+
+Open the web route after signing in:
+```text
+${IDENTRAIL_WEB_URL}/reports/executive
+```
+
+Use the browser print dialog (`Cmd+P` on macOS or `Ctrl+P` on Windows/Linux)
+and choose Save as PDF. The print stylesheet removes navigation and action
+chrome so the exported document contains only the executive report.
 
 ```bash
 curl -fsS "${IDENTRAIL_API_URL}/v1/enterprise/reports/executive" \

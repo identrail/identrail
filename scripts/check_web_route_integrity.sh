@@ -20,6 +20,7 @@ function parseAppRoutes(src) {
     '/onboarding/org',
     '/onboarding/scan',
     '/onboarding/workspace',
+    '/reports/executive',
   ]);
 
   // Identify routes that exist purely to 301-redirect a legacy URL

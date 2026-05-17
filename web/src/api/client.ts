@@ -58,6 +58,26 @@ export type TrendPoint = {
   by_severity: Record<string, number>;
 };
 
+export type ExecutiveReport = {
+  organization_id: string;
+  generated_at: string;
+  window_start: string;
+  window_end: string;
+  total_open_findings: number;
+  open_by_severity: Record<string, number>;
+  open_by_type: Record<string, number>;
+  top_finding_types?: Array<{ type: string; count: number }> | null;
+  week_over_week: {
+    current_count: number;
+    previous_count: number;
+    delta: number;
+  };
+  mean_time_to_resolve?: {
+    resolved_count: number;
+    seconds: number;
+  } | null;
+};
+
 export type ScanDiff = {
   scan_id: string;
   previous_scan_id?: string;
@@ -1038,6 +1058,9 @@ export const apiClient = {
     auth?: RequestAuthContext
   ) {
     return request<{ items: TrendPoint[] }>(`/v1/repo-findings/trends${buildQuery(filters)}`, auth);
+  },
+  getExecutiveReport(auth?: RequestAuthContext) {
+    return request<ExecutiveReport>('/v1/enterprise/reports/executive', auth);
   },
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
