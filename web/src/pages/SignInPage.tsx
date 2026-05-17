@@ -10,16 +10,140 @@ type AuthChoicePageProps = {
 
 type HostedProvider = {
   id: string;
-  label: string;
   icon: 'google' | 'github' | 'sso';
-  signUpTone?: 'dark';
 };
 
 const HOSTED_PROVIDERS: HostedProvider[] = [
-  { id: 'google_oauth', label: 'Continue with Google', icon: 'google' },
-  { id: 'github_oauth', label: 'Continue with GitHub', icon: 'github', signUpTone: 'dark' },
-  { id: 'authkit', label: 'Continue with SAML SSO', icon: 'sso' }
+  { id: 'google_oauth', icon: 'google' },
+  { id: 'github_oauth', icon: 'github' },
+  { id: 'authkit', icon: 'sso' }
 ];
+
+const LANGUAGE_OPTIONS = [
+  { value: 'en', label: 'US', name: 'English' },
+  { value: 'fr', label: 'FR', name: 'Francais' },
+  { value: 'es', label: 'ES', name: 'Espanol' }
+] as const;
+
+type AuthLocale = (typeof LANGUAGE_OPTIONS)[number]['value'];
+
+type AuthCopy = {
+  title: string;
+  subtitle: string;
+  providerLabels: Record<HostedProvider['icon'], string>;
+  trouble: string;
+  createAccount: string;
+  signIn: string;
+  divider: string;
+  terms: string;
+  privacy: string;
+  contact: string;
+};
+
+const AUTH_COPY: Record<AuthLocale, Record<AuthIntent, AuthCopy>> = {
+  en: {
+    login: {
+      title: 'Log in to Identrail',
+      subtitle: 'Use a trusted identity provider to continue to your machine identity workspace.',
+      providerLabels: {
+        google: 'Continue with Google',
+        github: 'Continue with GitHub',
+        sso: 'Continue with SAML SSO'
+      },
+      trouble: 'Trouble signing in?',
+      createAccount: 'Create Account',
+      signIn: 'Sign In',
+      divider: 'Or',
+      terms: 'Terms of Use',
+      privacy: 'Privacy Policy',
+      contact: 'Contact'
+    },
+    signup: {
+      title: 'Create your Identrail account',
+      subtitle: 'Start with a clean workspace for machine identity visibility and access review.',
+      providerLabels: {
+        google: 'Sign up with Google',
+        github: 'Sign up with GitHub',
+        sso: 'Sign up with SAML SSO'
+      },
+      trouble: 'Need help creating an account?',
+      createAccount: 'Create Account',
+      signIn: 'Sign In',
+      divider: 'Or',
+      terms: 'Terms of Use',
+      privacy: 'Privacy Policy',
+      contact: 'Contact'
+    }
+  },
+  fr: {
+    login: {
+      title: 'Connexion a Identrail',
+      subtitle: 'Utilisez un fournisseur d identite approuve pour ouvrir votre espace machine identity.',
+      providerLabels: {
+        google: 'Continuer avec Google',
+        github: 'Continuer avec GitHub',
+        sso: 'Continuer avec SAML SSO'
+      },
+      trouble: 'Probleme de connexion ?',
+      createAccount: 'Creer un compte',
+      signIn: 'Connexion',
+      divider: 'Ou',
+      terms: 'Conditions',
+      privacy: 'Confidentialite',
+      contact: 'Contact'
+    },
+    signup: {
+      title: 'Creez votre compte Identrail',
+      subtitle: 'Demarrez avec un espace clair pour la visibilite et la revue des identites machine.',
+      providerLabels: {
+        google: 'S inscrire avec Google',
+        github: 'S inscrire avec GitHub',
+        sso: 'S inscrire avec SAML SSO'
+      },
+      trouble: 'Besoin d aide ?',
+      createAccount: 'Creer un compte',
+      signIn: 'Connexion',
+      divider: 'Ou',
+      terms: 'Conditions',
+      privacy: 'Confidentialite',
+      contact: 'Contact'
+    }
+  },
+  es: {
+    login: {
+      title: 'Iniciar sesion en Identrail',
+      subtitle: 'Use un proveedor de identidad confiable para continuar a su workspace de machine identity.',
+      providerLabels: {
+        google: 'Continuar con Google',
+        github: 'Continuar con GitHub',
+        sso: 'Continuar con SAML SSO'
+      },
+      trouble: 'Problemas para iniciar sesion?',
+      createAccount: 'Crear cuenta',
+      signIn: 'Iniciar sesion',
+      divider: 'O',
+      terms: 'Terminos de uso',
+      privacy: 'Privacidad',
+      contact: 'Contacto'
+    },
+    signup: {
+      title: 'Cree su cuenta Identrail',
+      subtitle: 'Empiece con un workspace limpio para visibilidad y revision de identidades machine.',
+      providerLabels: {
+        google: 'Registrarse con Google',
+        github: 'Registrarse con GitHub',
+        sso: 'Registrarse con SAML SSO'
+      },
+      trouble: 'Necesita ayuda para crear una cuenta?',
+      createAccount: 'Crear cuenta',
+      signIn: 'Iniciar sesion',
+      divider: 'O',
+      terms: 'Terminos de uso',
+      privacy: 'Privacidad',
+      contact: 'Contacto'
+    }
+  }
+};
 
 function normalizeReturnTo(value: string | null): string {
   const candidate = value?.trim() ?? '';
@@ -64,9 +188,24 @@ function providerIcon(provider: HostedProvider) {
   switch (provider.icon) {
     case 'google':
       return (
-        <span className="idt-auth-provider-icon idt-auth-provider-icon-google" aria-hidden="true">
-          G
-        </span>
+        <svg className="idt-auth-provider-icon idt-auth-provider-icon-google" viewBox="0 0 18 18" aria-hidden="true">
+          <path
+            fill="#4285F4"
+            d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.91c1.7-1.57 2.69-3.88 2.69-6.62Z"
+          />
+          <path
+            fill="#34A853"
+            d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.91-2.26c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.58-5.05-3.72H.94v2.33A9 9 0 0 0 9 18Z"
+          />
+          <path
+            fill="#FBBC05"
+            d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.94A9 9 0 0 0 0 9c0 1.45.34 2.82.94 4.03l3.01-2.33Z"
+          />
+          <path
+            fill="#EA4335"
+            d="M9 3.58c1.32 0 2.5.45 3.43 1.34l2.59-2.58A8.66 8.66 0 0 0 9 0 9 9 0 0 0 .94 4.97L3.95 7.3C4.66 5.16 6.65 3.58 9 3.58Z"
+          />
+        </svg>
       );
     case 'github':
       return <img className="idt-auth-provider-icon" src="/brand-logos/github.svg" alt="" />;
@@ -96,6 +235,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   const [configError, setConfigError] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualError, setManualError] = useState('');
+  const [locale, setLocale] = useState<AuthLocale>('en');
   const [manualDraft, setManualDraft] = useState({
     tenantID: 'default',
     workspaceID: 'default',
@@ -156,119 +296,146 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
     config?.auth.workos_login_enabled === true
       ? HOSTED_PROVIDERS.filter((provider) => providerIDs.includes(provider.id))
       : [];
-  const title = intent === 'signup' ? 'Your first trust graph is just a sign-up away.' : 'Log in to Identrail';
+  const copy = AUTH_COPY[locale][intent];
   const switchLink = intent === 'signup' ? '/signin' : '/signup';
-  const switchAction = intent === 'signup' ? 'Log In' : 'Sign Up';
+  const switchAction = intent === 'signup' ? copy.signIn : copy.createAccount;
+  const currentLanguage = LANGUAGE_OPTIONS.find((option) => option.value === locale) ?? LANGUAGE_OPTIONS[0];
 
   return (
     <section className={`idt-auth-page idt-auth-page-${intent}`}>
       <div className="idt-auth-topbar">
-        <Link to="/" className={`idt-auth-logo ${intent === 'login' ? 'is-mark-only' : ''}`} aria-label="Identrail homepage">
+        <Link to="/" className="idt-auth-logo" aria-label="Identrail homepage">
           <img src="/identrail-logo.png" alt="" />
           <span>Identrail</span>
         </Link>
-        <Link className="idt-auth-switch" to={switchLink}>
-          {switchAction}
-        </Link>
+        <label className="idt-auth-language">
+          <span aria-hidden="true">
+            <svg viewBox="0 0 20 20" focusable="false">
+              <path
+                fill="currentColor"
+                d="M10 1.75a8.25 8.25 0 1 0 0 16.5 8.25 8.25 0 0 0 0-16.5Zm5.96 7.5h-2.7a12.9 12.9 0 0 0-.92-4.02 6.78 6.78 0 0 1 3.62 4.02ZM10 3.25c.52.58 1.46 2.11 1.72 6H8.28c.26-3.89 1.2-5.42 1.72-6Zm-2.34 1.98a12.9 12.9 0 0 0-.92 4.02h-2.7a6.78 6.78 0 0 1 3.62-4.02ZM4.04 10.75h2.7c.09 1.55.4 2.93.92 4.02a6.78 6.78 0 0 1-3.62-4.02ZM10 16.75c-.52-.58-1.46-2.11-1.72-6h3.44c-.26 3.89-1.2 5.42-1.72 6Zm2.34-1.98c.52-1.09.83-2.47.92-4.02h2.7a6.78 6.78 0 0 1-3.62 4.02Z"
+              />
+            </svg>
+          </span>
+          <select
+            aria-label={`Language: ${currentLanguage.name}`}
+            value={locale}
+            onChange={(event) => setLocale(event.target.value as AuthLocale)}
+          >
+            {LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      <article className={`idt-auth-panel idt-auth-panel-${intent}`}>
-        <h1>{title}</h1>
+      <div className="idt-auth-layout" data-auth-intent={intent}>
+        <article className={`idt-auth-panel idt-auth-panel-${intent}`}>
+          <h1>{copy.title}</h1>
+          <p className="idt-auth-subtitle">{copy.subtitle}</p>
 
-        {signedOut ? <p className="idt-app-alert idt-app-alert-success">Signed out successfully.</p> : null}
-        {reason ? <p className="idt-app-alert">{reason}</p> : null}
+          {signedOut ? <p className="idt-app-alert idt-app-alert-success">Signed out successfully.</p> : null}
+          {reason ? <p className="idt-app-alert">{reason}</p> : null}
 
-        {loadingConfig ? <p className="idt-app-alert">Loading authentication options...</p> : null}
-        {configError ? <p className="idt-app-alert idt-app-alert-error">{configError}</p> : null}
+          {loadingConfig ? <p className="idt-app-alert">Loading authentication options...</p> : null}
+          {configError ? <p className="idt-app-alert idt-app-alert-error">{configError}</p> : null}
 
-        {config?.auth.workos_login_enabled ? (
-          <div className="idt-auth-provider-stack">
-            {hostedProviders.map((provider) => (
-              <a
-                key={provider.id}
-                className={`idt-auth-provider ${
-                  intent === 'signup' && provider.signUpTone === 'dark' ? 'idt-auth-provider-dark' : ''
-                }`}
-                href={workOSURL(intent, returnTo, provider)}
-              >
-                {providerIcon(provider)}
-                <span>{provider.label}</span>
-              </a>
-            ))}
+          {config?.auth.workos_login_enabled ? (
+            <div className="idt-auth-provider-stack">
+              {hostedProviders.map((provider) => (
+                <a
+                  key={provider.id}
+                  className={`idt-auth-provider idt-auth-provider-${provider.icon}`}
+                  href={workOSURL(intent, returnTo, provider)}
+                >
+                  {providerIcon(provider)}
+                  <span>{copy.providerLabels[provider.icon]}</span>
+                </a>
+              ))}
+            </div>
+          ) : null}
+
+          {config?.auth.manual_mode ? (
+            <form className="idt-app-form idt-auth-manual-form" onSubmit={handleManualSubmit}>
+              <p className="idt-dev-mode-banner">Dev Mode</p>
+              <label>
+                Tenant ID
+                <input
+                  value={manualDraft.tenantID}
+                  onChange={(event) => setManualDraft((current) => ({ ...current, tenantID: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Workspace ID
+                <input
+                  value={manualDraft.workspaceID}
+                  onChange={(event) => setManualDraft((current) => ({ ...current, workspaceID: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Project ID
+                <input
+                  value={manualDraft.projectID}
+                  onChange={(event) => setManualDraft((current) => ({ ...current, projectID: event.target.value }))}
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={manualDraft.email}
+                  onChange={(event) => setManualDraft((current) => ({ ...current, email: event.target.value }))}
+                />
+              </label>
+              <label>
+                Display name
+                <input
+                  value={manualDraft.displayName}
+                  onChange={(event) => setManualDraft((current) => ({ ...current, displayName: event.target.value }))}
+                />
+              </label>
+              {manualError ? <p className="idt-app-alert idt-app-alert-error">{manualError}</p> : null}
+              <button className="idt-auth-provider idt-auth-provider-dark" type="submit" disabled={manualSubmitting}>
+                {manualSubmitting ? 'Creating session...' : 'Continue in dev mode'}
+              </button>
+            </form>
+          ) : null}
+
+          {!loadingConfig && config && !config.auth.workos_login_enabled && !config.auth.manual_mode ? (
+            <p className="idt-app-alert idt-app-alert-error">This deployment has not enabled an account provider yet.</p>
+          ) : null}
+
+          <Link className="idt-auth-trouble" to="/why-no-passwords">
+            {copy.trouble}
+          </Link>
+
+          <div className="idt-auth-divider">
+            <span>{copy.divider}</span>
           </div>
-        ) : null}
 
-        {config?.auth.manual_mode ? (
-          <form className="idt-app-form idt-auth-manual-form" onSubmit={handleManualSubmit}>
-            <p className="idt-dev-mode-banner">Dev Mode</p>
-            <label>
-              Tenant ID
-              <input
-                value={manualDraft.tenantID}
-                onChange={(event) => setManualDraft((current) => ({ ...current, tenantID: event.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              Workspace ID
-              <input
-                value={manualDraft.workspaceID}
-                onChange={(event) => setManualDraft((current) => ({ ...current, workspaceID: event.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              Project ID
-              <input
-                value={manualDraft.projectID}
-                onChange={(event) => setManualDraft((current) => ({ ...current, projectID: event.target.value }))}
-              />
-            </label>
-            <label>
-              Email
-              <input
-                type="email"
-                value={manualDraft.email}
-                onChange={(event) => setManualDraft((current) => ({ ...current, email: event.target.value }))}
-              />
-            </label>
-            <label>
-              Display name
-              <input
-                value={manualDraft.displayName}
-                onChange={(event) => setManualDraft((current) => ({ ...current, displayName: event.target.value }))}
-              />
-            </label>
-            {manualError ? <p className="idt-app-alert idt-app-alert-error">{manualError}</p> : null}
-            <button className="idt-auth-provider idt-auth-provider-dark" type="submit" disabled={manualSubmitting}>
-              {manualSubmitting ? 'Creating session...' : 'Continue in dev mode'}
-            </button>
-          </form>
-        ) : null}
+          <Link className="idt-auth-switch idt-auth-switch-panel" to={switchLink}>
+            {switchAction}
+          </Link>
 
-        {!loadingConfig && config && !config.auth.workos_login_enabled && !config.auth.manual_mode ? (
-          <p className="idt-app-alert idt-app-alert-error">This deployment has not enabled an account provider yet.</p>
-        ) : null}
+          {intent === 'signup' ? (
+            <p className="idt-auth-terms">
+              By joining, you agree to our <Link to="/terms">{copy.terms}</Link> and{' '}
+              <Link to="/privacy">Privacy Policy</Link>
+            </p>
+          ) : null}
+        </article>
+      </div>
 
-        {intent === 'login' ? (
-          <div className="idt-auth-footer-line">
-            <span>Don't have an account?</span>
-            <Link to={switchLink}>Sign Up</Link>
-          </div>
-        ) : (
-          <p className="idt-auth-terms">
-            By joining, you agree to our <Link to="/terms">Terms of Service</Link> and{' '}
-            <Link to="/privacy">Privacy Policy</Link>
-          </p>
-        )}
-      </article>
-
-      {intent === 'login' ? (
-        <div className="idt-auth-legal-footer">
-          <Link to="/terms">Terms</Link>
-          <Link to="/privacy">Privacy Policy</Link>
-        </div>
-      ) : null}
+      <div className="idt-auth-legal-footer">
+        <span>Identrail © 2026</span>
+        <Link to="/terms">{copy.terms}</Link>
+        <Link to="/privacy">{copy.privacy}</Link>
+        <a href="mailto:security@identrail.com">{copy.contact}</a>
+      </div>
     </section>
   );
 }
