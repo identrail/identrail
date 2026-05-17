@@ -195,13 +195,17 @@ func samlACSHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manage
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "saml login failed"})
 			return
 		}
-		// Defensive double-check on every NotOnOrAfter window the assertion
-		// carries, bounded by our configured 60s skew. crewjam's default
-		// SubjectConfirmationData tolerance (180s) is wider than our policy;
-		// we enforce both Conditions and SubjectConfirmationData ourselves so
-		// the operator-visible window matches SAMLDefaultClockSkew.
-		if conditions := assertion.Conditions; conditions != nil && !conditions.NotOnOrAfter.IsZero() {
-			if now.After(conditions.NotOnOrAfter.Add(SAMLDefaultClockSkew)) {
+		// Defensive double-check on every assertion validity window, bounded
+		// by our configured 60s skew. crewjam's default tolerance is wider
+		// than our policy, so enforce Conditions and SubjectConfirmationData
+		// ourselves before issuing a session.
+		if conditions := assertion.Conditions; conditions != nil {
+			if !conditions.NotBefore.IsZero() && now.Add(SAMLDefaultClockSkew).Before(conditions.NotBefore) {
+				auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "saml assertion not yet valid"})
+				return
+			}
+			if !conditions.NotOnOrAfter.IsZero() && now.After(conditions.NotOnOrAfter.Add(SAMLDefaultClockSkew)) {
 				auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "saml assertion expired"})
 				return
@@ -212,11 +216,14 @@ func samlACSHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manage
 				if confirm.SubjectConfirmationData == nil {
 					continue
 				}
-				notOnOrAfter := confirm.SubjectConfirmationData.NotOnOrAfter
-				if notOnOrAfter.IsZero() {
-					continue
+				notBefore := confirm.SubjectConfirmationData.NotBefore
+				if !notBefore.IsZero() && now.Add(SAMLDefaultClockSkew).Before(notBefore) {
+					auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "saml assertion not yet valid"})
+					return
 				}
-				if now.After(notOnOrAfter.Add(SAMLDefaultClockSkew)) {
+				notOnOrAfter := confirm.SubjectConfirmationData.NotOnOrAfter
+				if !notOnOrAfter.IsZero() && now.After(notOnOrAfter.Add(SAMLDefaultClockSkew)) {
 					auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
 					c.JSON(http.StatusUnauthorized, gin.H{"error": "saml assertion expired"})
 					return

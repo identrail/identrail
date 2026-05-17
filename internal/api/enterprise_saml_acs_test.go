@@ -77,6 +77,16 @@ func (i *samlFixtureIdP) mintSignedSAMLResponse(t *testing.T, requestID, audienc
 	now := time.Now().UTC()
 	notBefore := now.Add(-time.Minute)
 	notOnOrAfter := now.Add(10 * time.Minute)
+	return i.mintSignedSAMLResponseWithTiming(t, requestID, audience, recipient, nameID, email, notBefore, notOnOrAfter, time.Time{})
+}
+
+func (i *samlFixtureIdP) mintSignedSAMLResponseWithTiming(t *testing.T, requestID, audience, recipient, nameID, email string, notBefore, notOnOrAfter, subjectNotBefore time.Time) string {
+	t.Helper()
+	now := time.Now().UTC()
+	subjectNotBeforeAttr := ""
+	if !subjectNotBefore.IsZero() {
+		subjectNotBeforeAttr = ` NotBefore="` + subjectNotBefore.Format(time.RFC3339) + `"`
+	}
 
 	assertionID := "_assertion-" + randomHex(t, 8)
 	responseID := "_response-" + randomHex(t, 8)
@@ -90,7 +100,7 @@ func (i *samlFixtureIdP) mintSignedSAMLResponse(t *testing.T, requestID, audienc
     <saml:Subject>
       <saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">` + nameID + `</saml:NameID>
       <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
-        <saml:SubjectConfirmationData NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `" Recipient="` + recipient + `" InResponseTo="` + requestID + `"/>
+        <saml:SubjectConfirmationData` + subjectNotBeforeAttr + ` NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `" Recipient="` + recipient + `" InResponseTo="` + requestID + `"/>
       </saml:SubjectConfirmation>
     </saml:Subject>
     <saml:Conditions NotBefore="` + notBefore.Format(time.RFC3339) + `" NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `">
@@ -119,7 +129,7 @@ func (i *samlFixtureIdP) mintSignedSAMLResponse(t *testing.T, requestID, audienc
   <saml:Subject>
     <saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">` + nameID + `</saml:NameID>
     <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
-      <saml:SubjectConfirmationData NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `" Recipient="` + recipient + `" InResponseTo="` + requestID + `"/>
+      <saml:SubjectConfirmationData` + subjectNotBeforeAttr + ` NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `" Recipient="` + recipient + `" InResponseTo="` + requestID + `"/>
     </saml:SubjectConfirmation>
   </saml:Subject>
   <saml:Conditions NotBefore="` + notBefore.Format(time.RFC3339) + `" NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `">
@@ -255,6 +265,104 @@ func TestSAMLACSHandler_HappyPath_JITCreatesUser(t *testing.T) {
 	// JIT created the user — verify the persistence side-effect.
 	if _, err := svc.Store.GetUserByPrimaryEmail(context.Background(), "alice@example.com"); err != nil {
 		t.Errorf("JIT did not create the asserted user: %v", err)
+	}
+}
+
+func TestSAMLACSHandler_RejectsConditionsNotBeforeBeyondSkew(t *testing.T) {
+	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		RelayStore:    relayStore,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	requestID := "_authnreq-" + randomHex(t, 8)
+	relay, err := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
+		ConnectionID:  conn.ID,
+		SAMLRequestID: requestID,
+		Intent:        "login",
+	})
+	if err != nil {
+		t.Fatalf("issue state: %v", err)
+	}
+	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
+	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
+	now := time.Now().UTC()
+	signedResponse := idp.mintSignedSAMLResponseWithTiming(
+		t,
+		requestID,
+		audience,
+		recipient,
+		"alice@example.com",
+		"alice@example.com",
+		now.Add(2*time.Minute),
+		now.Add(10*time.Minute),
+		time.Time{},
+	)
+	encoded := base64.StdEncoding.EncodeToString([]byte(signedResponse))
+
+	form := url.Values{"SAMLResponse": {encoded}, "RelayState": {relay}}
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/"+conn.ID, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for future Conditions.NotBefore, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "not yet valid") {
+		t.Fatalf("expected not-yet-valid error, got %s", w.Body.String())
+	}
+}
+
+func TestSAMLACSHandler_RejectsSubjectConfirmationNotBeforeBeyondSkew(t *testing.T) {
+	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		RelayStore:    relayStore,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	requestID := "_authnreq-" + randomHex(t, 8)
+	relay, err := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
+		ConnectionID:  conn.ID,
+		SAMLRequestID: requestID,
+		Intent:        "login",
+	})
+	if err != nil {
+		t.Fatalf("issue state: %v", err)
+	}
+	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
+	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
+	now := time.Now().UTC()
+	signedResponse := idp.mintSignedSAMLResponseWithTiming(
+		t,
+		requestID,
+		audience,
+		recipient,
+		"alice@example.com",
+		"alice@example.com",
+		now.Add(-time.Minute),
+		now.Add(10*time.Minute),
+		now.Add(2*time.Minute),
+	)
+	encoded := base64.StdEncoding.EncodeToString([]byte(signedResponse))
+
+	form := url.Values{"SAMLResponse": {encoded}, "RelayState": {relay}}
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/"+conn.ID, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for future SubjectConfirmationData.NotBefore, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "not yet valid") {
+		t.Fatalf("expected not-yet-valid error, got %s", w.Body.String())
 	}
 }
 
