@@ -3322,6 +3322,204 @@ function LegalPage({ title, body }: { title: string; body: string }) {
   );
 }
 
+const PRIVACY_POLICY_SECTIONS = [
+  {
+    title: 'Google sign-in data accessed',
+    body: [
+      'When you choose Continue with Google, Identrail uses Google OAuth/OpenID Connect only to authenticate you and create or access your Identrail account. The Google user data we may receive is your Google account subject identifier, email address, email verification status, display name, profile image URL, locale, and the technical tokens or claims required to complete sign-in.',
+      'Identrail does not use Google sign-in to access Gmail, Google Drive, Google Calendar, Google Contacts, Google Photos, or other Google Workspace content.'
+    ]
+  },
+  {
+    title: 'How Google user data is used',
+    body: [
+      'We use Google user data to verify your identity, create and maintain your Identrail account, establish secure sessions, prevent account takeover, match pending invitations to the email address you authenticated with, display basic account information, and keep audit records needed for security and abuse prevention.',
+      'We do not use Google user data for advertising, retargeting, personalized ads, credit decisions, data brokerage, or sale to third parties.'
+    ]
+  },
+  {
+    title: 'How Google user data is shared',
+    body: [
+      'Identrail does not sell Google user data. We share it only with service providers that help operate the product, such as authentication infrastructure, cloud hosting, database, observability, security, and customer-support providers, and only for the purpose of providing, securing, or supporting Identrail.',
+      'We may also disclose limited information if required by law, to protect users or the service, or as part of a merger, acquisition, or sale of assets subject to appropriate user notice or consent where required.'
+    ]
+  },
+  {
+    title: 'Storage and protection',
+    body: [
+      'Google-derived account identifiers and profile fields are stored in Identrail account and identity records. Sessions are protected with secure, HttpOnly cookies. Production data is protected with encryption in transit, access controls, least-privilege operational access, monitoring, and environment-specific secret management.',
+      'Human access to account data is limited to personnel or processors who need it to operate, secure, troubleshoot, or support the service.'
+    ]
+  },
+  {
+    title: 'Retention and deletion',
+    body: [
+      'We retain Google-derived account data while your Identrail account is active or as needed to provide the service, comply with legal obligations, resolve disputes, enforce agreements, preserve security logs, and maintain backups.',
+      'You can request deletion of your account or Google-derived user data by emailing security@identrail.com with the subject Privacy Request. After verifying the request, we delete or de-identify applicable account data unless retention is required for security, legal, or operational reasons. Backup and log copies expire under our normal retention schedules.'
+    ]
+  },
+  {
+    title: 'Google API limited use',
+    body: [
+      'Identrail uses information received from Google APIs in accordance with the Google API Services User Data Policy, including the Limited Use requirements.'
+    ]
+  }
+] as const;
+
+const TERMS_OF_USE_SECTIONS = [
+  {
+    title: 'Acceptance and scope',
+    body: [
+      'These Terms of Use govern access to Identrail websites, documentation, hosted product experiences, public demos, and related services. By using Identrail, you agree to follow these terms and all applicable laws.',
+      'Separate written agreements, order forms, data-processing terms, or open-source licenses may apply to specific paid services, enterprise deployments, or repository code. If those terms conflict with this page, the more specific written terms control for that scope.'
+    ]
+  },
+  {
+    title: 'Accounts and access',
+    body: [
+      'You are responsible for keeping account credentials, single sign-on access, API keys, and authorized sessions secure. You must provide accurate account information and promptly revoke access for users who no longer need it.',
+      'Identrail may suspend or limit access when needed to protect the service, investigate abuse, comply with law, or address security or operational risk.'
+    ]
+  },
+  {
+    title: 'Acceptable use',
+    body: [
+      'You may not use Identrail to attack, disrupt, overload, reverse engineer, or bypass security controls of Identrail or third-party systems. You may not upload unlawful content, malware, secrets you are not authorized to process, or data that violates another party\'s rights.',
+      'Security testing of Identrail must follow the Responsible Disclosure policy and avoid privacy violations, data destruction, social engineering, or service disruption.'
+    ]
+  },
+  {
+    title: 'Customer data and integrations',
+    body: [
+      'You retain ownership of data you submit, connect, or authorize Identrail to process. You grant Identrail the limited rights needed to provide, secure, troubleshoot, improve, and support the service.',
+      'You are responsible for ensuring that connector credentials, cloud permissions, repository access, and identity-provider scopes you authorize are appropriate for your organization and permitted under your own policies.'
+    ]
+  },
+  {
+    title: 'Intellectual property',
+    body: [
+      'Identrail and its licensors retain all rights in the Identrail service, brand, website, product design, documentation, and related materials except where an open-source license expressly grants rights in repository code.',
+      'Feedback may be used to improve Identrail without obligation to you, while preserving any confidentiality obligations that apply under separate written terms.'
+    ]
+  },
+  {
+    title: 'Third-party services',
+    body: [
+      'Identrail may integrate with third-party identity providers, source-code hosts, cloud platforms, payment providers, analytics, observability, and support tools. Your use of those services may be governed by their own terms and policies.',
+      'Identrail is not responsible for third-party services outside our control, but we design integrations to use scoped permissions and operational safeguards appropriate to the feature.'
+    ]
+  },
+  {
+    title: 'Disclaimers and liability',
+    body: [
+      'Identrail is provided as available unless a separate written agreement says otherwise. We do not guarantee uninterrupted availability, error-free operation, or that every identity, permission, exposure, or risk will be detected.',
+      'To the fullest extent permitted by law, Identrail disclaims implied warranties and limits liability for indirect, incidental, consequential, special, exemplary, or punitive damages.'
+    ]
+  },
+  {
+    title: 'Changes and contact',
+    body: [
+      'We may update these terms as the product, legal requirements, or operating model changes. Material changes will be reflected on this page or communicated through appropriate product or account channels.',
+      'Questions about these Terms of Use can be sent to security@identrail.com.'
+    ]
+  }
+] as const;
+
+function PrivacyPage() {
+  useSeo({
+    title: 'Privacy Policy | Identrail',
+    description:
+      'Read how Identrail accesses, uses, stores, protects, shares, retains, and deletes Google sign-in data and other account information.',
+    path: '/privacy'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <h1>Privacy Policy</h1>
+        <p>
+          Identrail handles personal data with a security-first posture. This policy explains how we process
+          website, account, and Google sign-in data for Identrail users.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell idt-legal-policy" aria-labelledby="google-user-data">
+        <div className="idt-section-title">
+          <h2 id="google-user-data">Google user data disclosure</h2>
+          <p>
+            This section documents how Identrail interacts with Google user data when users sign in or sign up
+            with Google.
+          </p>
+        </div>
+
+        <div className="idt-card-grid two-col">
+          {PRIVACY_POLICY_SECTIONS.map((section) => (
+            <article key={section.title} className="idt-card">
+              <h3>{section.title}</h3>
+              {section.body.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell idt-section-tight">
+        <div className="idt-card">
+          <h2>Questions and requests</h2>
+          <p>
+            For privacy questions, account deletion requests, or requests about Google-derived user data, email{' '}
+            <a href="mailto:security@identrail.com?subject=Privacy%20Request">security@identrail.com</a> with
+            the subject Privacy Request.
+          </p>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function TermsPage() {
+  useSeo({
+    title: 'Terms of Use | Identrail',
+    description:
+      'Review the terms governing Identrail websites, hosted product experiences, documentation, accounts, integrations, and acceptable use.',
+    path: '/terms'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <h1>Terms of Use</h1>
+        <p>
+          These terms set the baseline for using Identrail websites, product experiences, documentation,
+          public resources, accounts, and integrations.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell idt-legal-policy" aria-labelledby="terms-sections">
+        <div className="idt-section-title">
+          <h2 id="terms-sections">Standard terms</h2>
+          <p>
+            This page summarizes the obligations, restrictions, and operational expectations that apply when
+            you use Identrail.
+          </p>
+        </div>
+
+        <div className="idt-card-grid two-col">
+          {TERMS_OF_USE_SECTIONS.map((section) => (
+            <article key={section.title} className="idt-card">
+              <h3>{section.title}</h3>
+              {section.body.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </article>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
 function NotFoundPage() {
   useSeo({
     title: 'Page Not Found | Identrail',
@@ -3488,8 +3686,8 @@ export function RoutedSite() {
           <Route path="/responsible-disclosure" element={<ResponsibleDisclosurePage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/enterprise" element={<EnterprisePage />} />
-          <Route path="/terms" element={<LegalPage title="Terms" body="Use of this website and platform is subject to our terms and acceptable use obligations." />} />
-          <Route path="/privacy" element={<LegalPage title="Privacy" body="We handle personal data responsibly and provide transparent controls for privacy and communication preferences." />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/privacy-choices" element={<LegalPage title="Privacy Choices" body="Manage analytics, communications, and data usage preferences for Identrail web experiences." />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

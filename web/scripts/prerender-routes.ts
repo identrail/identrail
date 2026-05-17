@@ -196,11 +196,13 @@ const ROUTE_META: Record<string, RouteMeta> = {
   },
   '/privacy': {
     title: 'Privacy Policy | Identrail',
-    description: 'Read the Identrail privacy policy for website usage and communication practices.'
+    description:
+      'Read how Identrail accesses, uses, stores, protects, shares, retains, and deletes Google sign-in data and other account information.'
   },
   '/terms': {
-    title: 'Terms of Service | Identrail',
-    description: 'Review the terms governing use of Identrail services and website resources.'
+    title: 'Terms of Use | Identrail',
+    description:
+      'Review the terms governing Identrail websites, hosted product experiences, documentation, accounts, integrations, and acceptable use.'
   },
   '/privacy-choices': {
     title: 'Privacy Choices | Identrail',
