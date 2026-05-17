@@ -72,8 +72,12 @@ type FindingTriage struct {
 	Status               FindingLifecycleStatus `json:"status"`
 	Assignee             string                 `json:"assignee,omitempty"`
 	SuppressionExpiresAt *time.Time             `json:"suppression_expires_at,omitempty"`
-	UpdatedAt            *time.Time             `json:"updated_at,omitempty"`
-	UpdatedBy            string                 `json:"updated_by,omitempty"`
+	// ResolvedAt records when the finding most recently entered the resolved
+	// state. It is nil unless Status is resolved, so reopened findings never
+	// report a stale resolution time and MTTR reporting stays trustworthy.
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+	UpdatedBy  string     `json:"updated_by,omitempty"`
 }
 
 // DefaultFindingTriage returns the baseline lifecycle state for new findings.

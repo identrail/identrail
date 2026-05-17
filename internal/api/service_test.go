@@ -1142,6 +1142,91 @@ func TestServiceFindingTriageLifecycleAndHistory(t *testing.T) {
 	}
 }
 
+func TestServiceFindingTriageResolvedAtLifecycle(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 4, 1, 8, 0, 0, 0, time.UTC)
+	scan, err := store.CreateScan(defaultScopeContext(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+
+	clock := now
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return clock }
+
+	resolved := string(domain.FindingLifecycleResolved)
+	open := string(domain.FindingLifecycleOpen)
+
+	// Transition into resolved records the actual resolution time.
+	resolvedTime := clock
+	got, err := svc.TriageFinding(defaultScopeContext(), "finding-1", scan.ID,
+		FindingTriageRequest{Status: &resolved, Comment: "patched"}, "subject:user-1")
+	if err != nil {
+		t.Fatalf("resolve finding: %v", err)
+	}
+	if got.Triage.ResolvedAt == nil || !got.Triage.ResolvedAt.Equal(resolvedTime) {
+		t.Fatalf("expected resolved_at %v, got %v", resolvedTime, got.Triage.ResolvedAt)
+	}
+
+	// The primary filtered findings list must also expose resolved_at.
+	listed, err := svc.ListFindingsFiltered(defaultScopeContext(), 10, FindingsFilter{LifecycleStatus: "resolved"})
+	if err != nil {
+		t.Fatalf("list filtered findings: %v", err)
+	}
+	if len(listed) != 1 || listed[0].Triage.ResolvedAt == nil || !listed[0].Triage.ResolvedAt.Equal(resolvedTime) {
+		t.Fatalf("expected filtered list to expose resolved_at %v, got %+v", resolvedTime, listed)
+	}
+
+	// A comment while still resolved preserves the original resolution time.
+	clock = clock.Add(2 * time.Hour)
+	got, err = svc.TriageFinding(defaultScopeContext(), "finding-1", scan.ID,
+		FindingTriageRequest{Comment: "still resolved"}, "subject:user-1")
+	if err != nil {
+		t.Fatalf("comment while resolved: %v", err)
+	}
+	if got.Triage.ResolvedAt == nil || !got.Triage.ResolvedAt.Equal(resolvedTime) {
+		t.Fatalf("expected resolved_at preserved at %v, got %v", resolvedTime, got.Triage.ResolvedAt)
+	}
+
+	// Reopening must not keep a stale resolution time.
+	clock = clock.Add(time.Hour)
+	got, err = svc.TriageFinding(defaultScopeContext(), "finding-1", scan.ID,
+		FindingTriageRequest{Status: &open, Comment: "regressed"}, "subject:user-1")
+	if err != nil {
+		t.Fatalf("reopen finding: %v", err)
+	}
+	if got.Triage.ResolvedAt != nil {
+		t.Fatalf("expected resolved_at cleared after reopen, got %v", got.Triage.ResolvedAt)
+	}
+	openListed, err := svc.ListFindingsFiltered(defaultScopeContext(), 10, FindingsFilter{LifecycleStatus: "open"})
+	if err != nil {
+		t.Fatalf("list filtered findings after reopen: %v", err)
+	}
+	if len(openListed) != 1 || openListed[0].Triage.ResolvedAt != nil {
+		t.Fatalf("expected filtered list to drop resolved_at after reopen, got %+v", openListed)
+	}
+
+	// Re-resolving records a fresh resolution time, not the prior one.
+	clock = clock.Add(4 * time.Hour)
+	reResolvedTime := clock
+	got, err = svc.TriageFinding(defaultScopeContext(), "finding-1", scan.ID,
+		FindingTriageRequest{Status: &resolved, Comment: "patched again"}, "subject:user-1")
+	if err != nil {
+		t.Fatalf("re-resolve finding: %v", err)
+	}
+	if got.Triage.ResolvedAt == nil || !got.Triage.ResolvedAt.Equal(reResolvedTime) {
+		t.Fatalf("expected fresh resolved_at %v, got %v", reResolvedTime, got.Triage.ResolvedAt)
+	}
+	if got.Triage.ResolvedAt.Equal(resolvedTime) {
+		t.Fatal("re-resolve must not reuse the original resolution time")
+	}
+}
+
 func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 22, 9, 0, 0, 0, time.UTC)

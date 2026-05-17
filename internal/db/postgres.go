@@ -832,7 +832,7 @@ func (p *PostgresStore) GetFindingTriageState(ctx context.Context, findingID str
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT finding_id, status, assignee, suppression_expires_at, updated_at, updated_by
+		`SELECT finding_id, status, assignee, suppression_expires_at, resolved_at, updated_at, updated_by
 		 FROM finding_triage_states
 		 WHERE finding_id = $1
 		   AND tenant_id = $2
@@ -843,11 +843,13 @@ func (p *PostgresStore) GetFindingTriageState(ctx context.Context, findingID str
 	)
 	var state FindingTriageState
 	var suppressionExpiresAt sql.NullTime
+	var resolvedAt sql.NullTime
 	if err := row.Scan(
 		&state.FindingID,
 		&state.Status,
 		&state.Assignee,
 		&suppressionExpiresAt,
+		&resolvedAt,
 		&state.UpdatedAt,
 		&state.UpdatedBy,
 	); err != nil {
@@ -859,6 +861,10 @@ func (p *PostgresStore) GetFindingTriageState(ctx context.Context, findingID str
 	if suppressionExpiresAt.Valid {
 		value := suppressionExpiresAt.Time.UTC()
 		state.SuppressionExpiresAt = &value
+	}
+	if resolvedAt.Valid {
+		value := resolvedAt.Time.UTC()
+		state.ResolvedAt = &value
 	}
 	state.UpdatedAt = state.UpdatedAt.UTC()
 	return state, nil
@@ -895,7 +901,7 @@ func (p *PostgresStore) ListFindingTriageStates(ctx context.Context, findingIDs 
 		args = append(args, findingID)
 	}
 	query := fmt.Sprintf(
-		`SELECT finding_id, status, assignee, suppression_expires_at, updated_at, updated_by
+		`SELECT finding_id, status, assignee, suppression_expires_at, resolved_at, updated_at, updated_by
 		 FROM finding_triage_states
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -912,11 +918,13 @@ func (p *PostgresStore) ListFindingTriageStates(ctx context.Context, findingIDs 
 	for rows.Next() {
 		var state FindingTriageState
 		var suppressionExpiresAt sql.NullTime
+		var resolvedAt sql.NullTime
 		if err := rows.Scan(
 			&state.FindingID,
 			&state.Status,
 			&state.Assignee,
 			&suppressionExpiresAt,
+			&resolvedAt,
 			&state.UpdatedAt,
 			&state.UpdatedBy,
 		); err != nil {
@@ -925,6 +933,10 @@ func (p *PostgresStore) ListFindingTriageStates(ctx context.Context, findingIDs 
 		if suppressionExpiresAt.Valid {
 			value := suppressionExpiresAt.Time.UTC()
 			state.SuppressionExpiresAt = &value
+		}
+		if resolvedAt.Valid {
+			value := resolvedAt.Time.UTC()
+			state.ResolvedAt = &value
 		}
 		state.UpdatedAt = state.UpdatedAt.UTC()
 		result = append(result, state)
@@ -949,15 +961,17 @@ func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context
 	if updatedAt.IsZero() {
 		updatedAt = time.Now().UTC()
 	}
+	resolvedAt := resolvedAtForStatus(state.Status, state.ResolvedAt)
 	_, err = executor.ExecContext(
 		ctx,
-		`INSERT INTO finding_triage_states (tenant_id, workspace_id, finding_id, status, assignee, suppression_expires_at, updated_at, updated_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO finding_triage_states (tenant_id, workspace_id, finding_id, status, assignee, suppression_expires_at, resolved_at, updated_at, updated_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (tenant_id, workspace_id, finding_id)
 		 DO UPDATE SET
 		   status = EXCLUDED.status,
 		   assignee = EXCLUDED.assignee,
 		   suppression_expires_at = EXCLUDED.suppression_expires_at,
+		   resolved_at = EXCLUDED.resolved_at,
 		   updated_at = EXCLUDED.updated_at,
 		   updated_by = EXCLUDED.updated_by`,
 		scope.TenantID,
@@ -966,6 +980,7 @@ func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context
 		strings.TrimSpace(string(state.Status)),
 		strings.TrimSpace(state.Assignee),
 		state.SuppressionExpiresAt,
+		resolvedAt,
 		updatedAt.UTC(),
 		strings.TrimSpace(state.UpdatedBy),
 	)
@@ -1246,6 +1261,7 @@ func (p *PostgresStore) ListFindingsFiltered(ctx context.Context, filter Finding
 			%s AS triage_status,
 			COALESCE(ts.assignee, ''),
 			ts.suppression_expires_at,
+			ts.resolved_at,
 			ts.updated_at,
 			COALESCE(ts.updated_by, '')
 		FROM findings f
@@ -4242,6 +4258,7 @@ func findingsWithTriageFromSQLRows(rows rowsScanner, now time.Time) ([]domain.Fi
 			TriageStatus         string
 			TriageAssignee       string
 			SuppressionExpiresAt sql.NullTime
+			ResolvedAt           sql.NullTime
 			TriageUpdatedAt      sql.NullTime
 			TriageUpdatedBy      string
 		}
@@ -4259,6 +4276,7 @@ func findingsWithTriageFromSQLRows(rows rowsScanner, now time.Time) ([]domain.Fi
 			&row.TriageStatus,
 			&row.TriageAssignee,
 			&row.SuppressionExpiresAt,
+			&row.ResolvedAt,
 			&row.TriageUpdatedAt,
 			&row.TriageUpdatedBy,
 		); err != nil {
@@ -4282,6 +4300,10 @@ func findingsWithTriageFromSQLRows(rows rowsScanner, now time.Time) ([]domain.Fi
 		if row.SuppressionExpiresAt.Valid {
 			value := row.SuppressionExpiresAt.Time.UTC()
 			finding.Triage.SuppressionExpiresAt = &value
+		}
+		if row.ResolvedAt.Valid {
+			value := row.ResolvedAt.Time.UTC()
+			finding.Triage.ResolvedAt = &value
 		}
 		if row.TriageUpdatedAt.Valid {
 			value := row.TriageUpdatedAt.Time.UTC()

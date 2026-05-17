@@ -1828,6 +1828,7 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 	if nextState.Status == "" {
 		nextState.Status = domain.FindingLifecycleOpen
 	}
+	nextState.ResolvedAt = resolveResolvedAt(currentState, nextState, now)
 
 	action := deriveFindingTriageAction(currentState, nextState, comment)
 	if err := s.Store.ApplyFindingTriageTransition(ctx, nextState, db.FindingTriageEvent{
@@ -2470,6 +2471,7 @@ func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domai
 				Status:               state.Status,
 				Assignee:             state.Assignee,
 				SuppressionExpiresAt: state.SuppressionExpiresAt,
+				ResolvedAt:           state.ResolvedAt,
 				UpdatedAt:            &updatedAt,
 				UpdatedBy:            state.UpdatedBy,
 			}
@@ -2518,7 +2520,27 @@ func normalizeFindingTriageState(state db.FindingTriageState, now time.Time) db.
 	if state.Status != domain.FindingLifecycleSuppressed {
 		state.SuppressionExpiresAt = nil
 	}
+	if state.Status != domain.FindingLifecycleResolved {
+		state.ResolvedAt = nil
+	}
 	return state
+}
+
+// resolveResolvedAt computes the resolution timestamp for the next triage
+// state. It is set only when a finding transitions into the resolved state;
+// while a finding stays resolved (e.g. an assignee or comment edit) the
+// original resolution time is preserved, and any non-resolved state clears it
+// so reopened findings never report a stale MTTR source.
+func resolveResolvedAt(current, next db.FindingTriageState, now time.Time) *time.Time {
+	if next.Status != domain.FindingLifecycleResolved {
+		return nil
+	}
+	if current.Status == domain.FindingLifecycleResolved && current.ResolvedAt != nil {
+		preserved := current.ResolvedAt.UTC()
+		return &preserved
+	}
+	resolved := now.UTC()
+	return &resolved
 }
 
 func parseFindingLifecycleStatus(raw string) (domain.FindingLifecycleStatus, error) {

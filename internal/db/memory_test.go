@@ -872,6 +872,47 @@ func TestMemoryStoreFindingTriageStateAndHistory(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreFindingTriageResolvedAtInvariant(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
+		FindingID:  "finding-1",
+		Status:     domain.FindingLifecycleResolved,
+		ResolvedAt: &now,
+		UpdatedAt:  now,
+		UpdatedBy:  "subject:alice",
+	}); err != nil {
+		t.Fatalf("upsert resolved triage state: %v", err)
+	}
+	got, err := store.GetFindingTriageState(defaultScopeContext(), "finding-1")
+	if err != nil {
+		t.Fatalf("get resolved triage state: %v", err)
+	}
+	if got.ResolvedAt == nil || !got.ResolvedAt.Equal(now) {
+		t.Fatalf("expected resolved_at %v, got %v", now, got.ResolvedAt)
+	}
+
+	// A non-resolved write must drop any resolution time, even if supplied.
+	stale := now
+	if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
+		FindingID:  "finding-1",
+		Status:     domain.FindingLifecycleOpen,
+		ResolvedAt: &stale,
+		UpdatedAt:  now.Add(time.Hour),
+		UpdatedBy:  "subject:alice",
+	}); err != nil {
+		t.Fatalf("upsert reopened triage state: %v", err)
+	}
+	got, err = store.GetFindingTriageState(defaultScopeContext(), "finding-1")
+	if err != nil {
+		t.Fatalf("get reopened triage state: %v", err)
+	}
+	if got.ResolvedAt != nil {
+		t.Fatalf("expected resolved_at cleared for non-resolved status, got %v", got.ResolvedAt)
+	}
+}
+
 func TestMemoryStoreApplyFindingTriageTransitionAtomic(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)

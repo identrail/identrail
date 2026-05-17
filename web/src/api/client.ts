@@ -368,6 +368,7 @@ export type FindingTriage = {
   status: FindingLifecycleStatus;
   assignee?: string;
   suppression_expires_at?: string;
+  resolved_at?: string;
   updated_at?: string;
   updated_by?: string;
 };

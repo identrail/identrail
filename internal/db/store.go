@@ -244,8 +244,22 @@ type FindingTriageState struct {
 	Status               domain.FindingLifecycleStatus `json:"status"`
 	Assignee             string                        `json:"assignee,omitempty"`
 	SuppressionExpiresAt *time.Time                    `json:"suppression_expires_at,omitempty"`
-	UpdatedAt            time.Time                     `json:"updated_at"`
-	UpdatedBy            string                        `json:"updated_by,omitempty"`
+	// ResolvedAt is non-nil only while Status is resolved; it captures the
+	// resolution time so the executive report can compute accurate MTTR.
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	UpdatedBy  string     `json:"updated_by,omitempty"`
+}
+
+// resolvedAtForStatus enforces the resolved_at invariant shared by every store
+// backend: a finding only carries a resolution time while it is resolved, so a
+// reopened (or otherwise non-resolved) finding never reports a stale value.
+func resolvedAtForStatus(status domain.FindingLifecycleStatus, resolvedAt *time.Time) *time.Time {
+	if status != domain.FindingLifecycleResolved || resolvedAt == nil {
+		return nil
+	}
+	value := resolvedAt.UTC()
+	return &value
 }
 
 // FindingTriageEvent records one immutable workflow action.
@@ -1988,6 +2002,9 @@ func NormalizeFindingTriage(triage domain.FindingTriage, now time.Time) domain.F
 	}
 	if normalized.Status != domain.FindingLifecycleSuppressed {
 		normalized.SuppressionExpiresAt = nil
+	}
+	if normalized.Status != domain.FindingLifecycleResolved {
+		normalized.ResolvedAt = nil
 	}
 	return normalized
 }
