@@ -802,7 +802,7 @@ export function ProductAppIndexRedirect() {
     );
   }
   if (!me?.org_id || !me.workspace_id) {
-    if (onboardingAvailable === undefined) {
+    if (FEATURE_ONBOARDING_WIZARD && onboardingAvailable === undefined) {
       return <AppShellLoading message="Resolving workspace scope" />;
     }
     if (onboardingAvailable) {

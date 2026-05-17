@@ -23,6 +23,10 @@ const UNKNOWN_FEATURES: BackendFeatures = {
 };
 
 let cachedFeatures: Promise<BackendFeatures> | null = null;
+// Synchronous snapshot once the one-shot fetch has resolved. This keeps
+// remounts (e.g. navigating between onboarding steps, each wrapped by the
+// route guard) from flashing a loading interstitial.
+let resolvedFeatures: BackendFeatures | null = null;
 
 async function fetchBackendFeatures(): Promise<BackendFeatures> {
   try {
@@ -51,13 +55,17 @@ async function fetchBackendFeatures(): Promise<BackendFeatures> {
 
 export function loadBackendFeatures(): Promise<BackendFeatures> {
   if (!cachedFeatures) {
-    cachedFeatures = fetchBackendFeatures();
+    cachedFeatures = fetchBackendFeatures().then((resolved) => {
+      resolvedFeatures = resolved;
+      return resolved;
+    });
   }
   return cachedFeatures;
 }
 
 export function resetBackendFeaturesCacheForTests(): void {
   cachedFeatures = null;
+  resolvedFeatures = null;
 }
 
 // The effective rule: a backend-dependent flow is shown only when the web
@@ -76,10 +84,16 @@ type UseBackendFeaturesResult = {
 };
 
 export function useBackendFeatures(): UseBackendFeaturesResult {
-  const [features, setFeatures] = useState<BackendFeatures>(UNKNOWN_FEATURES);
-  const [loading, setLoading] = useState(true);
+  const [features, setFeatures] = useState<BackendFeatures>(resolvedFeatures ?? UNKNOWN_FEATURES);
+  const [loading, setLoading] = useState(resolvedFeatures === null);
 
   useEffect(() => {
+    if (resolvedFeatures) {
+      // Cache is already warm: serve it without a loading flash on remount.
+      setFeatures(resolvedFeatures);
+      setLoading(false);
+      return;
+    }
     let mounted = true;
     setLoading(true);
     loadBackendFeatures()
