@@ -6214,7 +6214,7 @@ html[data-theme='light'] .idt-auth-provider {
   width: 100%;
   min-height: 3.5rem;
   display: grid;
-  grid-template-columns: 1.45rem minmax(0, auto) 1.45rem;
+  grid-template-columns: 1.45rem minmax(12.75rem, 12.75rem) 1.45rem;
   align-items: center;
   justify-content: center;
   gap: 0.58rem;
@@ -6240,6 +6240,11 @@ html[data-theme='light'] .idt-auth-provider {
   content: '';
   width: 1.45rem;
   height: 1px;
+}
+
+.idt-auth-provider > span:not(.idt-auth-provider-icon) {
+  min-width: 0;
+  justify-self: start;
 }
 
 .idt-auth-provider-plain,
@@ -6615,11 +6620,29 @@ html[data-theme='light'] .idt-auth-page .idt-auth-legal-footer a {
     font-size: 1.1rem;
   }
 
+  .idt-auth-provider,
+  html[data-theme='light'] .idt-auth-provider {
+    grid-template-columns: 1.45rem minmax(0, 11.65rem) 1.45rem;
+    gap: 0.45rem;
+  }
+
   .idt-auth-theme-switcher {
     right: 1rem;
     bottom: 1rem;
     width: 2.8rem;
     height: 2.8rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .idt-auth-provider,
+  html[data-theme='light'] .idt-auth-provider {
+    grid-template-columns: 1.35rem minmax(0, 11.05rem) 1.35rem;
+    font-size: 0.96rem;
+  }
+
+  .idt-auth-provider::after {
+    width: 1.35rem;
   }
 }
 

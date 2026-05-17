@@ -447,6 +447,23 @@ describe('App', () => {
     expect(screen.queryByText(/Loading authentication/i)).not.toBeInTheDocument();
   });
 
+  it('keeps the auth theme trigger icon-only while exposing named menu choices', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
+
+    setCurrentPath('/signup');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Your first trust graph/i })).toBeInTheDocument();
+    const themeTrigger = screen.getByRole('button', { name: /Color theme: Dark/i });
+    expect(themeTrigger.textContent).toBe('');
+
+    fireEvent.click(themeTrigger);
+
+    expect(screen.getByRole('menuitemradio', { name: /Light/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: /System/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: /Dark/i })).toBeInTheDocument();
+  });
+
   it('shows a clear API reachability error when auth config cannot be fetched', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')));
 
