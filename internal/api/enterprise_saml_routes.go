@@ -280,7 +280,12 @@ func updateNativeSAMLConnection(logger *zap.Logger, svc *Service) gin.HandlerFun
 			updated.Type = defaultSAMLConnectionType(req.Type)
 		}
 		if req.Status != "" {
-			updated.Status = strings.ToLower(strings.TrimSpace(req.Status))
+			status := strings.ToLower(strings.TrimSpace(req.Status))
+			if status == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "status cannot be blank"})
+				return
+			}
+			updated.Status = status
 		}
 		if req.EntityID != "" {
 			updated.EntityID = req.EntityID

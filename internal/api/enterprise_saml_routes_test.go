@@ -288,6 +288,27 @@ func TestNativeSAMLRoutes_UpdateCanActivatePendingConnection(t *testing.T) {
 	}
 }
 
+func TestNativeSAMLRoutes_UpdateRejectsBlankStatus(t *testing.T) {
+	svc, inject, fetcher := newSAMLTestRig(t)
+	r := newTestRouterFor(t, svc, inject, fetcher, true)
+	createResp := doJSON(t, r, http.MethodPost, "/v1/enterprise/identity-connections/saml", validSAMLRequest(t))
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var created samlConnectionResponse
+	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
+
+	update := validSAMLRequest(t)
+	update.Status = "   "
+	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, update)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected blank status to be rejected, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "status cannot be blank") {
+		t.Fatalf("expected blank-status error, got %s", w.Body.String())
+	}
+}
+
 func TestNativeSAMLRoutes_UpdatePreservesBooleansWhenOmitted(t *testing.T) {
 	svc, inject, fetcher := newSAMLTestRig(t)
 	r := newTestRouterFor(t, svc, inject, fetcher, true)
