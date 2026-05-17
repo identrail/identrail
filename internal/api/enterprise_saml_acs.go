@@ -11,6 +11,7 @@ import (
 
 	"github.com/crewjam/saml"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
@@ -306,6 +307,10 @@ func loadNativeSAMLConnectionForLogin(c *gin.Context, svc *Service, logger *zap.
 	connectionID := strings.TrimSpace(c.Param("connection_id"))
 	if connectionID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_id is required"})
+		return db.IdentityConnection{}, false
+	}
+	if _, err := uuid.Parse(connectionID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_id must be a valid uuid"})
 		return db.IdentityConnection{}, false
 	}
 	// The route is reachable without a session (it is the start of the auth

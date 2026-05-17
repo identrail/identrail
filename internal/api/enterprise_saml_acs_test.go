@@ -573,6 +573,36 @@ func TestSAMLACSHandler_RejectsUnknownConnection(t *testing.T) {
 	}
 }
 
+func TestSAMLLoginRoutesRejectMalformedConnectionID(t *testing.T) {
+	svc, _, _, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		RelayStore:    relayStore,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "login", method: http.MethodGet, path: "/auth/saml/login/not-a-uuid"},
+		{name: "acs", method: http.MethodPost, path: "/auth/saml/acs/not-a-uuid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(""))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for malformed connection id, got %d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestSAMLACSHandler_DisabledByFeatureFlag(t *testing.T) {
 	svc, conn, _, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
 	_ = relayStore
