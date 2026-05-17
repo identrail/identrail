@@ -473,6 +473,7 @@ describe('App', () => {
     const themeTrigger = screen.getByRole('button', { name: /Color theme: Dark/i });
     fireEvent.click(themeTrigger);
     fireEvent.click(screen.getByRole('menuitemradio', { name: /Light/i }));
+    expect(await screen.findByRole('button', { name: /Color theme: Light/i })).toBeInTheDocument();
 
     const githubProvider = await screen.findByRole('link', { name: /Continue with GitHub/i });
     const githubIcon = githubProvider.querySelector('.idt-auth-provider-icon-github');
