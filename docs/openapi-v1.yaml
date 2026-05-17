@@ -5421,6 +5421,13 @@ components:
           type: string
           format: date-time
           nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Server-managed. Set when the finding enters the resolved state and
+            cleared when it leaves; powers executive-report MTTR.
         updated_at:
           type: string
           format: date-time

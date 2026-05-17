@@ -325,10 +325,10 @@ func TestPostgresStoreListFindingsFiltered(t *testing.T) {
 	now := time.Now().UTC()
 	rows := sqlmock.NewRows([]string{
 		"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at",
-		"triage_status", "assignee", "suppression_expires_at", "updated_at", "updated_by",
+		"triage_status", "assignee", "suppression_expires_at", "resolved_at", "updated_at", "updated_by",
 	}).AddRow(
 		"scan-1", "finding-1", "ownerless_identity", "critical", "Ownerless", "summary", []byte("[\"a\"]"), []byte("{\"x\":1}"), "fix", now,
-		"ack", "secops", nil, now, "subject:user-1",
+		"ack", "secops", nil, nil, now, "subject:user-1",
 	)
 	mock.ExpectQuery("SELECT\\s+f\\.scan_id,").
 		WithArgs("default", "default", "critical", sqlmock.AnyArg(), 0, 11).
@@ -346,6 +346,50 @@ func TestPostgresStoreListFindingsFiltered(t *testing.T) {
 	}
 	if items[0].Triage.Status != domain.FindingLifecycleAck || items[0].Triage.Assignee != "secops" {
 		t.Fatalf("unexpected triage payload: %+v", items[0].Triage)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListFindingsFilteredExposesResolvedAt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	resolvedAt := now.Add(-6 * time.Hour)
+	rows := sqlmock.NewRows([]string{
+		"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at",
+		"triage_status", "assignee", "suppression_expires_at", "resolved_at", "updated_at", "updated_by",
+	}).AddRow(
+		"scan-1", "finding-1", "ownerless_identity", "high", "Ownerless", "summary", []byte("null"), []byte("null"), "", now,
+		"resolved", "secops", nil, resolvedAt, now, "subject:user-1",
+	).AddRow(
+		// Defensive: a stale resolved_at on a non-resolved row must be dropped.
+		"scan-1", "finding-2", "secret_exposure", "high", "Secret", "summary", []byte("null"), []byte("null"), "", now,
+		"open", "secops", nil, resolvedAt, now, "subject:user-2",
+	)
+	mock.ExpectQuery("SELECT\\s+f\\.scan_id,").
+		WithArgs("default", "default", sqlmock.AnyArg(), 0, 11).
+		WillReturnRows(rows)
+
+	items, err := store.ListFindingsFiltered(defaultScopeContext(), FindingListFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("list filtered findings failed: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(items))
+	}
+	if items[0].Triage.ResolvedAt == nil || !items[0].Triage.ResolvedAt.Equal(resolvedAt) {
+		t.Fatalf("expected resolved finding to expose resolved_at %v, got %v", resolvedAt, items[0].Triage.ResolvedAt)
+	}
+	if items[1].Triage.ResolvedAt != nil {
+		t.Fatalf("expected non-resolved finding to drop resolved_at, got %v", items[1].Triage.ResolvedAt)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -374,10 +418,10 @@ func TestPostgresStoreListFindingsFilteredByScanAndLifecycle(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at",
-		"triage_status", "assignee", "suppression_expires_at", "updated_at", "updated_by",
+		"triage_status", "assignee", "suppression_expires_at", "resolved_at", "updated_at", "updated_by",
 	}).AddRow(
 		"scan-1", "finding-2", "secret_exposure", "high", "Secret", "summary", []byte("null"), []byte("null"), "", now,
-		"suppressed", "secops", now.Add(-time.Minute), now, "subject:user-2",
+		"suppressed", "secops", now.Add(-time.Minute), nil, now, "subject:user-2",
 	)
 	mock.ExpectQuery("SELECT\\s+f\\.scan_id,").
 		WithArgs("default", "default", "scan-1", sqlmock.AnyArg(), "open", "secops", 0, 2).
@@ -895,7 +939,7 @@ func TestPostgresStoreFindingTriageStateAndHistory(t *testing.T) {
 	expiry := now.Add(2 * time.Hour)
 
 	mock.ExpectExec("INSERT INTO finding_triage_states").
-		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", sqlmock.AnyArg(), sqlmock.AnyArg(), "subject:alice").
+		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", sqlmock.AnyArg(), nil, sqlmock.AnyArg(), "subject:alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
@@ -909,9 +953,9 @@ func TestPostgresStoreFindingTriageStateAndHistory(t *testing.T) {
 		t.Fatalf("upsert triage state failed: %v", err)
 	}
 
-	stateRows := sqlmock.NewRows([]string{"finding_id", "status", "assignee", "suppression_expires_at", "updated_at", "updated_by"}).
-		AddRow("finding-1", "ack", "sec-oncall", expiry, now, "subject:alice")
-	mock.ExpectQuery("SELECT finding_id, status, assignee, suppression_expires_at, updated_at, updated_by").
+	stateRows := sqlmock.NewRows([]string{"finding_id", "status", "assignee", "suppression_expires_at", "resolved_at", "updated_at", "updated_by"}).
+		AddRow("finding-1", "ack", "sec-oncall", expiry, nil, now, "subject:alice")
+	mock.ExpectQuery("SELECT finding_id, status, assignee, suppression_expires_at, resolved_at, updated_at, updated_by").
 		WithArgs("finding-1", "default", "default").
 		WillReturnRows(stateRows)
 
@@ -923,9 +967,9 @@ func TestPostgresStoreFindingTriageStateAndHistory(t *testing.T) {
 		t.Fatalf("unexpected triage state: %+v", state)
 	}
 
-	listRows := sqlmock.NewRows([]string{"finding_id", "status", "assignee", "suppression_expires_at", "updated_at", "updated_by"}).
-		AddRow("finding-1", "ack", "sec-oncall", expiry, now, "subject:alice")
-	mock.ExpectQuery("SELECT finding_id, status, assignee, suppression_expires_at, updated_at, updated_by").
+	listRows := sqlmock.NewRows([]string{"finding_id", "status", "assignee", "suppression_expires_at", "resolved_at", "updated_at", "updated_by"}).
+		AddRow("finding-1", "ack", "sec-oncall", expiry, nil, now, "subject:alice")
+	mock.ExpectQuery("SELECT finding_id, status, assignee, suppression_expires_at, resolved_at, updated_at, updated_by").
 		WithArgs("default", "default", "finding-1", "finding-2").
 		WillReturnRows(listRows)
 
@@ -975,6 +1019,63 @@ func TestPostgresStoreFindingTriageStateAndHistory(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreFindingTriageResolvedAt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	resolvedAt := now.Add(-3 * time.Hour)
+
+	// A resolved write persists the resolution time.
+	mock.ExpectExec("INSERT INTO finding_triage_states").
+		WithArgs("default", "default", "finding-1", "resolved", "", nil, resolvedAt, sqlmock.AnyArg(), "subject:alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
+		FindingID:  "finding-1",
+		Status:     domain.FindingLifecycleResolved,
+		ResolvedAt: &resolvedAt,
+		UpdatedAt:  now,
+		UpdatedBy:  "subject:alice",
+	}); err != nil {
+		t.Fatalf("upsert resolved triage state failed: %v", err)
+	}
+
+	// A non-resolved write must null the resolution time even if supplied.
+	mock.ExpectExec("INSERT INTO finding_triage_states").
+		WithArgs("default", "default", "finding-1", "open", "", nil, nil, sqlmock.AnyArg(), "subject:alice").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	if err := store.UpsertFindingTriageState(defaultScopeContext(), FindingTriageState{
+		FindingID:  "finding-1",
+		Status:     domain.FindingLifecycleOpen,
+		ResolvedAt: &resolvedAt,
+		UpdatedAt:  now,
+		UpdatedBy:  "subject:alice",
+	}); err != nil {
+		t.Fatalf("upsert reopened triage state failed: %v", err)
+	}
+
+	stateRows := sqlmock.NewRows([]string{"finding_id", "status", "assignee", "suppression_expires_at", "resolved_at", "updated_at", "updated_by"}).
+		AddRow("finding-1", "resolved", "", nil, resolvedAt, now, "subject:alice")
+	mock.ExpectQuery("SELECT finding_id, status, assignee, suppression_expires_at, resolved_at, updated_at, updated_by").
+		WithArgs("finding-1", "default", "default").
+		WillReturnRows(stateRows)
+	state, err := store.GetFindingTriageState(defaultScopeContext(), "finding-1")
+	if err != nil {
+		t.Fatalf("get triage state failed: %v", err)
+	}
+	if state.ResolvedAt == nil || !state.ResolvedAt.Equal(resolvedAt) {
+		t.Fatalf("expected resolved_at %v, got %v", resolvedAt, state.ResolvedAt)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreApplyFindingTriageTransition(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -987,7 +1088,7 @@ func TestPostgresStoreApplyFindingTriageTransition(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO finding_triage_states").
-		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", nil, sqlmock.AnyArg(), "subject:alice").
+		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", nil, nil, sqlmock.AnyArg(), "subject:alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO finding_triage_events").
 		WithArgs(sqlmock.AnyArg(), "default", "default", "finding-1", FindingTriageActionAcknowledged, "open", "ack", "sec-oncall", nil, "acknowledged", "subject:alice", sqlmock.AnyArg()).
@@ -1031,7 +1132,7 @@ func TestPostgresStoreApplyFindingTriageTransitionRollsBackOnEventFailure(t *tes
 
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO finding_triage_states").
-		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", nil, sqlmock.AnyArg(), "subject:alice").
+		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", nil, nil, sqlmock.AnyArg(), "subject:alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO finding_triage_events").
 		WithArgs(sqlmock.AnyArg(), "default", "default", "finding-1", FindingTriageActionAcknowledged, "open", "ack", "sec-oncall", nil, "acknowledged", "subject:alice", sqlmock.AnyArg()).
@@ -2500,7 +2601,7 @@ func TestPostgresStoreUpsertFindingTriageStateUsesScopedExecWhenRLSEnabled(t *te
 		WithArgs("default", "default", "on").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO finding_triage_states").
-		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", nil, sqlmock.AnyArg(), "subject:alice").
+		WithArgs("default", "default", "finding-1", "ack", "sec-oncall", nil, nil, sqlmock.AnyArg(), "subject:alice").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 

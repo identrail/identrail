@@ -876,6 +876,7 @@ func (m *MemoryStore) findingTriageForScopeLocked(scope Scope, findingID string,
 		Status:               state.Status,
 		Assignee:             state.Assignee,
 		SuppressionExpiresAt: state.SuppressionExpiresAt,
+		ResolvedAt:           state.ResolvedAt,
 		UpdatedAt:            &updatedAt,
 		UpdatedBy:            state.UpdatedBy,
 	}
@@ -1822,6 +1823,7 @@ func normalizeFindingTriageStateForWrite(state FindingTriageState) (FindingTriag
 	state.FindingID = normalizedID
 	state.Assignee = strings.TrimSpace(state.Assignee)
 	state.UpdatedBy = strings.TrimSpace(state.UpdatedBy)
+	state.ResolvedAt = resolvedAtForStatus(state.Status, state.ResolvedAt)
 	if state.UpdatedAt.IsZero() {
 		state.UpdatedAt = time.Now().UTC()
 	} else {

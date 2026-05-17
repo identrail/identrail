@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added a server-managed `resolved_at` timestamp to finding triage so the executive report can compute an accurate mean-time-to-resolve (MTTR):
+  - exposed on the `FindingTriage` API response, OpenAPI schema, and web client types
+  - set when a finding transitions into the resolved state, preserved across edits while it stays resolved, and cleared when it is reopened or moved out of resolved
+  - migration `000026_finding_triage_resolved_at` adds the nullable column and best-effort backfills existing resolved rows with `resolved_at = updated_at`
 - Mirrored public container image publishing to Docker Hub under `docker.io/identrail/*`,
   made Docker Hub the default public-image quickstart source, and pointed the homepage Docker pull metric at the published Docker Hub repositories.
 - Routed successful native SCIM user lifecycle operations through the workflow router:
