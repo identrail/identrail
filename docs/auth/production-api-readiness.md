@@ -81,9 +81,10 @@ project env value configured directly.
 After deploying both halves, verify:
 
 1. `GET https://api.identrail.com/v1/auth/config` shows hosted GitHub login is available.
-2. GitHub login returns to Identrail without `{"error":"login failed"}`.
-3. A new user with no workspace lands on `/onboarding/org`.
-4. Creating organization and workspace redirects to the scoped `/app/<org>/<workspace>` dashboard.
+2. `POST https://api.identrail.com/v1/onboarding/start` without a session returns JSON `401`, not a plain `404 page not found`.
+3. GitHub login returns to Identrail without `{"error":"login failed"}`.
+4. A new user with no workspace lands on `/onboarding/org`.
+5. Creating organization and workspace redirects to the scoped `/app/<org>/<workspace>` dashboard.
 
 ## Checks
 

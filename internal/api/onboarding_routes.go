@@ -12,16 +12,12 @@ import (
 )
 
 func registerOnboardingRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, featureEnabled bool) {
-	if !featureEnabled {
-		return
-	}
-
 	v1.POST("/onboarding/start", func(c *gin.Context) {
-		if !requireOnboardingService(c, svc) {
-			return
-		}
 		current, ok := requireOnboardingSession(c)
 		if !ok {
+			return
+		}
+		if !requireOnboardingFeature(c, featureEnabled) || !requireOnboardingService(c, svc) {
 			return
 		}
 		response, err := svc.StartOnboarding(c.Request.Context(), current)
@@ -29,11 +25,11 @@ func registerOnboardingRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Serv
 	})
 
 	v1.GET("/onboarding/state", func(c *gin.Context) {
-		if !requireOnboardingService(c, svc) {
-			return
-		}
 		current, ok := requireOnboardingSession(c)
 		if !ok {
+			return
+		}
+		if !requireOnboardingFeature(c, featureEnabled) || !requireOnboardingService(c, svc) {
 			return
 		}
 		response, err := svc.GetOnboardingState(c.Request.Context(), current)
@@ -41,11 +37,11 @@ func registerOnboardingRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Serv
 	})
 
 	v1.POST("/onboarding/state", func(c *gin.Context) {
-		if !requireOnboardingService(c, svc) {
-			return
-		}
 		current, ok := requireOnboardingSession(c)
 		if !ok {
+			return
+		}
+		if !requireOnboardingFeature(c, featureEnabled) || !requireOnboardingService(c, svc) {
 			return
 		}
 		var request OnboardingStateUpdateRequest
@@ -58,16 +54,24 @@ func registerOnboardingRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Serv
 	})
 
 	v1.POST("/onboarding/complete", func(c *gin.Context) {
-		if !requireOnboardingService(c, svc) {
-			return
-		}
 		current, ok := requireOnboardingSession(c)
 		if !ok {
+			return
+		}
+		if !requireOnboardingFeature(c, featureEnabled) || !requireOnboardingService(c, svc) {
 			return
 		}
 		response, err := svc.CompleteOnboarding(c.Request.Context(), current)
 		writeOnboardingResponse(c, logger, err, response, "complete onboarding")
 	})
+}
+
+func requireOnboardingFeature(c *gin.Context, featureEnabled bool) bool {
+	if !featureEnabled {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "onboarding disabled"})
+		return false
+	}
+	return true
 }
 
 func requireOnboardingService(c *gin.Context, svc *Service) bool {
