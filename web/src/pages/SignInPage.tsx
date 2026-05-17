@@ -281,7 +281,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
                 />
               </label>
               {manualError ? <p className="idt-app-alert idt-app-alert-error">{manualError}</p> : null}
-              <button className="idt-auth-provider idt-auth-provider-dark" type="submit" disabled={manualSubmitting}>
+              <button className="idt-auth-provider idt-auth-provider-plain idt-auth-provider-dark" type="submit" disabled={manualSubmitting}>
                 {manualSubmitting ? 'Creating session...' : 'Continue in dev mode'}
               </button>
             </form>

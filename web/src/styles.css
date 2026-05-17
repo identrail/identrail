@@ -4941,105 +4941,6 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   }
 }
 
-.idt-auth-page {
-  width: 100%;
-  min-height: 100svh;
-  margin: 0;
-  padding: 7rem 1.5rem 5.25rem;
-  display: grid;
-  align-items: start;
-  justify-items: center;
-  position: relative;
-  background: #fafafa;
-  color: #171717;
-}
-
-.idt-site-auth {
-  min-height: 100svh;
-  background: #fafafa;
-}
-
-.idt-site-auth > main {
-  min-height: 100svh;
-}
-
-.idt-auth-topbar {
-  position: absolute;
-  top: 1.35rem;
-  left: 1.75rem;
-  right: 1.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  pointer-events: none;
-}
-
-.idt-auth-logo,
-.idt-auth-switch {
-  pointer-events: auto;
-}
-
-.idt-auth-logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  color: #000000;
-  text-decoration: none;
-}
-
-.idt-auth-logo img {
-  width: 1.55rem;
-  height: 1.55rem;
-  border-radius: 5px;
-}
-
-.idt-auth-logo span {
-  color: #000000;
-  font-family: var(--idt-body);
-  font-size: 1.85rem;
-  font-weight: 750;
-  letter-spacing: -0.01em;
-  line-height: 1;
-}
-
-.idt-auth-logo.is-mark-only span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.idt-auth-switch {
-  min-width: 5.35rem;
-  min-height: 2.45rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #171717;
-  font-size: 0.95rem;
-  font-weight: 500;
-  text-decoration: none;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease;
-}
-
-.idt-auth-switch:hover,
-.idt-auth-switch:focus-visible {
-  background: #f7f7f7;
-  border-color: #d8d8d8;
-}
-
-.idt-auth-panel,
 .idt-empty-panel,
 .idt-error-panel {
   border: 1px solid #e5e5e5;
@@ -5047,182 +4948,10 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   background: #ffffff;
 }
 
-.idt-auth-panel {
-  width: min(100%, 23rem);
-  margin-top: 6.5rem;
-  display: grid;
-  gap: 1rem;
-  border-color: transparent;
-  background: transparent;
-}
-
-.idt-auth-panel-signup {
-  width: min(100%, 39.5rem);
-  min-height: 45.5rem;
-  align-content: center;
-  justify-items: center;
-  gap: 1.25rem;
-  padding: clamp(2.25rem, 5vw, 4.9rem) clamp(1.5rem, 4vw, 5.65rem) 2rem;
-  border-color: #dedede;
-  background: #ffffff;
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.04),
-    0 18px 54px rgba(0, 0, 0, 0.03);
-}
-
-.idt-auth-panel h1 {
-  margin: 0 0 1rem;
-  color: #171717;
-  font-family: var(--idt-body);
-  font-size: clamp(2rem, 4vw, 2.42rem);
-  font-weight: 750;
-  letter-spacing: -0.04em;
-  line-height: 1.15;
-  text-align: center;
-}
-
-.idt-auth-panel-signup h1 {
-  max-width: 16ch;
-  margin-bottom: 1.55rem;
-  font-size: clamp(2.05rem, 4.2vw, 2.45rem);
-}
-
 .idt-passwordless-hero h1 {
   max-width: 780px;
   font-size: clamp(2.15rem, 4vw, 4.4rem);
   line-height: 0.98;
-}
-
-.idt-auth-provider-stack,
-.idt-auth-provider-grid {
-  display: grid;
-  width: 100%;
-  gap: 1rem;
-}
-
-.idt-auth-provider-grid {
-  grid-template-columns: 1fr;
-}
-
-.idt-auth-provider {
-  width: 100%;
-  min-height: 3.55rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.7rem;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  color: #171717;
-  text-decoration: none;
-  font-size: 1.08rem;
-  font-weight: 500;
-  line-height: 1.2;
-  background: #ffffff;
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.idt-auth-provider:hover,
-.idt-auth-provider:focus-visible {
-  border-color: #cfcfcf;
-  background: #fbfbfb;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-}
-
-.idt-auth-provider:disabled {
-  cursor: not-allowed;
-  opacity: 0.64;
-}
-
-.idt-auth-provider-dark {
-  border-color: #24292f;
-  background: #24292f;
-  color: #ffffff;
-}
-
-.idt-auth-provider-dark:hover,
-.idt-auth-provider-dark:focus-visible {
-  border-color: #24292f;
-  background: #1f2328;
-  color: #ffffff;
-}
-
-.idt-auth-provider-icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: none;
-  object-fit: contain;
-}
-
-.idt-auth-provider-dark .idt-auth-provider-icon {
-  filter: brightness(0) invert(1);
-}
-
-.idt-auth-provider-icon-google,
-.idt-auth-provider-icon-sso {
-  display: inline-grid;
-  place-items: center;
-}
-
-.idt-auth-provider-icon-google {
-  color: #ffffff;
-  border-radius: 50%;
-  background: conic-gradient(from -45deg, #4285f4 0 25%, #34a853 0 50%, #fbbc05 0 75%, #ea4335 0 100%);
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.idt-auth-provider-icon-sso svg {
-  width: 1rem;
-  height: 1rem;
-  color: #171717;
-}
-
-.idt-auth-panel .idt-app-alert {
-  margin: 0;
-  border-color: #e5e5e5;
-  background: #ffffff;
-  color: #525252;
-  font-size: 0.95rem;
-  line-height: 1.45;
-}
-
-.idt-auth-panel .idt-app-alert-error {
-  border-color: #fecaca;
-  background: #fff7f7;
-  color: #991b1b;
-}
-
-.idt-auth-panel .idt-app-alert-success {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.idt-auth-manual-form {
-  width: 100%;
-  margin-top: 0.25rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e5e5e5;
-}
-
-.idt-auth-manual-form label {
-  color: #525252;
-  font-size: 0.86rem;
-  font-weight: 500;
-}
-
-.idt-auth-manual-form input {
-  min-height: 2.8rem;
-  border-color: #e5e5e5;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #171717;
-  padding: 0.65rem 0.8rem;
 }
 
 .idt-auth-mfa-panel {
@@ -5292,64 +5021,6 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.2;
-}
-
-.idt-auth-footer-line {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.28rem;
-  margin-top: 1rem;
-  color: #171717;
-  font-size: 0.98rem;
-  line-height: 1.45;
-}
-
-.idt-auth-footer-line a,
-.idt-auth-terms a,
-.idt-auth-legal-footer a {
-  color: #0070f3;
-  font-weight: 400;
-  text-decoration: none;
-}
-
-.idt-auth-footer-line a:hover,
-.idt-auth-footer-line a:focus-visible,
-.idt-auth-terms a:hover,
-.idt-auth-terms a:focus-visible,
-.idt-auth-legal-footer a:hover,
-.idt-auth-legal-footer a:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
-}
-
-.idt-auth-terms {
-  max-width: 100%;
-  margin: clamp(2.4rem, 7vw, 4.5rem) 0 0;
-  color: #666666;
-  font-size: 0.91rem;
-  line-height: 1.5;
-  text-align: center;
-}
-
-.idt-auth-terms a {
-  color: #171717;
-}
-
-.idt-auth-legal-footer {
-  position: absolute;
-  bottom: 1.75rem;
-  left: 1rem;
-  right: 1rem;
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-  color: #888888;
-  font-size: 0.86rem;
-}
-
-.idt-auth-legal-footer a {
-  color: #888888;
 }
 
 .idt-passwordless-page {
@@ -6058,13 +5729,8 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 }
 
 @media (max-width: 980px) {
-  .idt-auth-page,
   .idt-passwordless-grid {
     grid-template-columns: 1fr;
-  }
-
-  .idt-auth-visual {
-    min-height: 320px;
   }
 
   .idt-workspace-stats,
@@ -6088,39 +5754,8 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 }
 
 @media (max-width: 720px) {
-  .idt-auth-provider-grid,
-  .idt-auth-path,
   .idt-security-overview {
     grid-template-columns: 1fr;
-  }
-
-  .idt-auth-page {
-    padding: 6rem 1rem 4.75rem;
-  }
-
-  .idt-auth-panel {
-    margin-top: 0;
-  }
-
-  .idt-auth-topbar {
-    top: 1rem;
-    left: 1rem;
-    right: 1rem;
-  }
-
-  .idt-auth-logo span {
-    font-size: 1.45rem;
-  }
-
-  .idt-auth-switch {
-    min-width: 4.65rem;
-    min-height: 2.25rem;
-    font-size: 0.88rem;
-  }
-
-  .idt-auth-panel-signup {
-    min-height: auto;
-    padding: 2.8rem 1.25rem 1.7rem;
   }
 
   .idt-session-row,
@@ -6360,8 +5995,6 @@ html[data-theme='light'] .idt-repo-finding-code pre {
   border-color: rgba(42, 71, 119, 0.18);
 }
 
-html[data-theme='light'] .idt-auth-visual,
-html[data-theme='light'] .idt-auth-panel,
 html[data-theme='light'] .idt-empty-panel,
 html[data-theme='light'] .idt-error-panel,
 html[data-theme='light'] .idt-passwordless-grid article,
@@ -6371,101 +6004,10 @@ html[data-theme='light'] .idt-session-row {
   border-color: rgba(35, 64, 111, 0.2);
 }
 
-html[data-theme='light'] .idt-auth-visual {
-  background:
-    linear-gradient(140deg, rgba(245, 250, 255, 0.92), rgba(232, 244, 241, 0.9)),
-    url('/identrail-logo.png') center 18% / 172px auto no-repeat;
-}
-
-html[data-theme='light'] .idt-auth-signal-card,
-html[data-theme='light'] .idt-auth-path span,
-html[data-theme='light'] .idt-auth-provider {
-  color: #1f3b63;
-  background: rgba(255, 255, 255, 0.94);
-  border-color: rgba(42, 71, 119, 0.22);
-}
-
-html[data-theme='light'] .idt-auth-provider-primary {
-  background: #183c6b;
-  color: #ffffff;
-}
-
 html[data-theme='light'] .idt-dev-mode-banner {
   color: #77510a;
   background: #fff6da;
   border-color: rgba(176, 122, 20, 0.34);
-}
-
-html[data-theme='light'] .idt-auth-footer-line {
-  color: #4a5f7e;
-}
-
-html[data-theme='light'] .idt-auth-footer-line a {
-  color: #183c6b;
-}
-
-html[data-theme='light'] .idt-site-auth,
-html[data-theme='light'] .idt-auth-page {
-  background: #fafafa;
-}
-
-html[data-theme='light'] .idt-auth-panel-login {
-  background: transparent;
-  border-color: transparent;
-}
-
-html[data-theme='light'] .idt-auth-panel-signup {
-  background: #ffffff;
-  border-color: #dedede;
-}
-
-html[data-theme='light'] .idt-auth-provider {
-  color: #171717;
-  background: #ffffff;
-  border-color: #e5e5e5;
-}
-
-html[data-theme='light'] .idt-auth-provider:hover,
-html[data-theme='light'] .idt-auth-provider:focus-visible {
-  background: #fbfbfb;
-  border-color: #cfcfcf;
-}
-
-html[data-theme='light'] .idt-auth-provider-dark,
-html[data-theme='light'] .idt-auth-provider-dark:hover,
-html[data-theme='light'] .idt-auth-provider-dark:focus-visible {
-  color: #ffffff;
-  background: #24292f;
-  border-color: #24292f;
-}
-
-html[data-theme='light'] .idt-auth-provider-dark .idt-auth-provider-icon {
-  filter: brightness(0) invert(1);
-}
-
-html[data-theme='light'] .idt-auth-footer-line,
-html[data-theme='light'] .idt-auth-panel h1 {
-  color: #171717;
-}
-
-html[data-theme='light'] .idt-auth-footer-line a,
-html[data-theme='light'] .idt-auth-legal-footer a {
-  color: #0070f3;
-}
-
-html[data-theme='light'] .idt-auth-terms a {
-  color: #171717;
-}
-
-html[data-theme='light'] .idt-auth-manual-form label,
-html[data-theme='light'] .idt-auth-terms {
-  color: #666666;
-}
-
-html[data-theme='light'] .idt-auth-manual-form input {
-  color: #171717;
-  background: #ffffff;
-  border-color: #e5e5e5;
 }
 
 html[data-theme='light'] .idt-dev-mode-banner {
@@ -6698,6 +6240,15 @@ html[data-theme='light'] .idt-auth-provider {
   content: '';
   width: 1.45rem;
   height: 1px;
+}
+
+.idt-auth-provider-plain {
+  display: inline-flex;
+  grid-template-columns: none;
+}
+
+.idt-auth-provider-plain::after {
+  content: none;
 }
 
 .idt-auth-provider:hover,

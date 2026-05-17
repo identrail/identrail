@@ -134,7 +134,7 @@ export function WorkOSMFAPage() {
           <img src="/identrail-logo.png" alt="" />
           <span>Identrail</span>
         </Link>
-        <Link className="idt-auth-switch" to="/signin">
+        <Link className="idt-auth-topbar-action" to="/signin">
           Sign In
         </Link>
       </div>
@@ -164,7 +164,7 @@ export function WorkOSMFAPage() {
               .filter((factor) => factor.type === 'totp')
               .map((factor) => (
                 <button
-                  className="idt-auth-provider"
+                  className="idt-auth-provider idt-auth-provider-plain"
                   key={factor.id}
                   type="button"
                   onClick={() => startChallenge(factor.id)}
