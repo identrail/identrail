@@ -191,8 +191,8 @@ For the standard hosted setup, configure Resend:
 - `LEAD_CONFIRMATION_SUBJECT` (optional requester confirmation subject override)
 - `LEAD_EMAIL_TIMEOUT_MS` (default: `3000`, bounded to `500..10000`)
 
-Optional webhook forwarding can be enabled alongside email, or used as a
-fallback delivery channel:
+Optional webhook forwarding can be enabled alongside email, or used as the sole
+delivery channel when Resend is not configured:
 
 - `LEAD_WEBHOOK_URL` (must use `https`, or `http` only for localhost targets)
 - `LEAD_WEBHOOK_TIMEOUT_MS` (default: `3000`, bounded to `500..10000`)
