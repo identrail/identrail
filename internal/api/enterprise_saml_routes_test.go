@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -508,5 +509,125 @@ func TestNativeSAMLRoutes_RejectsUnauthenticatedRequest(t *testing.T) {
 	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/identity-connections/saml", nil)
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 without session, got %d", w.Code)
+	}
+}
+
+func TestNativeSAMLRoutes_RequireOrgContext(t *testing.T) {
+	svc, _, fetcher := newSAMLTestRig(t)
+	injectMissingOrg := func(c *gin.Context) {
+		c.Set("auth.session", sessionauth.CurrentSession{
+			Session: db.Session{
+				UserID:             "11111111-1111-1111-1111-111111111111",
+				CurrentWorkspaceID: "workspace-a",
+			},
+		})
+	}
+	r := newTestRouterFor(t, svc, injectMissingOrg, fetcher, true)
+
+	requests := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{name: "create", method: http.MethodPost, path: "/v1/enterprise/identity-connections/saml", body: validSAMLRequest(t)},
+		{name: "list", method: http.MethodGet, path: "/v1/enterprise/identity-connections/saml"},
+		{name: "get", method: http.MethodGet, path: "/v1/enterprise/identity-connections/saml/11111111-1111-1111-1111-111111111111"},
+		{name: "update", method: http.MethodPut, path: "/v1/enterprise/identity-connections/saml/11111111-1111-1111-1111-111111111111", body: validSAMLRequest(t)},
+		{name: "delete", method: http.MethodDelete, path: "/v1/enterprise/identity-connections/saml/11111111-1111-1111-1111-111111111111"},
+		{name: "metadata", method: http.MethodPost, path: "/v1/enterprise/identity-connections/saml/from-metadata", body: gin.H{"metadata_xml": oktaMetadataFixture}},
+	}
+	for _, req := range requests {
+		t.Run(req.name, func(t *testing.T) {
+			w := doJSON(t, r, req.method, req.path, req.body)
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestNativeSAMLHelpers_DefaultsAndErrorMapping(t *testing.T) {
+	if got := defaultSAMLConnectionType(""); got != "sso" {
+		t.Fatalf("empty type should default to sso, got %q", got)
+	}
+	if got := defaultSAMLConnectionType(" SAML "); got != "saml" {
+		t.Fatalf("type should normalize whitespace and case, got %q", got)
+	}
+	if !isClientValidationError(errMissingEmailAttributeMapping) {
+		t.Fatal("missing email mapping should be treated as a client validation error")
+	}
+	if isClientValidationError(nil) {
+		t.Fatal("nil error should not be treated as client validation")
+	}
+	if defaultEnterpriseSAMLMetadataFetcher() == nil {
+		t.Fatal("default metadata fetcher should be initialized")
+	}
+
+	cases := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{name: "not found", err: db.ErrNotFound, status: http.StatusNotFound},
+		{name: "conflict", err: db.ErrConflict, status: http.StatusConflict},
+		{name: "validation", err: errMissingEmailAttributeMapping, status: http.StatusBadRequest},
+		{name: "server", err: errors.New("backend unavailable"), status: http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			writeIdentityConnectionError(c, nil, tc.err, "test action")
+			if w.Code != tc.status {
+				t.Fatalf("expected %d, got %d: %s", tc.status, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestNativeSAMLHelpers_PreflightValidation(t *testing.T) {
+	certPEM := generateTestCertPEM(t)
+	if err := preflightNativeSAML(db.IdentityConnection{
+		CertificatePEM:   certPEM,
+		AttributeMapping: map[string]string{"email": "mail"},
+	}); err != nil {
+		t.Fatalf("valid SAML connection should pass preflight: %v", err)
+	}
+	if err := preflightNativeSAML(db.IdentityConnection{
+		CertificatePEM:   certPEM,
+		AttributeMapping: map[string]string{"name": "displayName"},
+	}); !errors.Is(err, errMissingEmailAttributeMapping) {
+		t.Fatalf("expected missing email mapping error, got %v", err)
+	}
+	if err := preflightNativeSAML(db.IdentityConnection{
+		CertificatePEM:   "not a certificate",
+		AttributeMapping: map[string]string{"email": "mail"},
+	}); err == nil {
+		t.Fatal("invalid certificate should fail preflight")
+	}
+}
+
+func TestNativeSAMLHelpers_ExistingWorkOSBlocker(t *testing.T) {
+	svc, _, _ := newSAMLTestRig(t)
+	ctx := context.Background()
+	if existingWorkOSSAMLBlocking(ctx, svc, "tenant-a", "sso") {
+		t.Fatal("unexpected WorkOS SAML blocker before seeding a connection")
+	}
+	if _, err := svc.Store.CreateIdentityConnection(ctx, db.IdentityConnection{
+		ID:                 "22222222-2222-2222-2222-222222222222",
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "workos-conn",
+	}); err != nil {
+		t.Fatalf("seed WorkOS SAML connection: %v", err)
+	}
+	if !existingWorkOSSAMLBlocking(ctx, svc, "tenant-a", "sso") {
+		t.Fatal("expected seeded WorkOS SAML connection to block native SAML")
+	}
+	if existingWorkOSSAMLBlocking(ctx, svc, "tenant-a", "scim") {
+		t.Fatal("WorkOS SAML blocker should be scoped to the requested connection type")
 	}
 }
