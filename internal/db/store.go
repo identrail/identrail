@@ -156,6 +156,7 @@ var validSessionAuthMethods = map[string]struct{}{
 	"workos": {},
 	"oidc":   {},
 	"manual": {},
+	"saml":   {},
 }
 
 var validIdentityConnectionProviders = map[string]struct{}{
@@ -2093,6 +2094,11 @@ type Store interface {
 	ListVerifiedDomains(ctx context.Context, orgID string, limit int) ([]VerifiedDomain, error)
 	CreateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	GetIdentityConnection(ctx context.Context, orgID string, connectionID string) (IdentityConnection, error)
+	// GetIdentityConnectionByID looks up a connection by its globally unique
+	// UUID without requiring the caller to know the owning org id. Needed
+	// for unauthenticated entry points like /auth/saml/login/:connection_id
+	// where the org context is determined by the connection itself.
+	GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error)
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
 	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	DeleteIdentityConnection(ctx context.Context, orgID string, connectionID string) error

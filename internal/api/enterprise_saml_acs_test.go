@@ -1,0 +1,400 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
+	"encoding/xml"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/beevik/etree"
+	"github.com/crewjam/saml"
+	"github.com/gin-gonic/gin"
+	sessionauth "github.com/identrail/identrail/internal/api/auth"
+	"github.com/identrail/identrail/internal/db"
+	dsig "github.com/russellhaering/goxmldsig"
+)
+
+// ---------- SAML fixture IdP ----------
+
+// samlFixtureIdP holds an in-memory IdP key + cert. The same struct mints
+// SAMLResponse XML for the ACS handler tests so we exercise the real
+// crewjam parser + signature path end-to-end.
+type samlFixtureIdP struct {
+	key   *rsa.PrivateKey
+	cert  *x509.Certificate
+	certB string // base64 DER for embedding in the connection
+	pem   string
+}
+
+func newSAMLFixtureIdP(t *testing.T) *samlFixtureIdP {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("idp keygen: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "fixture-idp"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+	return &samlFixtureIdP{
+		key:   key,
+		cert:  cert,
+		certB: base64.StdEncoding.EncodeToString(der),
+		pem:   string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+	}
+}
+
+// mintSignedSAMLResponse produces a signed SAML 2.0 Response document that
+// crewjam will accept: the assertion is signed (enveloped XML-DSig), the
+// audience matches the SP's EntityID, recipient matches the ACS URL,
+// InResponseTo matches the supplied request ID, and the conditions window is
+// generous enough to ignore the test clock.
+func (i *samlFixtureIdP) mintSignedSAMLResponse(t *testing.T, requestID, audience, recipient, nameID, email string) string {
+	t.Helper()
+	now := time.Now().UTC()
+	notBefore := now.Add(-time.Minute)
+	notOnOrAfter := now.Add(10 * time.Minute)
+
+	assertionID := "_assertion-" + randomHex(t, 8)
+	responseID := "_response-" + randomHex(t, 8)
+	tpl := `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+  ID="` + responseID + `" Version="2.0" IssueInstant="` + now.Format(time.RFC3339) + `"
+  Destination="` + recipient + `" InResponseTo="` + requestID + `">
+  <saml:Issuer>https://idp.example.com/entity</saml:Issuer>
+  <samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>
+  <saml:Assertion ID="` + assertionID + `" Version="2.0" IssueInstant="` + now.Format(time.RFC3339) + `">
+    <saml:Issuer>https://idp.example.com/entity</saml:Issuer>
+    <saml:Subject>
+      <saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">` + nameID + `</saml:NameID>
+      <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
+        <saml:SubjectConfirmationData NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `" Recipient="` + recipient + `" InResponseTo="` + requestID + `"/>
+      </saml:SubjectConfirmation>
+    </saml:Subject>
+    <saml:Conditions NotBefore="` + notBefore.Format(time.RFC3339) + `" NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `">
+      <saml:AudienceRestriction><saml:Audience>` + audience + `</saml:Audience></saml:AudienceRestriction>
+    </saml:Conditions>
+    <saml:AuthnStatement AuthnInstant="` + now.Format(time.RFC3339) + `" SessionIndex="_session">
+      <saml:AuthnContext><saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport</saml:AuthnContextClassRef></saml:AuthnContext>
+    </saml:AuthnStatement>
+    <saml:AttributeStatement>
+      <saml:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress">
+        <saml:AttributeValue>` + email + `</saml:AttributeValue>
+      </saml:Attribute>
+      <saml:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name">
+        <saml:AttributeValue>Test User</saml:AttributeValue>
+      </saml:Attribute>
+    </saml:AttributeStatement>
+  </saml:Assertion>
+</samlp:Response>`
+
+	// Sign the assertion as its own self-contained document so the saml:
+	// namespace prefix is in scope during canonicalisation, then splice the
+	// signed element back into the response.
+	assertionDoc := etree.NewDocument()
+	if err := assertionDoc.ReadFromString(`<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="` + assertionID + `" Version="2.0" IssueInstant="` + now.Format(time.RFC3339) + `">
+  <saml:Issuer>https://idp.example.com/entity</saml:Issuer>
+  <saml:Subject>
+    <saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">` + nameID + `</saml:NameID>
+    <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
+      <saml:SubjectConfirmationData NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `" Recipient="` + recipient + `" InResponseTo="` + requestID + `"/>
+    </saml:SubjectConfirmation>
+  </saml:Subject>
+  <saml:Conditions NotBefore="` + notBefore.Format(time.RFC3339) + `" NotOnOrAfter="` + notOnOrAfter.Format(time.RFC3339) + `">
+    <saml:AudienceRestriction><saml:Audience>` + audience + `</saml:Audience></saml:AudienceRestriction>
+  </saml:Conditions>
+  <saml:AuthnStatement AuthnInstant="` + now.Format(time.RFC3339) + `" SessionIndex="_session">
+    <saml:AuthnContext><saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport</saml:AuthnContextClassRef></saml:AuthnContext>
+  </saml:AuthnStatement>
+  <saml:AttributeStatement>
+    <saml:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress">
+      <saml:AttributeValue>` + email + `</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name">
+      <saml:AttributeValue>Test User</saml:AttributeValue>
+    </saml:Attribute>
+  </saml:AttributeStatement>
+</saml:Assertion>`); err != nil {
+		t.Fatalf("parse assertion template: %v", err)
+	}
+	signed, err := signXMLElement(i.key, i.cert, assertionDoc.Root())
+	if err != nil {
+		t.Fatalf("sign assertion: %v", err)
+	}
+
+	// Wrap the signed assertion in the SAML response envelope.
+	respDoc := etree.NewDocument()
+	if err := respDoc.ReadFromString(`<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="` + responseID + `" Version="2.0" IssueInstant="` + now.Format(time.RFC3339) + `" Destination="` + recipient + `" InResponseTo="` + requestID + `">
+  <saml:Issuer>https://idp.example.com/entity</saml:Issuer>
+  <samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>
+</samlp:Response>`); err != nil {
+		t.Fatalf("parse response envelope: %v", err)
+	}
+	respDoc.Root().AddChild(signed)
+
+	out, err := respDoc.WriteToString()
+	if err != nil {
+		t.Fatalf("serialize response: %v", err)
+	}
+	_ = tpl
+	return out
+}
+
+func signXMLElement(key *rsa.PrivateKey, cert *x509.Certificate, el *etree.Element) (*etree.Element, error) {
+	keyStore := dsig.TLSCertKeyStore{PrivateKey: key, Certificate: [][]byte{cert.Raw}}
+	signCtx := dsig.NewDefaultSigningContext(keyStore)
+	signCtx.Canonicalizer = dsig.MakeC14N10ExclusiveCanonicalizerWithPrefixList("")
+	if err := signCtx.SetSignatureMethod(dsig.RSASHA256SignatureMethod); err != nil {
+		return nil, err
+	}
+	return signCtx.SignEnveloped(el)
+}
+
+func randomHex(t *testing.T, n int) string {
+	t.Helper()
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatalf("rand: %v", err)
+	}
+	return strings.ToLower(strings.ReplaceAll(base64.RawURLEncoding.EncodeToString(b), "_", ""))
+}
+
+// ---------- ACS handler tests ----------
+
+func newSAMLACSRig(t *testing.T, jit bool) (*Service, db.IdentityConnection, *samlFixtureIdP, sessionauth.Manager, *sessionauth.OAuthStateManager) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	store := db.NewMemoryStore()
+	seedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(seedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+
+	idp := newSAMLFixtureIdP(t)
+	connection, err := store.CreateIdentityConnection(seedCtx, db.IdentityConnection{
+		OrgID:                  "tenant-a",
+		Provider:               "saml",
+		Type:                   "sso",
+		Status:                 "active",
+		EntityID:               "https://idp.example.com/entity",
+		SSOURL:                 "https://idp.example.com/sso",
+		CertificatePEM:         idp.pem,
+		AttributeMapping:       map[string]string{"email": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress", "name": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"},
+		JITProvisioningEnabled: jit,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	sessionManager := sessionauth.Manager{Store: store}
+	stateManager := sessionauth.NewOAuthStateManager("test-session-key-must-be-at-least-32-bytes-long", nil)
+	return svc, connection, idp, sessionManager, stateManager
+}
+
+func TestSAMLACSHandler_HappyPath_JITCreatesUser(t *testing.T) {
+	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	requestID := "_authnreq-" + randomHex(t, 8)
+	relay, err := stateMgr.IssueWithSAML("login", "/app/tenant-a/workspace-a", conn.ID, requestID)
+	if err != nil {
+		t.Fatalf("issue state: %v", err)
+	}
+	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
+	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
+	signedResponse := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "alice@example.com", "alice@example.com")
+	encoded := base64.StdEncoding.EncodeToString([]byte(signedResponse))
+
+	form := url.Values{
+		"SAMLResponse": {encoded},
+		"RelayState":   {relay},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/"+conn.ID, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect, got %d body=%s", w.Code, w.Body.String())
+	}
+	// JIT created the user — verify the persistence side-effect.
+	if _, err := svc.Store.GetUserByPrimaryEmail(context.Background(), "alice@example.com"); err != nil {
+		t.Errorf("JIT did not create the asserted user: %v", err)
+	}
+}
+
+func TestSAMLACSHandler_JITDisabledRejectsUnknownUser(t *testing.T) {
+	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, false)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	requestID := "_authnreq-" + randomHex(t, 8)
+	relay, _ := stateMgr.IssueWithSAML("login", "", conn.ID, requestID)
+	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
+	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
+	signed := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "stranger@example.com", "stranger@example.com")
+	encoded := base64.StdEncoding.EncodeToString([]byte(signed))
+
+	form := url.Values{"SAMLResponse": {encoded}, "RelayState": {relay}}
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/"+conn.ID, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "provision") {
+		t.Errorf("expected provisioning hint in error body, got %s", w.Body.String())
+	}
+}
+
+func TestSAMLACSHandler_RejectsTamperedSignature(t *testing.T) {
+	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	requestID := "_authnreq-" + randomHex(t, 8)
+	relay, _ := stateMgr.IssueWithSAML("login", "", conn.ID, requestID)
+	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
+	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
+	signed := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "alice@example.com", "alice@example.com")
+	// Flip a single attribute value to invalidate the signature.
+	tampered := strings.Replace(signed, "alice@example.com", "evil@example.com", -1)
+	encoded := base64.StdEncoding.EncodeToString([]byte(tampered))
+
+	form := url.Values{"SAMLResponse": {encoded}, "RelayState": {relay}}
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/"+conn.ID, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on tampered signature, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSAMLACSHandler_RejectsRelayStateForWrongConnection(t *testing.T) {
+	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	requestID := "_authnreq-" + randomHex(t, 8)
+	// RelayState carries a DIFFERENT connection id than the URL path.
+	otherRelay, _ := stateMgr.IssueWithSAML("login", "", "00000000-0000-0000-0000-000000000000", requestID)
+	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
+	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
+	signed := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "alice@example.com", "alice@example.com")
+	encoded := base64.StdEncoding.EncodeToString([]byte(signed))
+
+	form := url.Values{"SAMLResponse": {encoded}, "RelayState": {otherRelay}}
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/"+conn.ID, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestSAMLACSHandler_RejectsUnknownConnection(t *testing.T) {
+	svc, _, _, manager, stateMgr := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/99999999-9999-9999-9999-999999999999", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown connection, got %d", w.Code)
+	}
+}
+
+func TestSAMLACSHandler_DisabledByFeatureFlag(t *testing.T) {
+	svc, conn, _, manager, stateMgr := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       false, // feature off
+		StateManager:  stateMgr,
+		PublicBaseURL: "https://api.example.com",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/auth/saml/acs/"+conn.ID, strings.NewReader(""))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected route to be unregistered when flag is off; got %d", w.Code)
+	}
+}
+
+// ---------- attribute mapping ----------
+
+func TestSAMLProfileFromAssertion_FallsBackToNameIDWhenEmailUnmapped(t *testing.T) {
+	conn := db.IdentityConnection{
+		ID:               "conn-1",
+		AttributeMapping: map[string]string{}, // no email mapping
+	}
+	assertion := &saml.Assertion{
+		Subject: &saml.Subject{NameID: &saml.NameID{Value: "alice@example.com"}},
+	}
+	profile, err := samlProfileFromAssertion(conn, assertion)
+	if err != nil {
+		t.Fatalf("extract profile: %v", err)
+	}
+	if profile.Email != "alice@example.com" {
+		t.Errorf("expected NameID fallback for email, got %q", profile.Email)
+	}
+}
+
+// xmlMatches keeps the linter happy; the constant in newSAMLFixtureIdP relies
+// on it through the etree-driven mint path.
+var _ = xml.NewDecoder
+
+// bytesBufferAlias silences the strictly-unused import bytes when the
+// generator removes one of the helpers. Keeping it here removes the test
+// from being brittle to fixture changes.
+var _ = bytes.NewBuffer

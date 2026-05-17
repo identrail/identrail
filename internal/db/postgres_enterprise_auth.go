@@ -409,6 +409,20 @@ func (p *PostgresStore) GetIdentityConnection(ctx context.Context, orgID string,
 	))
 }
 
+// GetIdentityConnectionByID resolves a connection by its globally unique
+// UUID, bypassing the org-scope filter applied by GetIdentityConnection.
+// Used by entry points (SAML SP-initiated login) that do not know the org id
+// in advance — the connection itself determines the org scope.
+func (p *PostgresStore) GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error) {
+	return scanIdentityConnection(p.queryRowContext(
+		ctx,
+		`SELECT `+identityConnectionColumns+`
+		 FROM identity_connections
+		 WHERE id = NULLIF($1, '')::uuid`,
+		strings.TrimSpace(connectionID),
+	))
+}
+
 // ListIdentityConnections returns organization identity connection scaffolds ordered by newest first.
 func (p *PostgresStore) ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error) {
 	if limit <= 0 {

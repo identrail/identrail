@@ -82,16 +82,24 @@ func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, 
 	})
 }
 
-func registerAuthConfigRoute(v1 *gin.RouterGroup, manualMode bool, workOSEnabled bool) {
+func registerAuthConfigRoute(v1 *gin.RouterGroup, manualMode bool, workOSEnabled bool, nativeSSOEnabled bool) {
 	v1.GET("/auth/config", func(c *gin.Context) {
 		providers := []string{}
 		if workOSEnabled {
 			providers = append(providers, "github_oauth", "google_oauth", "authkit")
 		}
+		if nativeSSOEnabled {
+			// The frontend uses this to decide whether to render a
+			// "Sign in with company SSO" button. The actual SAML
+			// connection id comes from a separate per-org lookup so
+			// nothing org-specific leaks into this public response.
+			providers = append(providers, "saml")
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"auth": gin.H{
 				"manual_mode":          manualMode,
 				"workos_login_enabled": workOSEnabled,
+				"native_saml_enabled":  nativeSSOEnabled,
 				"providers":            providers,
 			},
 		})

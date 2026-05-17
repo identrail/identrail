@@ -234,6 +234,24 @@ func (m *MemoryStore) GetIdentityConnection(ctx context.Context, orgID string, c
 	return connection, nil
 }
 
+// GetIdentityConnectionByID resolves a connection by its globally unique
+// UUID. Used by entry points that do not know the org id yet (e.g. the SAML
+// SP-initiated login route).
+func (m *MemoryStore) GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error) {
+	connectionID = strings.TrimSpace(connectionID)
+	if connectionID == "" {
+		return IdentityConnection{}, ErrNotFound
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, connection := range m.identityConnections {
+		if connection.ID == connectionID {
+			return connection, nil
+		}
+	}
+	return IdentityConnection{}, ErrNotFound
+}
+
 // ListIdentityConnections returns organization identity connection scaffolds ordered by newest first.
 func (m *MemoryStore) ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error) {
 	m.mu.RLock()

@@ -304,6 +304,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		if workOSClient == nil && opts.FeatureWorkOSLogin {
 			workOSClient = sessionauth.NewWorkOSSDKClient(opts.WorkOSAPIKey, opts.WorkOSClientID)
 		}
+		stateManager := sessionauth.NewOAuthStateManager(opts.SessionKey, nil)
 		registerAuthSessionRoutes(r, logger, svc, sessionManager, authSessionRouteOptions{
 			AuditSink:           opts.AuditSink,
 			AuditFingerprinter:  opts.AuditFingerprinter,
@@ -312,10 +313,18 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			WorkOSClientID:      opts.WorkOSClientID,
 			WorkOSClient:        workOSClient,
 			WorkOSWebhookSecret: opts.WorkOSWebhookSecret,
-			StateManager:        sessionauth.NewOAuthStateManager(opts.SessionKey, nil),
+			StateManager:        stateManager,
 			PendingMFAManager:   sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil),
 			PublicBaseURL:       opts.PublicBaseURL,
 			ReturnToOrigins:     authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
+		})
+		// Native SAML SP-initiated login + ACS share the same HMAC state
+		// manager so a single SessionKey rotation invalidates every
+		// half-finished login regardless of which path issued it.
+		registerNativeSAMLLoginRoutes(r, logger, svc, sessionManager, nativeSAMLLoginRouteOptions{
+			Enabled:       opts.FeatureNativeSSO,
+			StateManager:  stateManager,
+			PublicBaseURL: opts.PublicBaseURL,
 		})
 	}
 
@@ -324,7 +333,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	publicV1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	publicV1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
 	if opts.FeatureNewAuth {
-		registerAuthConfigRoute(publicV1, opts.AuthManualMode, opts.FeatureWorkOSLogin)
+		registerAuthConfigRoute(publicV1, opts.AuthManualMode, opts.FeatureWorkOSLogin, opts.FeatureNativeSSO)
 	}
 	registerKubernetesAgentRoutes(publicV1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 

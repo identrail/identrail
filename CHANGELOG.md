@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Added native SAML 2.0 SP-initiated login (behind `IDENTRAIL_FEATURE_NATIVE_SSO`):
+  - `GET /auth/saml/login/{connection_id}` mints an `AuthnRequest`, stores the request id in the existing HMAC-signed state token, and redirects the browser to the IdP SSO URL with `RelayState`
+  - `POST /auth/saml/acs/{connection_id}` is the Assertion Consumer Service. SAML response parsing, signature verification (XML-DSig), audience/recipient/InResponseTo checks, and `NotOnOrAfter` enforcement are delegated to `github.com/crewjam/saml` so we do not ship bespoke SAML protocol code. A 60s clock-skew tolerance is layered on top.
+  - `UpsertSAMLAssertedUser` resolves users in three steps: existing `saml:<connection_id>` identity → pre-provisioned `scim:<connection_id>` identity → existing user by primary email. When no match exists, the connection's `jit_provisioning_enabled` flag decides whether to create a fresh user or return 403 with an admin-actionable "ask your admin to provision your account" message
+  - Sessions issued from the SAML path carry `AuthMethod: "saml"` (new accepted value) and the org id from the connection
+  - `/v1/auth/config` exposes `native_saml_enabled` so the web frontend can render the "Sign in with company SSO" button only when the feature is on
+  - WorkOS sign-in/sign-up flow is unchanged; both paths share the same `OAuthStateManager` so a `SessionKey` rotation invalidates every half-finished login regardless of which doorway issued it
 - Enabled Identrail Cloud self-serve onboarding deployment wiring:
   - production AWS API deploys now set `IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true` by default alongside new auth, with `API_FEATURE_ONBOARDING_WIZARD=false` available as the explicit rollback knob
   - Vercel production deploys upsert `VITE_FEATURE_ONBOARDING_WIZARD` before building the web app, defaulting to `true` and honoring a repository variable override for rollback
