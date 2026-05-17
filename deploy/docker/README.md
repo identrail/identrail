@@ -6,7 +6,7 @@
 - `Dockerfile.web`: builds dashboard web image
   - production builds use the strict nginx CSP by default; Compose passes `NGINX_CONF=default.local.conf` for localhost API access.
 - `docker-compose.yml`: local single-host stack
-- `docker-compose.public.yml`: public-image evaluation stack that pulls from GHCR
+- `docker-compose.public.yml`: public-image evaluation stack that pulls from Docker Hub
 - `docker-compose.prod.example.yml`: production profile override (TLS URLs, migration service, exposed ports)
 - `docker-compose.security.example.yml`: least-privilege runtime hardening override (`read_only`, dropped capabilities, `no-new-privileges`)
 - `.env.example`: environment template
@@ -36,7 +36,7 @@ Manual setup:
 create a project folder, `.env` file, or runnable multi-service stack on disk.
 
 For a no-clone, no-build evaluation path, download the published Compose file
-and run it directly:
+and run it directly. The public stack pulls from Docker Hub by default:
 
 ```bash
 mkdir identrail-docker && cd identrail-docker
@@ -71,6 +71,9 @@ downloaded `.env` file before starting the stack. If you change
 `http://localhost:8080` for the API, so the no-clone quickstart keeps the API
 port fixed on `8080`.
 
+To test the GHCR copies instead, set `IDENTRAIL_IMAGE_REGISTRY=ghcr.io/identrail`
+in the downloaded `.env` before starting the stack.
+
 If you need direct access to the quickstart database for debugging, use
 `docker compose exec` instead of exposing the port by default:
 
@@ -82,9 +85,9 @@ You can still pull the main image directly when you want to inspect or run just
 the API server:
 
 ```bash
-docker pull ghcr.io/identrail/identrail:dev
-# Docker Hub mirror:
 docker pull docker.io/identrail/identrail:dev
+# GHCR mirror:
+docker pull ghcr.io/identrail/identrail:dev
 ```
 
 Run the API server by itself with disposable in-memory storage:
@@ -95,7 +98,7 @@ docker run --rm -p 8080:8080 \
   -e IDENTRAIL_RUN_MIGRATIONS=false \
   -e IDENTRAIL_API_KEYS=identrail-local-read-key-change-me,identrail-local-write-key-change-me \
   -e IDENTRAIL_WRITE_API_KEYS=identrail-local-write-key-change-me \
-  ghcr.io/identrail/identrail:dev
+  docker.io/identrail/identrail:dev
 ```
 
 Then verify it with:
@@ -123,15 +126,15 @@ secrets and disable manual mode.
 Supporting images are published for multi-service deployments:
 
 ```bash
-docker pull ghcr.io/identrail/identrail-worker:dev
-docker pull ghcr.io/identrail/identrail-web:dev
-docker pull ghcr.io/identrail/identrail-api:dev
-docker pull ghcr.io/identrail/identrail-agent:dev
-# Docker Hub mirrors:
 docker pull docker.io/identrail/identrail-worker:dev
 docker pull docker.io/identrail/identrail-web:dev
 docker pull docker.io/identrail/identrail-api:dev
 docker pull docker.io/identrail/identrail-agent:dev
+# GHCR mirrors:
+docker pull ghcr.io/identrail/identrail-worker:dev
+docker pull ghcr.io/identrail/identrail-web:dev
+docker pull ghcr.io/identrail/identrail-api:dev
+docker pull ghcr.io/identrail/identrail-agent:dev
 ```
 
 Each `dev` publish also creates immutable `sha-<12-char-sha>` tags. Release

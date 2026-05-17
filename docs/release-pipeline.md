@@ -85,5 +85,5 @@ If a SemVer tag already exists but no GitHub Release was published (for example 
 1. Open **Actions** -> **Release** -> **Run workflow**.
 2. Set:
    - `tag=v1.0.0`
-   - `publish_images=false` (binary/checksum-only backfill), or `true` if GHCR image publish is required.
+   - `publish_images=false` (binary/checksum-only backfill), or `true` if container image publishing is required.
 3. Run workflow and confirm release assets include archive files plus `checksums.txt`.

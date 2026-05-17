@@ -1,5 +1,5 @@
-# Public-image evaluation stack. This file pulls images from GHCR instead of
-# building local images from source.
+# Public-image evaluation stack. This file pulls published Docker Hub images
+# instead of building local images from source.
 
 x-identrail-env: &identrail-env
   IDENTRAIL_SERVICE_NAME: identrail
@@ -45,7 +45,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/identrail/identrail:${IDENTRAIL_IMAGE_TAG:-dev}
+    image: ${IDENTRAIL_IMAGE_REGISTRY:-docker.io/identrail}/identrail:${IDENTRAIL_IMAGE_TAG:-dev}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -58,7 +58,7 @@ services:
       - "127.0.0.1:8080:8080"
 
   worker:
-    image: ghcr.io/identrail/identrail-worker:${IDENTRAIL_IMAGE_TAG:-dev}
+    image: ${IDENTRAIL_IMAGE_REGISTRY:-docker.io/identrail}/identrail-worker:${IDENTRAIL_IMAGE_TAG:-dev}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -70,7 +70,7 @@ services:
       IDENTRAIL_RUN_MIGRATIONS: "false"
 
   web:
-    image: ghcr.io/identrail/identrail-web:${IDENTRAIL_IMAGE_TAG:-dev}
+    image: ${IDENTRAIL_IMAGE_REGISTRY:-docker.io/identrail}/identrail-web:${IDENTRAIL_IMAGE_TAG:-dev}
     restart: unless-stopped
     depends_on:
       api:

@@ -40,7 +40,7 @@ Use it when you run AWS and/or Kubernetes workloads and want identity risk visib
 
 Prerequisites: Docker, Docker Compose, `curl`, `jq`.
 
-Use published images without building from source:
+Use the published Docker Hub images without building from source:
 
 ```bash
 mkdir identrail-docker && cd identrail-docker
@@ -50,6 +50,12 @@ curl http://localhost:8080/healthz
 ```
 
 Open `http://localhost:8081` for the web UI.
+
+To inspect the main API image directly:
+
+```bash
+docker pull docker.io/identrail/identrail:dev
+```
 
 `docker pull` by itself only downloads images into Docker; it does not create a
 project directory or the Compose file needed to start the full stack.
