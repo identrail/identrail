@@ -66,4 +66,11 @@ describe('RequireOnboardingBackend', () => {
 
     expect(await screen.findByRole('heading', { name: 'Fallback shown' })).toBeInTheDocument();
   });
+
+  it('renders the fallback when the API does not advertise onboarding availability', async () => {
+    await renderGuard({ featureEnabled: true, loading: false, onboardingWizard: undefined });
+
+    expect(await screen.findByRole('heading', { name: 'Fallback shown' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Onboarding page' })).not.toBeInTheDocument();
+  });
 });

@@ -5,7 +5,8 @@ import { apiClient } from '../api/client';
 //   true      -> API explicitly advertises the backend route is registered
 //   false     -> API explicitly advertises it is NOT registered
 //   undefined -> API did not advertise availability (older API, or the
-//                auth/config call failed) -> fall back to the Vite build flag
+//                auth/config call failed). Callers decide whether that should
+//                preserve a Vite-only fallback or fail closed.
 export type BackendFeatureState = boolean | undefined;
 
 export type BackendFeatures = {
@@ -68,9 +69,9 @@ export function resetBackendFeaturesCacheForTests(): void {
   resolvedFeatures = null;
 }
 
-// The effective rule: a backend-dependent flow is shown only when the web
-// bundle ships its UI (Vite flag) AND the API does not explicitly say the
-// route is missing. Unknown backend state keeps the legacy Vite-only result.
+// Generic connector gates keep the legacy Vite-only fallback when backend
+// availability is unknown. Stateful flows that would call missing API routes
+// should fail closed at the caller instead.
 export function isFeatureAvailable(viteFlag: boolean, backendState: BackendFeatureState): boolean {
   if (backendState === undefined) {
     return viteFlag;

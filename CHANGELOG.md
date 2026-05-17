@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Failed closed when the API does not explicitly advertise self-serve
+  onboarding support, so authenticated users without a workspace see the
+  existing onboarding-unavailable state instead of entering a wizard that
+  immediately fails with a raw `Request failed (404)`.
 - Added the first GitHub repository scan action after connection:
   - the product source screen can queue `POST /v1/repo-scans` for a selected
     GitHub repository, show queued/running/completed/failed activity, and link

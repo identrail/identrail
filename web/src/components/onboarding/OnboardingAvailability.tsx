@@ -1,10 +1,10 @@
 import { ReactElement, ReactNode } from 'react';
 import { FEATURE_ONBOARDING_WIZARD } from '../../pages/onboarding/onboardingUtils';
-import { isFeatureAvailable, useBackendFeatures } from '../../hooks/useBackendFeatures';
+import { useBackendFeatures } from '../../hooks/useBackendFeatures';
 
 // Whether self-serve onboarding should be shown: the web bundle must ship the
-// wizard (Vite flag) AND the API must not explicitly report the onboarding
-// route as missing. Returns undefined while backend availability is loading.
+// wizard (Vite flag) AND the API must explicitly report that the onboarding
+// route is available. Returns undefined while backend availability is loading.
 export function useOnboardingAvailable(): boolean | undefined {
   const { features, loading } = useBackendFeatures();
   if (!FEATURE_ONBOARDING_WIZARD) {
@@ -16,7 +16,7 @@ export function useOnboardingAvailable(): boolean | undefined {
   if (loading) {
     return undefined;
   }
-  return isFeatureAvailable(FEATURE_ONBOARDING_WIZARD, features.onboardingWizard);
+  return features.onboardingWizard === true;
 }
 
 export function OnboardingFeatureLoading() {
