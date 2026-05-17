@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -199,5 +200,60 @@ func TestStartOnboardingReconcilesIncompleteStateWithExistingWorkspace(t *testin
 	}
 	if again.State.OrgID != "tenant-a" || again.State.WorkspaceID != "workspace-a" {
 		t.Fatalf("second start changed scope: %+v", again.State)
+	}
+}
+
+// A user whose only membership in the tenant has been deactivated/removed is
+// no longer a member. With stale onboarding state they must NOT be able to
+// re-edit (rename) the organization, even though no *active* membership row is
+// returned.
+func TestOnboardingOrgStepDeniesRevokedMemberRename(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	user, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "revoked@example.com",
+		DisplayName:  "Revoked",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	scoped := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scoped, db.TenancyOrganization{TenantID: "tenant-a", DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	if err := store.UpsertWorkspace(scoped, db.TenancyWorkspace{TenantID: "tenant-a", WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scoped, db.TenancyWorkspaceMember{
+		TenantID: "tenant-a", WorkspaceID: "workspace-a", MemberID: "member-revoked",
+		UserID: user.ID, UserUUID: user.ID, Email: user.PrimaryEmail, Role: "owner", Status: "removed", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert member: %v", err)
+	}
+	// Stale onboarding row already bound to the tenant (so the org step is a
+	// repeat write), but no active membership remains.
+	if _, err := store.UpsertOnboardingState(context.Background(), db.OnboardingState{
+		UserID: user.ID, CurrentStep: onboardingStepWorkspace, OrgID: "tenant-a", StartedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed onboarding state: %v", err)
+	}
+
+	_, err = svc.UpdateOnboardingState(context.Background(), sessionauth.CurrentSession{
+		IDHash:  []byte("session-hash"),
+		Session: db.Session{UserID: user.ID, AuthMethod: "manual"},
+	}, OnboardingStateUpdateRequest{CurrentStep: "org", OrgName: "Hijacked Name"})
+	if !errors.Is(err, ErrOnboardingWorkspaceAccessDenied) {
+		t.Fatalf("expected revoked member to be denied org rename, got %v", err)
+	}
+	org, getErr := store.GetOrganization(db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: db.DefaultWorkspaceID}))
+	if getErr != nil {
+		t.Fatalf("get organization: %v", getErr)
+	}
+	if org.DisplayName != "Tenant A" {
+		t.Fatalf("organization name must be unchanged, got %q", org.DisplayName)
 	}
 }

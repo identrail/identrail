@@ -399,21 +399,32 @@ func (s *Service) requireOnboardingOrganizationAdmin(ctx context.Context, userID
 		return ErrOnboardingWorkspaceAccessDenied
 	}
 	member, err := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, strings.TrimSpace(userID), orgID)
-	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+	if err == nil {
+		switch member.Role {
+		case "owner", "admin":
 			return nil
+		default:
+			return ErrOnboardingWorkspaceAccessDenied
 		}
+	}
+	if !errors.Is(err, db.ErrNotFound) {
 		return err
 	}
-	if member.Status != "active" {
-		return ErrOnboardingWorkspaceAccessDenied
+	// No active membership in this tenant. Allow the write only when the
+	// tenant has no workspace yet — that is the brand-new tenant this user
+	// just created in their own onboarding org step. If a workspace already
+	// exists, a missing active membership means the user is not (or no
+	// longer) a member, so a revoked or deactivated user with stale
+	// onboarding state must not be able to rename the organization.
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: orgID, WorkspaceID: db.DefaultWorkspaceID})
+	workspaces, listErr := s.Store.ListWorkspaces(scopedCtx, 1)
+	if listErr != nil {
+		return listErr
 	}
-	switch member.Role {
-	case "owner", "admin":
+	if len(workspaces) == 0 {
 		return nil
-	default:
-		return ErrOnboardingWorkspaceAccessDenied
 	}
+	return ErrOnboardingWorkspaceAccessDenied
 }
 
 func (s *Service) onboardingNow() time.Time {
