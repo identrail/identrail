@@ -119,6 +119,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualError, setManualError] = useState('');
   const [authTheme, setAuthTheme] = useState<AuthTheme>('dark');
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [prefersDark, setPrefersDark] = useState(true);
   const [manualDraft, setManualDraft] = useState({
     tenantID: 'default',
@@ -198,6 +199,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   const title = intent === 'signup' ? 'Your first trust graph is just a sign-up away.' : 'Log in to Identrail';
   const switchLink = intent === 'signup' ? '/signin' : '/signup';
   const switchAction = intent === 'signup' ? 'Log In' : 'Sign Up';
+  const currentTheme = AUTH_THEME_OPTIONS.find((option) => option.value === authTheme) ?? AUTH_THEME_OPTIONS[2];
   const resolvedTheme = authTheme === 'system' ? (prefersDark ? 'dark' : 'light') : authTheme;
 
   return (
@@ -303,23 +305,55 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
         </article>
       </div>
 
-      <div className="idt-auth-legal-footer">
-        <Link to="/terms">Terms</Link>
-        <Link to="/privacy">Privacy Policy</Link>
-      </div>
+      {intent === 'login' ? (
+        <div className="idt-auth-legal-footer">
+          <Link to="/terms">Terms</Link>
+          <Link to="/privacy">Privacy Policy</Link>
+        </div>
+      ) : null}
 
-      <div className="idt-auth-theme-switcher" aria-label="Color theme">
-        {AUTH_THEME_OPTIONS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className={authTheme === option.value ? 'is-active' : ''}
-            aria-pressed={authTheme === option.value}
-            onClick={() => setAuthTheme(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
+      <div
+        className="idt-auth-theme-switcher"
+        onBlur={(event) => {
+          const nextFocus = event.relatedTarget;
+          if (!(nextFocus instanceof Node) || !event.currentTarget.contains(nextFocus)) {
+            setThemeMenuOpen(false);
+          }
+        }}
+      >
+        <button
+          type="button"
+          className="idt-auth-theme-trigger"
+          aria-haspopup="menu"
+          aria-expanded={themeMenuOpen}
+          onClick={() => setThemeMenuOpen((open) => !open)}
+        >
+          <span>Theme</span>
+          <strong>{currentTheme.label}</strong>
+          <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+            <path d="M3 4.5 6 7.5l3-3" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+          </svg>
+        </button>
+        {themeMenuOpen ? (
+          <div className="idt-auth-theme-menu" role="menu" aria-label="Color theme">
+            {AUTH_THEME_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={authTheme === option.value}
+                className={authTheme === option.value ? 'is-active' : ''}
+                onClick={() => {
+                  setAuthTheme(option.value);
+                  setThemeMenuOpen(false);
+                }}
+              >
+                <span>{option.label}</span>
+                {authTheme === option.value ? <span className="idt-auth-theme-check" aria-hidden="true" /> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
   );
