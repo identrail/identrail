@@ -15113,7 +15113,7 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
 
 /* Homepage lower story: full-bleed Vercel/SpaceX pass below the identity-stack strip. */
 .idt-home-after-stack {
-  overflow-x: hidden;
+  overflow-x: clip;
   background: #ffffff;
   color: #09090b;
 }
