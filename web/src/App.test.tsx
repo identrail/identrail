@@ -174,6 +174,33 @@ describe('App', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders Google user data disclosures on the privacy route', () => {
+    setCurrentPath('/privacy');
+    render(<App />);
+
+    expect(screen.getByRole('heading', { level: 1, name: /Privacy Policy/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Google user data disclosure/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Google sign-in data accessed/i })).toBeInTheDocument();
+    expect(screen.getByText(/Identrail does not use Google sign-in to access Gmail/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google API Services User Data Policy/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /security@identrail.com/i })).toHaveAttribute(
+      'href',
+      'mailto:security@identrail.com?subject=Privacy%20Request'
+    );
+  });
+
+  it('renders standardized terms of use content on the terms route', () => {
+    setCurrentPath('/terms');
+    render(<App />);
+
+    expect(screen.getByRole('heading', { level: 1, name: /Terms of Use/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Standard terms/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Acceptance and scope/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Acceptable use/i })).toBeInTheDocument();
+    expect(screen.getByText(/Customer data and integrations/i)).toBeInTheDocument();
+    expect(screen.getByText(/Questions about these Terms of Use can be sent to security@identrail.com/i)).toBeInTheDocument();
+  });
+
   it('guards product shell routes and redirects unauthenticated users to sign-in', async () => {
     vi.stubGlobal(
       'fetch',
