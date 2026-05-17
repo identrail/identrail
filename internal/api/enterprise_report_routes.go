@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"sync"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/enterprise"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
@@ -66,6 +68,40 @@ func (c *executiveReportCache) set(key string, report enterprise.ExecutiveReport
 	c.entries[key] = cachedExecutiveReport{report: report, expiresAt: now.Add(c.ttl)}
 }
 
+// maxOrgReportWorkspaces bounds how many workspaces the executive report will
+// aggregate. It is far above any realistic per-organization workspace count;
+// it exists only so a pathological tenant cannot make one request unbounded.
+const maxOrgReportWorkspaces = 1000
+
+// organizationWorkspaceIDs returns every workspace in the caller's tenant so
+// the report covers the whole organization. The caller's active workspace is
+// always included so deployments that never registered tenancy workspace rows
+// (e.g. single-workspace/default mode) still produce a non-empty report.
+func organizationWorkspaceIDs(ctx context.Context, svc *Service, scope db.Scope) ([]string, error) {
+	workspaces, err := svc.Store.ListWorkspaces(ctx, maxOrgReportWorkspaces)
+	if err != nil {
+		return nil, err
+	}
+	ordered := make([]string, 0, len(workspaces)+1)
+	seen := map[string]struct{}{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ordered = append(ordered, id)
+	}
+	for _, ws := range workspaces {
+		add(ws.WorkspaceID)
+	}
+	add(scope.WorkspaceID)
+	return ordered, nil
+}
+
 func registerExecutiveReportRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service) {
 	if svc == nil {
 		return
@@ -92,39 +128,54 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 		}
 		now := clock()
 
-		// Cache by the exact data scope, not just the org. The request-scope
-		// middleware narrows findings to tenant+workspace, so keying only by
-		// org id would let one workspace serve another workspace's cached
-		// report within the same organization for up to the TTL.
+		// The report is organization-wide. The request scope's tenant id is the
+		// organization (session sets tenant_id from CurrentOrgID), so the cache
+		// is keyed by tenant: every workspace in the org shares one org-wide
+		// snapshot and cannot see a partial, workspace-scoped one.
 		reqCtx := c.Request.Context()
 		scope := db.ScopeFromContext(reqCtx)
-		cacheKey := scope.TenantID + "\x00" + scope.WorkspaceID
+		cacheKey := scope.TenantID
 
 		if report, ok := cache.get(cacheKey, now); ok {
 			c.JSON(http.StatusOK, report)
 			return
 		}
 
-		// Findings are scope-filtered by the request-scope middleware, so the
-		// store only returns the caller's tenant+workspace findings.
-		// ListFindingsAll is uncapped; triage (including the trustworthy
-		// ResolvedAt that MTTR depends on) is hydrated separately since the raw
-		// finding rows do not carry it.
-		findings, err := svc.Store.ListFindingsAll(reqCtx)
+		// An executive report covers the whole organization, but findings are
+		// stored per workspace. Enumerate every workspace in the tenant and
+		// aggregate, rather than reporting only the caller's active workspace.
+		workspaceIDs, err := organizationWorkspaceIDs(reqCtx, svc, scope)
 		if err != nil {
 			if logger != nil {
-				logger.Error("list findings for executive report", telemetry.ZapError(err))
+				logger.Error("list workspaces for executive report", telemetry.ZapError(err))
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
 			return
 		}
-		findings, err = svc.applyFindingTriageStates(reqCtx, findings)
-		if err != nil {
-			if logger != nil {
-				logger.Error("hydrate triage for executive report", telemetry.ZapError(err))
+
+		var findings []domain.Finding
+		for _, wsID := range workspaceIDs {
+			wsCtx := db.WithScope(reqCtx, db.Scope{TenantID: scope.TenantID, WorkspaceID: wsID})
+			// ListFindingsAll is uncapped; triage (including the trustworthy
+			// ResolvedAt that MTTR depends on) is hydrated separately since the
+			// raw finding rows do not carry it.
+			wsFindings, err := svc.Store.ListFindingsAll(wsCtx)
+			if err != nil {
+				if logger != nil {
+					logger.Error("list findings for executive report", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
-			return
+			wsFindings, err = svc.applyFindingTriageStates(wsCtx, wsFindings)
+			if err != nil {
+				if logger != nil {
+					logger.Error("hydrate triage for executive report", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+				return
+			}
+			findings = append(findings, wsFindings...)
 		}
 
 		report := enterprise.BuildExecutiveReport(findings, enterprise.ReportOptions{

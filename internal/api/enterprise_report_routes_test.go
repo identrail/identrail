@@ -262,46 +262,77 @@ func TestExecutiveReportCache_EvictsExpiredEntries(t *testing.T) {
 	}
 }
 
-func TestExecutiveReport_IsolatesWorkspacesWithinSameOrg(t *testing.T) {
+func seedExecReportWorkspace(t *testing.T, store db.Store, tenant, ws string) {
+	t.Helper()
+	tenantCtx := db.WithScope(context.Background(), db.Scope{TenantID: tenant, WorkspaceID: ws})
+	if err := store.UpsertOrganization(tenantCtx, db.TenancyOrganization{DisplayName: tenant, Slug: tenant}); err != nil {
+		t.Fatalf("seed org %s: %v", tenant, err)
+	}
+	if err := store.UpsertWorkspace(tenantCtx, db.TenancyWorkspace{WorkspaceID: ws, DisplayName: ws, Slug: ws}); err != nil {
+		t.Fatalf("seed workspace %s/%s: %v", tenant, ws, err)
+	}
+}
+
+func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	clock := now
 	store := db.NewMemoryStore()
 
-	wsScope := func(ws string) db.Scope { return db.Scope{TenantID: "org-shared", WorkspaceID: ws} }
-	rig := func(ws string) *gin.Engine {
-		svc := NewService(store, routerScanner{}, "aws")
-		svc.Now = func() time.Time { return clock }
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Request = c.Request.WithContext(db.WithScope(c.Request.Context(), wsScope(ws)))
-			c.Set("auth.session", sessionauth.CurrentSession{
-				Session: db.Session{UserID: "11111111-1111-1111-1111-111111111111", CurrentOrgID: "org-shared", CurrentWorkspaceID: ws},
-			})
+	const org = "org-shared"
+	seedExecReportWorkspace(t, store, org, "ws-1")
+	seedExecReportWorkspace(t, store, org, "ws-2")
+
+	ws1Scope := db.Scope{TenantID: org, WorkspaceID: "ws-1"}
+	ws2Scope := db.Scope{TenantID: org, WorkspaceID: "ws-2"}
+	scan1 := seedExecReportScan(t, store, ws1Scope, now.Add(-2*24*time.Hour))
+	seedExecReportFinding(t, store, ws1Scope, scan1, "f1", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-1*24*time.Hour), nil)
+	scan2 := seedExecReportScan(t, store, ws2Scope, now.Add(-2*24*time.Hour))
+	seedExecReportFinding(t, store, ws2Scope, scan2, "f2", domain.SeverityCritical, domain.FindingEscalationPath, now.Add(-1*24*time.Hour), nil)
+
+	// One shared Service (one cache). The caller's active workspace is ws-1,
+	// but the report must cover the whole organization.
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.Now = func() time.Time { return clock }
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(db.WithScope(c.Request.Context(), ws1Scope))
+		c.Set("auth.session", sessionauth.CurrentSession{
+			Session: db.Session{UserID: "11111111-1111-1111-1111-111111111111", CurrentOrgID: org, CurrentWorkspaceID: "ws-1"},
 		})
-		v1 := r.Group("/v1")
-		registerExecutiveReportRoutes(v1, nil, svc)
-		return r
+	})
+	v1 := r.Group("/v1")
+	registerExecutiveReportRoutes(v1, nil, svc)
+
+	first := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	var rep enterprise.ExecutiveReport
+	if err := json.Unmarshal(first.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if rep.TotalOpenFindings != 2 {
+		t.Fatalf("report must aggregate across all org workspaces; want 2, got %d", rep.TotalOpenFindings)
 	}
 
-	scanID := seedExecReportScan(t, store, wsScope("ws-1"), now.Add(-2*24*time.Hour))
-	seedExecReportFinding(t, store, wsScope("ws-1"), scanID, "f1", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-1*24*time.Hour), nil)
+	// Add a finding in ws-2 and call again within the TTL: the org-wide cache
+	// (one entry keyed by tenant) must return the prior snapshot.
+	seedExecReportFinding(t, store, ws2Scope, scan2, "f3", domain.SeverityMedium, domain.FindingStaleIdentity, now.Add(-12*time.Hour), nil)
+	clock = now.Add(30 * time.Second)
+	cached := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	var cachedRep enterprise.ExecutiveReport
+	if err := json.Unmarshal(cached.Body.Bytes(), &cachedRep); err != nil {
+		t.Fatalf("decode cached: %v", err)
+	}
+	if cachedRep.TotalOpenFindings != 2 {
+		t.Fatalf("within TTL the shared org cache must be served; want 2, got %d", cachedRep.TotalOpenFindings)
+	}
 
-	// ws-1 sees its finding; ws-2 in the same org must not get ws-1's report.
-	w1 := doJSON(t, rig("ws-1"), http.MethodGet, "/v1/enterprise/reports/executive", nil)
-	var rep1 enterprise.ExecutiveReport
-	if err := json.Unmarshal(w1.Body.Bytes(), &rep1); err != nil {
-		t.Fatalf("decode ws-1: %v", err)
+	// Past the TTL the org-wide report rebuilds and reflects every workspace.
+	clock = now.Add(61 * time.Second)
+	fresh := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	var freshRep enterprise.ExecutiveReport
+	if err := json.Unmarshal(fresh.Body.Bytes(), &freshRep); err != nil {
+		t.Fatalf("decode fresh: %v", err)
 	}
-	if rep1.TotalOpenFindings != 1 {
-		t.Fatalf("ws-1 should see its finding; got %d", rep1.TotalOpenFindings)
-	}
-
-	w2 := doJSON(t, rig("ws-2"), http.MethodGet, "/v1/enterprise/reports/executive", nil)
-	var rep2 enterprise.ExecutiveReport
-	if err := json.Unmarshal(w2.Body.Bytes(), &rep2); err != nil {
-		t.Fatalf("decode ws-2: %v", err)
-	}
-	if rep2.TotalOpenFindings != 0 {
-		t.Fatalf("ws-2 must not receive ws-1's cached report within the same org; got %d", rep2.TotalOpenFindings)
+	if freshRep.TotalOpenFindings != 3 {
+		t.Fatalf("after TTL the org-wide report must rebuild; want 3, got %d", freshRep.TotalOpenFindings)
 	}
 }
