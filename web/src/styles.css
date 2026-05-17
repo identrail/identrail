@@ -4954,10 +4954,6 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   line-height: 0.98;
 }
 
-.idt-auth-mfa-panel {
-  width: min(100%, 25rem);
-}
-
 .idt-auth-mfa-subtitle {
   margin: -0.45rem 0 0.35rem;
   color: var(--auth-muted, #525252);
@@ -6173,6 +6169,11 @@ html[data-theme='light'] .idt-auth-panel {
   background: transparent;
   padding: 0;
   box-shadow: none;
+}
+
+.idt-auth-mfa-panel,
+html[data-theme='light'] .idt-auth-mfa-panel {
+  width: min(100%, 25rem);
 }
 
 .idt-auth-panel-signup,
