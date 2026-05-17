@@ -328,10 +328,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			samlRelayStore = sessionauth.NewSAMLRelayStore(svc.Store, nil)
 		}
 		registerNativeSAMLLoginRoutes(r, logger, svc, sessionManager, nativeSAMLLoginRouteOptions{
-			Enabled:       opts.FeatureNativeSSO,
-			StateManager:  stateManager,
-			RelayStore:    samlRelayStore,
-			PublicBaseURL: opts.PublicBaseURL,
+			Enabled:            opts.FeatureNativeSSO,
+			AuditSink:          opts.AuditSink,
+			AuditFingerprinter: opts.AuditFingerprinter,
+			StateManager:       stateManager,
+			RelayStore:         samlRelayStore,
+			PublicBaseURL:      opts.PublicBaseURL,
 		})
 	}
 

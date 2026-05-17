@@ -12,6 +12,7 @@ import (
 	"github.com/crewjam/saml"
 	"github.com/gin-gonic/gin"
 	sessionauth "github.com/identrail/identrail/internal/api/auth"
+	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/enterprise"
 	"github.com/identrail/identrail/internal/telemetry"
@@ -27,10 +28,12 @@ import (
 // state: the originating connection id, the AuthnRequest id used for
 // InResponseTo replay protection, and the post-login return_to URL.
 type nativeSAMLLoginRouteOptions struct {
-	Enabled       bool
-	StateManager  *sessionauth.OAuthStateManager
-	RelayStore    *sessionauth.SAMLRelayStore
-	PublicBaseURL string
+	Enabled            bool
+	AuditSink          audit.AuditSink
+	AuditFingerprinter *audit.Fingerprinter
+	StateManager       *sessionauth.OAuthStateManager
+	RelayStore         *sessionauth.SAMLRelayStore
+	PublicBaseURL      string
 	// Now is injectable so the ACS handler's clock-skew window can be
 	// exercised deterministically in tests.
 	Now func() time.Time
@@ -56,6 +59,11 @@ func registerNativeSAMLLoginRoutes(r *gin.Engine, logger *zap.Logger, svc *Servi
 	// unauthenticated attacker who guesses a valid connection id should
 	// not be able to flood SAMLRelayStore or hammer the IdP redirect.
 	group := r.Group("/auth/saml")
+	auditLogger := logger
+	if auditLogger == nil {
+		auditLogger = zap.NewNop()
+	}
+	group.Use(auditLogMiddleware(auditLogger, opts.AuditSink, opts.AuditFingerprinter))
 	group.Use(rateLimitMiddleware(30, 30))
 	group.GET("/login/:connection_id", samlLoginStartHandler(logger, svc, opts))
 	group.POST("/acs/:connection_id", samlACSHandler(logger, svc, manager, opts))

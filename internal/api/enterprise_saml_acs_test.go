@@ -268,6 +268,33 @@ func TestSAMLACSHandler_HappyPath_JITCreatesUser(t *testing.T) {
 	}
 }
 
+func TestSAMLLoginRoutesAttachAuditMiddleware(t *testing.T) {
+	svc, conn, _, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	sink := &recordingAuditSink{}
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		AuditSink:     sink,
+		StateManager:  stateMgr,
+		RelayStore:    relayStore,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/saml/login/"+conn.ID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect, got %d body=%s", w.Code, w.Body.String())
+	}
+	if countAuditEventsByKind(sink.events, "api_request") == 0 {
+		t.Fatalf("expected SAML login request to be audited, got %+v", sink.events)
+	}
+	if countAuditEventsByKind(sink.events, "action") == 0 {
+		t.Fatalf("expected SAML login action audit event, got %+v", sink.events)
+	}
+}
+
 func TestSAMLACSHandler_RejectsConditionsNotBeforeBeyondSkew(t *testing.T) {
 	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
 	router := gin.New()
