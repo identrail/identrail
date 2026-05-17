@@ -58,6 +58,50 @@ func TestMemoryAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 	if gotIdentity.ID != identity.ID {
 		t.Fatalf("unexpected identity: %+v", gotIdentity)
 	}
+	if _, err := store.UpsertUserIdentity(ctx, UserIdentity{
+		ID:                  identity.ID,
+		UserID:              user.ID,
+		Provider:            "github",
+		Subject:             "alice-subject-renamed",
+		Email:               "alice@example.com",
+		RawClaims:           []byte(`{"login":"alice-renamed"}`),
+		LastAuthenticatedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("rename identity subject: %v", err)
+	}
+	if _, err := store.GetUserIdentity(ctx, "github", "alice-subject"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("old identity subject should not remain aliased, got %v", err)
+	}
+	gotIdentity, err = store.GetUserIdentity(ctx, "github", "alice-subject-renamed")
+	if err != nil {
+		t.Fatalf("get renamed identity: %v", err)
+	}
+	if gotIdentity.ID != identity.ID {
+		t.Fatalf("unexpected renamed identity: %+v", gotIdentity)
+	}
+	gotIdentityByUserID, err := store.GetUserIdentityByProviderUserID(ctx, "github", user.ID)
+	if err != nil {
+		t.Fatalf("get identity by provider user id: %v", err)
+	}
+	if gotIdentityByUserID.Subject != "alice-subject-renamed" {
+		t.Fatalf("unexpected identity by user id: %+v", gotIdentityByUserID)
+	}
+	providerIdentities, err := store.ListUserIdentitiesByProvider(ctx, "GITHUB", 10)
+	if err != nil {
+		t.Fatalf("list identities by provider: %v", err)
+	}
+	if len(providerIdentities) != 1 || providerIdentities[0].ID != identity.ID {
+		t.Fatalf("unexpected provider identities: %+v", providerIdentities)
+	}
+	if err := store.DeleteUserIdentity(ctx, "github", "alice-subject-renamed"); err != nil {
+		t.Fatalf("delete identity: %v", err)
+	}
+	if _, err := store.GetUserIdentity(ctx, "github", "alice-subject-renamed"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted identity to be missing, got %v", err)
+	}
+	if err := store.DeleteUserIdentity(ctx, "github", "alice-subject-renamed"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleting missing identity to return ErrNotFound, got %v", err)
+	}
 
 	firstHash := sha256.Sum256([]byte("first-session"))
 	secondHash := sha256.Sum256([]byte("second-session"))

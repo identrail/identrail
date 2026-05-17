@@ -82,6 +82,8 @@ Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` pat
 | `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2` | `false` | PR 8 |
 | `IDENTRAIL_FEATURE_CONNECTOR_K8S` | `false` | PR 9 |
 | `IDENTRAIL_FEATURE_ONBOARDING_WIZARD` | `false` | PR 10 |
+| `IDENTRAIL_FEATURE_NATIVE_SSO` | `false` | PR 3 / PR 4 native SAML + SCIM |
+| `IDENTRAIL_ENABLE_NATIVE_SSO` | empty | Compatibility alias for `IDENTRAIL_FEATURE_NATIVE_SSO`; when set, it overrides the canonical flag. |
 | `IDENTRAIL_FEATURE_SSO_ADMIN` | `false` | PR 11 |
 | `IDENTRAIL_FEATURE_SCIM` | `false` | PR 12 |
 | `IDENTRAIL_FEATURE_ENTITLEMENTS` | `false` | PR 12 |

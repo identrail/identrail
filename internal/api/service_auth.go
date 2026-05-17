@@ -253,13 +253,24 @@ func (s *Service) UpsertSAMLAssertedUser(ctx context.Context, conn db.IdentityCo
 		return SAMLLoginResult{}, err
 	}
 
-	// Path 2: pre-provisioned via SCIM (subject = NameID, then email).
+	// Path 2: pre-provisioned via SCIM (subject = NameID/email, then primary email).
 	for _, scimSubject := range []string{nameID, email} {
 		if scimSubject == "" {
 			continue
 		}
 		if identity, err := s.Store.GetUserIdentity(ctx, scimProvider, scimSubject); err == nil {
 			return s.attachSAMLIdentityToExistingUser(ctx, conn, identity.UserID, nameID, email, displayName, rawClaims, now)
+		} else if !errors.Is(err, db.ErrNotFound) {
+			return SAMLLoginResult{}, err
+		}
+	}
+	if email != "" {
+		if existing, err := s.Store.GetUserByPrimaryEmail(ctx, email); err == nil {
+			if _, err := s.Store.GetUserIdentityByProviderUserID(ctx, scimProvider, existing.ID); err == nil {
+				return s.attachSAMLIdentityToExistingUser(ctx, conn, existing.ID, nameID, email, displayName, rawClaims, now)
+			} else if !errors.Is(err, db.ErrNotFound) {
+				return SAMLLoginResult{}, err
+			}
 		} else if !errors.Is(err, db.ErrNotFound) {
 			return SAMLLoginResult{}, err
 		}
@@ -331,6 +342,10 @@ func (s *Service) refreshSAMLIdentity(ctx context.Context, conn db.IdentityConne
 	if err != nil {
 		return SAMLLoginResult{}, err
 	}
+	if user.Status != "active" {
+		auditAuthAction(ctx, "auth.saml.deprovisioned", user.ID, "denied")
+		return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
+	}
 	user.PrimaryEmail = email
 	user.DisplayName = displayName
 	user.Status = "active"
@@ -358,6 +373,10 @@ func (s *Service) attachSAMLIdentityToExistingUser(ctx context.Context, conn db.
 	user, err := s.Store.GetUser(ctx, userID)
 	if err != nil {
 		return SAMLLoginResult{}, err
+	}
+	if user.Status != "active" {
+		auditAuthAction(ctx, "auth.saml.deprovisioned", user.ID, "denied")
+		return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
 	}
 	user.PrimaryEmail = email
 	user.DisplayName = displayName

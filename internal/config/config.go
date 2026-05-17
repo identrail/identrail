@@ -220,6 +220,10 @@ func Load() Config {
 	if apiKeyScopeBindingsError != "" {
 		parseErrors = append(parseErrors, "invalid IDENTRAIL_API_KEY_SCOPE_BINDINGS: "+apiKeyScopeBindingsError)
 	}
+	featureNativeSSO := boolEnv("IDENTRAIL_FEATURE_NATIVE_SSO", defaultFeatureNativeSSO)
+	if strings.TrimSpace(os.Getenv("IDENTRAIL_ENABLE_NATIVE_SSO")) != "" {
+		featureNativeSSO = boolEnv("IDENTRAIL_ENABLE_NATIVE_SSO", featureNativeSSO)
+	}
 
 	return Config{
 		HTTPAddr:                     getEnv("IDENTRAIL_HTTP_ADDR", defaultHTTPAddr),
@@ -311,7 +315,7 @@ func Load() Config {
 		FeatureConnectorGitHubV2:     boolEnv("IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2", defaultFeatureConnectorGitHubV2),
 		FeatureConnectorK8S:          boolEnv("IDENTRAIL_FEATURE_CONNECTOR_K8S", defaultFeatureConnectorK8S),
 		FeatureOnboardingWizard:      boolEnv("IDENTRAIL_FEATURE_ONBOARDING_WIZARD", defaultFeatureOnboardingWizard),
-		FeatureNativeSSO:             boolEnv("IDENTRAIL_FEATURE_NATIVE_SSO", defaultFeatureNativeSSO),
+		FeatureNativeSSO:             featureNativeSSO,
 		GitHubAppID:                  getEnv("IDENTRAIL_GITHUB_APP_ID", ""),
 		GitHubAppName:                getEnv("IDENTRAIL_GITHUB_APP_NAME", ""),
 		GitHubAppPrivateKey:          getEnv("IDENTRAIL_GITHUB_APP_PRIVATE_KEY", ""),

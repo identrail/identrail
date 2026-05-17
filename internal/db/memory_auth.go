@@ -82,6 +82,11 @@ func (m *MemoryStore) UpsertUserIdentity(ctx context.Context, identity UserIdent
 	if existingID, exists := m.userIdentityByProviderSubject[lookupKey]; exists && existingID != normalized.ID {
 		delete(m.userIdentityByID, existingID)
 	}
+	for key, existingID := range m.userIdentityByProviderSubject {
+		if existingID == normalized.ID && key != lookupKey {
+			delete(m.userIdentityByProviderSubject, key)
+		}
+	}
 	m.userIdentityByID[normalized.ID] = normalized
 	m.userIdentityByProviderSubject[lookupKey] = normalized.ID
 	m.mu.Unlock()
@@ -107,6 +112,77 @@ func (m *MemoryStore) GetUserIdentity(ctx context.Context, provider string, subj
 		return UserIdentity{}, ErrNotFound
 	}
 	return identity, nil
+}
+
+// GetUserIdentityByProviderUserID returns one provider identity for a user.
+func (m *MemoryStore) GetUserIdentityByProviderUserID(ctx context.Context, provider string, userID string) (UserIdentity, error) {
+	normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
+	normalizedUserID := strings.TrimSpace(userID)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var match UserIdentity
+	found := false
+	for _, identity := range m.userIdentityByID {
+		if identity.Provider != normalizedProvider || identity.UserID != normalizedUserID {
+			continue
+		}
+		if found {
+			return UserIdentity{}, ErrConflict
+		}
+		match = identity
+		found = true
+	}
+	if !found {
+		return UserIdentity{}, ErrNotFound
+	}
+	return match, nil
+}
+
+// ListUserIdentitiesByProvider returns provider identities ordered by newest first.
+// A non-positive limit returns all matching identities.
+func (m *MemoryStore) ListUserIdentitiesByProvider(ctx context.Context, provider string, limit int) ([]UserIdentity, error) {
+	normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	items := make([]UserIdentity, 0)
+	for _, identity := range m.userIdentityByID {
+		if identity.Provider != normalizedProvider {
+			continue
+		}
+		items = append(items, identity)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
+// DeleteUserIdentity removes one provider identity by provider and subject.
+func (m *MemoryStore) DeleteUserIdentity(ctx context.Context, provider string, subject string) error {
+	lookupKey := userIdentityLookupKey(provider, subject)
+	m.mu.Lock()
+	id, exists := m.userIdentityByProviderSubject[lookupKey]
+	if !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+	for key, mappedID := range m.userIdentityByProviderSubject {
+		if mappedID == id {
+			delete(m.userIdentityByProviderSubject, key)
+		}
+	}
+	delete(m.userIdentityByID, id)
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity.delete",
+		ResourceType: "user_identity",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return nil
 }
 
 // CreateSession persists one server-side session.

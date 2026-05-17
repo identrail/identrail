@@ -446,7 +446,10 @@ func NewSCIMBearerToken() (plain string, hash string, err error) {
 		return "", "", fmt.Errorf("read random bytes for scim token: %w", err)
 	}
 	plain = "idntr_scim_" + base64.RawURLEncoding.EncodeToString(buf)
-	sum := sha256.Sum256([]byte(plain))
-	hash = hex.EncodeToString(sum[:])
-	return plain, hash, nil
+	return plain, HashSCIMBearerToken(plain), nil
+}
+
+func HashSCIMBearerToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }

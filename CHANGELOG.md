@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added native SCIM 2.0 user provisioning endpoints (behind `IDENTRAIL_FEATURE_NATIVE_SSO`, with `IDENTRAIL_ENABLE_NATIVE_SSO` accepted as a compatibility alias):
+  - `GET /scim/v2/ServiceProviderConfig`, `/Schemas`, and `/ResourceTypes` return Okta/Azure-friendly discovery documents using SCIM-shaped responses
+  - `GET/POST/GET by id/PUT/PATCH/DELETE /scim/v2/Users` supports server-assigned ids, `filter=userName eq "..."`, pagination, full user replacement, PATCH `replace`, and deactivation/delete lifecycle handling
+  - Requests authenticate with the per-connection bearer token issued by the native SAML admin API; only active native SAML connections can provision users
+  - SCIM users persist through the existing `users` + `user_identities` model with provider `scim:<connection_uuid>`, and every create/update/deactivate/delete writes a `scim_provisioning_events` audit record
 - Added migration `000025_saml_relay_states_and_session_saml`:
   - New `saml_relay_states` table persists in-flight SP-initiated SAML AuthnRequest context (handle, connection_id FK, AuthnRequest id, return_to, intent, expires_at, consumed_at) so the matching ACS POST resolves correctly even when callbacks land on a different API instance than the one that issued the redirect
   - Widens the `sessions.auth_method` CHECK constraint to accept `'saml'` so SAML-issued sessions no longer trip a 23514 constraint violation

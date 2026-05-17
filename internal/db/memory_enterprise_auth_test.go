@@ -168,6 +168,33 @@ func TestMemoryEnterpriseAuthLifecycle(t *testing.T) {
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected duplicate identity connection to return ErrConflict, got %v", err)
 	}
+
+	scimConnection, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		ID:                  "99999999-9999-9999-9999-999999999999",
+		OrgID:               "tenant-a",
+		Provider:            "saml",
+		Type:                "directory_sync",
+		Status:              "active",
+		EntityID:            "https://idp.example.com/entity",
+		SSOURL:              "https://idp.example.com/sso",
+		CertificatePEM:      "-----BEGIN CERTIFICATE-----\nMIID\n-----END CERTIFICATE-----",
+		SCIMBearerTokenHash: "scim-token-hash",
+		CreatedAt:           now.Add(2 * time.Minute),
+		UpdatedAt:           now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("create scim identity connection: %v", err)
+	}
+	gotSCIMConnection, err := store.GetIdentityConnectionBySCIMBearerTokenHash(ctx, " scim-token-hash ")
+	if err != nil {
+		t.Fatalf("get identity connection by scim hash: %v", err)
+	}
+	if gotSCIMConnection.ID != scimConnection.ID {
+		t.Fatalf("unexpected scim connection: %+v", gotSCIMConnection)
+	}
+	if _, err := store.GetIdentityConnectionBySCIMBearerTokenHash(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing scim hash to return ErrNotFound, got %v", err)
+	}
 }
 
 func TestEnterpriseAuthNormalizationRejectsInvalidInputs(t *testing.T) {

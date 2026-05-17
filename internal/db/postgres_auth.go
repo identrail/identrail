@@ -205,6 +205,121 @@ func (p *PostgresStore) GetUserIdentity(ctx context.Context, provider string, su
 	return identity, nil
 }
 
+// GetUserIdentityByProviderUserID returns one provider identity for a user.
+func (p *PostgresStore) GetUserIdentityByProviderUserID(ctx context.Context, provider string, userID string) (UserIdentity, error) {
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT id::text, user_id::text, provider, subject, COALESCE(email::text, ''), email_verified, raw_claims, last_authenticated_at, created_at
+		 FROM user_identities
+		 WHERE provider = $1
+		   AND user_id = NULLIF($2, '')::uuid
+		 LIMIT 2`,
+		strings.ToLower(strings.TrimSpace(provider)),
+		strings.TrimSpace(userID),
+	)
+	if err != nil {
+		return UserIdentity{}, err
+	}
+	defer rows.Close()
+	var match UserIdentity
+	found := false
+	for rows.Next() {
+		var identity UserIdentity
+		if err := rows.Scan(
+			&identity.ID,
+			&identity.UserID,
+			&identity.Provider,
+			&identity.Subject,
+			&identity.Email,
+			&identity.EmailVerified,
+			&identity.RawClaims,
+			&identity.LastAuthenticatedAt,
+			&identity.CreatedAt,
+		); err != nil {
+			return UserIdentity{}, err
+		}
+		if found {
+			return UserIdentity{}, ErrConflict
+		}
+		match = identity
+		found = true
+	}
+	if err := rows.Err(); err != nil {
+		return UserIdentity{}, err
+	}
+	if !found {
+		return UserIdentity{}, ErrNotFound
+	}
+	return match, nil
+}
+
+// ListUserIdentitiesByProvider returns provider identities ordered by newest first.
+// A non-positive limit returns all matching identities.
+func (p *PostgresStore) ListUserIdentitiesByProvider(ctx context.Context, provider string, limit int) ([]UserIdentity, error) {
+	query := `SELECT id::text, user_id::text, provider, subject, COALESCE(email::text, ''), email_verified, raw_claims, last_authenticated_at, created_at
+		 FROM user_identities
+		 WHERE provider = $1
+		 ORDER BY created_at DESC`
+	args := []any{strings.ToLower(strings.TrimSpace(provider))}
+	if limit > 0 {
+		query += ` LIMIT $2`
+		args = append(args, limit)
+	}
+	rows, err := p.queryContextAnyScope(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]UserIdentity, 0)
+	for rows.Next() {
+		var identity UserIdentity
+		if err := rows.Scan(
+			&identity.ID,
+			&identity.UserID,
+			&identity.Provider,
+			&identity.Subject,
+			&identity.Email,
+			&identity.EmailVerified,
+			&identity.RawClaims,
+			&identity.LastAuthenticatedAt,
+			&identity.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, identity)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// DeleteUserIdentity removes one provider identity by provider and subject.
+func (p *PostgresStore) DeleteUserIdentity(ctx context.Context, provider string, subject string) error {
+	result, err := p.execContextAnyScope(
+		ctx,
+		`DELETE FROM user_identities
+		 WHERE provider = $1
+		   AND subject = $2`,
+		strings.ToLower(strings.TrimSpace(provider)),
+		strings.TrimSpace(subject),
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrNotFound
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.identity.delete",
+		ResourceType: "user_identity",
+		ResourceID:   strings.ToLower(strings.TrimSpace(provider)) + ":" + strings.TrimSpace(subject),
+		Outcome:      "success",
+	})
+	return nil
+}
+
 func scanSessionWithUser(row rowScanner) (Session, error) {
 	var session Session
 	var orgID, workspaceID, projectID, ip, userAgent sql.NullString

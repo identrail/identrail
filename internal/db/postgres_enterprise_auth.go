@@ -537,6 +537,43 @@ func (p *PostgresStore) GetIdentityConnectionByID(ctx context.Context, connectio
 	))
 }
 
+// GetIdentityConnectionBySCIMBearerTokenHash resolves a connection by its
+// stored SCIM bearer-token hash without requiring an org-scoped context.
+func (p *PostgresStore) GetIdentityConnectionBySCIMBearerTokenHash(ctx context.Context, tokenHash string) (IdentityConnection, error) {
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT `+identityConnectionColumns+`
+		 FROM identity_connections
+		 WHERE scim_bearer_token_hash = NULLIF($1, '')
+		 LIMIT 2`,
+		strings.TrimSpace(tokenHash),
+	)
+	if err != nil {
+		return IdentityConnection{}, err
+	}
+	defer rows.Close()
+	var match IdentityConnection
+	found := false
+	for rows.Next() {
+		connection, scanErr := scanIdentityConnection(rows)
+		if scanErr != nil {
+			return IdentityConnection{}, scanErr
+		}
+		if found {
+			return IdentityConnection{}, ErrConflict
+		}
+		match = connection
+		found = true
+	}
+	if err := rows.Err(); err != nil {
+		return IdentityConnection{}, err
+	}
+	if !found {
+		return IdentityConnection{}, ErrNotFound
+	}
+	return match, nil
+}
+
 // ListIdentityConnections returns organization identity connection scaffolds ordered by newest first.
 func (p *PostgresStore) ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error) {
 	if limit <= 0 {
