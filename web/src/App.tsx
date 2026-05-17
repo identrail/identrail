@@ -841,6 +841,7 @@ function LeadCaptureForm({
     const environment = String(formData.get('environment') ?? '').trim();
     const company = String(formData.get('company') ?? '').trim();
     const challenge = String(formData.get('challenge') ?? '').trim();
+    const website = String(formData.get('website') ?? '').trim();
 
     setSubmitting(true);
     setError(null);
@@ -851,6 +852,7 @@ function LeadCaptureForm({
         environment,
         company: company || undefined,
         challenge: challenge || undefined,
+        website: website || undefined,
         source: title,
         page_path: window.location.pathname
       });
@@ -872,6 +874,14 @@ function LeadCaptureForm({
 
       {!submitted ? (
         <form onSubmit={handleSubmit} className={`idt-form-grid ${variant === 'short' ? 'is-short' : ''}`}>
+          <input
+            className="idt-honeypot"
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+          />
           <label>
             Work email
             <input required type="email" name="email" autoComplete="email" placeholder="you@company.com" />
@@ -1738,9 +1748,9 @@ function HomePage() {
               sensitive resources, then packages the proof and safest first fix for the owner.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
+              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
-              </a>
+              </Link>
               <HeroOpenSourceProofPills />
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
@@ -1852,6 +1862,8 @@ function ReadOnlyScanPage() {
     if (submitting) {
       return;
     }
+    const formData = new FormData(event.currentTarget);
+    const website = String(formData.get('website') ?? '').trim();
 
     setSubmitting(true);
     setError(null);
@@ -1862,6 +1874,7 @@ function ReadOnlyScanPage() {
         environment,
         company: company.trim() || undefined,
         challenge: challenge,
+        website: website || undefined,
         deployment_model: deployment,
         urgency,
         team_size: teamSize,
@@ -1919,6 +1932,14 @@ function ReadOnlyScanPage() {
 
       <section className="idt-scan-intake" aria-labelledby="scan-intake-title">
         <form className="idt-scan-form" onSubmit={submitIntake}>
+          <input
+            className="idt-honeypot"
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+          />
           <div className="idt-scan-form-header">
             <p className="idt-intake-step">Step {submitted ? 3 : step} of 3</p>
             <h2 id="scan-intake-title">{submitted ? 'Request received' : 'Tell us where to start'}</h2>

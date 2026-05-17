@@ -76,7 +76,9 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
+    const scanLinks = screen.getAllByRole('link', { name: 'Start Free Risk Scan' });
+    expect(scanLinks.length).toBeGreaterThan(0);
+    expect(scanLinks[0]).toHaveAttribute('href', '/read-only-scan');
     expect(screen.getByRole('link', { name: /Book Demo/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
@@ -132,6 +134,33 @@ describe('App', () => {
 
     expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
+
+  it('submits read-only scan challenge details to lead capture', async () => {
+    setCurrentPath('/read-only-scan');
+    const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Work email/i), {
+      target: { value: 'security@example.com' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company/i), {
+      target: { value: 'Example Co' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Free Risk Scan' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/leads', expect.any(Object)));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      email: 'security@example.com',
+      company: 'Example Co',
+      environment: 'AWS IAM + Kubernetes',
+      challenge: 'Trust path visibility',
+      page_path: '/read-only-scan'
+    });
   });
 
   it('renders deployment models route', () => {

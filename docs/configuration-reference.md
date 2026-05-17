@@ -174,14 +174,33 @@ The web app supports OIDC login/callback/refresh/logout flows when these Vite en
 - `VITE_OIDC_WORKSPACE_CLAIM` (default: `workspace_id`)
 - `VITE_OIDC_ROLES_CLAIM` (default: `roles`)
 
-## Web Lead Capture Forwarding
+## Web Lead Capture Email and Forwarding
 
-Server-side `/api/leads` forwarding uses these optional runtime environment variables:
+Server-side `/api/leads` validates the public scan and lead forms, applies a
+per-IP rate limit, ignores honeypot spam submissions, and then delivers the
+lead through the configured runtime channel.
 
-- `LEAD_WEBHOOK_URL` (required to enable forwarding; must use `https`, or `http` only for localhost targets)
+For the standard hosted setup, configure Resend:
+
+- `RESEND_API_KEY` (required for direct email delivery)
+- `LEAD_NOTIFY_TO` (required with Resend; comma-separated internal recipients such as `sales@identrail.com,security@identrail.com`)
+- `LEAD_EMAIL_FROM` (default: `Identrail <onboarding@resend.dev>`; use a verified Identrail domain in production)
+- `LEAD_REPLY_TO` (optional; defaults to the submitter for internal notifications and the first `LEAD_NOTIFY_TO` address for confirmations)
+- `LEAD_EMAIL_SUBJECT_PREFIX` (default: `Identrail`)
+- `LEAD_CONFIRMATION_ENABLED` (default: `true`; set `false` to skip the requester confirmation email)
+- `LEAD_CONFIRMATION_SUBJECT` (optional requester confirmation subject override)
+- `LEAD_EMAIL_TIMEOUT_MS` (default: `3000`, bounded to `500..10000`)
+
+Optional webhook forwarding can be enabled alongside email, or used as a
+fallback delivery channel:
+
+- `LEAD_WEBHOOK_URL` (must use `https`, or `http` only for localhost targets)
 - `LEAD_WEBHOOK_TIMEOUT_MS` (default: `3000`, bounded to `500..10000`)
-- `LEAD_CAPTURE_RATE_LIMIT_PER_MIN` (default: `15`, bounded to `1..120`, applied per client IP window)
 - `LEAD_WEBHOOK_HMAC_SECRET` (optional; when set, emits `X-Identrail-Signature: sha256=<digest>` for receiver-side verification)
+
+Shared lead-capture control:
+
+- `LEAD_CAPTURE_RATE_LIMIT_PER_MIN` (default: `15`, bounded to `1..120`, applied per client IP window)
 
 ## Validation and Limits
 

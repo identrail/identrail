@@ -25,6 +25,14 @@ function createMockResponse(): MockResponse {
 describe('web/api/leads handler', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete process.env.RESEND_API_KEY;
+    delete process.env.LEAD_NOTIFY_TO;
+    delete process.env.LEAD_EMAIL_FROM;
+    delete process.env.LEAD_EMAIL_SUBJECT_PREFIX;
+    delete process.env.LEAD_EMAIL_TIMEOUT_MS;
+    delete process.env.LEAD_REPLY_TO;
+    delete process.env.LEAD_CONFIRMATION_ENABLED;
+    delete process.env.LEAD_CONFIRMATION_SUBJECT;
     delete process.env.LEAD_WEBHOOK_URL;
     delete process.env.LEAD_WEBHOOK_HMAC_SECRET;
     delete process.env.LEAD_WEBHOOK_TIMEOUT_MS;
@@ -49,7 +57,7 @@ describe('web/api/leads handler', () => {
     expect(res.body).toEqual({ error: 'Valid work email is required.' });
   });
 
-  it('returns 503 when lead webhook is not configured', async () => {
+  it('returns 503 when no lead delivery channel is configured', async () => {
     const res = createMockResponse();
     await handler(
       {
@@ -209,7 +217,7 @@ describe('web/api/leads handler', () => {
     vi.useRealTimers();
   });
 
-  it('silently accepts honeypot challenge submissions without forwarding', async () => {
+  it('silently accepts honeypot website submissions without forwarding', async () => {
     process.env.LEAD_WEBHOOK_URL = 'https://example.test/webhook';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
@@ -221,7 +229,7 @@ describe('web/api/leads handler', () => {
         body: {
           email: 'security@company.com',
           environment: 'AWS IAM + Kubernetes',
-          challenge: 'bot-filled'
+          website: 'bot-filled'
         }
       },
       res
@@ -230,6 +238,104 @@ describe('web/api/leads handler', () => {
     expect(res.statusCode).toBe(202);
     expect(res.body).toEqual({ status: 'accepted' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends internal and confirmation emails through Resend when configured', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com, security@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Acme Corp',
+          environment: 'AWS IAM + Kubernetes',
+          challenge: 'Trust path visibility',
+          deployment_model: 'Hosted SaaS',
+          urgency: 'This quarter',
+          team_size: '6-20',
+          scan_goal: 'AWS IAM + Kubernetes trust-path risk reduction',
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toEqual({ status: 'accepted' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [notificationURL, notificationInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(notificationURL).toBe('https://api.resend.com/emails');
+    const notificationHeaders = (notificationInit.headers ?? {}) as Record<string, string>;
+    expect(notificationHeaders.Authorization).toBe('Bearer re_test_key');
+    expect(notificationHeaders['Idempotency-Key']).toMatch(/lead-notification$/);
+    expect(JSON.parse(String(notificationInit.body))).toMatchObject({
+      from: 'Identrail <scan@identrail.com>',
+      to: ['sales@identrail.com', 'security@identrail.com'],
+      reply_to: 'security@company.com',
+      subject: '[Identrail] New risk scan request from Acme Corp (security@company.com)'
+    });
+
+    const [, confirmationInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    const confirmationHeaders = (confirmationInit.headers ?? {}) as Record<string, string>;
+    expect(confirmationHeaders['Idempotency-Key']).toMatch(/lead-confirmation$/);
+    expect(JSON.parse(String(confirmationInit.body))).toMatchObject({
+      from: 'Identrail <scan@identrail.com>',
+      to: 'security@company.com',
+      reply_to: 'sales@identrail.com',
+      subject: 'We received your Identrail risk scan request'
+    });
+  });
+
+  it('can disable requester confirmation while still notifying the team', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_CONFIRMATION_ENABLED = 'false';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          environment: 'AWS IAM + Kubernetes'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(202);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 502 when Resend email delivery fails', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    const fetchMock = vi.fn(async () => ({ ok: false }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          environment: 'AWS IAM + Kubernetes'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ error: 'Lead email delivery failed.' });
   });
 
   it('signs outbound requests when webhook signing secret is configured', async () => {
@@ -252,7 +358,7 @@ describe('web/api/leads handler', () => {
 
     expect(res.statusCode).toBe(202);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const headers = (init.headers ?? {}) as Record<string, string>;
     expect(headers['X-Identrail-Signature']).toMatch(/^sha256=[0-9a-f]{64}$/);
     expect(headers['X-Identrail-Lead-Request-ID']).toBeTruthy();
@@ -271,6 +377,7 @@ describe('web/api/leads handler', () => {
         body: {
           email: 'security@company.com',
           environment: 'AWS IAM + Kubernetes',
+          challenge: 'Trust path visibility',
           deployment_model: 'Hosted SaaS',
           urgency: 'This quarter',
           team_size: '6-20',
@@ -285,5 +392,11 @@ describe('web/api/leads handler', () => {
     expect(res.statusCode).toBe(202);
     expect(res.body).toEqual({ status: 'accepted' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      email: 'security@company.com',
+      environment: 'AWS IAM + Kubernetes',
+      challenge: 'Trust path visibility'
+    });
   });
 });

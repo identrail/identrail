@@ -387,6 +387,7 @@ export type LeadCapturePayload = {
   environment: string;
   company?: string;
   challenge?: string;
+  website?: string;
   deployment_model?: string;
   scan_goal?: string;
   urgency?: string;

@@ -5,6 +5,7 @@ type LeadCapturePayload = {
   environment?: string;
   company?: string;
   challenge?: string;
+  website?: string;
   deployment_model?: string;
   scan_goal?: string;
   urgency?: string;
@@ -33,7 +34,23 @@ const MAX_PAGE_PATH_LENGTH = 240;
 const MAX_TEAM_SIZE_LENGTH = 16;
 const MAX_URGENCY_LENGTH = 32;
 const MAX_DEPLOYMENT_MODEL_LENGTH = 64;
+const DEFAULT_EMAIL_FROM = 'Identrail <onboarding@resend.dev>';
+const RESEND_EMAILS_URL = 'https://api.resend.com/emails';
 const leadRequestBuckets = new Map<string, number[]>();
+
+type LeadDeliveryPayload = {
+  email: string;
+  environment: string;
+  company?: string;
+  challenge?: string;
+  deployment_model?: string;
+  scan_goal?: string;
+  urgency?: string;
+  team_size?: string;
+  source: string;
+  page_path: string;
+  captured_at: string;
+};
 
 export function __resetLeadRequestBucketsForTests() {
   leadRequestBuckets.clear();
@@ -155,6 +172,214 @@ function hasValidWebhookURL(webhookURL: URL): boolean {
   return webhookURL.protocol === 'http:' && isLocalHost(webhookURL.hostname);
 }
 
+function parseEmailList(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+  return raw
+    .split(/[,\n;]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function booleanEnvEnabled(value: string | undefined, fallback: boolean): boolean {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  return fallback;
+}
+
+function escapeHTML(value: string | undefined): string {
+  return (value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function leadDisplayName(payload: LeadDeliveryPayload): string {
+  return payload.company ? `${payload.company} (${payload.email})` : payload.email;
+}
+
+function leadRows(payload: LeadDeliveryPayload): Array<[string, string | undefined]> {
+  return [
+    ['Work email', payload.email],
+    ['Company', payload.company],
+    ['Environment', payload.environment],
+    ['Challenge', payload.challenge],
+    ['Deployment model', payload.deployment_model],
+    ['Urgency', payload.urgency],
+    ['Team size', payload.team_size],
+    ['Scan goal', payload.scan_goal],
+    ['Source', payload.source],
+    ['Page path', payload.page_path],
+    ['Captured at', payload.captured_at]
+  ];
+}
+
+function renderLeadText(payload: LeadDeliveryPayload): string {
+  return [
+    `New Identrail risk scan request from ${leadDisplayName(payload)}.`,
+    '',
+    ...leadRows(payload).map(([label, value]) => `${label}: ${value || 'Not provided'}`),
+    '',
+    'Reply directly to the requester to schedule the next step.'
+  ].join('\n');
+}
+
+function renderLeadHTML(payload: LeadDeliveryPayload): string {
+  const rows = leadRows(payload)
+    .map(
+      ([label, value]) => `
+        <tr>
+          <th align="left" style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#374151;font-size:13px;">${escapeHTML(label)}</th>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#111827;font-size:13px;">${escapeHTML(value || 'Not provided')}</td>
+        </tr>`
+    )
+    .join('');
+
+  return `
+    <div style="font-family:Inter,Arial,sans-serif;color:#111827;line-height:1.5;">
+      <h1 style="font-size:20px;margin:0 0 12px;">New Identrail risk scan request</h1>
+      <p style="margin:0 0 16px;">${escapeHTML(leadDisplayName(payload))} submitted the public scan intake form.</p>
+      <table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;max-width:640px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+        ${rows}
+      </table>
+      <p style="margin:16px 0 0;color:#4b5563;">Reply directly to the requester to schedule the next step.</p>
+    </div>`;
+}
+
+function renderConfirmationText(payload: LeadDeliveryPayload): string {
+  return [
+    'Thanks for requesting an Identrail read-only risk scan.',
+    '',
+    'We received your intake and will review the context before following up.',
+    '',
+    `Environment: ${payload.environment}`,
+    `Focus area: ${payload.challenge || 'Trust path visibility'}`,
+    `Deployment preference: ${payload.deployment_model || 'Not provided'}`,
+    '',
+    'We never ask for production credentials in this intake flow.'
+  ].join('\n');
+}
+
+function renderConfirmationHTML(payload: LeadDeliveryPayload): string {
+  return `
+    <div style="font-family:Inter,Arial,sans-serif;color:#111827;line-height:1.5;">
+      <h1 style="font-size:20px;margin:0 0 12px;">We received your Identrail risk scan request</h1>
+      <p style="margin:0 0 16px;">Thanks for requesting a read-only machine identity risk scan. We will review the context before following up.</p>
+      <ul style="padding-left:20px;margin:0 0 16px;color:#374151;">
+        <li><strong>Environment:</strong> ${escapeHTML(payload.environment)}</li>
+        <li><strong>Focus area:</strong> ${escapeHTML(payload.challenge || 'Trust path visibility')}</li>
+        <li><strong>Deployment preference:</strong> ${escapeHTML(payload.deployment_model || 'Not provided')}</li>
+      </ul>
+      <p style="margin:0;color:#4b5563;">We never ask for production credentials in this intake flow.</p>
+    </div>`;
+}
+
+async function postResendEmail({
+  apiKey,
+  requestID,
+  suffix,
+  timeoutMS,
+  body
+}: {
+  apiKey: string;
+  requestID: string;
+  suffix: string;
+  timeoutMS: number;
+  body: Record<string, unknown>;
+}): Promise<boolean> {
+  const abortController = new AbortController();
+  const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMS);
+
+  try {
+    const response = await fetch(RESEND_EMAILS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `${requestID}-${suffix}`
+      },
+      body: JSON.stringify(body),
+      signal: abortController.signal
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
+async function sendLeadEmails({
+  env,
+  payload,
+  requestID,
+  timeoutMS
+}: {
+  env: Record<string, string | undefined>;
+  payload: LeadDeliveryPayload;
+  requestID: string;
+  timeoutMS: number;
+}): Promise<'not_configured' | 'sent' | 'failed'> {
+  const apiKey = env.RESEND_API_KEY?.trim();
+  const notifyTo = parseEmailList(env.LEAD_NOTIFY_TO);
+  if (!apiKey || notifyTo.length === 0) {
+    return 'not_configured';
+  }
+
+  const from = env.LEAD_EMAIL_FROM?.trim() || DEFAULT_EMAIL_FROM;
+  const replyTo = env.LEAD_REPLY_TO?.trim() || payload.email;
+  const subjectPrefix = env.LEAD_EMAIL_SUBJECT_PREFIX?.trim() || 'Identrail';
+  const notificationSent = await postResendEmail({
+    apiKey,
+    requestID,
+    suffix: 'lead-notification',
+    timeoutMS,
+    body: {
+      from,
+      to: notifyTo,
+      reply_to: replyTo,
+      subject: `[${subjectPrefix}] New risk scan request from ${leadDisplayName(payload)}`,
+      text: renderLeadText(payload),
+      html: renderLeadHTML(payload)
+    }
+  });
+  if (!notificationSent) {
+    return 'failed';
+  }
+
+  if (!booleanEnvEnabled(env.LEAD_CONFIRMATION_ENABLED, true)) {
+    return 'sent';
+  }
+
+  const confirmationSent = await postResendEmail({
+    apiKey,
+    requestID,
+    suffix: 'lead-confirmation',
+    timeoutMS,
+    body: {
+      from,
+      to: payload.email,
+      reply_to: env.LEAD_REPLY_TO?.trim() || notifyTo[0],
+      subject: env.LEAD_CONFIRMATION_SUBJECT?.trim() || 'We received your Identrail risk scan request',
+      text: renderConfirmationText(payload),
+      html: renderConfirmationHTML(payload)
+    }
+  });
+
+  return confirmationSent ? 'sent' : 'failed';
+}
+
 function assertLength(res: HandlerResponse, value: string, maxLength: number, message: string): boolean {
   if (value.length <= maxLength) {
     return true;
@@ -189,6 +414,7 @@ export default async function handler(
   const environment = trimOptional(body.environment) ?? '';
   const company = trimOptional(body.company);
   const challenge = trimOptional(body.challenge);
+  const website = trimOptional(body.website);
   const scanGoal = trimOptional(body.scan_goal);
   const source = trimOptional(body.source) || 'unknown';
   const pagePath = trimOptional(body.page_path) || '/';
@@ -225,7 +451,7 @@ export default async function handler(
     return;
   }
 
-  if (challenge) {
+  if (website) {
     res.status(202).json({ status: 'accepted' });
     return;
   }
@@ -245,11 +471,11 @@ export default async function handler(
     return;
   }
 
-  const payload = {
+  const payload: LeadDeliveryPayload = {
     email,
     environment,
     company,
-    challenge: undefined,
+    challenge,
     deployment_model: deploymentModel && ALLOWED_DEPLOYMENT_MODELS.has(deploymentModel) ? deploymentModel : undefined,
     scan_goal: scanGoal,
     urgency: urgency && ALLOWED_URGENCY.has(urgency) ? urgency : undefined,
@@ -260,19 +486,42 @@ export default async function handler(
   };
 
   const webhook = env.LEAD_WEBHOOK_URL?.trim();
-
-  if (!webhook) {
-    res.status(503).json({ error: 'Lead capture is not configured.' });
-    return;
-  }
-  const webhookURL = parseWebhookURL(webhook);
-  if (!webhookURL || !hasValidWebhookURL(webhookURL)) {
+  const webhookURL = webhook ? parseWebhookURL(webhook) : null;
+  if (webhook && (!webhookURL || !hasValidWebhookURL(webhookURL))) {
     res.status(503).json({ error: 'Lead capture is not configured.' });
     return;
   }
 
   const payloadJSON = JSON.stringify(payload);
   const requestID = randomUUID();
+  const emailConfigured = Boolean(env.RESEND_API_KEY?.trim() && parseEmailList(env.LEAD_NOTIFY_TO).length > 0);
+  if (!emailConfigured && !webhookURL) {
+    res.status(503).json({ error: 'Lead capture is not configured.' });
+    return;
+  }
+
+  const emailTimeoutMS = parseBoundedInt(
+    env.LEAD_EMAIL_TIMEOUT_MS ?? env.LEAD_WEBHOOK_TIMEOUT_MS,
+    DEFAULT_FORWARD_TIMEOUT_MS,
+    MIN_FORWARD_TIMEOUT_MS,
+    MAX_FORWARD_TIMEOUT_MS
+  );
+  const emailResult = await sendLeadEmails({
+    env,
+    payload,
+    requestID,
+    timeoutMS: emailTimeoutMS
+  });
+  if (emailResult === 'failed') {
+    res.status(502).json({ error: 'Lead email delivery failed.' });
+    return;
+  }
+
+  if (!webhookURL) {
+    res.status(202).json({ status: 'accepted' });
+    return;
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Identrail-Lead-Request-ID': requestID
