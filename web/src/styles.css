@@ -6338,23 +6338,11 @@ html[data-theme='light'] .idt-auth-provider-google {
   background: var(--auth-button-muted);
 }
 
-.idt-auth-page[data-auth-theme='dark'].idt-auth-page-signup .idt-auth-provider-github {
-  border-color: var(--auth-github);
-  background: var(--auth-github);
-  color: #ffffff;
-}
-
 .idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github,
 html[data-theme='light'] .idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github {
   border-color: var(--auth-line-strong);
   background: var(--auth-button-muted);
   color: var(--auth-text);
-}
-
-.idt-auth-page[data-auth-theme='dark'].idt-auth-page-signup .idt-auth-provider-github:hover,
-.idt-auth-page[data-auth-theme='dark'].idt-auth-page-signup .idt-auth-provider-github:focus-visible {
-  border-color: #4b5563;
-  background: #2b3138;
 }
 
 .idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github:hover,
