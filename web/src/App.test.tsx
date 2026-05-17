@@ -271,10 +271,16 @@ describe('App', () => {
         return okJSON({
           items: [
             {
+              scan_id: 'repo-scan-0',
+              started_at: '2026-01-01T00:00:00Z',
+              total: 10,
+              by_severity: { critical: 1, high: 3, medium: 3, low: 2, info: 1 }
+            },
+            {
               scan_id: 'repo-scan-1',
               started_at: '2026-01-02T00:00:00Z',
-              total: 1,
-              by_severity: { critical: 0, high: 1, medium: 0, low: 0, info: 0 }
+              total: 4,
+              by_severity: { critical: 0, high: 1, medium: 2, low: 1, info: 0 }
             }
           ]
         });
@@ -313,6 +319,8 @@ describe('App', () => {
     expect(await screen.findByText(/Open risk/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Latest scan total 4/i)).toBeInTheDocument();
+    expect(await screen.findByText('-6')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/auth/manual',
       expect.objectContaining({ credentials: 'include' })

@@ -929,8 +929,8 @@ export function ProductOverviewPage() {
   }).length;
   const activeScanCount = repoScans.filter((scan) => isActiveScanStatus(scan.status)).length;
   const completedScanCount = repoScans.filter((scan) => isCompletedScanStatus(scan.status)).length;
-  const latestTrend = trendPoints[0];
-  const previousTrend = trendPoints[1];
+  const latestTrend = trendPoints[trendPoints.length - 1];
+  const previousTrend = trendPoints[trendPoints.length - 2];
   const trendDelta =
     latestTrend && previousTrend ? latestTrend.total - previousTrend.total : latestTrend ? latestTrend.total : 0;
   const projectsPath = scope ? buildProjectsPath(scope) : '/app';
