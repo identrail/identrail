@@ -601,22 +601,27 @@ function ProductHeroVisual() {
           <span />
           <span />
           <span />
-          <strong>Trust graph</strong>
+          <strong>Production trust graph</strong>
         </div>
         <div className="idt-product-hero-body">
-          <div className="idt-product-hero-sidebar">
-            <span className="is-active">Paths</span>
-            <span>Evidence</span>
-            <span>Fixes</span>
-          </div>
           <div className="idt-product-hero-graph">
+            <div className="idt-product-graph-title">
+              <span>Live path</span>
+              <strong>CI/CD identity to billing data</strong>
+            </div>
             <svg viewBox="0 0 720 420" aria-hidden="true" focusable="false">
-              <path className="is-muted" d="M118 118 C236 82 316 154 430 132 S600 92 658 166" />
-              <path className="is-risk" d="M310 236 C400 236 450 296 520 330 S620 358 675 318" />
-              <path className="is-safe" d="M196 330 C274 286 354 264 452 258" />
-              <circle className="idt-graph-node is-risk" cx="118" cy="118" r="6" />
-              <circle className="idt-graph-node is-risk" cx="452" cy="258" r="6" />
-              <circle className="idt-graph-node is-risk" cx="675" cy="318" r="6" />
+              <defs>
+                <marker id="idt-product-hero-arrow" viewBox="0 0 10 10" refX="8.4" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+                <marker id="idt-product-hero-arrow-muted" viewBox="0 0 10 10" refX="8.4" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                  <path d="M 0 0 L 10 5 L 0 10 z" />
+                </marker>
+              </defs>
+              <path className="idt-product-graph-edge is-muted" d="M142 126 C216 146 244 184 314 214" />
+              <path className="idt-product-graph-edge is-safe" d="M398 226 C454 196 493 139 548 104" />
+              <path className="idt-product-graph-edge is-risk" d="M400 245 C442 274 487 298 538 315" />
+              <path className="idt-product-graph-edge is-proof" d="M182 324 C235 294 270 257 314 232" />
             </svg>
             <div className="idt-graph-pill is-github">
               <strong>GitHub OIDC</strong>
@@ -1222,11 +1227,13 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
                 <stop offset="55%" stopColor="rgba(203, 222, 255, 0.95)" />
                 <stop offset="100%" stopColor="rgba(154, 184, 238, 0.42)" />
               </linearGradient>
+              <marker id={`idt-demo-edge-arrow-${variant}`} viewBox="0 0 10 10" refX="8.6" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path fill="context-stroke" d="M 0 0 L 10 5 L 0 10 z" />
+              </marker>
             </defs>
             {edges.map((edge, index) => {
               const path = edgePath(edge.from, edge.to);
-              const toNode = getNode(edge.to);
-              if (!path || !toNode) {
+              if (!path) {
                 return null;
               }
 
@@ -1235,12 +1242,12 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
               return (
                 <g key={edge.id} className={edgeClass}>
                   <path className="idt-demo-edge-base" d={path} stroke={`url(#idt-demo-edge-base-gradient-${variant})`} />
+                  <path className="idt-demo-edge-arrow" d={path} markerEnd={`url(#idt-demo-edge-arrow-${variant})`} />
                   <path
                     className={`idt-demo-edge-flow idt-demo-edge-delay-${index}`}
                     d={path}
                     stroke={`url(#idt-demo-edge-flow-gradient-${variant})`}
                   />
-                  <circle className="idt-demo-edge-end" cx={toNode.x} cy={toNode.y} r={isConnected ? 0.72 : 0.56} />
                 </g>
               );
             })}
@@ -1826,11 +1833,8 @@ function HomePage() {
             body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
           />
           <div className="idt-inline-actions">
-            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
-            </Link>
-            <Link to="/enterprise" className="idt-final-cta-link">
-              Need enterprise procurement? Contact Sales →
+            <Link to="/enterprise" className="idt-btn idt-btn-primary">
+              Need enterprise procurement? Contact Sales
             </Link>
           </div>
         </section>
@@ -2502,7 +2506,7 @@ function PricingPage() {
   const proPrice = annual ? 59 : 79;
 
   return (
-    <>
+    <div className="idt-marketing-page idt-pricing-page">
       <PageHero
         eyebrow="Pricing"
         title="Pricing aligned to how teams adopt machine identity security"
@@ -2659,7 +2663,7 @@ function PricingPage() {
           />
         </ModalShell>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -2960,7 +2964,7 @@ function DocsPage() {
   });
 
   return (
-    <>
+    <div className="idt-marketing-page idt-docs-page">
       <PageHero
         eyebrow="Docs"
         title="Deploy, connect, and operate Identrail in production"
@@ -3028,7 +3032,7 @@ function DocsPage() {
       <section className="idt-section idt-shell">
         <CalendlyEmbed />
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3042,7 +3046,7 @@ function BlogPage() {
   });
 
   return (
-    <>
+    <div className="idt-marketing-page idt-blog-page">
       <PageHero
         eyebrow="Blog & Resources"
         title="Actionable content for security and platform teams operating machine identities"
@@ -3073,7 +3077,7 @@ function BlogPage() {
           ))}
         </div>
       </section>
-    </>
+    </div>
   );
 }
 

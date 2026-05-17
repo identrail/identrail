@@ -15924,10 +15924,9 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
 }
 
 /* Homepage and product contrast polish follow-up. */
-.idt-hero-copy h1,
-html[data-theme='light'] .idt-hero-copy h1 {
+.idt-hero-copy h1 {
   max-width: 9.4ch;
-  color: #0f1f19;
+  color: var(--idt-premium-text);
   font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
   font-size: clamp(3.1rem, 5.1vw, 5.7rem);
   font-weight: 800;
@@ -15936,7 +15935,15 @@ html[data-theme='light'] .idt-hero-copy h1 {
   text-transform: uppercase;
 }
 
-.idt-hero-copy h1 span,
+.idt-hero-copy h1 span {
+  color: var(--idt-premium-mint);
+  font-family: inherit;
+}
+
+html[data-theme='light'] .idt-hero-copy h1 {
+  color: #0f1f19;
+}
+
 html[data-theme='light'] .idt-hero-copy h1 span {
   color: #6d37dd;
   font-family: inherit;
@@ -16149,5 +16156,670 @@ html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-inline-l
   .idt-product-graph-band .idt-demo-graph {
     border-right: 0;
     border-bottom: 1px solid #262626;
+  }
+}
+
+/* Cross-page finish pass: consistent black overscroll, footer, graphs, and dark marketing pages. */
+html,
+html[data-theme='light'],
+body,
+html[data-theme='light'] body,
+#root,
+.idt-site {
+  background: #000000;
+}
+
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
+.idt-site > main {
+  background: #ffffff;
+}
+
+.idt-footer,
+html[data-theme='light'] .idt-footer {
+  margin-top: 0;
+  background: #000000;
+}
+
+.idt-footer-bar,
+html[data-theme='light'] .idt-footer-bar {
+  border-top: 1px solid #242424;
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-footer-bar-row {
+  min-height: 78px;
+}
+
+.idt-footer-meta small,
+.idt-footer-trust-links a,
+html[data-theme='light'] .idt-footer-meta small,
+html[data-theme='light'] .idt-footer-trust-links a {
+  color: #a1a1aa;
+}
+
+.idt-social-link,
+html[data-theme='light'] .idt-social-link {
+  border-color: #303030;
+  background: #080808;
+  color: #ffffff;
+}
+
+.idt-social-link:hover,
+.idt-social-link:focus-visible {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-home-after-stack .idt-home-final-cta,
+html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta {
+  border-bottom: 0;
+  padding-bottom: clamp(5rem, 8vw, 7rem);
+}
+
+.idt-home-after-stack .idt-home-final-cta .idt-btn-primary,
+html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-btn-primary {
+  min-height: 52px;
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #000000;
+  font-weight: 850;
+}
+
+.idt-product-page .idt-product-hero-body {
+  grid-template-columns: 1fr;
+}
+
+.idt-product-page .idt-product-hero-sidebar {
+  display: none;
+}
+
+.idt-product-page .idt-product-hero-graph {
+  isolation: isolate;
+  min-height: 516px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    radial-gradient(circle at 38% 48%, rgba(255, 255, 255, 0.07), transparent 15rem),
+    #050505;
+  background-size: 72px 72px, 72px 72px, auto, auto;
+}
+
+.idt-product-graph-title {
+  position: absolute;
+  top: 1.15rem;
+  left: 1.15rem;
+  z-index: 4;
+  display: grid;
+  gap: 0.2rem;
+  max-width: 18rem;
+}
+
+.idt-product-graph-title span {
+  color: #a1a1aa;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.idt-product-graph-title strong {
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.idt-product-hero-graph svg {
+  z-index: 1;
+}
+
+#idt-product-hero-arrow path {
+  fill: #ffffff;
+}
+
+#idt-product-hero-arrow-muted path {
+  fill: #71717a;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge.is-muted {
+  marker-end: url('#idt-product-hero-arrow-muted');
+  stroke: #71717a;
+  stroke-width: 2;
+  opacity: 0.72;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge.is-safe {
+  marker-end: url('#idt-product-hero-arrow');
+  stroke: #d4d4d8;
+  stroke-width: 2.8;
+  opacity: 0.92;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge.is-risk {
+  marker-end: url('#idt-product-hero-arrow');
+  stroke: #ffffff;
+  stroke-width: 3.4;
+  filter: none;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge.is-proof {
+  marker-end: url('#idt-product-hero-arrow-muted');
+  stroke: #a1a1aa;
+  stroke-width: 2.2;
+  opacity: 0.82;
+}
+
+.idt-product-page .idt-graph-pill,
+.idt-product-page .idt-product-evidence-card,
+.idt-product-page .idt-product-hero-queue {
+  z-index: 3;
+}
+
+.idt-product-page .idt-graph-pill.is-github {
+  top: 23%;
+  left: 7%;
+}
+
+.idt-product-page .idt-graph-pill.is-aws {
+  top: 18%;
+  right: 6%;
+}
+
+.idt-product-page .idt-graph-pill.is-k8s {
+  top: 48%;
+  left: 39%;
+}
+
+.idt-product-page .idt-graph-pill.is-data {
+  top: 68%;
+  left: 58%;
+  right: auto;
+  bottom: auto;
+}
+
+.idt-demo-edge-base,
+.idt-demo-edge-flow,
+.idt-demo-edge-arrow {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.idt-demo-edge-arrow {
+  stroke: #d4d4d8;
+  stroke-width: 0.92;
+  opacity: 0.76;
+}
+
+.idt-demo-edges g.is-connected .idt-demo-edge-arrow {
+  stroke: #ffffff;
+  stroke-width: 1.12;
+  opacity: 1;
+}
+
+.idt-demo-edge-flow {
+  stroke-dasharray: 18 120;
+  opacity: 0.36;
+}
+
+.idt-demo-edges g.is-connected .idt-demo-edge-flow {
+  stroke-dasharray: 22 116;
+  opacity: 0.66;
+}
+
+.idt-product-graph-band .idt-demo-graph,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-graph {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    #050505;
+  background-size: 80px 80px, 80px 80px, auto;
+}
+
+.idt-product-graph-band .idt-demo-edge-base {
+  stroke-width: 1.18;
+  opacity: 0.58;
+}
+
+.idt-product-graph-band .idt-demo-edge-arrow {
+  stroke-width: 1.38;
+  opacity: 0.9;
+}
+
+.idt-product-graph-band .idt-demo-edges g.is-connected .idt-demo-edge-arrow {
+  stroke-width: 1.72;
+}
+
+.idt-product-graph-band .idt-demo-edge-flow {
+  stroke-width: 1.24;
+  stroke-dasharray: 26 128;
+  opacity: 0.38;
+}
+
+.idt-product-graph-band .idt-demo-edges g.is-connected .idt-demo-edge-flow {
+  stroke-width: 1.42;
+  stroke-dasharray: 30 124;
+  opacity: 0.58;
+}
+
+.idt-marketing-page {
+  min-height: 100%;
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-marketing-page > .idt-page-hero-rich,
+html[data-theme='light'] .idt-marketing-page > .idt-page-hero-rich {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  grid-template-columns: minmax(380px, 0.9fr) minmax(520px, 1.1fr);
+  padding: clamp(4.25rem, 7vw, 6.2rem) clamp(1.25rem, 5vw, 6rem);
+  border-bottom: 1px solid #202020;
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-marketing-page > .idt-page-hero-rich::before,
+.idt-marketing-page > .idt-page-hero-rich::after,
+html[data-theme='light'] .idt-marketing-page > .idt-page-hero-rich::before,
+html[data-theme='light'] .idt-marketing-page > .idt-page-hero-rich::after {
+  display: none;
+}
+
+.idt-marketing-page .idt-page-hero-rich .idt-eyebrow,
+html[data-theme='light'] .idt-marketing-page .idt-page-hero-rich .idt-eyebrow {
+  color: #ffffff;
+}
+
+.idt-marketing-page .idt-page-hero-rich h1,
+html[data-theme='light'] .idt-marketing-page .idt-page-hero-rich h1 {
+  max-width: 14ch;
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: clamp(3rem, 4.7vw, 4.75rem);
+  font-weight: 800;
+  line-height: 0.97;
+  text-transform: uppercase;
+}
+
+.idt-marketing-page .idt-page-hero-copy > p,
+html[data-theme='light'] .idt-marketing-page .idt-page-hero-copy > p {
+  color: #a1a1aa;
+}
+
+.idt-blog-page > .idt-page-hero-rich,
+html[data-theme='light'] .idt-blog-page > .idt-page-hero-rich {
+  grid-template-columns: minmax(520px, 1.05fr) minmax(500px, 0.95fr);
+}
+
+.idt-blog-page .idt-page-hero-rich h1,
+html[data-theme='light'] .idt-blog-page .idt-page-hero-rich h1 {
+  max-width: 17ch;
+  font-size: clamp(3rem, 4.3vw, 4.55rem);
+}
+
+.idt-marketing-page .idt-page-hero-rich .idt-btn-primary,
+html[data-theme='light'] .idt-marketing-page .idt-page-hero-rich .idt-btn-primary {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #000000;
+  box-shadow: none;
+}
+
+.idt-marketing-page .idt-page-hero-rich .idt-btn-dark,
+html[data-theme='light'] .idt-marketing-page .idt-page-hero-rich .idt-btn-dark {
+  border-color: #303030;
+  background: #050505;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-marketing-page > .idt-section.idt-shell,
+html[data-theme='light'] .idt-marketing-page > .idt-section.idt-shell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: clamp(4rem, 7vw, 6rem) clamp(1.25rem, 5vw, 6rem);
+  border-bottom: 1px solid #202020;
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-marketing-page .idt-card-grid,
+.idt-marketing-page .idt-pricing-grid {
+  gap: 1px;
+  background: #242424;
+}
+
+.idt-marketing-page .idt-card,
+.idt-marketing-page .idt-pricing-card,
+html[data-theme='light'] .idt-marketing-page .idt-card,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card {
+  border: 0;
+  border-radius: 0;
+  background: #080808;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-marketing-page .idt-card h2,
+.idt-marketing-page .idt-pricing-card h2,
+html[data-theme='light'] .idt-marketing-page .idt-card h2,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card h2 {
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.idt-marketing-page .idt-card p,
+.idt-marketing-page .idt-card li,
+.idt-marketing-page .idt-pricing-card p,
+.idt-marketing-page .idt-pricing-card li,
+html[data-theme='light'] .idt-marketing-page .idt-card p,
+html[data-theme='light'] .idt-marketing-page .idt-card li,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card p,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card li {
+  color: #a1a1aa;
+}
+
+.idt-marketing-page .idt-btn-ghost,
+html[data-theme='light'] .idt-marketing-page .idt-btn-ghost {
+  border-color: #303030;
+  background: #050505;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-marketing-page .idt-inline-link,
+html[data-theme='light'] .idt-marketing-page .idt-inline-link {
+  color: #ffffff;
+}
+
+.idt-pricing-page .idt-pricing-toggle,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-toggle,
+.idt-docs-page .idt-search,
+html[data-theme='light'] .idt-docs-page .idt-search {
+  border: 1px solid #303030;
+  border-radius: 8px;
+  background: #080808;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-pricing-page .idt-pricing-toggle button,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-toggle button {
+  color: #a1a1aa;
+}
+
+.idt-pricing-page .idt-pricing-toggle button.is-active,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-toggle button.is-active {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-pricing-page .idt-pricing-note,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-note {
+  color: #a1a1aa;
+}
+
+.idt-pricing-page .idt-pricing-card.is-featured,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-pricing-page .idt-pricing-card.is-featured h2,
+.idt-pricing-page .idt-pricing-card.is-featured .idt-price,
+.idt-pricing-page .idt-pricing-card.is-featured p,
+.idt-pricing-page .idt-pricing-card.is-featured li,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured h2,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured .idt-price,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured p,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured li {
+  color: #000000;
+}
+
+.idt-pricing-page .idt-badge,
+html[data-theme='light'] .idt-pricing-page .idt-badge {
+  border-radius: 8px;
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-pricing-page .idt-table-wrap,
+html[data-theme='light'] .idt-pricing-page .idt-table-wrap {
+  border: 1px solid #242424;
+  border-radius: 0;
+  background: #242424;
+  box-shadow: none;
+}
+
+.idt-pricing-page .idt-compare-table,
+html[data-theme='light'] .idt-pricing-page .idt-compare-table {
+  border-collapse: separate;
+  border-spacing: 1px;
+  background: #242424;
+}
+
+.idt-pricing-page .idt-compare-table th,
+.idt-pricing-page .idt-compare-table td,
+html[data-theme='light'] .idt-pricing-page .idt-compare-table th,
+html[data-theme='light'] .idt-pricing-page .idt-compare-table td {
+  border: 0;
+  background: #080808;
+  color: #d4d4d8;
+}
+
+.idt-pricing-page .idt-compare-table thead th,
+html[data-theme='light'] .idt-pricing-page .idt-compare-table thead th {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-pricing-hero-toggle,
+.idt-pricing-hero-plans div,
+.idt-pricing-hero-procurement,
+.idt-pricing-hero-matrix,
+.idt-docs-search-preview,
+.idt-docs-preview-shell,
+.idt-blog-hero-featured,
+.idt-blog-hero-stack article,
+.idt-blog-hero-radar,
+html[data-theme='light'] .idt-pricing-hero-toggle,
+html[data-theme='light'] .idt-pricing-hero-plans div,
+html[data-theme='light'] .idt-pricing-hero-procurement,
+html[data-theme='light'] .idt-pricing-hero-matrix,
+html[data-theme='light'] .idt-docs-search-preview,
+html[data-theme='light'] .idt-docs-preview-shell,
+html[data-theme='light'] .idt-blog-hero-featured,
+html[data-theme='light'] .idt-blog-hero-stack article,
+html[data-theme='light'] .idt-blog-hero-radar {
+  border-color: #242424;
+  background: #080808;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-pricing-hero-toggle strong,
+html[data-theme='light'] .idt-pricing-hero-toggle strong,
+.idt-pricing-hero-plans .is-featured,
+html[data-theme='light'] .idt-pricing-hero-plans .is-featured {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-pricing-hero-plans .is-featured {
+  transform: none;
+}
+
+.idt-pricing-hero-plans span,
+.idt-pricing-hero-plans p,
+.idt-pricing-hero-matrix > *,
+.idt-pricing-hero-procurement strong,
+.idt-docs-search-preview span,
+.idt-docs-preview-shell nav span,
+.idt-docs-preview-shell article p,
+.idt-docs-preview-shell li,
+.idt-blog-hero-featured span,
+.idt-blog-hero-featured p,
+.idt-blog-hero-stack span,
+.idt-blog-hero-stack p,
+.idt-blog-hero-radar span,
+html[data-theme='light'] .idt-pricing-hero-plans span,
+html[data-theme='light'] .idt-pricing-hero-plans p,
+html[data-theme='light'] .idt-pricing-hero-matrix > *,
+html[data-theme='light'] .idt-pricing-hero-procurement strong,
+html[data-theme='light'] .idt-docs-search-preview span,
+html[data-theme='light'] .idt-docs-preview-shell nav span,
+html[data-theme='light'] .idt-docs-preview-shell article p,
+html[data-theme='light'] .idt-docs-preview-shell li,
+html[data-theme='light'] .idt-blog-hero-featured span,
+html[data-theme='light'] .idt-blog-hero-featured p,
+html[data-theme='light'] .idt-blog-hero-stack span,
+html[data-theme='light'] .idt-blog-hero-stack p,
+html[data-theme='light'] .idt-blog-hero-radar span {
+  color: #a1a1aa;
+}
+
+.idt-pricing-hero-plans strong,
+.idt-docs-search-preview strong,
+.idt-docs-preview-shell h3,
+.idt-blog-hero-featured h3,
+.idt-blog-hero-stack strong,
+html[data-theme='light'] .idt-pricing-hero-plans strong,
+html[data-theme='light'] .idt-docs-search-preview strong,
+html[data-theme='light'] .idt-docs-preview-shell h3,
+html[data-theme='light'] .idt-blog-hero-featured h3,
+html[data-theme='light'] .idt-blog-hero-stack strong {
+  color: #ffffff;
+}
+
+.idt-pricing-hero-plans .is-featured strong,
+.idt-pricing-hero-plans .is-featured span,
+.idt-pricing-hero-plans .is-featured p,
+html[data-theme='light'] .idt-pricing-hero-plans .is-featured strong,
+html[data-theme='light'] .idt-pricing-hero-plans .is-featured span,
+html[data-theme='light'] .idt-pricing-hero-plans .is-featured p {
+  color: #000000;
+}
+
+.idt-pricing-hero-matrix span,
+html[data-theme='light'] .idt-pricing-hero-matrix span,
+.idt-docs-preview-shell nav,
+html[data-theme='light'] .idt-docs-preview-shell nav {
+  background: #000000;
+}
+
+.idt-pricing-hero-matrix b,
+html[data-theme='light'] .idt-pricing-hero-matrix b {
+  color: #ffffff;
+}
+
+.idt-pricing-hero-procurement span,
+.idt-blog-hero-radar strong,
+html[data-theme='light'] .idt-pricing-hero-procurement span,
+html[data-theme='light'] .idt-blog-hero-radar strong {
+  border: 1px solid #303030;
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-docs-preview-shell nav .is-active,
+html[data-theme='light'] .idt-docs-preview-shell nav .is-active {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-docs-preview-shell code,
+html[data-theme='light'] .idt-docs-preview-shell code {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-docs-page .idt-search {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 620px;
+  padding: 1rem;
+}
+
+.idt-docs-page .idt-search input,
+html[data-theme='light'] .idt-docs-page .idt-search input {
+  border-color: #303030;
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-docs-page .idt-search input::placeholder {
+  color: #71717a;
+}
+
+.idt-docs-page .idt-empty-state,
+html[data-theme='light'] .idt-docs-page .idt-empty-state {
+  border: 1px solid #242424;
+}
+
+.idt-blog-hero-featured {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    #080808;
+  background-size: 56px 56px, 56px 56px, auto;
+}
+
+@media (max-width: 1080px) {
+  .idt-marketing-page > .idt-page-hero-rich,
+  html[data-theme='light'] .idt-marketing-page > .idt-page-hero-rich {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .idt-footer-bar-row {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .idt-marketing-page > .idt-page-hero-rich,
+  .idt-marketing-page > .idt-section.idt-shell,
+  html[data-theme='light'] .idt-marketing-page > .idt-page-hero-rich,
+  html[data-theme='light'] .idt-marketing-page > .idt-section.idt-shell {
+    padding-inline: 1rem;
+  }
+
+  .idt-marketing-page .idt-page-hero-rich h1,
+  html[data-theme='light'] .idt-marketing-page .idt-page-hero-rich h1 {
+    max-width: 10.5ch;
+    font-size: clamp(2.65rem, 12vw, 3.45rem);
+  }
+
+  .idt-product-graph-title {
+    position: relative;
+    top: auto;
+    left: auto;
+    padding: 1rem;
+  }
+
+  .idt-product-page .idt-product-hero-graph {
+    min-height: 440px;
   }
 }
