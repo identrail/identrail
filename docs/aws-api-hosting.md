@@ -114,6 +114,20 @@ hosted sign-in/sign-up flow:
 - secret `API_WORKOS_WEBHOOK_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_WORKOS_WEBHOOK_SECRET`
 
+Hosted GitHub connector setup is enabled by default for Identrail Cloud API
+deploys. Configure these values before running the manual workflow, or set
+`API_FEATURE_CONNECTOR_GITHUB_V2=false` as the explicit rollback knob:
+
+- variable `API_GITHUB_APP_ID`: GitHub App numeric id.
+- variable `API_GITHUB_APP_NAME`: GitHub App slug used in installation URLs.
+- secret `API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN`: Secrets Manager ARN
+  containing `IDENTRAIL_GITHUB_APP_PRIVATE_KEY`.
+- secret `API_GITHUB_APP_WEBHOOK_SECRET_ARN`: Secrets Manager ARN containing
+  `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`.
+- secret `API_CONNECTOR_SECRET_KEYS_SECRET_ARN`: Secrets Manager ARN containing
+  the durable `IDENTRAIL_CONNECTOR_SECRET_KEYS` keyset used to encrypt connector
+  credentials.
+
 The workflow dispatch input `api_container_image` must be immutable, such as
 `ghcr.io/identrail/identrail-api:sha-<commit>`. Do not deploy the mutable `dev`
 tag to this hosted API path.
@@ -127,6 +141,8 @@ Optional repository variables:
   to `false` only as a rollback knob for the onboarding API
 - `API_FEATURE_WORKOS_LOGIN`: defaults to `true` when the first-class WorkOS
   deployment settings above are provided
+- `API_FEATURE_CONNECTOR_GITHUB_V2`: defaults to `true` for Identrail Cloud; set
+  to `false` only as a rollback knob for the GitHub connector API
 - `API_EXTRA_ENVIRONMENT_JSON`: JSON object for additional non-secret runtime
   variables. Use this to enable native SAML/SCIM, for example
   `{"IDENTRAIL_FEATURE_NATIVE_SSO":"true"}`.

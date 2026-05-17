@@ -124,6 +124,12 @@ case "${onboarding_feature_enabled}" in
   *) fail "API_FEATURE_ONBOARDING_WIZARD must be true or false" ;;
 esac
 
+github_feature_enabled="$(trim "${API_FEATURE_CONNECTOR_GITHUB_V2:-true}")"
+case "${github_feature_enabled}" in
+  true|false) ;;
+  *) fail "API_FEATURE_CONNECTOR_GITHUB_V2 must be true or false" ;;
+esac
+
 workos_feature_enabled="$(trim "${API_FEATURE_WORKOS_LOGIN:-}")"
 workos_client_id="$(trim "${API_WORKOS_CLIENT_ID:-}")"
 workos_environment_id="$(trim "${API_WORKOS_ENVIRONMENT_ID:-}")"
@@ -184,6 +190,69 @@ if [ -n "${workos_feature_enabled}" ] || [ -n "${workos_client_id}" ] || [ -n "$
   )"
 fi
 
+github_app_id="$(trim "${API_GITHUB_APP_ID:-}")"
+github_app_name="$(trim "${API_GITHUB_APP_NAME:-}")"
+github_app_private_key_secret="$(trim "${API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN:-}")"
+github_app_webhook_secret="$(trim "${API_GITHUB_APP_WEBHOOK_SECRET_ARN:-}")"
+github_connector_secret_keys_secret="$(trim "${API_CONNECTOR_SECRET_KEYS_SECRET_ARN:-}")"
+github_environment="$(
+  jq -nce \
+    --arg enabled "${github_feature_enabled}" \
+    '{IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2: $enabled}'
+)"
+github_secrets="{}"
+if [ "${github_feature_enabled}" = "true" ]; then
+  if [ -z "${github_app_id}" ]; then
+    fail "API_GITHUB_APP_ID is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
+  fi
+  if [ -z "${github_app_name}" ]; then
+    fail "API_GITHUB_APP_NAME is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
+  fi
+  if [ -z "${github_app_private_key_secret}" ]; then
+    fail "API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
+  fi
+  if [ -z "${github_app_webhook_secret}" ]; then
+    fail "API_GITHUB_APP_WEBHOOK_SECRET_ARN is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
+  fi
+  if [ -z "${github_connector_secret_keys_secret}" ]; then
+    fail "API_CONNECTOR_SECRET_KEYS_SECRET_ARN is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
+  fi
+  if ! [[ "${github_app_id}" =~ ^[0-9]+$ ]] || [ "${github_app_id}" -le 0 ]; then
+    fail "API_GITHUB_APP_ID must be a positive integer"
+  fi
+  if ! [[ "${github_app_name}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38}[A-Za-z0-9])?$ ]]; then
+    fail "API_GITHUB_APP_NAME must be a valid GitHub App slug"
+  fi
+  for secret_arn in "${github_app_private_key_secret}" "${github_app_webhook_secret}" "${github_connector_secret_keys_secret}"; do
+    if ! [[ "${secret_arn}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
+      fail "GitHub connector secret references must be Secrets Manager ARNs in ${aws_region}"
+    fi
+  done
+  github_environment="$(
+    jq -nce \
+      --arg enabled "${github_feature_enabled}" \
+      --arg app_id "${github_app_id}" \
+      --arg app_name "${github_app_name}" \
+      '{
+        IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2: $enabled,
+        IDENTRAIL_GITHUB_APP_ID: $app_id,
+        IDENTRAIL_GITHUB_APP_NAME: $app_name,
+        IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED: "true"
+      }'
+  )"
+  github_secrets="$(
+    jq -nce \
+      --arg private_key_secret "${github_app_private_key_secret}" \
+      --arg webhook_secret "${github_app_webhook_secret}" \
+      --arg connector_secret_keys_secret "${github_connector_secret_keys_secret}" \
+      '{
+        IDENTRAIL_GITHUB_APP_PRIVATE_KEY: $private_key_secret,
+        IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET: $webhook_secret,
+        IDENTRAIL_CONNECTOR_SECRET_KEYS: $connector_secret_keys_secret
+      }'
+  )"
+fi
+
 api_desired_count="$(trim "${API_DESIRED_COUNT:-1}")"
 api_task_cpu="$(trim "${API_TASK_CPU:-512}")"
 api_task_memory="$(trim "${API_TASK_MEMORY:-1024}")"
@@ -216,6 +285,8 @@ jq -n \
   --argjson extra_secrets "${extra_secrets}" \
   --argjson workos_environment "${workos_environment}" \
   --argjson workos_secrets "${workos_secrets}" \
+  --argjson github_environment "${github_environment}" \
+  --argjson github_secrets "${github_secrets}" \
   --argjson api_desired_count "${api_desired_count}" \
   --argjson api_task_cpu "${api_task_cpu}" \
   --argjson api_task_memory "${api_task_memory}" \
@@ -239,12 +310,12 @@ jq -n \
     api_desired_count: $api_desired_count,
     api_task_cpu: $api_task_cpu,
     api_task_memory: $api_task_memory,
-    api_environment_variables: ($extra_environment + $workos_environment + {
+    api_environment_variables: ($extra_environment + $workos_environment + $github_environment + {
       IDENTRAIL_FEATURE_NEW_AUTH: "true",
       IDENTRAIL_FEATURE_ONBOARDING_WIZARD: $onboarding_feature_enabled,
       IDENTRAIL_PUBLIC_BASE_URL: "https://api.identrail.com"
     }),
-    api_secrets: ($extra_secrets + $workos_secrets + {
+    api_secrets: ($extra_secrets + $workos_secrets + $github_secrets + {
       IDENTRAIL_DATABASE_URL: $api_database_secret,
       IDENTRAIL_SESSION_KEY: $api_session_secret
     }),

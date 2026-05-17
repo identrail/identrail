@@ -23,9 +23,9 @@ Identrail release automation is defined in:
   `release-web-build.txt`.
 
 For Identrail Cloud releases, `deploy/docker/release-web.env` should point at
-`https://api.identrail.com` and set `VITE_FEATURE_ONBOARDING_WIZARD=true`, so
-new GitHub/WorkOS users can create their first organization and workspace after
-login.
+`https://api.identrail.com`, set `VITE_FEATURE_ONBOARDING_WIZARD=true`, and set
+`VITE_FEATURE_CONNECTOR_GITHUB_V2=true`, so new GitHub/WorkOS users can create
+their first organization, workspace, and GitHub connector after login.
 
 ## What the Pipeline Publishes
 

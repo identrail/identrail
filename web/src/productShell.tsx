@@ -28,7 +28,13 @@ import {
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { useMe } from './hooks/useMe';
-import { FEATURE_ONBOARDING_WIZARD } from './pages/onboarding/onboardingUtils';
+import { isFeatureAvailable, useBackendFeatures } from './hooks/useBackendFeatures';
+import {
+  FEATURE_ONBOARDING_CONNECTOR_AWS as FEATURE_CONNECTOR_AWS,
+  FEATURE_ONBOARDING_CONNECTOR_GITHUB as FEATURE_CONNECTOR_GITHUB_V2,
+  FEATURE_ONBOARDING_CONNECTOR_K8S as FEATURE_CONNECTOR_K8S,
+  FEATURE_ONBOARDING_WIZARD
+} from './pages/onboarding/onboardingUtils';
 import { OnboardingUnavailableNotice, useOnboardingAvailable } from './components/onboarding/OnboardingAvailability';
 import {
   buildRepoFindingSelectionKey,
@@ -64,6 +70,12 @@ type SourceProfile = {
   summary: string;
   primarySignal: string;
   requiredAccess: string;
+};
+
+type SourceAvailability = {
+  visible: boolean;
+  available: boolean;
+  unavailableMessage?: string;
 };
 
 function normalizeValue(value: string): string {
@@ -125,17 +137,6 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
 const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as const;
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
-const PRODUCT_VITE_ENV = ((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<
-  string,
-  unknown
->;
-const FEATURE_CONNECTOR_GITHUB_V2 =
-  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_GITHUB_V2 === true ||
-  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_GITHUB_V2 === 'true';
-const FEATURE_CONNECTOR_AWS =
-  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === true || PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_AWS === 'true';
-const FEATURE_CONNECTOR_K8S =
-  PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_K8S === true || PRODUCT_VITE_ENV.VITE_FEATURE_CONNECTOR_K8S === 'true';
 const SOURCE_ORDER: SourceProvider[] = [
   ...(FEATURE_CONNECTOR_GITHUB_V2 ? (['github'] as SourceProvider[]) : []),
   'aws',
@@ -454,6 +455,13 @@ function connectionTone(status?: GitHubConnectionStatus | AWSConnectionStatus | 
     return 'warning';
   }
   return 'neutral';
+}
+
+function sourceAvailabilityTone(
+  availability: SourceAvailability,
+  status?: GitHubConnectionStatus | AWSConnectionStatus | KubernetesConnectionStatus
+): 'success' | 'warning' | 'error' | 'neutral' {
+  return availability.available ? connectionTone(status) : 'error';
 }
 
 function formatConnectionTime(value?: string): string {
@@ -2331,7 +2339,37 @@ export function ProductProjectDetailPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const projectID = normalizeValue(params.projectID ?? '');
+  const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures();
   const refreshSequenceRef = useRef(0);
+  const sourceAvailability = useMemo<Record<SourceProvider, SourceAvailability>>(
+    () => ({
+      github: {
+        visible: FEATURE_CONNECTOR_GITHUB_V2,
+        available: isFeatureAvailable(FEATURE_CONNECTOR_GITHUB_V2, backendFeatures.connectors.github),
+        unavailableMessage:
+          backendFeatures.connectors.github === false ? 'Not available on this API server.' : undefined
+      },
+      aws: {
+        visible: true,
+        available: true
+      },
+      kubernetes: {
+        visible: FEATURE_CONNECTOR_K8S,
+        available: isFeatureAvailable(FEATURE_CONNECTOR_K8S, backendFeatures.connectors.kubernetes),
+        unavailableMessage:
+          backendFeatures.connectors.kubernetes === false ? 'Not available on this API server.' : undefined
+      }
+    }),
+    [backendFeatures.connectors.github, backendFeatures.connectors.kubernetes]
+  );
+  const sourceOrder = useMemo(
+    () => SOURCE_ORDER.filter((provider) => sourceAvailability[provider].visible),
+    [sourceAvailability]
+  );
+  const actionableSourceOrder = useMemo(
+    () => sourceOrder.filter((provider) => sourceAvailability[provider].available),
+    [sourceAvailability, sourceOrder]
+  );
 
   const [connections, setConnections] = useState<SourceConnectionMap>({});
   const [sourceErrors, setSourceErrors] = useState<Partial<Record<SourceProvider, string>>>({});
@@ -2396,6 +2434,12 @@ export function ProductProjectDetailPage() {
   const refreshConnections = async (quiet = false) => {
     const refreshSequence = nextRequestSequence();
 
+    if (backendFeaturesLoading) {
+      setLoading(true);
+      setRefreshing(false);
+      return;
+    }
+
     if (!scope || !projectID) {
       setConnections({});
       setSourceErrors({});
@@ -2413,11 +2457,11 @@ export function ProductProjectDetailPage() {
     const auth = buildProductAuthContext(scope);
 
     const results = await Promise.allSettled([
-      FEATURE_CONNECTOR_GITHUB_V2
+      sourceAvailability.github.available
         ? apiClient.getGitHubConnectorStatus(scope.workspaceID, projectID, auth)
         : Promise.resolve({ connection: undefined as unknown as GitHubConnectionStatus }),
       apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth),
-      FEATURE_CONNECTOR_K8S
+      sourceAvailability.kubernetes.available
         ? apiClient.getKubernetesConnectorStatus(scope.workspaceID, projectID, auth)
         : Promise.resolve({ connection: undefined as unknown as KubernetesConnectionStatus }),
       apiClient.listProjectScanPolicies(
@@ -2443,7 +2487,7 @@ export function ProductProjectDetailPage() {
     if (githubResult.status === 'fulfilled' && githubResult.value.connection) {
       nextConnections.github = githubResult.value.connection;
     } else {
-      if (FEATURE_CONNECTOR_GITHUB_V2) {
+      if (sourceAvailability.github.available) {
         nextErrors.github =
           githubResult.status === 'rejected' && githubResult.reason instanceof Error
             ? githubResult.reason.message
@@ -2459,7 +2503,7 @@ export function ProductProjectDetailPage() {
     if (kubernetesResult.status === 'fulfilled' && kubernetesResult.value.connection) {
       nextConnections.kubernetes = kubernetesResult.value.connection;
     } else {
-      if (FEATURE_CONNECTOR_K8S) {
+      if (sourceAvailability.kubernetes.available) {
         nextErrors.kubernetes =
           kubernetesResult.status === 'rejected' && kubernetesResult.reason instanceof Error
             ? kubernetesResult.reason.message
@@ -2524,12 +2568,30 @@ export function ProductProjectDetailPage() {
     setAWSPermissionPreview([]);
     setAWSPreviewOpen(false);
     setAWSForm((current) => ({ ...current, externalID: '' }));
+    if (backendFeaturesLoading) {
+      setLoading(true);
+      return undefined;
+    }
     void refreshConnections(false);
 
     return () => {
       refreshSequenceRef.current += 1;
     };
-  }, [scope?.tenantID, scope?.workspaceID, projectID]);
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    projectID,
+    backendFeaturesLoading,
+    sourceAvailability.github.available,
+    sourceAvailability.kubernetes.available
+  ]);
+
+  useEffect(() => {
+    if (backendFeaturesLoading || sourceAvailability[selectedSource]?.available) {
+      return;
+    }
+    setSelectedSource(actionableSourceOrder[0] ?? 'aws');
+  }, [actionableSourceOrder, backendFeaturesLoading, selectedSource, sourceAvailability]);
 
   if (!scope || !projectID) {
     return <AppShellLoading message="Resolving project scope" />;
@@ -2541,11 +2603,21 @@ export function ProductProjectDetailPage() {
 
   const selectedStatus = sourceConnection(connections, selectedSource);
   const selectedProfile = SOURCE_PROFILES[selectedSource];
-  const connectedCount = SOURCE_ORDER.filter((provider) => sourceConnection(connections, provider)?.connected).length;
-  const activeStepIndex = selectedStatus?.connected ? 3 : submitting === selectedSource ? 2 : 1;
+  const selectedAvailability = sourceAvailability[selectedSource] ?? { visible: true, available: true };
+  const selectedUnavailable = !selectedAvailability.available;
+  const connectedCount = sourceOrder.filter((provider) => sourceConnection(connections, provider)?.connected).length;
+  const remainingCount = Math.max(actionableSourceOrder.length - connectedCount, 0);
+  const activeStepIndex = selectedUnavailable ? 0 : selectedStatus?.connected ? 3 : submitting === selectedSource ? 2 : 1;
 
   const handleGitHubStart = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!sourceAvailability.github.available) {
+      setSourceErrors((current) => ({
+        ...current,
+        github: sourceAvailability.github.unavailableMessage ?? 'GitHub connector is not available.'
+      }));
+      return;
+    }
     setSubmitting('github');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, github: undefined }));
@@ -2584,6 +2656,13 @@ export function ProductProjectDetailPage() {
 
   const handleGitHubPATSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!sourceAvailability.github.available) {
+      setSourceErrors((current) => ({
+        ...current,
+        github: sourceAvailability.github.unavailableMessage ?? 'GitHub connector is not available.'
+      }));
+      return;
+    }
     setSubmitting('github');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, github: undefined }));
@@ -2757,6 +2836,13 @@ export function ProductProjectDetailPage() {
 
   const handleKubernetesSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!sourceAvailability.kubernetes.available) {
+      setSourceErrors((current) => ({
+        ...current,
+        kubernetes: sourceAvailability.kubernetes.unavailableMessage ?? 'Kubernetes connector is not available.'
+      }));
+      return;
+    }
     setSubmitting('kubernetes');
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, kubernetes: undefined }));
@@ -2930,7 +3016,7 @@ export function ProductProjectDetailPage() {
           onClick={() => {
             void refreshConnections(true);
           }}
-          disabled={refreshing || submitting !== ''}
+          disabled={backendFeaturesLoading || refreshing || submitting !== ''}
         >
           {refreshing ? 'Refreshing...' : 'Refresh status'}
         </button>
@@ -2942,11 +3028,11 @@ export function ProductProjectDetailPage() {
           <p>Active sources</p>
         </article>
         <article>
-          <span>{SOURCE_ORDER.length - connectedCount}</span>
+          <span>{remainingCount}</span>
           <p>Remaining</p>
         </article>
         <article>
-          <span>{connectionLifecycle(selectedStatus)}</span>
+          <span>{selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}</span>
           <p>Selected status</p>
         </article>
       </div>
@@ -2968,26 +3054,31 @@ export function ProductProjectDetailPage() {
 
       <div className="idt-source-wizard-grid">
         <aside className="idt-source-picker" aria-label="Source types">
-          {SOURCE_ORDER.map((provider) => {
+          {sourceOrder.map((provider) => {
             const profile = SOURCE_PROFILES[provider];
             const status = sourceConnection(connections, provider);
             const error = sourceErrors[provider];
+            const availability = sourceAvailability[provider];
             return (
               <button
                 key={provider}
                 type="button"
-                className={`idt-source-card ${selectedSource === provider ? 'is-selected' : ''}`}
+                className={`idt-source-card ${selectedSource === provider ? 'is-selected' : ''} ${
+                  availability.available ? '' : 'is-unavailable'
+                }`}
                 aria-pressed={selectedSource === provider}
+                aria-disabled={!availability.available}
                 onClick={() => setSelectedSource(provider)}
+                disabled={!availability.available}
               >
                 <span className="idt-source-card-topline">
                   <span>{profile.eyebrow}</span>
-                  <span className={`idt-source-status-pill is-${connectionTone(status)}`}>
-                    {error ? 'Needs retry' : connectionLifecycle(status)}
+                  <span className={`idt-source-status-pill is-${sourceAvailabilityTone(availability, status)}`}>
+                    {!availability.available ? 'Unavailable' : error ? 'Needs retry' : connectionLifecycle(status)}
                   </span>
                 </span>
                 <strong>{profile.name}</strong>
-                <small>{profile.primarySignal}</small>
+                <small>{availability.unavailableMessage ?? profile.primarySignal}</small>
               </button>
             );
           })}
@@ -3000,8 +3091,8 @@ export function ProductProjectDetailPage() {
               <h3>{selectedProfile.name}</h3>
               <p>{selectedProfile.summary}</p>
             </div>
-            <span className={`idt-source-status-pill is-${connectionTone(selectedStatus)}`}>
-              {connectionLifecycle(selectedStatus)}
+            <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
+              {selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}
             </span>
           </div>
 
@@ -3012,7 +3103,7 @@ export function ProductProjectDetailPage() {
             </div>
             <div>
               <dt>Health</dt>
-              <dd>{connectionHealth(selectedStatus)}</dd>
+              <dd>{selectedUnavailable ? 'unavailable' : connectionHealth(selectedStatus)}</dd>
             </div>
             <div>
               <dt>Last validation</dt>
@@ -3024,13 +3115,17 @@ export function ProductProjectDetailPage() {
             </div>
           </dl>
 
-          {sourceErrors[selectedSource] ? (
+          {selectedUnavailable ? (
+            <p role="status" className="idt-app-alert">
+              {selectedAvailability.unavailableMessage ?? `${selectedProfile.name} connector is not available.`}
+            </p>
+          ) : sourceErrors[selectedSource] ? (
             <p role="alert" className="idt-app-alert idt-app-alert-error">
               {sourceErrors[selectedSource]}
             </p>
           ) : null}
 
-          {selectedSource === 'github' ? (
+          {selectedSource === 'github' && !selectedUnavailable ? (
             <div className="idt-source-form-stack">
               <form className="idt-app-form" onSubmit={handleGitHubStart}>
                 <div className="idt-source-inline-fields">
@@ -3110,7 +3205,7 @@ export function ProductProjectDetailPage() {
             </div>
           ) : null}
 
-          {selectedSource === 'aws' ? (
+          {selectedSource === 'aws' && !selectedUnavailable ? (
             <form className="idt-app-form" onSubmit={handleAWSSubmit}>
               {FEATURE_CONNECTOR_AWS ? (
                 <article className="idt-source-install-card idt-aws-launch-card">
@@ -3211,7 +3306,7 @@ export function ProductProjectDetailPage() {
             </form>
           ) : null}
 
-          {selectedSource === 'kubernetes' ? (
+          {selectedSource === 'kubernetes' && !selectedUnavailable ? (
             <form className="idt-app-form" onSubmit={handleKubernetesSubmit}>
               <div className="idt-source-inline-fields">
                 <label>

@@ -75,10 +75,16 @@ jobs:
       API_SESSION_KEY_SECRET_ARN: ${{ secrets.API_SESSION_KEY_SECRET_ARN }}
       API_FEATURE_WORKOS_LOGIN: ${{ vars.API_FEATURE_WORKOS_LOGIN || '' }}
       API_FEATURE_ONBOARDING_WIZARD: ${{ vars.API_FEATURE_ONBOARDING_WIZARD || 'true' }}
+      API_FEATURE_CONNECTOR_GITHUB_V2: ${{ vars.API_FEATURE_CONNECTOR_GITHUB_V2 || 'true' }}
       API_WORKOS_CLIENT_ID: ${{ vars.API_WORKOS_CLIENT_ID || '' }}
       API_WORKOS_ENVIRONMENT_ID: ${{ vars.API_WORKOS_ENVIRONMENT_ID || '' }}
       API_WORKOS_API_KEY_SECRET_ARN: ${{ secrets.API_WORKOS_API_KEY_SECRET_ARN || '' }}
       API_WORKOS_WEBHOOK_SECRET_ARN: ${{ secrets.API_WORKOS_WEBHOOK_SECRET_ARN || '' }}
+      API_GITHUB_APP_ID: ${{ vars.API_GITHUB_APP_ID || '' }}
+      API_GITHUB_APP_NAME: ${{ vars.API_GITHUB_APP_NAME || '' }}
+      API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN: ${{ secrets.API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN || '' }}
+      API_GITHUB_APP_WEBHOOK_SECRET_ARN: ${{ secrets.API_GITHUB_APP_WEBHOOK_SECRET_ARN || '' }}
+      API_CONNECTOR_SECRET_KEYS_SECRET_ARN: ${{ secrets.API_CONNECTOR_SECRET_KEYS_SECRET_ARN || '' }}
       API_ALLOWED_CIDR_BLOCKS_JSON: ${{ vars.API_ALLOWED_CIDR_BLOCKS_JSON || '["0.0.0.0/0"]' }}
       API_CORS_ALLOWED_ORIGINS_JSON: ${{ vars.API_CORS_ALLOWED_ORIGINS_JSON || '["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]' }}
       API_TRUSTED_PROXY_CIDR_BLOCKS_JSON: ${{ vars.API_TRUSTED_PROXY_CIDR_BLOCKS_JSON || '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' }}
@@ -132,6 +138,14 @@ jobs:
           if [ -n "${API_WORKOS_WEBHOOK_SECRET_ARN}" ]; then
             echo "::add-mask::${API_WORKOS_WEBHOOK_SECRET_ARN}"
           fi
+          for secret_arn in \
+            "${API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN}" \
+            "${API_GITHUB_APP_WEBHOOK_SECRET_ARN}" \
+            "${API_CONNECTOR_SECRET_KEYS_SECRET_ARN}"; do
+            if [ -n "${secret_arn}" ]; then
+              echo "::add-mask::${secret_arn}"
+            fi
+          done
 
       - name: Configure AWS credentials from GitHub OIDC
         shell: bash

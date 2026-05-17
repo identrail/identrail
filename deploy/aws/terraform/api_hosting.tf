@@ -39,7 +39,9 @@ locals {
   api_runtime_trusted_proxies = compact([
     for cidr_block in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_TRUSTED_PROXIES", "")) : trimspace(cidr_block)
   ])
-  api_workos_login_enabled = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_WORKOS_LOGIN", "")) == "true"
+  api_workos_login_enabled           = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_WORKOS_LOGIN", "")) == "true"
+  api_github_connector_enabled       = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2", "")) == "true"
+  api_connector_secret_keys_required = lower(lookup(local.api_runtime_environment_variables, "IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED", "")) == "true"
   api_main_route_table_ids = [
     for route_table_id, route_table in data.aws_route_table.api_vpc : route_table_id
     if anytrue([for association in route_table.associations : association.main])
@@ -225,6 +227,18 @@ resource "terraform_data" "api_inputs" {
         contains(local.api_secret_config_names, "IDENTRAIL_WORKOS_WEBHOOK_SECRET")
       )
       error_message = "WorkOS login requires IDENTRAIL_FEATURE_NEW_AUTH=true, IDENTRAIL_WORKOS_CLIENT_ID, and IDENTRAIL_WORKOS_ENVIRONMENT_ID in api_environment_variables, plus IDENTRAIL_WORKOS_API_KEY and IDENTRAIL_WORKOS_WEBHOOK_SECRET in api_secrets."
+    }
+
+    precondition {
+      condition = !local.api_github_connector_enabled || (
+        contains(local.api_config_names, "IDENTRAIL_GITHUB_APP_ID") &&
+        contains(local.api_config_names, "IDENTRAIL_GITHUB_APP_NAME") &&
+        contains(local.api_secret_config_names, "IDENTRAIL_GITHUB_APP_PRIVATE_KEY") &&
+        contains(local.api_secret_config_names, "IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET") &&
+        contains(local.api_secret_config_names, "IDENTRAIL_CONNECTOR_SECRET_KEYS") &&
+        local.api_connector_secret_keys_required
+      )
+      error_message = "GitHub connector launch requires IDENTRAIL_GITHUB_APP_ID and IDENTRAIL_GITHUB_APP_NAME in api_environment_variables, IDENTRAIL_GITHUB_APP_PRIVATE_KEY, IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET, and IDENTRAIL_CONNECTOR_SECRET_KEYS in api_secrets, plus IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true."
     }
 
     precondition {

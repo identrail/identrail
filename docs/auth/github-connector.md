@@ -28,8 +28,30 @@ Required runtime configuration for the hosted GitHub App flow:
 - `IDENTRAIL_GITHUB_APP_NAME`
 - `IDENTRAIL_GITHUB_APP_PRIVATE_KEY`
 - `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`
+- `IDENTRAIL_CONNECTOR_SECRET_KEYS` with
+  `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true` for durable connector
+  credential storage
 
 The GitHub App manifest lives at `deploy/connectors/github/app-manifest.json`. It requests read-only permissions: metadata, contents, pull requests, and code scanning alerts.
+
+For Identrail Cloud, the AWS API manual deploy workflow exposes first-class
+inputs for this path:
+
+- `API_FEATURE_CONNECTOR_GITHUB_V2` defaults to `true`; set it to `false` only
+  for rollback.
+- `API_GITHUB_APP_ID` and `API_GITHUB_APP_NAME` are repository variables.
+- `API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN`,
+  `API_GITHUB_APP_WEBHOOK_SECRET_ARN`, and
+  `API_CONNECTOR_SECRET_KEYS_SECRET_ARN` are repository secrets that reference
+  Secrets Manager ARNs.
+
+The versioned release web build enables `VITE_FEATURE_CONNECTOR_GITHUB_V2=true`
+and still honors the backend feature availability contract. If the API reports
+that the GitHub connector route is disabled, the product source screen marks the
+GitHub source unavailable instead of calling the connector route and showing a
+raw framework 404. If the route is enabled but the GitHub App runtime settings
+are missing, the start request returns the API's configuration message so the
+operator sees a specific setup problem.
 
 ## GitHub Enterprise Fallback
 
@@ -44,6 +66,11 @@ This fallback is for self-hosted GitHub Enterprise and development environments.
 `POST /auth/webhooks/github` verifies the global GitHub App HMAC secret before processing events.
 
 Installation lifecycle events can mark matching connectors disconnected. Repository events are matched by installation ID and repository allowlist before queueing scans.
+
+Webhook-triggered scans still honor the repo scan allowlist and queue controls.
+Before enabling `IDENTRAIL_REPO_SCAN_ENABLED=true` for hosted production, set an
+explicit `IDENTRAIL_REPO_SCAN_ALLOWLIST` or equivalent scoped target guard so a
+GitHub webhook cannot enqueue scans outside approved repositories.
 
 ## Rollback
 

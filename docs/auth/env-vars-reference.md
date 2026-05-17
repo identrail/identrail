@@ -97,9 +97,14 @@ The common pattern is paired flags for UI-backed features: the backend flag (`ID
 
 Identrail Cloud production intentionally enables the onboarding pair during
 deployment: `IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true` on the API and
-`VITE_FEATURE_ONBOARDING_WIZARD=true` on the web build. Production-oriented
-self-hosted examples keep the default off until operators opt in and have new
-auth/session configuration ready.
+`VITE_FEATURE_ONBOARDING_WIZARD=true` on the web build. It also enables GitHub
+as the first self-serve connector path with
+`IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true` on the API and
+`VITE_FEATURE_CONNECTOR_GITHUB_V2=true` on the web build; the hosted API deploy
+must provide the GitHub App id, slug, private-key secret, webhook secret, and
+durable connector secret keyset before that feature can start.
+Production-oriented self-hosted examples keep the default off until operators
+opt in and have new auth/session and connector secret configuration ready.
 
 ## Existing Variables (Not Touched)
 
@@ -128,6 +133,11 @@ Failure in any pass refuses to start the server. The error message names the var
 
 ## Vercel and Deployment Notes
 
-Production secrets (`IDENTRAIL_SESSION_KEY`, all WorkOS keys, the email provider key, GitHub App private key) live in Vercel's environment variable storage scoped to the Production environment. Preview and Development environments have their own values pointing at WorkOS test environments and a sandbox database.
+Production secrets (`IDENTRAIL_SESSION_KEY`, all WorkOS keys, the email
+provider key, GitHub App private key, GitHub webhook secret, and
+`IDENTRAIL_CONNECTOR_SECRET_KEYS`) live in the environment variable or secret
+store for the active hosting platform. Preview and Development environments
+have their own values pointing at WorkOS test environments, sandbox GitHub
+Apps, and sandbox databases.
 
 Self-hosted operators set the same variables in `deploy/docker/.env` or their Helm `values.yaml`. Any implementation PR that introduces a new runtime variable should add it to `deploy/docker/.env.example` and `deploy/helm/identrail/values.yaml` in the same commit that introduces it, with the definitions used here.

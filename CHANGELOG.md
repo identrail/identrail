@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Enabled GitHub as the first Identrail Cloud self-serve connector path:
+  - the release web environment now ships the GitHub connector UI while still
+    honoring the backend feature availability contract
+  - the product source screen disables GitHub when the API explicitly reports
+    the connector unavailable, avoiding raw 404s from mismatched frontend/API
+    flags
+  - the AWS API manual deploy path now validates and injects the GitHub App id,
+    slug, private-key secret, webhook secret, and durable connector secret
+    keyset before enabling `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=true`
 - Hardened the first-use onboarding journey so a newly signed-in user reliably
   ends up with a usable, scoped workspace:
   - `StartOnboarding` now reconciles an unbound onboarding row against an

@@ -5658,6 +5658,20 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   transform: translateY(-1px);
 }
 
+.idt-source-card.is-unavailable,
+.idt-source-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.idt-source-card.is-unavailable:hover,
+.idt-source-card.is-unavailable:focus-visible,
+.idt-source-card.is-unavailable.is-selected {
+  border-color: rgba(239, 68, 68, 0.36);
+  background: rgba(37, 23, 27, 0.72);
+  transform: none;
+}
+
 .idt-source-card strong {
   font-family: var(--idt-display);
   font-size: 1.05rem;
@@ -7166,6 +7180,15 @@ html[data-theme='light'] .idt-source-stepper li.is-active {
   background: rgba(224, 244, 235, 0.95);
   border-color: rgba(33, 124, 83, 0.32);
   color: #173b2b;
+}
+
+html[data-theme='light'] .idt-source-card.is-unavailable,
+html[data-theme='light'] .idt-source-card.is-unavailable:hover,
+html[data-theme='light'] .idt-source-card.is-unavailable:focus-visible,
+html[data-theme='light'] .idt-source-card.is-unavailable.is-selected {
+  background: rgba(255, 241, 242, 0.95);
+  border-color: rgba(185, 28, 28, 0.24);
+  color: #6f1d1b;
 }
 
 html[data-theme='light'] .idt-source-stepper li {
