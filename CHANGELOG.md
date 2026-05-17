@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Kept authenticated onboarding API routes registered when the onboarding feature flag is off, returning JSON `401` or `503` responses instead of a raw framework `404` so production flag mismatches are visible and diagnosable.
 - Added the `GET /v1/enterprise/reports/executive` endpoint returning the organization's leadership rollup (open volume by severity, top finding types, week-over-week trend, and MTTR):
   - calls the shipped `BuildExecutiveReport` builder; JSON only, no server-side PDF generation
   - extended the report builder with `mean_time_to_resolve`, derived strictly from finding triage `resolved_at` (never the mutable `updated_at`) and omitted when no resolved finding has a trustworthy `resolved_at`
