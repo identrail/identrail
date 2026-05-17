@@ -682,6 +682,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodPut, Path: "/v1/enterprise/identity-connections/saml/:id", Action: policyActionEnterpriseWrite, ResourceType: "identity_connection", ResourceIDParam: "id"},
 		{Method: http.MethodDelete, Path: "/v1/enterprise/identity-connections/saml/:id", Action: policyActionEnterpriseWrite, ResourceType: "identity_connection", ResourceIDParam: "id"},
 		{Method: http.MethodPost, Path: "/v1/enterprise/identity-connections/saml/from-metadata", Action: policyActionEnterpriseWrite, ResourceType: "identity_connection"},
+		{Method: http.MethodGet, Path: "/v1/enterprise/reports/executive", Action: policyActionEnterpriseRead, ResourceType: "executive_report"},
 		{Method: http.MethodGet, Path: "/v1/whoami", Action: policyActionTenancyRead, ResourceType: "workspace_context"},
 		{Method: http.MethodGet, Path: "/v1/organizations/current", Action: policyActionTenancyRead, ResourceType: "organization"},
 		{Method: http.MethodPut, Path: "/v1/organizations/current", Action: policyActionTenancyWrite, ResourceType: "organization"},

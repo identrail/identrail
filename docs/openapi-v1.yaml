@@ -219,6 +219,10 @@ x-identrail-route-authorizations:
     action: enterprise.write
     resource_type: identity_connection
   - method: GET
+    path: /v1/enterprise/reports/executive
+    action: enterprise.read
+    resource_type: executive_report
+  - method: GET
     path: /v1/whoami
     action: tenancy.read
     resource_type: workspace_context
@@ -1206,6 +1210,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/enterprise/reports/executive:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [EnterpriseAuth]
+      summary: Executive security report for the current organization
+      description: >-
+        Returns a deterministic leadership rollup (open volume by severity,
+        top finding types, week-over-week trend, and mean time to resolve)
+        built from the current organization's findings. Responses are cached
+        per organization for 60 seconds. JSON only; no server-side PDF.
+      operationId: getExecutiveReport
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Executive report for the current organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutiveReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/authz/policies/simulate:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -5394,6 +5426,83 @@ components:
         updated_at:
           type: string
           format: date-time
+    ExecutiveReport:
+      type: object
+      required:
+        - organization_id
+        - generated_at
+        - window_start
+        - window_end
+        - total_open_findings
+        - open_by_severity
+        - open_by_type
+        - week_over_week
+      properties:
+        organization_id:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        window_start:
+          type: string
+          format: date-time
+        window_end:
+          type: string
+          format: date-time
+        total_open_findings:
+          type: integer
+        open_by_severity:
+          type: object
+          additionalProperties:
+            type: integer
+        open_by_type:
+          type: object
+          additionalProperties:
+            type: integer
+        top_finding_types:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/TopFindingType"
+        week_over_week:
+          $ref: "#/components/schemas/WeekOverWeekTrend"
+        mean_time_to_resolve:
+          allOf:
+            - $ref: "#/components/schemas/MTTRSummary"
+          nullable: true
+          description: >-
+            Omitted entirely when no resolved finding carries a trustworthy
+            ResolvedAt timestamp. Derived only from ResolvedAt, never the
+            mutable updated_at.
+    TopFindingType:
+      type: object
+      required: [type, count]
+      properties:
+        type:
+          type: string
+        count:
+          type: integer
+    WeekOverWeekTrend:
+      type: object
+      required: [current_count, previous_count, delta]
+      properties:
+        current_count:
+          type: integer
+        previous_count:
+          type: integer
+        delta:
+          type: integer
+    MTTRSummary:
+      type: object
+      required: [resolved_count, seconds]
+      properties:
+        resolved_count:
+          type: integer
+          description: Number of resolved findings with a trustworthy ResolvedAt.
+        seconds:
+          type: number
+          format: double
+          description: Mean of (ResolvedAt - CreatedAt) in seconds across resolved_count findings.
     FindingSeverity:
       type: string
       enum: [critical, high, medium, low, info]

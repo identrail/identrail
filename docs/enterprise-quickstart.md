@@ -249,7 +249,27 @@ Confirm:
 - `scim_op` matches the SCIM lifecycle operation
 - failed Slack/Jira/Linear attempts include `success=false` and an `error` string
 
-## 12. Clean Shutdown
+## 12. Executive Report (Board-Ready)
+
+Fetch the leadership rollup for the current organization. The response is
+JSON only — there is no server-side PDF; use the printable web report page
+and your browser's Save as PDF for a board-ready document.
+
+```bash
+curl -fsS "${IDENTRAIL_API_URL}/v1/enterprise/reports/executive" \
+  -H "Cookie: ${IDENTRAIL_SESSION_COOKIE}" | jq
+```
+
+Notes:
+
+- Requires the `enterprise.read` scope and an organization-scoped session.
+- Responses are cached per organization for 60 seconds, so rapid refreshes
+  return the same snapshot.
+- `mean_time_to_resolve` is present only when at least one resolved finding
+  carries a trustworthy `resolved_at`; it is derived solely from `resolved_at`
+  (never the mutable `updated_at`), so the figure is not a guess.
+
+## 13. Clean Shutdown
 
 ```bash
 docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env down

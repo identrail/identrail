@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added the `GET /v1/enterprise/reports/executive` endpoint returning the organization's leadership rollup (open volume by severity, top finding types, week-over-week trend, and MTTR):
+  - calls the shipped `BuildExecutiveReport` builder; JSON only, no server-side PDF generation
+  - extended the report builder with `mean_time_to_resolve`, derived strictly from finding triage `resolved_at` (never the mutable `updated_at`) and omitted when no resolved finding has a trustworthy `resolved_at`
+  - 60-second per-organization in-memory cache; responses are scoped to the caller's organization under the existing `enterprise.read` authorization
+  - documented in the enterprise quickstart and OpenAPI contract
 - Added a server-managed `resolved_at` timestamp to finding triage so the executive report can compute an accurate mean-time-to-resolve (MTTR):
   - exposed on the `FindingTriage` API response, OpenAPI schema, and web client types
   - set when a finding transitions into the resolved state, preserved across edits while it stays resolved, and cleared when it is reopened or moved out of resolved

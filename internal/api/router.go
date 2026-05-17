@@ -388,6 +388,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		registerNativeSAMLAdminRoutes(v1, logger, svc, nativeSAMLRouteOptions{
 			Enabled: opts.FeatureNativeSSO,
 		})
+		// Enterprise executive report depends on session auth to resolve the
+		// caller's organization; it is not SSO-specific, so it is gated on the
+		// new auth stack rather than the native-SSO flag.
+		registerExecutiveReportRoutes(v1, logger, svc)
 	}
 	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS, opts.FeatureConnectorGitHubV2)
 	registerKubernetesConnectionRoutes(v1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)

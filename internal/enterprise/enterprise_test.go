@@ -644,4 +644,86 @@ func TestBuildExecutiveReport_EmptyInputIsSafe(t *testing.T) {
 	if report.TopFindingTypes != nil {
 		t.Errorf("top types must be nil when no findings, got %v", report.TopFindingTypes)
 	}
+	if report.MeanTimeToResolve != nil {
+		t.Errorf("MTTR must be omitted when there are no findings, got %+v", report.MeanTimeToResolve)
+	}
+}
+
+func TestBuildExecutiveReport_MTTRUsesResolvedAtOnly(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	findings := []domain.Finding{
+		// Resolved 2 days after creation — counted.
+		{
+			ID: "f1", Type: domain.FindingOverPrivileged, Severity: domain.SeverityHigh,
+			CreatedAt: now.Add(-10 * 24 * time.Hour),
+			Triage: domain.FindingTriage{
+				Status:     domain.FindingLifecycleResolved,
+				ResolvedAt: ptrTime(now.Add(-8 * 24 * time.Hour)),
+			},
+		},
+		// Resolved 4 days after creation — counted.
+		{
+			ID: "f2", Type: domain.FindingStaleIdentity, Severity: domain.SeverityMedium,
+			CreatedAt: now.Add(-9 * 24 * time.Hour),
+			Triage: domain.FindingTriage{
+				Status:     domain.FindingLifecycleResolved,
+				ResolvedAt: ptrTime(now.Add(-5 * 24 * time.Hour)),
+			},
+		},
+		// Resolved but only a mutable UpdatedAt — must NOT contribute.
+		{
+			ID: "f3", Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical,
+			CreatedAt: now.Add(-30 * 24 * time.Hour),
+			Triage: domain.FindingTriage{
+				Status:    domain.FindingLifecycleResolved,
+				UpdatedAt: ptrTime(now.Add(-1 * 24 * time.Hour)),
+			},
+		},
+		// Open finding — irrelevant to MTTR.
+		{
+			ID: "f4", Type: domain.FindingOverPrivileged, Severity: domain.SeverityLow,
+			CreatedAt: now.Add(-2 * 24 * time.Hour),
+			Triage:    domain.FindingTriage{Status: domain.FindingLifecycleOpen},
+		},
+	}
+	report := BuildExecutiveReport(findings, ReportOptions{
+		OrganizationID: "org-1",
+		Now:            func() time.Time { return now },
+	})
+	if report.MeanTimeToResolve == nil {
+		t.Fatal("expected MTTR to be populated from ResolvedAt data")
+	}
+	if report.MeanTimeToResolve.ResolvedCount != 2 {
+		t.Errorf("MTTR sample count: want 2 (only ResolvedAt-bearing), got %d", report.MeanTimeToResolve.ResolvedCount)
+	}
+	want := (3 * 24 * time.Hour).Seconds() // mean of 2d and 4d
+	if report.MeanTimeToResolve.Seconds != want {
+		t.Errorf("MTTR seconds: want %v, got %v", want, report.MeanTimeToResolve.Seconds)
+	}
+}
+
+func TestBuildExecutiveReport_MTTROmittedWithoutResolvedAt(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	findings := []domain.Finding{
+		{
+			ID: "f1", Type: domain.FindingOverPrivileged, Severity: domain.SeverityHigh,
+			CreatedAt: now.Add(-3 * 24 * time.Hour),
+			Triage:    domain.FindingTriage{Status: domain.FindingLifecycleOpen},
+		},
+		{
+			ID: "f2", Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical,
+			CreatedAt: now.Add(-20 * 24 * time.Hour),
+			Triage: domain.FindingTriage{
+				Status:    domain.FindingLifecycleResolved,
+				UpdatedAt: ptrTime(now.Add(-2 * 24 * time.Hour)),
+			},
+		},
+	}
+	report := BuildExecutiveReport(findings, ReportOptions{
+		OrganizationID: "org-1",
+		Now:            func() time.Time { return now },
+	})
+	if report.MeanTimeToResolve != nil {
+		t.Errorf("MTTR must be omitted when no resolved finding has ResolvedAt, got %+v", report.MeanTimeToResolve)
+	}
 }

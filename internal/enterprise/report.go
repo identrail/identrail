@@ -9,15 +9,15 @@ import (
 )
 
 // ExecutiveReport is a deterministic rollup of finding state suitable for
-// leadership consumption: open volume by severity, top finding types, and
-// week-over-week trend.
+// leadership consumption: open volume by severity, top finding types,
+// week-over-week trend, and mean time to resolve.
 //
-// MeanTimeToResolve is deliberately omitted from this first cut: the current
-// FindingTriage schema only records a `last-updated` timestamp that mutates on
-// every triage change (including comment-only and assignee edits), so deriving
-// a faithful MTTR requires a dedicated resolved-at timestamp or a lifecycle
-// history table. That work is tracked separately so the executive report
-// cannot silently surface a materially incorrect figure.
+// MeanTimeToResolve is derived strictly from the FindingTriage.ResolvedAt
+// timestamp, which is set only when a finding actually enters the resolved
+// state. The mutable UpdatedAt timestamp is never used, so the figure cannot
+// be skewed by comment-only or assignee edits. The field is omitted entirely
+// when no resolved finding carries a reliable ResolvedAt, so leadership never
+// sees a guessed number.
 type ExecutiveReport struct {
 	OrganizationID    string                         `json:"organization_id"`
 	GeneratedAt       time.Time                      `json:"generated_at"`
@@ -28,6 +28,15 @@ type ExecutiveReport struct {
 	OpenByType        map[domain.FindingType]int     `json:"open_by_type"`
 	TopFindingTypes   []TopFindingType               `json:"top_finding_types"`
 	WeekOverWeek      WeekOverWeekTrend              `json:"week_over_week"`
+	MeanTimeToResolve *MTTRSummary                   `json:"mean_time_to_resolve,omitempty"`
+}
+
+// MTTRSummary reports mean time to resolve across findings that carry a
+// trustworthy FindingTriage.ResolvedAt. Seconds is the mean of
+// (ResolvedAt - CreatedAt) over ResolvedCount findings.
+type MTTRSummary struct {
+	ResolvedCount int     `json:"resolved_count"`
+	Seconds       float64 `json:"seconds"`
 }
 
 // TopFindingType records the count of one finding type within the report
@@ -76,6 +85,8 @@ func BuildExecutiveReport(findings []domain.Finding, opts ReportOptions) Executi
 
 	currentWeek := 0
 	previousWeek := 0
+	var mttrTotal time.Duration
+	mttrCount := 0
 
 	for _, finding := range findings {
 		status := effectiveStatus(finding, now)
@@ -85,6 +96,18 @@ func BuildExecutiveReport(findings []domain.Finding, opts ReportOptions) Executi
 			report.TotalOpenFindings++
 			report.OpenBySeverity[finding.Severity]++
 			report.OpenByType[finding.Type]++
+		}
+
+		// MTTR uses only the trustworthy ResolvedAt timestamp; resolved
+		// findings without a reliable ResolvedAt are excluded rather than
+		// approximated from the mutable UpdatedAt.
+		if status == domain.FindingLifecycleResolved {
+			if resolvedAt := finding.Triage.ResolvedAt; resolvedAt != nil && !resolvedAt.IsZero() {
+				if c := finding.CreatedAt; !c.IsZero() && !resolvedAt.Before(c) {
+					mttrTotal += resolvedAt.Sub(c)
+					mttrCount++
+				}
+			}
 		}
 
 		created := finding.CreatedAt
@@ -105,6 +128,12 @@ func BuildExecutiveReport(findings []domain.Finding, opts ReportOptions) Executi
 		Delta:         currentWeek - previousWeek,
 	}
 	report.TopFindingTypes = topFindingTypes(report.OpenByType, topN)
+	if mttrCount > 0 {
+		report.MeanTimeToResolve = &MTTRSummary{
+			ResolvedCount: mttrCount,
+			Seconds:       mttrTotal.Seconds() / float64(mttrCount),
+		}
+	}
 	return report
 }
 
