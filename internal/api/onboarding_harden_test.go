@@ -257,3 +257,70 @@ func TestOnboardingOrgStepDeniesRevokedMemberRename(t *testing.T) {
 		t.Fatalf("organization name must be unchanged, got %q", org.DisplayName)
 	}
 }
+
+// A user who is only a viewer in their newest workspace but still an owner in
+// an earlier workspace of the same tenant must still be allowed to re-edit the
+// organization (membership creation order must not decide authorization).
+func TestOnboardingOrgStepAllowsAdminInAnotherWorkspace(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	user, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "multi@example.com",
+		DisplayName:  "Multi",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	owned := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "owned-ws"})
+	viewed := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "viewed-ws"})
+	if err := store.UpsertOrganization(owned, db.TenancyOrganization{TenantID: "tenant-a", DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	if err := store.UpsertWorkspace(owned, db.TenancyWorkspace{TenantID: "tenant-a", WorkspaceID: "owned-ws", DisplayName: "Owned", Slug: "owned"}); err != nil {
+		t.Fatalf("upsert owned workspace: %v", err)
+	}
+	if err := store.UpsertWorkspace(viewed, db.TenancyWorkspace{TenantID: "tenant-a", WorkspaceID: "viewed-ws", DisplayName: "Viewed", Slug: "viewed"}); err != nil {
+		t.Fatalf("upsert viewed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(owned, db.TenancyWorkspaceMember{
+		TenantID: "tenant-a", WorkspaceID: "owned-ws", MemberID: "member-owner",
+		UserID: user.ID, UserUUID: user.ID, Email: user.PrimaryEmail, Role: "owner", Status: "active",
+		JoinedAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("upsert owner member: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(viewed, db.TenancyWorkspaceMember{
+		TenantID: "tenant-a", WorkspaceID: "viewed-ws", MemberID: "member-viewer",
+		UserID: user.ID, UserUUID: user.ID, Email: user.PrimaryEmail, Role: "viewer", Status: "active",
+		JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert viewer member: %v", err)
+	}
+	if _, err := store.UpsertOnboardingState(context.Background(), db.OnboardingState{
+		UserID: user.ID, CurrentStep: onboardingStepWorkspace, OrgID: "tenant-a", StartedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed onboarding state: %v", err)
+	}
+
+	resp, err := svc.UpdateOnboardingState(context.Background(), sessionauth.CurrentSession{
+		IDHash:  []byte("session-hash"),
+		Session: db.Session{UserID: user.ID, AuthMethod: "manual"},
+	}, OnboardingStateUpdateRequest{CurrentStep: "org", OrgName: "Renamed By Owner"})
+	if err != nil {
+		t.Fatalf("expected owner-in-another-workspace to be allowed, got %v", err)
+	}
+	if resp.State.OrgID != "tenant-a" {
+		t.Fatalf("org re-edit must not fork the tenant: %+v", resp.State)
+	}
+	org, getErr := store.GetOrganization(db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: db.DefaultWorkspaceID}))
+	if getErr != nil {
+		t.Fatalf("get organization: %v", getErr)
+	}
+	if org.DisplayName != "Renamed By Owner" {
+		t.Fatalf("expected updated display name, got %q", org.DisplayName)
+	}
+}

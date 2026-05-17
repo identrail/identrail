@@ -398,17 +398,20 @@ func (s *Service) requireOnboardingOrganizationAdmin(ctx context.Context, userID
 	if orgID == "" {
 		return ErrOnboardingWorkspaceAccessDenied
 	}
-	member, err := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, strings.TrimSpace(userID), orgID)
-	if err == nil {
-		switch member.Role {
-		case "owner", "admin":
-			return nil
-		default:
-			return ErrOnboardingWorkspaceAccessDenied
-		}
-	}
-	if !errors.Is(err, db.ErrNotFound) {
+	// Consider every active membership in the tenant, not just the newest
+	// one: a user who is a viewer in their most recently joined workspace may
+	// still be an owner/admin in another workspace of the same tenant.
+	memberships, err := s.Store.ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx, strings.TrimSpace(userID), orgID)
+	if err != nil {
 		return err
+	}
+	if len(memberships) > 0 {
+		for _, member := range memberships {
+			if member.Role == "owner" || member.Role == "admin" {
+				return nil
+			}
+		}
+		return ErrOnboardingWorkspaceAccessDenied
 	}
 	// No active membership in this tenant. Allow the write only when the
 	// tenant has no workspace yet — that is the brand-new tenant this user
