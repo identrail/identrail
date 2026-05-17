@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/enterprise"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
@@ -36,20 +37,33 @@ func newExecutiveReportCache(ttl time.Duration) *executiveReportCache {
 	return &executiveReportCache{ttl: ttl, entries: map[string]cachedExecutiveReport{}}
 }
 
-func (c *executiveReportCache) get(orgID string, now time.Time) (enterprise.ExecutiveReport, bool) {
+func (c *executiveReportCache) get(key string, now time.Time) (enterprise.ExecutiveReport, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry, ok := c.entries[orgID]
-	if !ok || !now.Before(entry.expiresAt) {
+	entry, ok := c.entries[key]
+	if !ok {
+		return enterprise.ExecutiveReport{}, false
+	}
+	if !now.Before(entry.expiresAt) {
+		// Evict the stale entry we just touched rather than leaving it.
+		delete(c.entries, key)
 		return enterprise.ExecutiveReport{}, false
 	}
 	return entry.report, true
 }
 
-func (c *executiveReportCache) set(orgID string, report enterprise.ExecutiveReport, now time.Time) {
+func (c *executiveReportCache) set(key string, report enterprise.ExecutiveReport, now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[orgID] = cachedExecutiveReport{report: report, expiresAt: now.Add(c.ttl)}
+	// Sweep expired entries so the per-scope map cannot grow without bound as
+	// organizations/workspaces come and go. Writes are infrequent (at most one
+	// per scope per TTL), so the linear sweep is cheap.
+	for k, e := range c.entries {
+		if !now.Before(e.expiresAt) {
+			delete(c.entries, k)
+		}
+	}
+	c.entries[key] = cachedExecutiveReport{report: report, expiresAt: now.Add(c.ttl)}
 }
 
 func registerExecutiveReportRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service) {
@@ -78,17 +92,24 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 		}
 		now := clock()
 
-		if report, ok := cache.get(orgID, now); ok {
+		// Cache by the exact data scope, not just the org. The request-scope
+		// middleware narrows findings to tenant+workspace, so keying only by
+		// org id would let one workspace serve another workspace's cached
+		// report within the same organization for up to the TTL.
+		reqCtx := c.Request.Context()
+		scope := db.ScopeFromContext(reqCtx)
+		cacheKey := scope.TenantID + "\x00" + scope.WorkspaceID
+
+		if report, ok := cache.get(cacheKey, now); ok {
 			c.JSON(http.StatusOK, report)
 			return
 		}
 
 		// Findings are scope-filtered by the request-scope middleware, so the
-		// store only returns the caller organization's findings. ListFindingsAll
-		// is uncapped; triage (including the trustworthy ResolvedAt that MTTR
-		// depends on) is hydrated separately since the raw finding rows do not
-		// carry it.
-		reqCtx := c.Request.Context()
+		// store only returns the caller's tenant+workspace findings.
+		// ListFindingsAll is uncapped; triage (including the trustworthy
+		// ResolvedAt that MTTR depends on) is hydrated separately since the raw
+		// finding rows do not carry it.
 		findings, err := svc.Store.ListFindingsAll(reqCtx)
 		if err != nil {
 			if logger != nil {
@@ -110,7 +131,7 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 			OrganizationID: orgID,
 			Now:            clock,
 		})
-		cache.set(orgID, report, now)
+		cache.set(cacheKey, report, now)
 		c.JSON(http.StatusOK, report)
 	}
 }

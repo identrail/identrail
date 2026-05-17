@@ -229,3 +229,79 @@ func TestExecutiveReport_IsolatesOrganizations(t *testing.T) {
 		t.Errorf("org-b must not see org-a findings; got %d", repB.TotalOpenFindings)
 	}
 }
+
+func TestExecutiveReportCache_EvictsExpiredEntries(t *testing.T) {
+	ttl := 60 * time.Second
+	cache := newExecutiveReportCache(ttl)
+	t0 := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	cache.set("tenant-a\x00ws-a", enterprise.ExecutiveReport{OrganizationID: "a"}, t0)
+
+	// A stale entry must not be served, and the lookup itself evicts it.
+	if _, ok := cache.get("tenant-a\x00ws-a", t0.Add(ttl+time.Second)); ok {
+		t.Fatal("expired entry must not be served")
+	}
+	cache.mu.Lock()
+	if _, present := cache.entries["tenant-a\x00ws-a"]; present {
+		cache.mu.Unlock()
+		t.Fatal("expired entry must be evicted on stale get")
+	}
+	cache.mu.Unlock()
+
+	// A later write for a different scope sweeps any other expired entries so
+	// the map cannot grow without bound.
+	cache.set("tenant-a\x00ws-a", enterprise.ExecutiveReport{OrganizationID: "a"}, t0)
+	cache.set("tenant-b\x00ws-b", enterprise.ExecutiveReport{OrganizationID: "b"}, t0.Add(ttl+time.Second))
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if _, present := cache.entries["tenant-a\x00ws-a"]; present {
+		t.Fatal("expired entry must be swept on the next set")
+	}
+	if len(cache.entries) != 1 {
+		t.Fatalf("cache must not retain expired entries; size=%d", len(cache.entries))
+	}
+}
+
+func TestExecutiveReport_IsolatesWorkspacesWithinSameOrg(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	store := db.NewMemoryStore()
+
+	wsScope := func(ws string) db.Scope { return db.Scope{TenantID: "org-shared", WorkspaceID: ws} }
+	rig := func(ws string) *gin.Engine {
+		svc := NewService(store, routerScanner{}, "aws")
+		svc.Now = func() time.Time { return clock }
+		r := gin.New()
+		r.Use(func(c *gin.Context) {
+			c.Request = c.Request.WithContext(db.WithScope(c.Request.Context(), wsScope(ws)))
+			c.Set("auth.session", sessionauth.CurrentSession{
+				Session: db.Session{UserID: "11111111-1111-1111-1111-111111111111", CurrentOrgID: "org-shared", CurrentWorkspaceID: ws},
+			})
+		})
+		v1 := r.Group("/v1")
+		registerExecutiveReportRoutes(v1, nil, svc)
+		return r
+	}
+
+	scanID := seedExecReportScan(t, store, wsScope("ws-1"), now.Add(-2*24*time.Hour))
+	seedExecReportFinding(t, store, wsScope("ws-1"), scanID, "f1", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-1*24*time.Hour), nil)
+
+	// ws-1 sees its finding; ws-2 in the same org must not get ws-1's report.
+	w1 := doJSON(t, rig("ws-1"), http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	var rep1 enterprise.ExecutiveReport
+	if err := json.Unmarshal(w1.Body.Bytes(), &rep1); err != nil {
+		t.Fatalf("decode ws-1: %v", err)
+	}
+	if rep1.TotalOpenFindings != 1 {
+		t.Fatalf("ws-1 should see its finding; got %d", rep1.TotalOpenFindings)
+	}
+
+	w2 := doJSON(t, rig("ws-2"), http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	var rep2 enterprise.ExecutiveReport
+	if err := json.Unmarshal(w2.Body.Bytes(), &rep2); err != nil {
+		t.Fatalf("decode ws-2: %v", err)
+	}
+	if rep2.TotalOpenFindings != 0 {
+		t.Fatalf("ws-2 must not receive ws-1's cached report within the same org; got %d", rep2.TotalOpenFindings)
+	}
+}
