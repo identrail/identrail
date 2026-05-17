@@ -162,6 +162,261 @@ func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.Work
 	return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: user, Identity: identity, NewUser: true}, profile.OrganizationID)
 }
 
+// SAMLAssertedProfile is the subset of a SAML assertion Identrail consumes to
+// resolve or provision a user. The connection id is captured so the persisted
+// identity is scoped to the originating IdP — two tenants federating with the
+// same NameID cannot collide because the provider value is connection-specific.
+type SAMLAssertedProfile struct {
+	ConnectionID string
+	OrgID        string
+	NameID       string
+	Email        string
+	DisplayName  string
+	Groups       []string
+	RawAssertion []byte
+}
+
+// SAMLLoginResult mirrors WorkOSLoginResult so the ACS handler can reuse the
+// same session-issuance plumbing as the WorkOS callback path.
+type SAMLLoginResult struct {
+	User             db.User
+	Identity         db.UserIdentity
+	NewUser          bool
+	CurrentOrgID     string
+	CurrentWorkspace string
+	RedirectPath     string
+}
+
+// ErrSAMLUnprovisionedUser is returned when a SAML assertion arrives for a
+// user that has no matching identity and the connection has not opted into
+// JIT provisioning. The ACS handler maps it to a 403 so the admin knows to
+// either pre-provision via SCIM or enable JIT on the connection.
+var ErrSAMLUnprovisionedUser = errors.New("saml asserted user is not provisioned and connection has JIT disabled")
+
+// UpsertSAMLAssertedUser resolves or provisions an Identrail user from a SAML
+// assertion. Lookup order:
+//
+//  1. user_identities row with provider = "saml:<connection_id>" and the
+//     asserted NameID — the canonical mapping once a user has logged in once.
+//  2. user_identities row with provider = "scim:<connection_id>" and the
+//     asserted NameID, then the email — covers users pre-provisioned via SCIM
+//     before their first SAML login.
+//  3. users row with primary_email == asserted email — falls back to email
+//     when JIT-enabled connections need to attach a new IdP identity to an
+//     existing manually-created Identrail user.
+//
+// If no match is found and the connection has JIT disabled, returns
+// ErrSAMLUnprovisionedUser without creating any row.
+func (s *Service) UpsertSAMLAssertedUser(ctx context.Context, conn db.IdentityConnection, profile SAMLAssertedProfile) (SAMLLoginResult, error) {
+	if s == nil || s.Store == nil {
+		return SAMLLoginResult{}, errors.New("service unavailable")
+	}
+	email := strings.ToLower(strings.TrimSpace(profile.Email))
+	if email == "" {
+		return SAMLLoginResult{}, errors.New("saml profile missing email")
+	}
+	nameID := strings.TrimSpace(profile.NameID)
+	if nameID == "" {
+		// samlProfileFromAssertion already accepts assertions whose NameID
+		// is empty by treating the email attribute as the NameID; mirror
+		// that here so a NameID-less but email-bearing profile resolves
+		// instead of failing the upsert with a hard error.
+		nameID = email
+	}
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+	displayName := strings.TrimSpace(profile.DisplayName)
+	if displayName == "" {
+		displayName = email
+	}
+	rawClaims := profile.RawAssertion
+	if len(rawClaims) == 0 || !json.Valid(rawClaims) {
+		summary := map[string]any{
+			"nameid":        nameID,
+			"email":         email,
+			"display_name":  displayName,
+			"groups":        profile.Groups,
+			"connection_id": conn.ID,
+		}
+		rawClaims, _ = json.Marshal(summary)
+	}
+
+	samlProvider := "saml:" + strings.TrimSpace(conn.ID)
+	scimProvider := "scim:" + strings.TrimSpace(conn.ID)
+
+	// Path 1: existing SAML identity from a prior login on this connection.
+	if identity, err := s.Store.GetUserIdentity(ctx, samlProvider, nameID); err == nil {
+		return s.refreshSAMLIdentity(ctx, conn, identity, email, displayName, rawClaims, now)
+	} else if !errors.Is(err, db.ErrNotFound) {
+		return SAMLLoginResult{}, err
+	}
+
+	// Path 2: pre-provisioned via SCIM (subject = NameID, then email).
+	for _, scimSubject := range []string{nameID, email} {
+		if scimSubject == "" {
+			continue
+		}
+		if identity, err := s.Store.GetUserIdentity(ctx, scimProvider, scimSubject); err == nil {
+			return s.attachSAMLIdentityToExistingUser(ctx, conn, identity.UserID, nameID, email, displayName, rawClaims, now)
+		} else if !errors.Is(err, db.ErrNotFound) {
+			return SAMLLoginResult{}, err
+		}
+	}
+
+	// Path 3: existing user by email (JIT attaches a new SAML identity).
+	//
+	// Email is a globally unique credential in users.primary_email but the
+	// SAML assertion is org-scoped: a stranger who happens to share an email
+	// with a user from a different org must not have their SAML assertion
+	// bound to that account. Require the candidate user to already be a
+	// member of the connection's org before linking.
+	if existing, err := s.Store.GetUserByPrimaryEmail(ctx, email); err == nil {
+		if !conn.JITProvisioningEnabled {
+			auditAuthAction(ctx, "auth.saml.unprovisioned", existing.ID, "denied")
+			return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
+		}
+		if _, membershipErr := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, existing.ID, conn.OrgID); membershipErr != nil {
+			if errors.Is(membershipErr, db.ErrNotFound) {
+				// The email-matched user belongs to a different tenant.
+				// Refuse to silently bind the assertion to them.
+				auditAuthAction(ctx, "auth.saml.cross_tenant_email_match", existing.ID, "denied")
+				return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
+			}
+			return SAMLLoginResult{}, membershipErr
+		}
+		return s.attachSAMLIdentityToExistingUser(ctx, conn, existing.ID, nameID, email, displayName, rawClaims, now)
+	} else if !errors.Is(err, db.ErrNotFound) {
+		return SAMLLoginResult{}, err
+	}
+
+	// No prior identity, no matching user. Require JIT to create a fresh one.
+	if !conn.JITProvisioningEnabled {
+		auditAuthAction(ctx, "auth.saml.unprovisioned", "", "denied")
+		return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
+	}
+	user, err := s.Store.UpsertUser(ctx, db.User{
+		PrimaryEmail: email,
+		DisplayName:  displayName,
+		Status:       "active",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			auditAuthAction(ctx, "auth.identity.conflict", "", "denied")
+			return SAMLLoginResult{}, ErrAuthIdentityConflict
+		}
+		return SAMLLoginResult{}, err
+	}
+	identity, err := s.Store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            samlProvider,
+		Subject:             nameID,
+		Email:               email,
+		EmailVerified:       true,
+		RawClaims:           rawClaims,
+		LastAuthenticatedAt: now,
+		CreatedAt:           now,
+	})
+	if err != nil {
+		return SAMLLoginResult{}, err
+	}
+	return s.decorateSAMLLoginResult(ctx, SAMLLoginResult{User: user, Identity: identity, NewUser: true}, conn.OrgID)
+}
+
+func (s *Service) refreshSAMLIdentity(ctx context.Context, conn db.IdentityConnection, identity db.UserIdentity, email, displayName string, rawClaims []byte, now time.Time) (SAMLLoginResult, error) {
+	user, err := s.Store.GetUser(ctx, identity.UserID)
+	if err != nil {
+		return SAMLLoginResult{}, err
+	}
+	user.PrimaryEmail = email
+	user.DisplayName = displayName
+	user.Status = "active"
+	user.UpdatedAt = now
+	savedUser, err := s.Store.UpsertUser(ctx, user)
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			auditAuthAction(ctx, "auth.identity.conflict", user.ID, "denied")
+			return SAMLLoginResult{}, ErrAuthIdentityConflict
+		}
+		return SAMLLoginResult{}, err
+	}
+	identity.Email = email
+	identity.EmailVerified = true
+	identity.RawClaims = rawClaims
+	identity.LastAuthenticatedAt = now
+	savedIdentity, err := s.Store.UpsertUserIdentity(ctx, identity)
+	if err != nil {
+		return SAMLLoginResult{}, err
+	}
+	return s.decorateSAMLLoginResult(ctx, SAMLLoginResult{User: savedUser, Identity: savedIdentity}, conn.OrgID)
+}
+
+func (s *Service) attachSAMLIdentityToExistingUser(ctx context.Context, conn db.IdentityConnection, userID, nameID, email, displayName string, rawClaims []byte, now time.Time) (SAMLLoginResult, error) {
+	user, err := s.Store.GetUser(ctx, userID)
+	if err != nil {
+		return SAMLLoginResult{}, err
+	}
+	user.PrimaryEmail = email
+	user.DisplayName = displayName
+	user.Status = "active"
+	user.UpdatedAt = now
+	savedUser, err := s.Store.UpsertUser(ctx, user)
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			auditAuthAction(ctx, "auth.identity.conflict", user.ID, "denied")
+			return SAMLLoginResult{}, ErrAuthIdentityConflict
+		}
+		return SAMLLoginResult{}, err
+	}
+	identity, err := s.Store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              savedUser.ID,
+		Provider:            "saml:" + strings.TrimSpace(conn.ID),
+		Subject:             nameID,
+		Email:               email,
+		EmailVerified:       true,
+		RawClaims:           rawClaims,
+		LastAuthenticatedAt: now,
+		CreatedAt:           now,
+	})
+	if err != nil {
+		return SAMLLoginResult{}, err
+	}
+	return s.decorateSAMLLoginResult(ctx, SAMLLoginResult{User: savedUser, Identity: identity}, conn.OrgID)
+}
+
+// decorateSAMLLoginResult attaches the org/workspace context the session
+// needs. The SAML connection is org-scoped, so we always force that org id
+// regardless of the user's prior selection.
+//
+// The Postgres `sessions` table requires CurrentOrgID and CurrentWorkspaceID
+// to either both be populated or both be empty. When a SAML-asserted user
+// has no workspace membership yet — common for the JIT happy path — we
+// leave both empty and redirect to onboarding so session insertion does not
+// trip the constraint.
+func (s *Service) decorateSAMLLoginResult(ctx context.Context, result SAMLLoginResult, orgID string) (SAMLLoginResult, error) {
+	candidateOrg := strings.TrimSpace(orgID)
+	member, err := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, result.User.ID, candidateOrg)
+	if err == nil {
+		result.CurrentOrgID = member.TenantID
+		result.CurrentWorkspace = member.WorkspaceID
+		result.RedirectPath = "/app/" + member.TenantID + "/" + member.WorkspaceID
+		return result, nil
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		return SAMLLoginResult{}, err
+	}
+	// No workspace membership yet — leave the session org/workspace empty
+	// (both NULL, matching the table CHECK) and send the user through
+	// onboarding to bind a workspace.
+	result.CurrentOrgID = ""
+	result.CurrentWorkspace = ""
+	result.RedirectPath = "/onboarding/org"
+	return result, nil
+}
+
 // UpsertManualUserSessionContext creates the local user and tenancy context used by dev-only manual mode.
 func (s *Service) UpsertManualUserSessionContext(ctx context.Context, input ManualLoginInput) (ManualLoginResult, error) {
 	if s == nil || s.Store == nil {

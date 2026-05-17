@@ -697,6 +697,72 @@ paths:
           $ref: "#/components/responses/Conflict"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /auth/saml/login/{connection_id}:
+    get:
+      tags: [Authorization]
+      summary: Begin native SAML SP-initiated login
+      operationId: beginNativeSAMLLogin
+      security: []
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: return_to
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Browser redirected to the IdP SSO URL with RelayState
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /auth/saml/acs/{connection_id}:
+    post:
+      tags: [Authorization]
+      summary: Receive a SAML 2.0 assertion at the Assertion Consumer Service
+      operationId: receiveNativeSAMLAssertion
+      security: []
+      parameters:
+        - in: path
+          name: connection_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [SAMLResponse]
+              properties:
+                SAMLResponse:
+                  type: string
+                  description: Base64-encoded SAML 2.0 Response document
+                RelayState:
+                  type: string
+                  description: Opaque state token issued by /auth/saml/login
+      responses:
+        "302":
+          description: Session cookie set and browser redirected to the app
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /auth/webhooks/workos:
     post:
       tags: [Authorization]

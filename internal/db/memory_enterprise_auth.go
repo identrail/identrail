@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -234,6 +235,39 @@ func (m *MemoryStore) GetIdentityConnection(ctx context.Context, orgID string, c
 	return connection, nil
 }
 
+// GetIdentityConnectionByID resolves a connection by its globally unique
+// UUID. Used by entry points that do not know the org id yet (e.g. the SAML
+// SP-initiated login route).
+//
+// Memory mode does not have the SQL UNIQUE constraint Postgres uses to
+// guarantee global uuid uniqueness, so a buggy seed could insert two rows
+// with the same id. Return ErrConflict in that case rather than picking a
+// non-deterministic match.
+func (m *MemoryStore) GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error) {
+	connectionID = strings.TrimSpace(connectionID)
+	if connectionID == "" {
+		return IdentityConnection{}, ErrNotFound
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var match IdentityConnection
+	found := false
+	for _, connection := range m.identityConnections {
+		if connection.ID != connectionID {
+			continue
+		}
+		if found {
+			return IdentityConnection{}, ErrConflict
+		}
+		match = connection
+		found = true
+	}
+	if !found {
+		return IdentityConnection{}, ErrNotFound
+	}
+	return match, nil
+}
+
 // ListIdentityConnections returns organization identity connection scaffolds ordered by newest first.
 func (m *MemoryStore) ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error) {
 	m.mu.RLock()
@@ -341,6 +375,83 @@ func (m *MemoryStore) DeleteIdentityConnection(ctx context.Context, orgID, conne
 		Outcome:      "success",
 	})
 	return nil
+}
+
+// CreateSAMLRelayState persists one SP-initiated SAML AuthnRequest record
+// keyed by the opaque relay handle. Used by /auth/saml/login; consumed
+// (one-shot) by /auth/saml/acs.
+func (m *MemoryStore) CreateSAMLRelayState(ctx context.Context, state SAMLRelayState) (SAMLRelayState, error) {
+	state.Handle = strings.TrimSpace(state.Handle)
+	if state.Handle == "" {
+		return SAMLRelayState{}, fmt.Errorf("saml relay handle is required")
+	}
+	if strings.TrimSpace(state.ConnectionID) == "" || strings.TrimSpace(state.SAMLRequestID) == "" {
+		return SAMLRelayState{}, fmt.Errorf("saml relay state requires connection_id and saml_request_id")
+	}
+	state.ConnectionID = strings.TrimSpace(state.ConnectionID)
+	state.SAMLRequestID = strings.TrimSpace(state.SAMLRequestID)
+	if state.CreatedAt.IsZero() {
+		state.CreatedAt = time.Now().UTC()
+	} else {
+		state.CreatedAt = state.CreatedAt.UTC()
+	}
+	if state.ExpiresAt.IsZero() {
+		return SAMLRelayState{}, fmt.Errorf("saml relay state requires expires_at")
+	}
+	state.ExpiresAt = state.ExpiresAt.UTC()
+	m.mu.Lock()
+	if _, exists := m.samlRelayStates[state.Handle]; exists {
+		m.mu.Unlock()
+		return SAMLRelayState{}, ErrConflict
+	}
+	matches := 0
+	for _, connection := range m.identityConnections {
+		if connection.ID == state.ConnectionID {
+			matches++
+		}
+	}
+	switch matches {
+	case 0:
+		m.mu.Unlock()
+		return SAMLRelayState{}, ErrNotFound
+	case 1:
+	default:
+		m.mu.Unlock()
+		return SAMLRelayState{}, ErrConflict
+	}
+	m.samlRelayStates[state.Handle] = state
+	m.mu.Unlock()
+	return state, nil
+}
+
+// ConsumeSAMLRelayState atomically marks one handle consumed and returns the
+// stored state. Re-consuming the same handle returns ErrNotFound so the
+// RelayState value cannot be replayed.
+func (m *MemoryStore) ConsumeSAMLRelayState(ctx context.Context, handle string, now time.Time) (SAMLRelayState, error) {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return SAMLRelayState{}, ErrNotFound
+	}
+	now = now.UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Sweep expired entries first.
+	for h, s := range m.samlRelayStates {
+		if !s.ExpiresAt.After(now) {
+			delete(m.samlRelayStates, h)
+		}
+	}
+	state, exists := m.samlRelayStates[handle]
+	if !exists {
+		return SAMLRelayState{}, ErrNotFound
+	}
+	if state.ConsumedAt != nil {
+		return SAMLRelayState{}, ErrNotFound
+	}
+	consumed := now
+	state.ConsumedAt = &consumed
+	delete(m.samlRelayStates, handle)
+	return state, nil
 }
 
 // CreateSCIMProvisioningEvent appends one SCIM provisioning event to the

@@ -262,6 +262,53 @@ func TestNativeSAMLRoutes_UpdateSetsSSORequiredAndPreservesToken(t *testing.T) {
 	}
 }
 
+func TestNativeSAMLRoutes_UpdateCanActivatePendingConnection(t *testing.T) {
+	svc, inject, fetcher := newSAMLTestRig(t)
+	r := newTestRouterFor(t, svc, inject, fetcher, true)
+	createResp := doJSON(t, r, http.MethodPost, "/v1/enterprise/identity-connections/saml", validSAMLRequest(t))
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var created samlConnectionResponse
+	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
+	if created.Connection.Status != "pending" {
+		t.Fatalf("new native SAML connections should start pending, got %q", created.Connection.Status)
+	}
+
+	update := validSAMLRequest(t)
+	update.Status = "active"
+	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, update)
+	if w.Code != http.StatusOK {
+		t.Fatalf("activate: %d %s", w.Code, w.Body.String())
+	}
+	var after samlConnectionResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &after)
+	if after.Connection.Status != "active" {
+		t.Fatalf("expected active connection after update, got %q", after.Connection.Status)
+	}
+}
+
+func TestNativeSAMLRoutes_UpdateRejectsBlankStatus(t *testing.T) {
+	svc, inject, fetcher := newSAMLTestRig(t)
+	r := newTestRouterFor(t, svc, inject, fetcher, true)
+	createResp := doJSON(t, r, http.MethodPost, "/v1/enterprise/identity-connections/saml", validSAMLRequest(t))
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", createResp.Code, createResp.Body.String())
+	}
+	var created samlConnectionResponse
+	_ = json.Unmarshal(createResp.Body.Bytes(), &created)
+
+	update := validSAMLRequest(t)
+	update.Status = "   "
+	w := doJSON(t, r, http.MethodPut, "/v1/enterprise/identity-connections/saml/"+created.Connection.ID, update)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected blank status to be rejected, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "status cannot be blank") {
+		t.Fatalf("expected blank-status error, got %s", w.Body.String())
+	}
+}
+
 func TestNativeSAMLRoutes_UpdatePreservesBooleansWhenOmitted(t *testing.T) {
 	svc, inject, fetcher := newSAMLTestRig(t)
 	r := newTestRouterFor(t, svc, inject, fetcher, true)

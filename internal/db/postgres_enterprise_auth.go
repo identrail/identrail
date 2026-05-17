@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -405,6 +406,133 @@ func (p *PostgresStore) GetIdentityConnection(ctx context.Context, orgID string,
 		 WHERE org_id = $1
 		   AND id = NULLIF($2, '')::uuid`,
 		strings.TrimSpace(orgID),
+		strings.TrimSpace(connectionID),
+	))
+}
+
+const samlRelayStateColumns = "handle, connection_id::text, saml_request_id, return_to, intent, expires_at, consumed_at, created_at"
+
+func scanSAMLRelayState(row rowScanner) (SAMLRelayState, error) {
+	var state SAMLRelayState
+	var consumedAt sql.NullTime
+	if err := row.Scan(
+		&state.Handle,
+		&state.ConnectionID,
+		&state.SAMLRequestID,
+		&state.ReturnTo,
+		&state.Intent,
+		&state.ExpiresAt,
+		&consumedAt,
+		&state.CreatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return SAMLRelayState{}, ErrNotFound
+		}
+		return SAMLRelayState{}, err
+	}
+	if consumedAt.Valid {
+		t := consumedAt.Time
+		state.ConsumedAt = &t
+	}
+	return state, nil
+}
+
+// CreateSAMLRelayState persists one SP-initiated SAML AuthnRequest record.
+func (p *PostgresStore) CreateSAMLRelayState(ctx context.Context, state SAMLRelayState) (SAMLRelayState, error) {
+	handle := strings.TrimSpace(state.Handle)
+	if handle == "" {
+		return SAMLRelayState{}, fmt.Errorf("saml relay handle is required")
+	}
+	if state.CreatedAt.IsZero() {
+		state.CreatedAt = time.Now().UTC()
+	}
+	if state.ExpiresAt.IsZero() {
+		return SAMLRelayState{}, fmt.Errorf("saml relay state requires expires_at")
+	}
+	// /auth/saml/login is unauthenticated, so the request context has no
+	// db.WithScope. Use the AnyScope path so RLS-enforced deployments do not
+	// short-circuit with ErrScopeRequired before the row is written.
+	saved, err := scanSAMLRelayState(p.queryRowContextAnyScope(
+		ctx,
+		`INSERT INTO saml_relay_states (
+		     handle, connection_id, saml_request_id, return_to, intent, expires_at, created_at
+		 )
+		 VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, $7)
+		 RETURNING `+samlRelayStateColumns,
+		handle,
+		strings.TrimSpace(state.ConnectionID),
+		strings.TrimSpace(state.SAMLRequestID),
+		state.ReturnTo,
+		strings.TrimSpace(state.Intent),
+		state.ExpiresAt.UTC(),
+		state.CreatedAt.UTC(),
+	))
+	if err != nil {
+		if isTenancyUniqueViolation(err) {
+			return SAMLRelayState{}, ErrConflict
+		}
+		return SAMLRelayState{}, err
+	}
+	return saved, nil
+}
+
+// ConsumeSAMLRelayState atomically marks a relay row consumed and returns the
+// persisted state. The UPDATE ... RETURNING with WHERE consumed_at IS NULL
+// AND expires_at > now() guarantees one-shot consumption even under
+// concurrent ACS POSTs hitting different API instances. A subsequent call
+// with the same handle returns ErrNotFound.
+func (p *PostgresStore) ConsumeSAMLRelayState(ctx context.Context, handle string, now time.Time) (SAMLRelayState, error) {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return SAMLRelayState{}, ErrNotFound
+	}
+	now = now.UTC()
+	// Same RLS rationale as CreateSAMLRelayState — the ACS POST is
+	// unauthenticated. The handle is opaque and cryptographically random,
+	// so bypassing scope here does not expose cross-tenant relay rows.
+	state, err := scanSAMLRelayState(p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE saml_relay_states
+		    SET consumed_at = $2
+		  WHERE handle = $1
+		    AND consumed_at IS NULL
+		    AND expires_at > $2
+		  RETURNING `+samlRelayStateColumns,
+		handle,
+		now,
+	))
+	if err != nil {
+		return SAMLRelayState{}, err
+	}
+	_, err = p.execContextAnyScope(
+		ctx,
+		`DELETE FROM saml_relay_states
+		  WHERE consumed_at IS NOT NULL
+		     OR expires_at <= $1`,
+		now,
+	)
+	if err != nil {
+		return SAMLRelayState{}, err
+	}
+	return state, nil
+}
+
+// GetIdentityConnectionByID resolves a connection by its globally unique
+// UUID, bypassing the org-scope filter applied by GetIdentityConnection.
+// Used by entry points (SAML SP-initiated login) that do not know the org id
+// in advance — the connection itself determines the org scope.
+//
+// Uses queryRowContextAnyScope so the lookup runs without requiring a
+// db.WithScope context, matching FindFirstWorkspaceMemberByUserUUIDAndTenantID.
+// Under IDENTRAIL_POSTGRES_RLS_ENFORCED=true, the scoped path would short-
+// circuit with ErrScopeRequired before reading any row because /auth/saml
+// routes are unauthenticated entry points.
+func (p *PostgresStore) GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error) {
+	return scanIdentityConnection(p.queryRowContextAnyScope(
+		ctx,
+		`SELECT `+identityConnectionColumns+`
+		 FROM identity_connections
+		 WHERE id = NULLIF($1, '')::uuid`,
 		strings.TrimSpace(connectionID),
 	))
 }

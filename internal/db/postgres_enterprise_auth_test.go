@@ -270,6 +270,146 @@ func TestPostgresEnterpriseAuthUniqueViolationsReturnConflict(t *testing.T) {
 	}
 }
 
+func TestPostgresConsumeSAMLRelayStatePrunesConsumedAndExpiredRows(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(5 * time.Minute)
+	createdAt := now.Add(-time.Minute)
+
+	mock.ExpectQuery("UPDATE saml_relay_states").
+		WithArgs("relay-handle", now).
+		WillReturnRows(postgresSAMLRelayStateRows().AddRow(
+			"relay-handle",
+			"11111111-1111-1111-1111-111111111111",
+			"_request-1",
+			"/app",
+			"login",
+			expiresAt,
+			now,
+			createdAt,
+		))
+	mock.ExpectExec("DELETE FROM saml_relay_states").
+		WithArgs(now).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	state, err := store.ConsumeSAMLRelayState(ctx, "relay-handle", now)
+	if err != nil {
+		t.Fatalf("consume relay state: %v", err)
+	}
+	if state.Handle != "relay-handle" || state.ConsumedAt == nil {
+		t.Fatalf("unexpected relay state: %+v", state)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestPostgresCreateSAMLRelayStateBypassesScopeAndMapsConflict(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 17, 11, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(5 * time.Minute)
+
+	mock.ExpectQuery("INSERT INTO saml_relay_states").
+		WithArgs("relay-handle", "11111111-1111-1111-1111-111111111111", "_request-1", "/app", "login", expiresAt, now).
+		WillReturnRows(postgresSAMLRelayStateRows().AddRow(
+			"relay-handle",
+			"11111111-1111-1111-1111-111111111111",
+			"_request-1",
+			"/app",
+			"login",
+			expiresAt,
+			nil,
+			now,
+		))
+	state, err := store.CreateSAMLRelayState(ctx, SAMLRelayState{
+		Handle:        " relay-handle ",
+		ConnectionID:  " 11111111-1111-1111-1111-111111111111 ",
+		SAMLRequestID: " _request-1 ",
+		ReturnTo:      "/app",
+		Intent:        " login ",
+		ExpiresAt:     expiresAt,
+		CreatedAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("create relay state: %v", err)
+	}
+	if state.Handle != "relay-handle" || state.ConsumedAt != nil {
+		t.Fatalf("unexpected relay state: %+v", state)
+	}
+
+	mock.ExpectQuery("INSERT INTO saml_relay_states").
+		WillReturnError(testSQLStateError("23505"))
+	if _, err := store.CreateSAMLRelayState(ctx, SAMLRelayState{
+		Handle:        "duplicate",
+		ConnectionID:  "11111111-1111-1111-1111-111111111111",
+		SAMLRequestID: "_request-2",
+		ExpiresAt:     expiresAt,
+		CreatedAt:     now,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate relay should map to ErrConflict, got %v", err)
+	}
+	if _, err := store.CreateSAMLRelayState(ctx, SAMLRelayState{}); err == nil {
+		t.Fatal("missing relay handle should be rejected")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestPostgresGetIdentityConnectionByIDBypassesScope(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 17, 11, 30, 0, 0, time.UTC)
+
+	mock.ExpectQuery("FROM identity_connections").
+		WithArgs("44444444-4444-4444-4444-444444444444").
+		WillReturnRows(postgresEnterpriseConnectionRows().AddRow(
+			"44444444-4444-4444-4444-444444444444",
+			"tenant-a",
+			"saml",
+			"sso",
+			nil,
+			"active",
+			[]byte(`{}`),
+			false,
+			true,
+			"https://idp.example.com/entity",
+			"https://idp.example.com/sso",
+			"-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+			[]byte(`{"email":"mail"}`),
+			nil,
+			now,
+			now,
+		))
+	connection, err := store.GetIdentityConnectionByID(ctx, " 44444444-4444-4444-4444-444444444444 ")
+	if err != nil {
+		t.Fatalf("get identity connection by id: %v", err)
+	}
+	if connection.ID != "44444444-4444-4444-4444-444444444444" || connection.OrgID != "tenant-a" {
+		t.Fatalf("unexpected connection: %+v", connection)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func postgresEnterpriseInvitationRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "org_id", "email", "role", "invited_by_user_id", "token_hash", "expires_at", "accepted_at", "revoked_at", "created_at"})
 }
@@ -284,6 +424,10 @@ func postgresEnterpriseConnectionRows() *sqlmock.Rows {
 		"sso_required", "jit_provisioning_enabled", "entity_id", "sso_url", "certificate_pem",
 		"attribute_mapping", "scim_bearer_token_hash", "created_at", "updated_at",
 	})
+}
+
+func postgresSAMLRelayStateRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"handle", "connection_id", "saml_request_id", "return_to", "intent", "expires_at", "consumed_at", "created_at"})
 }
 
 func postgresSCIMProvisioningEventRows() *sqlmock.Rows {

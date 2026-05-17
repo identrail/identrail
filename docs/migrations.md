@@ -78,6 +78,7 @@ Current sequence in `migrations/`:
 25. `000022_scan_retry_dlq_replay` - scan retry / DLQ replay scaffolding
 26. `000023_onboarding_state` - onboarding wizard server-owned state
 27. `000024_native_sso_scim_scaffold` - native SAML and SCIM 2.0 schema scaffolding: extends `identity_connections` with native SAML fields + a SCIM bearer token hash, adds a composite-FK-backed `scim_provisioning_events` audit table, and reuses the existing `user_identities` table for SCIM-assigned external ids (no new column on `users`)
+28. `000025_saml_relay_states_and_session_saml` - persists in-flight SP-initiated SAML AuthnRequest state across API instances and widens `sessions.auth_method` to accept `'saml'`
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

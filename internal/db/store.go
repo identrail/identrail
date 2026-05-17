@@ -156,6 +156,7 @@ var validSessionAuthMethods = map[string]struct{}{
 	"workos": {},
 	"oidc":   {},
 	"manual": {},
+	"saml":   {},
 }
 
 var validIdentityConnectionProviders = map[string]struct{}{
@@ -505,6 +506,21 @@ func (c IdentityConnection) IsNativeSAML() bool {
 	return strings.ToLower(strings.TrimSpace(c.Provider)) == "saml" &&
 		strings.TrimSpace(c.WorkOSConnectionID) == "" &&
 		strings.TrimSpace(c.EntityID) != ""
+}
+
+// SAMLRelayState is the persisted SP-side context for one in-flight SAML
+// SP-initiated AuthnRequest. The handle is the short opaque token that
+// travels through the IdP as RelayState; the row is one-shot consumed by
+// the ACS handler.
+type SAMLRelayState struct {
+	Handle        string     `json:"handle"`
+	ConnectionID  string     `json:"connection_id"`
+	SAMLRequestID string     `json:"saml_request_id"`
+	ReturnTo      string     `json:"return_to,omitempty"`
+	Intent        string     `json:"intent"`
+	ExpiresAt     time.Time  `json:"expires_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ConsumedAt    *time.Time `json:"consumed_at,omitempty"`
 }
 
 // SCIMProvisioningEventRecord is the persisted form of one SCIM op recorded
@@ -2093,6 +2109,20 @@ type Store interface {
 	ListVerifiedDomains(ctx context.Context, orgID string, limit int) ([]VerifiedDomain, error)
 	CreateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	GetIdentityConnection(ctx context.Context, orgID string, connectionID string) (IdentityConnection, error)
+	// GetIdentityConnectionByID looks up a connection by its globally unique
+	// UUID without requiring the caller to know the owning org id. Needed
+	// for unauthenticated entry points like /auth/saml/login/:connection_id
+	// where the org context is determined by the connection itself.
+	GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error)
+	// CreateSAMLRelayState persists one in-flight SAML SP-initiated request
+	// so the matching ACS POST (potentially handled by a different API
+	// instance) can look the AuthnRequest id, connection scope, and
+	// return_to back up by the opaque handle.
+	CreateSAMLRelayState(ctx context.Context, state SAMLRelayState) (SAMLRelayState, error)
+	// ConsumeSAMLRelayState marks the row consumed and returns the persisted
+	// state. A subsequent call with the same handle returns ErrNotFound so
+	// the relay value cannot be replayed.
+	ConsumeSAMLRelayState(ctx context.Context, handle string, now time.Time) (SAMLRelayState, error)
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
 	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	DeleteIdentityConnection(ctx context.Context, orgID string, connectionID string) error

@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Added migration `000025_saml_relay_states_and_session_saml`:
+  - New `saml_relay_states` table persists in-flight SP-initiated SAML AuthnRequest context (handle, connection_id FK, AuthnRequest id, return_to, intent, expires_at, consumed_at) so the matching ACS POST resolves correctly even when callbacks land on a different API instance than the one that issued the redirect
+  - Widens the `sessions.auth_method` CHECK constraint to accept `'saml'` so SAML-issued sessions no longer trip a 23514 constraint violation
+- Added native SAML 2.0 SP-initiated login (behind `IDENTRAIL_FEATURE_NATIVE_SSO`):
+  - `GET /auth/saml/login/{connection_id}` mints an `AuthnRequest`, stores the request id in the existing HMAC-signed state token, and redirects the browser to the IdP SSO URL with `RelayState`
+  - `POST /auth/saml/acs/{connection_id}` is the Assertion Consumer Service. SAML response parsing, signature verification (XML-DSig), audience/recipient/InResponseTo checks, and `NotOnOrAfter` enforcement are delegated to `github.com/crewjam/saml` so we do not ship bespoke SAML protocol code. A 60s clock-skew tolerance is layered on top.
+  - `UpsertSAMLAssertedUser` resolves users in three steps: existing `saml:<connection_id>` identity → pre-provisioned `scim:<connection_id>` identity → existing user by primary email. When no match exists, the connection's `jit_provisioning_enabled` flag decides whether to create a fresh user or return 403 with an admin-actionable "ask your admin to provision your account" message
+  - Sessions issued from the SAML path carry `AuthMethod: "saml"` (new accepted value) and the org id from the connection
+  - `/v1/auth/config` exposes `native_saml_enabled` so the web frontend can render the "Sign in with company SSO" button only when the feature is on
+  - WorkOS sign-in/sign-up flow is unchanged; both paths share the same `OAuthStateManager` so a `SessionKey` rotation invalidates every half-finished login regardless of which doorway issued it
 - Replaced the authenticated Overview and Settings scaffold routes with real product views:
   - Overview now loads workspace projects, repository scans, open repository findings, and trend signals to show operating metrics, risk queue, scan activity, coverage, and next-action routing.
   - Settings now loads live workspace identity, member access counts, current account role/scopes, authentication mode, providers, and links to the routes that manage each setting area.

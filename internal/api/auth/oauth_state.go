@@ -21,12 +21,17 @@ var (
 )
 
 // OAuthState captures the small amount of callback context we need to restore
-// after WorkOS redirects back to Identrail.
+// after WorkOS redirects back to Identrail. When the same state token carries
+// a SAML SP-initiated request, ConnectionID and SAMLRequestID are populated so
+// the ACS handler can scope the response to the originating connection and
+// match the InResponseTo replay-protection field.
 type OAuthState struct {
-	Nonce     string `json:"nonce"`
-	Intent    string `json:"intent"`
-	ReturnTo  string `json:"return_to,omitempty"`
-	ExpiresAt int64  `json:"expires_at"`
+	Nonce         string `json:"nonce"`
+	Intent        string `json:"intent"`
+	ReturnTo      string `json:"return_to,omitempty"`
+	ExpiresAt     int64  `json:"expires_at"`
+	ConnectionID  string `json:"connection_id,omitempty"`
+	SAMLRequestID string `json:"saml_request_id,omitempty"`
 }
 
 type OAuthStateManager struct {
@@ -51,6 +56,14 @@ func NewOAuthStateManager(secret string, now func() time.Time) *OAuthStateManage
 }
 
 func (m *OAuthStateManager) Issue(intent string, returnTo string) (string, error) {
+	return m.IssueWithSAML(intent, returnTo, "", "")
+}
+
+// IssueWithSAML mints a state token carrying SAML SP-initiated context. The
+// connection id and AuthnRequest id propagate through the IdP as RelayState
+// and come back to the ACS handler so it can verify InResponseTo and route to
+// the right connection.
+func (m *OAuthStateManager) IssueWithSAML(intent, returnTo, connectionID, samlRequestID string) (string, error) {
 	if m == nil || len(m.secret) == 0 {
 		return "", ErrOAuthStateInvalid
 	}
@@ -59,10 +72,12 @@ func (m *OAuthStateManager) Issue(intent string, returnTo string) (string, error
 		return "", err
 	}
 	state := OAuthState{
-		Nonce:     base64.RawURLEncoding.EncodeToString(nonceBytes),
-		Intent:    strings.TrimSpace(intent),
-		ReturnTo:  strings.TrimSpace(returnTo),
-		ExpiresAt: m.now().Add(m.ttl).Unix(),
+		Nonce:         base64.RawURLEncoding.EncodeToString(nonceBytes),
+		Intent:        strings.TrimSpace(intent),
+		ReturnTo:      strings.TrimSpace(returnTo),
+		ExpiresAt:     m.now().Add(m.ttl).Unix(),
+		ConnectionID:  strings.TrimSpace(connectionID),
+		SAMLRequestID: strings.TrimSpace(samlRequestID),
 	}
 	payload, err := json.Marshal(state)
 	if err != nil {

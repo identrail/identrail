@@ -48,6 +48,7 @@ func defaultEnterpriseSAMLMetadataFetcher() *enterpriseSAMLMetadataFetcher {
 // their Go zero value (false).
 type samlConnectionRequest struct {
 	Type           string `json:"type"`
+	Status         string `json:"status,omitempty"`
 	DisplayName    string `json:"display_name,omitempty"`
 	EntityID       string `json:"entity_id"`
 	SSOURL         string `json:"sso_url"`
@@ -277,6 +278,14 @@ func updateNativeSAMLConnection(logger *zap.Logger, svc *Service) gin.HandlerFun
 		updated := existing
 		if req.Type != "" {
 			updated.Type = defaultSAMLConnectionType(req.Type)
+		}
+		if req.Status != "" {
+			status := strings.ToLower(strings.TrimSpace(req.Status))
+			if status == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "status cannot be blank"})
+				return
+			}
+			updated.Status = status
 		}
 		if req.EntityID != "" {
 			updated.EntityID = req.EntityID
