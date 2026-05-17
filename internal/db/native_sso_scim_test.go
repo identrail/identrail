@@ -430,6 +430,130 @@ func TestMemoryStore_UpdateIdentityConnection_RejectsUniquenessCollision(t *test
 	}
 }
 
+func TestMemoryStore_GetIdentityConnectionByID(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	created, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_lookup",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	found, err := store.GetIdentityConnectionByID(context.Background(), " "+created.ID+" ")
+	if err != nil {
+		t.Fatalf("lookup by id: %v", err)
+	}
+	if found.ID != created.ID || found.OrgID != "tenant-a" {
+		t.Fatalf("unexpected lookup result: %+v", found)
+	}
+	if _, err := store.GetIdentityConnectionByID(context.Background(), ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty id should return ErrNotFound, got %v", err)
+	}
+	if _, err := store.GetIdentityConnectionByID(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing id should return ErrNotFound, got %v", err)
+	}
+}
+
+func TestMemoryStore_SAMLRelayStateLifecycle(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	connection, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_relay",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+	created, err := store.CreateSAMLRelayState(context.Background(), SAMLRelayState{
+		Handle:        " relay-handle ",
+		ConnectionID:  connection.ID,
+		SAMLRequestID: " _request-1 ",
+		ReturnTo:      "/app/tenant-a/workspace-a",
+		Intent:        "login",
+		ExpiresAt:     now.Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("create relay state: %v", err)
+	}
+	if created.Handle != "relay-handle" || created.SAMLRequestID != "_request-1" || created.CreatedAt.IsZero() {
+		t.Fatalf("relay state was not normalized: %+v", created)
+	}
+	if _, err := store.CreateSAMLRelayState(context.Background(), created); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate relay handle should return ErrConflict, got %v", err)
+	}
+
+	consumed, err := store.ConsumeSAMLRelayState(context.Background(), " relay-handle ", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("consume relay state: %v", err)
+	}
+	if consumed.ConsumedAt == nil || !consumed.ConsumedAt.Equal(now.Add(time.Minute)) {
+		t.Fatalf("consume timestamp not recorded: %+v", consumed)
+	}
+	if _, err := store.ConsumeSAMLRelayState(context.Background(), "relay-handle", now.Add(2*time.Minute)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("replay should return ErrNotFound, got %v", err)
+	}
+}
+
+func TestMemoryStore_SAMLRelayStateRejectsUnknownConnectionAndExpiredRows(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	connection, err := store.CreateIdentityConnection(ctx, IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_relay_expired",
+		CreatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+	if _, err := store.CreateSAMLRelayState(context.Background(), SAMLRelayState{
+		Handle:        "orphan",
+		ConnectionID:  "missing",
+		SAMLRequestID: "_request-missing",
+		ExpiresAt:     now.Add(10 * time.Minute),
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown connection should return ErrNotFound, got %v", err)
+	}
+	if _, err := store.CreateSAMLRelayState(context.Background(), SAMLRelayState{
+		Handle:        "expired",
+		ConnectionID:  connection.ID,
+		SAMLRequestID: "_request-expired",
+		ExpiresAt:     now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("create expired relay state: %v", err)
+	}
+	if _, err := store.ConsumeSAMLRelayState(context.Background(), "expired", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired relay state should be pruned, got %v", err)
+	}
+}
+
 func TestMemoryStore_DeleteIdentityConnection_CascadesSCIMEvents(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

@@ -295,6 +295,41 @@ func TestSAMLLoginRoutesAttachAuditMiddleware(t *testing.T) {
 	}
 }
 
+func TestSAMLLoginStartPreservesAllowedAbsoluteReturnTo(t *testing.T) {
+	svc, conn, _, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:         true,
+		StateManager:    stateMgr,
+		RelayStore:      relayStore,
+		PublicBaseURL:   "https://api.example.com",
+		ReturnToOrigins: []string{"https://api.example.com", "https://app.example.com"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/saml/login/"+conn.ID+"?return_to=https%3A%2F%2Fapp.example.com%2Fapp%2Ftenant-a%2Fworkspace-a%3Ftab%3Dsaml", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302 redirect, got %d body=%s", w.Code, w.Body.String())
+	}
+	redirectURL, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse redirect: %v", err)
+	}
+	relayHandle := redirectURL.Query().Get("RelayState")
+	if relayHandle == "" {
+		t.Fatalf("redirect did not include RelayState: %s", redirectURL.String())
+	}
+	relayEntry, err := relayStore.Consume(context.Background(), relayHandle)
+	if err != nil {
+		t.Fatalf("consume relay: %v", err)
+	}
+	if relayEntry.ReturnTo != "https://app.example.com/app/tenant-a/workspace-a?tab=saml" {
+		t.Fatalf("allowed absolute return_to was not preserved: %q", relayEntry.ReturnTo)
+	}
+}
+
 func TestSAMLACSHandler_RejectsConditionsNotBeforeBeyondSkew(t *testing.T) {
 	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
 	router := gin.New()
@@ -613,6 +648,145 @@ func TestUpsertSAMLAssertedUser_FallsBackNameIDToEmail(t *testing.T) {
 	}
 	if result.User.PrimaryEmail != "alice@example.com" {
 		t.Errorf("user not provisioned: %+v", result.User)
+	}
+}
+
+func TestUpsertSAMLAssertedUser_RefreshesExistingSAMLIdentity(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "old@example.com",
+		DisplayName:  "Old Name",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            "saml:conn-refresh",
+		Subject:             "nameid-refresh",
+		Email:               "old@example.com",
+		LastAuthenticatedAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		UserUUID:    user.ID,
+		Email:       "new@example.com",
+		Role:        "admin",
+		Status:      "active",
+		JoinedAt:    now,
+	}); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+
+	result, err := svc.UpsertSAMLAssertedUser(ctx, db.IdentityConnection{
+		ID:                     "conn-refresh",
+		OrgID:                  "tenant-a",
+		Provider:               "saml",
+		JITProvisioningEnabled: true,
+	}, SAMLAssertedProfile{
+		NameID:      "nameid-refresh",
+		Email:       "new@example.com",
+		DisplayName: "New Name",
+	})
+	if err != nil {
+		t.Fatalf("upsert saml user: %v", err)
+	}
+	if result.NewUser {
+		t.Fatal("expected existing identity to refresh, not create a new user")
+	}
+	if result.CurrentOrgID != "tenant-a" || result.CurrentWorkspace != "workspace-a" || result.RedirectPath != "/app/tenant-a/workspace-a" {
+		t.Fatalf("unexpected session context: %+v", result)
+	}
+	if result.User.PrimaryEmail != "new@example.com" || result.User.DisplayName != "New Name" {
+		t.Fatalf("profile was not refreshed: %+v", result.User)
+	}
+	if result.Identity.Email != "new@example.com" || !result.Identity.EmailVerified || result.Identity.LastAuthenticatedAt != now {
+		t.Fatalf("identity was not refreshed: %+v", result.Identity)
+	}
+}
+
+func TestUpsertSAMLAssertedUser_AttachesFromSCIMIdentity(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 17, 10, 30, 0, 0, time.UTC)
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "scim@example.com",
+		DisplayName:  "SCIM User",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:   user.ID,
+		Provider: "scim:conn-scim",
+		Subject:  "scim-nameid",
+		Email:    "scim@example.com",
+	}); err != nil {
+		t.Fatalf("seed scim identity: %v", err)
+	}
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: "tenant-scim", WorkspaceID: "workspace-scim"})
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant SCIM", Slug: "tenant-scim"}); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-scim", DisplayName: "Workspace SCIM", Slug: "workspace-scim"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-scim",
+		MemberID:    "member-scim",
+		UserID:      "subject-scim",
+		UserUUID:    user.ID,
+		Email:       "scim@example.com",
+		Role:        "viewer",
+		Status:      "active",
+		JoinedAt:    now,
+	}); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+
+	result, err := svc.UpsertSAMLAssertedUser(ctx, db.IdentityConnection{
+		ID:                     "conn-scim",
+		OrgID:                  "tenant-scim",
+		Provider:               "saml",
+		JITProvisioningEnabled: false,
+	}, SAMLAssertedProfile{
+		NameID:      "scim-nameid",
+		Email:       "scim@example.com",
+		DisplayName: "Attached User",
+	})
+	if err != nil {
+		t.Fatalf("upsert saml user: %v", err)
+	}
+	if result.NewUser {
+		t.Fatal("expected SAML identity to attach to pre-provisioned user")
+	}
+	if result.User.ID != user.ID {
+		t.Fatalf("attached wrong user: got %q want %q", result.User.ID, user.ID)
+	}
+	if result.Identity.Provider != "saml:conn-scim" || result.Identity.Subject != "scim-nameid" {
+		t.Fatalf("unexpected attached identity: %+v", result.Identity)
+	}
+	if result.RedirectPath != "/app/tenant-scim/workspace-scim" {
+		t.Fatalf("unexpected redirect path: %q", result.RedirectPath)
 	}
 }
 

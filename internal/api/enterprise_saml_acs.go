@@ -34,6 +34,7 @@ type nativeSAMLLoginRouteOptions struct {
 	StateManager       *sessionauth.OAuthStateManager
 	RelayStore         *sessionauth.SAMLRelayStore
 	PublicBaseURL      string
+	ReturnToOrigins    []string
 	// Now is injectable so the ACS handler's clock-skew window can be
 	// exercised deterministically in tests.
 	Now func() time.Time
@@ -99,7 +100,7 @@ func samlLoginStartHandler(logger *zap.Logger, svc *Service, opts nativeSAMLLogi
 			return
 		}
 
-		returnTo := sanitizeAuthReturnTo(c.Query("return_to"), nil)
+		returnTo := sanitizeAuthReturnTo(c.Query("return_to"), opts.ReturnToOrigins)
 		// Use a short opaque handle for RelayState (the SAML 2.0 HTTP
 		// Redirect binding caps RelayState at 80 bytes). The full state —
 		// connection id, AuthnRequest id, return_to — lives in the
@@ -287,7 +288,7 @@ func samlACSHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manage
 		auditAuthAction(c.Request.Context(), "auth.saml.login.success", result.User.ID, "success")
 		http.SetCookie(c.Writer, manager.Cookie(cookieValue))
 
-		redirectTo := sanitizeAuthReturnTo(relayEntry.ReturnTo, nil)
+		redirectTo := sanitizeAuthReturnTo(relayEntry.ReturnTo, opts.ReturnToOrigins)
 		if redirectTo == "" || redirectTo == "/" {
 			redirectTo = result.RedirectPath
 		}

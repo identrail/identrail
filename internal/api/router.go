@@ -334,6 +334,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			StateManager:       stateManager,
 			RelayStore:         samlRelayStore,
 			PublicBaseURL:      opts.PublicBaseURL,
+			ReturnToOrigins:    authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
 		})
 	}
 
