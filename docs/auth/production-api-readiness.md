@@ -33,6 +33,10 @@ Before wiring the frontend to the production API URL, the API deployment must ex
 - `GET /healthz` returning `200`
 - `GET /readyz` returning `200` only after runtime dependencies are ready
 - `GET /v1/auth/config` returning JSON, not the web HTML shell
+- `POST /v1/onboarding/start` returning the unauthenticated JSON `401`
+  session-required response (not a `404`, plain-text framework `404`, or web
+  HTML shell) so the onboarding wizard is never enabled against a backend that
+  cannot serve `/v1/onboarding/*`
 - `IDENTRAIL_CORS_ALLOWED_ORIGINS` containing the web origins that need browser access
 - `IDENTRAIL_TRUSTED_PROXIES` containing the ALB/VPC proxy CIDRs so rate limits
   and audit events use the real browser client IP from `X-Forwarded-For`
@@ -94,10 +98,36 @@ Static URL validation catches missing values, non-HTTPS values, and accidental w
 VITE_IDENTRAIL_API_URL=https://api.identrail.com make production-api-url-check
 ```
 
-Full preflight probes the live API endpoints:
+Full preflight probes the live API endpoints — `GET /healthz`,
+`GET /v1/auth/config`, and `POST /v1/onboarding/start`:
 
 ```bash
 VITE_IDENTRAIL_API_URL=https://api.identrail.com make production-api-preflight
 ```
+
+The onboarding probe passes only on the unauthenticated JSON `401`
+session-required response. It fails closed otherwise, and the failure prefix
+names the cause so it is clear whether the problem is API URL wiring, a missing
+route registration, or a non-JSON frontend/404 response:
+
+- `api-url-wiring` — an HTML frontend shell was returned; `VITE_IDENTRAIL_API_URL`
+  points at the web app instead of the API origin.
+- `missing-route` — the route returned `404`; the API build does not register
+  `/v1/onboarding/start` (an API image predating the onboarding route, or a
+  wrong API base path).
+- `non-json` / `unexpected-status` — a plain-text framework `401` or any other
+  status; the route is not serving the expected JSON contract.
+
+Scope: this is an unauthenticated check of route presence and JSON contract
+shape. The backend `IDENTRAIL_FEATURE_ONBOARDING_WIZARD` flag is intentionally
+not observable here — the onboarding routes deliberately answer unauthenticated
+callers with the same JSON `401` whether the flag is on or off (an authenticated
+caller gets `503 {"error":"onboarding disabled"}` when it is off). Verifying the
+flag is enabled is therefore covered by the authenticated post-deploy steps
+above (a new user with no workspace must land on `/onboarding/org`), not by this
+preflight.
+
+This keeps the check generic for both Identrail Cloud and self-hosted production
+API URLs: it asserts the unauthenticated contract shape, not a specific host.
 
 Run the full preflight after DNS and TLS are live for `api.identrail.com`, and before changing Vercel production variables.
