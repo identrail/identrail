@@ -4960,7 +4960,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 
 .idt-auth-mfa-subtitle {
   margin: -0.45rem 0 0.35rem;
-  color: #525252;
+  color: var(--auth-muted, #525252);
   font-size: 0.95rem;
   line-height: 1.4;
   text-align: center;
