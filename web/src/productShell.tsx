@@ -16,6 +16,7 @@ import {
   type KubernetesConnectorStartResponse,
   type KubernetesConnectionStatus,
   type ProjectRecord,
+  type RepoScanRequest,
   type RepoScanRecord,
   type TrendPoint,
   type RequestAuthContext,
@@ -385,6 +386,35 @@ function isCompletedScanStatus(status: string): boolean {
   return normalized === 'succeeded' || normalized === 'completed' || normalized === 'failed' || normalized === 'canceled';
 }
 
+function repoScanStatusTone(status: string): 'success' | 'warning' | 'error' | 'neutral' {
+  const normalized = normalizeValue(status).toLowerCase();
+  if (normalized === 'succeeded' || normalized === 'completed') {
+    return 'success';
+  }
+  if (normalized === 'failed' || normalized === 'canceled') {
+    return 'error';
+  }
+  if (isActiveScanStatus(normalized)) {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function uniqueGitHubRepositories(repositories: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  repositories.forEach((repository) => {
+    const normalized = canonicalGitHubRepositoryDisplay(repository);
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    result.push(normalized);
+  });
+  return result;
+}
+
 function countMembersByStatus(members: WorkspaceMemberRecord[], status: WorkspaceMemberStatus): number {
   return members.filter((member) => member.status === status).length;
 }
@@ -462,6 +492,27 @@ function sourceAvailabilityTone(
   status?: GitHubConnectionStatus | AWSConnectionStatus | KubernetesConnectionStatus
 ): 'success' | 'warning' | 'error' | 'neutral' {
   return availability.available ? connectionTone(status) : 'error';
+}
+
+function formatRepoScanSubmitError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 400) {
+      return 'Choose a valid owner/repo repository target before queueing a scan.';
+    }
+    if (error.status === 403) {
+      return 'That repository is outside the allowed scan targets. Choose a selected GitHub repository or update the hosted repo scan allowlist.';
+    }
+    if (error.status === 409) {
+      return 'A scan is already queued or running for this repository. Watch recent scan activity below.';
+    }
+    if (error.status === 429) {
+      return 'The repository scan queue is full. Wait for worker capacity to drain, then retry.';
+    }
+    if (error.status === 503) {
+      return 'Repository scanning is disabled on this API server. Ask an operator to enable repo scanning before queueing the first scan.';
+    }
+  }
+  return error instanceof Error ? error.message : 'Unable to queue repository scan.';
 }
 
 function formatConnectionTime(value?: string): string {
@@ -2388,6 +2439,14 @@ export function ProductProjectDetailPage() {
     token: '',
     repositories: ''
   });
+  const [repoScanForm, setRepoScanForm] = useState({
+    repository: '',
+    historyLimit: '',
+    maxFindings: ''
+  });
+  const [recentRepoScans, setRecentRepoScans] = useState<RepoScanRecord[]>([]);
+  const [repoScanSubmitting, setRepoScanSubmitting] = useState(false);
+  const [repoScanError, setRepoScanError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -2422,6 +2481,27 @@ export function ProductProjectDetailPage() {
     historyLimit: '500',
     maxFindings: '200'
   });
+  const githubSelectedRepositories = useMemo(
+    () => uniqueGitHubRepositories(connections.github?.selected_repositories ?? []),
+    [connections.github?.selected_repositories]
+  );
+  const githubSelectedRepositoriesKey = githubSelectedRepositories.join('\n');
+  const githubSelectedRepositoryKeys = useMemo(
+    () => new Set(githubSelectedRepositories.map((repository) => repository.toLowerCase())),
+    [githubSelectedRepositories]
+  );
+  const githubRecentRepoScans = useMemo(() => {
+    if (githubSelectedRepositoryKeys.size === 0) {
+      return recentRepoScans;
+    }
+    return recentRepoScans.filter((scan) =>
+      githubSelectedRepositoryKeys.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())
+    );
+  }, [githubSelectedRepositoryKeys, recentRepoScans]);
+  const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
+  const repoScanRepository = normalizeValue(repoScanForm.repository);
+  const effectiveRepoScanRepository = repoScanRepository || githubSelectedRepositories[0] || '';
+  const repoScanFindingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
 
   const nextRequestSequence = () => {
     const nextSequence = refreshSequenceRef.current + 1;
@@ -2443,6 +2523,7 @@ export function ProductProjectDetailPage() {
     if (!scope || !projectID) {
       setConnections({});
       setSourceErrors({});
+      setRecentRepoScans([]);
       setLoading(false);
       setRefreshing(false);
       return;
@@ -2473,7 +2554,8 @@ export function ProductProjectDetailPage() {
           sort_order: 'desc'
         },
         auth
-      )
+      ),
+      apiClient.listRepoScans({ limit: 8 }, auth)
     ]);
 
     if (isStaleRequestSequence(refreshSequence)) {
@@ -2482,7 +2564,7 @@ export function ProductProjectDetailPage() {
 
     const nextConnections: SourceConnectionMap = {};
     const nextErrors: Partial<Record<SourceProvider, string>> = {};
-    const [githubResult, awsResult, kubernetesResult, scanPolicyResult] = results;
+    const [githubResult, awsResult, kubernetesResult, scanPolicyResult, repoScanResult] = results;
 
     if (githubResult.status === 'fulfilled' && githubResult.value.connection) {
       nextConnections.github = githubResult.value.connection;
@@ -2550,8 +2632,23 @@ export function ProductProjectDetailPage() {
       );
       setScanPolicies([]);
     }
+    if (repoScanResult?.status === 'fulfilled') {
+      setRecentRepoScans(repoScanResult.value.items ?? []);
+    }
     setLoading(false);
     setRefreshing(false);
+  };
+
+  const refreshRecentRepoScans = async (targetScope: ProductSession, mode: 'silent' | 'interactive' = 'silent') => {
+    try {
+      const auth = buildProductAuthContext(targetScope);
+      const response = await apiClient.listRepoScans({ limit: 8 }, auth);
+      setRecentRepoScans(response.items ?? []);
+    } catch (error) {
+      if (mode === 'interactive') {
+        setRepoScanError(error instanceof Error ? error.message : 'Unable to refresh recent repository scans.');
+      }
+    }
   };
 
   useEffect(() => {
@@ -2564,6 +2661,10 @@ export function ProductProjectDetailPage() {
     setSubmitting('');
     setSuccessMessage('');
     setGitHubStart(null);
+    setRepoScanForm({ repository: '', historyLimit: '', maxFindings: '' });
+    setRecentRepoScans([]);
+    setRepoScanSubmitting(false);
+    setRepoScanError('');
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
     setAWSPreviewOpen(false);
@@ -2592,6 +2693,34 @@ export function ProductProjectDetailPage() {
     }
     setSelectedSource(actionableSourceOrder[0] ?? 'aws');
   }, [actionableSourceOrder, backendFeaturesLoading, selectedSource, sourceAvailability]);
+
+  useEffect(() => {
+    if (!connections.github?.connected) {
+      return;
+    }
+    setRepoScanForm((current) => {
+      const currentRepository = canonicalGitHubRepositoryDisplay(current.repository);
+      if (
+        currentRepository &&
+        (githubSelectedRepositories.length === 0 ||
+          githubSelectedRepositories.some((repository) => repository.toLowerCase() === currentRepository.toLowerCase()))
+      ) {
+        return current;
+      }
+      return { ...current, repository: githubSelectedRepositories[0] ?? current.repository };
+    });
+  }, [connections.github?.connected, githubSelectedRepositories, githubSelectedRepositoriesKey]);
+
+  useEffect(() => {
+    if (!scope || !githubHasActiveRepoScan) {
+      return undefined;
+    }
+    const activeScope = scope;
+    const intervalID = window.setInterval(() => {
+      void refreshRecentRepoScans(activeScope);
+    }, 8000);
+    return () => window.clearInterval(intervalID);
+  }, [githubHasActiveRepoScan, scope?.tenantID, scope?.workspaceID]);
 
   if (!scope || !projectID) {
     return <AppShellLoading message="Resolving project scope" />;
@@ -2904,6 +3033,62 @@ export function ProductProjectDetailPage() {
     return parsed;
   };
 
+  const parseOptionalPositiveInteger = (value: string, field: string): number | undefined => {
+    const normalized = normalizeValue(value);
+    return normalized ? parsePositiveInteger(normalized, field) : undefined;
+  };
+
+  const handleRepoScanSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!scope) {
+      setRepoScanError('Workspace route context is missing.');
+      return;
+    }
+    if (!connections.github?.connected) {
+      setRepoScanError('Connect GitHub before queueing a repository scan.');
+      return;
+    }
+    const repository = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository);
+    if (!repository) {
+      setRepoScanError('Choose a selected GitHub repository before queueing a scan.');
+      return;
+    }
+    setRepoScanSubmitting(true);
+    setRepoScanError('');
+    setSuccessMessage('');
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const request: RepoScanRequest = { repository };
+      const historyLimit = parseOptionalPositiveInteger(repoScanForm.historyLimit, 'History limit');
+      const maxFindings = parseOptionalPositiveInteger(repoScanForm.maxFindings, 'Max findings');
+      if (historyLimit) {
+        request.history_limit = historyLimit;
+      }
+      if (maxFindings) {
+        request.max_findings = maxFindings;
+      }
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.runRepoScan(request, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRecentRepoScans((current) =>
+        [response.repo_scan, ...current.filter((scan) => scan.id !== response.repo_scan.id)].slice(0, 8)
+      );
+      setSuccessMessage(`Repository scan queued for ${canonicalGitHubRepositoryDisplay(response.repo_scan.repository)}.`);
+      void refreshRecentRepoScans(scope);
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRepoScanError(formatRepoScanSubmitError(error));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setRepoScanSubmitting(false);
+      }
+    }
+  };
+
   const handleScanPolicySubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPolicySaving(true);
@@ -3202,6 +3387,117 @@ export function ProductProjectDetailPage() {
                   {submitting === 'github' ? 'Validating...' : 'Save enterprise fallback'}
                 </button>
               </form>
+
+              {connections.github?.connected ? (
+                <form className="idt-app-form idt-repo-scan-launch" onSubmit={handleRepoScanSubmit}>
+                  <article className="idt-source-install-card idt-repo-scan-launch-card">
+                    <div>
+                      <h4>First repository scan</h4>
+                      <p>Queue a repository exposure scan from the connected GitHub source.</p>
+                    </div>
+                    <Link className="idt-btn idt-btn-ghost" to={repoScanFindingsPath}>
+                      View findings
+                    </Link>
+                  </article>
+
+                  {repoScanError ? (
+                    <p role="alert" className="idt-app-alert idt-app-alert-error">
+                      {repoScanError}
+                    </p>
+                  ) : null}
+
+                  <div className="idt-source-inline-fields">
+                    {githubSelectedRepositories.length > 0 ? (
+                      <label>
+                        Repository
+                        <select
+                          value={effectiveRepoScanRepository}
+                          onChange={(event) => {
+                            setRepoScanForm((current) => ({ ...current, repository: event.target.value }));
+                            setRepoScanError('');
+                          }}
+                        >
+                          {githubSelectedRepositories.map((repository) => (
+                            <option key={repository} value={repository}>
+                              {repository}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <label>
+                        Repository
+                        <input
+                          value={repoScanForm.repository}
+                          onChange={(event) => {
+                            setRepoScanForm((current) => ({ ...current, repository: event.target.value }));
+                            setRepoScanError('');
+                          }}
+                          placeholder="owner/repo"
+                          required
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <details className="idt-source-advanced">
+                    <summary>Scan limits</summary>
+                    <div className="idt-source-inline-fields">
+                      <label>
+                        History limit
+                        <input
+                          inputMode="numeric"
+                          value={repoScanForm.historyLimit}
+                          onChange={(event) => setRepoScanForm((current) => ({ ...current, historyLimit: event.target.value }))}
+                          placeholder="default"
+                        />
+                      </label>
+                      <label>
+                        Max findings
+                        <input
+                          inputMode="numeric"
+                          value={repoScanForm.maxFindings}
+                          onChange={(event) => setRepoScanForm((current) => ({ ...current, maxFindings: event.target.value }))}
+                          placeholder="default"
+                        />
+                      </label>
+                    </div>
+                  </details>
+
+                  <button
+                    className="idt-btn idt-btn-primary"
+                    type="submit"
+                    disabled={repoScanSubmitting || submitting !== '' || !effectiveRepoScanRepository}
+                  >
+                    {repoScanSubmitting ? 'Queueing...' : 'Queue first scan'}
+                  </button>
+
+                  <div className="idt-source-diagnostics idt-repo-scan-activity" aria-label="recent repository scan activity">
+                    <p>Recent repository scan activity</p>
+                    {githubRecentRepoScans.length > 0 ? (
+                      githubRecentRepoScans.map((scan) => (
+                        <article key={scan.id}>
+                          <strong>{canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository}</strong>
+                          <span className={`idt-source-status-pill is-${repoScanStatusTone(scan.status)}`}>
+                            {formatTokenLabel(scan.status)}
+                          </span>
+                          <p>
+                            {scan.finding_count} findings · {scan.files_scanned} files · {formatDateLabel(scan.started_at)}
+                          </p>
+                          {scan.error_message ? <small>{scan.error_message}</small> : null}
+                        </article>
+                      ))
+                    ) : (
+                      <article>
+                        <strong>{effectiveRepoScanRepository || 'No repository selected'}</strong>
+                        <span>Not queued</span>
+                        <p>Repository scan activity will appear here after the first scan is queued.</p>
+                      </article>
+                    )}
+                    {githubHasActiveRepoScan ? <p>Refreshing while a scan is queued or running.</p> : null}
+                  </div>
+                </form>
+              ) : null}
             </div>
           ) : null}
 

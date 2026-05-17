@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Added the first GitHub repository scan action after connection:
+  - the product source screen can queue `POST /v1/repo-scans` for a selected
+    GitHub repository, show queued/running/completed/failed activity, and link
+    directly into repository findings
+  - frontend errors now distinguish disabled scanning, allowlist denials,
+    duplicate in-progress scans, and queue pressure instead of showing a
+    generic request failure
 - Enabled GitHub as the first Identrail Cloud self-serve connector path:
   - the release web environment now ships the GitHub connector UI while still
     honoring the backend feature availability contract

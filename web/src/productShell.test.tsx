@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AWSConnectionStatus, CurrentUserContext, GitHubConnectionStatus } from './api/client';
+import type { AWSConnectionStatus, CurrentUserContext, GitHubConnectionStatus, RepoScanRecord } from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
 
 const loggedInWithoutWorkspace: CurrentUserContext = {
@@ -82,7 +82,22 @@ const connectedGitHub: GitHubConnectionStatus = {
   updated_at: '2026-05-17T10:00:00Z'
 };
 
-async function renderProjectDetail(githubBackend: BackendFeatureState, githubConnection = connectedGitHub) {
+const queuedRepoScan: RepoScanRecord = {
+  id: 'repo-scan-queued',
+  repository: 'identrail/identrail',
+  status: 'queued',
+  started_at: '2026-05-17T11:00:00Z',
+  commits_scanned: 0,
+  files_scanned: 0,
+  finding_count: 0,
+  truncated: false
+};
+
+async function renderProjectDetail(
+  githubBackend: BackendFeatureState,
+  githubConnection = connectedGitHub,
+  options: { repoScanError?: { message: string; status: number }; repoScans?: RepoScanRecord[] } = {}
+) {
   vi.resetModules();
   vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
     const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
@@ -113,6 +128,13 @@ async function renderProjectDetail(githubBackend: BackendFeatureState, githubCon
     .mockResolvedValue({ connection: githubConnection });
   vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
   vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
+  vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: options.repoScans ?? [] });
+  const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
+  if (options.repoScanError) {
+    runRepoScan.mockRejectedValue(new api.ApiError(options.repoScanError.message, options.repoScanError.status));
+  } else {
+    runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
+  }
 
   const { ProductProjectDetailPage } = await import('./productShell');
 
@@ -124,7 +146,7 @@ async function renderProjectDetail(githubBackend: BackendFeatureState, githubCon
     </MemoryRouter>
   );
 
-  return { getGitHubConnectorStatus };
+  return { getGitHubConnectorStatus, runRepoScan };
 }
 
 describe('ProductAppIndexRedirect', () => {
@@ -188,7 +210,7 @@ describe('ProductProjectDetailPage', () => {
   it('loads the GitHub connection and selected repositories when the bundle and API both enable it', async () => {
     const { getGitHubConnectorStatus } = await renderProjectDetail(true);
 
-    expect(await screen.findByText('identrail/identrail')).toBeInTheDocument();
+    expect((await screen.findAllByText('identrail/identrail')).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /GitHub/i })).not.toBeDisabled();
     expect(screen.getByText('Installation 12345')).toBeInTheDocument();
     expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
@@ -196,5 +218,42 @@ describe('ProductProjectDetailPage', () => {
       'project-1',
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
+  });
+
+  it('queues the first repository scan from the selected GitHub repository', async () => {
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, { repoScans: [queuedRepoScan] });
+
+    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(queueButton).not.toBeDisabled());
+
+    fireEvent.click(queueButton);
+
+    await waitFor(() =>
+      expect(runRepoScan).toHaveBeenCalledWith(
+        { repository: 'identrail/identrail' },
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText(/Repository scan queued for identrail\/identrail/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /View findings/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/findings'
+    );
+    expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('Queued');
+  });
+
+  it('explains allowlist failures when the first repository scan is not permitted', async () => {
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
+      repoScanError: { message: 'repo target not allowed', status: 403 }
+    });
+
+    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(queueButton).not.toBeDisabled());
+    fireEvent.click(queueButton);
+
+    await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
+    expect(
+      await screen.findByText(/outside the allowed scan targets/i)
+    ).toBeInTheDocument();
   });
 });

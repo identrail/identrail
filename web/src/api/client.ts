@@ -40,6 +40,12 @@ export type RepoScanRecord = {
   error_message?: string;
 };
 
+export type RepoScanRequest = {
+  repository: string;
+  history_limit?: number;
+  max_findings?: number;
+};
+
 export type ScanRecord = {
   id: string;
   provider: string;
@@ -1114,6 +1120,12 @@ export const apiClient = {
       `/v1/repo-scans${buildQuery({ sort_by: 'started_at', sort_order: 'desc', ...filters })}`,
       auth
     );
+  },
+  runRepoScan(payload: RepoScanRequest, auth?: RequestAuthContext) {
+    return request<{ repo_scan: RepoScanRecord }>('/v1/repo-scans', auth, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
   listFindings(
     filters: {

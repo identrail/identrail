@@ -18,6 +18,12 @@ After installation metadata is available, the wizard saves the project connectio
 
 The UI keeps repository selection explicit and stores only credential references plus encrypted webhook-secret metadata returned by the API.
 
+Once the GitHub connection is active, the same project detail view can queue the first repository exposure scan for a selected repository through:
+
+`POST /v1/repo-scans`
+
+The action uses the tenant/workspace scope headers from the product session, shows queued/running/completed/failed scan activity, and leaves repository allowlist, disabled-scan, duplicate-scan, and queue-pressure decisions to the API contract.
+
 ## AWS
 
 The wizard validates and saves one read-only IAM role through:

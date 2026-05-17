@@ -128,6 +128,40 @@ describe('apiClient', () => {
     expect(url).toContain('/v1/repo-scans?sort_by=started_at&sort_order=desc');
   });
 
+  it('queues repository scans with the scoped auth headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        repo_scan: {
+          id: 'repo-scan-1',
+          repository: 'identrail/identrail',
+          status: 'queued',
+          started_at: '2026-05-17T10:00:00Z',
+          commits_scanned: 0,
+          files_scanned: 0,
+          finding_count: 0,
+          truncated: false
+        }
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.runRepoScan(
+      { repository: 'identrail/identrail', history_limit: 50, max_findings: 100 },
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/repo-scans');
+    expect(options.method).toBe('POST');
+    expect(options.body).toBe(
+      JSON.stringify({ repository: 'identrail/identrail', history_limit: 50, max_findings: 100 })
+    );
+    const headers = options.headers as Headers;
+    expect(headers.get('X-Identrail-Tenant-ID')).toBe('tenant-a');
+    expect(headers.get('X-Identrail-Workspace-ID')).toBe('workspace-a');
+  });
+
   it('encodes scan id for diff URL', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

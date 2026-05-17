@@ -5935,6 +5935,42 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   color: #c6d5ec;
 }
 
+.idt-repo-scan-launch {
+  gap: 0.85rem;
+}
+
+.idt-repo-scan-launch-card {
+  align-items: flex-start;
+}
+
+.idt-repo-scan-launch-card .idt-btn {
+  min-width: 9rem;
+  white-space: nowrap;
+}
+
+.idt-repo-scan-activity > p {
+  margin: 0;
+  color: #dce9fb;
+  font-weight: 800;
+}
+
+.idt-repo-scan-activity article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+  align-items: start;
+}
+
+.idt-repo-scan-activity .idt-source-status-pill {
+  display: inline-flex;
+  justify-self: end;
+}
+
+.idt-repo-scan-activity article p,
+.idt-repo-scan-activity article small {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 980px) {
   .idt-passwordless-grid {
     grid-template-columns: 1fr;
@@ -7155,6 +7191,7 @@ html[data-theme='light'] .idt-source-summary p,
 html[data-theme='light'] .idt-source-card small,
 html[data-theme='light'] .idt-source-install-card p,
 html[data-theme='light'] .idt-source-diagnostics > p,
+html[data-theme='light'] .idt-repo-scan-activity > p,
 html[data-theme='light'] .idt-source-diagnostics p,
 html[data-theme='light'] .idt-source-diagnostics small,
 html[data-theme='light'] .idt-permission-preview-list p {
