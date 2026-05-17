@@ -6214,6 +6214,7 @@ html[data-theme='light'] .idt-auth-panel-signup h1 {
 html[data-theme='light'] .idt-auth-provider {
   width: 100%;
   min-height: 3.5rem;
+  position: relative;
   display: grid;
   grid-template-columns: 1.45rem minmax(12.75rem, 12.75rem) 1.45rem;
   align-items: center;
@@ -6230,17 +6231,46 @@ html[data-theme='light'] .idt-auth-provider {
   line-height: 1.2;
   text-decoration: none;
   cursor: pointer;
-  box-shadow: none;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    transform 0.16s ease;
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.idt-auth-provider::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  border-radius: 6px;
+  background: linear-gradient(105deg, transparent 5%, rgba(255, 255, 255, 0.1) 48%, transparent 72%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-35%);
+  transition:
+    opacity 0.22s ease,
+    transform 0.32s ease;
+}
+
+.idt-auth-page[data-auth-theme='light'] .idt-auth-provider::before,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] .idt-auth-provider::before {
+  background: linear-gradient(105deg, transparent 5%, rgba(15, 23, 42, 0.055) 48%, transparent 72%);
 }
 
 .idt-auth-provider::after {
   content: '';
   width: 1.45rem;
   height: 1px;
+}
+
+.idt-auth-provider > * {
+  position: relative;
+  z-index: 1;
 }
 
 .idt-auth-provider > span:not(.idt-auth-provider-icon) {
@@ -6263,10 +6293,34 @@ html[data-theme='light'] .idt-auth-provider-plain::after {
 .idt-auth-provider:focus-visible,
 html[data-theme='light'] .idt-auth-provider:hover,
 html[data-theme='light'] .idt-auth-provider:focus-visible {
-  transform: none;
-  border-color: var(--auth-muted);
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--auth-muted) 72%, var(--auth-text));
   background: var(--auth-button-muted-hover);
-  box-shadow: none;
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.idt-auth-page[data-auth-theme='light'] .idt-auth-provider:hover,
+.idt-auth-page[data-auth-theme='light'] .idt-auth-provider:focus-visible,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] .idt-auth-provider:hover,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] .idt-auth-provider:focus-visible {
+  box-shadow:
+    0 14px 32px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.idt-auth-provider:hover::before,
+.idt-auth-provider:focus-visible::before {
+  opacity: 1;
+  transform: translateX(35%);
+}
+
+.idt-auth-provider:active {
+  transform: translateY(0) scale(0.998);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .idt-auth-provider:focus-visible,
@@ -6284,10 +6338,31 @@ html[data-theme='light'] .idt-auth-provider-google {
   background: var(--auth-button-muted);
 }
 
-.idt-auth-page-signup .idt-auth-provider-github {
+.idt-auth-page[data-auth-theme='dark'].idt-auth-page-signup .idt-auth-provider-github {
   border-color: var(--auth-github);
   background: var(--auth-github);
   color: #ffffff;
+}
+
+.idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github {
+  border-color: var(--auth-line-strong);
+  background: var(--auth-button-muted);
+  color: var(--auth-text);
+}
+
+.idt-auth-page[data-auth-theme='dark'].idt-auth-page-signup .idt-auth-provider-github:hover,
+.idt-auth-page[data-auth-theme='dark'].idt-auth-page-signup .idt-auth-provider-github:focus-visible {
+  border-color: #4b5563;
+  background: #2b3138;
+}
+
+.idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github:hover,
+.idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github:focus-visible,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github:hover,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'].idt-auth-page-signup .idt-auth-provider-github:focus-visible {
+  border-color: color-mix(in srgb, var(--auth-muted) 58%, var(--auth-line-strong));
+  background: var(--auth-button-muted-hover);
 }
 
 .idt-auth-provider-dark,
@@ -6314,9 +6389,34 @@ html[data-theme='light'] .idt-auth-provider-dark {
   font-weight: unset;
 }
 
-.idt-auth-page[data-auth-theme='dark'] .idt-auth-provider-icon:not(.idt-auth-provider-icon-google),
-.idt-auth-page-signup .idt-auth-provider-github .idt-auth-provider-icon {
+.idt-auth-provider-icon-github {
+  display: block;
+  opacity: 1;
+  filter: none;
+}
+
+.idt-auth-page[data-auth-theme='dark'] .idt-auth-provider-icon:not(.idt-auth-provider-icon-google) {
   filter: brightness(0) invert(1);
+}
+
+.idt-auth-page[data-auth-theme='light'] .idt-auth-provider-icon-github,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] .idt-auth-provider-icon-github {
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-auth-provider,
+  .idt-auth-provider::before {
+    transition: none;
+  }
+
+  .idt-auth-provider:hover,
+  .idt-auth-provider:focus-visible,
+  html[data-theme='light'] .idt-auth-provider:hover,
+  html[data-theme='light'] .idt-auth-provider:focus-visible,
+  .idt-auth-provider:active {
+    transform: none;
+  }
 }
 
 .idt-auth-provider-icon-sso {

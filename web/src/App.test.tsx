@@ -464,6 +464,24 @@ describe('App', () => {
     expect(screen.getByRole('menuitemradio', { name: /Dark/i })).toBeInTheDocument();
   });
 
+  it('renders the GitHub provider mark on the light sign-up page', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
+
+    setCurrentPath('/signup');
+    render(<App />);
+
+    const themeTrigger = screen.getByRole('button', { name: /Color theme: Dark/i });
+    fireEvent.click(themeTrigger);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Light/i }));
+    expect(await screen.findByRole('button', { name: /Color theme: Light/i })).toBeInTheDocument();
+
+    const githubProvider = await screen.findByRole('link', { name: /Continue with GitHub/i });
+    const githubIcon = githubProvider.querySelector('.idt-auth-provider-icon-github');
+
+    expect(githubIcon).toBeInTheDocument();
+    expect(githubIcon).toHaveAttribute('src', '/brand-logos/github.svg');
+  });
+
   it('shows a clear API reachability error when auth config cannot be fetched', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')));
 
