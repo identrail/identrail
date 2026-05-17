@@ -1826,7 +1826,7 @@ function HomePage() {
           </div>
         </section>
 
-        <section className="idt-section idt-final-cta idt-home-final-cta" id="risk-scan-form">
+        <section className="idt-section idt-final-cta idt-home-final-cta" id="enterprise-procurement">
           <SectionTitle
             eyebrow="Ready to evaluate"
             title="Map your first production trust path in minutes"

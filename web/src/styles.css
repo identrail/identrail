@@ -16465,7 +16465,7 @@ html[data-theme='light'] .idt-marketing-page .idt-page-hero-copy > p {
 
 .idt-blog-page > .idt-page-hero-rich,
 html[data-theme='light'] .idt-blog-page > .idt-page-hero-rich {
-  grid-template-columns: minmax(520px, 1.05fr) minmax(500px, 0.95fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
 }
 
 .idt-blog-page .idt-page-hero-rich h1,
