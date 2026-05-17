@@ -401,6 +401,39 @@ describe('web/api/leads handler', () => {
     });
   });
 
+  it('accepts the lead when Resend succeeds and optional webhook forwarding fails', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_CONFIRMATION_ENABLED = 'false';
+    process.env.LEAD_WEBHOOK_URL = 'https://example.test/webhook';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          environment: 'AWS IAM + Kubernetes'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toEqual({ status: 'accepted' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [emailURL] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [webhookURL] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(emailURL).toBe('https://api.resend.com/emails');
+    expect(webhookURL).toBe('https://example.test/webhook');
+  });
+
   it('signs outbound requests when webhook signing secret is configured', async () => {
     process.env.LEAD_WEBHOOK_URL = 'https://example.test/webhook';
     process.env.LEAD_WEBHOOK_HMAC_SECRET = 'test-signing-secret';

@@ -199,7 +199,8 @@ delivery channel when Resend is not configured:
 - `LEAD_WEBHOOK_HMAC_SECRET` (optional; when set, emits `X-Identrail-Signature: sha256=<digest>` for receiver-side verification)
 
 When Resend and webhook forwarding are both configured, webhook forwarding is
-still attempted if Resend rejects or times out on the lead notification.
+still attempted if Resend rejects or times out on the lead notification. The
+endpoint accepts the submission once either configured channel succeeds.
 
 Shared lead-capture control:
 

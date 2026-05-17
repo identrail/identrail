@@ -515,6 +515,7 @@ export default async function handler(
     requestID,
     timeoutMS: emailTimeoutMS
   });
+  const emailDelivered = emailResult === 'sent';
   if (emailResult === 'failed' && !webhookURL) {
     res.status(502).json({ error: 'Lead email delivery failed.' });
     return;
@@ -551,10 +552,18 @@ export default async function handler(
       signal: abortController.signal
     });
     if (!forward.ok) {
+      if (emailDelivered) {
+        res.status(202).json({ status: 'accepted' });
+        return;
+      }
       res.status(502).json({ error: 'Lead forwarding failed.' });
       return;
     }
   } catch {
+    if (emailDelivered) {
+      res.status(202).json({ status: 'accepted' });
+      return;
+    }
     res.status(502).json({ error: 'Lead forwarding failed.' });
     return;
   } finally {
