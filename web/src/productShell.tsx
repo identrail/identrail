@@ -878,7 +878,15 @@ export function ProductOverviewPage() {
             auth
           ),
           apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
-          apiClient.listRepoFindings({ limit: OVERVIEW_FINDING_LIMIT, lifecycle_status: 'open' }, auth),
+          apiClient.listRepoFindings(
+            {
+              limit: OVERVIEW_FINDING_LIMIT,
+              lifecycle_status: 'open',
+              sort_by: 'severity',
+              sort_order: 'desc'
+            },
+            auth
+          ),
           apiClient.getRepoFindingsTrends({ points: TREND_POINTS }, auth)
         ]);
         if (!mounted) {

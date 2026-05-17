@@ -321,6 +321,16 @@ describe('App', () => {
     expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
     expect(await screen.findByText(/Latest scan total 4/i)).toBeInTheDocument();
     expect(await screen.findByText('-6')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) => {
+        return (
+          typeof url === 'string' &&
+          url.includes('/v1/repo-findings') &&
+          url.includes('sort_by=severity') &&
+          url.includes('sort_order=desc')
+        );
+      })
+    ).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/auth/manual',
       expect.objectContaining({ credentials: 'include' })
