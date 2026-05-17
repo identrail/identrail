@@ -235,6 +235,23 @@ describe('App', () => {
         return okJSON(currentMePayload('tenant-a', 'workspace-a'));
       }
       if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        if (url.includes('include_archived=true')) {
+          return okJSON({
+            items: [
+              {
+                tenant_id: 'tenant-a',
+                workspace_id: 'workspace-a',
+                project_id: 'legacy-project',
+                name: 'Legacy GitHub',
+                slug: 'legacy-github',
+                description: 'Archived repository coverage.',
+                archived_at: '2026-01-01T00:00:00Z',
+                created_at: '2025-12-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              }
+            ]
+          });
+        }
         return okJSON({
           items: [
             {
@@ -320,8 +337,18 @@ describe('App', () => {
     expect(await screen.findByText(/Priority findings/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 archived/i)).toBeInTheDocument();
     expect(await screen.findByText(/Latest scan total 4/i)).toBeInTheDocument();
     expect(await screen.findByText('-6')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) => {
+        return (
+          typeof url === 'string' &&
+          url.includes('/v1/workspaces/workspace-a/projects') &&
+          url.includes('include_archived=false')
+        );
+      })
+    ).toBe(true);
     expect(
       fetchMock.mock.calls.some(([url]) => {
         return (

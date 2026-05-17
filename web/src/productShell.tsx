@@ -147,7 +147,7 @@ const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolv
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
-const OVERVIEW_PROJECT_LIMIT = 50;
+const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
 
 const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], string> = {
   severity: 'Risk (high → low)',
@@ -157,6 +157,43 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
 };
 
 const TREND_POINTS = 10;
+async function listOverviewProjects(
+  workspaceID: string,
+  filters: { include_archived: boolean },
+  auth: RequestAuthContext
+): Promise<ProjectRecord[]> {
+  const items: ProjectRecord[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  do {
+    const response = await apiClient.listProjects(
+      workspaceID,
+      {
+        limit: OVERVIEW_PROJECT_PAGE_LIMIT,
+        cursor,
+        sort_by: 'updated_at',
+        sort_order: 'desc',
+        include_archived: filters.include_archived
+      },
+      auth
+    );
+    items.push(...response.items);
+
+    const nextCursor = response.next_cursor?.trim();
+    if (!nextCursor) {
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('Project pagination returned a repeated cursor');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  return items;
+}
+
 function formatConfidenceScore(value: number | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return 'N/A';
@@ -824,7 +861,8 @@ export function ProductOverviewPage() {
   const [showTour, setShowTour] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [activeProjects, setActiveProjects] = useState<ProjectRecord[]>([]);
+  const [archivedProjectCount, setArchivedProjectCount] = useState(0);
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
@@ -866,17 +904,9 @@ export function ProductOverviewPage() {
       setError('');
       try {
         const auth = buildProductAuthContext(scope);
-        const [projectResponse, scanResponse, findingResponse, trendResponse] = await Promise.all([
-          apiClient.listProjects(
-            scope.workspaceID,
-            {
-              limit: OVERVIEW_PROJECT_LIMIT,
-              sort_by: 'updated_at',
-              sort_order: 'desc',
-              include_archived: true
-            },
-            auth
-          ),
+        const [allProjectItems, activeProjectItems, scanResponse, findingResponse, trendResponse] = await Promise.all([
+          listOverviewProjects(scope.workspaceID, { include_archived: true }, auth),
+          listOverviewProjects(scope.workspaceID, { include_archived: false }, auth),
           apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
           apiClient.listRepoFindings(
             {
@@ -892,7 +922,12 @@ export function ProductOverviewPage() {
         if (!mounted) {
           return;
         }
-        setProjects(projectResponse.items);
+        setActiveProjects(
+          activeProjectItems
+            .slice()
+            .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+        );
+        setArchivedProjectCount(allProjectItems.filter((project) => project.archived_at).length);
         setRepoScans(scanResponse.items);
         setRepoFindings(
           findingResponse.items
@@ -928,8 +963,6 @@ export function ProductOverviewPage() {
     }
   };
 
-  const activeProjects = projects.filter((project) => !project.archived_at);
-  const archivedProjects = projects.length - activeProjects.length;
   const openFindingCount = repoFindings.filter((finding) => normalizeFindingStatus(finding.triage?.status) === 'open').length;
   const urgentFindingCount = repoFindings.filter((finding) => {
     const severity = normalizeValue(finding.severity).toLowerCase();
@@ -991,7 +1024,7 @@ export function ProductOverviewPage() {
           <article>
             <span>Active projects</span>
             <strong>{activeProjects.length}</strong>
-            <p>{archivedProjects > 0 ? `${archivedProjects} archived` : 'All listed projects are active'}</p>
+            <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : 'All listed projects are active'}</p>
           </article>
           <article>
             <span>Priority findings</span>
