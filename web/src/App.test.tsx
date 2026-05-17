@@ -115,6 +115,8 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /The Trust Graph is the control plane/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /From discovery to fix/i })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: /Start Free Risk Scan/i }).length).toBeGreaterThan(0);
+    expect(document.querySelector('main main')).not.toBeInTheDocument();
+    expect(document.querySelector('.idt-product-hero-visual')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('renders read-only scan intake flow route', () => {

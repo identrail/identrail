@@ -10391,7 +10391,7 @@ html[data-theme='light'] .idt-page-hero-rich::after,
 .idt-product-page {
   background: #ffffff;
   color: #0a0a0a;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .idt-product-page .idt-eyebrow {

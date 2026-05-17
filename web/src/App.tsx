@@ -595,7 +595,7 @@ function PageHero({
 
 function ProductHeroVisual() {
   return (
-    <div className="idt-product-hero-visual">
+    <div className="idt-product-hero-visual" aria-hidden="true">
       <div className="idt-product-hero-window">
         <div className="idt-visual-window-bar">
           <span />
@@ -2075,7 +2075,7 @@ function ProductPage() {
   });
 
   return (
-    <main className="idt-product-page">
+    <div className="idt-product-page">
       <section className="idt-product-hero-full">
         <div className="idt-product-hero-copy">
           <p className="idt-eyebrow">Product</p>
@@ -2191,7 +2191,7 @@ function ProductPage() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 
