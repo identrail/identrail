@@ -19,12 +19,15 @@ type AuditSink interface {
 
 // DispatchRecord captures one delivery attempt by the Router.
 type DispatchRecord struct {
-	EventKind   EventKind `json:"event_kind"`
-	FindingID   string    `json:"finding_id"`
-	Destination string    `json:"destination"`
-	Success     bool      `json:"success"`
-	Error       string    `json:"error,omitempty"`
-	AttemptedAt time.Time `json:"attempted_at"`
+	EventKind    EventKind `json:"event_kind"`
+	FindingID    string    `json:"finding_id,omitempty"`
+	SubjectID    string    `json:"subject_id,omitempty"`
+	ConnectionID string    `json:"connection_id,omitempty"`
+	SCIMOp       string    `json:"scim_op,omitempty"`
+	Destination  string    `json:"destination"`
+	Success      bool      `json:"success"`
+	Error        string    `json:"error,omitempty"`
+	AttemptedAt  time.Time `json:"attempted_at"`
 }
 
 // RoutedDestination binds a Destination to its activation policy.
@@ -60,12 +63,15 @@ func (r Router) Dispatch(ctx context.Context, event Event) ([]DispatchRecord, er
 	for i, routed := range r.Destinations {
 		if routed.Destination == nil {
 			rec := DispatchRecord{
-				EventKind:   event.Kind,
-				FindingID:   event.Finding.ID,
-				Destination: fmt.Sprintf("invalid-route-%d", i),
-				AttemptedAt: now,
-				Success:     false,
-				Error:       "nil destination in router configuration",
+				EventKind:    event.Kind,
+				FindingID:    event.Finding.ID,
+				SubjectID:    eventSubjectID(event),
+				ConnectionID: eventConnectionID(event),
+				SCIMOp:       eventSCIMOp(event),
+				Destination:  fmt.Sprintf("invalid-route-%d", i),
+				AttemptedAt:  now,
+				Success:      false,
+				Error:        "nil destination in router configuration",
 			}
 			if err := r.recordAudit(ctx, rec); err != nil && firstErr == nil {
 				firstErr = fmt.Errorf("audit sink: %w", err)
@@ -80,10 +86,13 @@ func (r Router) Dispatch(ctx context.Context, event Event) ([]DispatchRecord, er
 			continue
 		}
 		rec := DispatchRecord{
-			EventKind:   event.Kind,
-			FindingID:   event.Finding.ID,
-			Destination: routed.Destination.Name(),
-			AttemptedAt: now,
+			EventKind:    event.Kind,
+			FindingID:    event.Finding.ID,
+			SubjectID:    eventSubjectID(event),
+			ConnectionID: eventConnectionID(event),
+			SCIMOp:       eventSCIMOp(event),
+			Destination:  routed.Destination.Name(),
+			AttemptedAt:  now,
 		}
 		if err := routed.Destination.Send(ctx, event); err != nil {
 			rec.Success = false
@@ -117,4 +126,25 @@ func (r Router) now() time.Time {
 		return r.Now()
 	}
 	return time.Now().UTC()
+}
+
+func eventSubjectID(event Event) string {
+	if event.SCIMProvisioning != nil {
+		return event.SCIMProvisioning.UserID
+	}
+	return event.Finding.ID
+}
+
+func eventConnectionID(event Event) string {
+	if event.SCIMProvisioning != nil {
+		return event.SCIMProvisioning.ConnectionID
+	}
+	return ""
+}
+
+func eventSCIMOp(event Event) string {
+	if event.SCIMProvisioning != nil {
+		return event.SCIMProvisioning.Operation
+	}
+	return ""
 }

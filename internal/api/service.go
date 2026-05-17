@@ -23,6 +23,7 @@ import (
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
 	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/workflow"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -121,6 +122,7 @@ type Service struct {
 	AWSScannerFactory            AWSScannerFactory
 	AWSCloudFormationTemplateURL string
 	AWSAccountID                 string
+	WorkflowRouter               *workflow.Router
 	GitHubAppID                  int64
 	GitHubAppName                string
 	GitHubAppPrivateKey          string

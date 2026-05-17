@@ -57,6 +57,28 @@ func (s SlackDestination) Send(ctx context.Context, event Event) error {
 }
 
 func (s SlackDestination) payload(event Event) map[string]any {
+	if event.Kind == EventSCIMProvisioned && event.SCIMProvisioning != nil {
+		scim := event.SCIMProvisioning
+		title := valueOrFallback(scim.UserName, scim.UserID)
+		summary := fmt.Sprintf("*%s* — %s user `%s`", event.Kind, scim.Operation, title)
+		fields := []map[string]any{
+			{"type": "mrkdwn", "text": fmt.Sprintf("*User ID*\n`%s`", scim.UserID)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("*Connection*\n`%s`", scim.ConnectionID)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("*Operation*\n`%s`", scim.Operation)},
+			{"type": "mrkdwn", "text": fmt.Sprintf("*Active*\n%t", scim.Active)},
+		}
+		blocks := []map[string]any{
+			{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": summary}},
+			{"type": "section", "fields": fields},
+		}
+		if event.RelatedURL != "" {
+			blocks = append(blocks, map[string]any{
+				"type": "section",
+				"text": map[string]any{"type": "mrkdwn", "text": fmt.Sprintf("<%s|Open SCIM resource>", event.RelatedURL)},
+			})
+		}
+		return map[string]any{"text": summary, "blocks": blocks}
+	}
 	title := valueOrFallback(event.Finding.Title, fmt.Sprintf("Finding %s", event.Finding.ID))
 	summary := fmt.Sprintf("*%s* — %s (%s)", event.Kind, title, event.Finding.Severity)
 	fields := []map[string]any{

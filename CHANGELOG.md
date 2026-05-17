@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Routed successful native SCIM user lifecycle operations through the workflow router:
+  - emits `scim.provisioned` events for create/update/deactivate/delete operations so Slack, Jira, and Linear destinations can receive directory-sync deltas
+  - extends workflow dispatch audit records with SCIM subject, connection, and operation fields for NDJSON governance review
+  - documents Okta and Azure AD native SSO setup, SCIM provisioning, and safe `sso_required` rollout in the enterprise quickstart
 - Added native SCIM 2.0 user provisioning endpoints (behind `IDENTRAIL_FEATURE_NATIVE_SSO`, with `IDENTRAIL_ENABLE_NATIVE_SSO` accepted as a compatibility alias):
   - `GET /scim/v2/ServiceProviderConfig`, `/Schemas`, and `/ResourceTypes` return Okta/Azure-friendly discovery documents using SCIM-shaped responses
   - `GET/POST/GET by id/PUT/PATCH/DELETE /scim/v2/Users` supports server-assigned ids, `filter=userName eq "..."`, pagination, full user replacement, PATCH `replace`, and deactivation/delete lifecycle handling

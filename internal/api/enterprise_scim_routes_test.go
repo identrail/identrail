@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,10 +16,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/workflow"
 	"go.uber.org/zap"
 )
 
 func newSCIMTestRouter(t *testing.T, enabled bool) (*gin.Engine, *db.MemoryStore, db.IdentityConnection, string) {
+	return newSCIMTestRouterWithService(t, enabled, nil)
+}
+
+func newSCIMTestRouterWithService(t *testing.T, enabled bool, configure func(*Service)) (*gin.Engine, *db.MemoryStore, db.IdentityConnection, string) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	store := db.NewMemoryStore()
@@ -41,6 +48,9 @@ func newSCIMTestRouter(t *testing.T, enabled bool) (*gin.Engine, *db.MemoryStore
 		t.Fatalf("seed connection: %v", err)
 	}
 	svc := NewService(store, routerScanner{}, "aws")
+	if configure != nil {
+		configure(svc)
+	}
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
 		FeatureNativeSSO: enabled,
 		PublicBaseURL:    "https://api.example.com",
@@ -48,6 +58,21 @@ func newSCIMTestRouter(t *testing.T, enabled bool) (*gin.Engine, *db.MemoryStore
 		RateLimitBurst:   1000,
 	})
 	return router, store, conn, token
+}
+
+type recordingWorkflowDestination struct {
+	name  string
+	calls int
+	event workflow.Event
+	err   error
+}
+
+func (d *recordingWorkflowDestination) Name() string { return d.name }
+
+func (d *recordingWorkflowDestination) Send(_ context.Context, event workflow.Event) error {
+	d.calls++
+	d.event = event
+	return d.err
 }
 
 func doSCIM(t *testing.T, router *gin.Engine, token string, method string, path string, body string) *httptest.ResponseRecorder {
@@ -110,6 +135,94 @@ func TestEnterpriseSCIMRoutes_DefaultsOmittedActiveToEnabled(t *testing.T) {
 	}
 	if user.Status != "active" {
 		t.Fatalf("omitted active should persist active user, got %q", user.Status)
+	}
+}
+
+func TestEnterpriseSCIMRoutes_CreateDispatchesWorkflowEvent(t *testing.T) {
+	destination := &recordingWorkflowDestination{name: "test-workflow"}
+	auditLog := &bytes.Buffer{}
+	dispatchTime := time.Date(2026, 5, 17, 14, 0, 0, 0, time.UTC)
+	router, _, conn, token := newSCIMTestRouterWithService(t, true, func(svc *Service) {
+		svc.Now = func() time.Time { return dispatchTime }
+		svc.WorkflowRouter = &workflow.Router{
+			Destinations: []workflow.RoutedDestination{{Destination: destination, Policy: workflow.AlertPolicy{}}},
+			Audit:        &workflow.JSONLineAuditSink{Writer: auditLog},
+			Now:          func() time.Time { return dispatchTime },
+		}
+	})
+	createBody := `{
+		"userName":"workflow-user@example.com",
+		"displayName":"Workflow User",
+		"active":true,
+		"emails":[{"value":"workflow-user@example.com","type":"work","primary":true}]
+	}`
+	created := doSCIM(t, router, token, http.MethodPost, "/scim/v2/Users", createBody)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create: code %d body %s", created.Code, created.Body.String())
+	}
+	var response struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if destination.calls != 1 {
+		t.Fatalf("workflow destination calls: want 1, got %d", destination.calls)
+	}
+	if destination.event.Kind != workflow.EventSCIMProvisioned {
+		t.Fatalf("unexpected workflow kind: %s", destination.event.Kind)
+	}
+	if destination.event.SCIMProvisioning == nil {
+		t.Fatal("missing scim workflow payload")
+	}
+	if got := destination.event.SCIMProvisioning; got.Operation != "create" || got.UserID != response.ID || got.UserName != "workflow-user@example.com" || got.ConnectionID != conn.ID {
+		t.Fatalf("unexpected scim workflow payload: %+v", got)
+	}
+	lines := strings.Split(strings.TrimSpace(auditLog.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("workflow audit lines: want 1, got %d (%q)", len(lines), auditLog.String())
+	}
+	var record workflow.DispatchRecord
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("decode workflow audit record: %v", err)
+	}
+	if record.EventKind != workflow.EventSCIMProvisioned || record.SubjectID != response.ID || record.ConnectionID != conn.ID || record.SCIMOp != "create" || !record.Success {
+		t.Fatalf("unexpected workflow audit record: %+v", record)
+	}
+}
+
+func TestEnterpriseSCIMRoutes_WorkflowDispatchFailureDoesNotFailCreate(t *testing.T) {
+	destination := &recordingWorkflowDestination{name: "test-workflow", err: errors.New("workflow unavailable")}
+	auditLog := &bytes.Buffer{}
+	router, _, conn, token := newSCIMTestRouterWithService(t, true, func(svc *Service) {
+		svc.WorkflowRouter = &workflow.Router{
+			Destinations: []workflow.RoutedDestination{{Destination: destination, Policy: workflow.AlertPolicy{}}},
+			Audit:        &workflow.JSONLineAuditSink{Writer: auditLog},
+		}
+	})
+	createBody := `{
+		"userName":"workflow-failure@example.com",
+		"displayName":"Workflow Failure",
+		"active":true,
+		"emails":[{"value":"workflow-failure@example.com","type":"work","primary":true}]
+	}`
+	created := doSCIM(t, router, token, http.MethodPost, "/scim/v2/Users", createBody)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("workflow dispatch failure should not fail persisted SCIM create, got %d body %s", created.Code, created.Body.String())
+	}
+	if destination.calls != 1 {
+		t.Fatalf("workflow destination calls: want 1, got %d", destination.calls)
+	}
+	lines := strings.Split(strings.TrimSpace(auditLog.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("workflow audit lines: want 1, got %d (%q)", len(lines), auditLog.String())
+	}
+	var record workflow.DispatchRecord
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("decode workflow audit record: %v", err)
+	}
+	if record.EventKind != workflow.EventSCIMProvisioned || record.ConnectionID != conn.ID || record.SCIMOp != "create" || record.Success || !strings.Contains(record.Error, "workflow unavailable") {
+		t.Fatalf("unexpected workflow failure audit record: %+v", record)
 	}
 }
 

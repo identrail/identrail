@@ -1,4 +1,4 @@
-// Package workflow routes finding lifecycle events to engineering and security
+// Package workflow routes product lifecycle events to engineering and security
 // workflow destinations (Slack, Jira, Linear) and emits an auditable record of
 // every dispatch attempt for governance.
 //
@@ -16,7 +16,7 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 )
 
-// EventKind enumerates the finding lifecycle transitions that can be routed.
+// EventKind enumerates the lifecycle transitions that can be routed.
 type EventKind string
 
 const (
@@ -25,22 +25,51 @@ const (
 	EventFindingSuppressed   EventKind = "finding.suppressed"
 	EventFindingResolved     EventKind = "finding.resolved"
 	EventFixPROpened         EventKind = "finding.fix_pr_opened"
+	EventSCIMProvisioned     EventKind = "scim.provisioned"
 )
 
-// Event is one finding lifecycle event delivered to workflow destinations.
+// SCIMProvisioningEvent describes one directory-sync user lifecycle delta that
+// should be routed to governance and customer workflow destinations.
+type SCIMProvisioningEvent struct {
+	OrgID        string `json:"org_id,omitempty"`
+	ConnectionID string `json:"connection_id"`
+	Operation    string `json:"operation"`
+	UserID       string `json:"user_id"`
+	UserName     string `json:"user_name,omitempty"`
+	ExternalID   string `json:"external_id,omitempty"`
+	Active       bool   `json:"active"`
+}
+
+// Event is one lifecycle event delivered to workflow destinations.
 type Event struct {
-	Kind       EventKind      `json:"kind"`
-	Finding    domain.Finding `json:"finding"`
-	Actor      string         `json:"actor,omitempty"`
-	Note       string         `json:"note,omitempty"`
-	EmittedAt  time.Time      `json:"emitted_at"`
-	RelatedURL string         `json:"related_url,omitempty"`
+	Kind             EventKind              `json:"kind"`
+	Finding          domain.Finding         `json:"finding,omitzero"`
+	SCIMProvisioning *SCIMProvisioningEvent `json:"scim_provisioning,omitempty"`
+	Actor            string                 `json:"actor,omitempty"`
+	Note             string                 `json:"note,omitempty"`
+	EmittedAt        time.Time              `json:"emitted_at"`
+	RelatedURL       string                 `json:"related_url,omitempty"`
 }
 
 // Validate enforces the minimum invariants every destination relies on.
 func (e Event) Validate() error {
 	if strings.TrimSpace(string(e.Kind)) == "" {
 		return fmt.Errorf("event kind is required")
+	}
+	if e.Kind == EventSCIMProvisioned {
+		if e.SCIMProvisioning == nil {
+			return fmt.Errorf("event scim_provisioning is required")
+		}
+		if strings.TrimSpace(e.SCIMProvisioning.ConnectionID) == "" {
+			return fmt.Errorf("event scim_provisioning.connection_id is required")
+		}
+		if strings.TrimSpace(e.SCIMProvisioning.Operation) == "" {
+			return fmt.Errorf("event scim_provisioning.operation is required")
+		}
+		if strings.TrimSpace(e.SCIMProvisioning.UserID) == "" {
+			return fmt.Errorf("event scim_provisioning.user_id is required")
+		}
+		return nil
 	}
 	if strings.TrimSpace(e.Finding.ID) == "" {
 		return fmt.Errorf("event finding.id is required")
@@ -67,9 +96,11 @@ func (p AlertPolicy) Allow(event Event) bool {
 		if !ok {
 			return false
 		}
-		eventOK, eventRank := severityRankOf(event.Finding.Severity)
-		if !eventOK || eventRank < floorRank {
-			return false
+		if event.Finding.ID != "" {
+			eventOK, eventRank := severityRankOf(event.Finding.Severity)
+			if !eventOK || eventRank < floorRank {
+				return false
+			}
 		}
 	}
 	if len(p.AllowKinds) > 0 && !containsKind(p.AllowKinds, event.Kind) {

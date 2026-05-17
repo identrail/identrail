@@ -80,13 +80,19 @@ func (j JiraDestination) payload(event Event) map[string]any {
 	issueType := valueOrFallback(j.IssueType, "Task")
 	title := valueOrFallback(event.Finding.Title, fmt.Sprintf("Identrail finding %s", event.Finding.ID))
 	summary := fmt.Sprintf("[%s] %s", strings.ToUpper(string(event.Finding.Severity)), title)
+	labels := []string{"identrail", string(event.Finding.Type), strings.ToLower(string(event.Finding.Severity))}
+	if event.Kind == EventSCIMProvisioned && event.SCIMProvisioning != nil {
+		scim := event.SCIMProvisioning
+		summary = fmt.Sprintf("[SCIM] %s user %s", strings.ToUpper(scim.Operation), valueOrFallback(scim.UserName, scim.UserID))
+		labels = []string{"identrail", "scim", strings.ToLower(scim.Operation)}
+	}
 	return map[string]any{
 		"fields": map[string]any{
 			"project":     map[string]any{"key": j.ProjectKey},
 			"summary":     summary,
 			"description": j.buildADFDescription(event),
 			"issuetype":   map[string]any{"name": issueType},
-			"labels":      []string{"identrail", string(event.Finding.Type), strings.ToLower(string(event.Finding.Severity))},
+			"labels":      labels,
 		},
 	}
 }
@@ -94,6 +100,25 @@ func (j JiraDestination) payload(event Event) map[string]any {
 // buildADFDescription returns an Atlassian Document Format description, the
 // only body format accepted by Jira Cloud REST API v3.
 func (j JiraDestination) buildADFDescription(event Event) map[string]any {
+	if event.Kind == EventSCIMProvisioned && event.SCIMProvisioning != nil {
+		scim := event.SCIMProvisioning
+		paragraphs := []map[string]any{
+			paragraph(fmt.Sprintf("Event: %s", event.Kind)),
+			paragraph(fmt.Sprintf("User ID: %s", scim.UserID)),
+			paragraph(fmt.Sprintf("User name: %s", scim.UserName)),
+			paragraph(fmt.Sprintf("Connection: %s", scim.ConnectionID)),
+			paragraph(fmt.Sprintf("Operation: %s", scim.Operation)),
+			paragraph(fmt.Sprintf("Active: %t", scim.Active)),
+		}
+		if event.RelatedURL != "" {
+			paragraphs = append(paragraphs, paragraph("Related: "+event.RelatedURL))
+		}
+		return map[string]any{
+			"type":    "doc",
+			"version": 1,
+			"content": paragraphs,
+		}
+	}
 	paragraphs := []map[string]any{
 		paragraph(fmt.Sprintf("Event: %s", event.Kind)),
 		paragraph(fmt.Sprintf("Finding ID: %s", event.Finding.ID)),

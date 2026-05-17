@@ -38,7 +38,11 @@ func (l LinearDestination) Send(ctx context.Context, event Event) error {
 	}
 
 	title := valueOrFallback(event.Finding.Title, fmt.Sprintf("Identrail finding %s", event.Finding.ID))
-	title = fmt.Sprintf("[%s] %s", strings.ToUpper(string(event.Finding.Severity)), title)
+	if event.Kind == EventSCIMProvisioned && event.SCIMProvisioning != nil {
+		title = fmt.Sprintf("[SCIM] %s user %s", strings.ToUpper(event.SCIMProvisioning.Operation), valueOrFallback(event.SCIMProvisioning.UserName, event.SCIMProvisioning.UserID))
+	} else {
+		title = fmt.Sprintf("[%s] %s", strings.ToUpper(string(event.Finding.Severity)), title)
+	}
 
 	payload := map[string]any{
 		"query": `mutation IssueCreate($input: IssueCreateInput!) {
@@ -108,6 +112,18 @@ func (l LinearDestination) Send(ctx context.Context, event Event) error {
 func (l LinearDestination) buildDescription(event Event) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "**Event:** `%s`\n\n", event.Kind)
+	if event.Kind == EventSCIMProvisioned && event.SCIMProvisioning != nil {
+		scim := event.SCIMProvisioning
+		fmt.Fprintf(&b, "**User ID:** `%s`\n\n", scim.UserID)
+		fmt.Fprintf(&b, "**User name:** `%s`\n\n", scim.UserName)
+		fmt.Fprintf(&b, "**Connection:** `%s`\n\n", scim.ConnectionID)
+		fmt.Fprintf(&b, "**Operation:** `%s`\n\n", scim.Operation)
+		fmt.Fprintf(&b, "**Active:** %t\n\n", scim.Active)
+		if event.RelatedURL != "" {
+			fmt.Fprintf(&b, "Related: %s\n", event.RelatedURL)
+		}
+		return b.String()
+	}
 	fmt.Fprintf(&b, "**Finding ID:** `%s`\n\n", event.Finding.ID)
 	fmt.Fprintf(&b, "**Severity:** %s\n\n", event.Finding.Severity)
 	fmt.Fprintf(&b, "**Type:** `%s`\n\n", event.Finding.Type)

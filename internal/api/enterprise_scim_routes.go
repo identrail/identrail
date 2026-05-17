@@ -17,6 +17,7 @@ import (
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/enterprise"
 	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/workflow"
 	"go.uber.org/zap"
 )
 
@@ -271,7 +272,7 @@ func createSCIMUser(logger *zap.Logger, svc *Service, publicBaseURL string) gin.
 			writeSCIMSaveError(c, logger, err)
 			return
 		}
-		if err := recordSCIMEvent(c, svc, auth.Connection, enterprise.SCIMProvisioningCreate, user.SCIMUser); err != nil {
+		if err := recordSCIMEvent(c, svc, auth.Connection, enterprise.SCIMProvisioningCreate, user.SCIMUser, publicBaseURL); err != nil {
 			writeSCIMStoreError(c, logger, err, "record scim create")
 			return
 		}
@@ -314,7 +315,7 @@ func putSCIMUser(logger *zap.Logger, svc *Service, publicBaseURL string) gin.Han
 		if !user.Active {
 			op = enterprise.SCIMProvisioningDeactivate
 		}
-		if err := recordSCIMEvent(c, svc, auth.Connection, op, user.SCIMUser); err != nil {
+		if err := recordSCIMEvent(c, svc, auth.Connection, op, user.SCIMUser, publicBaseURL); err != nil {
 			writeSCIMStoreError(c, logger, err, "record scim update")
 			return
 		}
@@ -355,7 +356,7 @@ func patchSCIMUser(logger *zap.Logger, svc *Service, publicBaseURL string) gin.H
 		if !user.Active {
 			op = enterprise.SCIMProvisioningDeactivate
 		}
-		if err := recordSCIMEvent(c, svc, auth.Connection, op, user.SCIMUser); err != nil {
+		if err := recordSCIMEvent(c, svc, auth.Connection, op, user.SCIMUser, publicBaseURL); err != nil {
 			writeSCIMStoreError(c, logger, err, "record scim patch")
 			return
 		}
@@ -377,7 +378,7 @@ func deleteSCIMUser(logger *zap.Logger, svc *Service, publicBaseURL string) gin.
 			writeSCIMSaveError(c, logger, err)
 			return
 		}
-		if err := recordSCIMEvent(c, svc, auth.Connection, enterprise.SCIMProvisioningDelete, updated); err != nil {
+		if err := recordSCIMEvent(c, svc, auth.Connection, enterprise.SCIMProvisioningDelete, updated, publicBaseURL); err != nil {
 			writeSCIMStoreError(c, logger, err, "record scim delete")
 			return
 		}
@@ -582,7 +583,7 @@ func scimUserFromRecords(c *gin.Context, publicBaseURL string, user db.User, ide
 	}
 }
 
-func recordSCIMEvent(c *gin.Context, svc *Service, conn db.IdentityConnection, op enterprise.SCIMProvisioningOp, user enterprise.SCIMUser) error {
+func recordSCIMEvent(c *gin.Context, svc *Service, conn db.IdentityConnection, op enterprise.SCIMProvisioningOp, user enterprise.SCIMUser, publicBaseURL string) error {
 	payloadBytes, err := json.Marshal(user)
 	if err != nil {
 		return err
@@ -591,6 +592,10 @@ func recordSCIMEvent(c *gin.Context, svc *Service, conn db.IdentityConnection, o
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		return err
 	}
+	now := time.Now().UTC()
+	if svc != nil && svc.Now != nil {
+		now = svc.Now().UTC()
+	}
 	_, err = svc.Store.CreateSCIMProvisioningEvent(c.Request.Context(), db.SCIMProvisioningEventRecord{
 		OrgID:        conn.OrgID,
 		ConnectionID: conn.ID,
@@ -598,9 +603,32 @@ func recordSCIMEvent(c *gin.Context, svc *Service, conn db.IdentityConnection, o
 		ExternalID:   user.ExternalID,
 		UserID:       user.ID,
 		Payload:      payload,
-		OccurredAt:   time.Now().UTC(),
+		OccurredAt:   now,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if svc == nil || svc.WorkflowRouter == nil {
+		return nil
+	}
+	if _, err := svc.WorkflowRouter.Dispatch(c.Request.Context(), workflow.Event{
+		Kind: workflow.EventSCIMProvisioned,
+		SCIMProvisioning: &workflow.SCIMProvisioningEvent{
+			OrgID:        conn.OrgID,
+			ConnectionID: conn.ID,
+			Operation:    string(op),
+			UserID:       user.ID,
+			UserName:     user.UserName,
+			ExternalID:   user.ExternalID,
+			Active:       user.Active,
+		},
+		Actor:      "scim:" + strings.TrimSpace(conn.ID),
+		EmittedAt:  now,
+		RelatedURL: scimUserLocation(c, publicBaseURL, user.ID),
+	}); err != nil {
+		_ = c.Error(err)
+	}
+	return nil
 }
 
 func applySCIMReplace(user *enterprise.SCIMUser, op scimPatchOperation) error {

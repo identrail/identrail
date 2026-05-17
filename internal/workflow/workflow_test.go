@@ -31,6 +31,22 @@ func sampleEvent(kind EventKind) Event {
 	}
 }
 
+func sampleSCIMEvent() Event {
+	return Event{
+		Kind: EventSCIMProvisioned,
+		SCIMProvisioning: &SCIMProvisioningEvent{
+			OrgID:        "tenant-a",
+			ConnectionID: "conn-123",
+			Operation:    "create",
+			UserID:       "user-123",
+			UserName:     "alice@example.com",
+			Active:       true,
+		},
+		Actor:     "scim:conn-123",
+		EmittedAt: time.Date(2026, 5, 17, 14, 0, 0, 0, time.UTC),
+	}
+}
+
 type recordingDestination struct {
 	name    string
 	calls   int
@@ -53,8 +69,14 @@ func TestEvent_Validate(t *testing.T) {
 	if err := sampleEvent(EventFindingCreated).Validate(); err != nil {
 		t.Errorf("valid event rejected: %v", err)
 	}
+	if err := sampleSCIMEvent().Validate(); err != nil {
+		t.Errorf("valid scim event rejected: %v", err)
+	}
 	if err := (Event{Kind: EventFindingCreated}).Validate(); err == nil {
 		t.Error("expected error for missing finding id")
+	}
+	if err := (Event{Kind: EventSCIMProvisioned}).Validate(); err == nil {
+		t.Error("expected error for missing scim payload")
 	}
 	if err := (Event{Finding: domain.Finding{ID: "x"}}).Validate(); err == nil {
 		t.Error("expected error for missing kind")
@@ -72,6 +94,7 @@ func TestAlertPolicy_FiltersBySeverityKindAndType(t *testing.T) {
 		{"empty_policy_allows", AlertPolicy{}, base, true},
 		{"severity_floor_high_allows_high", AlertPolicy{MinSeverity: domain.SeverityHigh}, base, true},
 		{"severity_floor_critical_blocks_high", AlertPolicy{MinSeverity: domain.SeverityCritical}, base, false},
+		{"severity_floor_allows_scim_without_finding_severity", AlertPolicy{MinSeverity: domain.SeverityHigh}, sampleSCIMEvent(), true},
 		{"kind_allowlist_blocks_others", AlertPolicy{AllowKinds: []EventKind{EventFindingResolved}}, base, false},
 		{"kind_allowlist_matches", AlertPolicy{AllowKinds: []EventKind{EventFindingCreated}}, base, true},
 		{"type_allowlist_blocks_others", AlertPolicy{AllowTypes: []domain.FindingType{domain.FindingStaleIdentity}}, base, false},
@@ -129,6 +152,43 @@ func TestRouter_DispatchFansOutByPolicy(t *testing.T) {
 	}
 	if rec.Destination != "slack" || !rec.Success {
 		t.Errorf("unexpected audit record: %+v", rec)
+	}
+}
+
+func TestRouter_DispatchesSCIMProvisionedEventToAuditSink(t *testing.T) {
+	dest := &recordingDestination{name: "linear"}
+	auditBuf := &bytes.Buffer{}
+	router := Router{
+		Destinations: []RoutedDestination{{Destination: dest, Policy: AlertPolicy{AllowKinds: []EventKind{EventSCIMProvisioned}}}},
+		Audit:        &JSONLineAuditSink{Writer: auditBuf},
+		Now:          func() time.Time { return time.Date(2026, 5, 17, 14, 0, 0, 0, time.UTC) },
+	}
+	records, err := router.Dispatch(context.Background(), sampleSCIMEvent())
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if dest.calls != 1 {
+		t.Fatalf("destination calls: want 1, got %d", dest.calls)
+	}
+	if dest.lastEv.Kind != EventSCIMProvisioned || dest.lastEv.SCIMProvisioning == nil {
+		t.Fatalf("unexpected dispatched event: %+v", dest.lastEv)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records: want 1, got %d", len(records))
+	}
+	if records[0].EventKind != EventSCIMProvisioned || records[0].SubjectID != "user-123" || records[0].ConnectionID != "conn-123" || records[0].SCIMOp != "create" || !records[0].Success {
+		t.Fatalf("unexpected dispatch record: %+v", records[0])
+	}
+	lines := strings.Split(strings.TrimSpace(auditBuf.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("audit lines: want 1, got %d (%q)", len(lines), auditBuf.String())
+	}
+	var rec DispatchRecord
+	if err := json.Unmarshal([]byte(lines[0]), &rec); err != nil {
+		t.Fatalf("decode audit line: %v", err)
+	}
+	if rec.EventKind != EventSCIMProvisioned || rec.SubjectID != "user-123" || rec.ConnectionID != "conn-123" || rec.SCIMOp != "create" {
+		t.Fatalf("unexpected audit record: %+v", rec)
 	}
 }
 
@@ -378,6 +438,31 @@ func TestSlackDestination_Send_HappyPath(t *testing.T) {
 	}
 }
 
+func TestSlackDestination_Send_SCIMProvisioningPayload(t *testing.T) {
+	srv, captured := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	event := sampleSCIMEvent()
+	event.RelatedURL = "https://api.example.com/scim/v2/Users/user-123"
+	dest := SlackDestination{WebhookURL: srv.URL, HTTPClient: srv.Client()}
+	if err := dest.Send(context.Background(), event); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(captured.Body, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	text, _ := payload["text"].(string)
+	if !strings.Contains(text, "scim.provisioned") || !strings.Contains(text, "alice@example.com") {
+		t.Fatalf("unexpected slack text: %q", text)
+	}
+	blocks, _ := payload["blocks"].([]any)
+	if len(blocks) != 3 {
+		t.Fatalf("expected SCIM fields plus related link block, got %+v", payload["blocks"])
+	}
+}
+
 func TestSlackDestination_Send_ErrorsOn5xx(t *testing.T) {
 	srv, _ := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
@@ -464,6 +549,45 @@ func TestJiraDestination_Send_HappyPath(t *testing.T) {
 	}
 }
 
+func TestJiraDestination_Send_SCIMProvisioningPayload(t *testing.T) {
+	srv, captured := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"10002","key":"OPS-2"}`))
+	})
+	event := sampleSCIMEvent()
+	event.RelatedURL = "https://api.example.com/scim/v2/Users/user-123"
+	dest := JiraDestination{
+		BaseURL:    srv.URL,
+		Email:      "ops@example.com",
+		APIToken:   "tok",
+		ProjectKey: "OPS",
+		HTTPClient: srv.Client(),
+	}
+	if err := dest.Send(context.Background(), event); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	var body struct {
+		Fields struct {
+			Summary     string         `json:"summary"`
+			Labels      []string       `json:"labels"`
+			Description map[string]any `json:"description"`
+		} `json:"fields"`
+	}
+	if err := json.Unmarshal(captured.Body, &body); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if body.Fields.Summary != "[SCIM] CREATE user alice@example.com" {
+		t.Fatalf("unexpected summary: %s", body.Fields.Summary)
+	}
+	if got := strings.Join(body.Fields.Labels, ","); got != "identrail,scim,create" {
+		t.Fatalf("unexpected labels: %v", body.Fields.Labels)
+	}
+	content, ok := body.Fields.Description["content"].([]any)
+	if !ok || len(content) < 7 {
+		t.Fatalf("expected SCIM ADF description content, got %+v", body.Fields.Description)
+	}
+}
+
 func TestJiraDestination_Send_ValidatesConfig(t *testing.T) {
 	cases := []struct {
 		name string
@@ -527,6 +651,33 @@ func TestLinearDestination_Send_HappyPath(t *testing.T) {
 	input, _ := body.Variables["input"].(map[string]any)
 	if input["teamId"] != "team-1" {
 		t.Errorf("teamId: want team-1, got %v", input["teamId"])
+	}
+}
+
+func TestLinearDestination_Send_SCIMProvisioningPayload(t *testing.T) {
+	srv, captured := captureTLSRequest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"i2","identifier":"OPS-2","url":"https://linear.app/x"}}}}`))
+	})
+	event := sampleSCIMEvent()
+	event.RelatedURL = "https://api.example.com/scim/v2/Users/user-123"
+	dest := LinearDestination{APIURL: srv.URL, APIKey: "lin_xxx", TeamID: "team-1", HTTPClient: srv.Client()}
+	if err := dest.Send(context.Background(), event); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	var body struct {
+		Variables map[string]any `json:"variables"`
+	}
+	if err := json.Unmarshal(captured.Body, &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	input, _ := body.Variables["input"].(map[string]any)
+	if input["title"] != "[SCIM] CREATE user alice@example.com" {
+		t.Fatalf("unexpected title: %v", input["title"])
+	}
+	description, _ := input["description"].(string)
+	if !strings.Contains(description, "**Connection:** `conn-123`") || !strings.Contains(description, "Related: https://api.example.com/scim/v2/Users/user-123") {
+		t.Fatalf("unexpected description: %s", description)
 	}
 }
 
