@@ -515,7 +515,7 @@ export default async function handler(
     requestID,
     timeoutMS: emailTimeoutMS
   });
-  if (emailResult === 'failed') {
+  if (emailResult === 'failed' && !webhookURL) {
     res.status(502).json({ error: 'Lead email delivery failed.' });
     return;
   }
