@@ -1842,7 +1842,7 @@ function ReadOnlyScanPage() {
   useSeo({
     title: 'Start Free Risk Scan | Identrail',
     description:
-      'Start a read-only machine identity risk scan with Identrail. Share environment context and receive a prioritized trust-path report and rollout-safe remediation plan.',
+      'Start a read-only machine identity risk scan with Identrail. Share planning context and receive a prioritized trust path report with rollout-safe remediation guidance.',
     path: '/read-only-scan'
   });
 
@@ -1864,7 +1864,7 @@ function ReadOnlyScanPage() {
         deployment_model: deployment,
         urgency,
         team_size: teamSize,
-        scan_goal: `${environment} trust-path risk reduction`,
+        scan_goal: `${environment} trust path risk reduction`,
         source: 'Read-Only Scan Intake',
         page_path: '/read-only-scan'
       });
@@ -1879,18 +1879,52 @@ function ReadOnlyScanPage() {
 
   return (
     <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Read-Only Scan</p>
-        <h1>Start a machine identity risk scan with deployment-safe onboarding</h1>
-        <p>
-          This intake collects only planning context. No environment credentials are requested in this form. We send your first
-          prioritized trust-path report with rollout-safe recommendations.
-        </p>
+      <section className="idt-scan-hero">
+        <div className="idt-scan-hero-copy">
+          <p className="idt-eyebrow">Read-only scan</p>
+          <h1>Start a read-only identity risk scan</h1>
+          <p>
+            Share planning context only. We never ask for environment credentials here, and your first report focuses on machine
+            identity trust paths, reachable blast radius, and rollout-safe next steps.
+          </p>
+          <ul className="idt-scan-assurances" aria-label="Read-only scan assurances">
+            <li>No credentials requested</li>
+            <li>Prioritized trust path findings</li>
+            <li>Deployment-safe remediation plan</li>
+          </ul>
+        </div>
+        <div className="idt-scan-visual" aria-hidden="true">
+          <div className="idt-scan-visual-heading">
+            <span>Identity trust path</span>
+            <strong>Preview report</strong>
+          </div>
+          <div className="idt-scan-path">
+            <span className="is-source">GitHub runner</span>
+            <span className="is-hop">OIDC trust</span>
+            <span className="is-risk">AWS admin role</span>
+          </div>
+          <dl className="idt-scan-risk-metrics">
+            <div>
+              <dt>Exposure</dt>
+              <dd>High</dd>
+            </div>
+            <div>
+              <dt>Action</dt>
+              <dd>Sequence safely</dd>
+            </div>
+          </dl>
+        </div>
       </section>
 
-      <section className="idt-section idt-shell">
-        <form className="idt-intake-card" onSubmit={submitIntake}>
-          <p className="idt-intake-step">Step {submitted ? 3 : step} of 3</p>
+      <section className="idt-scan-intake" aria-labelledby="scan-intake-title">
+        <form className="idt-scan-form" onSubmit={submitIntake}>
+          <div className="idt-scan-form-header">
+            <p className="idt-intake-step">Step {submitted ? 3 : step} of 3</p>
+            <h2 id="scan-intake-title">{submitted ? 'Request received' : 'Tell us where to start'}</h2>
+            <p>
+              A short intake keeps the first scan focused. You can refine environment details with the team after we respond.
+            </p>
+          </div>
           {!submitted ? (
             <>
               {step === 1 ? (
@@ -1971,9 +2005,9 @@ function ReadOnlyScanPage() {
                     </select>
                   </label>
                   <article className="idt-intake-summary">
-                    <h2>What you receive</h2>
+                    <h3>What you receive</h3>
                     <ul>
-                      <li>Prioritized trust-path findings with severity and impact context</li>
+                      <li>Prioritized trust path findings with severity and impact context</li>
                       <li>Reachable blast-radius summary for your selected environment</li>
                       <li>Rollout-safe remediation sequence for first actions</li>
                     </ul>
@@ -2012,7 +2046,7 @@ function ReadOnlyScanPage() {
             </>
           ) : (
             <div className="idt-intake-confirmation">
-              <h2>Intake submitted</h2>
+              <h3>Intake submitted</h3>
               <p>Thanks. We will send your first read-only scan onboarding response within one business day.</p>
               <div className="idt-inline-actions">
                 <Link to="/demo" className="idt-btn idt-btn-dark">

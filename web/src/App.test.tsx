@@ -107,7 +107,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Start a machine identity risk scan with deployment-safe onboarding/i
+        name: /Start a read-only identity risk scan/i
       })
     ).toBeInTheDocument();
 
