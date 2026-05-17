@@ -62,6 +62,25 @@ func (s *Service) StartOnboarding(ctx context.Context, current sessionauth.Curre
 		return OnboardingStateResponse{}, ErrInvalidOnboardingRequest
 	}
 	if state, err := s.Store.GetOnboardingState(ctx, userID); err == nil {
+		// An existing row that is not yet bound to a workspace must still be
+		// reconciled against any workspace the user already belongs to (a
+		// partial first attempt, or an admin-provisioned membership). Without
+		// this, a stale "org" row would send the user back to create a
+		// duplicate tenant/workspace.
+		if strings.TrimSpace(state.WorkspaceID) == "" && state.CurrentStep != onboardingStepComplete {
+			changed, rErr := s.resumeOnboardingScope(ctx, current, &state, s.onboardingNow())
+			if rErr != nil {
+				return OnboardingStateResponse{}, rErr
+			}
+			if changed {
+				state.UpdatedAt = s.onboardingNow()
+				saved, sErr := s.Store.UpsertOnboardingState(ctx, state)
+				if sErr != nil {
+					return OnboardingStateResponse{}, sErr
+				}
+				return onboardingResponse(saved), nil
+			}
+		}
 		return onboardingResponse(state), nil
 	} else if !errors.Is(err, db.ErrNotFound) {
 		return OnboardingStateResponse{}, err
@@ -74,21 +93,7 @@ func (s *Service) StartOnboarding(ctx context.Context, current sessionauth.Curre
 		StartedAt:   now,
 		UpdatedAt:   now,
 	}
-	if current.Session.CurrentOrgID != "" && current.Session.CurrentWorkspaceID != "" {
-		state.OrgID = current.Session.CurrentOrgID
-		state.WorkspaceID = current.Session.CurrentWorkspaceID
-		state.ProjectID = current.Session.CurrentProjectID
-		state.CurrentStep = onboardingStepForExistingWorkspace(ctx, s.Store, state.OrgID, state.WorkspaceID, &state.ProjectID)
-	} else if member, err := s.Store.FindFirstWorkspaceMemberByUserUUID(ctx, userID); err == nil {
-		state.OrgID = member.TenantID
-		state.WorkspaceID = member.WorkspaceID
-		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: member.TenantID, WorkspaceID: member.WorkspaceID})
-		if projects, listErr := s.Store.ListProjects(scopedCtx, member.WorkspaceID, false, 1); listErr == nil && len(projects) > 0 {
-			state.ProjectID = projects[0].ProjectID
-		}
-		state.CurrentStep = onboardingStepForExistingWorkspace(ctx, s.Store, state.OrgID, state.WorkspaceID, &state.ProjectID)
-		_, _ = s.Store.UpdateSessionContext(ctx, userID, current.IDHash, member.TenantID, member.WorkspaceID, state.ProjectID, now)
-	} else if !errors.Is(err, db.ErrNotFound) {
+	if _, err := s.resumeOnboardingScope(ctx, current, &state, now); err != nil {
 		return OnboardingStateResponse{}, err
 	}
 
@@ -97,6 +102,39 @@ func (s *Service) StartOnboarding(ctx context.Context, current sessionauth.Curre
 		return OnboardingStateResponse{}, err
 	}
 	return onboardingResponse(saved), nil
+}
+
+// resumeOnboardingScope binds an unbound onboarding state onto an existing
+// scope so refreshes, second tabs, and partial first attempts resume the right
+// step instead of forking a new tenant/workspace. It reports whether it changed
+// the state. A state that already carries a workspace is left untouched.
+func (s *Service) resumeOnboardingScope(ctx context.Context, current sessionauth.CurrentSession, state *db.OnboardingState, now time.Time) (bool, error) {
+	if strings.TrimSpace(state.WorkspaceID) != "" {
+		return false, nil
+	}
+	if current.Session.CurrentOrgID != "" && current.Session.CurrentWorkspaceID != "" {
+		state.OrgID = current.Session.CurrentOrgID
+		state.WorkspaceID = current.Session.CurrentWorkspaceID
+		state.ProjectID = current.Session.CurrentProjectID
+		state.CurrentStep = onboardingStepForExistingWorkspace(ctx, s.Store, state.OrgID, state.WorkspaceID, &state.ProjectID)
+		return true, nil
+	}
+	member, err := s.Store.FindFirstWorkspaceMemberByUserUUID(ctx, strings.TrimSpace(current.Session.UserID))
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	state.OrgID = member.TenantID
+	state.WorkspaceID = member.WorkspaceID
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: member.TenantID, WorkspaceID: member.WorkspaceID})
+	if projects, listErr := s.Store.ListProjects(scopedCtx, member.WorkspaceID, false, 1); listErr == nil && len(projects) > 0 {
+		state.ProjectID = projects[0].ProjectID
+	}
+	state.CurrentStep = onboardingStepForExistingWorkspace(ctx, s.Store, state.OrgID, state.WorkspaceID, &state.ProjectID)
+	_, _ = s.Store.UpdateSessionContext(ctx, current.Session.UserID, current.IDHash, member.TenantID, member.WorkspaceID, state.ProjectID, now)
+	return true, nil
 }
 
 // GetOnboardingState returns current progress without mutating it.
@@ -222,11 +260,7 @@ func (s *Service) applyOnboardingOrganization(ctx context.Context, current sessi
 		state.OrgID = onboardingScopedID(orgName, "org")
 	}
 	if !creatingOrg {
-		workspaceID := strings.TrimSpace(state.WorkspaceID)
-		if workspaceID == "" {
-			workspaceID = strings.TrimSpace(current.Session.CurrentWorkspaceID)
-		}
-		if err := s.requireOnboardingOrganizationAdmin(ctx, current.Session.UserID, state.OrgID, workspaceID); err != nil {
+		if err := s.requireOnboardingOrganizationAdmin(ctx, current.Session.UserID, state.OrgID); err != nil {
 			return db.OnboardingState{}, err
 		}
 	}
@@ -353,13 +387,33 @@ func (s *Service) requireOnboardingWorkspaceAdmin(ctx context.Context, userID st
 	}
 }
 
-func (s *Service) requireOnboardingOrganizationAdmin(ctx context.Context, userID string, orgID string, workspaceID string) error {
-	workspaceID = strings.TrimSpace(workspaceID)
-	if strings.TrimSpace(orgID) == "" || workspaceID == "" {
+// requireOnboardingOrganizationAdmin authorizes a repeat organization-step
+// write. A brand-new tenant created by this user's own onboarding flow has no
+// workspace membership yet — that user is still the legitimate creator and may
+// refine the org name/slug. Only once the user actually belongs to a workspace
+// in the tenant is the owner/admin gate enforced (so a viewer who resumed onto
+// an existing org cannot rename it).
+func (s *Service) requireOnboardingOrganizationAdmin(ctx context.Context, userID string, orgID string) error {
+	orgID = strings.TrimSpace(orgID)
+	if orgID == "" {
 		return ErrOnboardingWorkspaceAccessDenied
 	}
-	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: orgID, WorkspaceID: workspaceID})
-	return s.requireOnboardingWorkspaceAdmin(scopedCtx, userID, workspaceID)
+	member, err := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, strings.TrimSpace(userID), orgID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	if member.Status != "active" {
+		return ErrOnboardingWorkspaceAccessDenied
+	}
+	switch member.Role {
+	case "owner", "admin":
+		return nil
+	default:
+		return ErrOnboardingWorkspaceAccessDenied
+	}
 }
 
 func (s *Service) onboardingNow() time.Time {

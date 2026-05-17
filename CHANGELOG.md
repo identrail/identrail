@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Hardened the first-use onboarding journey so a newly signed-in user reliably
+  ends up with a usable, scoped workspace:
+  - `StartOnboarding` now reconciles an unbound onboarding row against an
+    existing active workspace membership (partial first attempt, or an
+    admin-provisioned user), so refreshes and second tabs resume the correct
+    step instead of forking a duplicate tenant/workspace.
+  - The organization step can be re-submitted by the onboarding creator before
+    a workspace exists (e.g. correcting a typo) instead of failing with a
+    spurious "workspace access denied"; the owner/admin gate still applies once
+    the user actually belongs to a workspace in the tenant, so a resumed viewer
+    still cannot rename the org.
+  - Added end-to-end coverage proving a brand-new user reaches a workspace where
+    `/v1/me`, the workspaces list, the members list (active owner), the default
+    project, and the scoped `/app/<org>/<workspace>` redirect all agree, and
+    that re-running start is idempotent.
 - Redesigned the product page as a full-bleed Vercel-style surface with a dark hero, spread-out trust graph connections, alternating neutral sections, and no centered container around the main product story.
 - Exposed backend feature availability to the frontend so the web bundle no
   longer shows a backend-gated self-serve flow purely from a Vite build flag:
