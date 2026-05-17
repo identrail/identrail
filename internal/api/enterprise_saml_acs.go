@@ -307,8 +307,13 @@ func loadNativeSAMLConnectionForLogin(c *gin.Context, svc *Service, logger *zap.
 		c.JSON(http.StatusNotFound, gin.H{"error": "saml connection not found"})
 		return db.IdentityConnection{}, false
 	}
-	if conn.Status == "disabled" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "saml connection is disabled"})
+	// Only `active` connections are usable for login. Pending connections
+	// (the post-create default) must be promoted by an admin before the
+	// unauthenticated /auth/saml/login route will accept them — otherwise
+	// a half-configured trust could be exploited before the operator has
+	// verified the IdP handshake. Disabled connections are also rejected.
+	if conn.Status != "active" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "saml connection is not active"})
 		return db.IdentityConnection{}, false
 	}
 	return conn, true

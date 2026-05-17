@@ -487,6 +487,34 @@ func TestSAMLRelayStore_RoundTripAndOneShotConsume(t *testing.T) {
 	}
 }
 
+func TestSAMLACSHandler_RejectsPendingConnection(t *testing.T) {
+	// Connections in the post-create `pending` state must not accept logins
+	// until an admin has validated the IdP handshake and promoted them to
+	// `active`. Without this gate a half-configured trust could be exploited
+	// before the operator has verified it works.
+	svc, conn, _, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	// Downgrade the seeded connection to pending.
+	conn.Status = "pending"
+	if _, err := svc.Store.UpdateIdentityConnection(context.Background(), conn); err != nil {
+		t.Fatalf("downgrade connection: %v", err)
+	}
+
+	router := gin.New()
+	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
+		Enabled:       true,
+		StateManager:  stateMgr,
+		RelayStore:    relayStore,
+		PublicBaseURL: "https://api.example.com",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/saml/login/"+conn.ID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for pending connection, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 // ---------- attribute mapping ----------
 
 func TestSAMLProfileFromAssertion_FallsBackToNameIDWhenEmailUnmapped(t *testing.T) {
