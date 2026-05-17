@@ -233,7 +233,6 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
     config?.auth.workos_login_enabled === true
       ? HOSTED_PROVIDERS.filter((provider) => providerIDs.includes(provider.id))
       : [];
-  const visibleHostedProviders = loadingConfig && !config ? HOSTED_PROVIDERS : hostedProviders;
   const title = intent === 'signup' ? 'Your first trust graph is just a sign-up away.' : 'Log in to Identrail';
   const switchLink = intent === 'signup' ? '/signin' : '/signup';
   const switchAction = intent === 'signup' ? 'Log In' : 'Sign Up';
@@ -261,9 +260,9 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
 
           {configError ? <p className="idt-app-alert idt-app-alert-error">{configError}</p> : null}
 
-          {visibleHostedProviders.length > 0 ? (
+          {hostedProviders.length > 0 ? (
             <div className="idt-auth-provider-stack">
-              {visibleHostedProviders.map((provider) => (
+              {hostedProviders.map((provider) => (
                 <a
                   key={provider.id}
                   className={`idt-auth-provider idt-auth-provider-${provider.icon}`}

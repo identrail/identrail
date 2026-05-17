@@ -434,16 +434,16 @@ describe('App', () => {
     );
   });
 
-  it('shows hosted auth options immediately while auth config loads', () => {
+  it('does not show loading copy or provider actions while auth config loads', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
 
     setCurrentPath('/signup');
     render(<App />);
 
     expect(screen.getByRole('heading', { level: 1, name: /Your first trust graph/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Continue with Google/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Continue with SAML SSO/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Continue with Google/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Continue with GitHub/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Continue with SAML SSO/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Loading authentication/i)).not.toBeInTheDocument();
   });
 
