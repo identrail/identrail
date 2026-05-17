@@ -62,11 +62,24 @@ func onboardingRequest(router http.Handler, cookieValue string, method string, p
 	return w
 }
 
-func TestOnboardingRoutesHiddenWhenFeatureDisabled(t *testing.T) {
+func TestOnboardingRoutesReturnJSONWhenFeatureDisabled(t *testing.T) {
 	_, router, cookieValue := setupOnboardingRouter(t, false)
+
+	unauthenticated := httptest.NewRecorder()
+	router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPost, "/v1/onboarding/start", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated onboarding request 401, got %d body=%s", unauthenticated.Code, unauthenticated.Body.String())
+	}
+	if !strings.Contains(unauthenticated.Body.String(), `"error":"unauthorized"`) {
+		t.Fatalf("expected JSON unauthorized error, got %s", unauthenticated.Body.String())
+	}
+
 	w := onboardingRequest(router, cookieValue, http.MethodPost, "/v1/onboarding/start", "")
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected onboarding route to be hidden, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected disabled onboarding route to return 503 JSON, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"error":"onboarding disabled"`) {
+		t.Fatalf("expected disabled onboarding error, got %s", w.Body.String())
 	}
 }
 
@@ -387,6 +400,15 @@ func TestOnboardingRoutesRequireSessionAndService(t *testing.T) {
 	}
 	if serviceUnavailable.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected unavailable onboarding service 503, got %d body=%s", serviceUnavailable.Code, serviceUnavailable.Body.String())
+	}
+
+	featureDisabled := httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(featureDisabled)
+	if requireOnboardingFeature(c, false) {
+		t.Fatal("expected disabled onboarding feature to fail")
+	}
+	if featureDisabled.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected disabled onboarding feature 503, got %d body=%s", featureDisabled.Code, featureDisabled.Body.String())
 	}
 }
 

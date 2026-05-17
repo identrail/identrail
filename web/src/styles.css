@@ -13936,6 +13936,14 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   box-shadow: none;
 }
 
+.idt-scan-form .idt-intake-grid input:focus-visible,
+.idt-scan-form .idt-intake-grid select:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
+}
+
 .idt-scan-form .idt-intake-grid input::placeholder {
   color: #71717a;
 }
@@ -14056,6 +14064,13 @@ html[data-theme='light'] .idt-scan-form .idt-intake-grid select {
   background-color: #050505;
   color: #ffffff;
   box-shadow: none;
+}
+
+html[data-theme='light'] .idt-scan-form .idt-intake-grid input:focus-visible,
+html[data-theme='light'] .idt-scan-form .idt-intake-grid select:focus-visible {
+  outline-color: #ffffff;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
 }
 
 html[data-theme='light'] .idt-scan-form .idt-intake-grid select,
