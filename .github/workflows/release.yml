@@ -219,6 +219,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push images
         shell: bash
         run: |
@@ -226,6 +232,7 @@ jobs:
 
           owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           base="ghcr.io/${owner}/identrail"
+          docker_base="docker.io/identrail/identrail"
           tag="${{ needs.prepare.outputs.tag }}"
           publish_latest="${{ needs.prepare.outputs.publish_latest }}"
           source_url="${{ github.server_url }}/${{ github.repository }}"
@@ -317,11 +324,12 @@ jobs:
             shift
             shift
             local image="${base}-${name}"
+            local docker_image="${docker_base}-${name}"
             local args=("$@")
 
-            local tags=("-t" "${image}:${tag}")
+            local tags=("-t" "${image}:${tag}" "-t" "${docker_image}:${tag}")
             if [ "${publish_latest}" = "true" ]; then
-              tags+=("-t" "${image}:latest")
+              tags+=("-t" "${image}:latest" "-t" "${docker_image}:latest")
             fi
 
             docker buildx build \
@@ -335,14 +343,26 @@ jobs:
               "${tags[@]}" \
               "${args[@]}"
 
-            digest="$(docker buildx imagetools inspect "${image}:${tag}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
-            printf '%s\n' "${image}:${tag}@${digest}" >> dist/image-digests.txt
+            for image_ref in "${image}" "${docker_image}"; do
+              digest="$(docker buildx imagetools inspect "${image_ref}:${tag}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+              printf '%s\n' "${image_ref}:${tag}@${digest}" >> dist/image-digests.txt
+            done
           }
 
           build_server() {
-            local tags=("-t" "${base}:${tag}" "-t" "${base}-api:${tag}")
+            local tags=(
+              "-t" "${base}:${tag}"
+              "-t" "${base}-api:${tag}"
+              "-t" "${docker_base}:${tag}"
+              "-t" "${docker_base}-api:${tag}"
+            )
             if [ "${publish_latest}" = "true" ]; then
-              tags+=("-t" "${base}:latest" "-t" "${base}-api:latest")
+              tags+=(
+                "-t" "${base}:latest"
+                "-t" "${base}-api:latest"
+                "-t" "${docker_base}:latest"
+                "-t" "${docker_base}-api:latest"
+              )
             fi
 
             docker buildx build \
@@ -359,7 +379,7 @@ jobs:
               --build-arg TARGET=server \
               .
 
-            for image in "${base}" "${base}-api"; do
+            for image in "${base}" "${base}-api" "${docker_base}" "${docker_base}-api"; do
               digest="$(docker buildx imagetools inspect "${image}:${tag}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
               printf '%s\n' "${image}:${tag}@${digest}" >> dist/image-digests.txt
             done

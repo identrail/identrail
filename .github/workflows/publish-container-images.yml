@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Build and Publish GHCR Images
+    name: Build and Publish Container Images
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -44,6 +44,7 @@ jobs:
           sha_tag="sha-${source_sha::12}"
 
           echo "base=ghcr.io/${owner}/identrail" >> "${GITHUB_OUTPUT}"
+          echo "docker_base=docker.io/identrail/identrail" >> "${GITHUB_OUTPUT}"
           echo "channel_tag=dev" >> "${GITHUB_OUTPUT}"
           echo "sha_tag=${sha_tag}" >> "${GITHUB_OUTPUT}"
           echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
@@ -63,12 +64,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push images
         shell: bash
         run: |
           set -euo pipefail
 
           base="${{ steps.meta.outputs.base }}"
+          docker_base="${{ steps.meta.outputs.docker_base }}"
           channel_tag="${{ steps.meta.outputs.channel_tag }}"
           sha_tag="${{ steps.meta.outputs.sha_tag }}"
           source_url="${{ github.server_url }}/${{ github.repository }}"
@@ -97,6 +105,10 @@ jobs:
             -t "${base}:${sha_tag}" \
             -t "${base}-api:${channel_tag}" \
             -t "${base}-api:${sha_tag}" \
+            -t "${docker_base}:${channel_tag}" \
+            -t "${docker_base}:${sha_tag}" \
+            -t "${docker_base}-api:${channel_tag}" \
+            -t "${docker_base}-api:${sha_tag}" \
             -f deploy/docker/Dockerfile.backend \
             --build-arg TARGET=server \
             .
@@ -109,6 +121,8 @@ jobs:
             --label "org.opencontainers.image.description=Identrail background scan worker" \
             -t "${base}-worker:${channel_tag}" \
             -t "${base}-worker:${sha_tag}" \
+            -t "${docker_base}-worker:${channel_tag}" \
+            -t "${docker_base}-worker:${sha_tag}" \
             -f deploy/docker/Dockerfile.backend \
             --build-arg TARGET=worker \
             .
@@ -121,6 +135,8 @@ jobs:
             --label "org.opencontainers.image.description=Identrail Kubernetes connector agent" \
             -t "${base}-agent:${channel_tag}" \
             -t "${base}-agent:${sha_tag}" \
+            -t "${docker_base}-agent:${channel_tag}" \
+            -t "${docker_base}-agent:${sha_tag}" \
             -f deploy/docker/Dockerfile.backend \
             --build-arg TARGET=identrail-agent \
             .
@@ -133,6 +149,8 @@ jobs:
             --label "org.opencontainers.image.description=Identrail web dashboard for local image evaluation" \
             -t "${base}-web:${channel_tag}" \
             -t "${base}-web:${sha_tag}" \
+            -t "${docker_base}-web:${channel_tag}" \
+            -t "${docker_base}-web:${sha_tag}" \
             -f deploy/docker/Dockerfile.web \
             --build-arg "VITE_IDENTRAIL_API_URL=${{ steps.meta.outputs.web_api_url }}" \
             --build-arg "VITE_ALLOW_MANUAL_PRODUCT_SESSION=true" \
