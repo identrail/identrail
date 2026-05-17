@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CurrentUserContext } from './api/client';
+import type { BackendFeatureState } from './hooks/useBackendFeatures';
 
 const loggedInWithoutWorkspace: CurrentUserContext = {
   user: {
@@ -14,7 +15,7 @@ const loggedInWithoutWorkspace: CurrentUserContext = {
   }
 };
 
-async function renderProductIndexRedirect(featureEnabled: boolean) {
+async function renderProductIndexRedirect(featureEnabled: boolean, backendOnboarding: BackendFeatureState) {
   vi.resetModules();
   vi.doMock('./hooks/useMe', () => ({
     useMe: () => ({
@@ -28,6 +29,19 @@ async function renderProductIndexRedirect(featureEnabled: boolean) {
   vi.doMock('./pages/onboarding/onboardingUtils', () => ({
     FEATURE_ONBOARDING_WIZARD: featureEnabled
   }));
+  vi.doMock('./hooks/useBackendFeatures', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./hooks/useBackendFeatures')>();
+    return {
+      ...actual,
+      useBackendFeatures: () => ({
+        features: {
+          onboardingWizard: backendOnboarding,
+          connectors: { github: undefined, aws: undefined, kubernetes: undefined }
+        },
+        loading: false
+      })
+    };
+  });
 
   const { ProductAppIndexRedirect } = await import('./productShell');
 
@@ -46,18 +60,34 @@ describe('ProductAppIndexRedirect', () => {
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useMe');
     vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.doUnmock('./hooks/useBackendFeatures');
     vi.resetModules();
   });
 
-  it('starts self-serve onboarding for logged-in users without a workspace when the wizard is enabled', async () => {
-    await renderProductIndexRedirect(true);
+  it('starts self-serve onboarding when the bundle and API both enable it', async () => {
+    await renderProductIndexRedirect(true, true);
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Start onboarding' })).toBeInTheDocument();
     expect(screen.queryByText(/No workspace is attached yet/i)).not.toBeInTheDocument();
   });
 
-  it('keeps the explicit workspace-required state when self-serve onboarding is disabled', async () => {
-    await renderProductIndexRedirect(false);
+  it('falls back to the bundle flag when the API does not advertise onboarding', async () => {
+    await renderProductIndexRedirect(true, undefined);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Start onboarding' })).toBeInTheDocument();
+  });
+
+  it('shows a clear unavailable state instead of a 404 when the API lacks onboarding', async () => {
+    await renderProductIndexRedirect(true, false);
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Self-serve onboarding is not enabled on this API/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Start onboarding' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the explicit workspace-required state when the bundle disables onboarding', async () => {
+    await renderProductIndexRedirect(false, undefined);
 
     expect(await screen.findByRole('heading', { level: 1, name: /No workspace is attached yet/i })).toBeInTheDocument();
   });

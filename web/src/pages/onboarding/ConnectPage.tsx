@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { apiClient, type OnboardingState } from '../../api/client';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';
+import { isFeatureAvailable, useBackendFeatures } from '../../hooks/useBackendFeatures';
 import {
   FEATURE_ONBOARDING_CONNECTOR_AWS,
   FEATURE_ONBOARDING_CONNECTOR_GITHUB,
@@ -15,44 +16,64 @@ import {
   type OnboardingProvider
 } from './onboardingUtils';
 
-const PROVIDERS: Array<{
+const PROVIDER_META: Array<{
   id: OnboardingProvider;
   name: string;
   signal: string;
   detail: string;
-  enabled: boolean;
+  viteFlag: boolean;
 }> = [
   {
     id: 'aws',
     name: 'AWS',
     signal: 'IAM roles, trust policies, account paths',
     detail: 'Best first source for cloud identity blast-radius discovery.',
-    enabled: FEATURE_ONBOARDING_CONNECTOR_AWS
+    viteFlag: FEATURE_ONBOARDING_CONNECTOR_AWS
   },
   {
     id: 'kubernetes',
     name: 'Kubernetes',
     signal: 'Service accounts, RBAC, workload identity',
     detail: 'Use when cluster access and service account paths matter most.',
-    enabled: FEATURE_ONBOARDING_CONNECTOR_K8S
+    viteFlag: FEATURE_ONBOARDING_CONNECTOR_K8S
   },
   {
     id: 'github',
     name: 'GitHub',
     signal: 'Repositories, workflow identity, webhook scans',
     detail: 'Use when code and OIDC workflow access are the first security boundary.',
-    enabled: FEATURE_ONBOARDING_CONNECTOR_GITHUB
+    viteFlag: FEATURE_ONBOARDING_CONNECTOR_GITHUB
   }
 ];
 
 export function ConnectPage() {
   const navigate = useNavigate();
-  const enabledProviders = useMemo(() => PROVIDERS.filter((provider) => provider.enabled), []);
+  const { features } = useBackendFeatures();
+  const providers = useMemo(
+    () =>
+      PROVIDER_META.map((meta) => ({
+        ...meta,
+        enabled: isFeatureAvailable(meta.viteFlag, features.connectors[meta.id])
+      })),
+    [features]
+  );
+  const enabledProviders = useMemo(() => providers.filter((provider) => provider.enabled), [providers]);
   const [state, setState] = useState<OnboardingState | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState<OnboardingProvider>(enabledProviders[0]?.id ?? 'aws');
+  const [selectedProvider, setSelectedProvider] = useState<OnboardingProvider>('aws');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const enabledProviderIdsRef = useRef<OnboardingProvider[]>([]);
+  enabledProviderIdsRef.current = enabledProviders.map((provider) => provider.id);
+
+  // Keep the selection on an actionable connector once API-discovered
+  // availability resolves (the bundle may ship a connector the API lacks).
+  useEffect(() => {
+    if (enabledProviders.length && !enabledProviders.some((provider) => provider.id === selectedProvider)) {
+      setSelectedProvider(enabledProviders[0].id);
+    }
+  }, [enabledProviders, selectedProvider]);
 
   useEffect(() => {
     if (!FEATURE_ONBOARDING_WIZARD) {
@@ -76,7 +97,7 @@ export function ConnectPage() {
         if (routeToOnboardingStep(navigate, response, '/onboarding/connect', '/onboarding/connect')) {
           return;
         }
-        if (nextState.connector_type && enabledProviders.some((provider) => provider.id === nextState.connector_type)) {
+        if (nextState.connector_type && enabledProviderIdsRef.current.includes(nextState.connector_type)) {
           setSelectedProvider(nextState.connector_type);
         }
       } catch (requestError) {
@@ -94,7 +115,7 @@ export function ConnectPage() {
     return () => {
       mounted = false;
     };
-  }, [enabledProviders, navigate]);
+  }, [navigate]);
 
   if (!FEATURE_ONBOARDING_WIZARD) {
     return <Navigate to="/app" replace />;
@@ -179,7 +200,7 @@ export function ConnectPage() {
         </div>
       ) : null}
       <div className="idt-onboarding-provider-grid">
-        {PROVIDERS.map((provider) => (
+        {providers.map((provider) => (
           <button
             type="button"
             key={provider.id}
@@ -189,7 +210,13 @@ export function ConnectPage() {
           >
             <span>{provider.name}</span>
             <strong>{provider.signal}</strong>
-            <small>{provider.enabled ? provider.detail : 'Enable the connector feature flag to use this source.'}</small>
+            <small>
+              {provider.enabled
+                ? provider.detail
+                : provider.viteFlag
+                  ? 'Not available on this API server.'
+                  : 'Not included in this web build.'}
+            </small>
           </button>
         ))}
       </div>

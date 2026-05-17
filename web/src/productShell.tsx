@@ -29,6 +29,7 @@ import {
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { useMe } from './hooks/useMe';
 import { FEATURE_ONBOARDING_WIZARD } from './pages/onboarding/onboardingUtils';
+import { OnboardingUnavailableNotice, useOnboardingAvailable } from './components/onboarding/OnboardingAvailability';
 import {
   buildRepoFindingSelectionKey,
   findRepoFindingBySelectionKey,
@@ -782,6 +783,7 @@ export function ProductLogoutPage() {
 
 export function ProductAppIndexRedirect() {
   const { me, loading, error, unauthenticated } = useMe();
+  const onboardingAvailable = useOnboardingAvailable();
   if (loading) {
     return <AppShellLoading message="Resolving workspace scope" />;
   }
@@ -800,8 +802,17 @@ export function ProductAppIndexRedirect() {
     );
   }
   if (!me?.org_id || !me.workspace_id) {
-    if (FEATURE_ONBOARDING_WIZARD) {
+    if (onboardingAvailable === undefined) {
+      return <AppShellLoading message="Resolving workspace scope" />;
+    }
+    if (onboardingAvailable) {
       return <Navigate to="/onboarding/org" replace />;
+    }
+    if (FEATURE_ONBOARDING_WIZARD) {
+      // The web bundle ships the wizard but the API does not register the
+      // onboarding routes. Show a clear state instead of redirecting into a
+      // flow that would fail with a raw 404.
+      return <OnboardingUnavailableNotice />;
     }
     return (
       <section className="idt-app-shell-screen">

@@ -347,7 +347,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	publicV1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	publicV1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
 	if opts.FeatureNewAuth {
-		registerAuthConfigRoute(publicV1, opts.AuthManualMode, opts.FeatureWorkOSLogin, opts.FeatureNativeSSO)
+		registerAuthConfigRoute(publicV1, opts.AuthManualMode, opts.FeatureWorkOSLogin, opts.FeatureNativeSSO, authConfigFeatures{
+			OnboardingWizard: opts.FeatureOnboardingWizard,
+			ConnectorGitHub:  opts.FeatureConnectorGitHubV2,
+			ConnectorAWS:     opts.FeatureConnectorAWS,
+			ConnectorK8S:     opts.FeatureConnectorK8S,
+		})
 	}
 	registerKubernetesAgentRoutes(publicV1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 

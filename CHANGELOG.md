@@ -2,6 +2,19 @@
 
 ## Unreleased
 - Redesigned the product page as a full-bleed Vercel-style surface with a dark hero, spread-out trust graph connections, alternating neutral sections, and no centered container around the main product story.
+- Exposed backend feature availability to the frontend so the web bundle no
+  longer shows a backend-gated self-serve flow purely from a Vite build flag:
+  - `/v1/auth/config` now returns a `features` object (`onboarding_wizard` and
+    per-connector `github`/`aws`/`kubernetes` booleans). It is additive and
+    session-safe — only availability booleans, never credentials or config.
+  - The app discovers onboarding/connector availability from the API before
+    entering those flows. When the bundle ships a feature the API does not
+    serve, it shows a clear "not enabled on this API" state instead of a raw
+    `Request failed (404)`, and the onboarding connector picker marks such
+    connectors unavailable rather than actionable.
+  - Resilient by design: an older API without `features`, or a failed
+    `auth/config` call, falls back to the existing Vite-flag behavior; the
+    strict block only applies when the API explicitly reports a route missing.
 - Redesigned the read-only scan intake page with a full-width black Vercel-style hero, sharper SpaceX-inspired headline typography, and high-contrast intake controls with no blurred or gradient details.
 - Extended the production API preflight (`make production-api-preflight`) to probe
   `POST /v1/onboarding/start` so the frontend onboarding wizard cannot be wired

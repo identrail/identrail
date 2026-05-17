@@ -1366,6 +1366,26 @@ paths:
                         type: array
                         items:
                           type: string
+                  features:
+                    type: object
+                    description: >-
+                      Backend-gated, self-serve feature availability so the web
+                      bundle does not show a flow the API cannot serve. Carries
+                      only availability booleans; never credentials or config.
+                    required: [onboarding_wizard, connectors]
+                    properties:
+                      onboarding_wizard:
+                        type: boolean
+                      connectors:
+                        type: object
+                        required: [github, aws, kubernetes]
+                        properties:
+                          github:
+                            type: boolean
+                          aws:
+                            type: boolean
+                          kubernetes:
+                            type: boolean
   /v1/onboarding/start:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

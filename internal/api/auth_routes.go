@@ -82,7 +82,18 @@ func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, 
 	})
 }
 
-func registerAuthConfigRoute(v1 *gin.RouterGroup, manualMode bool, workOSEnabled bool, nativeSSOEnabled bool) {
+// authConfigFeatures advertises whether backend-gated, self-serve flows are
+// actually registered on this API. It exists so the web bundle can avoid
+// showing an onboarding/connector flow that the API cannot serve. It carries
+// only availability booleans — never credentials, secrets, or provider config.
+type authConfigFeatures struct {
+	OnboardingWizard bool
+	ConnectorGitHub  bool
+	ConnectorAWS     bool
+	ConnectorK8S     bool
+}
+
+func registerAuthConfigRoute(v1 *gin.RouterGroup, manualMode bool, workOSEnabled bool, nativeSSOEnabled bool, features authConfigFeatures) {
 	v1.GET("/auth/config", func(c *gin.Context) {
 		providers := []string{}
 		if workOSEnabled {
@@ -101,6 +112,14 @@ func registerAuthConfigRoute(v1 *gin.RouterGroup, manualMode bool, workOSEnabled
 				"workos_login_enabled": workOSEnabled,
 				"native_saml_enabled":  nativeSSOEnabled,
 				"providers":            providers,
+			},
+			"features": gin.H{
+				"onboarding_wizard": features.OnboardingWizard,
+				"connectors": gin.H{
+					"github":     features.ConnectorGitHub,
+					"aws":        features.ConnectorAWS,
+					"kubernetes": features.ConnectorK8S,
+				},
 			},
 		})
 	})

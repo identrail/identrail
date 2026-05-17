@@ -179,6 +179,17 @@ export type AuthConfigResponse = {
     native_saml_enabled: boolean;
     providers: string[];
   };
+  // Advertised by the API so the web bundle does not show a backend-gated
+  // self-serve flow the API cannot serve. Optional for resilience against an
+  // older API that predates this contract.
+  features?: {
+    onboarding_wizard: boolean;
+    connectors: {
+      github: boolean;
+      aws: boolean;
+      kubernetes: boolean;
+    };
+  };
 };
 
 export type CurrentUser = {

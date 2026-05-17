@@ -195,6 +195,40 @@ describe('onboarding pages', () => {
     });
   });
 
+  it('marks connectors the API does not serve as unavailable', async () => {
+    const { apiClient, ConnectPage } = await loadOnboardingModules();
+    const { resetBackendFeaturesCacheForTests } = await import('../../hooks/useBackendFeatures');
+    resetBackendFeaturesCacheForTests();
+
+    vi.spyOn(apiClient, 'getAuthConfig').mockResolvedValue({
+      auth: { manual_mode: false, workos_login_enabled: true, native_saml_enabled: false, providers: [] },
+      features: {
+        onboarding_wizard: true,
+        connectors: { github: false, aws: true, kubernetes: false }
+      }
+    });
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'connect',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/connect'
+    });
+
+    renderOnboarding(<ConnectPage />, '/onboarding/connect');
+
+    const githubButton = await screen.findByRole('button', { name: /GitHub/i });
+    await waitFor(() => {
+      expect(githubButton).toBeDisabled();
+    });
+    expect(githubButton).toHaveTextContent('Not available on this API server.');
+
+    const awsButton = screen.getByRole('button', { name: /AWS/i });
+    expect(awsButton).toBeEnabled();
+  });
+
   it('continues after a successful first scan', async () => {
     const { apiClient, ScanPage } = await loadOnboardingModules();
     vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({

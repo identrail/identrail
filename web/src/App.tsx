@@ -22,7 +22,7 @@ import { InvitePage } from './pages/onboarding/InvitePage';
 import { OrgPage } from './pages/onboarding/OrgPage';
 import { ScanPage } from './pages/onboarding/ScanPage';
 import { WorkspacePage } from './pages/onboarding/WorkspacePage';
-import { FEATURE_ONBOARDING_WIZARD } from './pages/onboarding/onboardingUtils';
+import { RequireOnboardingBackend } from './components/onboarding/OnboardingAvailability';
 import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
@@ -3678,7 +3678,9 @@ export function RoutedSite() {
             path="/onboarding/org"
             element={
               <RequireProductAuth>
-                {FEATURE_ONBOARDING_WIZARD ? <OrgPage /> : <ProductAppIndexRedirect />}
+                <RequireOnboardingBackend fallback={<ProductAppIndexRedirect />}>
+                  <OrgPage />
+                </RequireOnboardingBackend>
               </RequireProductAuth>
             }
           />
@@ -3686,7 +3688,9 @@ export function RoutedSite() {
             path="/onboarding/workspace"
             element={
               <RequireProductAuth>
-                {FEATURE_ONBOARDING_WIZARD ? <WorkspacePage /> : <ProductAppIndexRedirect />}
+                <RequireOnboardingBackend fallback={<ProductAppIndexRedirect />}>
+                  <WorkspacePage />
+                </RequireOnboardingBackend>
               </RequireProductAuth>
             }
           />
@@ -3694,7 +3698,9 @@ export function RoutedSite() {
             path="/onboarding/connect"
             element={
               <RequireProductAuth>
-                {FEATURE_ONBOARDING_WIZARD ? <ConnectPage /> : <ProductAppIndexRedirect />}
+                <RequireOnboardingBackend fallback={<ProductAppIndexRedirect />}>
+                  <ConnectPage />
+                </RequireOnboardingBackend>
               </RequireProductAuth>
             }
           />
@@ -3702,7 +3708,9 @@ export function RoutedSite() {
             path="/onboarding/scan"
             element={
               <RequireProductAuth>
-                {FEATURE_ONBOARDING_WIZARD ? <ScanPage /> : <ProductAppIndexRedirect />}
+                <RequireOnboardingBackend fallback={<ProductAppIndexRedirect />}>
+                  <ScanPage />
+                </RequireOnboardingBackend>
               </RequireProductAuth>
             }
           />
@@ -3710,7 +3718,9 @@ export function RoutedSite() {
             path="/onboarding/invite"
             element={
               <RequireProductAuth>
-                {FEATURE_ONBOARDING_WIZARD ? <InvitePage /> : <ProductAppIndexRedirect />}
+                <RequireOnboardingBackend fallback={<ProductAppIndexRedirect />}>
+                  <InvitePage />
+                </RequireOnboardingBackend>
               </RequireProductAuth>
             }
           />
