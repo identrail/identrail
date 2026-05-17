@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Redesigned the read-only scan intake page with a full-width black Vercel-style hero, sharper SpaceX-inspired headline typography, and high-contrast intake controls with no blurred or gradient details.
 - Kept authenticated onboarding API routes registered when the onboarding feature flag is off, returning JSON `401` or `503` responses instead of a raw framework `404` so production flag mismatches are visible and diagnosable.
 - Added the `GET /v1/enterprise/reports/executive` endpoint returning the organization's leadership rollup (open volume by severity, top finding types, week-over-week trend, and MTTR):
   - calls the shipped `BuildExecutiveReport` builder; JSON only, no server-side PDF generation
