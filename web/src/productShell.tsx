@@ -2640,11 +2640,18 @@ export function ProductProjectDetailPage() {
   };
 
   const refreshRecentRepoScans = async (targetScope: ProductSession, mode: 'silent' | 'interactive' = 'silent') => {
+    const requestSequence = refreshSequenceRef.current;
     try {
       const auth = buildProductAuthContext(targetScope);
       const response = await apiClient.listRepoScans({ limit: 8 }, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       setRecentRepoScans(response.items ?? []);
     } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
       if (mode === 'interactive') {
         setRepoScanError(error instanceof Error ? error.message : 'Unable to refresh recent repository scans.');
       }
@@ -3083,9 +3090,7 @@ export function ProductProjectDetailPage() {
       }
       setRepoScanError(formatRepoScanSubmitError(error));
     } finally {
-      if (!isStaleRequestSequence(requestSequence)) {
-        setRepoScanSubmitting(false);
-      }
+      setRepoScanSubmitting(false);
     }
   };
 
@@ -3201,7 +3206,7 @@ export function ProductProjectDetailPage() {
           onClick={() => {
             void refreshConnections(true);
           }}
-          disabled={backendFeaturesLoading || refreshing || submitting !== ''}
+          disabled={backendFeaturesLoading || refreshing || submitting !== '' || repoScanSubmitting}
         >
           {refreshing ? 'Refreshing...' : 'Refresh status'}
         </button>
