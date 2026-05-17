@@ -994,9 +994,9 @@ export function ProductOverviewPage() {
             <p>{archivedProjects > 0 ? `${archivedProjects} archived` : 'All listed projects are active'}</p>
           </article>
           <article>
-            <span>Open findings</span>
+            <span>Priority findings</span>
             <strong>{openFindingCount}</strong>
-            <p>{urgentFindingCount} critical or high priority</p>
+            <p>{urgentFindingCount} critical or high in the ranked queue</p>
           </article>
           <article>
             <span>Recent scans</span>

@@ -317,6 +317,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
     expect(await screen.findByText(/Open risk/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Priority findings/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
     expect(await screen.findByText(/Latest scan total 4/i)).toBeInTheDocument();
