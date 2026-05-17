@@ -293,9 +293,33 @@ describe('web/api/leads handler', () => {
     });
   });
 
+  it('requires an explicit sender address for Resend delivery', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          environment: 'AWS IAM + Kubernetes'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({ error: 'Lead capture is not configured.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('can disable requester confirmation while still notifying the team', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
     process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
     process.env.LEAD_CONFIRMATION_ENABLED = 'false';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
@@ -319,6 +343,7 @@ describe('web/api/leads handler', () => {
   it('returns 502 when Resend email delivery fails', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
     process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: false }));
     vi.stubGlobal('fetch', fetchMock);
 

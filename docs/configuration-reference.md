@@ -184,7 +184,7 @@ For the standard hosted setup, configure Resend:
 
 - `RESEND_API_KEY` (required for direct email delivery)
 - `LEAD_NOTIFY_TO` (required with Resend; comma-separated internal recipients such as `sales@identrail.com,security@identrail.com`)
-- `LEAD_EMAIL_FROM` (default: `Identrail <onboarding@resend.dev>`; use a verified Identrail domain in production)
+- `LEAD_EMAIL_FROM` (required with Resend; use a verified Identrail sender such as `Identrail <scan@identrail.com>`)
 - `LEAD_REPLY_TO` (optional; defaults to the submitter for internal notifications and the first `LEAD_NOTIFY_TO` address for confirmations)
 - `LEAD_EMAIL_SUBJECT_PREFIX` (default: `Identrail`)
 - `LEAD_CONFIRMATION_ENABLED` (default: `true`; set `false` to skip the requester confirmation email)

@@ -34,7 +34,6 @@ const MAX_PAGE_PATH_LENGTH = 240;
 const MAX_TEAM_SIZE_LENGTH = 16;
 const MAX_URGENCY_LENGTH = 32;
 const MAX_DEPLOYMENT_MODEL_LENGTH = 64;
-const DEFAULT_EMAIL_FROM = 'Identrail <onboarding@resend.dev>';
 const RESEND_EMAILS_URL = 'https://api.resend.com/emails';
 const leadRequestBuckets = new Map<string, number[]>();
 
@@ -333,11 +332,11 @@ async function sendLeadEmails({
 }): Promise<'not_configured' | 'sent' | 'failed'> {
   const apiKey = env.RESEND_API_KEY?.trim();
   const notifyTo = parseEmailList(env.LEAD_NOTIFY_TO);
-  if (!apiKey || notifyTo.length === 0) {
+  const from = env.LEAD_EMAIL_FROM?.trim();
+  if (!apiKey || notifyTo.length === 0 || !from) {
     return 'not_configured';
   }
 
-  const from = env.LEAD_EMAIL_FROM?.trim() || DEFAULT_EMAIL_FROM;
   const replyTo = env.LEAD_REPLY_TO?.trim() || payload.email;
   const subjectPrefix = env.LEAD_EMAIL_SUBJECT_PREFIX?.trim() || 'Identrail';
   const notificationSent = await postResendEmail({
@@ -494,7 +493,11 @@ export default async function handler(
 
   const payloadJSON = JSON.stringify(payload);
   const requestID = randomUUID();
-  const emailConfigured = Boolean(env.RESEND_API_KEY?.trim() && parseEmailList(env.LEAD_NOTIFY_TO).length > 0);
+  const emailConfigured = Boolean(
+    env.RESEND_API_KEY?.trim() &&
+      parseEmailList(env.LEAD_NOTIFY_TO).length > 0 &&
+      env.LEAD_EMAIL_FROM?.trim()
+  );
   if (!emailConfigured && !webhookURL) {
     res.status(503).json({ error: 'Lead capture is not configured.' });
     return;
