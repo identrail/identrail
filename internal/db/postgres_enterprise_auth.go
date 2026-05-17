@@ -449,7 +449,10 @@ func (p *PostgresStore) CreateSAMLRelayState(ctx context.Context, state SAMLRela
 	if state.ExpiresAt.IsZero() {
 		return SAMLRelayState{}, fmt.Errorf("saml relay state requires expires_at")
 	}
-	saved, err := scanSAMLRelayState(p.queryRowContext(
+	// /auth/saml/login is unauthenticated, so the request context has no
+	// db.WithScope. Use the AnyScope path so RLS-enforced deployments do not
+	// short-circuit with ErrScopeRequired before the row is written.
+	saved, err := scanSAMLRelayState(p.queryRowContextAnyScope(
 		ctx,
 		`INSERT INTO saml_relay_states (
 		     handle, connection_id, saml_request_id, return_to, intent, expires_at, created_at
@@ -483,7 +486,10 @@ func (p *PostgresStore) ConsumeSAMLRelayState(ctx context.Context, handle string
 	if handle == "" {
 		return SAMLRelayState{}, ErrNotFound
 	}
-	return scanSAMLRelayState(p.queryRowContext(
+	// Same RLS rationale as CreateSAMLRelayState — the ACS POST is
+	// unauthenticated. The handle is opaque and cryptographically random,
+	// so bypassing scope here does not expose cross-tenant relay rows.
+	return scanSAMLRelayState(p.queryRowContextAnyScope(
 		ctx,
 		`UPDATE saml_relay_states
 		    SET consumed_at = $2
@@ -500,8 +506,14 @@ func (p *PostgresStore) ConsumeSAMLRelayState(ctx context.Context, handle string
 // UUID, bypassing the org-scope filter applied by GetIdentityConnection.
 // Used by entry points (SAML SP-initiated login) that do not know the org id
 // in advance — the connection itself determines the org scope.
+//
+// Uses queryRowContextAnyScope so the lookup runs without requiring a
+// db.WithScope context, matching FindFirstWorkspaceMemberByUserUUIDAndTenantID.
+// Under IDENTRAIL_POSTGRES_RLS_ENFORCED=true, the scoped path would short-
+// circuit with ErrScopeRequired before reading any row because /auth/saml
+// routes are unauthenticated entry points.
 func (p *PostgresStore) GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error) {
-	return scanIdentityConnection(p.queryRowContext(
+	return scanIdentityConnection(p.queryRowContextAnyScope(
 		ctx,
 		`SELECT `+identityConnectionColumns+`
 		 FROM identity_connections
