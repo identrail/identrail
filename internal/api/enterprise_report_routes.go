@@ -192,6 +192,25 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 				return
 			}
 			findings = append(findings, wsFindings...)
+
+			repoFindings, err := svc.Store.ListRepoFindings(wsCtx, db.RepoFindingFilter{}, 0)
+			if err != nil {
+				if logger != nil {
+					logger.Error("list repo findings for executive report", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+				return
+			}
+			repoFindings = enrichFindingsWithRepoContext(repoFindings)
+			repoFindings, err = svc.applyFindingTriageStates(wsCtx, repoFindings)
+			if err != nil {
+				if logger != nil {
+					logger.Error("hydrate repo finding triage for executive report", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+				return
+			}
+			findings = append(findings, repoFindings...)
 		}
 
 		report := enterprise.BuildExecutiveReport(findings, enterprise.ReportOptions{

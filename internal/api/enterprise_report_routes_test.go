@@ -48,6 +48,35 @@ func seedExecReportFinding(t *testing.T, store db.Store, scope db.Scope, scanID,
 	}
 }
 
+func seedExecReportRepoFinding(t *testing.T, store db.Store, scope db.Scope, repo, id string, sev domain.FindingSeverity, typ domain.FindingType, createdAt time.Time, resolvedAt *time.Time) {
+	t.Helper()
+	ctx := db.WithScope(context.Background(), scope)
+	repoScan, err := store.CreateRepoScan(ctx, repo, createdAt)
+	if err != nil {
+		t.Fatalf("create repo scan for %s: %v", id, err)
+	}
+	if err := store.UpsertRepoFindings(ctx, repoScan.ID, []domain.Finding{
+		{ID: id, ScanID: repoScan.ID, Type: typ, Severity: sev, Title: id, CreatedAt: createdAt},
+	}); err != nil {
+		t.Fatalf("seed repo finding %s: %v", id, err)
+	}
+	if resolvedAt != nil {
+		if err := store.UpsertFindingTriageState(ctx, db.FindingTriageState{
+			FindingID: findingTriageStateKey(domain.Finding{
+				ID:         id,
+				ScanID:     repoScan.ID,
+				Repository: repo,
+			}),
+			Status:     domain.FindingLifecycleResolved,
+			ResolvedAt: resolvedAt,
+			UpdatedAt:  *resolvedAt,
+			UpdatedBy:  "subject:tester",
+		}); err != nil {
+			t.Fatalf("seed repo triage %s: %v", id, err)
+		}
+	}
+}
+
 // execReportRig builds a router whose injected middleware mirrors the
 // production session + scope wiring for a given organization.
 func execReportRig(t *testing.T, org string, clock *time.Time) (*Service, *gin.Engine, db.Store) {
@@ -318,9 +347,13 @@ func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	seedExecReportFinding(t, store, ws1Scope, scan1, "f1", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-1*24*time.Hour), nil)
 	scan2 := seedExecReportScan(t, store, ws2Scope, now.Add(-2*24*time.Hour))
 	seedExecReportFinding(t, store, ws2Scope, scan2, "f2", domain.SeverityCritical, domain.FindingEscalationPath, now.Add(-1*24*time.Hour), nil)
+	seedExecReportRepoFinding(t, store, ws2Scope, "owner/repo-allowed", "repo-f1", domain.SeverityMedium, domain.FindingSecretExposure, now.Add(-6*time.Hour), nil)
+	repoResolvedAt := now.Add(-12 * time.Hour)
+	seedExecReportRepoFinding(t, store, ws2Scope, "owner/repo-allowed", "repo-resolved", domain.SeverityLow, domain.FindingRepoMisconfig, now.Add(-36*time.Hour), &repoResolvedAt)
 	// ws-3 has a finding but the caller is NOT a member — it must be excluded.
 	scan3 := seedExecReportScan(t, store, ws3Scope, now.Add(-2*24*time.Hour))
 	seedExecReportFinding(t, store, ws3Scope, scan3, "f-secret", domain.SeverityCritical, domain.FindingStaleIdentity, now.Add(-1*24*time.Hour), nil)
+	seedExecReportRepoFinding(t, store, ws3Scope, "owner/repo-secret", "repo-secret", domain.SeverityCritical, domain.FindingSecretExposure, now.Add(-6*time.Hour), nil)
 
 	// One shared Service (one cache). The caller's active workspace is ws-1,
 	// but the report must cover every workspace the caller belongs to.
@@ -341,8 +374,14 @@ func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	if err := json.Unmarshal(first.Body.Bytes(), &rep); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if rep.TotalOpenFindings != 2 {
-		t.Fatalf("report must aggregate the caller's member workspaces (ws-1,ws-2) and exclude the non-member ws-3; want 2, got %d", rep.TotalOpenFindings)
+	if rep.TotalOpenFindings != 3 {
+		t.Fatalf("report must aggregate identity and repo findings from the caller's member workspaces (ws-1,ws-2) and exclude non-member ws-3; want 3, got %d", rep.TotalOpenFindings)
+	}
+	if rep.OpenByType[domain.FindingSecretExposure] != 1 {
+		t.Fatalf("authorized repo findings must be included in type rollups; want 1 secret exposure, got %d", rep.OpenByType[domain.FindingSecretExposure])
+	}
+	if rep.MeanTimeToResolve == nil || rep.MeanTimeToResolve.ResolvedCount != 1 {
+		t.Fatalf("authorized resolved repo findings must contribute to MTTR; got %+v", rep.MeanTimeToResolve)
 	}
 
 	// Add a finding in ws-2 and call again within the TTL: the org-wide cache
@@ -354,8 +393,8 @@ func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	if err := json.Unmarshal(cached.Body.Bytes(), &cachedRep); err != nil {
 		t.Fatalf("decode cached: %v", err)
 	}
-	if cachedRep.TotalOpenFindings != 2 {
-		t.Fatalf("within TTL the shared org cache must be served; want 2, got %d", cachedRep.TotalOpenFindings)
+	if cachedRep.TotalOpenFindings != 3 {
+		t.Fatalf("within TTL the shared org cache must be served; want 3, got %d", cachedRep.TotalOpenFindings)
 	}
 
 	// Past the TTL the org-wide report rebuilds and reflects every workspace.
@@ -365,8 +404,8 @@ func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	if err := json.Unmarshal(fresh.Body.Bytes(), &freshRep); err != nil {
 		t.Fatalf("decode fresh: %v", err)
 	}
-	if freshRep.TotalOpenFindings != 3 {
-		t.Fatalf("after TTL the org-wide report must rebuild; want 3, got %d", freshRep.TotalOpenFindings)
+	if freshRep.TotalOpenFindings != 4 {
+		t.Fatalf("after TTL the org-wide report must rebuild; want 4, got %d", freshRep.TotalOpenFindings)
 	}
 }
 
