@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AWSConnectionStatus, CurrentUserContext, GitHubConnectionStatus, RepoScanRecord } from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
@@ -110,6 +110,7 @@ async function renderProjectDetail(
     repoScanError?: { message: string; status: number };
     repoScans?: RepoScanRecord[];
     listRepoScans?: () => Promise<{ items: RepoScanRecord[] }>;
+    withProjectSwitcher?: boolean;
   } = {}
 ) {
   vi.resetModules();
@@ -156,11 +157,24 @@ async function renderProjectDetail(
   }
 
   const { ProductProjectDetailPage } = await import('./productShell');
+  function ProjectDetailHarness() {
+    const navigate = useNavigate();
+    return (
+      <>
+        <ProductProjectDetailPage />
+        {options.withProjectSwitcher ? (
+          <button type="button" onClick={() => navigate('/app/tenant-a/workspace-a/projects/project-2')}>
+            Open project 2
+          </button>
+        ) : null}
+      </>
+    );
+  }
 
   render(
     <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects/project-1']}>
       <Routes>
-        <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<ProductProjectDetailPage />} />
+        <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<ProjectDetailHarness />} />
       </Routes>
     </MemoryRouter>
   );
@@ -329,6 +343,39 @@ describe('ProductProjectDetailPage', () => {
     await act(async () => {
       pendingSubmit.resolve({ repo_scan: queuedRepoScan });
       await pendingSubmit.promise;
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Queue first scan/i })).not.toBeDisabled());
+  });
+
+  it('keeps an old route submit from clearing a newer repo scan submit', async () => {
+    const firstSubmit = deferred<{ repo_scan: RepoScanRecord }>();
+    const secondSubmit = deferred<{ repo_scan: RepoScanRecord }>();
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, { withProjectSwitcher: true });
+    runRepoScan.mockReturnValueOnce(firstSubmit.promise).mockReturnValueOnce(secondSubmit.promise);
+
+    const firstQueueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(firstQueueButton).not.toBeDisabled());
+    fireEvent.click(firstQueueButton);
+    expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Open project 2/i }));
+    expect(await screen.findByRole('heading', { name: /Connect sources for project-2/i })).toBeInTheDocument();
+    const secondQueueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(secondQueueButton).not.toBeDisabled());
+    fireEvent.click(secondQueueButton);
+    expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
+
+    await act(async () => {
+      firstSubmit.resolve({ repo_scan: queuedRepoScan });
+      await firstSubmit.promise;
+    });
+
+    expect(screen.getByRole('button', { name: /Queueing/i })).toBeDisabled();
+
+    await act(async () => {
+      secondSubmit.resolve({ repo_scan: queuedRepoScan });
+      await secondSubmit.promise;
     });
 
     await waitFor(() => expect(screen.getByRole('button', { name: /Queue first scan/i })).not.toBeDisabled());

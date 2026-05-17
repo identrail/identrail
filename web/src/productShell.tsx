@@ -2392,6 +2392,7 @@ export function ProductProjectDetailPage() {
   const projectID = normalizeValue(params.projectID ?? '');
   const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures();
   const refreshSequenceRef = useRef(0);
+  const repoScanSubmitSequenceRef = useRef(0);
   const sourceAvailability = useMemo<Record<SourceProvider, SourceAvailability>>(
     () => ({
       github: {
@@ -2510,6 +2511,14 @@ export function ProductProjectDetailPage() {
   };
 
   const isStaleRequestSequence = (sequence: number) => refreshSequenceRef.current !== sequence;
+
+  const nextRepoScanSubmitSequence = () => {
+    const nextSequence = repoScanSubmitSequenceRef.current + 1;
+    repoScanSubmitSequenceRef.current = nextSequence;
+    return nextSequence;
+  };
+
+  const isLatestRepoScanSubmitSequence = (sequence: number) => repoScanSubmitSequenceRef.current === sequence;
 
   const refreshConnections = async (quiet = false) => {
     const refreshSequence = nextRequestSequence();
@@ -2670,6 +2679,7 @@ export function ProductProjectDetailPage() {
     setGitHubStart(null);
     setRepoScanForm({ repository: '', historyLimit: '', maxFindings: '' });
     setRecentRepoScans([]);
+    repoScanSubmitSequenceRef.current += 1;
     setRepoScanSubmitting(false);
     setRepoScanError('');
     setAWSCloudFormationStart(null);
@@ -3064,6 +3074,7 @@ export function ProductProjectDetailPage() {
     setRepoScanError('');
     setSuccessMessage('');
     const requestSequence = refreshSequenceRef.current;
+    const submitSequence = nextRepoScanSubmitSequence();
     try {
       const request: RepoScanRequest = { repository };
       const historyLimit = parseOptionalPositiveInteger(repoScanForm.historyLimit, 'History limit');
@@ -3090,7 +3101,9 @@ export function ProductProjectDetailPage() {
       }
       setRepoScanError(formatRepoScanSubmitError(error));
     } finally {
-      setRepoScanSubmitting(false);
+      if (isLatestRepoScanSubmitSequence(submitSequence)) {
+        setRepoScanSubmitting(false);
+      }
     }
   };
 
