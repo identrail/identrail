@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Mirrored public container image publishing to Docker Hub under `docker.io/identrail/*`,
+  made Docker Hub the default public-image quickstart source, and pointed the homepage Docker pull metric at the published Docker Hub repositories.
 - Routed successful native SCIM user lifecycle operations through the workflow router:
   - emits `scim.provisioned` events for create/update/deactivate/delete operations so Slack, Jira, and Linear destinations can receive directory-sync deltas
   - extends workflow dispatch audit records with SCIM subject, connection, and operation fields for NDJSON governance review

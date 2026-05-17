@@ -53,5 +53,11 @@ export const githubRepo = {
 
 export const projectMetricsSource = {
   github: githubRepo,
-  dockerHubRepos: ['identrail/api', 'identrail/worker', 'identrail/web']
+  dockerHubRepos: [
+    'identrail/identrail',
+    'identrail/identrail-api',
+    'identrail/identrail-worker',
+    'identrail/identrail-web',
+    'identrail/identrail-agent'
+  ]
 } as const;

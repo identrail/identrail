@@ -15,6 +15,8 @@ Identrail release automation is defined in:
 - Keep the versioned web build inputs in `deploy/docker/release-web.env`.
   `VITE_IDENTRAIL_API_URL`, `VITE_FEATURE_CONNECTOR_*`, and
   `VITE_FEATURE_ONBOARDING_WIZARD` values are baked into release web images.
+- Image publishing requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository
+  secrets so the workflow can mirror GHCR images to Docker Hub.
 - For manual runs with `publish_images=false`, image configuration is not required.
 - Manual image backfills for historical tags that predate `deploy/docker/release-web.env`
   use the legacy release URL recorded by the workflow and attach that source in
@@ -29,11 +31,17 @@ login.
 
 1. Cross-platform binaries (`cli`, `server`, `worker`) as archives.
 2. SHA-256 checksum manifest (`checksums.txt`).
-3. Container images to GHCR:
+3. Container images to GHCR and Docker Hub:
    - `ghcr.io/<owner>/identrail:<tag>`
    - `ghcr.io/<owner>/identrail-api:<tag>`
    - `ghcr.io/<owner>/identrail-worker:<tag>`
    - `ghcr.io/<owner>/identrail-web:<tag>`
+   - `ghcr.io/<owner>/identrail-agent:<tag>`
+   - `docker.io/identrail/identrail:<tag>`
+   - `docker.io/identrail/identrail-api:<tag>`
+   - `docker.io/identrail/identrail-worker:<tag>`
+   - `docker.io/identrail/identrail-web:<tag>`
+   - `docker.io/identrail/identrail-agent:<tag>`
 4. Image digests and web build input metadata.
 5. Auto-generated GitHub Release notes.
 
@@ -46,6 +54,12 @@ every merge to `dev`:
 - `ghcr.io/identrail/identrail-api:dev`
 - `ghcr.io/identrail/identrail-worker:dev`
 - `ghcr.io/identrail/identrail-web:dev`
+- `ghcr.io/identrail/identrail-agent:dev`
+- `docker.io/identrail/identrail:dev`
+- `docker.io/identrail/identrail-api:dev`
+- `docker.io/identrail/identrail-worker:dev`
+- `docker.io/identrail/identrail-web:dev`
+- `docker.io/identrail/identrail-agent:dev`
 
 Each run also publishes immutable SHA tags such as `sha-<12-char-sha>`. Use the
 `dev` tags for quick evaluation and SHA or release tags for repeatable
@@ -71,5 +85,5 @@ If a SemVer tag already exists but no GitHub Release was published (for example 
 1. Open **Actions** -> **Release** -> **Run workflow**.
 2. Set:
    - `tag=v1.0.0`
-   - `publish_images=false` (binary/checksum-only backfill), or `true` if GHCR image publish is required.
+   - `publish_images=false` (binary/checksum-only backfill), or `true` if container image publishing is required.
 3. Run workflow and confirm release assets include archive files plus `checksums.txt`.
