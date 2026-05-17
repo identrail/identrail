@@ -94,6 +94,35 @@ func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("unexpected fetched identity: %+v", gotIdentity)
 	}
 
+	mock.ExpectQuery("FROM user_identities").
+		WithArgs("github", userID).
+		WillReturnRows(postgresAuthIdentityRows(now).AddRow(identityID, userID, "github", "alice-subject", "alice@example.com", true, []byte(`{"login":"alice"}`), now, now))
+	gotIdentityByUserID, err := store.GetUserIdentityByProviderUserID(ctx, "GITHUB", userID)
+	if err != nil {
+		t.Fatalf("get identity by provider user id: %v", err)
+	}
+	if gotIdentityByUserID.ID != identityID {
+		t.Fatalf("unexpected fetched identity by user id: %+v", gotIdentityByUserID)
+	}
+
+	mock.ExpectQuery("FROM user_identities").
+		WithArgs("github", 10).
+		WillReturnRows(postgresAuthIdentityRows(now).AddRow(identityID, userID, "github", "alice-subject", "alice@example.com", true, []byte(`{"login":"alice"}`), now, now))
+	providerIdentities, err := store.ListUserIdentitiesByProvider(ctx, "GITHUB", 10)
+	if err != nil {
+		t.Fatalf("list identities by provider: %v", err)
+	}
+	if len(providerIdentities) != 1 || providerIdentities[0].ID != identityID {
+		t.Fatalf("unexpected provider identities: %+v", providerIdentities)
+	}
+
+	mock.ExpectExec("DELETE FROM user_identities").
+		WithArgs("github", "alice-subject").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.DeleteUserIdentity(ctx, "GITHUB", "alice-subject"); err != nil {
+		t.Fatalf("delete identity: %v", err)
+	}
+
 	mock.ExpectQuery("WITH inserted AS").
 		WithArgs(sessionHash[:], userID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "manual", "203.0.113.10", sqlmock.AnyArg(), now.Add(15*time.Minute), now.Add(24*time.Hour), now, sqlmock.AnyArg(), now).
 		WillReturnRows(postgresAuthSessionRows().AddRow(sessionHash[:], userID, "tenant-a", "workspace-a", "project-a", "manual", "203.0.113.10", "browser", now.Add(15*time.Minute), now.Add(24*time.Hour), now, nil, now, userID, "alice@example.com", "Alice", "", "active", now, now, nil))

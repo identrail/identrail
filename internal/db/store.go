@@ -2089,6 +2089,9 @@ type Store interface {
 	GetUserByPrimaryEmail(ctx context.Context, email string) (User, error)
 	UpsertUserIdentity(ctx context.Context, identity UserIdentity) (UserIdentity, error)
 	GetUserIdentity(ctx context.Context, provider string, subject string) (UserIdentity, error)
+	GetUserIdentityByProviderUserID(ctx context.Context, provider string, userID string) (UserIdentity, error)
+	ListUserIdentitiesByProvider(ctx context.Context, provider string, limit int) ([]UserIdentity, error)
+	DeleteUserIdentity(ctx context.Context, provider string, subject string) error
 	CreateSession(ctx context.Context, session Session) (Session, error)
 	TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
 	UpdateSessionContext(ctx context.Context, userID string, sessionIDHash []byte, orgID string, workspaceID string, projectID string, now time.Time) (Session, error)
@@ -2114,6 +2117,7 @@ type Store interface {
 	// for unauthenticated entry points like /auth/saml/login/:connection_id
 	// where the org context is determined by the connection itself.
 	GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error)
+	GetIdentityConnectionBySCIMBearerTokenHash(ctx context.Context, tokenHash string) (IdentityConnection, error)
 	// CreateSAMLRelayState persists one in-flight SAML SP-initiated request
 	// so the matching ACS POST (potentially handled by a different API
 	// instance) can look the AuthnRequest id, connection scope, and

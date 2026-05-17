@@ -268,6 +268,33 @@ func (m *MemoryStore) GetIdentityConnectionByID(ctx context.Context, connectionI
 	return match, nil
 }
 
+// GetIdentityConnectionBySCIMBearerTokenHash resolves a connection by its
+// stored SCIM bearer-token hash for unauthenticated SCIM entry points.
+func (m *MemoryStore) GetIdentityConnectionBySCIMBearerTokenHash(ctx context.Context, tokenHash string) (IdentityConnection, error) {
+	tokenHash = strings.TrimSpace(tokenHash)
+	if tokenHash == "" {
+		return IdentityConnection{}, ErrNotFound
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var match IdentityConnection
+	found := false
+	for _, connection := range m.identityConnections {
+		if connection.SCIMBearerTokenHash != tokenHash {
+			continue
+		}
+		if found {
+			return IdentityConnection{}, ErrConflict
+		}
+		match = connection
+		found = true
+	}
+	if !found {
+		return IdentityConnection{}, ErrNotFound
+	}
+	return match, nil
+}
+
 // ListIdentityConnections returns organization identity connection scaffolds ordered by newest first.
 func (m *MemoryStore) ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error) {
 	m.mu.RLock()

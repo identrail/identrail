@@ -79,6 +79,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "")
 	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "")
 	t.Setenv("IDENTRAIL_FEATURE_NEW_AUTH", "")
+	t.Setenv("IDENTRAIL_FEATURE_NATIVE_SSO", "")
+	t.Setenv("IDENTRAIL_ENABLE_NATIVE_SSO", "")
 	t.Setenv("IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2", "")
 	t.Setenv("IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS", "")
 	t.Setenv("IDENTRAIL_PUBLIC_BASE_URL", "")
@@ -308,6 +310,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.FeatureWorkOSLogin {
 		t.Fatal("expected WorkOS login feature disabled by default")
 	}
+	if cfg.FeatureNativeSSO {
+		t.Fatal("expected native SSO feature disabled by default")
+	}
 	if cfg.FeatureConnectorAWS {
 		t.Fatal("expected AWS connector feature disabled by default")
 	}
@@ -430,6 +435,8 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_DEFAULT_WORKSPACE_ID", "workspace-blue")
 	t.Setenv("IDENTRAIL_REQUIRE_EXPLICIT_SCOPE", "true")
 	t.Setenv("IDENTRAIL_FEATURE_NEW_AUTH", "true")
+	t.Setenv("IDENTRAIL_FEATURE_NATIVE_SSO", "false")
+	t.Setenv("IDENTRAIL_ENABLE_NATIVE_SSO", "true")
 	t.Setenv("IDENTRAIL_FEATURE_CONNECTOR_AWS", "true")
 	t.Setenv("IDENTRAIL_FEATURE_ONBOARDING_WIZARD", "true")
 	t.Setenv("IDENTRAIL_PUBLIC_BASE_URL", "https://app.identrail.example")
@@ -664,6 +671,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if !cfg.FeatureNewAuth {
 		t.Fatal("expected new auth feature enabled from env")
+	}
+	if !cfg.FeatureNativeSSO {
+		t.Fatal("expected native SSO feature enabled by compatibility alias")
 	}
 	if !cfg.FeatureConnectorAWS {
 		t.Fatal("expected AWS connector feature enabled from env")

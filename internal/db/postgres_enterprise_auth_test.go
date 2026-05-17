@@ -405,6 +405,123 @@ func TestPostgresGetIdentityConnectionByIDBypassesScope(t *testing.T) {
 	if connection.ID != "44444444-4444-4444-4444-444444444444" || connection.OrgID != "tenant-a" {
 		t.Fatalf("unexpected connection: %+v", connection)
 	}
+	mock.ExpectQuery("FROM identity_connections").
+		WithArgs("scim-token-hash").
+		WillReturnRows(postgresEnterpriseConnectionRows().AddRow(
+			"44444444-4444-4444-4444-444444444444",
+			"tenant-a",
+			"saml",
+			"sso",
+			nil,
+			"active",
+			[]byte(`{}`),
+			false,
+			true,
+			"https://idp.example.com/entity",
+			"https://idp.example.com/sso",
+			"-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+			[]byte(`{"email":"mail"}`),
+			"scim-token-hash",
+			now,
+			now,
+		))
+	scimConnection, err := store.GetIdentityConnectionBySCIMBearerTokenHash(ctx, " scim-token-hash ")
+	if err != nil {
+		t.Fatalf("get identity connection by scim hash: %v", err)
+	}
+	if scimConnection.SCIMBearerTokenHash != "scim-token-hash" {
+		t.Fatalf("unexpected scim connection: %+v", scimConnection)
+	}
+	mock.ExpectQuery("FROM identity_connections").
+		WithArgs("duplicate-hash").
+		WillReturnRows(postgresEnterpriseConnectionRows().
+			AddRow(
+				"55555555-5555-5555-5555-555555555555",
+				"tenant-a",
+				"saml",
+				"sso",
+				nil,
+				"active",
+				[]byte(`{}`),
+				false,
+				true,
+				"https://idp.example.com/entity",
+				"https://idp.example.com/sso",
+				"-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+				[]byte(`{"email":"mail"}`),
+				"duplicate-hash",
+				now,
+				now,
+			).
+			AddRow(
+				"66666666-6666-6666-6666-666666666666",
+				"tenant-b",
+				"saml",
+				"sso",
+				nil,
+				"active",
+				[]byte(`{}`),
+				false,
+				true,
+				"https://idp2.example.com/entity",
+				"https://idp2.example.com/sso",
+				"-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+				[]byte(`{"email":"mail"}`),
+				"duplicate-hash",
+				now,
+				now,
+			))
+	if _, err := store.GetIdentityConnectionBySCIMBearerTokenHash(ctx, "duplicate-hash"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate scim hash should return ErrConflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestPostgresSCIMProvisioningEvents(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
+	eventID := "55555555-5555-5555-5555-555555555555"
+	connectionID := "44444444-4444-4444-4444-444444444444"
+	userID := "66666666-6666-6666-6666-666666666666"
+
+	mock.ExpectQuery("INSERT INTO scim_provisioning_events").
+		WithArgs(eventID, "tenant-a", connectionID, "create", sqlmock.AnyArg(), userID, `{"userName":"alice@example.com"}`, now).
+		WillReturnRows(postgresSCIMProvisioningEventRows().AddRow(eventID, "tenant-a", connectionID, "create", "external-alice", userID, []byte(`{"userName":"alice@example.com"}`), now))
+	event, err := store.CreateSCIMProvisioningEvent(ctx, SCIMProvisioningEventRecord{
+		ID:           eventID,
+		OrgID:        "tenant-a",
+		ConnectionID: connectionID,
+		Op:           "create",
+		ExternalID:   "external-alice",
+		UserID:       userID,
+		Payload:      map[string]any{"userName": "alice@example.com"},
+		OccurredAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("create scim event: %v", err)
+	}
+	if event.Payload["userName"] != "alice@example.com" {
+		t.Fatalf("unexpected event: %+v", event)
+	}
+
+	mock.ExpectQuery("FROM scim_provisioning_events").
+		WithArgs("tenant-a", connectionID, 5).
+		WillReturnRows(postgresSCIMProvisioningEventRows().AddRow(eventID, "tenant-a", connectionID, "create", "external-alice", userID, []byte(`{"userName":"alice@example.com"}`), now))
+	events, err := store.ListSCIMProvisioningEvents(ctx, "tenant-a", connectionID, 5)
+	if err != nil {
+		t.Fatalf("list scim events: %v", err)
+	}
+	if len(events) != 1 || events[0].ID != eventID {
+		t.Fatalf("unexpected scim events: %+v", events)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
 	}

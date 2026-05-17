@@ -337,6 +337,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			ReturnToOrigins:    authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
 		})
 	}
+	registerEnterpriseSCIMRoutes(r, logger, svc, enterpriseSCIMRouteOptions{
+		Enabled:       opts.FeatureNativeSSO,
+		PublicBaseURL: opts.PublicBaseURL,
+	})
 
 	publicV1 := r.Group("/v1")
 	publicV1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))

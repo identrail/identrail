@@ -768,7 +768,7 @@ func TestUpsertSAMLAssertedUser_AttachesFromSCIMIdentity(t *testing.T) {
 	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
 		UserID:   user.ID,
 		Provider: "scim:conn-scim",
-		Subject:  "scim-nameid",
+		Subject:  "opaque-scim-username",
 		Email:    "scim@example.com",
 	}); err != nil {
 		t.Fatalf("seed scim identity: %v", err)
@@ -799,7 +799,7 @@ func TestUpsertSAMLAssertedUser_AttachesFromSCIMIdentity(t *testing.T) {
 		Provider:               "saml",
 		JITProvisioningEnabled: false,
 	}, SAMLAssertedProfile{
-		NameID:      "scim-nameid",
+		NameID:      "saml-nameid",
 		Email:       "scim@example.com",
 		DisplayName: "Attached User",
 	})
@@ -812,11 +812,57 @@ func TestUpsertSAMLAssertedUser_AttachesFromSCIMIdentity(t *testing.T) {
 	if result.User.ID != user.ID {
 		t.Fatalf("attached wrong user: got %q want %q", result.User.ID, user.ID)
 	}
-	if result.Identity.Provider != "saml:conn-scim" || result.Identity.Subject != "scim-nameid" {
+	if result.Identity.Provider != "saml:conn-scim" || result.Identity.Subject != "saml-nameid" {
 		t.Fatalf("unexpected attached identity: %+v", result.Identity)
 	}
 	if result.RedirectPath != "/app/tenant-scim/workspace-scim" {
 		t.Fatalf("unexpected redirect path: %q", result.RedirectPath)
+	}
+}
+
+func TestUpsertSAMLAssertedUser_RejectsDeactivatedSCIMUser(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "disabled@example.com",
+		DisplayName:  "Disabled User",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:   user.ID,
+		Provider: "scim:conn-disabled",
+		Subject:  "disabled-nameid",
+		Email:    "disabled@example.com",
+	}); err != nil {
+		t.Fatalf("seed scim identity: %v", err)
+	}
+
+	_, err = svc.UpsertSAMLAssertedUser(ctx, db.IdentityConnection{
+		ID:                     "conn-disabled",
+		OrgID:                  "tenant-disabled",
+		Provider:               "saml",
+		JITProvisioningEnabled: false,
+	}, SAMLAssertedProfile{
+		NameID:      "disabled-nameid",
+		Email:       "disabled@example.com",
+		DisplayName: "Disabled User",
+	})
+	if !errors.Is(err, ErrSAMLUnprovisionedUser) {
+		t.Fatalf("expected deactivated SCIM user to be denied, got %v", err)
+	}
+	if _, err := store.GetUserIdentity(ctx, "saml:conn-disabled", "disabled-nameid"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("deactivated user should not receive a SAML identity, got %v", err)
+	}
+	gotUser, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if gotUser.Status != "deactivated" {
+		t.Fatalf("deactivated user should not be reactivated: %+v", gotUser)
 	}
 }
 

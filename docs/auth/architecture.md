@@ -235,6 +235,26 @@ This is the [Vercel pattern](https://vercel.com/docs/saml). It is the smallest p
 
 See [`identity-linking-rules.md`](./identity-linking-rules.md) for the rules around linking identities and joining orgs.
 
+## Native SCIM Provisioning
+
+Native SAML connections issue one per-connection SCIM bearer token when the admin creates the connection. The plaintext token is returned once; the database stores only the SHA-256 hash on `identity_connections.scim_bearer_token_hash`.
+
+When `IDENTRAIL_FEATURE_NATIVE_SSO=true` (or the compatibility alias `IDENTRAIL_ENABLE_NATIVE_SSO=true`) the API registers `/scim/v2` endpoints for IdP directory provisioning:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /scim/v2/ServiceProviderConfig` | SCIM capability discovery |
+| `GET /scim/v2/Schemas` | Core User schema discovery |
+| `GET /scim/v2/ResourceTypes` | User resource-type discovery |
+| `GET /scim/v2/Users` | List users with `startIndex`, `count`, and `filter=userName eq "..."` |
+| `POST /scim/v2/Users` | Create a user with a server-assigned SCIM id |
+| `GET /scim/v2/Users/{id}` | Read a provisioned user |
+| `PUT /scim/v2/Users/{id}` | Replace a provisioned user |
+| `PATCH /scim/v2/Users/{id}` | Apply SCIM PATCH `replace` operations |
+| `DELETE /scim/v2/Users/{id}` | Deactivate a provisioned user and record a delete event |
+
+SCIM resources reuse the auth tables instead of introducing a separate user store: `users.id` is the SCIM resource id, and `user_identities` stores `(provider="scim:<connection_uuid>", subject=<userName>)`. Each create, update, deactivate, and delete appends a `scim_provisioning_events` row for tenant-visible audit.
+
 ## Connector Foundation Preview
 
 Every connector (AWS, Kubernetes, GitHub, future ones) implements one Go interface and shares one status state machine and one error taxonomy. PR 6 ships this foundation; PRs 7, 8, 9 fill it in for the three providers.
