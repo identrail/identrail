@@ -191,6 +191,9 @@ For the standard hosted setup, configure Resend:
 - `LEAD_CONFIRMATION_SUBJECT` (optional requester confirmation subject override)
 - `LEAD_EMAIL_TIMEOUT_MS` (default: `3000`, bounded to `500..10000`)
 
+Requester confirmation email is best-effort after the internal notification is
+accepted; confirmation rejection or timeout does not fail the captured lead.
+
 Optional webhook forwarding can be enabled alongside email, or used as the sole
 delivery channel when Resend is not configured:
 

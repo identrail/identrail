@@ -21,7 +21,8 @@
   `RESEND_API_KEY`, `LEAD_NOTIFY_TO`, and a verified `LEAD_EMAIL_FROM` are
   configured, while preserving the signed webhook forwarding option for
   CRM/automation fanout even when Resend rejects or times out, and accepting
-  the submission once either configured delivery channel succeeds.
+  the submission once either configured delivery channel succeeds or the
+  internal team notification has been accepted.
 - Redesigned the product page as a full-bleed Vercel-style surface with a dark hero, spread-out trust graph connections, alternating neutral sections, and no centered container around the main product story.
 - Exposed backend feature availability to the frontend so the web bundle no
   longer shows a backend-gated self-serve flow purely from a Vite build flag:

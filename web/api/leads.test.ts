@@ -340,6 +340,37 @@ describe('web/api/leads handler', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts the lead when requester confirmation fails after notifying the team', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          environment: 'AWS IAM + Kubernetes'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toEqual({ status: 'accepted' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [notificationURL] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [confirmationURL] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(notificationURL).toBe('https://api.resend.com/emails');
+    expect(confirmationURL).toBe('https://api.resend.com/emails');
+  });
+
   it('returns 502 when Resend email delivery fails', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
     process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';

@@ -361,7 +361,7 @@ async function sendLeadEmails({
     return 'sent';
   }
 
-  const confirmationSent = await postResendEmail({
+  await postResendEmail({
     apiKey,
     requestID,
     suffix: 'lead-confirmation',
@@ -376,7 +376,7 @@ async function sendLeadEmails({
     }
   });
 
-  return confirmationSent ? 'sent' : 'failed';
+  return 'sent';
 }
 
 function assertLength(res: HandlerResponse, value: string, maxLength: number, message: string): boolean {
