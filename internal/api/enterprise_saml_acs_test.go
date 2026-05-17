@@ -439,6 +439,24 @@ func TestSAMLACSHandler_RejectsTamperedSignature(t *testing.T) {
 
 func TestSAMLACSHandler_RejectsRelayStateForWrongConnection(t *testing.T) {
 	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	seedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	if err := svc.Store.UpsertOrganization(seedCtx, db.TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("seed second org: %v", err)
+	}
+	otherConn, err := svc.Store.CreateIdentityConnection(seedCtx, db.IdentityConnection{
+		OrgID:                  "tenant-b",
+		Provider:               "saml",
+		Type:                   "sso",
+		Status:                 "active",
+		EntityID:               "https://idp.other.example.com/entity",
+		SSOURL:                 "https://idp.other.example.com/sso",
+		CertificatePEM:         idp.pem,
+		AttributeMapping:       map[string]string{"email": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"},
+		JITProvisioningEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("seed second connection: %v", err)
+	}
 	router := gin.New()
 	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
 		Enabled:       true,
@@ -448,13 +466,16 @@ func TestSAMLACSHandler_RejectsRelayStateForWrongConnection(t *testing.T) {
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
-	// RelayState carries a DIFFERENT connection id than the URL path.
-	otherRelay, _ := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
-		ConnectionID:  "00000000-0000-0000-0000-000000000000",
+	// RelayState carries a real but DIFFERENT connection id than the URL path.
+	otherRelay, err := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
+		ConnectionID:  otherConn.ID,
 		SAMLRequestID: requestID,
 		ReturnTo:      "",
 		Intent:        "login",
 	})
+	if err != nil {
+		t.Fatalf("issue mismatched relay: %v", err)
+	}
 	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
 	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
 	signed := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "alice@example.com", "alice@example.com")
@@ -610,6 +631,20 @@ func TestSAMLRelayStore_RoundTripAndOneShotConsume(t *testing.T) {
 	// Second consume must fail — one-shot semantics prevent replay.
 	if _, err := relayStore.Consume(context.Background(), handle); !errors.Is(err, sessionauth.ErrSAMLRelayHandleInvalid) {
 		t.Errorf("expected ErrSAMLRelayHandleInvalid on replay, got: %v", err)
+	}
+}
+
+func TestSAMLRelayStore_IssueRequiresExistingConnection(t *testing.T) {
+	memStore := db.NewMemoryStore()
+	relayStore := sessionauth.NewSAMLRelayStore(memStore, nil)
+
+	_, err := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
+		ConnectionID:  "00000000-0000-0000-0000-000000000000",
+		SAMLRequestID: "_request-1",
+		Intent:        "login",
+	})
+	if !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected missing relay connection to return ErrNotFound, got %v", err)
 	}
 }
 

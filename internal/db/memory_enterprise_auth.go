@@ -388,6 +388,8 @@ func (m *MemoryStore) CreateSAMLRelayState(ctx context.Context, state SAMLRelayS
 	if strings.TrimSpace(state.ConnectionID) == "" || strings.TrimSpace(state.SAMLRequestID) == "" {
 		return SAMLRelayState{}, fmt.Errorf("saml relay state requires connection_id and saml_request_id")
 	}
+	state.ConnectionID = strings.TrimSpace(state.ConnectionID)
+	state.SAMLRequestID = strings.TrimSpace(state.SAMLRequestID)
 	if state.CreatedAt.IsZero() {
 		state.CreatedAt = time.Now().UTC()
 	} else {
@@ -399,6 +401,21 @@ func (m *MemoryStore) CreateSAMLRelayState(ctx context.Context, state SAMLRelayS
 	state.ExpiresAt = state.ExpiresAt.UTC()
 	m.mu.Lock()
 	if _, exists := m.samlRelayStates[state.Handle]; exists {
+		m.mu.Unlock()
+		return SAMLRelayState{}, ErrConflict
+	}
+	matches := 0
+	for _, connection := range m.identityConnections {
+		if connection.ID == state.ConnectionID {
+			matches++
+		}
+	}
+	switch matches {
+	case 0:
+		m.mu.Unlock()
+		return SAMLRelayState{}, ErrNotFound
+	case 1:
+	default:
 		m.mu.Unlock()
 		return SAMLRelayState{}, ErrConflict
 	}

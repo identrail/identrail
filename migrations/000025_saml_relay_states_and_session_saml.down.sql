@@ -11,6 +11,12 @@ BEGIN
 END;
 $$;
 
+-- SAML sessions cannot satisfy the pre-SAML CHECK constraint. Rolling back
+-- this migration disables native SAML session support, so expire those
+-- sessions before re-adding the narrower enum.
+DELETE FROM sessions
+WHERE auth_method = 'saml';
+
 ALTER TABLE sessions
     ADD CONSTRAINT sessions_auth_method_check
         CHECK (auth_method IN ('workos', 'oidc', 'manual'));

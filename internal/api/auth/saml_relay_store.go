@@ -100,7 +100,10 @@ func (s *SAMLRelayStore) Consume(ctx context.Context, handle string) (SAMLRelayE
 	}
 	state, err := s.store.ConsumeSAMLRelayState(ctx, handle, s.now().UTC())
 	if err != nil {
-		return SAMLRelayEntry{}, ErrSAMLRelayHandleInvalid
+		if errors.Is(err, db.ErrNotFound) {
+			return SAMLRelayEntry{}, ErrSAMLRelayHandleInvalid
+		}
+		return SAMLRelayEntry{}, err
 	}
 	return SAMLRelayEntry{
 		ConnectionID:  state.ConnectionID,

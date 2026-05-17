@@ -486,10 +486,11 @@ func (p *PostgresStore) ConsumeSAMLRelayState(ctx context.Context, handle string
 	if handle == "" {
 		return SAMLRelayState{}, ErrNotFound
 	}
+	now = now.UTC()
 	// Same RLS rationale as CreateSAMLRelayState — the ACS POST is
 	// unauthenticated. The handle is opaque and cryptographically random,
 	// so bypassing scope here does not expose cross-tenant relay rows.
-	return scanSAMLRelayState(p.queryRowContextAnyScope(
+	state, err := scanSAMLRelayState(p.queryRowContextAnyScope(
 		ctx,
 		`UPDATE saml_relay_states
 		    SET consumed_at = $2
@@ -498,8 +499,22 @@ func (p *PostgresStore) ConsumeSAMLRelayState(ctx context.Context, handle string
 		    AND expires_at > $2
 		  RETURNING `+samlRelayStateColumns,
 		handle,
-		now.UTC(),
+		now,
 	))
+	if err != nil {
+		return SAMLRelayState{}, err
+	}
+	_, err = p.execContextAnyScope(
+		ctx,
+		`DELETE FROM saml_relay_states
+		  WHERE consumed_at IS NOT NULL
+		     OR expires_at <= $1`,
+		now,
+	)
+	if err != nil {
+		return SAMLRelayState{}, err
+	}
+	return state, nil
 }
 
 // GetIdentityConnectionByID resolves a connection by its globally unique
