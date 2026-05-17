@@ -365,6 +365,59 @@ describe('App', () => {
     );
   });
 
+  it('keeps the overview trend delta neutral until two trend points exist', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({
+          items: [
+            {
+              scan_id: 'repo-scan-1',
+              started_at: '2026-01-02T00:00:00Z',
+              total: 12,
+              by_severity: { critical: 1, high: 2, medium: 4, low: 4, info: 1 }
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByText(/Trend delta/i)).toBeInTheDocument();
+    expect(await screen.findByText('N/A')).toBeInTheDocument();
+    expect(await screen.findByText(/Latest scan total 12; awaiting another scan/i)).toBeInTheDocument();
+    expect(screen.queryByText('+12')).not.toBeInTheDocument();
+  });
+
   it('hides manual workspace entry when auth config disables manual mode', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
 

@@ -972,8 +972,7 @@ export function ProductOverviewPage() {
   const completedScanCount = repoScans.filter((scan) => isCompletedScanStatus(scan.status)).length;
   const latestTrend = trendPoints[trendPoints.length - 1];
   const previousTrend = trendPoints[trendPoints.length - 2];
-  const trendDelta =
-    latestTrend && previousTrend ? latestTrend.total - previousTrend.total : latestTrend ? latestTrend.total : 0;
+  const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
   const projectsPath = scope ? buildProjectsPath(scope) : '/app';
   const findingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
@@ -1038,8 +1037,14 @@ export function ProductOverviewPage() {
           </article>
           <article>
             <span>Trend delta</span>
-            <strong>{trendDelta > 0 ? `+${trendDelta}` : trendDelta}</strong>
-            <p>{latestTrend ? `Latest scan total ${latestTrend.total}` : 'No trend points yet'}</p>
+            <strong>{trendDelta === null ? 'N/A' : trendDelta > 0 ? `+${trendDelta}` : trendDelta}</strong>
+            <p>
+              {latestTrend
+                ? previousTrend
+                  ? `Latest scan total ${latestTrend.total}`
+                  : `Latest scan total ${latestTrend.total}; awaiting another scan`
+                : 'No trend points yet'}
+            </p>
           </article>
         </div>
 
