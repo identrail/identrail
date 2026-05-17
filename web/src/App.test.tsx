@@ -222,12 +222,107 @@ describe('App', () => {
     expect(window.location.search).toContain('return_to=%2Fapp%2Fdefault%2Fdefault');
   });
 
-  it('creates a dev manual cookie session and loads product shell placeholders', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(authConfig(true, false))
-      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
-      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+  it('creates a dev manual cookie session and loads the product overview', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(true, false);
+      }
+      if (url.endsWith('/auth/manual')) {
+        return okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' });
+      }
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        if (url.includes('include_archived=true')) {
+          return okJSON({
+            items: [
+              {
+                tenant_id: 'tenant-a',
+                workspace_id: 'workspace-a',
+                project_id: 'legacy-project',
+                name: 'Legacy GitHub',
+                slug: 'legacy-github',
+                description: 'Archived repository coverage.',
+                archived_at: '2026-01-01T00:00:00Z',
+                created_at: '2025-12-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z'
+              }
+            ]
+          });
+        }
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-scan-1',
+              repository: 'owner/repo',
+              status: 'succeeded',
+              started_at: '2026-01-02T00:00:00Z',
+              finished_at: '2026-01-02T00:05:00Z',
+              commits_scanned: 12,
+              files_scanned: 4,
+              finding_count: 1,
+              truncated: false
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({
+          items: [
+            {
+              scan_id: 'repo-scan-0',
+              started_at: '2026-01-01T00:00:00Z',
+              total: 10,
+              by_severity: { critical: 1, high: 3, medium: 3, low: 2, info: 1 }
+            },
+            {
+              scan_id: 'repo-scan-1',
+              started_at: '2026-01-02T00:00:00Z',
+              total: 4,
+              by_severity: { critical: 0, high: 1, medium: 2, low: 1, info: 0 }
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-f1',
+              scan_id: 'repo-scan-1',
+              type: 'secret_exposure',
+              severity: 'high',
+              title: 'Potential AWS access key exposed in commit history',
+              human_summary: 'A line added in commit history appears to contain an AWS access key identifier.',
+              repository: 'owner/repo',
+              file_path: 'config/app.env',
+              line_number: 7,
+              remediation: 'Rotate the key and move the credential to a secret manager.',
+              created_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     setCurrentPath('/signin');
@@ -238,11 +333,89 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue in dev mode/i }));
 
     expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Open risk/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Priority findings/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 archived/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Latest scan total 4/i)).toBeInTheDocument();
+    expect(await screen.findByText('-6')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) => {
+        return (
+          typeof url === 'string' &&
+          url.includes('/v1/workspaces/workspace-a/projects') &&
+          url.includes('include_archived=false')
+        );
+      })
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => {
+        return (
+          typeof url === 'string' &&
+          url.includes('/v1/repo-findings') &&
+          url.includes('sort_by=severity') &&
+          url.includes('sort_order=desc')
+        );
+      })
+    ).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/auth/manual',
       expect.objectContaining({ credentials: 'include' })
     );
+  });
+
+  it('keeps the overview trend delta neutral until two trend points exist', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({
+          items: [
+            {
+              scan_id: 'repo-scan-1',
+              started_at: '2026-01-02T00:00:00Z',
+              total: 12,
+              by_severity: { critical: 1, high: 2, medium: 4, low: 4, info: 1 }
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByText(/Trend delta/i)).toBeInTheDocument();
+    expect(await screen.findByText('N/A')).toBeInTheDocument();
+    expect(await screen.findByText(/Latest scan total 12; awaiting another scan/i)).toBeInTheDocument();
+    expect(screen.queryByText('+12')).not.toBeInTheDocument();
   });
 
   it('hides manual workspace entry when auth config disables manual mode', async () => {
@@ -361,6 +534,89 @@ describe('App', () => {
     expect(openInGitHub).toHaveAttribute('href', 'https://github.com/owner/repo/blob/abc123/config/app.env#L7');
     expect((await screen.findAllByText('config/app.env:7')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('owner/repo')).length).toBeGreaterThan(0);
+  });
+
+  it('renders real workspace settings from account, member, and auth config APIs', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'admin'));
+      }
+      if (url.endsWith('/v1/whoami')) {
+        return okJSON({
+          principal: { type: 'subject', id: 'user-1' },
+          roles: ['admin'],
+          scopes: ['tenancy.read', 'tenancy.write'],
+          scope: { tenant_id: 'tenant-a', workspace_id: 'workspace-a' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              display_name: 'Security Workspace',
+              slug: 'security-workspace',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-03T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              member_id: 'member-user-1',
+              user_id: 'user-1',
+              email: 'owner@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-03T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: []
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/members')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              member_id: 'member-user-1',
+              user_id: 'user-1',
+              email: 'owner@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-03T00:00:00Z'
+            },
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              member_id: 'member-analyst',
+              user_id: 'analyst',
+              email: 'analyst@example.com',
+              role: 'analyst',
+              status: 'invited',
+              joined_at: '2026-01-02T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    expect(await screen.findByText(/Security Workspace/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Hosted WorkOS login/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Total members/i)).toBeInTheDocument();
+    const accountSecurityLinks = await screen.findAllByRole('link', { name: /Account security/i });
+    expect(accountSecurityLinks.some((link) => link.getAttribute('href') === '/app/account/security')).toBe(true);
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {

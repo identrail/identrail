@@ -4304,6 +4304,214 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   color: #d7ffdf;
 }
 
+.idt-overview-page,
+.idt-settings-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.idt-overview-header,
+.idt-settings-header,
+.idt-overview-card-header,
+.idt-settings-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.idt-overview-header h2,
+.idt-settings-header h2,
+.idt-overview-card h3,
+.idt-settings-card h3 {
+  margin-bottom: 0.4rem;
+}
+
+.idt-overview-header p,
+.idt-settings-header p,
+.idt-overview-card p,
+.idt-settings-card p {
+  margin: 0;
+  color: #c9d8ee;
+}
+
+.idt-overview-metrics,
+.idt-settings-counts {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.idt-overview-metrics article,
+.idt-settings-counts article,
+.idt-overview-card,
+.idt-settings-card,
+.idt-overview-projects a,
+.idt-overview-actions a,
+.idt-settings-route-grid a,
+.idt-overview-risk-row,
+.idt-overview-scan-row {
+  border: 1px solid rgba(130, 160, 214, 0.28);
+  border-radius: 0.7rem;
+  background: rgba(8, 14, 25, 0.52);
+}
+
+.idt-overview-metrics article,
+.idt-settings-counts article,
+.idt-overview-risk-row,
+.idt-overview-scan-row {
+  padding: 0.75rem;
+}
+
+.idt-overview-metrics span,
+.idt-settings-counts span {
+  display: block;
+  color: #9fb8de;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-overview-metrics strong,
+.idt-settings-counts strong {
+  display: block;
+  margin-top: 0.2rem;
+  color: #f2f7ff;
+  font-family: var(--idt-display);
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+
+.idt-overview-metrics p {
+  margin: 0.25rem 0 0;
+  color: #c2d4f0;
+}
+
+.idt-overview-grid,
+.idt-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.idt-overview-card,
+.idt-settings-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.idt-overview-card-header a,
+.idt-settings-card-header a {
+  color: #b8cef0;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.idt-overview-card-header a:hover,
+.idt-overview-card-header a:focus-visible,
+.idt-settings-card-header a:hover,
+.idt-settings-card-header a:focus-visible {
+  color: #e8f2ff;
+  text-decoration: underline;
+}
+
+.idt-overview-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.idt-overview-risk-row,
+.idt-overview-scan-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.idt-overview-risk-row strong,
+.idt-overview-scan-row strong,
+.idt-overview-projects strong,
+.idt-overview-actions strong,
+.idt-settings-route-grid strong {
+  color: #eef5ff;
+}
+
+.idt-overview-risk-row p,
+.idt-overview-scan-row p {
+  margin-top: 0.22rem;
+  color: #adc2e2;
+  font-size: 0.9rem;
+}
+
+.idt-overview-projects,
+.idt-overview-actions,
+.idt-settings-route-grid {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.idt-overview-projects a,
+.idt-overview-actions a,
+.idt-settings-route-grid a {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.8rem;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.idt-overview-projects a:hover,
+.idt-overview-projects a:focus-visible,
+.idt-overview-actions a:hover,
+.idt-overview-actions a:focus-visible,
+.idt-settings-route-grid a:hover,
+.idt-settings-route-grid a:focus-visible {
+  border-color: rgba(184, 243, 214, 0.5);
+  background: rgba(15, 31, 39, 0.76);
+  transform: translateY(-1px);
+}
+
+.idt-overview-projects span,
+.idt-overview-actions span,
+.idt-settings-route-grid span,
+.idt-overview-projects small {
+  color: #adc2e2;
+  line-height: 1.45;
+}
+
+.idt-settings-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.idt-settings-facts div {
+  border: 1px solid rgba(130, 160, 214, 0.24);
+  border-radius: 0.65rem;
+  padding: 0.65rem;
+  background: rgba(9, 15, 26, 0.64);
+  min-width: 0;
+}
+
+.idt-settings-facts dt {
+  color: #9fb8de;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-settings-facts dd {
+  margin: 0.18rem 0 0;
+  color: #e1ebfb;
+  overflow-wrap: anywhere;
+}
+
 .idt-repo-findings-header {
   display: flex;
   justify-content: space-between;
@@ -5863,13 +6071,18 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   .idt-workspace-admin-grid,
   .idt-projects-summary,
   .idt-source-summary,
-  .idt-source-meta {
+  .idt-source-meta,
+  .idt-overview-metrics,
+  .idt-settings-counts,
+  .idt-settings-facts {
     grid-template-columns: 1fr 1fr;
   }
 
   .idt-workspace-member-toolbar,
   .idt-projects-grid,
-  .idt-source-wizard-grid {
+  .idt-source-wizard-grid,
+  .idt-overview-grid,
+  .idt-settings-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -5924,7 +6137,10 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   .idt-source-summary,
   .idt-source-stepper,
   .idt-source-inline-fields,
-  .idt-source-meta {
+  .idt-source-meta,
+  .idt-overview-metrics,
+  .idt-settings-counts,
+  .idt-settings-facts {
     grid-template-columns: 1fr;
   }
 
@@ -5933,7 +6149,13 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   .idt-project-card-header,
   .idt-source-onboarding-header,
   .idt-source-config-header,
-  .idt-source-install-card {
+  .idt-source-install-card,
+  .idt-overview-header,
+  .idt-settings-header,
+  .idt-overview-card-header,
+  .idt-settings-card-header,
+  .idt-overview-risk-row,
+  .idt-overview-scan-row {
     display: grid;
   }
 }
@@ -5989,6 +6211,66 @@ html[data-theme='light'] .idt-app-alert-error {
 html[data-theme='light'] .idt-app-alert-success {
   border-color: rgba(44, 122, 70, 0.35);
   color: #1e5a31;
+}
+
+html[data-theme='light'] .idt-overview-header p,
+html[data-theme='light'] .idt-settings-header p,
+html[data-theme='light'] .idt-overview-card p,
+html[data-theme='light'] .idt-settings-card p,
+html[data-theme='light'] .idt-overview-metrics p,
+html[data-theme='light'] .idt-overview-risk-row p,
+html[data-theme='light'] .idt-overview-scan-row p,
+html[data-theme='light'] .idt-overview-projects span,
+html[data-theme='light'] .idt-overview-actions span,
+html[data-theme='light'] .idt-settings-route-grid span,
+html[data-theme='light'] .idt-overview-projects small {
+  color: #35598d;
+}
+
+html[data-theme='light'] .idt-overview-metrics article,
+html[data-theme='light'] .idt-settings-counts article,
+html[data-theme='light'] .idt-overview-card,
+html[data-theme='light'] .idt-settings-card,
+html[data-theme='light'] .idt-overview-projects a,
+html[data-theme='light'] .idt-overview-actions a,
+html[data-theme='light'] .idt-settings-route-grid a,
+html[data-theme='light'] .idt-overview-risk-row,
+html[data-theme='light'] .idt-overview-scan-row,
+html[data-theme='light'] .idt-settings-facts div {
+  background: rgba(245, 250, 255, 0.95);
+  border-color: rgba(42, 71, 119, 0.24);
+}
+
+html[data-theme='light'] .idt-overview-metrics span,
+html[data-theme='light'] .idt-settings-counts span,
+html[data-theme='light'] .idt-settings-facts dt {
+  color: #385f95;
+}
+
+html[data-theme='light'] .idt-overview-metrics strong,
+html[data-theme='light'] .idt-settings-counts strong,
+html[data-theme='light'] .idt-overview-risk-row strong,
+html[data-theme='light'] .idt-overview-scan-row strong,
+html[data-theme='light'] .idt-overview-projects strong,
+html[data-theme='light'] .idt-overview-actions strong,
+html[data-theme='light'] .idt-settings-route-grid strong,
+html[data-theme='light'] .idt-settings-facts dd {
+  color: #1c355d;
+}
+
+html[data-theme='light'] .idt-overview-card-header a,
+html[data-theme='light'] .idt-settings-card-header a {
+  color: #1f4f96;
+}
+
+html[data-theme='light'] .idt-overview-projects a:hover,
+html[data-theme='light'] .idt-overview-projects a:focus-visible,
+html[data-theme='light'] .idt-overview-actions a:hover,
+html[data-theme='light'] .idt-overview-actions a:focus-visible,
+html[data-theme='light'] .idt-settings-route-grid a:hover,
+html[data-theme='light'] .idt-settings-route-grid a:focus-visible {
+  background: rgba(224, 244, 235, 0.95);
+  border-color: rgba(33, 124, 83, 0.32);
 }
 
 html[data-theme='light'] .idt-repo-finding-stat,

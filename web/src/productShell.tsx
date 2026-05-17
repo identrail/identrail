@@ -3,6 +3,7 @@ import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } 
 import {
   ApiError,
   apiClient,
+  type AuthConfigResponse,
   type AWSConnectorStartResponse,
   type AWSConnectionStatus,
   type AWSPermissionPreviewItem,
@@ -44,13 +45,6 @@ type ScopeRouteParams = {
   tenantID?: string;
   workspaceID?: string;
   projectID?: string;
-};
-
-type ScopedShellPageProps = {
-  title: string;
-  description: string;
-  actionLabel?: string;
-  actionTo?: string;
 };
 
 type SourceProvider = 'github' | 'aws' | 'kubernetes';
@@ -150,6 +144,10 @@ const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
 const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolved'] as const;
+const OVERVIEW_FINDING_LIMIT = 50;
+const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
+const OVERVIEW_SCAN_LIMIT = 5;
+const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
 
 const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], string> = {
   severity: 'Risk (high → low)',
@@ -159,6 +157,43 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
 };
 
 const TREND_POINTS = 10;
+async function listOverviewProjects(
+  workspaceID: string,
+  filters: { include_archived: boolean },
+  auth: RequestAuthContext
+): Promise<ProjectRecord[]> {
+  const items: ProjectRecord[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  do {
+    const response = await apiClient.listProjects(
+      workspaceID,
+      {
+        limit: OVERVIEW_PROJECT_PAGE_LIMIT,
+        cursor,
+        sort_by: 'updated_at',
+        sort_order: 'desc',
+        include_archived: filters.include_archived
+      },
+      auth
+    );
+    items.push(...response.items);
+
+    const nextCursor = response.next_cursor?.trim();
+    if (!nextCursor) {
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('Project pagination returned a repeated cursor');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  return items;
+}
+
 function formatConfidenceScore(value: number | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return 'N/A';
@@ -291,6 +326,34 @@ function repoFindingSeverityClass(severity: string): string {
   return `idt-repo-finding-severity is-${normalized}`;
 }
 
+function severityRank(severity: string): number {
+  const normalized = normalizeValue(severity).toLowerCase();
+  if (normalized === 'critical') return 5;
+  if (normalized === 'high') return 4;
+  if (normalized === 'medium') return 3;
+  if (normalized === 'low') return 2;
+  if (normalized === 'info') return 1;
+  return 0;
+}
+
+function isActiveScanStatus(status: string): boolean {
+  const normalized = normalizeValue(status).toLowerCase();
+  return normalized === 'queued' || normalized === 'running' || normalized === 'in_progress' || normalized === 'pending';
+}
+
+function isCompletedScanStatus(status: string): boolean {
+  const normalized = normalizeValue(status).toLowerCase();
+  return normalized === 'succeeded' || normalized === 'completed' || normalized === 'failed' || normalized === 'canceled';
+}
+
+function countMembersByStatus(members: WorkspaceMemberRecord[], status: WorkspaceMemberStatus): number {
+  return members.filter((member) => member.status === status).length;
+}
+
+function countMembersByRole(members: WorkspaceMemberRecord[], role: WorkspaceMemberRole): number {
+  return members.filter((member) => member.role === role).length;
+}
+
 function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse | null): boolean {
   if (!whoAmI) {
     return false;
@@ -382,17 +445,6 @@ function parseGitHubRepositories(value: string): string[] {
       seen.add(entry);
       return true;
     });
-}
-
-function useScaffoldDataState(delayMS = 320) {
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), delayMS);
-    return () => window.clearTimeout(timer);
-  }, [delayMS]);
-
-  return loading;
 }
 
 function ProductErrorBoundary({ children }: { children: ReactNode }) {
@@ -803,43 +855,17 @@ export function ProductShellLayout() {
   );
 }
 
-function ScopedShellPage({ title, description, actionLabel, actionTo }: ScopedShellPageProps) {
-  const loading = useScaffoldDataState();
-
-  if (loading) {
-    return (
-      <section className="idt-app-panel" aria-busy="true" aria-live="polite">
-        <p className="idt-app-kicker">Loading</p>
-        <h2>{title}</h2>
-        <p>Fetching scoped data for this workspace route.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="idt-app-panel">
-      <p className="idt-app-kicker">Scaffold</p>
-      <h2>{title}</h2>
-      <p>{description}</p>
-      <AppShellEmptyState
-        title="No data yet"
-        body="This placeholder is intentionally empty until backend wiring and feature-specific views are connected."
-      />
-      {actionLabel && actionTo ? (
-        <div className="idt-inline-actions">
-          <Link className="idt-btn idt-btn-primary" to={actionTo}>
-            {actionLabel}
-          </Link>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 export function ProductOverviewPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const [showTour, setShowTour] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [activeProjects, setActiveProjects] = useState<ProjectRecord[]>([]);
+  const [archivedProjectCount, setArchivedProjectCount] = useState(0);
+  const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
+  const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
 
   useEffect(() => {
     if (!FEATURE_ONBOARDING_WIZARD) {
@@ -865,6 +891,69 @@ export function ProductOverviewPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!scope) {
+      setError('Choose a workspace before loading the overview.');
+      setLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    const loadOverview = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const auth = buildProductAuthContext(scope);
+        const [allProjectItems, activeProjectItems, scanResponse, findingResponse, trendResponse] = await Promise.all([
+          listOverviewProjects(scope.workspaceID, { include_archived: true }, auth),
+          listOverviewProjects(scope.workspaceID, { include_archived: false }, auth),
+          apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
+          apiClient.listRepoFindings(
+            {
+              limit: OVERVIEW_FINDING_LIMIT,
+              lifecycle_status: 'open',
+              sort_by: 'severity',
+              sort_order: 'desc'
+            },
+            auth
+          ),
+          apiClient.getRepoFindingsTrends({ points: TREND_POINTS }, auth)
+        ]);
+        if (!mounted) {
+          return;
+        }
+        setActiveProjects(
+          activeProjectItems
+            .slice()
+            .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+        );
+        setArchivedProjectCount(allProjectItems.filter((project) => project.archived_at).length);
+        setRepoScans(scanResponse.items);
+        setRepoFindings(
+          findingResponse.items
+            .slice()
+            .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
+        );
+        setTrendPoints(trendResponse.items);
+      } catch (err) {
+        if (!mounted) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Unable to load workspace overview');
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadOverview();
+
+    return () => {
+      mounted = false;
+    };
+  }, [scope?.tenantID, scope?.workspaceID, scope?.projectID]);
+
   const dismissTour = async () => {
     setShowTour(false);
     try {
@@ -874,14 +963,213 @@ export function ProductOverviewPage() {
     }
   };
 
+  const openFindingCount = repoFindings.filter((finding) => normalizeFindingStatus(finding.triage?.status) === 'open').length;
+  const urgentFindingCount = repoFindings.filter((finding) => {
+    const severity = normalizeValue(finding.severity).toLowerCase();
+    return severity === 'critical' || severity === 'high';
+  }).length;
+  const activeScanCount = repoScans.filter((scan) => isActiveScanStatus(scan.status)).length;
+  const completedScanCount = repoScans.filter((scan) => isCompletedScanStatus(scan.status)).length;
+  const latestTrend = trendPoints[trendPoints.length - 1];
+  const previousTrend = trendPoints[trendPoints.length - 2];
+  const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
+  const projectsPath = scope ? buildProjectsPath(scope) : '/app';
+  const findingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
+  const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
+
+  if (loading) {
+    return (
+      <section className="idt-app-panel" aria-busy="true" aria-live="polite">
+        <p className="idt-app-kicker">Workspace overview</p>
+        <h2>Overview</h2>
+        <p>Loading workspace activity, project coverage, scans, and open findings.</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Workspace overview</p>
+        <h2>Overview</h2>
+        <p>{error}</p>
+      </section>
+    );
+  }
+
   return (
     <>
-      <ScopedShellPage
-        title="Overview"
-        description={`Choose a project for tenant ${scope?.tenantID ?? 'unknown'} and workspace ${scope?.workspaceID ?? 'unknown'} before connecting source telemetry.`}
-        actionLabel="Select project"
-        actionTo={scope ? buildProjectsPath(scope) : undefined}
-      />
+      <section className="idt-app-panel idt-overview-page">
+        <header className="idt-overview-header">
+          <div>
+            <p className="idt-app-kicker">Workspace overview</p>
+            <h2>Overview</h2>
+            <p>
+              Operating view for tenant <strong>{scope?.tenantID ?? 'unknown'}</strong> and workspace{' '}
+              <strong>{scope?.workspaceID ?? 'unknown'}</strong>.
+            </p>
+          </div>
+          <div className="idt-inline-actions">
+            <Link className="idt-btn idt-btn-primary" to={projectsPath}>
+              Manage projects
+            </Link>
+            <Link className="idt-btn idt-btn-ghost" to={findingsPath}>
+              Review findings
+            </Link>
+          </div>
+        </header>
+
+        <div className="idt-overview-metrics" aria-label="Workspace health metrics">
+          <article>
+            <span>Active projects</span>
+            <strong>{activeProjects.length}</strong>
+            <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : 'All listed projects are active'}</p>
+          </article>
+          <article>
+            <span>Priority findings</span>
+            <strong>{openFindingCount}</strong>
+            <p>{urgentFindingCount} critical or high in the ranked queue</p>
+          </article>
+          <article>
+            <span>Recent scans</span>
+            <strong>{repoScans.length}</strong>
+            <p>{activeScanCount > 0 ? `${activeScanCount} still running` : `${completedScanCount} completed`}</p>
+          </article>
+          <article>
+            <span>Trend delta</span>
+            <strong>{trendDelta === null ? 'N/A' : trendDelta > 0 ? `+${trendDelta}` : trendDelta}</strong>
+            <p>
+              {latestTrend
+                ? previousTrend
+                  ? `Latest scan total ${latestTrend.total}`
+                  : `Latest scan total ${latestTrend.total}; awaiting another scan`
+                : 'No trend points yet'}
+            </p>
+          </article>
+        </div>
+
+        <div className="idt-overview-grid">
+          <section className="idt-overview-card">
+            <div className="idt-overview-card-header">
+              <div>
+                <p className="idt-app-kicker">Priority queue</p>
+                <h3>Open risk</h3>
+              </div>
+              <Link to={findingsPath}>All findings</Link>
+            </div>
+            {repoFindings.length > 0 ? (
+              <div className="idt-overview-list">
+                {repoFindings.slice(0, OVERVIEW_RISK_DISPLAY_LIMIT).map((finding) => {
+                  const repository = canonicalGitHubRepositoryDisplay(finding.repository ?? '');
+                  return (
+                    <article key={`${finding.scan_id}:${finding.id}`} className="idt-overview-risk-row">
+                      <div>
+                        <strong>{finding.title}</strong>
+                        <p>
+                          {repository || 'Repository unavailable'} · {repoFindingLocationLabel(finding)}
+                        </p>
+                      </div>
+                      <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <AppShellEmptyState
+                title="No open repository findings"
+                body="New repository scan findings will appear here with severity, repository, and line context."
+              />
+            )}
+          </section>
+
+          <section className="idt-overview-card">
+            <div className="idt-overview-card-header">
+              <div>
+                <p className="idt-app-kicker">Scan activity</p>
+                <h3>Recent scans</h3>
+              </div>
+              <Link to={findingsPath}>Open scans</Link>
+            </div>
+            {repoScans.length > 0 ? (
+              <div className="idt-overview-list">
+                {repoScans.map((scan) => (
+                  <article key={scan.id} className="idt-overview-scan-row">
+                    <div>
+                      <strong>{canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository}</strong>
+                      <p>
+                        {scan.finding_count} findings · {scan.files_scanned} files · {formatDateLabel(scan.started_at)}
+                      </p>
+                    </div>
+                    <span className={`idt-source-status-pill is-${isActiveScanStatus(scan.status) ? 'warning' : scan.status === 'failed' ? 'error' : 'success'}`}>
+                      {formatTokenLabel(scan.status)}
+                    </span>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <AppShellEmptyState
+                title="No scans yet"
+                body="Connect a project source and run the first scan to populate repository activity."
+              />
+            )}
+          </section>
+        </div>
+
+        <div className="idt-overview-grid">
+          <section className="idt-overview-card">
+            <div className="idt-overview-card-header">
+              <div>
+                <p className="idt-app-kicker">Coverage</p>
+                <h3>Project coverage</h3>
+              </div>
+              <Link to={projectsPath}>Project settings</Link>
+            </div>
+            {activeProjects.length > 0 ? (
+              <div className="idt-overview-projects">
+                {activeProjects.slice(0, 6).map((project) => (
+                  <Link key={project.project_id} to={scope ? buildProjectPath(scope, project.project_id) : projectsPath}>
+                    <strong>{project.name}</strong>
+                    <span>{project.description || `Project ${project.project_id}`}</span>
+                    <small>Updated {formatDateLabel(project.updated_at)}</small>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <AppShellEmptyState
+                title="No active projects"
+                body="Create the first project to connect source telemetry and scan policies for this workspace."
+              />
+            )}
+          </section>
+
+          <section className="idt-overview-card">
+            <div className="idt-overview-card-header">
+              <div>
+                <p className="idt-app-kicker">Next actions</p>
+                <h3>Make the workspace useful</h3>
+              </div>
+            </div>
+            <div className="idt-overview-actions">
+              <Link to={projectsPath}>
+                <strong>Create or select a project</strong>
+                <span>Define the scope that connectors and scan policies will attach to.</span>
+              </Link>
+              <Link to={scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath}>
+                <strong>Connect sources</strong>
+                <span>Attach GitHub, AWS, or Kubernetes telemetry to an active project.</span>
+              </Link>
+              <Link to={findingsPath}>
+                <strong>Triage open findings</strong>
+                <span>Review direct GitHub line links, severity, remediation, and workflow status.</span>
+              </Link>
+              <Link to={workspacesPath}>
+                <strong>Invite operators</strong>
+                <span>Give analysts and admins access to the workspace they operate.</span>
+              </Link>
+            </div>
+          </section>
+        </div>
+      </section>
       {showTour ? (
         <aside className="idt-onboarding-tour" aria-label="Onboarding tour">
           <div>
@@ -3709,5 +3997,245 @@ export function ProductFindingsPage() {
 }
 
 export function ProductSettingsPage() {
-  return <ScopedShellPage title="Settings" description="Tenant/workspace app settings, auth provider mapping, and shell preferences will render here." />;
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const { me } = useMe();
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [whoAmI, setWhoAmI] = useState<WhoAmIResponse | null>(null);
+  const [members, setMembers] = useState<WorkspaceMemberRecord[]>([]);
+  const [authConfig, setAuthConfig] = useState<AuthConfigResponse | null>(null);
+
+  useEffect(() => {
+    if (!scope) {
+      setError('Choose a workspace before loading settings.');
+      setLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    const loadSettings = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const auth = buildProductAuthContext(scope);
+        const [whoAmIResponse, memberResponse, authConfigResponse] = await Promise.all([
+          apiClient.getWhoAmI(auth),
+          apiClient.listWorkspaceMembers(scope.workspaceID, { limit: 100 }, auth),
+          apiClient.getAuthConfig()
+        ]);
+        if (!mounted) {
+          return;
+        }
+        setWhoAmI(whoAmIResponse);
+        setMembers(memberResponse.items);
+        setAuthConfig(authConfigResponse);
+      } catch (err) {
+        if (!mounted) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Unable to load workspace settings');
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadSettings();
+
+    return () => {
+      mounted = false;
+    };
+  }, [scope?.tenantID, scope?.workspaceID, scope?.projectID]);
+
+  const activeWorkspace = whoAmI?.active_workspace?.workspace ?? me?.workspace;
+  const activeMember =
+    whoAmI?.active_workspace?.member ??
+    whoAmI?.workspaces?.find((item) => item.workspace.workspace_id === scope?.workspaceID)?.member;
+  const activeRole = activeMember?.role ?? me?.role ?? 'viewer';
+  const workspaceDisplayName = activeWorkspace?.display_name ?? scope?.workspaceID ?? 'Workspace';
+  const authProviders = authConfig?.auth.providers ?? [];
+  const authModeLabel = authConfig?.auth.workos_login_enabled
+    ? 'Hosted WorkOS login'
+    : authConfig?.auth.manual_mode
+      ? 'Manual development login'
+      : 'Session-only';
+  const projectsPath = scope ? buildProjectsPath(scope) : '/app';
+  const findingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
+  const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
+
+  if (loading) {
+    return (
+      <section className="idt-app-panel" aria-busy="true" aria-live="polite">
+        <p className="idt-app-kicker">Workspace settings</p>
+        <h2>Settings</h2>
+        <p>Loading workspace identity, access, and authentication state.</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Workspace settings</p>
+        <h2>Settings</h2>
+        <p>{error}</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="idt-app-panel idt-settings-page">
+      <header className="idt-settings-header">
+        <div>
+          <p className="idt-app-kicker">Workspace settings</p>
+          <h2>Settings</h2>
+          <p>
+            Review the live workspace, access model, authentication mode, and the real routes that manage this tenant.
+          </p>
+        </div>
+        <div className="idt-inline-actions">
+          <Link className="idt-btn idt-btn-primary" to={workspacesPath}>
+            Manage members
+          </Link>
+          <Link className="idt-btn idt-btn-ghost" to="/app/account/security">
+            Account security
+          </Link>
+        </div>
+      </header>
+
+      <div className="idt-settings-grid">
+        <section className="idt-settings-card">
+          <div>
+            <p className="idt-app-kicker">Workspace identity</p>
+            <h3>{workspaceDisplayName}</h3>
+          </div>
+          <dl className="idt-settings-facts">
+            <div>
+              <dt>Tenant</dt>
+              <dd>{scope?.tenantID ?? 'Unavailable'}</dd>
+            </div>
+            <div>
+              <dt>Workspace</dt>
+              <dd>{scope?.workspaceID ?? 'Unavailable'}</dd>
+            </div>
+            <div>
+              <dt>Project context</dt>
+              <dd>{scope?.projectID ?? me?.project_id ?? 'All projects'}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{activeWorkspace?.updated_at ? formatDateLabel(activeWorkspace.updated_at) : 'Unavailable'}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="idt-settings-card">
+          <div>
+            <p className="idt-app-kicker">Your access</p>
+            <h3>{formatTokenLabel(activeRole)}</h3>
+          </div>
+          <dl className="idt-settings-facts">
+            <div>
+              <dt>User</dt>
+              <dd>{me?.user.primary_email ?? whoAmI?.principal.id ?? 'Unavailable'}</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>{me?.user.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
+            </div>
+            <div>
+              <dt>Principal</dt>
+              <dd>{whoAmI ? `${formatTokenLabel(whoAmI.principal.type)} · ${whoAmI.principal.id}` : 'Unavailable'}</dd>
+            </div>
+            <div>
+              <dt>Scopes</dt>
+              <dd>{whoAmI?.scopes.length ? whoAmI.scopes.map(formatTokenLabel).join(', ') : 'None granted'}</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+
+      <div className="idt-settings-grid">
+        <section className="idt-settings-card">
+          <div className="idt-settings-card-header">
+            <div>
+              <p className="idt-app-kicker">Members</p>
+              <h3>Access model</h3>
+            </div>
+            <Link to={workspacesPath}>Open workspaces</Link>
+          </div>
+          <div className="idt-settings-counts">
+            <article>
+              <strong>{members.length}</strong>
+              <span>Total members</span>
+            </article>
+            <article>
+              <strong>{countMembersByStatus(members, 'active')}</strong>
+              <span>Active</span>
+            </article>
+            <article>
+              <strong>{countMembersByStatus(members, 'invited')}</strong>
+              <span>Invited</span>
+            </article>
+            <article>
+              <strong>{countMembersByRole(members, 'owner') + countMembersByRole(members, 'admin')}</strong>
+              <span>Admins</span>
+            </article>
+          </div>
+        </section>
+
+        <section className="idt-settings-card">
+          <div className="idt-settings-card-header">
+            <div>
+              <p className="idt-app-kicker">Authentication</p>
+              <h3>{authModeLabel}</h3>
+            </div>
+            <Link to="/app/account/security">Security</Link>
+          </div>
+          <dl className="idt-settings-facts">
+            <div>
+              <dt>Hosted login</dt>
+              <dd>{authConfig?.auth.workos_login_enabled ? 'Enabled' : 'Disabled'}</dd>
+            </div>
+            <div>
+              <dt>Manual mode</dt>
+              <dd>{authConfig?.auth.manual_mode ? 'Enabled' : 'Disabled'}</dd>
+            </div>
+            <div>
+              <dt>Providers</dt>
+              <dd>{authProviders.length ? authProviders.map(formatTokenLabel).join(', ') : 'None advertised'}</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+
+      <section className="idt-settings-card">
+        <div>
+          <p className="idt-app-kicker">Operating routes</p>
+          <h3>Where changes happen</h3>
+        </div>
+        <div className="idt-settings-route-grid">
+          <Link to={projectsPath}>
+            <strong>Projects and source setup</strong>
+            <span>Create projects, connect GitHub/AWS/Kubernetes, and manage scan policies.</span>
+          </Link>
+          <Link to={findingsPath}>
+            <strong>Findings workflow</strong>
+            <span>Inspect repository risk, open GitHub line links, and apply triage status.</span>
+          </Link>
+          <Link to={workspacesPath}>
+            <strong>Workspace members</strong>
+            <span>Invite users, adjust roles, suspend stale access, and switch active workspaces.</span>
+          </Link>
+          <Link to="/app/account/security">
+            <strong>Account sessions</strong>
+            <span>Review active sessions, revoke access, and sign out cleanly.</span>
+          </Link>
+        </div>
+      </section>
+    </section>
+  );
 }

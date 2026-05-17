@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Replaced the authenticated Overview and Settings scaffold routes with real product views:
+  - Overview now loads workspace projects, repository scans, open repository findings, and trend signals to show operating metrics, risk queue, scan activity, coverage, and next-action routing.
+  - Settings now loads live workspace identity, member access counts, current account role/scopes, authentication mode, providers, and links to the routes that manage each setting area.
 - Enabled Identrail Cloud self-serve onboarding deployment wiring:
   - production AWS API deploys now set `IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true` by default alongside new auth, with `API_FEATURE_ONBOARDING_WIZARD=false` available as the explicit rollback knob
   - Vercel production deploys upsert `VITE_FEATURE_ONBOARDING_WIZARD` before building the web app, defaulting to `true` and honoring a repository variable override for rollback
