@@ -6195,11 +6195,28 @@ html[data-theme='light'] .idt-dev-mode-banner {
 .idt-site-auth,
 html[data-theme='light'] .idt-site-auth {
   min-height: 100svh;
-  background: #ffffff;
+  background: #000000;
+}
+
+.idt-site-auth > main {
+  min-height: 100svh;
 }
 
 .idt-auth-page,
 html[data-theme='light'] .idt-auth-page {
+  --auth-bg: #000000;
+  --auth-surface: #0a0a0a;
+  --auth-surface-strong: #111111;
+  --auth-text: #ededed;
+  --auth-muted: #a1a1a1;
+  --auth-muted-soft: #737373;
+  --auth-line: #2a2a2a;
+  --auth-line-strong: #333333;
+  --auth-link: #3291ff;
+  --auth-button-muted: #0a0a0a;
+  --auth-button-muted-hover: #111111;
+  --auth-github: #24292f;
+  --auth-focus: rgba(50, 145, 255, 0.48);
   min-height: 100svh;
   width: 100%;
   position: relative;
@@ -6207,35 +6224,42 @@ html[data-theme='light'] .idt-auth-page {
   grid-template-rows: auto 1fr auto;
   align-items: center;
   justify-items: center;
-  padding: 2.1rem 2rem 1.35rem;
-  color: #171a20;
-  background:
-    linear-gradient(180deg, rgba(248, 248, 248, 0.96), #ffffff 38%),
-    #ffffff;
+  padding: 1.45rem 1.55rem 1.7rem;
+  color: var(--auth-text);
+  background: var(--auth-bg);
 }
 
-.idt-auth-page::before {
-  content: none;
+.idt-auth-page[data-auth-theme='light'],
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] {
+  --auth-bg: #ffffff;
+  --auth-surface: #ffffff;
+  --auth-surface-strong: #fafafa;
+  --auth-text: #171717;
+  --auth-muted: #666666;
+  --auth-muted-soft: #8a8a8a;
+  --auth-line: #eaeaea;
+  --auth-line-strong: #d4d4d4;
+  --auth-link: #0070f3;
+  --auth-button-muted: #ffffff;
+  --auth-button-muted-hover: #fafafa;
+  --auth-github: #24292f;
+  --auth-focus: rgba(0, 112, 243, 0.34);
 }
 
 .idt-auth-topbar {
   position: relative;
   z-index: 2;
-  top: auto;
-  left: auto;
-  right: auto;
-  width: 100%;
+  width: min(100%, 112rem);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  pointer-events: auto;
 }
 
 .idt-auth-logo {
   display: inline-flex;
   align-items: center;
-  gap: 0.72rem;
-  color: #171a20;
+  gap: 0.55rem;
+  color: var(--auth-text);
   text-decoration: none;
 }
 
@@ -6247,65 +6271,62 @@ html[data-theme='light'] .idt-auth-page {
 }
 
 .idt-auth-logo span {
-  color: #171a20;
+  color: var(--auth-text);
   font-family: var(--idt-display);
-  font-size: 1.05rem;
+  font-size: 1.48rem;
   font-weight: 760;
   letter-spacing: 0;
   line-height: 1;
 }
 
-.idt-auth-language {
+.idt-auth-logo.is-mark-only span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.idt-auth-topbar-action,
+html[data-theme='light'] .idt-auth-topbar-action {
+  min-height: 2.45rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  min-height: 2.35rem;
-  color: #171a20;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.idt-auth-language span {
-  display: inline-grid;
-  place-items: center;
-  width: 1.35rem;
-  height: 1.35rem;
-}
-
-.idt-auth-language svg {
-  width: 1.22rem;
-  height: 1.22rem;
-}
-
-.idt-auth-language select {
-  appearance: none;
-  border: 0;
-  border-radius: 8px;
-  padding: 0.35rem 0.25rem;
+  justify-content: center;
+  border: 1px solid var(--auth-line-strong);
+  border-radius: 7px;
+  padding: 0 0.88rem;
+  color: var(--auth-text);
   background: transparent;
-  color: #171a20;
-  font: inherit;
+  font-size: 0.94rem;
+  font-weight: 500;
   letter-spacing: 0;
-  cursor: pointer;
+  line-height: 1;
+  text-decoration: none;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease;
 }
 
-.idt-auth-language select:focus-visible {
-  outline: 2px solid #1d4ed8;
-  outline-offset: 3px;
+.idt-auth-topbar-action:hover,
+.idt-auth-topbar-action:focus-visible {
+  border-color: var(--auth-muted);
+  background: var(--auth-surface-strong);
 }
 
 .idt-auth-layout {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 23.2rem);
-  min-height: auto;
-  display: block;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  overflow: visible;
-  backdrop-filter: none;
+  width: min(100%, 23rem);
+  align-self: center;
+  display: grid;
+  justify-items: center;
+}
+
+.idt-auth-layout[data-auth-intent='signup'] {
+  width: min(100%, 39.5rem);
 }
 
 .idt-auth-panel,
@@ -6313,7 +6334,7 @@ html[data-theme='light'] .idt-auth-panel {
   width: 100%;
   margin: 0;
   display: grid;
-  align-content: start;
+  justify-items: center;
   gap: 1rem;
   border: 0;
   border-radius: 0;
@@ -6322,28 +6343,31 @@ html[data-theme='light'] .idt-auth-panel {
   box-shadow: none;
 }
 
+.idt-auth-panel-signup,
+html[data-theme='light'] .idt-auth-panel-signup {
+  border: 1px solid var(--auth-line);
+  border-radius: 12px;
+  background: var(--auth-surface);
+  padding: 4.9rem 5.6rem 2.25rem;
+}
+
 .idt-auth-panel h1,
 html[data-theme='light'] .idt-auth-panel h1 {
-  margin: 0;
-  color: #171a20;
+  max-width: 29rem;
+  margin: 0 0 1rem;
+  color: var(--auth-text);
   font-family: var(--idt-display);
-  font-size: 2.35rem;
+  font-size: 2.05rem;
   font-weight: 760;
   letter-spacing: 0;
-  line-height: 1.12;
-  text-align: left;
+  line-height: 1.08;
+  text-align: center;
 }
 
-.idt-auth-panel-signup h1 {
-  max-width: 100%;
-}
-
-.idt-auth-subtitle {
-  margin: -0.2rem 0 1.1rem;
-  max-width: 23rem;
-  color: #5c5e62;
-  font-size: 0.96rem;
-  line-height: 1.55;
+.idt-auth-panel-signup h1,
+html[data-theme='light'] .idt-auth-panel-signup h1 {
+  margin-bottom: 2.85rem;
+  font-size: 2.1rem;
 }
 
 .idt-auth-provider-stack,
@@ -6356,32 +6380,34 @@ html[data-theme='light'] .idt-auth-panel h1 {
 .idt-auth-provider,
 html[data-theme='light'] .idt-auth-provider {
   width: 100%;
-  min-height: 2.95rem;
+  min-height: 3.5rem;
   display: grid;
-  grid-template-columns: 1.25rem minmax(0, 1fr) 1.25rem;
+  grid-template-columns: 1.45rem minmax(0, auto) 1.45rem;
   align-items: center;
-  justify-items: center;
-  gap: 0.75rem;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: #171a20;
-  text-decoration: none;
-  font-family: Roboto, var(--idt-body);
-  font-size: 0.92rem;
-  font-weight: 700;
+  justify-content: center;
+  gap: 0.58rem;
+  border: 1px solid var(--auth-line-strong);
+  border-radius: 8px;
+  color: var(--auth-text);
+  background: var(--auth-button-muted);
+  font-family: var(--idt-body);
+  font-size: 1.02rem;
+  font-weight: 500;
   letter-spacing: 0;
   line-height: 1.2;
-  background: #f4f4f4;
+  text-decoration: none;
   cursor: pointer;
   box-shadow: none;
   transition:
     border-color 0.16s ease,
     background-color 0.16s ease,
-    color 0.16s ease;
+    transform 0.16s ease;
 }
 
 .idt-auth-provider::after {
   content: '';
+  width: 1.45rem;
+  height: 1px;
 }
 
 .idt-auth-provider:hover,
@@ -6389,44 +6415,45 @@ html[data-theme='light'] .idt-auth-provider {
 html[data-theme='light'] .idt-auth-provider:hover,
 html[data-theme='light'] .idt-auth-provider:focus-visible {
   transform: none;
-  border-color: #d0d1d2;
-  background: #eeeeee;
+  border-color: var(--auth-muted);
+  background: var(--auth-button-muted-hover);
   box-shadow: none;
 }
 
+.idt-auth-provider:focus-visible,
+.idt-auth-topbar-action:focus-visible,
+.idt-auth-theme-switcher button:focus-visible,
+.idt-auth-footer-line a:focus-visible,
+.idt-auth-terms a:focus-visible,
+.idt-auth-legal-footer a:focus-visible {
+  outline: 2px solid var(--auth-focus);
+  outline-offset: 3px;
+}
+
 .idt-auth-provider-google,
-html[data-theme='light'] .idt-auth-provider-google,
-.idt-auth-provider-google:hover,
-.idt-auth-provider-google:focus-visible,
-html[data-theme='light'] .idt-auth-provider-google:hover,
-html[data-theme='light'] .idt-auth-provider-google:focus-visible {
-  border-color: #747775;
-  color: #1f1f1f;
-  background: #ffffff;
+html[data-theme='light'] .idt-auth-provider-google {
+  background: var(--auth-button-muted);
 }
 
-.idt-auth-provider-github,
-html[data-theme='light'] .idt-auth-provider-github {
-  border-color: transparent;
-  color: #171a20;
-  background: #f4f4f4;
+.idt-auth-page-signup .idt-auth-provider-github {
+  border-color: var(--auth-github);
+  background: var(--auth-github);
+  color: #ffffff;
 }
 
-.idt-auth-provider-github:hover,
-.idt-auth-provider-github:focus-visible,
-html[data-theme='light'] .idt-auth-provider-github:hover,
-html[data-theme='light'] .idt-auth-provider-github:focus-visible {
-  border-color: #d0d1d2;
-  color: #171a20;
-  background: #eeeeee;
+.idt-auth-provider-dark,
+html[data-theme='light'] .idt-auth-provider-dark {
+  border-color: var(--auth-line-strong);
+  color: var(--auth-text);
+  background: var(--auth-button-muted);
 }
 
 .idt-auth-provider-icon {
-  width: 1.12rem;
-  height: 1.12rem;
+  width: 1.15rem;
+  height: 1.15rem;
   flex: none;
   object-fit: contain;
-  justify-self: center;
+  justify-self: end;
 }
 
 .idt-auth-provider-icon-google {
@@ -6436,6 +6463,11 @@ html[data-theme='light'] .idt-auth-provider-github:focus-visible {
   background: transparent;
   font-size: unset;
   font-weight: unset;
+}
+
+.idt-auth-page[data-auth-theme='dark'] .idt-auth-provider-icon:not(.idt-auth-provider-icon-google),
+.idt-auth-page-signup .idt-auth-provider-github .idt-auth-provider-icon {
+  filter: brightness(0) invert(1);
 }
 
 .idt-auth-provider-icon-sso {
@@ -6449,194 +6481,179 @@ html[data-theme='light'] .idt-auth-provider-github:focus-visible {
   color: currentColor;
 }
 
-.idt-auth-trouble {
-  justify-self: center;
-  margin-top: 0.65rem;
-  color: #393c41;
-  font-size: 0.94rem;
-  font-weight: 600;
-  line-height: 1.4;
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
-}
-
-.idt-auth-divider {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 0.8rem;
-  margin: 1.1rem 0 0.35rem;
-  color: #6f7277;
-  font-size: 0.92rem;
-  line-height: 1;
-}
-
-.idt-auth-divider::before,
-.idt-auth-divider::after {
-  content: '';
-  height: 1px;
-  background: #d8d9da;
-}
-
-.idt-auth-switch,
-.idt-auth-switch-panel,
-html[data-theme='light'] .idt-auth-switch {
-  width: 100%;
-  min-width: 0;
-  min-height: 2.95rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 5px;
-  background: #f4f4f4;
-  color: #393c41;
-  font-size: 0.92rem;
-  font-weight: 760;
-  letter-spacing: 0;
-  text-decoration: none;
-  box-shadow: none;
-  backdrop-filter: none;
-  transition:
-    background-color 0.16s ease,
-    color 0.16s ease;
-}
-
-.idt-auth-switch:hover,
-.idt-auth-switch:focus-visible,
-.idt-auth-switch-panel:hover,
-.idt-auth-switch-panel:focus-visible {
-  transform: none;
-  background: #e9e9e9;
-  border-color: transparent;
-  color: #171a20;
-}
-
 .idt-auth-panel .idt-app-alert {
+  width: 100%;
   margin: 0;
-  border-color: #d8d9da;
-  border-radius: 5px;
-  background: #f7f7f7;
-  color: #393c41;
+  border-color: var(--auth-line);
+  border-radius: 8px;
+  background: var(--auth-surface-strong);
+  color: var(--auth-muted);
   font-size: 0.9rem;
   line-height: 1.45;
 }
 
 .idt-auth-panel .idt-app-alert-error {
-  border-color: #fecaca;
-  background: #fff7f7;
-  color: #991b1b;
+  border-color: #7f1d1d;
+  background: rgba(127, 29, 29, 0.18);
+  color: #fecaca;
 }
 
 .idt-auth-panel .idt-app-alert-success {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #166534;
+  border-color: #14532d;
+  background: rgba(20, 83, 45, 0.22);
+  color: #bbf7d0;
 }
 
 .idt-auth-manual-form {
   width: 100%;
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
   padding-top: 1rem;
-  border-top: 1px solid #d8d9da;
+  border-top: 1px solid var(--auth-line);
 }
 
 .idt-auth-manual-form label,
 html[data-theme='light'] .idt-auth-manual-form label {
-  color: #393c41;
-  font-size: 0.86rem;
-  font-weight: 650;
+  color: var(--auth-muted);
+  font-size: 0.84rem;
+  font-weight: 500;
 }
 
 .idt-auth-manual-form input,
 html[data-theme='light'] .idt-auth-manual-form input {
-  min-height: 2.8rem;
-  border-color: #d8d9da;
-  border-radius: 5px;
-  background: #f4f4f4;
-  color: #171a20;
-  padding: 0.65rem 0.8rem;
+  min-height: 3rem;
+  border-color: var(--auth-line-strong);
+  border-radius: 8px;
+  background: var(--auth-button-muted);
+  color: var(--auth-text);
+  padding: 0.7rem 0.85rem;
+}
+
+.idt-auth-page .idt-auth-footer-line,
+html[data-theme='light'] .idt-auth-page .idt-auth-footer-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.28rem;
+  margin-top: 1.2rem;
+  color: var(--auth-muted);
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+.idt-auth-footer-line a,
+.idt-auth-terms a,
+.idt-auth-legal-footer a,
+html[data-theme='light'] .idt-auth-footer-line a,
+html[data-theme='light'] .idt-auth-terms a,
+html[data-theme='light'] .idt-auth-legal-footer a {
+  color: var(--auth-link);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.idt-auth-footer-line a:hover,
+.idt-auth-terms a:hover,
+.idt-auth-legal-footer a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
 }
 
 .idt-auth-terms,
 html[data-theme='light'] .idt-auth-terms {
   max-width: 100%;
-  margin: 0.35rem 0 0;
-  color: #5c5e62;
-  font-size: 0.82rem;
-  line-height: 1.55;
+  margin: 4.15rem 0 0;
+  color: var(--auth-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
   text-align: center;
-}
-
-.idt-auth-terms a,
-.idt-auth-legal-footer a,
-html[data-theme='light'] .idt-auth-terms a,
-html[data-theme='light'] .idt-auth-legal-footer a {
-  color: #393c41;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.idt-auth-terms a:hover,
-.idt-auth-terms a:focus-visible,
-.idt-auth-legal-footer a:hover,
-.idt-auth-legal-footer a:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
 }
 
 .idt-auth-legal-footer {
   position: relative;
   z-index: 2;
-  bottom: auto;
-  left: auto;
-  right: auto;
   display: flex;
-  flex-wrap: wrap;
   justify-content: center;
-  gap: 1.05rem;
+  gap: 1rem;
   width: 100%;
-  color: #6f7277;
-  font-size: 0.82rem;
-  font-weight: 650;
+  color: var(--auth-muted-soft);
+  font-size: 0.78rem;
   line-height: 1.4;
 }
 
-@media (max-width: 640px) {
+.idt-auth-page .idt-auth-legal-footer a,
+html[data-theme='light'] .idt-auth-page .idt-auth-legal-footer a {
+  color: var(--auth-muted-soft);
+}
+
+.idt-auth-theme-switcher {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.15rem;
+  z-index: 4;
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.18rem;
+  border: 1px solid var(--auth-line);
+  border-radius: 999px;
+  padding: 0.18rem;
+  background: color-mix(in srgb, var(--auth-surface) 88%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 34px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(16px);
+}
+
+.idt-auth-theme-switcher button {
+  min-width: 3.45rem;
+  min-height: 1.9rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 0.55rem;
+  color: var(--auth-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.idt-auth-theme-switcher button.is-active {
+  color: var(--auth-text);
+  background: var(--auth-surface-strong);
+  box-shadow: 0 0 0 1px var(--auth-line);
+}
+
+@media (max-width: 720px) {
   .idt-auth-page,
   html[data-theme='light'] .idt-auth-page {
-    min-height: 100svh;
-    padding: 1.15rem 1.35rem 1rem;
-    background: #ffffff;
+    padding: 1.1rem 1rem 5.2rem;
   }
 
-  .idt-auth-topbar {
-    align-self: start;
+  .idt-auth-layout,
+  .idt-auth-layout[data-auth-intent='signup'] {
+    width: min(100%, 23rem);
   }
 
-  .idt-auth-logo img {
-    width: 1.55rem;
-    height: 1.55rem;
-  }
-
-  .idt-auth-logo span {
-    font-size: 0.98rem;
-  }
-
-  .idt-auth-layout {
-    width: min(100%, 23.2rem);
-    align-self: center;
+  .idt-auth-panel-signup,
+  html[data-theme='light'] .idt-auth-panel-signup {
+    padding: 2.4rem 1.2rem 1.45rem;
   }
 
   .idt-auth-panel h1,
-  html[data-theme='light'] .idt-auth-panel h1 {
-    font-size: 2rem;
+  html[data-theme='light'] .idt-auth-panel h1,
+  .idt-auth-panel-signup h1,
+  html[data-theme='light'] .idt-auth-panel-signup h1 {
+    font-size: 1.85rem;
   }
 
-  .idt-auth-legal-footer {
-    align-self: end;
-    gap: 0.8rem;
-    font-size: 0.78rem;
+  .idt-auth-logo span {
+    font-size: 1.1rem;
+  }
+
+  .idt-auth-theme-switcher {
+    right: 1rem;
+    bottom: 1rem;
   }
 }
 
