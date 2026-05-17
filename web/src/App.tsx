@@ -847,7 +847,7 @@ const BLOG_ARTICLE_TREATMENTS = {
     className: 'is-supply-chain'
   },
   'Buying Guide': {
-    icon: '/identrail-logo.png',
+    icon: '/favicon-64.png',
     label: 'Identrail',
     className: 'is-buying'
   },
@@ -871,7 +871,7 @@ const BLOG_ARTICLE_TREATMENTS = {
 function getBlogArticleTreatment(category: string) {
   return (
     BLOG_ARTICLE_TREATMENTS[category as keyof typeof BLOG_ARTICLE_TREATMENTS] ?? {
-      icon: '/identrail-logo.png',
+      icon: '/favicon-64.png',
       label: 'Identrail',
       className: 'is-default'
     }
@@ -2686,7 +2686,7 @@ function PricingPage() {
               <li>SAML SSO, alerts, and workflow integrations</li>
               <li>14-day hosted trial with guided setup</li>
             </ul>
-            <Link to="/enterprise" className="idt-btn idt-btn-primary">
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Pro Trial
             </Link>
           </article>
