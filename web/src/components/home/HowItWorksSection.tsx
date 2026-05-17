@@ -27,7 +27,7 @@ const WORKFLOW_STEPS = [
 
 export function HowItWorksSection() {
   return (
-    <section className="idt-section idt-shell idt-workflow-section" aria-labelledby="workflow-title">
+    <section className="idt-section idt-workflow-section" aria-labelledby="workflow-title">
       <div className="idt-section-title">
         <p className="idt-eyebrow">Operational Workflow</p>
         <h2 id="workflow-title">From read-only discovery to safe enforcement</h2>

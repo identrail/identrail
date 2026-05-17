@@ -64,7 +64,7 @@ export function CommandCenterSection() {
 
   return (
     <section className="idt-section idt-command-center" aria-labelledby="command-center-title">
-      <div className="idt-shell idt-command-center-grid">
+      <div className="idt-command-center-grid">
         <div className="idt-command-copy">
           <p className="idt-eyebrow">Trust operations layer</p>
           <h2 id="command-center-title">A premium control room for machine identity risk.</h2>

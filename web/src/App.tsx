@@ -1466,7 +1466,7 @@ function RoiCalculator() {
 
 function DeploymentPathBanner() {
   return (
-    <section className="idt-section idt-shell idt-deployment-bridge" aria-label="Adoption paths">
+    <section className="idt-section idt-deployment-bridge" aria-label="Adoption paths">
       <div className="idt-deployment-panel">
         <p className="idt-eyebrow">Adoption Paths</p>
         <h2>Choose the deployment model that fits your operating constraints.</h2>
@@ -1545,7 +1545,7 @@ function DeploymentPathBanner() {
 
 function ProductTourSection() {
   return (
-    <section className="idt-section idt-shell idt-product-tour" aria-labelledby="product-tour-title">
+    <section className="idt-section idt-product-tour" aria-labelledby="product-tour-title">
       <div className="idt-product-tour-copy">
         <p className="idt-eyebrow">Product tour</p>
         <h2 id="product-tour-title">From connector setup to evidence-ready remediation.</h2>
@@ -1780,59 +1780,61 @@ function HomePage() {
 
       <TrustProofStrip />
 
-      <ProblemFramingSection />
+      <div className="idt-home-after-stack">
+        <ProblemFramingSection />
 
-      <CommandCenterSection />
+        <CommandCenterSection />
 
-      <ProductTourSection />
+        <ProductTourSection />
 
-      <HowItWorksSection />
+        <HowItWorksSection />
 
-      <DeploymentPathBanner />
+        <DeploymentPathBanner />
 
-      <section className="idt-section idt-shell">
-        <SectionTitle
-          eyebrow="Comparison"
-          title="Why teams choose Identrail over closed black-box workflows"
-          body="Compare on explainability, rollout safety, and day-two operability."
-        />
-        <div className="idt-table-wrap idt-home-compare">
-          <table className="idt-compare-table">
-            <thead>
-              <tr>
-                <th scope="col">Category</th>
-                <th scope="col">Identrail</th>
-                <th scope="col">Typical closed alternatives</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DIFFERENTIATION_ROWS.map((row) => (
-                <tr key={row.area}>
-                  <th scope="row">{row.area}</th>
-                  <td>{row.identrail}</td>
-                  <td>{row.closed}</td>
+        <section className="idt-section idt-home-compare-section">
+          <SectionTitle
+            eyebrow="Comparison"
+            title="Why teams choose Identrail over closed black-box workflows"
+            body="Compare on explainability, rollout safety, and day-two operability."
+          />
+          <div className="idt-table-wrap idt-home-compare">
+            <table className="idt-compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col">Identrail</th>
+                  <th scope="col">Typical closed alternatives</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {DIFFERENTIATION_ROWS.map((row) => (
+                  <tr key={row.area}>
+                    <th scope="row">{row.area}</th>
+                    <td>{row.identrail}</td>
+                    <td>{row.closed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      <section className="idt-section idt-shell idt-final-cta" id="risk-scan-form">
-        <SectionTitle
-          eyebrow="Ready to evaluate"
-          title="Map your first production trust path in minutes"
-          body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
-        />
-        <div className="idt-inline-actions">
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
-          </Link>
-          <Link to="/enterprise" className="idt-final-cta-link">
-            Need enterprise procurement? Contact Sales →
-          </Link>
-        </div>
-      </section>
+        <section className="idt-section idt-final-cta idt-home-final-cta" id="risk-scan-form">
+          <SectionTitle
+            eyebrow="Ready to evaluate"
+            title="Map your first production trust path in minutes"
+            body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
+          />
+          <div className="idt-inline-actions">
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+              Start Free Risk Scan
+            </Link>
+            <Link to="/enterprise" className="idt-final-cta-link">
+              Need enterprise procurement? Contact Sales →
+            </Link>
+          </div>
+        </section>
+      </div>
     </>
   );
 }

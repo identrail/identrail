@@ -36,7 +36,7 @@ const storyStages = [
 
 export function ProblemFramingSection() {
   return (
-    <section className="idt-section idt-shell idt-problem-frame" aria-labelledby="problem-frame-title">
+    <section className="idt-section idt-problem-frame" aria-labelledby="problem-frame-title">
       <div className="idt-problem-frame-grid">
         <div className="idt-problem-copy">
           <p className="idt-eyebrow">Why teams miss machine identity risk</p>
