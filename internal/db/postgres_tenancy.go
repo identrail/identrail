@@ -488,6 +488,58 @@ func (p *PostgresStore) FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx contex
 	return member, nil
 }
 
+// ListWorkspaceMembershipsByUserUUIDAndTenantID returns every active workspace
+// membership the user holds within one tenant. It is the authorization basis
+// for organization-wide reads: a caller may only aggregate data from the
+// workspaces they actually belong to. AnyScope is used because the lookup
+// spans every workspace in the tenant rather than one scoped workspace.
+func (p *PostgresStore) ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) ([]TenancyWorkspaceMember, error) {
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	normalizedTenantID := strings.TrimSpace(tenantID)
+	if normalizedUserUUID == "" || normalizedTenantID == "" {
+		return []TenancyWorkspaceMember{}, nil
+	}
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
+		 FROM tenancy_workspace_members
+		 WHERE user_uuid = NULLIF($1, '')::uuid
+		   AND tenant_id = $2
+		   AND status = 'active'
+		 ORDER BY workspace_id ASC`,
+		normalizedUserUUID,
+		normalizedTenantID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	memberships := make([]TenancyWorkspaceMember, 0)
+	for rows.Next() {
+		var member TenancyWorkspaceMember
+		if err := rows.Scan(
+			&member.TenantID,
+			&member.WorkspaceID,
+			&member.MemberID,
+			&member.UserID,
+			&member.UserUUID,
+			&member.Email,
+			&member.Role,
+			&member.Status,
+			&member.JoinedAt,
+			&member.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		memberships = append(memberships, member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return memberships, nil
+}
+
 // ListWorkspaceMembers lists members for one scoped workspace.
 func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error) {
 	scope, err := RequireScope(ctx)

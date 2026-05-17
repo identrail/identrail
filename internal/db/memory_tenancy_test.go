@@ -1013,3 +1013,67 @@ func TestMemoryStoreScheduledScanPolicyPaginationAndClaim(t *testing.T) {
 		t.Fatal("expected duplicate claim to be rejected")
 	}
 }
+
+func TestMemoryStoreListWorkspaceMembershipsByUserUUIDAndTenantID(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 17, 10, 0, 0, 0, time.UTC)
+	userUUID := "11111111-1111-1111-1111-111111111111"
+	ctx := context.Background()
+
+	tenantA := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(tenantA, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org a: %v", err)
+	}
+	for _, ws := range []string{"ws-1", "ws-2", "ws-3"} {
+		wsCtx := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: ws})
+		if err := store.UpsertWorkspace(wsCtx, TenancyWorkspace{WorkspaceID: ws, DisplayName: ws, Slug: ws}); err != nil {
+			t.Fatalf("upsert workspace %s: %v", ws, err)
+		}
+	}
+	// Active in ws-1 and ws-2, suspended in ws-3 (must be excluded).
+	for _, m := range []struct {
+		ws, status string
+	}{{"ws-1", "active"}, {"ws-2", "active"}, {"ws-3", "suspended"}} {
+		wsCtx := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: m.ws})
+		if err := store.UpsertWorkspaceMember(wsCtx, TenancyWorkspaceMember{
+			WorkspaceID: m.ws, MemberID: "member-" + m.ws, UserID: "subject", UserUUID: userUUID,
+			Role: "viewer", Status: m.status, JoinedAt: now,
+		}); err != nil {
+			t.Fatalf("upsert member %s: %v", m.ws, err)
+		}
+	}
+	// Different tenant membership must never leak in.
+	tenantB := WithScope(ctx, Scope{TenantID: "tenant-b", WorkspaceID: "ws-b"})
+	if err := store.UpsertOrganization(tenantB, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("upsert org b: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantB, TenancyWorkspace{WorkspaceID: "ws-b", DisplayName: "ws-b", Slug: "ws-b"}); err != nil {
+		t.Fatalf("upsert workspace b: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(tenantB, TenancyWorkspaceMember{
+		WorkspaceID: "ws-b", MemberID: "member-b", UserID: "subject", UserUUID: userUUID,
+		Role: "viewer", Status: "active", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert member b: %v", err)
+	}
+
+	memberships, err := store.ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx, userUUID, "tenant-a")
+	if err != nil {
+		t.Fatalf("list memberships: %v", err)
+	}
+	got := []string{}
+	for _, m := range memberships {
+		got = append(got, m.WorkspaceID)
+	}
+	if len(got) != 2 || got[0] != "ws-1" || got[1] != "ws-2" {
+		t.Fatalf("want active tenant-a memberships [ws-1 ws-2], got %v", got)
+	}
+
+	empty, err := store.ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx, userUUID, "tenant-missing")
+	if err != nil {
+		t.Fatalf("missing tenant should not error: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected no memberships for unknown tenant, got %v", empty)
+	}
+}

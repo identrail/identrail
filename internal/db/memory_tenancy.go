@@ -381,6 +381,31 @@ func (m *MemoryStore) FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx context.
 	return selected, nil
 }
 
+// ListWorkspaceMembershipsByUserUUIDAndTenantID returns every active workspace
+// membership the user holds within one tenant. It is the authorization basis
+// for organization-wide reads: a caller may only aggregate data from the
+// workspaces they actually belong to.
+func (m *MemoryStore) ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) ([]TenancyWorkspaceMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	normalizedTenantID := strings.TrimSpace(tenantID)
+	if normalizedUserUUID == "" || normalizedTenantID == "" {
+		return []TenancyWorkspaceMember{}, nil
+	}
+	memberships := make([]TenancyWorkspaceMember, 0)
+	for _, member := range m.members {
+		if member.UserUUID != normalizedUserUUID || member.TenantID != normalizedTenantID || member.Status != "active" {
+			continue
+		}
+		memberships = append(memberships, member)
+	}
+	sort.Slice(memberships, func(i, j int) bool {
+		return memberships[i].WorkspaceID < memberships[j].WorkspaceID
+	})
+	return memberships, nil
+}
+
 // ListWorkspaceMembers returns members for one scoped workspace.
 func (m *MemoryStore) ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error) {
 	m.mu.RLock()

@@ -262,6 +262,8 @@ func TestExecutiveReportCache_EvictsExpiredEntries(t *testing.T) {
 	}
 }
 
+const execReportTestUser = "11111111-1111-1111-1111-111111111111"
+
 func seedExecReportWorkspace(t *testing.T, store db.Store, tenant, ws string) {
 	t.Helper()
 	tenantCtx := db.WithScope(context.Background(), db.Scope{TenantID: tenant, WorkspaceID: ws})
@@ -273,6 +275,23 @@ func seedExecReportWorkspace(t *testing.T, store db.Store, tenant, ws string) {
 	}
 }
 
+// seedExecReportMembership grants the test user an active membership in one
+// workspace so the org report is authorized to aggregate it.
+func seedExecReportMembership(t *testing.T, store db.Store, tenant, ws string) {
+	t.Helper()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: tenant, WorkspaceID: ws})
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: ws,
+		MemberID:    "member-" + ws,
+		UserID:      execReportTestUser,
+		UserUUID:    execReportTestUser,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed membership %s/%s: %v", tenant, ws, err)
+	}
+}
+
 func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	clock := now
@@ -281,16 +300,24 @@ func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 	const org = "org-shared"
 	seedExecReportWorkspace(t, store, org, "ws-1")
 	seedExecReportWorkspace(t, store, org, "ws-2")
+	seedExecReportWorkspace(t, store, org, "ws-3")
+	// The caller is a member of ws-1 and ws-2 only.
+	seedExecReportMembership(t, store, org, "ws-1")
+	seedExecReportMembership(t, store, org, "ws-2")
 
 	ws1Scope := db.Scope{TenantID: org, WorkspaceID: "ws-1"}
 	ws2Scope := db.Scope{TenantID: org, WorkspaceID: "ws-2"}
+	ws3Scope := db.Scope{TenantID: org, WorkspaceID: "ws-3"}
 	scan1 := seedExecReportScan(t, store, ws1Scope, now.Add(-2*24*time.Hour))
 	seedExecReportFinding(t, store, ws1Scope, scan1, "f1", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-1*24*time.Hour), nil)
 	scan2 := seedExecReportScan(t, store, ws2Scope, now.Add(-2*24*time.Hour))
 	seedExecReportFinding(t, store, ws2Scope, scan2, "f2", domain.SeverityCritical, domain.FindingEscalationPath, now.Add(-1*24*time.Hour), nil)
+	// ws-3 has a finding but the caller is NOT a member — it must be excluded.
+	scan3 := seedExecReportScan(t, store, ws3Scope, now.Add(-2*24*time.Hour))
+	seedExecReportFinding(t, store, ws3Scope, scan3, "f-secret", domain.SeverityCritical, domain.FindingStaleIdentity, now.Add(-1*24*time.Hour), nil)
 
 	// One shared Service (one cache). The caller's active workspace is ws-1,
-	// but the report must cover the whole organization.
+	// but the report must cover every workspace the caller belongs to.
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.Now = func() time.Time { return clock }
 	r := gin.New()
@@ -309,7 +336,7 @@ func TestExecutiveReport_AggregatesAcrossOrgWorkspaces(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if rep.TotalOpenFindings != 2 {
-		t.Fatalf("report must aggregate across all org workspaces; want 2, got %d", rep.TotalOpenFindings)
+		t.Fatalf("report must aggregate the caller's member workspaces (ws-1,ws-2) and exclude the non-member ws-3; want 2, got %d", rep.TotalOpenFindings)
 	}
 
 	// Add a finding in ws-2 and call again within the TTL: the org-wide cache

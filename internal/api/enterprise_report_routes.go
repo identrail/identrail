@@ -68,21 +68,22 @@ func (c *executiveReportCache) set(key string, report enterprise.ExecutiveReport
 	c.entries[key] = cachedExecutiveReport{report: report, expiresAt: now.Add(c.ttl)}
 }
 
-// maxOrgReportWorkspaces bounds how many workspaces the executive report will
-// aggregate. It is far above any realistic per-organization workspace count;
-// it exists only so a pathological tenant cannot make one request unbounded.
-const maxOrgReportWorkspaces = 1000
-
-// organizationWorkspaceIDs returns every workspace in the caller's tenant so
-// the report covers the whole organization. The caller's active workspace is
-// always included so deployments that never registered tenancy workspace rows
-// (e.g. single-workspace/default mode) still produce a non-empty report.
-func organizationWorkspaceIDs(ctx context.Context, svc *Service, scope db.Scope) ([]string, error) {
-	workspaces, err := svc.Store.ListWorkspaces(ctx, maxOrgReportWorkspaces)
+// authorizedReportWorkspaceIDs returns the workspaces whose findings the caller
+// may aggregate into the organization report: exactly the workspaces in the
+// organization (tenant) where the user holds an active membership. This is the
+// authorization boundary — a workspace-scoped member must never pull findings
+// from workspaces they do not belong to, even though the central route check
+// only authorizes enterprise.read for their active workspace.
+//
+// The caller's active workspace is always included: the route check already
+// authorized it, and deployments that never wrote tenancy membership rows
+// (single-workspace/default mode) must still produce a non-empty report.
+func authorizedReportWorkspaceIDs(ctx context.Context, svc *Service, userUUID string, scope db.Scope) ([]string, error) {
+	memberships, err := svc.Store.ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx, userUUID, scope.TenantID)
 	if err != nil {
 		return nil, err
 	}
-	ordered := make([]string, 0, len(workspaces)+1)
+	ordered := make([]string, 0, len(memberships)+1)
 	seen := map[string]struct{}{}
 	add := func(id string) {
 		id = strings.TrimSpace(id)
@@ -95,8 +96,8 @@ func organizationWorkspaceIDs(ctx context.Context, svc *Service, scope db.Scope)
 		seen[id] = struct{}{}
 		ordered = append(ordered, id)
 	}
-	for _, ws := range workspaces {
-		add(ws.WorkspaceID)
+	for _, m := range memberships {
+		add(m.WorkspaceID)
 	}
 	add(scope.WorkspaceID)
 	return ordered, nil
@@ -141,13 +142,14 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 			return
 		}
 
-		// An executive report covers the whole organization, but findings are
-		// stored per workspace. Enumerate every workspace in the tenant and
-		// aggregate, rather than reporting only the caller's active workspace.
-		workspaceIDs, err := organizationWorkspaceIDs(reqCtx, svc, scope)
+		// An executive report covers the organization, but findings are stored
+		// per workspace. Aggregate across the workspaces the caller is actually
+		// a member of — never every workspace in the tenant — so the report
+		// cannot expose findings from workspaces the user is not authorized for.
+		workspaceIDs, err := authorizedReportWorkspaceIDs(reqCtx, svc, strings.TrimSpace(current.Session.UserID), scope)
 		if err != nil {
 			if logger != nil {
-				logger.Error("list workspaces for executive report", telemetry.ZapError(err))
+				logger.Error("resolve authorized workspaces for executive report", telemetry.ZapError(err))
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
 			return

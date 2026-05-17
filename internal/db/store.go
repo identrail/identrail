@@ -2120,6 +2120,7 @@ type Store interface {
 	GetOnboardingState(ctx context.Context, userID string) (OnboardingState, error)
 	FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error)
 	FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) (TenancyWorkspaceMember, error)
+	ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) ([]TenancyWorkspaceMember, error)
 	CreateInvitation(ctx context.Context, invitation Invitation) (Invitation, error)
 	GetInvitation(ctx context.Context, orgID string, invitationID string) (Invitation, error)
 	ListInvitations(ctx context.Context, orgID string, limit int) ([]Invitation, error)
