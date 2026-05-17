@@ -16823,3 +16823,407 @@ html[data-theme='light'] .idt-docs-page .idt-empty-state {
     min-height: 440px;
   }
 }
+
+/* Detail polish for the marketing pass. */
+.idt-home-after-stack .idt-problem-frame .idt-problem-map-core,
+html[data-theme='light'] .idt-home-after-stack .idt-problem-frame .idt-problem-map-core {
+  justify-content: start;
+  align-content: center;
+  padding-inline: clamp(2.4rem, 5vw, 5.6rem) clamp(1.5rem, 3vw, 3rem);
+}
+
+.idt-home-after-stack .idt-problem-frame .idt-problem-map-core strong,
+html[data-theme='light'] .idt-home-after-stack .idt-problem-frame .idt-problem-map-core strong {
+  max-width: 13ch;
+}
+
+.idt-hero-admin-window,
+.idt-hero-login-card {
+  font-family: var(--idt-nav-font);
+}
+
+.idt-admin-profile-row strong,
+.idt-admin-field-grid span,
+.idt-admin-path-strip span,
+.idt-admin-activity li strong,
+.idt-mobile-live-row strong,
+.idt-mobile-header h3,
+.idt-mobile-summary strong,
+.idt-mini-path li strong,
+.idt-path-input {
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.idt-admin-profile-row strong,
+.idt-mobile-header h3 {
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.idt-admin-field-grid > div,
+.idt-admin-activity li,
+.idt-admin-path-strip span,
+.idt-mobile-summary div,
+.idt-path-input,
+.idt-mini-path li {
+  border-radius: 8px;
+}
+
+.idt-product-page .idt-product-hero-graph {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    radial-gradient(circle at 45% 52%, rgba(255, 255, 255, 0.095), transparent 16rem),
+    #050505;
+  background-size: 72px 72px, 72px 72px, auto, auto;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge.is-safe {
+  stroke-width: 3.2;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge.is-risk {
+  stroke-width: 3.8;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-graph-edge.is-proof {
+  stroke-width: 2.5;
+}
+
+.idt-product-page .idt-graph-pill {
+  min-width: 178px;
+}
+
+.idt-product-page .idt-graph-pill.is-k8s {
+  top: 49%;
+  left: 40%;
+}
+
+.idt-product-page .idt-graph-pill.is-data {
+  top: 64%;
+  left: 56%;
+}
+
+.idt-product-page .idt-graph-pill.is-aws {
+  top: 18%;
+  right: 5%;
+}
+
+.idt-demo-edge-arrow {
+  stroke-width: 1.35;
+}
+
+.idt-demo-edges g.is-connected .idt-demo-edge-arrow {
+  stroke-width: 1.7;
+}
+
+.idt-product-graph-band .idt-demo-graph,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-graph {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    radial-gradient(circle at 43% 50%, rgba(255, 255, 255, 0.105), transparent 17rem),
+    #050505;
+  background-size: 80px 80px, 80px 80px, auto, auto;
+}
+
+.idt-product-graph-band .idt-demo-node {
+  min-width: 158px;
+  padding: 0.58rem 0.78rem;
+  font-size: 0.72rem;
+}
+
+.idt-product-graph-band .idt-demo-node small {
+  font-size: 0.64rem;
+}
+
+.idt-product-graph-band .idt-demo-edge-arrow {
+  stroke-width: 2.2;
+  opacity: 1;
+}
+
+.idt-product-graph-band .idt-demo-edges g.is-connected .idt-demo-edge-arrow {
+  stroke-width: 2.8;
+}
+
+.idt-product-graph-band .idt-demo-edge-flow {
+  stroke-width: 1.8;
+  opacity: 0.45;
+}
+
+.idt-product-graph-band .idt-demo-edges g.is-connected .idt-demo-edge-flow {
+  stroke-width: 2.1;
+  opacity: 0.68;
+}
+
+.idt-docs-search-preview,
+html[data-theme='light'] .idt-docs-search-preview {
+  max-width: 680px;
+  padding: 1.15rem 1.25rem;
+}
+
+.idt-docs-search-preview span,
+html[data-theme='light'] .idt-docs-search-preview span {
+  font-size: 0.78rem;
+}
+
+.idt-docs-search-preview strong,
+html[data-theme='light'] .idt-docs-search-preview strong {
+  font-size: 1.18rem;
+}
+
+.idt-docs-preview-shell,
+html[data-theme='light'] .idt-docs-preview-shell {
+  grid-template-columns: 170px 1fr;
+  min-height: 340px;
+}
+
+.idt-docs-preview-shell nav button,
+html[data-theme='light'] .idt-docs-preview-shell nav button {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 0.58rem 0.65rem;
+  background: transparent;
+  color: #a1a1aa;
+  font-family: var(--idt-nav-font);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.idt-docs-preview-shell nav button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.idt-docs-preview-shell nav button.is-active,
+html[data-theme='light'] .idt-docs-preview-shell nav button.is-active {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-docs-preview-shell code,
+html[data-theme='light'] .idt-docs-preview-shell code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  background: #080f1d;
+  color: #e5e7eb;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.idt-docs-preview-shell code span.is-command {
+  color: #7dd3fc;
+}
+
+.idt-docs-preview-shell code span.is-subcommand {
+  color: #c4b5fd;
+}
+
+.idt-docs-preview-shell code span.is-flag {
+  color: #86efac;
+}
+
+.idt-docs-preview-shell code span.is-value {
+  color: #fbbf24;
+}
+
+.idt-calendly-card .idt-inline-actions {
+  margin-top: clamp(2rem, 4vw, 3.2rem);
+}
+
+.idt-pricing-hero-visual {
+  align-content: stretch;
+}
+
+.idt-pricing-hero-matrix {
+  min-height: 240px;
+}
+
+.idt-pricing-hero-plans {
+  display: none;
+}
+
+.idt-pricing-page .idt-pricing-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr) minmax(0, 1fr);
+}
+
+.idt-pricing-page .idt-pricing-card.is-featured .idt-btn-primary,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured .idt-btn-primary {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-about-page .idt-about-hero-visual,
+html[data-theme='light'] .idt-about-page .idt-about-hero-visual {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.72fr);
+}
+
+.idt-about-page .idt-about-orbit,
+html[data-theme='light'] .idt-about-page .idt-about-orbit {
+  border: 1px solid #242424;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), transparent 8rem),
+    radial-gradient(circle at 50% 50%, transparent 0 4.8rem, rgba(255, 255, 255, 0.11) 4.86rem 4.95rem, transparent 5rem 8.9rem, rgba(255, 255, 255, 0.1) 8.96rem 9.05rem, transparent 9.1rem),
+    #080808;
+  box-shadow: none;
+}
+
+.idt-about-page .idt-about-orbit span,
+html[data-theme='light'] .idt-about-page .idt-about-orbit span {
+  border-color: #303030;
+  border-radius: 8px;
+  background: #111111;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-about-page .idt-about-orbit .is-core,
+html[data-theme='light'] .idt-about-page .idt-about-orbit .is-core {
+  border-radius: 999px;
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-about-page .idt-about-timeline li,
+html[data-theme='light'] .idt-about-page .idt-about-timeline li {
+  border-color: #242424;
+  background: #080808;
+  box-shadow: none;
+}
+
+.idt-about-page .idt-about-timeline strong,
+html[data-theme='light'] .idt-about-page .idt-about-timeline strong {
+  color: #ffffff;
+}
+
+.idt-about-page .idt-about-timeline span,
+html[data-theme='light'] .idt-about-page .idt-about-timeline span {
+  color: #ffffff;
+}
+
+.idt-blog-page > .idt-page-hero-rich,
+html[data-theme='light'] .idt-blog-page > .idt-page-hero-rich {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.idt-blog-page .idt-page-hero-copy,
+html[data-theme='light'] .idt-blog-page .idt-page-hero-copy {
+  max-width: min(1120px, 100%);
+}
+
+.idt-blog-page .idt-page-hero-rich h1,
+html[data-theme='light'] .idt-blog-page .idt-page-hero-rich h1 {
+  max-width: 20ch;
+}
+
+.idt-blog-page .idt-page-hero-copy > p,
+html[data-theme='light'] .idt-blog-page .idt-page-hero-copy > p {
+  max-width: 66ch;
+}
+
+.idt-blog-card {
+  --blog-accent: #ffffff;
+  position: relative;
+  isolation: isolate;
+}
+
+.idt-blog-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--blog-accent);
+}
+
+.idt-blog-card-head {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 2.2rem;
+}
+
+.idt-blog-card-logo {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #303030;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.idt-blog-card-logo img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+
+.idt-blog-card .idt-chip-row {
+  justify-content: end;
+  margin: 0;
+}
+
+.idt-blog-card.is-identity {
+  --blog-accent: #38bdf8;
+}
+
+.idt-blog-card.is-aws {
+  --blog-accent: #ff9900;
+}
+
+.idt-blog-card.is-kubernetes {
+  --blog-accent: #326ce5;
+}
+
+.idt-blog-card.is-supply-chain {
+  --blog-accent: #ffffff;
+}
+
+.idt-blog-card.is-buying {
+  --blog-accent: #d4d4d8;
+}
+
+.idt-blog-card.is-compliance {
+  --blog-accent: #f59e0b;
+}
+
+.idt-blog-card.is-platform {
+  --blog-accent: #844fba;
+}
+
+.idt-blog-card.is-leadership {
+  --blog-accent: #e6522c;
+}
+
+@media (max-width: 820px) {
+  .idt-product-page .idt-graph-pill {
+    min-width: 132px;
+  }
+
+  .idt-docs-preview-shell,
+  html[data-theme='light'] .idt-docs-preview-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-docs-preview-shell nav,
+  html[data-theme='light'] .idt-docs-preview-shell nav {
+    border-right: 0;
+    border-bottom: 1px solid #242424;
+  }
+
+  .idt-pricing-page .idt-pricing-grid,
+  .idt-about-page .idt-about-hero-visual,
+  html[data-theme='light'] .idt-about-page .idt-about-hero-visual {
+    grid-template-columns: 1fr;
+  }
+}
