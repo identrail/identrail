@@ -557,6 +557,180 @@ paths:
             text/plain:
               schema:
                 type: string
+  /v1/enterprise/identity-connections/saml:
+    get:
+      tags: [EnterpriseAuth]
+      summary: List native SAML identity connections
+      operationId: listNativeSAMLConnections
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Native SAML connections for the current organization
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [connections]
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NativeSAMLConnection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [EnterpriseAuth]
+      summary: Create a native SAML identity connection
+      operationId: createNativeSAMLConnection
+      security:
+        - CookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeSAMLConnectionRequest"
+      responses:
+        "201":
+          description: Native SAML connection created with a one-time SCIM bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NativeSAMLConnectionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/enterprise/identity-connections/saml/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [EnterpriseAuth]
+      summary: Get a native SAML identity connection
+      operationId: getNativeSAMLConnection
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Native SAML connection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [connection]
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/NativeSAMLConnection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [EnterpriseAuth]
+      summary: Update a native SAML identity connection
+      operationId: updateNativeSAMLConnection
+      security:
+        - CookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeSAMLConnectionUpdateRequest"
+      responses:
+        "200":
+          description: Native SAML connection updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [connection]
+                properties:
+                  connection:
+                    $ref: "#/components/schemas/NativeSAMLConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [EnterpriseAuth]
+      summary: Delete a native SAML identity connection
+      operationId: deleteNativeSAMLConnection
+      security:
+        - CookieAuth: []
+      responses:
+        "204":
+          description: Native SAML connection deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/enterprise/identity-connections/saml/from-metadata:
+    post:
+      tags: [EnterpriseAuth]
+      summary: Import native SAML settings from IdP metadata
+      operationId: importNativeSAMLConnectionMetadata
+      security:
+        - CookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              anyOf:
+                - required: [metadata_url]
+                - required: [metadata_xml]
+              properties:
+                metadata_url:
+                  type: string
+                  format: uri
+                  description: HTTPS IdP metadata URL.
+                metadata_xml:
+                  type: string
+                  description: Inline IdP metadata XML.
+      responses:
+        "200":
+          description: Parsed SAML metadata draft
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entity_id, sso_url, certificate_pem]
+                properties:
+                  entity_id:
+                    type: string
+                  sso_url:
+                    type: string
+                    format: uri
+                  certificate_pem:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /scim/v2/ServiceProviderConfig:
     get:
       tags: [SCIM]
@@ -1148,11 +1322,13 @@ paths:
                 properties:
                   auth:
                     type: object
-                    required: [manual_mode, workos_login_enabled, providers]
+                    required: [manual_mode, workos_login_enabled, native_saml_enabled, providers]
                     properties:
                       manual_mode:
                         type: boolean
                       workos_login_enabled:
+                        type: boolean
+                      native_saml_enabled:
                         type: boolean
                       providers:
                         type: array
@@ -3932,6 +4108,13 @@ components:
           type: string
           enum: [sso, directory_sync]
         workos_connection_id: { type: string }
+        entity_id: { type: string }
+        sso_url: { type: string, format: uri }
+        certificate_pem: { type: string }
+        attribute_mapping:
+          type: object
+          additionalProperties:
+            type: string
         status:
           type: string
           enum: [pending, active, disabled]
@@ -3941,12 +4124,95 @@ components:
             type: string
         sso_required:
           type: boolean
+        jit_provisioning_enabled:
+          type: boolean
+        has_scim_bearer_token:
+          type: boolean
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+    NativeSAMLConnection:
+      allOf:
+        - $ref: "#/components/schemas/IdentityConnection"
+    NativeSAMLConnectionRequest:
+      type: object
+      required: [entity_id, sso_url, certificate_pem, attribute_mapping]
+      properties:
+        type:
+          type: string
+          default: sso
+        status:
+          type: string
+          enum: [pending, active, disabled]
+        display_name:
+          type: string
+        entity_id:
+          type: string
+        sso_url:
+          type: string
+          format: uri
+        certificate_pem:
+          type: string
+        attribute_mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: Must include the SAML email attribute mapping.
+        group_role_map:
+          type: object
+          additionalProperties:
+            type: string
+        jit_provisioning_enabled:
+          type: boolean
+          default: false
+        sso_required:
+          type: boolean
+          default: false
+    NativeSAMLConnectionUpdateRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          default: sso
+        status:
+          type: string
+          enum: [pending, active, disabled]
+        display_name:
+          type: string
+        entity_id:
+          type: string
+        sso_url:
+          type: string
+          format: uri
+        certificate_pem:
+          type: string
+        attribute_mapping:
+          type: object
+          additionalProperties:
+            type: string
+          description: When present, must include the SAML email attribute mapping.
+        group_role_map:
+          type: object
+          additionalProperties:
+            type: string
+        jit_provisioning_enabled:
+          type: boolean
+          default: false
+        sso_required:
+          type: boolean
+          default: false
+    NativeSAMLConnectionResponse:
+      type: object
+      required: [connection]
+      properties:
+        connection:
+          $ref: "#/components/schemas/NativeSAMLConnection"
+        scim_bearer_token:
+          type: string
+          description: One-time plaintext SCIM bearer token returned only on create.
     OnboardingState:
       type: object
       required: [user_id, current_step, connector_skipped, scan_skipped, started_at, updated_at]

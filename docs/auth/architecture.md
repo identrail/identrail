@@ -1,6 +1,9 @@
 # Auth Architecture
 
-This document is the entry point for how authentication, sessions, and identity work in Identrail. It locks down the contracts that the next eleven PRs implement. If a later PR disagrees with this doc, the doc is wrong and we update it before the code lands.
+This document is the entry point for how authentication, sessions, and identity
+work in Identrail. It describes the contracts currently implemented on `dev`
+plus the explicitly planned follow-up tracks. If code and this document
+disagree, update this document or the code in the same PR.
 
 ## Goals
 
@@ -67,8 +70,8 @@ Today, `tenancy_workspace_members.user_id` is a free-text string holding the OID
 
 Stages:
 
-1. Add `user_uuid UUID NULL` in PR 2. New writes populate both `user_id` and `user_uuid`.
-2. PR 4 (WorkOS login) populates `user_uuid` for every new sign-in.
+1. Add `user_uuid UUID NULL`. New writes populate both `user_id` and `user_uuid`.
+2. WorkOS login populates `user_uuid` for every new sign-in.
 3. A backfill job copies `user_uuid` for existing rows by joining on the `(provider, subject)` pair, not `subject` alone. Subjects can collide across IdPs (Google `sub=12345` and Microsoft `sub=12345` are unrelated humans), so the backfill needs the provider too. For each org, the backfill resolves provider from the org's currently-configured OIDC issuer (the common case is one IdP per org); rows that match more than one `user_identities` row are left for manual reconciliation rather than auto-linked. Audit log records every backfill mapping for traceability.
 4. After we observe zero non-UUID reads in production telemetry for at least four weeks, a separate migration drops `user_id` and renames `user_uuid` to `user_id`.
 
@@ -120,84 +123,101 @@ The canonical production base URL lives in `IDENTRAIL_PUBLIC_BASE_URL`. The doc 
 
 ## Endpoint Surface
 
-Every endpoint we plan to add across all twelve PRs. Routes ship in the PR noted in the third column.
+This section lists the auth, native SSO, SCIM, onboarding, and connector
+endpoints that are implemented or intentionally planned. The OpenAPI contract in
+[`../openapi-v1.yaml`](../openapi-v1.yaml) is the authoritative machine-readable
+shape for shipped routes.
 
 ### Sessions and identity
 
 Session context includes `current_org_id`, `current_workspace_id`, and `current_project_id` so project-scoped APIs can resolve tenancy without implicit defaults.
 
-| Method | Path | Adds in |
+| Method | Path | Status |
 | --- | --- | --- |
-| GET | `/v1/me` | PR 2 |
-| GET | `/v1/me/sessions` | PR 2 |
-| DELETE | `/v1/me/sessions/:id` | PR 2 |
-| POST | `/v1/me/sessions/revoke-others` | PR 2 |
-| GET | `/v1/me/auth-events` | PR 12 |
-| POST | `/auth/logout` | PR 2 |
-| GET | `/v1/auth/config` | PR 4 |
+| GET | `/v1/me` | Shipped |
+| GET | `/v1/me/sessions` | Shipped |
+| DELETE | `/v1/me/sessions/:id` | Shipped |
+| POST | `/v1/me/sessions/revoke-others` | Shipped |
+| GET | `/v1/me/auth-events` | Planned |
+| POST | `/auth/logout` | Shipped |
+| GET | `/v1/auth/config` | Shipped |
 
 ### Hosted login
 
-| Method | Path | Adds in |
+| Method | Path | Status |
 | --- | --- | --- |
-| GET | `/auth/login?return_to=...` | PR 4 |
-| GET | `/auth/signup?return_to=...` | PR 4 |
-| GET | `/auth/callback` | PR 4 |
-| POST | `/auth/webhooks/workos` | PR 4 |
+| GET | `/auth/login?return_to=...` | Shipped |
+| GET | `/auth/signup?return_to=...` | Shipped |
+| GET | `/auth/callback` | Shipped |
+| POST | `/auth/webhooks/workos` | Shipped |
 
 ### Onboarding
 
-| Method | Path | Adds in |
+| Method | Path | Status |
 | --- | --- | --- |
-| POST | `/v1/onboarding/start` | PR 10 |
-| GET | `/v1/onboarding/state` | PR 10 |
-| POST | `/v1/onboarding/state` | PR 10 |
-| POST | `/v1/onboarding/complete` | PR 10 |
+| POST | `/v1/onboarding/start` | Shipped |
+| GET | `/v1/onboarding/state` | Shipped |
+| POST | `/v1/onboarding/state` | Shipped |
+| POST | `/v1/onboarding/complete` | Shipped |
 
 ### Connectors
 
 Connector endpoints are project-scoped. The route shape stays flat (`/v1/connectors/*`), but every handler resolves `(tenant_id, workspace_id, project_id)` from the authenticated session context, including `sessions.current_project_id`. Requests without an active project context fail fast.
 
-| Method | Path | Adds in |
+| Method | Path | Status |
 | --- | --- | --- |
-| GET | `/v1/connectors` | PR 6 |
-| GET | `/v1/connectors/:id` | PR 6 |
-| GET | `/v1/connectors/:id/health` | PR 6 |
-| DELETE | `/v1/connectors/:id` | PR 6 |
-| POST | `/v1/connectors/:id/disable` | PR 6 |
-| POST | `/v1/connectors/:id/enable` | PR 6 |
-| POST | `/v1/connectors/aws` | PR 7 |
-| POST | `/v1/connectors/aws/:id/validate` | PR 7 |
-| GET | `/v1/connectors/aws/:id/poll` | PR 7 |
-| POST | `/v1/connectors/aws/:id/refresh-policy` | PR 7 |
-| POST | `/v1/connectors/github` | PR 8 |
-| POST | `/v1/connectors/github/pat` | PR 8 |
-| POST | `/auth/webhooks/github` | PR 8 |
-| GET | `/v1/connectors/github/:id/repos` | PR 8 |
-| POST | `/v1/connectors/k8s` | PR 9 |
-| POST | `/v1/connectors/k8s/enroll` | PR 9 |
-| POST | `/v1/connectors/k8s/heartbeat` | PR 9 |
-| POST | `/v1/connectors/k8s/kubeconfig` | PR 9 |
+| GET | `/v1/connectors` | Shipped |
+| GET | `/v1/connectors/:id` | Shipped |
+| GET | `/v1/connectors/:id/health` | Shipped |
+| DELETE | `/v1/connectors/:id` | Shipped |
+| POST | `/v1/connectors/:id/disable` | Shipped |
+| POST | `/v1/connectors/:id/enable` | Shipped |
+| POST | `/v1/connectors/aws` | Shipped |
+| POST | `/v1/connectors/aws/:id/validate` | Shipped |
+| GET | `/v1/connectors/aws/:id/poll` | Shipped |
+| POST | `/v1/connectors/aws/:id/refresh-policy` | Shipped |
+| POST | `/v1/connectors/github` | Shipped |
+| POST | `/v1/connectors/github/pat` | Shipped |
+| POST | `/auth/webhooks/github` | Shipped |
+| GET | `/v1/connectors/github/:id/repos` | Shipped |
+| POST | `/v1/connectors/k8s` | Shipped |
+| POST | `/v1/connectors/k8s/enroll` | Shipped |
+| POST | `/v1/connectors/k8s/heartbeat` | Shipped |
+| POST | `/v1/connectors/k8s/kubeconfig` | Shipped |
+
+### Native SAML and SCIM
+
+These routes are registered only when `IDENTRAIL_FEATURE_NATIVE_SSO=true` or
+the compatibility alias `IDENTRAIL_ENABLE_NATIVE_SSO=true`. Native SAML admin
+and login routes also require `IDENTRAIL_FEATURE_NEW_AUTH=true` because they
+depend on session-auth middleware and the SAML relay store.
+
+| Method | Path | Status |
+| --- | --- | --- |
+| POST | `/v1/enterprise/identity-connections/saml` | Shipped |
+| GET | `/v1/enterprise/identity-connections/saml` | Shipped |
+| GET | `/v1/enterprise/identity-connections/saml/:id` | Shipped |
+| PUT | `/v1/enterprise/identity-connections/saml/:id` | Shipped |
+| DELETE | `/v1/enterprise/identity-connections/saml/:id` | Shipped |
+| POST | `/v1/enterprise/identity-connections/saml/from-metadata` | Shipped |
+| GET | `/auth/saml/login/:connection_id` | Shipped |
+| POST | `/auth/saml/acs/:connection_id` | Shipped |
+| GET | `/scim/v2/ServiceProviderConfig` | Shipped |
+| GET | `/scim/v2/Schemas` | Shipped |
+| GET | `/scim/v2/ResourceTypes` | Shipped |
+| GET | `/scim/v2/Users` | Shipped |
+| POST | `/scim/v2/Users` | Shipped |
+| GET | `/scim/v2/Users/:id` | Shipped |
+| PUT | `/scim/v2/Users/:id` | Shipped |
+| PATCH | `/scim/v2/Users/:id` | Shipped |
+| DELETE | `/scim/v2/Users/:id` | Shipped |
 
 ### Enterprise admin
 
-| Method | Path | Adds in |
-| --- | --- | --- |
-| GET | `/v1/orgs/:id/sso` | PR 11 |
-| POST | `/v1/orgs/:id/sso/connection` | PR 11 |
-| POST | `/v1/orgs/:id/sso/portal-session` | PR 11 |
-| POST | `/v1/orgs/:id/sso/test` | PR 11 |
-| POST | `/v1/orgs/:id/sso/enforce` | PR 11 |
-| POST | `/v1/orgs/:id/sso/relink-all` | PR 11 |
-| POST | `/v1/orgs/:id/sso/recovery-codes` | PR 11 |
-| POST | `/v1/orgs/:id/sso/recovery-codes/use` | PR 11 |
-| POST | `/v1/orgs/:id/domains` | PR 11 |
-| POST | `/v1/orgs/:id/domains/:domain_id/verify` | PR 11 |
-| DELETE | `/v1/orgs/:id/domains/:domain_id` | PR 11 |
-| POST | `/v1/invitations` | PR 11 |
-| GET | `/v1/me/invitations` | PR 11 |
-| POST | `/v1/invitations/:id/accept` | PR 11 |
-| DELETE | `/v1/invitations/:id` | PR 11 |
+The invitation, verified-domain, and WorkOS Admin Portal routes from the
+original roadmap are no longer the Track 1 source of truth. Keep the current
+WorkOS login path working, but use the native SAML admin API above for native
+SAML configuration.
 
 ### Existing endpoints (unchanged)
 
@@ -205,7 +225,7 @@ The existing API key endpoints, the existing OIDC bearer flow, the existing scan
 
 ## Rate Limit Budgets
 
-The new auth and connector endpoints set explicit rate limits. PR 4 implements them; later PRs inherit the same configuration shape.
+Auth and connector endpoints set explicit rate limits. Later route additions should inherit the same configuration shape.
 
 | Endpoint pattern | Limit | Per |
 | --- | --- | --- |
@@ -221,19 +241,47 @@ The new auth and connector endpoints set explicit rate limits. PR 4 implements t
 
 Limits are enforced server-side and emit metrics. Hitting a limit returns HTTP 429 with `Retry-After`.
 
-## SSO Enforcement Guardrail
+## SSO Rollout Guardrail
 
-Once an org enables SSO and turns on enforcement, all org members must sign in via the configured IdP. SSO can be SAML or OIDC depending on what the IdP exposes. To prevent admins from locking themselves out, the enforcement toggle has one rule:
+Native SAML connections persist two rollout controls:
+`sso_required` and `jit_provisioning_enabled`. Both default to `false`.
 
-> The admin clicking "enforce SSO" must currently hold an active session whose `auth_method` was issued by that org's configured SSO connection (SAML or OIDC, whichever the connection uses).
+The current Track 1 implementation stores `sso_required` and exposes it through
+the native SAML admin API, but it does not yet ship recovery-code generation,
+an IdP-authenticated enforcement toggle, or a full org lockout-rescue flow. Do
+not document or rely on those older roadmap features as shipped behavior.
 
-If the admin is currently signed in via any other method (password OAuth, email OTP, manual mode), the enforce request returns 403 with an explanatory message. The admin signs out, signs back in through the IdP, and tries again.
+The safe operating sequence is:
 
-Enforcing SSO also generates eight single-use recovery codes (256-bit each, stored hashed) shown once to the admin. These can rescue the org if the IdP itself becomes unavailable.
+1. Create the native SAML connection with `sso_required=false`.
+2. Import IdP metadata and verify SAML login with a test admin.
+3. Enable SCIM and confirm create, update, deactivate, and delete events.
+4. Only then set `sso_required=true` as the org's rollout marker and keep a
+   break-glass admin path outside the enforced tenant.
 
-This is the [Vercel pattern](https://vercel.com/docs/saml). It is the smallest piece of UX that prevents the largest support disaster.
+See [`identity-linking-rules.md`](./identity-linking-rules.md) for the rules
+around linking identities and joining orgs.
 
-See [`identity-linking-rules.md`](./identity-linking-rules.md) for the rules around linking identities and joining orgs.
+## Native SAML
+
+Native SAML uses `github.com/crewjam/saml` for protocol handling. Identrail
+constructs a per-connection service provider from the stored entity ID, SSO
+URL, certificate, and public base URL, then delegates assertion parsing,
+signature verification, audience/recipient checks, and time-condition checks to
+the library.
+
+The SP entity ID is:
+
+```text
+${IDENTRAIL_PUBLIC_BASE_URL}/auth/saml/metadata/<connection_id>
+```
+
+That value is an identifier used as the SAML audience. The current API does not
+serve an SP metadata document at that URL.
+
+Unknown SAML users are rejected unless the connection has
+`jit_provisioning_enabled=true`. When JIT is disabled, the ACS returns a clear
+admin-actionable failure telling the user to ask an admin to provision them.
 
 ## Native SCIM Provisioning
 
@@ -253,11 +301,17 @@ When `IDENTRAIL_FEATURE_NATIVE_SSO=true` (or the compatibility alias `IDENTRAIL_
 | `PATCH /scim/v2/Users/{id}` | Apply SCIM PATCH `replace` operations |
 | `DELETE /scim/v2/Users/{id}` | Deactivate a provisioned user and record a delete event |
 
-SCIM resources reuse the auth tables instead of introducing a separate user store: `users.id` is the SCIM resource id, and `user_identities` stores `(provider="scim:<connection_uuid>", subject=<userName>)`. Each create, update, deactivate, and delete appends a `scim_provisioning_events` row for tenant-visible audit.
+SCIM resources reuse the auth tables instead of introducing a separate user
+store: `users.id` is the SCIM resource id, and `user_identities` stores
+`(provider="scim:<connection_uuid>", subject=<userName>)`. Each create, update,
+deactivate, and delete appends a `scim_provisioning_events` row for
+tenant-visible audit and dispatches a `scim.provisioned` workflow event through
+the existing workflow router. Dispatch failures are audited but do not fail the
+SCIM operation.
 
 ## Connector Foundation Preview
 
-Every connector (AWS, Kubernetes, GitHub, future ones) implements one Go interface and shares one status state machine and one error taxonomy. PR 6 ships this foundation; PRs 7, 8, 9 fill it in for the three providers.
+Every connector (AWS, Kubernetes, GitHub, future ones) implements one Go interface and shares one status state machine and one error taxonomy.
 
 The full spec lives in [`connector-foundation.md`](./connector-foundation.md). The short version: never write a bespoke status string or bespoke error code in a connector. Every connector goes through `pending → validating → active ⇄ degraded → disconnected`. Every error maps to one of seven taxonomy codes. Every connector ships a `Health()` implementation that the heartbeat job calls every 5 minutes.
 
@@ -274,15 +328,16 @@ A flat list with defaults, validation, and the PR that introduces each variable 
 
 The most important rule: every domain reference in code, config, and email templates reads from `IDENTRAIL_PUBLIC_BASE_URL` rather than a string literal. The docs use `https://app.identrail.com` as the canonical example throughout because we have to write something concrete down, but the production deployment derives that value from the env var. Code paths that hardcode the domain are caught in CI and rejected. The server refuses to start if `IDENTRAIL_PUBLIC_BASE_URL` is unset or invalid.
 
-## Twelve-PR Sequence
+## Roadmap
 
-The full PR breakdown lives in [`12-pr-plan.md`](./12-pr-plan.md). Each section is the canonical scope for that PR. When opening a PR, copy the matching section into the PR description as a checklist.
+The current roadmap lives in [`12-pr-plan.md`](./12-pr-plan.md). The file name
+is historical; the content now records the three-track plan.
 
 ## Non-Goals for the Auth Foundation
 
 To stay scoped, this work explicitly does not address:
 
-- Stripe or any payment integration. Entitlements ship in PR 12 with manual ops control. Billing is a separate stream.
+- Stripe or any payment integration. Billing is a separate stream.
 - Custom roles beyond `owner`, `admin`, `analyst`, `viewer`. Adding a fifth role is not in scope until at least one design partner needs it.
 - A mobile app. Mobile would need PKCE on a different flow; out of scope.
 - Breaking the existing API key auth. API keys keep working unchanged forever.
@@ -292,8 +347,9 @@ To stay scoped, this work explicitly does not address:
 
 These are the questions we have not answered yet and do not need to answer to ship PRs 1 through 5.
 
-- Email provider: Resend vs Postmark vs SES. Decision deadline: PR 11. Default plan is Resend.
-- Backend hosting: Fly.io vs Render vs AWS for the Go binary. Decision deadline: before PR 4 deploys to production. The dev environment runs on the existing docker-compose.
+- Email provider: Resend vs Postmark vs SES. Default plan is Resend when
+  invitation/email work resumes.
+- Backend hosting: AWS is the current documented hosted API path; local development still runs through docker-compose.
 - Account merge across providers: today an authenticated user can link a second identity. Whether to ever allow merging two existing accounts (one per provider) is deferred. Default answer is no.
 - Free-tier abuse defense beyond rate limits. Captcha vs proof-of-work vs domain blocklists. Deferred until we see actual abuse signals.
 
@@ -305,4 +361,4 @@ These are the questions we have not answered yet and do not need to answer to sh
 - [`identity-linking-rules.md`](./identity-linking-rules.md)
 - [`connector-foundation.md`](./connector-foundation.md)
 - [`env-vars-reference.md`](./env-vars-reference.md)
-- [`12-pr-plan.md`](./12-pr-plan.md)
+- [`12-pr-plan.md`](./12-pr-plan.md) - historical file name, current three-track roadmap

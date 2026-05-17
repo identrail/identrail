@@ -15,7 +15,7 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 3. `SameSite=Lax`. The cookie does not ride along with cross-site POSTs by default.
 4. The cookie value is opaque (an ID, not a token with claims). Possession of the cookie still requires the server's `sessions` row to exist and not be revoked.
 5. Sessions are server-side and revocable. An admin or the user can kill a session immediately from `/app/account/security`.
-6. Every authenticated request emits an audit event with IP and user agent through the existing `audit.AuditEvent` pipeline. A queryable read path over those events lands in PR 12 (the audit log UI), at which point a session used from a suspicious second IP becomes visible to the user as part of the per-user audit feed. PR 5 displays sessions only and leaves the feed as a placeholder until PR 12 wires it up.
+6. Every authenticated request emits an audit event with IP and user agent through the existing `audit.AuditEvent` pipeline. Queryable audit-log UI work is separate from Track 1 native SSO.
 
 **What we accept.** A determined attacker with persistent malware on the user's machine can replay the cookie until the session expires or is revoked. This is true of every cookie-based auth system. We mitigate the blast radius (revocation, audit visibility, idle timeout) rather than try to defeat the threat.
 
@@ -69,13 +69,13 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 
 ## SSO Downgrade
 
-**Attack.** Once an org enforces SSO, an attacker with a stolen password tries to bypass SSO by hitting the password endpoint directly.
+**Attack.** Once an org rolls out SSO, an attacker tries to bypass it by hitting a non-SSO login path directly.
 
 **Defenses.**
 
 1. We do not have password endpoints. WorkOS is the auth front door for Cloud, and self-host runs through OIDC.
-2. Org-level enforcement, when on, refuses to issue a session for any auth method other than the configured IdP. The check happens server-side in the callback handler before any session is created.
-3. The check is per-org, so a multi-org user signing in to an enforcing org via the wrong method gets rejected even if their other orgs are not enforcing.
+2. Native SAML and SCIM are feature-flagged behind `IDENTRAIL_FEATURE_NATIVE_SSO`, and native SAML sessions carry `auth_method="saml"` so follow-up enforcement work can distinguish them from WorkOS, OIDC, and manual sessions.
+3. Track 1 persists `sso_required` on the native SAML connection but does not yet ship recovery-code generation or a full org lockout-rescue flow. Operators should keep `sso_required=false` until SAML and SCIM have been tested for the tenant.
 
 ## SSO Lockout
 
@@ -83,9 +83,10 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 
 **Defenses.**
 
-1. The "enforce SSO" toggle requires the toggling admin to currently be authenticated via the IdP. They cannot enforce something they have not proven works for them.
-2. Enforcing generates eight single-use recovery codes (256-bit each, stored as SHA-256 hashes). Shown once. The admin must save them before the toggle takes effect.
-3. A "test SSO" flow simulates a full IdP round-trip (SAML or OIDC, whichever the connection uses) without persisting anything. Admins are nudged to use it before enforcement.
+1. Native SAML setup is opt-in and starts with `sso_required=false`.
+2. Admins test real SAML login through `/auth/saml/login/{connection_id}` and `/auth/saml/acs/{connection_id}` before changing the rollout marker.
+3. Admins enable SCIM and verify create/update/deactivate flows before treating the IdP as the source of truth.
+4. The complete recovery-code and enforcement-toggle flow remains follow-up work and should not be represented as shipped Track 1 behavior.
 
 ## Identity-Linking Account Takeover
 
@@ -109,13 +110,13 @@ The short version: Identrail never auto-links identities by email. Email-claim e
 
 ## Mass Session Invalidation Race
 
-**Attack.** When SSO is enforced or a user is removed via SCIM, we need to invalidate all their sessions quickly. A race could let an in-flight request slip through.
+**Attack.** When a user is removed via SCIM or future SSO enforcement revokes non-SSO access, we need to invalidate all their sessions quickly. A race could let an in-flight request slip through.
 
 **Defenses.**
 
 1. The session check happens in middleware on every request, against the database. There is no in-memory cache of "session is valid."
 2. Revocation marks `sessions.revoked_at` and (in the SCIM hard-delete case) deletes the row outright. The next request from that session fails.
-3. The mass-revoke job (PR 11 force-relink, PR 12 SCIM deactivation) processes serially per-org with a small batch size, so a single org cannot starve other orgs.
+3. Future mass-revoke jobs should process serially per org with a small batch size, so a single org cannot starve other orgs.
 4. Per-user revocation is constant-time: one DELETE query keyed on `user_id`.
 
 ## Webhook Replay and Forgery

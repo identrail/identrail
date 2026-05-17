@@ -127,7 +127,9 @@ Optional repository variables:
   to `false` only as a rollback knob for the onboarding API
 - `API_FEATURE_WORKOS_LOGIN`: defaults to `true` when the first-class WorkOS
   deployment settings above are provided
-- `API_EXTRA_ENVIRONMENT_JSON`
+- `API_EXTRA_ENVIRONMENT_JSON`: JSON object for additional non-secret runtime
+  variables. Use this to enable native SAML/SCIM, for example
+  `{"IDENTRAIL_FEATURE_NATIVE_SSO":"true"}`.
 - `API_SECRET_KMS_KEY_ARNS_JSON`
 - `API_CONNECTOR_ROLE_ARNS_JSON`
 

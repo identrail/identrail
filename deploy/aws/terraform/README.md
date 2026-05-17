@@ -154,7 +154,7 @@ Manager, and write logs without a NAT Gateway. Treat it as a budget-conscious
 bootstrap path and migrate to private task subnets plus NAT/VPC endpoints when
 traffic or compliance needs justify the extra cost.
 
-For hosted pre-PR 11 cutover preparation, prefer the `AWS API Manual Deploy`
+For hosted API cutover preparation, prefer the `AWS API Manual Deploy`
 GitHub Actions workflow over running `terraform apply` from a laptop. It uses
 the GitHub OIDC deployment role, requires S3-backed Terraform state, plans by
 default, and requires the exact confirmation string `apply-api.identrail.com`

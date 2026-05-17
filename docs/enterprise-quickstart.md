@@ -123,13 +123,20 @@ Confirm:
 
 ## 8. Set Up SSO With Okta
 
-Native enterprise SSO requires `IDENTRAIL_FEATURE_NATIVE_SSO=true` on the API. Create the Identrail SAML connection first, then paste the IdP metadata URL into Identrail so the connection can validate Okta assertions.
+Native enterprise SSO requires `IDENTRAIL_FEATURE_NATIVE_SSO=true` on the API.
+Native SAML admin and login routes also require `IDENTRAIL_FEATURE_NEW_AUTH=true`,
+`IDENTRAIL_PUBLIC_BASE_URL`, and `IDENTRAIL_SESSION_KEY`. Create the Identrail
+SAML connection first, then paste the IdP metadata URL into Identrail so the
+connection can validate Okta assertions.
 
 Identrail values to copy into Okta:
 - **Single sign-on URL / ACS URL:** `${IDENTRAIL_API_URL}/auth/saml/acs/<connection_id>`
 - **Audience URI / SP Entity ID:** `${IDENTRAIL_API_URL}/auth/saml/metadata/<connection_id>`
 - **Name ID format:** `EmailAddress`
 - **Application username:** `Email`
+
+The SP Entity ID is a SAML audience identifier. The current API does not serve
+an SP metadata document from that URL.
 
 Okta click path:
 1. Open **Okta Admin Console -> Applications -> Applications -> Create App Integration**.
@@ -215,16 +222,19 @@ Screenshot placeholders:
 - `[Screenshot placeholder: Entra Provisioning page with Tenant URL and Secret Token fields]`
 - `[Screenshot placeholder: Entra Provisioning Status set to On]`
 
-## 11. Enforce SSO-Only (`sso_required`)
+## 11. Roll Out SSO-Only (`sso_required`)
 
-Set `sso_required=true` only after at least one SAML admin has completed a successful sign-in and SCIM provisioning has created or matched the expected users. Enforcing too early can lock out local/manual fallback users.
+Keep `sso_required=false` until at least one SAML admin has completed a
+successful sign-in and SCIM provisioning has created or matched the expected
+users. Track 1 persists the flag on the connection as the org's rollout marker;
+it does not yet ship recovery-code generation or a full lockout-rescue flow.
 
 Recommended rollout:
 1. Create the native SAML connection with `sso_required=false`.
 2. Assign a small admin test group in Okta or Azure AD.
 3. Confirm SAML login creates a `saml:<connection_id>` identity for the admin.
 4. Enable SCIM provisioning and confirm a test create/update/deactivate writes one `scim_provisioning_events` row and, when a workflow router is configured, one workflow dispatch audit record.
-5. Flip `sso_required=true` on the connection.
+5. Flip `sso_required=true` only after the operator has verified the break-glass path they intend to use.
 6. Keep a break-glass admin path outside the enforced tenant while the first customer tenant is onboarding.
 
 Workflow dispatch verification, when a router is configured:

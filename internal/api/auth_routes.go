@@ -89,10 +89,10 @@ func registerAuthConfigRoute(v1 *gin.RouterGroup, manualMode bool, workOSEnabled
 			providers = append(providers, "github_oauth", "google_oauth", "authkit")
 		}
 		if nativeSSOEnabled {
-			// The frontend uses this to decide whether to render a
-			// "Sign in with company SSO" button. The actual SAML
-			// connection id comes from a separate per-org lookup so
-			// nothing org-specific leaks into this public response.
+			// The frontend uses this to advertise native SAML as an available
+			// provider. The actual SAML connection id comes from a separate
+			// per-org lookup so nothing org-specific leaks into this public
+			// response.
 			providers = append(providers, "saml")
 		}
 		c.JSON(http.StatusOK, gin.H{

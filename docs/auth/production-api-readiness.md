@@ -1,6 +1,6 @@
 # Production API Readiness
 
-PR 6 is the operational bridge between the merged frontend auth UI and the later provider/onboarding work.
+This is the operational bridge between the frontend auth UI and the hosted API.
 
 The frontend auth pages are intentionally unable to call an unknown backend in production. Before Vercel can serve working sign-in and sign-up flows, the public API must exist and the web build must point at it.
 

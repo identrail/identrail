@@ -32,6 +32,8 @@ Boolean values must parse as Go booleans (`true`, `false`, `1`, `0`, `t`, `f`) a
 - `IDENTRAIL_DEFAULT_TENANT_ID`
 - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
 - `IDENTRAIL_REQUIRE_EXPLICIT_SCOPE` (default: `false`; set `true` in production to require tenant/workspace claims or headers instead of default fallback)
+- `IDENTRAIL_FEATURE_NATIVE_SSO` (default: `false`; enables native SAML admin, SAML login/ACS, and SCIM 2.0 routes)
+- `IDENTRAIL_ENABLE_NATIVE_SSO` (compatibility alias for `IDENTRAIL_FEATURE_NATIVE_SSO`; when set, it overrides the canonical flag)
 
 Notes:
 - `IDENTRAIL_OIDC_ISSUER_URL` and `IDENTRAIL_OIDC_AUDIENCE` must be configured together.
@@ -40,6 +42,7 @@ Notes:
 - `IDENTRAIL_API_KEY_SCOPE_BINDINGS` can optionally bind scoped keys to a tenant/workspace pair: `<api-key>:<tenant-id>/<workspace-id>;...`.
 - API key callers can send `X-Identrail-Tenant-ID` and `X-Identrail-Workspace-ID` only when those headers match the configured binding for that scoped key.
 - Malformed `IDENTRAIL_API_KEY_SCOPES` entries are startup errors. Do not include bare keys, empty keys, empty scope lists, or duplicate key entries.
+- Native SSO is opt-in per deployment. Leave `IDENTRAIL_FEATURE_NATIVE_SSO=false` unless the operator is ready to expose native SAML and SCIM endpoints. Native SAML admin/login routes also require the new session auth stack (`IDENTRAIL_FEATURE_NEW_AUTH=true`, `IDENTRAIL_PUBLIC_BASE_URL`, and `IDENTRAIL_SESSION_KEY`).
 
 ## Provider Collection
 

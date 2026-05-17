@@ -156,6 +156,7 @@ export type AuthConfigResponse = {
   auth: {
     manual_mode: boolean;
     workos_login_enabled: boolean;
+    native_saml_enabled: boolean;
     providers: string[];
   };
 };

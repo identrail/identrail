@@ -42,7 +42,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 ## Auth and identity foundation
 
 - Architecture and contracts: `auth/README.md`
-- The twelve-PR delivery sequence: `auth/12-pr-plan.md`
+- Current three-track roadmap: `auth/12-pr-plan.md`
 
 ## API and developer track
 

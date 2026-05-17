@@ -1,6 +1,9 @@
 # Auth Documentation
 
-This folder holds the architectural foundation for Identrail's signup, sign-in, SSO, SCIM, and connector onboarding work. The docs are the source of truth for the twelve-PR delivery sequence.
+This folder holds the architectural foundation for Identrail's signup, sign-in,
+SSO, SCIM, and connector onboarding work. The current implementation ships
+WorkOS hosted login plus opt-in native SAML and SCIM behind
+`IDENTRAIL_FEATURE_NATIVE_SSO`.
 
 ## Read Order
 
@@ -15,8 +18,8 @@ Start at the top. Each later doc fills in detail for one section of the first.
 7. [`github-connector.md`](./github-connector.md) - the standard GitHub App and GitHub Enterprise connector path.
 8. [`kubernetes-connector.md`](./kubernetes-connector.md) - the standard in-cluster agent and kubeconfig fallback path.
 9. [`production-api-readiness.md`](./production-api-readiness.md) - the production web/API split required before the frontend auth UI can work on Vercel.
-10. [`env-vars-reference.md`](./env-vars-reference.md) - flat list of every environment variable across the twelve PRs.
-11. [`12-pr-plan.md`](./12-pr-plan.md) - the canonical scope for each of the twelve PRs.
+10. [`env-vars-reference.md`](./env-vars-reference.md) - flat list of authentication-related environment variables.
+11. [`12-pr-plan.md`](./12-pr-plan.md) - superseded roadmap file that now records the current three-track plan.
 
 ## When to Update These Docs
 
@@ -32,4 +35,7 @@ When a doc and the code disagree, the doc is wrong. Fix the doc. Then either cha
 
 ## Status
 
-This doc set lands in PR 1 of the twelve-PR sequence. The other eleven PRs implement what these docs describe.
+The original twelve-PR sequence has been superseded by the three-track roadmap
+in [`12-pr-plan.md`](./12-pr-plan.md). When implementation and docs disagree,
+the implementation on `dev` wins and the docs should be corrected in the same
+PR.

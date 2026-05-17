@@ -1,6 +1,6 @@
 # Cookie and Session Spec
 
-The exact rules for how Identrail issues, validates, rotates, and revokes session cookies. PR 2 implements this; later PRs reuse without modification.
+The exact rules for how Identrail issues, validates, rotates, and revokes session cookies. These rules are implemented and later auth work reuses them without modification.
 
 ## Cookie
 
@@ -31,7 +31,7 @@ The cookie value is the session ID. The server stores SHA-256 of that ID as the 
 | `current_org_id` | `TEXT NULL` | The org context for this session. NULL during onboarding before org creation. Type matches existing `tenancy_organizations.tenant_id`. |
 | `current_workspace_id` | `TEXT NULL` | The workspace context. NULL similarly. Type matches existing `tenancy_workspaces.workspace_id`. |
 | `current_project_id` | `TEXT NULL` | The active project context for project-scoped APIs such as connectors. Type matches existing `tenancy_projects.project_id`. |
-| `auth_method` | `TEXT NOT NULL` | One of `workos`, `oidc`, `manual`. Used by the SSO enforcement check. |
+| `auth_method` | `TEXT NOT NULL` | One of `workos`, `oidc`, `manual`, `saml`. Used by auth auditing and future SSO enforcement checks. |
 | `ip` | `INET NULL` | Client IP at session creation. Not updated on every request; the audit log captures per-request IP. |
 | `user_agent` | `TEXT NULL` | Client UA at session creation. |
 | `idle_expires_at` | `TIMESTAMPTZ NOT NULL` | Sliding renewal target. |
@@ -88,13 +88,13 @@ Four paths, all going through the same `RevokeSession(ctx, id)` repository metho
 - **User-initiated logout.** `POST /auth/logout` revokes the current session (sets `revoked_at = now()`) and clears the cookie.
 - **User revoking one of their other sessions.** `DELETE /v1/me/sessions/:id` from the account/security page. The endpoint scopes the lookup by `user_id` so a user cannot revoke someone else's session id. If the target id is the current session, the response also clears the cookie.
 - **User revoking every other session.** `POST /v1/me/sessions/revoke-others` revokes every row for the user except the calling session. Used for "Sign me out everywhere else."
-- **Admin or system revocation.** SCIM deactivation, role downgrade past API-key scope, force-relink on SSO enable. All call `RevokeSession(ctx, id)` in a loop over the affected user's sessions.
+- **Admin or system revocation.** SCIM deactivation and role downgrade past API-key scope call `RevokeSession(ctx, id)` in a loop over the affected user's sessions. Future SSO enforcement work should use the same path.
 
 A revoked session is rejected on the next request, no token expiry to wait for. This is the primary reason we use opaque server-side sessions instead of JWTs.
 
 ## Session Listing
 
-`GET /v1/me/sessions` returns the active sessions for the calling user. Each row carries id, ip, user_agent, created_at, last_seen_at, idle_expires_at, and a `current` boolean marking the session that owns the calling cookie. The endpoint never returns sessions for any other user, even with admin scope; admin-side org session management is a separate endpoint that ships in PR 12.
+`GET /v1/me/sessions` returns the active sessions for the calling user. Each row carries id, ip, user_agent, created_at, last_seen_at, idle_expires_at, and a `current` boolean marking the session that owns the calling cookie. The endpoint never returns sessions for any other user, even with admin scope; admin-side org session management is future work.
 
 ## Cookie Rotation on Privilege Change
 
@@ -127,7 +127,7 @@ A job in the existing scheduler runs every hour and deletes session rows where `
 - It does not work cross-site. Embedding the dashboard in a third-party page would require explicit `SameSite=None; Partitioned` and a security review.
 - It does not work for the marketing site. `www.identrail.com` does not see this cookie.
 
-## Test Matrix (PR 2)
+## Test Matrix
 
 | Test | Expected |
 | --- | --- |

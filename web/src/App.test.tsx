@@ -22,6 +22,7 @@ function authConfig(manualMode = false, workOSLoginEnabled = true) {
     auth: {
       manual_mode: manualMode,
       workos_login_enabled: workOSLoginEnabled,
+      native_saml_enabled: false,
       providers: workOSLoginEnabled ? ['github_oauth', 'google_oauth', 'authkit'] : []
     }
   });

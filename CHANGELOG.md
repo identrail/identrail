@@ -18,7 +18,7 @@
   - `POST /auth/saml/acs/{connection_id}` is the Assertion Consumer Service. SAML response parsing, signature verification (XML-DSig), audience/recipient/InResponseTo checks, and `NotOnOrAfter` enforcement are delegated to `github.com/crewjam/saml` so we do not ship bespoke SAML protocol code. A 60s clock-skew tolerance is layered on top.
   - `UpsertSAMLAssertedUser` resolves users in three steps: existing `saml:<connection_id>` identity → pre-provisioned `scim:<connection_id>` identity → existing user by primary email. When no match exists, the connection's `jit_provisioning_enabled` flag decides whether to create a fresh user or return 403 with an admin-actionable "ask your admin to provision your account" message
   - Sessions issued from the SAML path carry `AuthMethod: "saml"` (new accepted value) and the org id from the connection
-  - `/v1/auth/config` exposes `native_saml_enabled` so the web frontend can render the "Sign in with company SSO" button only when the feature is on
+  - `/v1/auth/config` exposes `native_saml_enabled` and includes `saml` in the advertised providers list when native SSO is enabled; connection-specific SAML login still comes from the native SAML admin/API flow
   - WorkOS sign-in/sign-up flow is unchanged; both paths share the same `OAuthStateManager` so a `SessionKey` rotation invalidates every half-finished login regardless of which doorway issued it
 - Replaced the authenticated Overview and Settings scaffold routes with real product views:
   - Overview now loads workspace projects, repository scans, open repository findings, and trend signals to show operating metrics, risk queue, scan activity, coverage, and next-action routing.
@@ -69,7 +69,7 @@
 - Added a plan-first AWS API hosting layer:
   - defines ECS/Fargate API service, HTTPS load balancer, task roles, security groups, health checks, and CPU autoscaling primitives
   - keeps API hosting resource creation disabled by default for cost-safe CI validation
-  - adds a guarded manual GitHub Actions deploy workflow for pre-PR 11 API cutover planning and explicitly confirmed applies
+  - adds a guarded manual GitHub Actions deploy workflow for API cutover planning and explicitly confirmed applies
   - adds an explicit low-cost public-task bootstrap mode for the first `api.identrail.com` cutover, avoiding NAT Gateway or VPC endpoint hourly charges while keeping inbound traffic behind the ALB security group
   - configures hosted API CORS origins and trusted ALB proxy CIDRs so the split web/API domains preserve browser access and real client IPs
   - validates distinct public/private subnet inputs, public subnet Availability Zone spread, subnet VPC membership, and public-subnet Internet Gateway routes, including inherited main route tables, before planning the load balancer and Fargate service
@@ -106,7 +106,7 @@
   - documented the session endpoints in OpenAPI and wired feature-flagged startup validation for session-auth configuration
 - Added the auth and connector architecture foundation under `docs/auth/`:
   - decided on WorkOS for hosted login plus a dual-driver OIDC path for self-host
-  - documented the identity model, cookie and session spec, threat model, identity-linking rules, connector-foundation contract, environment-variables reference, and the canonical twelve-PR delivery sequence
+  - documented the identity model, cookie and session spec, threat model, identity-linking rules, connector-foundation contract, environment-variables reference, and the original auth delivery roadmap
   - linked the new doc folder from the main documentation index
 - Refined the public website homepage presentation:
   - adopted a Browserbase-style navigation rail with centered links and a black demo CTA

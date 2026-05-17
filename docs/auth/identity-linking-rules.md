@@ -56,7 +56,10 @@ Every link emits `auth.identity.linked` audit event.
 
 A user cannot unlink their last remaining identity. The user must always have at least one active `user_identities` row. The unlink endpoint refuses to delete the last row and returns a clear error.
 
-A user with both Google and GitHub linked who unlinks Google: their Google `user_identities` row is deleted, the Identrail account stays, GitHub still works. They may also use a recovery email (if set) or the org-level recovery codes (if the org has SSO enforcement enabled).
+A user with both Google and GitHub linked who unlinks Google: their Google
+`user_identities` row is deleted, the Identrail account stays, GitHub still
+works. Future recovery-code work can add another break-glass path, but Track 1
+native SAML does not ship recovery codes.
 
 Every unlink emits `auth.identity.unlinked` audit event.
 
@@ -87,7 +90,11 @@ This stops the case where Mallory steals an invite link emailed to Alice and acc
 
 ## Rule 7: Email change does not propagate identity ownership
 
-`primary_email` can change in two ways inside the planned PR set: a user-initiated change from inside Identrail (out of scope for PR 1 through 12), and an IdP-driven change delivered via the `user.email_changed` webhook PR 4 handles. Both updates write to `users.primary_email` through the same code path and follow the same rule below: the change is purely cosmetic for relationship ownership. It does not affect:
+`primary_email` can change in two ways: a user-initiated change from inside
+Identrail, and an IdP-driven change delivered via the `user.email_changed`
+webhook. Both updates write to `users.primary_email` through the same code path
+and follow the same rule below: the change is purely cosmetic for relationship
+ownership. It does not affect:
 
 - Which `user_identities` rows belong to them.
 - Whether they can be invited to a different org tomorrow under the new email.

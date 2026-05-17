@@ -4059,6 +4059,8 @@ export function ProductSettingsPage() {
   const authProviders = authConfig?.auth.providers ?? [];
   const authModeLabel = authConfig?.auth.workos_login_enabled
     ? 'Hosted WorkOS login'
+    : authConfig?.auth.native_saml_enabled
+      ? 'Native SAML login'
     : authConfig?.auth.manual_mode
       ? 'Manual development login'
       : 'Session-only';
@@ -4199,6 +4201,10 @@ export function ProductSettingsPage() {
             <div>
               <dt>Hosted login</dt>
               <dd>{authConfig?.auth.workos_login_enabled ? 'Enabled' : 'Disabled'}</dd>
+            </div>
+            <div>
+              <dt>Native SAML</dt>
+              <dd>{authConfig?.auth.native_saml_enabled ? 'Enabled' : 'Disabled'}</dd>
             </div>
             <div>
               <dt>Manual mode</dt>
