@@ -484,9 +484,13 @@ x-identrail-action-role-grants:
     - read
     - write
     - admin
+    - owner
+    - analyst
+    - viewer
   repo_scans.run:
     - write
     - admin
+    - owner
   scans.read:
     - read
     - write
