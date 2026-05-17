@@ -237,6 +237,11 @@ func (m *MemoryStore) GetIdentityConnection(ctx context.Context, orgID string, c
 // GetIdentityConnectionByID resolves a connection by its globally unique
 // UUID. Used by entry points that do not know the org id yet (e.g. the SAML
 // SP-initiated login route).
+//
+// Memory mode does not have the SQL UNIQUE constraint Postgres uses to
+// guarantee global uuid uniqueness, so a buggy seed could insert two rows
+// with the same id. Return ErrConflict in that case rather than picking a
+// non-deterministic match.
 func (m *MemoryStore) GetIdentityConnectionByID(ctx context.Context, connectionID string) (IdentityConnection, error) {
 	connectionID = strings.TrimSpace(connectionID)
 	if connectionID == "" {
@@ -244,12 +249,22 @@ func (m *MemoryStore) GetIdentityConnectionByID(ctx context.Context, connectionI
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	var match IdentityConnection
+	found := false
 	for _, connection := range m.identityConnections {
-		if connection.ID == connectionID {
-			return connection, nil
+		if connection.ID != connectionID {
+			continue
 		}
+		if found {
+			return IdentityConnection{}, ErrConflict
+		}
+		match = connection
+		found = true
 	}
-	return IdentityConnection{}, ErrNotFound
+	if !found {
+		return IdentityConnection{}, ErrNotFound
+	}
+	return match, nil
 }
 
 // ListIdentityConnections returns organization identity connection scaffolds ordered by newest first.

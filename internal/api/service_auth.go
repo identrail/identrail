@@ -211,10 +211,17 @@ func (s *Service) UpsertSAMLAssertedUser(ctx context.Context, conn db.IdentityCo
 	if s == nil || s.Store == nil {
 		return SAMLLoginResult{}, errors.New("service unavailable")
 	}
-	nameID := strings.TrimSpace(profile.NameID)
 	email := strings.ToLower(strings.TrimSpace(profile.Email))
-	if nameID == "" || email == "" {
-		return SAMLLoginResult{}, errors.New("saml profile missing NameID or email")
+	if email == "" {
+		return SAMLLoginResult{}, errors.New("saml profile missing email")
+	}
+	nameID := strings.TrimSpace(profile.NameID)
+	if nameID == "" {
+		// samlProfileFromAssertion already accepts assertions whose NameID
+		// is empty by treating the email attribute as the NameID; mirror
+		// that here so a NameID-less but email-bearing profile resolves
+		// instead of failing the upsert with a hard error.
+		nameID = email
 	}
 	now := time.Now().UTC()
 	if s.Now != nil {
@@ -259,10 +266,25 @@ func (s *Service) UpsertSAMLAssertedUser(ctx context.Context, conn db.IdentityCo
 	}
 
 	// Path 3: existing user by email (JIT attaches a new SAML identity).
+	//
+	// Email is a globally unique credential in users.primary_email but the
+	// SAML assertion is org-scoped: a stranger who happens to share an email
+	// with a user from a different org must not have their SAML assertion
+	// bound to that account. Require the candidate user to already be a
+	// member of the connection's org before linking.
 	if existing, err := s.Store.GetUserByPrimaryEmail(ctx, email); err == nil {
 		if !conn.JITProvisioningEnabled {
 			auditAuthAction(ctx, "auth.saml.unprovisioned", existing.ID, "denied")
 			return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
+		}
+		if _, membershipErr := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, existing.ID, conn.OrgID); membershipErr != nil {
+			if errors.Is(membershipErr, db.ErrNotFound) {
+				// The email-matched user belongs to a different tenant.
+				// Refuse to silently bind the assertion to them.
+				auditAuthAction(ctx, "auth.saml.cross_tenant_email_match", existing.ID, "denied")
+				return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
+			}
+			return SAMLLoginResult{}, membershipErr
 		}
 		return s.attachSAMLIdentityToExistingUser(ctx, conn, existing.ID, nameID, email, displayName, rawClaims, now)
 	} else if !errors.Is(err, db.ErrNotFound) {

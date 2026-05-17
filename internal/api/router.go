@@ -320,10 +320,13 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 		// Native SAML SP-initiated login + ACS share the same HMAC state
 		// manager so a single SessionKey rotation invalidates every
-		// half-finished login regardless of which path issued it.
+		// half-finished login regardless of which path issued it. The
+		// dedicated relay store carries the full SP-side context server-side
+		// so the on-wire RelayState stays inside the SAML 80-byte limit.
 		registerNativeSAMLLoginRoutes(r, logger, svc, sessionManager, nativeSAMLLoginRouteOptions{
 			Enabled:       opts.FeatureNativeSSO,
 			StateManager:  stateManager,
+			RelayStore:    sessionauth.NewSAMLRelayStore(nil),
 			PublicBaseURL: opts.PublicBaseURL,
 		})
 	}

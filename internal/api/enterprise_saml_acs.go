@@ -21,9 +21,15 @@ import (
 // nativeSAMLLoginRouteOptions controls registration of the SP-initiated
 // AuthnRequest + ACS endpoints. Routes are gated behind FeatureNativeSSO and
 // FeatureNewAuth so the new auth surface stays opt-in per deployment.
+//
+// RelayStore is the server-side cache that maps the short opaque RelayState
+// handle (which fits inside the SAML 2.0 80-byte limit) to the full SP-side
+// state: the originating connection id, the AuthnRequest id used for
+// InResponseTo replay protection, and the post-login return_to URL.
 type nativeSAMLLoginRouteOptions struct {
 	Enabled       bool
 	StateManager  *sessionauth.OAuthStateManager
+	RelayStore    *sessionauth.SAMLRelayStore
 	PublicBaseURL string
 	// Now is injectable so the ACS handler's clock-skew window can be
 	// exercised deterministically in tests.
@@ -42,6 +48,9 @@ func registerNativeSAMLLoginRoutes(r *gin.Engine, logger *zap.Logger, svc *Servi
 	}
 	if opts.StateManager == nil || svc == nil {
 		return
+	}
+	if opts.RelayStore == nil {
+		opts.RelayStore = sessionauth.NewSAMLRelayStore(nil)
 	}
 	group := r.Group("/auth/saml")
 	group.GET("/login/:connection_id", samlLoginStartHandler(logger, svc, opts))
@@ -79,16 +88,25 @@ func samlLoginStartHandler(logger *zap.Logger, svc *Service, opts nativeSAMLLogi
 		}
 
 		returnTo := sanitizeAuthReturnTo(c.Query("return_to"), nil)
-		stateToken, err := opts.StateManager.IssueWithSAML("login", returnTo, conn.ID, req.ID)
+		// Use a short opaque handle for RelayState (the SAML 2.0 HTTP
+		// Redirect binding caps RelayState at 80 bytes). The full state —
+		// connection id, AuthnRequest id, return_to — lives in the
+		// server-side SAMLRelayStore, looked up on the ACS callback.
+		relayHandle, err := opts.RelayStore.Issue(sessionauth.SAMLRelayEntry{
+			ConnectionID:  conn.ID,
+			SAMLRequestID: req.ID,
+			ReturnTo:      returnTo,
+			Intent:        "login",
+		})
 		if err != nil {
 			if logger != nil {
-				logger.Error("issue saml state", telemetry.ZapError(err))
+				logger.Error("issue saml relay handle", telemetry.ZapError(err))
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start saml login"})
 			return
 		}
 
-		redirectURL, err := req.Redirect(stateToken, sp)
+		redirectURL, err := req.Redirect(relayHandle, sp)
 		if err != nil {
 			if logger != nil {
 				logger.Error("build saml redirect url", telemetry.ZapError(err))
@@ -127,22 +145,22 @@ func samlACSHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manage
 
 		relay := strings.TrimSpace(c.Request.PostFormValue("RelayState"))
 		var allowedRequestIDs []string
-		var state sessionauth.OAuthState
+		var relayEntry sessionauth.SAMLRelayEntry
 		if relay != "" {
-			consumed, stateErr := opts.StateManager.Consume(relay)
-			if stateErr != nil {
+			entry, relayErr := opts.RelayStore.Consume(relay)
+			if relayErr != nil {
 				auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid relay state"})
 				return
 			}
-			state = consumed
-			if consumed.ConnectionID != "" && consumed.ConnectionID != conn.ID {
+			relayEntry = entry
+			if entry.ConnectionID != "" && entry.ConnectionID != conn.ID {
 				auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
 				c.JSON(http.StatusBadRequest, gin.H{"error": "relay state does not match connection"})
 				return
 			}
-			if consumed.SAMLRequestID != "" {
-				allowedRequestIDs = []string{consumed.SAMLRequestID}
+			if entry.SAMLRequestID != "" {
+				allowedRequestIDs = []string{entry.SAMLRequestID}
 			}
 		}
 
@@ -173,13 +191,32 @@ func samlACSHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manage
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "saml login failed"})
 			return
 		}
-		// Defensive double-check on the assertion's not-on-or-after window
-		// using our configured skew, since crewjam's default tolerance is 0.
+		// Defensive double-check on every NotOnOrAfter window the assertion
+		// carries, bounded by our configured 60s skew. crewjam's default
+		// SubjectConfirmationData tolerance (180s) is wider than our policy;
+		// we enforce both Conditions and SubjectConfirmationData ourselves so
+		// the operator-visible window matches SAMLDefaultClockSkew.
 		if conditions := assertion.Conditions; conditions != nil && !conditions.NotOnOrAfter.IsZero() {
 			if now.After(conditions.NotOnOrAfter.Add(SAMLDefaultClockSkew)) {
 				auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "saml assertion expired"})
 				return
+			}
+		}
+		if assertion.Subject != nil {
+			for _, confirm := range assertion.Subject.SubjectConfirmations {
+				if confirm.SubjectConfirmationData == nil {
+					continue
+				}
+				notOnOrAfter := confirm.SubjectConfirmationData.NotOnOrAfter
+				if notOnOrAfter.IsZero() {
+					continue
+				}
+				if now.After(notOnOrAfter.Add(SAMLDefaultClockSkew)) {
+					auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "saml assertion expired"})
+					return
+				}
 			}
 		}
 
@@ -231,7 +268,7 @@ func samlACSHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manage
 		auditAuthAction(c.Request.Context(), "auth.saml.login.success", result.User.ID, "success")
 		http.SetCookie(c.Writer, manager.Cookie(cookieValue))
 
-		redirectTo := sanitizeAuthReturnTo(state.ReturnTo, nil)
+		redirectTo := sanitizeAuthReturnTo(relayEntry.ReturnTo, nil)
 		if redirectTo == "" || redirectTo == "/" {
 			redirectTo = result.RedirectPath
 		}

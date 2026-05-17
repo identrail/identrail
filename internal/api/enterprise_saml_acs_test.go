@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"encoding/xml"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -182,7 +183,7 @@ func randomHex(t *testing.T, n int) string {
 
 // ---------- ACS handler tests ----------
 
-func newSAMLACSRig(t *testing.T, jit bool) (*Service, db.IdentityConnection, *samlFixtureIdP, sessionauth.Manager, *sessionauth.OAuthStateManager) {
+func newSAMLACSRig(t *testing.T, jit bool) (*Service, db.IdentityConnection, *samlFixtureIdP, sessionauth.Manager, *sessionauth.OAuthStateManager, *sessionauth.SAMLRelayStore) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	store := db.NewMemoryStore()
@@ -210,20 +211,27 @@ func newSAMLACSRig(t *testing.T, jit bool) (*Service, db.IdentityConnection, *sa
 
 	sessionManager := sessionauth.Manager{Store: store}
 	stateManager := sessionauth.NewOAuthStateManager("test-session-key-must-be-at-least-32-bytes-long", nil)
-	return svc, connection, idp, sessionManager, stateManager
+	relayStore := sessionauth.NewSAMLRelayStore(nil)
+	return svc, connection, idp, sessionManager, stateManager, relayStore
 }
 
 func TestSAMLACSHandler_HappyPath_JITCreatesUser(t *testing.T) {
-	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, true)
+	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
 	router := gin.New()
 	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
 		Enabled:       true,
 		StateManager:  stateMgr,
+		RelayStore:    relayStore,
 		PublicBaseURL: "https://api.example.com",
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
-	relay, err := stateMgr.IssueWithSAML("login", "/app/tenant-a/workspace-a", conn.ID, requestID)
+	relay, err := relayStore.Issue(sessionauth.SAMLRelayEntry{
+		ConnectionID:  conn.ID,
+		SAMLRequestID: requestID,
+		ReturnTo:      "/app/tenant-a/workspace-a",
+		Intent:        "login",
+	})
 	if err != nil {
 		t.Fatalf("issue state: %v", err)
 	}
@@ -251,16 +259,22 @@ func TestSAMLACSHandler_HappyPath_JITCreatesUser(t *testing.T) {
 }
 
 func TestSAMLACSHandler_JITDisabledRejectsUnknownUser(t *testing.T) {
-	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, false)
+	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, false)
 	router := gin.New()
 	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
 		Enabled:       true,
 		StateManager:  stateMgr,
+		RelayStore:    relayStore,
 		PublicBaseURL: "https://api.example.com",
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
-	relay, _ := stateMgr.IssueWithSAML("login", "", conn.ID, requestID)
+	relay, _ := relayStore.Issue(sessionauth.SAMLRelayEntry{
+		ConnectionID:  conn.ID,
+		SAMLRequestID: requestID,
+		ReturnTo:      "",
+		Intent:        "login",
+	})
 	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
 	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
 	signed := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "stranger@example.com", "stranger@example.com")
@@ -281,16 +295,22 @@ func TestSAMLACSHandler_JITDisabledRejectsUnknownUser(t *testing.T) {
 }
 
 func TestSAMLACSHandler_RejectsTamperedSignature(t *testing.T) {
-	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, true)
+	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
 	router := gin.New()
 	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
 		Enabled:       true,
 		StateManager:  stateMgr,
+		RelayStore:    relayStore,
 		PublicBaseURL: "https://api.example.com",
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
-	relay, _ := stateMgr.IssueWithSAML("login", "", conn.ID, requestID)
+	relay, _ := relayStore.Issue(sessionauth.SAMLRelayEntry{
+		ConnectionID:  conn.ID,
+		SAMLRequestID: requestID,
+		ReturnTo:      "",
+		Intent:        "login",
+	})
 	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
 	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
 	signed := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "alice@example.com", "alice@example.com")
@@ -310,17 +330,23 @@ func TestSAMLACSHandler_RejectsTamperedSignature(t *testing.T) {
 }
 
 func TestSAMLACSHandler_RejectsRelayStateForWrongConnection(t *testing.T) {
-	svc, conn, idp, manager, stateMgr := newSAMLACSRig(t, true)
+	svc, conn, idp, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
 	router := gin.New()
 	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
 		Enabled:       true,
 		StateManager:  stateMgr,
+		RelayStore:    relayStore,
 		PublicBaseURL: "https://api.example.com",
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
 	// RelayState carries a DIFFERENT connection id than the URL path.
-	otherRelay, _ := stateMgr.IssueWithSAML("login", "", "00000000-0000-0000-0000-000000000000", requestID)
+	otherRelay, _ := relayStore.Issue(sessionauth.SAMLRelayEntry{
+		ConnectionID:  "00000000-0000-0000-0000-000000000000",
+		SAMLRequestID: requestID,
+		ReturnTo:      "",
+		Intent:        "login",
+	})
 	audience := "https://api.example.com/auth/saml/metadata/" + conn.ID
 	recipient := "https://api.example.com/auth/saml/acs/" + conn.ID
 	signed := idp.mintSignedSAMLResponse(t, requestID, audience, recipient, "alice@example.com", "alice@example.com")
@@ -338,11 +364,12 @@ func TestSAMLACSHandler_RejectsRelayStateForWrongConnection(t *testing.T) {
 }
 
 func TestSAMLACSHandler_RejectsUnknownConnection(t *testing.T) {
-	svc, _, _, manager, stateMgr := newSAMLACSRig(t, true)
+	svc, _, _, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
 	router := gin.New()
 	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
 		Enabled:       true,
 		StateManager:  stateMgr,
+		RelayStore:    relayStore,
 		PublicBaseURL: "https://api.example.com",
 	})
 
@@ -356,7 +383,8 @@ func TestSAMLACSHandler_RejectsUnknownConnection(t *testing.T) {
 }
 
 func TestSAMLACSHandler_DisabledByFeatureFlag(t *testing.T) {
-	svc, conn, _, manager, stateMgr := newSAMLACSRig(t, true)
+	svc, conn, _, manager, stateMgr, relayStore := newSAMLACSRig(t, true)
+	_ = relayStore
 	router := gin.New()
 	registerNativeSAMLLoginRoutes(router, nil, svc, manager, nativeSAMLLoginRouteOptions{
 		Enabled:       false, // feature off
@@ -368,6 +396,94 @@ func TestSAMLACSHandler_DisabledByFeatureFlag(t *testing.T) {
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected route to be unregistered when flag is off; got %d", w.Code)
+	}
+}
+
+func TestUpsertSAMLAssertedUser_RefusesCrossTenantEmailMatch(t *testing.T) {
+	// Path-3 (email match) must verify the matched user is a member of the
+	// connection's org. A user who happens to share an email but has no
+	// membership in tenant-saml must NOT get bound to the SAML assertion —
+	// they may belong to a different tenant, or to no tenant at all.
+	gin.SetMode(gin.TestMode)
+	store := db.NewMemoryStore()
+	seedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-saml", WorkspaceID: "workspace-saml"})
+	if err := store.UpsertOrganization(seedCtx, db.TenancyOrganization{DisplayName: "Tenant SAML", Slug: "tenant-saml"}); err != nil {
+		t.Fatalf("seed org saml: %v", err)
+	}
+	// Seed a user with NO membership in tenant-saml.
+	if _, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "alice@example.com", DisplayName: "Alice"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	conn := db.IdentityConnection{
+		ID:                     "saml-conn-x",
+		OrgID:                  "tenant-saml",
+		Provider:               "saml",
+		JITProvisioningEnabled: true,
+	}
+	_, err := svc.UpsertSAMLAssertedUser(context.Background(), conn, SAMLAssertedProfile{
+		NameID:      "alice-nameid",
+		Email:       "alice@example.com",
+		DisplayName: "Alice",
+	})
+	if !errors.Is(err, ErrSAMLUnprovisionedUser) {
+		t.Errorf("expected ErrSAMLUnprovisionedUser when matched user lacks membership in conn.OrgID, got: %v", err)
+	}
+}
+
+func TestUpsertSAMLAssertedUser_FallsBackNameIDToEmail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := db.NewMemoryStore()
+	seedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(seedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	conn := db.IdentityConnection{
+		ID:                     "conn-fallback",
+		OrgID:                  "tenant-a",
+		Provider:               "saml",
+		JITProvisioningEnabled: true,
+	}
+	// NameID intentionally empty — must fall back to email instead of failing.
+	result, err := svc.UpsertSAMLAssertedUser(context.Background(), conn, SAMLAssertedProfile{
+		NameID:      "",
+		Email:       "alice@example.com",
+		DisplayName: "Alice",
+	})
+	if err != nil {
+		t.Fatalf("expected NameID fallback, got: %v", err)
+	}
+	if result.User.PrimaryEmail != "alice@example.com" {
+		t.Errorf("user not provisioned: %+v", result.User)
+	}
+}
+
+func TestSAMLRelayStore_RoundTripAndOneShotConsume(t *testing.T) {
+	store := sessionauth.NewSAMLRelayStore(nil)
+	handle, err := store.Issue(sessionauth.SAMLRelayEntry{
+		ConnectionID:  "conn-1",
+		SAMLRequestID: "_request-1",
+		ReturnTo:      "/app/tenant-a/workspace-a",
+		Intent:        "login",
+	})
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	if len(handle) > 80 {
+		t.Errorf("relay handle is %d bytes; SAML RelayState limit is 80", len(handle))
+	}
+	entry, err := store.Consume(handle)
+	if err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	if entry.ConnectionID != "conn-1" || entry.SAMLRequestID != "_request-1" {
+		t.Errorf("entry round-tripped incorrectly: %+v", entry)
+	}
+	// Second consume must fail — one-shot semantics prevent replay.
+	if _, err := store.Consume(handle); !errors.Is(err, sessionauth.ErrSAMLRelayHandleInvalid) {
+		t.Errorf("expected ErrSAMLRelayHandleInvalid on replay, got: %v", err)
 	}
 }
 
