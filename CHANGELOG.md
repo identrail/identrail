@@ -2,6 +2,23 @@
 
 ## Unreleased
 - Redesigned the read-only scan intake page with a full-width black Vercel-style hero, sharper SpaceX-inspired headline typography, and high-contrast intake controls with no blurred or gradient details.
+- Extended the production API preflight (`make production-api-preflight`) to probe
+  `POST /v1/onboarding/start` so the frontend onboarding wizard cannot be wired
+  against an API origin that does not serve the onboarding route:
+  - treats the unauthenticated JSON `401` session-required response as success,
+    matching the deliberate unauthenticated contract from the onboarding route
+    visibility fix
+  - fails closed on `404`, plain-text framework `404`, HTML, and frontend-shell
+    responses, with a failure prefix (`api-url-wiring`, `missing-route`,
+    `non-json`/`unexpected-status`) that names the root cause
+  - scoped to route presence and the unauthenticated JSON contract shape;
+    backend `IDENTRAIL_FEATURE_ONBOARDING_WIZARD` state is intentionally not
+    observable from an unauthenticated probe and stays covered by the
+    authenticated post-deploy verification steps in the readiness runbook
+  - kept generic for Identrail Cloud and self-hosted production API URLs by
+    asserting the contract shape rather than a specific host
+  - added offline shell-script tests for the response classification and
+    documented the behavior in the production API readiness runbook
 - Kept authenticated onboarding API routes registered when the onboarding feature flag is off, returning JSON `401` or `503` responses instead of a raw framework `404` so production flag mismatches are visible and diagnosable.
 - Added the `GET /v1/enterprise/reports/executive` endpoint returning the organization's leadership rollup (open volume by severity, top finding types, week-over-week trend, and MTTR):
   - calls the shipped `BuildExecutiveReport` builder; JSON only, no server-side PDF generation
