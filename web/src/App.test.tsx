@@ -434,6 +434,19 @@ describe('App', () => {
     );
   });
 
+  it('shows hosted auth options immediately while auth config loads', () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
+
+    setCurrentPath('/signup');
+    render(<App />);
+
+    expect(screen.getByRole('heading', { level: 1, name: /Your first trust graph/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Continue with Google/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Continue with SAML SSO/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Loading authentication/i)).not.toBeInTheDocument();
+  });
+
   it('shows a clear API reachability error when auth config cannot be fetched', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')));
 

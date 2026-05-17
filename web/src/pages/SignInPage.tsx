@@ -28,6 +28,43 @@ const AUTH_THEME_OPTIONS: Array<{ value: AuthTheme; label: string }> = [
   { value: 'dark', label: 'Dark' }
 ];
 
+function themeIcon(theme: AuthTheme, className = 'idt-auth-theme-icon') {
+  switch (theme) {
+    case 'light':
+      return (
+        <svg className={className} viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path
+            d="M10 3.1v1.35M10 15.55v1.35M5.12 5.12l.96.96M13.92 13.92l.96.96M3.1 10h1.35M15.55 10h1.35M5.12 14.88l.96-.96M13.92 6.08l.96-.96"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.35"
+          />
+          <circle cx="10" cy="10" r="3.35" fill="none" stroke="currentColor" strokeWidth="1.35" />
+        </svg>
+      );
+    case 'system':
+      return (
+        <svg className={className} viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <rect x="3.25" y="4.15" width="13.5" height="9.1" rx="1.9" fill="none" stroke="currentColor" strokeWidth="1.35" />
+          <path d="M7.6 16.15h4.8M10 13.25v2.9" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
+        </svg>
+      );
+    case 'dark':
+      return (
+        <svg className={className} viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path
+            d="M14.9 12.35A6.14 6.14 0 0 1 7.65 5.1a6.2 6.2 0 1 0 7.25 7.25Z"
+            fill="none"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="1.35"
+          />
+        </svg>
+      );
+  }
+}
+
 function normalizeReturnTo(value: string | null): string {
   const candidate = value?.trim() ?? '';
   if (!candidate || !candidate.startsWith('/') || candidate.startsWith('//')) {
@@ -196,6 +233,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
     config?.auth.workos_login_enabled === true
       ? HOSTED_PROVIDERS.filter((provider) => providerIDs.includes(provider.id))
       : [];
+  const visibleHostedProviders = loadingConfig && !config ? HOSTED_PROVIDERS : hostedProviders;
   const title = intent === 'signup' ? 'Your first trust graph is just a sign-up away.' : 'Log in to Identrail';
   const switchLink = intent === 'signup' ? '/signin' : '/signup';
   const switchAction = intent === 'signup' ? 'Log In' : 'Sign Up';
@@ -221,12 +259,11 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
           {signedOut ? <p className="idt-app-alert idt-app-alert-success">Signed out successfully.</p> : null}
           {reason ? <p className="idt-app-alert">{reason}</p> : null}
 
-          {loadingConfig ? <p className="idt-app-alert">Loading authentication options...</p> : null}
           {configError ? <p className="idt-app-alert idt-app-alert-error">{configError}</p> : null}
 
-          {config?.auth.workos_login_enabled ? (
+          {visibleHostedProviders.length > 0 ? (
             <div className="idt-auth-provider-stack">
-              {hostedProviders.map((provider) => (
+              {visibleHostedProviders.map((provider) => (
                 <a
                   key={provider.id}
                   className={`idt-auth-provider idt-auth-provider-${provider.icon}`}
@@ -326,10 +363,10 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
           className="idt-auth-theme-trigger"
           aria-haspopup="menu"
           aria-expanded={themeMenuOpen}
+          aria-label={`Color theme: ${currentTheme.label}`}
           onClick={() => setThemeMenuOpen((open) => !open)}
         >
-          <span>Theme</span>
-          <strong>{currentTheme.label}</strong>
+          <span className="idt-auth-theme-trigger-orb">{themeIcon(currentTheme.value)}</span>
           <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
             <path d="M3 4.5 6 7.5l3-3" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
           </svg>
@@ -348,6 +385,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
                   setThemeMenuOpen(false);
                 }}
               >
+                {themeIcon(option.value, 'idt-auth-theme-option-icon')}
                 <span>{option.label}</span>
                 {authTheme === option.value ? <span className="idt-auth-theme-check" aria-hidden="true" /> : null}
               </button>
