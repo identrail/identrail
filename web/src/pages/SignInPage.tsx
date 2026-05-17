@@ -128,7 +128,7 @@ function providerIcon(provider: HostedProvider) {
         </svg>
       );
     case 'github':
-      return <img className="idt-auth-provider-icon" src="/brand-logos/github.svg" alt="" />;
+      return <img className="idt-auth-provider-icon idt-auth-provider-icon-github" src="/brand-logos/github.svg" alt="" />;
     case 'sso':
       return (
         <span className="idt-auth-provider-icon idt-auth-provider-icon-sso" aria-hidden="true">
