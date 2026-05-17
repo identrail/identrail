@@ -323,10 +323,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		// half-finished login regardless of which path issued it. The
 		// dedicated relay store carries the full SP-side context server-side
 		// so the on-wire RelayState stays inside the SAML 80-byte limit.
+		var samlRelayStore *sessionauth.SAMLRelayStore
+		if svc != nil && svc.Store != nil {
+			samlRelayStore = sessionauth.NewSAMLRelayStore(svc.Store, nil)
+		}
 		registerNativeSAMLLoginRoutes(r, logger, svc, sessionManager, nativeSAMLLoginRouteOptions{
 			Enabled:       opts.FeatureNativeSSO,
 			StateManager:  stateManager,
-			RelayStore:    sessionauth.NewSAMLRelayStore(nil),
+			RelayStore:    samlRelayStore,
 			PublicBaseURL: opts.PublicBaseURL,
 		})
 	}

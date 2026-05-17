@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -374,6 +375,66 @@ func (m *MemoryStore) DeleteIdentityConnection(ctx context.Context, orgID, conne
 		Outcome:      "success",
 	})
 	return nil
+}
+
+// CreateSAMLRelayState persists one SP-initiated SAML AuthnRequest record
+// keyed by the opaque relay handle. Used by /auth/saml/login; consumed
+// (one-shot) by /auth/saml/acs.
+func (m *MemoryStore) CreateSAMLRelayState(ctx context.Context, state SAMLRelayState) (SAMLRelayState, error) {
+	state.Handle = strings.TrimSpace(state.Handle)
+	if state.Handle == "" {
+		return SAMLRelayState{}, fmt.Errorf("saml relay handle is required")
+	}
+	if strings.TrimSpace(state.ConnectionID) == "" || strings.TrimSpace(state.SAMLRequestID) == "" {
+		return SAMLRelayState{}, fmt.Errorf("saml relay state requires connection_id and saml_request_id")
+	}
+	if state.CreatedAt.IsZero() {
+		state.CreatedAt = time.Now().UTC()
+	} else {
+		state.CreatedAt = state.CreatedAt.UTC()
+	}
+	if state.ExpiresAt.IsZero() {
+		return SAMLRelayState{}, fmt.Errorf("saml relay state requires expires_at")
+	}
+	state.ExpiresAt = state.ExpiresAt.UTC()
+	m.mu.Lock()
+	if _, exists := m.samlRelayStates[state.Handle]; exists {
+		m.mu.Unlock()
+		return SAMLRelayState{}, ErrConflict
+	}
+	m.samlRelayStates[state.Handle] = state
+	m.mu.Unlock()
+	return state, nil
+}
+
+// ConsumeSAMLRelayState atomically marks one handle consumed and returns the
+// stored state. Re-consuming the same handle returns ErrNotFound so the
+// RelayState value cannot be replayed.
+func (m *MemoryStore) ConsumeSAMLRelayState(ctx context.Context, handle string, now time.Time) (SAMLRelayState, error) {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return SAMLRelayState{}, ErrNotFound
+	}
+	now = now.UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Sweep expired entries first.
+	for h, s := range m.samlRelayStates {
+		if !s.ExpiresAt.After(now) {
+			delete(m.samlRelayStates, h)
+		}
+	}
+	state, exists := m.samlRelayStates[handle]
+	if !exists {
+		return SAMLRelayState{}, ErrNotFound
+	}
+	if state.ConsumedAt != nil {
+		return SAMLRelayState{}, ErrNotFound
+	}
+	consumed := now
+	state.ConsumedAt = &consumed
+	delete(m.samlRelayStates, handle)
+	return state, nil
 }
 
 // CreateSCIMProvisioningEvent appends one SCIM provisioning event to the

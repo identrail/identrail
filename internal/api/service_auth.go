@@ -390,9 +390,15 @@ func (s *Service) attachSAMLIdentityToExistingUser(ctx context.Context, conn db.
 // decorateSAMLLoginResult attaches the org/workspace context the session
 // needs. The SAML connection is org-scoped, so we always force that org id
 // regardless of the user's prior selection.
+//
+// The Postgres `sessions` table requires CurrentOrgID and CurrentWorkspaceID
+// to either both be populated or both be empty. When a SAML-asserted user
+// has no workspace membership yet — common for the JIT happy path — we
+// leave both empty and redirect to onboarding so session insertion does not
+// trip the constraint.
 func (s *Service) decorateSAMLLoginResult(ctx context.Context, result SAMLLoginResult, orgID string) (SAMLLoginResult, error) {
-	result.CurrentOrgID = strings.TrimSpace(orgID)
-	member, err := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, result.User.ID, result.CurrentOrgID)
+	candidateOrg := strings.TrimSpace(orgID)
+	member, err := s.Store.FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx, result.User.ID, candidateOrg)
 	if err == nil {
 		result.CurrentOrgID = member.TenantID
 		result.CurrentWorkspace = member.WorkspaceID
@@ -402,7 +408,11 @@ func (s *Service) decorateSAMLLoginResult(ctx context.Context, result SAMLLoginR
 	if !errors.Is(err, db.ErrNotFound) {
 		return SAMLLoginResult{}, err
 	}
-	// No workspace membership yet — send the user through onboarding.
+	// No workspace membership yet — leave the session org/workspace empty
+	// (both NULL, matching the table CHECK) and send the user through
+	// onboarding to bind a workspace.
+	result.CurrentOrgID = ""
+	result.CurrentWorkspace = ""
 	result.RedirectPath = "/onboarding/org"
 	return result, nil
 }

@@ -50,9 +50,13 @@ func registerNativeSAMLLoginRoutes(r *gin.Engine, logger *zap.Logger, svc *Servi
 		return
 	}
 	if opts.RelayStore == nil {
-		opts.RelayStore = sessionauth.NewSAMLRelayStore(nil)
+		opts.RelayStore = sessionauth.NewSAMLRelayStore(svc.Store, nil)
 	}
+	// Match the rate-limit profile of the other /auth login surfaces. An
+	// unauthenticated attacker who guesses a valid connection id should
+	// not be able to flood SAMLRelayStore or hammer the IdP redirect.
 	group := r.Group("/auth/saml")
+	group.Use(rateLimitMiddleware(30, 30))
 	group.GET("/login/:connection_id", samlLoginStartHandler(logger, svc, opts))
 	group.POST("/acs/:connection_id", samlACSHandler(logger, svc, manager, opts))
 }
@@ -92,7 +96,7 @@ func samlLoginStartHandler(logger *zap.Logger, svc *Service, opts nativeSAMLLogi
 		// Redirect binding caps RelayState at 80 bytes). The full state —
 		// connection id, AuthnRequest id, return_to — lives in the
 		// server-side SAMLRelayStore, looked up on the ACS callback.
-		relayHandle, err := opts.RelayStore.Issue(sessionauth.SAMLRelayEntry{
+		relayHandle, err := opts.RelayStore.Issue(c.Request.Context(), sessionauth.SAMLRelayEntry{
 			ConnectionID:  conn.ID,
 			SAMLRequestID: req.ID,
 			ReturnTo:      returnTo,
@@ -147,7 +151,7 @@ func samlACSHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manage
 		var allowedRequestIDs []string
 		var relayEntry sessionauth.SAMLRelayEntry
 		if relay != "" {
-			entry, relayErr := opts.RelayStore.Consume(relay)
+			entry, relayErr := opts.RelayStore.Consume(c.Request.Context(), relay)
 			if relayErr != nil {
 				auditAuthAction(c.Request.Context(), "auth.saml.login.failure", "", "denied")
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid relay state"})

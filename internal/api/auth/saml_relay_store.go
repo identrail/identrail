@@ -1,11 +1,13 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"sync"
 	"time"
+
+	"github.com/identrail/identrail/internal/db"
 )
 
 const (
@@ -22,7 +24,7 @@ const (
 // missing, expired, malformed, or has already been consumed.
 var ErrSAMLRelayHandleInvalid = errors.New("saml relay handle invalid")
 
-// SAMLRelayEntry is the server-side state associated with one opaque relay
+// SAMLRelayEntry is the SP-side state associated with one opaque relay
 // handle. The HMAC-signed cookie pattern used by OAuthStateManager would
 // produce a token too large for the SAML 2.0 RelayState 80-byte cap, so SAML
 // SP-initiated flows store the full state server-side and put only a short
@@ -36,73 +38,77 @@ type SAMLRelayEntry struct {
 }
 
 // SAMLRelayStore mints opaque handles and one-shot-consumes them on the ACS
-// callback. In-memory backing is sufficient for v1 (single-process API);
-// multi-process deployments should swap in a DB-backed implementation in a
-// follow-up.
+// callback. State is persisted through db.Store so callbacks routed to a
+// different API instance than the one that issued the AuthnRequest still
+// find their relay row.
 type SAMLRelayStore struct {
-	ttl time.Duration
-	now func() time.Time
-
-	mu      sync.Mutex
-	entries map[string]SAMLRelayEntry
+	store db.Store
+	ttl   time.Duration
+	now   func() time.Time
 }
 
-// NewSAMLRelayStore returns an in-memory store using defaultSAMLRelayTTL and
-// time.Now. The now function is injectable so tests can advance the clock.
-func NewSAMLRelayStore(now func() time.Time) *SAMLRelayStore {
+// NewSAMLRelayStore returns a store backed by the supplied db.Store. The
+// now function is injectable so tests can advance the clock; pass nil for
+// time.Now.
+func NewSAMLRelayStore(store db.Store, now func() time.Time) *SAMLRelayStore {
 	if now == nil {
 		now = time.Now
 	}
 	return &SAMLRelayStore{
-		ttl:     defaultSAMLRelayTTL,
-		now:     now,
-		entries: map[string]SAMLRelayEntry{},
+		store: store,
+		ttl:   defaultSAMLRelayTTL,
+		now:   now,
 	}
 }
 
-// Issue generates an opaque handle and persists the entry. The handle is
-// short enough to fit inside any IdP's RelayState limit and contains no
-// sensitive information.
-func (s *SAMLRelayStore) Issue(entry SAMLRelayEntry) (string, error) {
+// Issue generates an opaque handle, persists the entry through db.Store, and
+// returns the handle. The handle is short enough to fit inside any IdP's
+// RelayState limit and contains no sensitive information.
+func (s *SAMLRelayStore) Issue(ctx context.Context, entry SAMLRelayEntry) (string, error) {
+	if s == nil || s.store == nil {
+		return "", ErrSAMLRelayHandleInvalid
+	}
 	handle, err := newSAMLRelayHandle()
 	if err != nil {
 		return "", err
 	}
-	if entry.ExpiresAt.IsZero() {
-		entry.ExpiresAt = s.now().Add(s.ttl)
+	now := s.now().UTC()
+	expiresAt := entry.ExpiresAt
+	if expiresAt.IsZero() {
+		expiresAt = now.Add(s.ttl)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pruneLocked(s.now())
-	s.entries[handle] = entry
+	if _, err := s.store.CreateSAMLRelayState(ctx, db.SAMLRelayState{
+		Handle:        handle,
+		ConnectionID:  entry.ConnectionID,
+		SAMLRequestID: entry.SAMLRequestID,
+		ReturnTo:      entry.ReturnTo,
+		Intent:        entry.Intent,
+		ExpiresAt:     expiresAt,
+		CreatedAt:     now,
+	}); err != nil {
+		return "", err
+	}
 	return handle, nil
 }
 
-// Consume returns the entry for handle and atomically deletes it. A
+// Consume returns the entry for handle and atomically marks it consumed. A
 // subsequent call with the same handle returns ErrSAMLRelayHandleInvalid,
 // preventing replay of the same RelayState value.
-func (s *SAMLRelayStore) Consume(handle string) (SAMLRelayEntry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := s.now()
-	s.pruneLocked(now)
-	entry, ok := s.entries[handle]
-	if !ok {
+func (s *SAMLRelayStore) Consume(ctx context.Context, handle string) (SAMLRelayEntry, error) {
+	if s == nil || s.store == nil {
 		return SAMLRelayEntry{}, ErrSAMLRelayHandleInvalid
 	}
-	delete(s.entries, handle)
-	if entry.ExpiresAt.Before(now) || entry.ExpiresAt.Equal(now) {
+	state, err := s.store.ConsumeSAMLRelayState(ctx, handle, s.now().UTC())
+	if err != nil {
 		return SAMLRelayEntry{}, ErrSAMLRelayHandleInvalid
 	}
-	return entry, nil
-}
-
-func (s *SAMLRelayStore) pruneLocked(now time.Time) {
-	for handle, entry := range s.entries {
-		if entry.ExpiresAt.Before(now) || entry.ExpiresAt.Equal(now) {
-			delete(s.entries, handle)
-		}
-	}
+	return SAMLRelayEntry{
+		ConnectionID:  state.ConnectionID,
+		SAMLRequestID: state.SAMLRequestID,
+		ReturnTo:      state.ReturnTo,
+		Intent:        state.Intent,
+		ExpiresAt:     state.ExpiresAt,
+	}, nil
 }
 
 func newSAMLRelayHandle() (string, error) {

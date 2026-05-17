@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added migration `000025_saml_relay_states_and_session_saml`:
+  - New `saml_relay_states` table persists in-flight SP-initiated SAML AuthnRequest context (handle, connection_id FK, AuthnRequest id, return_to, intent, expires_at, consumed_at) so the matching ACS POST resolves correctly even when callbacks land on a different API instance than the one that issued the redirect
+  - Widens the `sessions.auth_method` CHECK constraint to accept `'saml'` so SAML-issued sessions no longer trip a 23514 constraint violation
 - Added native SAML 2.0 SP-initiated login (behind `IDENTRAIL_FEATURE_NATIVE_SSO`):
   - `GET /auth/saml/login/{connection_id}` mints an `AuthnRequest`, stores the request id in the existing HMAC-signed state token, and redirects the browser to the IdP SSO URL with `RelayState`
   - `POST /auth/saml/acs/{connection_id}` is the Assertion Consumer Service. SAML response parsing, signature verification (XML-DSig), audience/recipient/InResponseTo checks, and `NotOnOrAfter` enforcement are delegated to `github.com/crewjam/saml` so we do not ship bespoke SAML protocol code. A 60s clock-skew tolerance is layered on top.

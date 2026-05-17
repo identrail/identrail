@@ -211,7 +211,7 @@ func newSAMLACSRig(t *testing.T, jit bool) (*Service, db.IdentityConnection, *sa
 
 	sessionManager := sessionauth.Manager{Store: store}
 	stateManager := sessionauth.NewOAuthStateManager("test-session-key-must-be-at-least-32-bytes-long", nil)
-	relayStore := sessionauth.NewSAMLRelayStore(nil)
+	relayStore := sessionauth.NewSAMLRelayStore(store, nil)
 	return svc, connection, idp, sessionManager, stateManager, relayStore
 }
 
@@ -226,7 +226,7 @@ func TestSAMLACSHandler_HappyPath_JITCreatesUser(t *testing.T) {
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
-	relay, err := relayStore.Issue(sessionauth.SAMLRelayEntry{
+	relay, err := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
 		ConnectionID:  conn.ID,
 		SAMLRequestID: requestID,
 		ReturnTo:      "/app/tenant-a/workspace-a",
@@ -269,7 +269,7 @@ func TestSAMLACSHandler_JITDisabledRejectsUnknownUser(t *testing.T) {
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
-	relay, _ := relayStore.Issue(sessionauth.SAMLRelayEntry{
+	relay, _ := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
 		ConnectionID:  conn.ID,
 		SAMLRequestID: requestID,
 		ReturnTo:      "",
@@ -305,7 +305,7 @@ func TestSAMLACSHandler_RejectsTamperedSignature(t *testing.T) {
 	})
 
 	requestID := "_authnreq-" + randomHex(t, 8)
-	relay, _ := relayStore.Issue(sessionauth.SAMLRelayEntry{
+	relay, _ := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
 		ConnectionID:  conn.ID,
 		SAMLRequestID: requestID,
 		ReturnTo:      "",
@@ -341,7 +341,7 @@ func TestSAMLACSHandler_RejectsRelayStateForWrongConnection(t *testing.T) {
 
 	requestID := "_authnreq-" + randomHex(t, 8)
 	// RelayState carries a DIFFERENT connection id than the URL path.
-	otherRelay, _ := relayStore.Issue(sessionauth.SAMLRelayEntry{
+	otherRelay, _ := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
 		ConnectionID:  "00000000-0000-0000-0000-000000000000",
 		SAMLRequestID: requestID,
 		ReturnTo:      "",
@@ -461,9 +461,27 @@ func TestUpsertSAMLAssertedUser_FallsBackNameIDToEmail(t *testing.T) {
 }
 
 func TestSAMLRelayStore_RoundTripAndOneShotConsume(t *testing.T) {
-	store := sessionauth.NewSAMLRelayStore(nil)
-	handle, err := store.Issue(sessionauth.SAMLRelayEntry{
-		ConnectionID:  "conn-1",
+	memStore := db.NewMemoryStore()
+	relayStore := sessionauth.NewSAMLRelayStore(memStore, nil)
+	// Seed an identity connection so the relay state's FK to
+	// identity_connections(id) is satisfied in the memory layer's
+	// org-scoped lookups.
+	seedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := memStore.UpsertOrganization(seedCtx, db.TenancyOrganization{DisplayName: "T", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	conn, err := memStore.CreateIdentityConnection(seedCtx, db.IdentityConnection{
+		OrgID:              "tenant-a",
+		Provider:           "saml",
+		Type:               "sso",
+		Status:             "active",
+		WorkOSConnectionID: "conn_workos_seed",
+	})
+	if err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+	handle, err := relayStore.Issue(context.Background(), sessionauth.SAMLRelayEntry{
+		ConnectionID:  conn.ID,
 		SAMLRequestID: "_request-1",
 		ReturnTo:      "/app/tenant-a/workspace-a",
 		Intent:        "login",
@@ -474,15 +492,15 @@ func TestSAMLRelayStore_RoundTripAndOneShotConsume(t *testing.T) {
 	if len(handle) > 80 {
 		t.Errorf("relay handle is %d bytes; SAML RelayState limit is 80", len(handle))
 	}
-	entry, err := store.Consume(handle)
+	entry, err := relayStore.Consume(context.Background(), handle)
 	if err != nil {
 		t.Fatalf("consume: %v", err)
 	}
-	if entry.ConnectionID != "conn-1" || entry.SAMLRequestID != "_request-1" {
+	if entry.ConnectionID != conn.ID || entry.SAMLRequestID != "_request-1" {
 		t.Errorf("entry round-tripped incorrectly: %+v", entry)
 	}
 	// Second consume must fail — one-shot semantics prevent replay.
-	if _, err := store.Consume(handle); !errors.Is(err, sessionauth.ErrSAMLRelayHandleInvalid) {
+	if _, err := relayStore.Consume(context.Background(), handle); !errors.Is(err, sessionauth.ErrSAMLRelayHandleInvalid) {
 		t.Errorf("expected ErrSAMLRelayHandleInvalid on replay, got: %v", err)
 	}
 }
