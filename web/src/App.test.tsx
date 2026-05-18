@@ -136,7 +136,7 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
 
-    expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
+    expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
   });
 
@@ -149,10 +149,60 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText(/Work email/i), {
       target: { value: 'person@gmail.com' }
     });
+    fireEvent.change(screen.getByLabelText(/Company name/i), {
+      target: { value: 'Personal Co' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company website/i), {
+      target: { value: 'company.com' }
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent(/company or work email/i);
-    expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
+    expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects company domains that do not match the work email domain', () => {
+    setCurrentPath('/read-only-scan');
+    const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Work email/i), {
+      target: { value: 'security@company.com' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company name/i), {
+      target: { value: 'Company Inc' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company website/i), {
+      target: { value: 'other-company.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/match the domain/i);
+    expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a whitespace-only company name before advancing', () => {
+    setCurrentPath('/read-only-scan');
+    const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Work email/i), {
+      target: { value: 'security@company.com' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company name/i), {
+      target: { value: '   ' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company website/i), {
+      target: { value: 'company.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/enter your company name/i);
+    expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -165,11 +215,17 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText(/Work email/i), {
       target: { value: 'security@company.com' }
     });
+    fireEvent.change(screen.getByLabelText(/Company name/i), {
+      target: { value: 'Company Inc' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company website/i), {
+      target: { value: 'company.com' }
+    });
     const form = document.querySelector('form.idt-scan-form');
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
-    await waitFor(() => expect(screen.getByText(/Step 2 of 3/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Step 2 of 4/i)).toBeInTheDocument());
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -182,18 +238,28 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText(/Work email/i), {
       target: { value: 'security@company.com' }
     });
-    fireEvent.change(screen.getByLabelText(/Company/i), {
-      target: { value: 'Example Co' }
+    fireEvent.change(screen.getByLabelText(/Company name/i), {
+      target: { value: 'Company Inc' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company website/i), {
+      target: { value: 'https://www.company.com' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Start Free Risk Scan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review Request' }));
+    expect(screen.getByText(/Step 4 of 4/i)).toBeInTheDocument();
+    expect(screen.getByText('security@company.com')).toBeInTheDocument();
+    expect(screen.getByText('company.com')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Risk Scan Request' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/leads', expect.any(Object)));
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       email: 'security@company.com',
-      company: 'Example Co',
+      company: 'Company Inc',
+      company_domain: 'company.com',
       environment: 'AWS IAM + Kubernetes',
       challenge: 'Trust path visibility',
       page_path: '/read-only-scan'

@@ -1,9 +1,12 @@
 import { createHmac, randomUUID } from 'node:crypto';
+import { resolve4, resolve6, resolveMx } from 'node:dns/promises';
+import { isIP } from 'node:net';
 
 type LeadCapturePayload = {
   email?: string;
   environment?: string;
   company?: string;
+  company_domain?: string;
   challenge?: string;
   website?: string;
   deployment_model?: string;
@@ -27,6 +30,7 @@ const RATE_WINDOW_MS = 60_000;
 const MAX_EMAIL_LENGTH = 254;
 const MAX_ENVIRONMENT_LENGTH = 180;
 const MAX_COMPANY_LENGTH = 120;
+const MAX_COMPANY_DOMAIN_LENGTH = 253;
 const MAX_CHALLENGE_LENGTH = 2_000;
 const MAX_SCAN_GOAL_LENGTH = 600;
 const MAX_SOURCE_LENGTH = 120;
@@ -36,6 +40,9 @@ const MAX_URGENCY_LENGTH = 32;
 const MAX_DEPLOYMENT_MODEL_LENGTH = 64;
 const RESEND_EMAILS_URL = 'https://api.resend.com/emails';
 const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
+const COMPANY_DOMAIN_ERROR = 'Please enter a real company website or domain.';
+const COMPANY_DOMAIN_MATCH_ERROR = 'Company website must match the domain in your work email.';
+const COMPANY_DOMAIN_VERIFICATION_ERROR = 'Company website must be a registered domain with public DNS records.';
 const PERSONAL_EMAIL_DOMAINS = new Set([
   'aol.com',
   'fastmail.com',
@@ -60,12 +67,32 @@ const PERSONAL_EMAIL_DOMAINS = new Set([
   'ymail.com',
   'zoho.com'
 ]);
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  '10minutemail.com',
+  'dispostable.com',
+  'emailondeck.com',
+  'fakeinbox.com',
+  'getnada.com',
+  'guerrillamail.com',
+  'maildrop.cc',
+  'mailinator.com',
+  'moakt.com',
+  'mytemp.email',
+  'sharklasers.com',
+  'temp-mail.org',
+  'tempmail.com',
+  'throwawaymail.com',
+  'trashmail.com',
+  'yopmail.com'
+]);
+const RESERVED_COMPANY_DOMAINS = new Set(['example.com', 'example.net', 'example.org', 'invalid', 'localhost', 'test']);
 const leadRequestBuckets = new Map<string, number[]>();
 
 type LeadDeliveryPayload = {
   email: string;
   environment: string;
   company?: string;
+  company_domain?: string;
   challenge?: string;
   deployment_model?: string;
   scan_goal?: string;
@@ -102,10 +129,83 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function emailDomain(email: string): string {
+  return email.trim().toLowerCase().split('@').pop() ?? '';
+}
+
+function isBlockedLeadDomain(domain: string): boolean {
+  return PERSONAL_EMAIL_DOMAINS.has(domain) || DISPOSABLE_EMAIL_DOMAINS.has(domain) || RESERVED_COMPANY_DOMAINS.has(domain);
+}
+
 function isWorkEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
-  const domain = trimmed.split('@').pop() ?? '';
-  return isValidEmail(trimmed) && Boolean(domain) && !PERSONAL_EMAIL_DOMAINS.has(domain);
+  const domain = emailDomain(trimmed);
+  return isValidEmail(trimmed) && Boolean(domain) && !isBlockedLeadDomain(domain);
+}
+
+function normalizeCompanyDomainInput(value: string | undefined): string {
+  const raw = value?.trim().toLowerCase() ?? '';
+  if (!raw || /\s/.test(raw)) {
+    return '';
+  }
+  const candidate = raw.includes('://') ? raw : `https://${raw}`;
+  let hostname = '';
+  try {
+    hostname = new URL(candidate).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+  if (hostname.startsWith('www.')) {
+    hostname = hostname.slice(4);
+  }
+  if (
+    hostname.length > 253 ||
+    !hostname.includes('.') ||
+    isIP(hostname) !== 0 ||
+    !/^[a-z0-9.-]+$/.test(hostname) ||
+    hostname.split('.').some((label) => !label || label.length > 63 || label.startsWith('-') || label.endsWith('-')) ||
+    isBlockedLeadDomain(hostname)
+  ) {
+    return '';
+  }
+  return hostname;
+}
+
+function companyDomainMatchesEmail(email: string, companyDomain: string): boolean {
+  const domain = emailDomain(email);
+  return Boolean(
+    domain &&
+      companyDomain &&
+      (domain === companyDomain || domain.endsWith(`.${companyDomain}`) || companyDomain.endsWith(`.${domain}`))
+  );
+}
+
+const DNS_LOOKUP_TIMEOUT_MS = 2_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('DNS lookup timeout')), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+async function hasPublicDNSRecords(domain: string): Promise<boolean> {
+  // Bound each resolver call so a slow/unresponsive DNS server cannot stall
+  // lead submission and degrade overall API responsiveness.
+  const lookups = [resolveMx(domain), resolve4(domain), resolve6(domain)].map((lookup) =>
+    withTimeout(lookup, DNS_LOOKUP_TIMEOUT_MS)
+  );
+  const results = await Promise.allSettled(lookups);
+  return results.some((result) => result.status === 'fulfilled' && result.value.length > 0);
 }
 
 function badRequest(res: HandlerResponse, message: string) {
@@ -243,6 +343,7 @@ function leadRows(payload: LeadDeliveryPayload): Array<[string, string | undefin
   return [
     ['Work email', payload.email],
     ['Company', payload.company],
+    ['Company domain', payload.company_domain],
     ['Environment', payload.environment],
     ['Challenge', payload.challenge],
     ['Deployment model', payload.deployment_model],
@@ -294,6 +395,7 @@ function renderConfirmationText(payload: LeadDeliveryPayload): string {
     'We received your intake and will review the context before following up.',
     '',
     `Environment: ${payload.environment}`,
+    `Company domain: ${payload.company_domain || 'Not provided'}`,
     `Focus area: ${payload.challenge || 'Trust path visibility'}`,
     `Deployment preference: ${payload.deployment_model || 'Not provided'}`,
     '',
@@ -308,6 +410,7 @@ function renderConfirmationHTML(payload: LeadDeliveryPayload): string {
       <p style="margin:0 0 16px;">Thanks for requesting a read-only machine identity risk scan. We will review the context before following up.</p>
       <ul style="padding-left:20px;margin:0 0 16px;color:#374151;">
         <li><strong>Environment:</strong> ${escapeHTML(payload.environment)}</li>
+        <li><strong>Company domain:</strong> ${escapeHTML(payload.company_domain || 'Not provided')}</li>
         <li><strong>Focus area:</strong> ${escapeHTML(payload.challenge || 'Trust path visibility')}</li>
         <li><strong>Deployment preference:</strong> ${escapeHTML(payload.deployment_model || 'Not provided')}</li>
       </ul>
@@ -443,11 +546,18 @@ export default async function handler(
   const email = trimOptional(body.email) ?? '';
   const environment = trimOptional(body.environment) ?? '';
   const company = trimOptional(body.company);
+  const companyDomain = normalizeCompanyDomainInput(body.company_domain);
   const challenge = trimOptional(body.challenge);
   const website = trimOptional(body.website);
   const scanGoal = trimOptional(body.scan_goal);
   const source = trimOptional(body.source) || 'unknown';
   const pagePath = trimOptional(body.page_path) || '/';
+  const requiresCompanyDomain = source === 'Read-Only Scan Intake' || pagePath === '/read-only-scan';
+
+  if (website) {
+    res.status(202).json({ status: 'accepted' });
+    return;
+  }
 
   if (!email || !isWorkEmail(email)) {
     badRequest(res, WORK_EMAIL_ERROR);
@@ -456,6 +566,18 @@ export default async function handler(
 
   if (!environment) {
     badRequest(res, 'Environment is required.');
+    return;
+  }
+  if (requiresCompanyDomain && !company) {
+    badRequest(res, 'Company name is required.');
+    return;
+  }
+  if (requiresCompanyDomain && !companyDomain) {
+    badRequest(res, COMPANY_DOMAIN_ERROR);
+    return;
+  }
+  if (companyDomain && !companyDomainMatchesEmail(email, companyDomain)) {
+    badRequest(res, COMPANY_DOMAIN_MATCH_ERROR);
     return;
   }
 
@@ -468,6 +590,9 @@ export default async function handler(
   if (company && !assertLength(res, company, MAX_COMPANY_LENGTH, 'Company value is too long.')) {
     return;
   }
+  if (companyDomain && !assertLength(res, companyDomain, MAX_COMPANY_DOMAIN_LENGTH, 'Company domain value is too long.')) {
+    return;
+  }
   if (challenge && !assertLength(res, challenge, MAX_CHALLENGE_LENGTH, 'Challenge value is too long.')) {
     return;
   }
@@ -478,11 +603,6 @@ export default async function handler(
     return;
   }
   if (!assertLength(res, pagePath, MAX_PAGE_PATH_LENGTH, 'Page path value is too long.')) {
-    return;
-  }
-
-  if (website) {
-    res.status(202).json({ status: 'accepted' });
     return;
   }
 
@@ -500,11 +620,16 @@ export default async function handler(
   if (teamSize && !assertLength(res, teamSize, MAX_TEAM_SIZE_LENGTH, 'Team size value is too long.')) {
     return;
   }
+  if (requiresCompanyDomain && !(await hasPublicDNSRecords(companyDomain))) {
+    badRequest(res, COMPANY_DOMAIN_VERIFICATION_ERROR);
+    return;
+  }
 
   const payload: LeadDeliveryPayload = {
     email,
     environment,
     company,
+    company_domain: companyDomain || undefined,
     challenge,
     deployment_model: deploymentModel && ALLOWED_DEPLOYMENT_MODELS.has(deploymentModel) ? deploymentModel : undefined,
     scan_goal: scanGoal,

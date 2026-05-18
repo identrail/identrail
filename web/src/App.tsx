@@ -65,7 +65,11 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 const THEME_STORAGE_KEY = 'identrail-theme';
+const INTAKE_TOTAL_STEPS = 4;
 const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
+const COMPANY_NAME_ERROR = 'Please enter your company name.';
+const COMPANY_DOMAIN_ERROR = 'Please enter a real company website or domain.';
+const COMPANY_DOMAIN_MATCH_ERROR = 'Company website must match the domain in your work email.';
 const PERSONAL_EMAIL_DOMAINS = new Set([
   'aol.com',
   'fastmail.com',
@@ -90,6 +94,25 @@ const PERSONAL_EMAIL_DOMAINS = new Set([
   'ymail.com',
   'zoho.com'
 ]);
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  '10minutemail.com',
+  'dispostable.com',
+  'emailondeck.com',
+  'fakeinbox.com',
+  'getnada.com',
+  'guerrillamail.com',
+  'maildrop.cc',
+  'mailinator.com',
+  'moakt.com',
+  'mytemp.email',
+  'sharklasers.com',
+  'temp-mail.org',
+  'tempmail.com',
+  'throwawaymail.com',
+  'trashmail.com',
+  'yopmail.com'
+]);
+const RESERVED_COMPANY_DOMAINS = new Set(['example.com', 'example.net', 'example.org', 'invalid', 'localhost', 'test']);
 let activeModalLocks = 0;
 let bodyOverflowBeforeModal = '';
 
@@ -97,10 +120,57 @@ function isValidEmailAddress(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function emailDomain(email: string): string {
+  return email.trim().toLowerCase().split('@').pop() ?? '';
+}
+
+function isBlockedLeadDomain(domain: string): boolean {
+  return PERSONAL_EMAIL_DOMAINS.has(domain) || DISPOSABLE_EMAIL_DOMAINS.has(domain) || RESERVED_COMPANY_DOMAINS.has(domain);
+}
+
 function isWorkEmailAddress(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
-  const domain = trimmed.split('@').pop() ?? '';
-  return isValidEmailAddress(trimmed) && Boolean(domain) && !PERSONAL_EMAIL_DOMAINS.has(domain);
+  const domain = emailDomain(trimmed);
+  return isValidEmailAddress(trimmed) && Boolean(domain) && !isBlockedLeadDomain(domain);
+}
+
+function normalizeCompanyDomainInput(value: string): string {
+  const raw = value.trim().toLowerCase();
+  if (!raw || /\s/.test(raw)) {
+    return '';
+  }
+  const candidate = raw.includes('://') ? raw : `https://${raw}`;
+  let hostname = '';
+  try {
+    hostname = new URL(candidate).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+  if (hostname.startsWith('www.')) {
+    hostname = hostname.slice(4);
+  }
+  if (
+    hostname.length > 253 ||
+    !hostname.includes('.') ||
+    hostname.startsWith('-') ||
+    hostname.endsWith('-') ||
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) ||
+    !/^[a-z0-9.-]+$/.test(hostname) ||
+    hostname.split('.').some((label) => !label || label.length > 63 || label.startsWith('-') || label.endsWith('-')) ||
+    isBlockedLeadDomain(hostname)
+  ) {
+    return '';
+  }
+  return hostname;
+}
+
+function companyDomainMatchesEmail(email: string, companyDomain: string): boolean {
+  const domain = emailDomain(email);
+  return Boolean(
+    domain &&
+      companyDomain &&
+      (domain === companyDomain || domain.endsWith(`.${companyDomain}`) || companyDomain.endsWith(`.${domain}`))
+  );
 }
 
 const NAV_LINKS = [
@@ -2005,6 +2075,7 @@ function ReadOnlyScanPage() {
   const [urgency, setUrgency] = useState('This quarter');
   const [teamSize, setTeamSize] = useState('6-20');
   const [company, setCompany] = useState('');
+  const [companyDomain, setCompanyDomain] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2016,7 +2087,9 @@ function ReadOnlyScanPage() {
     path: '/read-only-scan'
   });
 
-  const validateWorkEmail = (form?: HTMLFormElement | null) => {
+  const normalizedCompanyDomain = normalizeCompanyDomainInput(companyDomain);
+
+  const validateIdentityStep = (form?: HTMLFormElement | null) => {
     if (form && !form.reportValidity()) {
       return false;
     }
@@ -2024,16 +2097,28 @@ function ReadOnlyScanPage() {
       setError(WORK_EMAIL_ERROR);
       return false;
     }
+    if (!company.trim()) {
+      setError(COMPANY_NAME_ERROR);
+      return false;
+    }
+    if (!normalizedCompanyDomain) {
+      setError(COMPANY_DOMAIN_ERROR);
+      return false;
+    }
+    if (!companyDomainMatchesEmail(email, normalizedCompanyDomain)) {
+      setError(COMPANY_DOMAIN_MATCH_ERROR);
+      return false;
+    }
     setError(null);
     return true;
   };
 
   const advanceStep = (form?: HTMLFormElement | null) => {
-    if (step === 1 && !validateWorkEmail(form)) {
+    if (step === 1 && !validateIdentityStep(form)) {
       return;
     }
     setError(null);
-    setStep((value) => Math.min(3, value + 1));
+    setStep((value) => Math.min(INTAKE_TOTAL_STEPS, value + 1));
   };
 
   const submitIntake = async (event: FormEvent<HTMLFormElement>) => {
@@ -2041,11 +2126,11 @@ function ReadOnlyScanPage() {
     if (submitting) {
       return;
     }
-    if (step < 3) {
+    if (step < INTAKE_TOTAL_STEPS) {
       advanceStep(event.currentTarget);
       return;
     }
-    if (!validateWorkEmail(event.currentTarget)) {
+    if (!validateIdentityStep(event.currentTarget)) {
       return;
     }
 
@@ -2059,7 +2144,8 @@ function ReadOnlyScanPage() {
       await apiClient.submitLeadCapture({
         email: email.trim(),
         environment,
-        company: company.trim() || undefined,
+        company: company.trim(),
+        company_domain: normalizedCompanyDomain,
         challenge: challenge,
         website: website || undefined,
         deployment_model: deployment,
@@ -2128,10 +2214,10 @@ function ReadOnlyScanPage() {
             aria-hidden="true"
           />
           <div className="idt-scan-form-header">
-            <p className="idt-intake-step">Step {submitted ? 3 : step} of 3</p>
-            <h2 id="scan-intake-title">{submitted ? 'Request received' : 'Tell us where to start'}</h2>
+            <p className="idt-intake-step">Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}</p>
+            <h2 id="scan-intake-title">{submitted ? 'Request received' : step === INTAKE_TOTAL_STEPS ? 'Review before submitting' : 'Tell us where to start'}</h2>
             <p>
-              A short intake keeps the first scan focused. You can refine environment details with the team after we respond.
+              A short intake keeps the first scan focused. Review your details before anything is sent to the team.
             </p>
           </div>
           {!submitted ? (
@@ -2146,7 +2232,7 @@ function ReadOnlyScanPage() {
                       value={email}
                       onChange={(event) => {
                         setEmail(event.target.value);
-                        if (error === WORK_EMAIL_ERROR) {
+                        if (error === WORK_EMAIL_ERROR || error === COMPANY_DOMAIN_MATCH_ERROR) {
                           setError(null);
                         }
                       }}
@@ -2155,13 +2241,30 @@ function ReadOnlyScanPage() {
                     />
                   </label>
                   <label>
-                    Company (optional)
+                    Company name
                     <input
+                      required
                       type="text"
                       value={company}
                       onChange={(event) => setCompany(event.target.value)}
-                      placeholder="Acme Corp"
+                      placeholder="Your registered company name"
                       autoComplete="organization"
+                    />
+                  </label>
+                  <label>
+                    Company website
+                    <input
+                      required
+                      type="text"
+                      value={companyDomain}
+                      onChange={(event) => {
+                        setCompanyDomain(event.target.value);
+                        if (error === COMPANY_DOMAIN_ERROR || error === COMPANY_DOMAIN_MATCH_ERROR) {
+                          setError(null);
+                        }
+                      }}
+                      placeholder="company.com"
+                      autoComplete="url"
                     />
                   </label>
                 </div>
@@ -2229,6 +2332,50 @@ function ReadOnlyScanPage() {
                 </div>
               ) : null}
 
+              {step === INTAKE_TOTAL_STEPS ? (
+                <article className="idt-intake-review" aria-label="Review scan intake">
+                  <div className="idt-intake-review-row">
+                    <div>
+                      <span>Work email</span>
+                      <strong>{email.trim()}</strong>
+                    </div>
+                    <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep(1)}>
+                      Edit
+                    </button>
+                  </div>
+                  <div className="idt-intake-review-row">
+                    <div>
+                      <span>Company</span>
+                      <strong>{company.trim()}</strong>
+                      <p>{normalizedCompanyDomain}</p>
+                    </div>
+                    <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep(1)}>
+                      Edit
+                    </button>
+                  </div>
+                  <div className="idt-intake-review-row">
+                    <div>
+                      <span>Environment</span>
+                      <strong>{environment}</strong>
+                      <p>{deployment}</p>
+                    </div>
+                    <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep(2)}>
+                      Edit
+                    </button>
+                  </div>
+                  <div className="idt-intake-review-row">
+                    <div>
+                      <span>Focus</span>
+                      <strong>{challenge}</strong>
+                      <p>{urgency} - Team size {teamSize}</p>
+                    </div>
+                    <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep(3)}>
+                      Edit
+                    </button>
+                  </div>
+                </article>
+              ) : null}
+
               {error ? <p className="idt-form-error" role="alert">{error}</p> : null}
 
               <div className="idt-inline-actions">
@@ -2237,19 +2384,20 @@ function ReadOnlyScanPage() {
                     Back
                   </button>
                 ) : null}
-                {step < 3 ? (
+                {step < INTAKE_TOTAL_STEPS ? (
                   <button
                     type="button"
                     className="idt-btn idt-btn-primary"
                     onClick={(event) => {
+                      event.preventDefault();
                       advanceStep(event.currentTarget.form);
                     }}
                   >
-                    Continue
+                    {step === 3 ? 'Review Request' : 'Continue'}
                   </button>
                 ) : (
-                  <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting || !email.trim()}>
-                    {submitting ? 'Submitting...' : 'Start Free Risk Scan'}
+                  <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting}>
+                    {submitting ? 'Submitting...' : 'Submit Risk Scan Request'}
                   </button>
                 )}
               </div>

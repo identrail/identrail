@@ -1,5 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resolve4, resolve6, resolveMx } from 'node:dns/promises';
 import handler, { __resetLeadRequestBucketsForTests } from './leads';
+
+const dnsMocks = vi.hoisted(() => ({
+  resolve4: vi.fn(async () => ['203.0.113.10']),
+  resolve6: vi.fn(async () => []),
+  resolveMx: vi.fn(async () => [])
+}));
+
+vi.mock('node:dns/promises', () => ({
+  ...dnsMocks,
+  default: dnsMocks
+}));
 
 type MockResponse = {
   statusCode: number;
@@ -22,6 +34,24 @@ function createMockResponse(): MockResponse {
   };
 }
 
+const resolve4Mock = vi.mocked(resolve4);
+const resolve6Mock = vi.mocked(resolve6);
+const resolveMxMock = vi.mocked(resolveMx);
+
+function mockCompanyDomainDNS(hasRecords = true) {
+  resolve4Mock.mockReset();
+  resolve6Mock.mockReset();
+  resolveMxMock.mockReset();
+
+  if (hasRecords) {
+    resolve4Mock.mockResolvedValue(['203.0.113.10']);
+  } else {
+    resolve4Mock.mockRejectedValue(new Error('not found'));
+  }
+  resolve6Mock.mockRejectedValue(new Error('not found'));
+  resolveMxMock.mockRejectedValue(new Error('not found'));
+}
+
 describe('web/api/leads handler', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -37,6 +67,7 @@ describe('web/api/leads handler', () => {
     delete process.env.LEAD_WEBHOOK_HMAC_SECRET;
     delete process.env.LEAD_WEBHOOK_TIMEOUT_MS;
     delete process.env.LEAD_CAPTURE_RATE_LIMIT_PER_MIN;
+    mockCompanyDomainDNS(true);
     __resetLeadRequestBucketsForTests();
   });
 
@@ -81,6 +112,126 @@ describe('web/api/leads handler', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects disposable bot email domains before delivery', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'person@mailinator.com',
+          environment: 'AWS IAM'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Please use a company or work email address.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('requires a matching company domain for read-only scan requests', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'other-company.com',
+          environment: 'AWS IAM',
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Company website must match the domain in your work email.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects read-only scan company domains without public DNS records', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    mockCompanyDomainDNS(false);
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
+          environment: 'AWS IAM',
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Company website must be a registered domain with public DNS records.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('treats a stalled DNS resolver as no public records instead of hanging', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    resolve4Mock.mockReset();
+    resolve6Mock.mockReset();
+    resolveMxMock.mockReset();
+    const never = new Promise<string[]>(() => {});
+    resolve4Mock.mockReturnValue(never);
+    resolve6Mock.mockReturnValue(never);
+    resolveMxMock.mockReturnValue(never);
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const res = createMockResponse();
+    const pending = handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
+          environment: 'AWS IAM',
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    await pending;
+    vi.useRealTimers();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Company website must be a registered domain with public DNS records.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('returns 503 when no lead delivery channel is configured', async () => {
     const res = createMockResponse();
     await handler(
@@ -88,6 +239,8 @@ describe('web/api/leads handler', () => {
         method: 'POST',
         body: {
           email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
           environment: 'AWS IAM + Kubernetes',
           deployment_model: 'Hosted SaaS',
           urgency: 'This quarter',
@@ -278,6 +431,7 @@ describe('web/api/leads handler', () => {
         body: {
           email: 'security@company.com',
           company: 'Acme Corp',
+          company_domain: 'company.com',
           environment: 'AWS IAM + Kubernetes',
           challenge: 'Trust path visibility',
           deployment_model: 'Hosted SaaS',
@@ -435,6 +589,8 @@ describe('web/api/leads handler', () => {
         method: 'POST',
         body: {
           email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
           environment: 'AWS IAM + Kubernetes',
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
@@ -527,6 +683,8 @@ describe('web/api/leads handler', () => {
         method: 'POST',
         body: {
           email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
           environment: 'AWS IAM + Kubernetes',
           challenge: 'Trust path visibility',
           deployment_model: 'Hosted SaaS',
