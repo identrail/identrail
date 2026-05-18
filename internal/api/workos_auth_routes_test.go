@@ -884,6 +884,47 @@ func TestWorkOSCallbackRequiresBrowserBoundTransaction(t *testing.T) {
 	}
 }
 
+// TestWorkOSConcurrentStartsKeepIndependentTransactions proves a second
+// in-flight login (double-click, two tabs, switching provider) does not
+// invalidate the first: each start sets a nonce-scoped transaction cookie,
+// so both callbacks complete independently.
+func TestWorkOSConcurrentStartsKeepIndependentTransactions(t *testing.T) {
+	store := db.NewMemoryStore()
+	workOS := &fakeWorkOSClient{authentication: sessionauth.WorkOSAuthentication{
+		User: sessionauth.WorkOSProfile{ID: "user_txn_concurrent", Email: "concurrent@example.com", EmailVerified: true},
+	}}
+	router := newWorkOSTestRouter(t, store, workOS)
+
+	startA := httptest.NewRecorder()
+	router.ServeHTTP(startA, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/a", nil))
+	stateA := workOS.authorizationInput.State
+	cookieA := oauthTxnCookieFromStart(t, startA)
+
+	// Second flow starts before the first callback returns.
+	startB := httptest.NewRecorder()
+	router.ServeHTTP(startB, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/b", nil))
+	stateB := workOS.authorizationInput.State
+	cookieB := oauthTxnCookieFromStart(t, startB)
+
+	if cookieA.Name == cookieB.Name {
+		t.Fatalf("expected nonce-scoped cookie names, both were %q", cookieA.Name)
+	}
+
+	// The first flow's callback still succeeds even though a second flow
+	// started in between.
+	respA := httptest.NewRecorder()
+	router.ServeHTTP(respA, workOSCallbackRequest(stateA, cookieA))
+	if respA.Code != http.StatusFound || respA.Header().Get("Location") != "/app/a" {
+		t.Fatalf("expected first concurrent flow to complete, got %d loc=%q body=%s", respA.Code, respA.Header().Get("Location"), respA.Body.String())
+	}
+
+	respB := httptest.NewRecorder()
+	router.ServeHTTP(respB, workOSCallbackRequest(stateB, cookieB))
+	if respB.Code != http.StatusFound || respB.Header().Get("Location") != "/app/b" {
+		t.Fatalf("expected second concurrent flow to complete, got %d loc=%q body=%s", respB.Code, respB.Header().Get("Location"), respB.Body.String())
+	}
+}
+
 // TestWorkOSCallbackReplayFailsAcrossInstances proves the single-use guarantee
 // holds across API instances that share a database, which the previous
 // process-local replay map could not provide.
@@ -925,11 +966,13 @@ func TestWorkOSCallbackReplayFailsAcrossInstances(t *testing.T) {
 // store-backed and bound to the browser that initiated the login.
 func oauthTxnCookieFromStart(t *testing.T, resp *httptest.ResponseRecorder) *http.Cookie {
 	t.Helper()
-	c := findTestCookie(resp.Result().Cookies(), sessionauth.OAuthTransactionCookieName)
-	if c == nil || c.Value == "" {
-		t.Fatalf("expected oauth transaction cookie on start response (code=%d), got %+v", resp.Code, resp.Result().Cookies())
+	for _, c := range resp.Result().Cookies() {
+		if c.Value != "" && strings.HasPrefix(c.Name, sessionauth.OAuthTransactionCookiePrefix+"_") {
+			return &http.Cookie{Name: c.Name, Value: c.Value}
+		}
 	}
-	return &http.Cookie{Name: c.Name, Value: c.Value}
+	t.Fatalf("expected oauth transaction cookie on start response (code=%d), got %+v", resp.Code, resp.Result().Cookies())
+	return nil
 }
 
 // workOSCallbackRequest builds a /auth/callback request carrying the

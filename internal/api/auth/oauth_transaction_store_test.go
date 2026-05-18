@@ -72,6 +72,25 @@ func TestOAuthTransactionStoreRejectsExpiredAndMissingStore(t *testing.T) {
 	}
 }
 
+func TestOAuthTransactionCookieNameIsNonceScopedAndSanitized(t *testing.T) {
+	a := OAuthTransactionCookieName("nonceAAA")
+	b := OAuthTransactionCookieName("nonceBBB")
+	if a == b {
+		t.Fatalf("distinct nonces must yield distinct cookie names: %q", a)
+	}
+	if a != OAuthTransactionCookiePrefix+"_nonceAAA" {
+		t.Fatalf("unexpected cookie name: %q", a)
+	}
+	if got := OAuthTransactionCookieName(""); got != OAuthTransactionCookiePrefix {
+		t.Fatalf("empty nonce should fall back to the bare prefix, got %q", got)
+	}
+	// Any non-token character must be mapped so the Set-Cookie name stays
+	// valid.
+	if got := OAuthTransactionCookieName("a b;c=d"); got != OAuthTransactionCookiePrefix+"_a_b_c_d" {
+		t.Fatalf("cookie name was not sanitized: %q", got)
+	}
+}
+
 func TestOAuthStateManagerDecodeDoesNotConsume(t *testing.T) {
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 	manager := NewOAuthStateManager("state-secret", func() time.Time { return now })

@@ -21,11 +21,37 @@ const (
 	// token. 32 random bytes (256 bits) is well beyond brute-force reach
 	// within the short transaction TTL.
 	oauthCookieTokenByteLength = 32
-	// OAuthTransactionCookieName is the short-lived, HttpOnly, Secure,
-	// SameSite=Lax cookie that binds an in-flight OAuth login to the browser
-	// that started it. It carries only the opaque cookie token.
-	OAuthTransactionCookieName = "idr_oauth_txn"
+	// OAuthTransactionCookiePrefix prefixes the short-lived, HttpOnly,
+	// Secure, SameSite=Lax cookie that binds an in-flight OAuth login to the
+	// browser that started it. The cookie name is scoped per state nonce so
+	// concurrent in-flight logins (double-click, two tabs, switching
+	// provider) each keep their own browser-bound token instead of one
+	// overwriting another.
+	OAuthTransactionCookiePrefix = "idr_oauth_txn"
 )
+
+// OAuthTransactionCookieName returns the per-nonce transaction cookie name.
+// The nonce is base64url (RFC 4648 raw) so its characters are all valid
+// cookie-name token characters; any unexpected character is mapped to '_'
+// defensively so a malformed nonce can never produce an invalid Set-Cookie.
+func OAuthTransactionCookieName(nonce string) string {
+	nonce = strings.TrimSpace(nonce)
+	if nonce == "" {
+		return OAuthTransactionCookiePrefix
+	}
+	sanitized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'A' && r <= 'Z',
+			r >= 'a' && r <= 'z',
+			r >= '0' && r <= '9',
+			r == '-', r == '_':
+			return r
+		default:
+			return '_'
+		}
+	}, nonce)
+	return OAuthTransactionCookiePrefix + "_" + sanitized
+}
 
 // ErrOAuthTransactionInvalid is returned when the store-backed OAuth
 // transaction is missing, expired, already consumed, or its browser-bound

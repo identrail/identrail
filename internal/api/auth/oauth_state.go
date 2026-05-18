@@ -123,36 +123,19 @@ func (m *OAuthStateManager) Decode(raw string) (OAuthState, error) {
 	return state, nil
 }
 
+// Consume verifies the signed state (via Decode, the single source of
+// token-verification truth) and then marks the nonce consumed in the
+// process-local replay map. It is only the single-use authority when no
+// store-backed OAuth transaction is wired; otherwise the callback uses
+// Decode and the store row enforces single-use across the fleet.
 func (m *OAuthStateManager) Consume(raw string) (OAuthState, error) {
-	if m == nil || len(m.secret) == 0 {
-		return OAuthState{}, ErrOAuthStateInvalid
-	}
-	raw = strings.TrimSpace(raw)
-	parts := strings.Split(raw, ".")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return OAuthState{}, ErrOAuthStateInvalid
-	}
-	expected := signOAuthState(m.secret, parts[0])
-	if !hmac.Equal([]byte(expected), []byte(parts[1])) {
-		return OAuthState{}, ErrOAuthStateInvalid
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	state, err := m.Decode(raw)
 	if err != nil {
-		return OAuthState{}, ErrOAuthStateInvalid
-	}
-	var state OAuthState
-	if err := json.Unmarshal(payload, &state); err != nil {
-		return OAuthState{}, ErrOAuthStateInvalid
-	}
-	now := m.now()
-	if state.Nonce == "" || state.ExpiresAt <= 0 {
-		return OAuthState{}, ErrOAuthStateInvalid
-	}
-	if !time.Unix(state.ExpiresAt, 0).After(now) {
-		return OAuthState{}, ErrOAuthStateExpired
+		return OAuthState{}, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := m.now()
 	m.pruneLocked(now)
 	if _, exists := m.used[state.Nonce]; exists {
 		return OAuthState{}, ErrOAuthStateReused

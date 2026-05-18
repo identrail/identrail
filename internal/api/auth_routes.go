@@ -167,7 +167,7 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start login"})
 				return
 			}
-			http.SetCookie(c.Writer, oauthTransactionCookie(opts.PublicBaseURL, cookieToken, opts.TransactionStore.TTL()))
+			http.SetCookie(c.Writer, oauthTransactionCookie(opts.PublicBaseURL, decoded.Nonce, cookieToken, opts.TransactionStore.TTL()))
 		}
 		screenHint := ""
 		action := "auth.login.start"
@@ -250,8 +250,8 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
 				return
 			}
-			http.SetCookie(c.Writer, oauthTransactionClearCookie(opts.PublicBaseURL))
-			cookie, cookieErr := c.Request.Cookie(sessionauth.OAuthTransactionCookieName)
+			http.SetCookie(c.Writer, oauthTransactionClearCookie(opts.PublicBaseURL, decoded.Nonce))
+			cookie, cookieErr := c.Request.Cookie(sessionauth.OAuthTransactionCookieName(decoded.Nonce))
 			if cookieErr != nil || strings.TrimSpace(cookie.Value) == "" {
 				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
@@ -688,12 +688,12 @@ func workOSMFAClearCookie(publicBaseURL string) *http.Cookie {
 	}
 }
 
-func oauthTransactionCookie(publicBaseURL string, value string, ttl time.Duration) *http.Cookie {
+func oauthTransactionCookie(publicBaseURL string, nonce string, value string, ttl time.Duration) *http.Cookie {
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
 	return &http.Cookie{
-		Name:     sessionauth.OAuthTransactionCookieName,
+		Name:     sessionauth.OAuthTransactionCookieName(nonce),
 		Value:    value,
 		Path:     "/auth",
 		MaxAge:   int(ttl.Seconds()),
@@ -703,9 +703,9 @@ func oauthTransactionCookie(publicBaseURL string, value string, ttl time.Duratio
 	}
 }
 
-func oauthTransactionClearCookie(publicBaseURL string) *http.Cookie {
+func oauthTransactionClearCookie(publicBaseURL string, nonce string) *http.Cookie {
 	return &http.Cookie{
-		Name:     sessionauth.OAuthTransactionCookieName,
+		Name:     sessionauth.OAuthTransactionCookieName(nonce),
 		Value:    "",
 		Path:     "/auth",
 		MaxAge:   -1,
