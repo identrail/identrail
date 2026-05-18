@@ -2917,11 +2917,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
       </section>
 
       <section className="idt-section idt-shell">
-        <LeadCaptureForm
-          title={`Get a ${page.navLabel} workflow walkthrough`}
-          caption="Share your environment goals and we will tailor a practical machine identity rollout plan."
-          ctaLabel={SCAN_CTA_LABEL}
-        />
+        <ScanIntakeCTA className="idt-btn idt-btn-primary">Start a {page.navLabel} review</ScanIntakeCTA>
       </section>
     </div>
   );
