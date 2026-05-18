@@ -23,6 +23,8 @@ func scopedOnboardingRequest(router http.Handler, cookieValue, method, path, bod
 	}
 	req.Header.Set("X-Identrail-Tenant-ID", tenantID)
 	req.Header.Set("X-Identrail-Workspace-ID", workspaceID)
+	// Simulate a real browser first-party Origin for the CSRF guard.
+	req.Header.Set("Origin", "https://app.identrail.com")
 	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

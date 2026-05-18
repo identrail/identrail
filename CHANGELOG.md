@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Added a request-side CSRF/origin guard for unsafe (`POST`/`PUT`/`PATCH`/
+  `DELETE`) browser session-authenticated `/v1/*` API writes. CORS is no
+  longer relied on as a CSRF control: a guarded request must present a
+  first-party `Origin` (or `Referer` fallback) matching
+  `IDENTRAIL_PUBLIC_BASE_URL` or an explicitly allowed web origin, a
+  `Sec-Fetch-Site` that is not `cross-site`, and (when a body is sent)
+  `application/json`. API-key, OIDC bearer, SCIM, connector-agent,
+  OAuth/SAML callback, and webhook routes are unaffected because they do not
+  carry the browser session cookie. Rejected requests return `403`.
 - Hardened the WorkOS OAuth login flow with a store-backed, browser-bound
   transaction. The signed `state` token is no longer protected only by a
   process-local replay map: `/auth/login` and `/auth/signup` now persist an

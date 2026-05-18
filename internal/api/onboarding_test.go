@@ -56,6 +56,10 @@ func onboardingRequest(router http.Handler, cookieValue string, method string, p
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	// Simulate a real browser: the SPA always sends a first-party Origin on
+	// session-authenticated writes, which the browser-write CSRF guard
+	// requires.
+	req.Header.Set("Origin", "https://app.identrail.com")
 	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
