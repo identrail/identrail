@@ -377,7 +377,7 @@ export type WhoAmIResponse = {
     id: string;
   };
   roles: string[];
-  scopes: string[];
+  scopes: string[] | null;
   scope: {
     tenant_id: string;
     workspace_id: string;

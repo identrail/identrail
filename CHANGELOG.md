@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Fixed the authenticated workspace Settings view so a `whoami` response with
+  `scopes: null` renders as `None granted` instead of tripping the app error
+  boundary, and replaced the fallback error copy with user-facing workspace
+  recovery language.
 - Failed closed when the API does not explicitly advertise self-serve
   onboarding support, so authenticated users without a workspace see the
   existing onboarding-unavailable state instead of entering a wizard that

@@ -565,7 +565,7 @@ class ProductErrorBoundaryInner extends Component<
   static getDerivedStateFromError(error: unknown): ProductErrorBoundaryState {
     return {
       hasError: true,
-      message: error instanceof Error ? error.message : 'Unexpected app shell failure'
+      message: error instanceof Error ? error.message : 'Unexpected workspace view failure'
     };
   }
 
@@ -578,10 +578,10 @@ class ProductErrorBoundaryInner extends Component<
       return (
         <section className="idt-app-shell-screen" role="alert">
           <article className="idt-app-panel idt-app-panel-error">
-            <p className="idt-app-kicker">App shell error</p>
-            <h1>We hit a shell boundary error</h1>
+            <p className="idt-app-kicker">Workspace view error</p>
+            <h1>Workspace view failed to load</h1>
             <p>{this.state.message}</p>
-            <p>Refresh the page or return to the marketing site while we restore this workspace view.</p>
+            <p>Refresh the page. If it keeps happening, return to the homepage while we restore this workspace view.</p>
             <Link className="idt-btn idt-btn-primary" to="/">
               Back to homepage
             </Link>
@@ -4807,6 +4807,7 @@ export function ProductSettingsPage() {
     : authConfig?.auth.manual_mode
       ? 'Manual development login'
       : 'Session-only';
+  const scopes = Array.isArray(whoAmI?.scopes) ? whoAmI.scopes : [];
   const projectsPath = scope ? buildProjectsPath(scope) : '/app';
   const findingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
@@ -4885,11 +4886,11 @@ export function ProductSettingsPage() {
           <dl className="idt-settings-facts">
             <div>
               <dt>User</dt>
-              <dd>{me?.user.primary_email ?? whoAmI?.principal.id ?? 'Unavailable'}</dd>
+              <dd>{me?.user?.primary_email ?? whoAmI?.principal.id ?? 'Unavailable'}</dd>
             </div>
             <div>
               <dt>Status</dt>
-              <dd>{me?.user.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
+              <dd>{me?.user?.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
             </div>
             <div>
               <dt>Principal</dt>
@@ -4897,7 +4898,7 @@ export function ProductSettingsPage() {
             </div>
             <div>
               <dt>Scopes</dt>
-              <dd>{whoAmI?.scopes.length ? whoAmI.scopes.map(formatTokenLabel).join(', ') : 'None granted'}</dd>
+              <dd>{scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'None granted'}</dd>
             </div>
           </dl>
         </section>
