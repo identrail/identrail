@@ -85,6 +85,47 @@ func TestScanRepositoryDetectsSecretInCommitHistory(t *testing.T) {
 	}
 }
 
+func TestScanRepositoryClassifiesAllowlistedSecretFingerprint(t *testing.T) {
+	repoPath, _ := initTestRepoWithHistorySecret(t)
+	allowlist := "secret-fingerprint: " + hashSHA256(testSecretValue) + "\n"
+	if err := os.WriteFile(filepath.Join(repoPath, ".identrailignore"), []byte(allowlist), 0o600); err != nil {
+		t.Fatalf("write identrail ignore file: %v", err)
+	}
+	runGit(t, repoPath, "add", ".identrailignore")
+	runGit(t, repoPath, "commit", "-q", "-m", "allowlist known fixture secret")
+
+	scanner := NewScanner(nil,
+		WithHistoryLimit(100),
+		WithMaxFindings(50),
+		WithNow(func() time.Time { return time.Date(2026, 5, 18, 13, 0, 0, 0, time.UTC) }),
+	)
+
+	result, err := scanner.ScanRepository(context.Background(), repoPath)
+	if err != nil {
+		t.Fatalf("scan repository failed: %v", err)
+	}
+
+	var secretFinding domain.Finding
+	for _, finding := range result.Findings {
+		if finding.Type == domain.FindingSecretExposure && finding.Detector == "aws_secret_access_key" {
+			secretFinding = finding
+			break
+		}
+	}
+	if secretFinding.ID == "" {
+		t.Fatalf("expected allowlisted secret finding, got %+v", result.Findings)
+	}
+	if got := secretFinding.Evidence["confidence_state"]; got != secretClassificationAllowlisted {
+		t.Fatalf("expected allowlisted confidence state, got %v in %+v", got, secretFinding.Evidence)
+	}
+	if got, _ := secretFinding.Evidence["secret_allowlisted"].(bool); !got {
+		t.Fatalf("expected secret_allowlisted evidence flag, got %+v", secretFinding.Evidence)
+	}
+	if secretFinding.ConfidenceScore != 0.05 {
+		t.Fatalf("expected allowlisted confidence score 0.05, got %.2f", secretFinding.ConfidenceScore)
+	}
+}
+
 func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
 	repoPath, headCommit := initTestRepoWithHeadMisconfig(t)
 	scanner := NewScanner(nil, WithHistoryLimit(10), WithMaxFindings(20))

@@ -12,6 +12,7 @@ func TestNormalizeRepoFindingMetadataBackfillsFieldsFromEvidence(t *testing.T) {
 			"file_path":          "config/app.env",
 			"line_number":        float64(42),
 			"detector":           "github-token",
+			"confidence_score":   0.37,
 			"redacted_line_snip": "GITHUB_TOKEN=ghp_****",
 		},
 	}
@@ -27,6 +28,9 @@ func TestNormalizeRepoFindingMetadataBackfillsFieldsFromEvidence(t *testing.T) {
 	if finding.LineSnippetRedacted == nil || !*finding.LineSnippetRedacted {
 		t.Fatalf("expected redacted snippet flag, got %+v", finding.LineSnippetRedacted)
 	}
+	if finding.ConfidenceScore != 0.37 {
+		t.Fatalf("expected confidence score to backfill from evidence, got %.2f", finding.ConfidenceScore)
+	}
 	if got := finding.Evidence["line_snippet"]; got != "GITHUB_TOKEN=ghp_****" {
 		t.Fatalf("expected canonical line_snippet evidence, got %v", got)
 	}
@@ -41,6 +45,7 @@ func TestNormalizeRepoFindingMetadataBackfillsEvidenceFromFields(t *testing.T) {
 		FilePath:            ".github/workflows/release.yml",
 		LineNumber:          18,
 		Detector:            "gh-actions-write-all",
+		ConfidenceScore:     0.84,
 		LineSnippet:         "permissions: write-all",
 		LineSnippetRedacted: &redacted,
 	}
@@ -61,6 +66,9 @@ func TestNormalizeRepoFindingMetadataBackfillsEvidenceFromFields(t *testing.T) {
 	}
 	if got := finding.Evidence["line_snippet_redacted"]; got != false {
 		t.Fatalf("expected non-redacted evidence flag, got %v", got)
+	}
+	if got := finding.Evidence["confidence_score"]; got != 0.84 {
+		t.Fatalf("expected confidence evidence, got %v", got)
 	}
 }
 

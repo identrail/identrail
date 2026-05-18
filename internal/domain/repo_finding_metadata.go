@@ -44,6 +44,11 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 	if finding.Detector == "" {
 		finding.Detector = stringFromAny(finding.Evidence["detector"])
 	}
+	if finding.ConfidenceScore == 0 {
+		if confidence, ok := floatFromAny(finding.Evidence["confidence_score"]); ok {
+			finding.ConfidenceScore = confidence
+		}
+	}
 	if finding.LineSnippet == "" {
 		for _, key := range []string{"line_snippet", "redacted_line_snip", "match_snippet"} {
 			if snippet := stringFromAny(finding.Evidence[key]); snippet != "" {
@@ -86,6 +91,9 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 	}
 	if finding.Detector != "" {
 		finding.Evidence["detector"] = finding.Detector
+	}
+	if finding.ConfidenceScore > 0 {
+		finding.Evidence["confidence_score"] = finding.ConfidenceScore
 	}
 	if finding.LineSnippet != "" {
 		finding.Evidence["line_snippet"] = finding.LineSnippet
@@ -138,6 +146,26 @@ func intFromAny(value any) int {
 		return 0
 	}
 	return 0
+}
+
+func floatFromAny(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		number, err := typed.Float64()
+		return number, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func boolFromAny(value any) (bool, bool) {

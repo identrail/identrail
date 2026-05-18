@@ -179,6 +179,8 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 	findings := make([]domain.Finding, 0, s.maxFindings)
 	seen := map[string]struct{}{}
 	truncated := false
+	secretPolicy := s.loadSecretFindingPolicy(ctx, location)
+	secretOptions := []secretFindingOption{withSecretFindingPolicy(secretPolicy)}
 
 	logArgs := []string{"log", "--all", "--max-count", strconv.Itoa(s.historyLimit), "--no-color", "--unified=0", "--format=commit:%H", "-p"}
 	historyReader, waitLog, logErr := s.gitStream(ctx, location, logArgs...)
@@ -186,7 +188,7 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 		return ScanResult{}, fmt.Errorf("scan commit history: %w", logErr)
 	}
 	scanErr := scanHistoryLines(ctx, historyReader, func(added addedLine) bool {
-		secretFindings := detectSecretFindings(location.Display, added.Commit, added.Path, added.Line, added.Text, started)
+		secretFindings := detectSecretFindings(location.Display, added.Commit, added.Path, added.Line, added.Text, started, secretOptions...)
 		for _, finding := range secretFindings {
 			if _, exists := seen[finding.ID]; exists {
 				continue
@@ -419,6 +421,14 @@ func (s *Scanner) listHeadFiles(ctx context.Context, repo repositoryLocation) ([
 		files = append(files, path)
 	}
 	return files, nil
+}
+
+func (s *Scanner) loadSecretFindingPolicy(ctx context.Context, repo repositoryLocation) secretFindingPolicy {
+	output, err := s.git(ctx, repo, "show", "HEAD:.identrailignore")
+	if err != nil {
+		return secretFindingPolicy{}
+	}
+	return parseSecretFindingPolicy(output)
 }
 
 func (s *Scanner) resolveHeadCommit(ctx context.Context, repo repositoryLocation) (string, error) {

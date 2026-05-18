@@ -261,6 +261,14 @@ func (s *Service) loadTargetFindingsForBaselineImport(
 }
 
 func scoreFindingConfidence(finding domain.Finding) float64 {
+	if isRepoSecretClassifierFinding(finding) {
+		if finding.ConfidenceScore > 0 {
+			return roundConfidenceScore(finding.ConfidenceScore)
+		}
+		if score, ok := findingEvidenceFloat(finding.Evidence, "confidence_score"); ok && score > 0 {
+			return roundConfidenceScore(score)
+		}
+	}
 	score := 0.70
 	switch finding.Type {
 	case domain.FindingOwnerless:
@@ -291,6 +299,44 @@ func scoreFindingConfidence(finding domain.Finding) float64 {
 		score = 0.99
 	}
 	return roundConfidenceScore(score)
+}
+
+func isRepoSecretClassifierFinding(finding domain.Finding) bool {
+	if finding.Type != domain.FindingSecretExposure {
+		return false
+	}
+	if len(finding.Evidence) == 0 {
+		return false
+	}
+	source, _ := finding.Evidence["confidence_source"].(string)
+	if strings.HasPrefix(source, "repo_secret_classifier_v") {
+		return true
+	}
+	state, _ := finding.Evidence["confidence_state"].(string)
+	return strings.TrimSpace(state) != "" && (strings.TrimSpace(finding.Repository) != "" || strings.TrimSpace(finding.FilePath) != "" || strings.TrimSpace(finding.Detector) != "")
+}
+
+func findingEvidenceFloat(evidence map[string]any, key string) (float64, bool) {
+	if len(evidence) == 0 {
+		return 0, false
+	}
+	switch typed := evidence[key].(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		value, err := typed.Float64()
+		return value, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func scoreFindingBaselineMatch(entry FindingBaselineEntry, finding domain.Finding) float64 {

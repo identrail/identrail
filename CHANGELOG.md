@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added rule-aware confidence classification for repository secret findings.
+  Secret detections now carry deterministic `confidence_score`,
+  `confidence_state`, and `confidence_reasons` metadata, distinguish likely
+  production leaks from samples, placeholders, docs, test fixtures, and
+  repository-local fingerprint allowlists, and preserve API/backfill
+  compatibility for existing finding records.
 - Added GitHub App connector-backed private repository scans. Repo scan queue
   rows now store only non-secret source metadata, while API, scheduled, and
   webhook-triggered scans resolve the selected project connection and workers

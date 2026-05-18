@@ -132,6 +132,9 @@ func TestSecretDetectorFixtures(t *testing.T) {
 		if fixture.ID == "" {
 			t.Fatal("fixture ID cannot be empty")
 		}
+		if detector.Confidence <= 0 || detector.Confidence > 1 {
+			t.Fatalf("detector %s must define confidence between 0 and 1, got %.2f", detector.ID, detector.Confidence)
+		}
 		seen[fixture.ID] = true
 		if len(fixture.Positives) == 0 {
 			t.Fatalf("detector %s fixture is missing positive examples", detector.ID)
@@ -169,6 +172,15 @@ func TestSecretDetectorFixtures(t *testing.T) {
 				if got := finding.Evidence["detector_category"]; got != detector.Category {
 					t.Fatalf("expected detector %s to include category %q got %v", fixture.ID, detector.Category, got)
 				}
+				if finding.ConfidenceScore <= 0 {
+					t.Fatalf("expected detector %s to include top-level confidence score, got %+v", fixture.ID, finding)
+				}
+				if got := finding.Evidence["confidence_score"]; got != finding.ConfidenceScore {
+					t.Fatalf("expected detector %s evidence confidence to match top-level score, got %v and %.2f", fixture.ID, got, finding.ConfidenceScore)
+				}
+				if got := finding.Evidence["confidence_state"]; got == "" {
+					t.Fatalf("expected detector %s to include confidence state", fixture.ID)
+				}
 			}
 		}
 	}
@@ -202,6 +214,138 @@ func TestSecretFingerprintUsesCapturedSecretValue(t *testing.T) {
 	}
 	if first.ID != second.ID {
 		t.Fatalf("expected matching IDs for identical captured value in same context, got %q and %q", first.ID, second.ID)
+	}
+}
+
+func TestSecretConfidenceClassifiesLikelyProductionSecret(t *testing.T) {
+	secretValue := fixtureToken("aB3dE5fG7hJ9kLmN2pQrS4tUvW6xYz8", "AbCde")
+	finding := firstFindingForDetector(t,
+		detectSecretFindings("owner/repo", "HEAD", "app.env", 7, fixtureToken("GITHUB_TOKEN=ghp_", secretValue), time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)),
+		"github_token",
+	)
+
+	if got := finding.Evidence["confidence_state"]; got != secretClassificationHighConfidence {
+		t.Fatalf("expected high-confidence classification, got %v in %+v", got, finding.Evidence)
+	}
+	if finding.ConfidenceScore < 0.95 {
+		t.Fatalf("expected high confidence score, got %.2f", finding.ConfidenceScore)
+	}
+}
+
+func TestSecretConfidenceClassifiesSamplePlaceholder(t *testing.T) {
+	finding := firstFindingForDetector(t,
+		detectSecretFindings("owner/repo", "HEAD", "README.md", 7, "client_secret=exampleclientsecretvalue123", time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)),
+		"oauth_client_secret",
+	)
+
+	if got := finding.Evidence["confidence_state"]; got != secretClassificationSamplePlaceholder {
+		t.Fatalf("expected sample placeholder classification, got %v in %+v", got, finding.Evidence)
+	}
+	if finding.ConfidenceScore > 0.40 {
+		t.Fatalf("expected downgraded sample score, got %.2f", finding.ConfidenceScore)
+	}
+}
+
+func TestSecretConfidenceClassifiesRootSampleDirectory(t *testing.T) {
+	secretValue := fixtureToken("aB3dE5fG7hJ9kLmN2pQrS4tUvW6xYz8", "AbCde")
+	finding := firstFindingForDetector(t,
+		detectSecretFindings("owner/repo", "HEAD", "examples/secrets.env", 7, fixtureToken("GITHUB_TOKEN=ghp_", secretValue), time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)),
+		"github_token",
+	)
+
+	if got := finding.Evidence["confidence_state"]; got != secretClassificationSamplePlaceholder {
+		t.Fatalf("expected root sample directory classification, got %v in %+v", got, finding.Evidence)
+	}
+	if finding.ConfidenceScore > 0.40 {
+		t.Fatalf("expected downgraded root sample score, got %.2f", finding.ConfidenceScore)
+	}
+}
+
+func TestSecretConfidenceClassifiesTestModeTokenValue(t *testing.T) {
+	finding := firstFindingForDetector(t,
+		detectSecretFindings("owner/repo", "HEAD", "app.env", 7, fixtureToken("STRIPE_SECRET_KEY=", "sk_test_", "aB3dE5fG7hJ9kLmN2pQrS4tUvW6x"), time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)),
+		"stripe_api_key",
+	)
+
+	if got := finding.Evidence["confidence_state"]; got != secretClassificationSamplePlaceholder {
+		t.Fatalf("expected test-mode token value classification, got %v in %+v", got, finding.Evidence)
+	}
+	if finding.ConfidenceScore > 0.25 {
+		t.Fatalf("expected downgraded test-mode token score, got %.2f", finding.ConfidenceScore)
+	}
+}
+
+func TestSecretConfidenceClassifiesTestFixturePath(t *testing.T) {
+	secretValue := fixtureToken("aB3dE5fG7hJ9kLmN2pQrS4tUvW6xYz8", "AbCde")
+	finding := firstFindingForDetector(t,
+		detectSecretFindings("owner/repo", "HEAD", "testdata/secrets.env", 7, fixtureToken("GITHUB_TOKEN=ghp_", secretValue), time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)),
+		"github_token",
+	)
+
+	if got := finding.Evidence["confidence_state"]; got != secretClassificationTestFixture {
+		t.Fatalf("expected test fixture classification, got %v in %+v", got, finding.Evidence)
+	}
+	if finding.ConfidenceScore > 0.35 {
+		t.Fatalf("expected downgraded test fixture score, got %.2f", finding.ConfidenceScore)
+	}
+}
+
+func TestSecretConfidencePathClassifiersIncludeRepositoryRootDirectories(t *testing.T) {
+	for _, path := range []string{"examples/app.env", "example/app.env", "samples/app.env", "sample/app.env"} {
+		if !isSecretSamplePath(path) {
+			t.Fatalf("expected %s to be a sample path", path)
+		}
+	}
+	if !isSecretTestFixturePath("__fixtures__/secrets.env") {
+		t.Fatal("expected root __fixtures__ directory to be a test fixture path")
+	}
+	for _, path := range []string{"secrets/app.env", "credentials/app.env"} {
+		if !isProductionSecretPath(path) {
+			t.Fatalf("expected %s to be a production secret path", path)
+		}
+	}
+}
+
+func TestSecretConfidenceClassifiesAllowlistedFingerprint(t *testing.T) {
+	secretValue := fixtureToken("A1b2C3d4E5f6G7h8I9j0K", "LmNoPqRsT")
+	fingerprint := hashSHA256(secretValue)
+	finding := firstFindingForDetector(t,
+		detectSecretFindings(
+			"owner/repo",
+			"HEAD",
+			"config/secrets.env",
+			7,
+			"client_secret="+secretValue,
+			time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC),
+			withSecretFindingPolicy(secretFindingPolicy{AllowlistedFingerprints: map[string]struct{}{fingerprint: {}}}),
+		),
+		"oauth_client_secret",
+	)
+
+	if got := finding.Evidence["confidence_state"]; got != secretClassificationAllowlisted {
+		t.Fatalf("expected allowlisted classification, got %v in %+v", got, finding.Evidence)
+	}
+	if got, _ := finding.Evidence["secret_allowlisted"].(bool); !got {
+		t.Fatalf("expected allowlisted evidence flag, got %+v", finding.Evidence)
+	}
+	if finding.ConfidenceScore != 0.05 {
+		t.Fatalf("expected allowlisted confidence score 0.05, got %.2f", finding.ConfidenceScore)
+	}
+}
+
+func TestParseSecretFindingPolicyAcceptsFingerprintForms(t *testing.T) {
+	first := strings.Repeat("a", 64)
+	second := strings.Repeat("b", 64)
+	policy := parseSecretFindingPolicy([]byte("\n# comments are ignored\nsecret-fingerprint: " + first + "\nsha256=" + second + " # inline comment\ninvalid\n"))
+
+	if _, ok := policy.AllowlistedFingerprints[first]; !ok {
+		t.Fatalf("expected first fingerprint to be allowlisted, got %+v", policy.AllowlistedFingerprints)
+	}
+	if _, ok := policy.AllowlistedFingerprints[second]; !ok {
+		t.Fatalf("expected second fingerprint to be allowlisted, got %+v", policy.AllowlistedFingerprints)
+	}
+	if len(policy.AllowlistedFingerprints) != 2 {
+		t.Fatalf("expected exactly two fingerprints, got %+v", policy.AllowlistedFingerprints)
 	}
 }
 

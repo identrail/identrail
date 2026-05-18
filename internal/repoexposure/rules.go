@@ -32,6 +32,7 @@ type secretDetectorPattern struct {
 type secretDetector struct {
 	ID          string
 	Severity    domain.FindingSeverity
+	Confidence  float64
 	Title       string
 	Summary     string
 	Remediation string
@@ -42,11 +43,47 @@ type secretDetector struct {
 	Patterns    []secretDetectorPattern
 }
 
+const (
+	secretConfidenceClassifierVersion = "2026.05"
+
+	secretClassificationHighConfidence    = "high_confidence"
+	secretClassificationMediumConfidence  = "medium_confidence"
+	secretClassificationSamplePlaceholder = "sample_or_placeholder"
+	secretClassificationTestFixture       = "test_fixture"
+	secretClassificationAllowlisted       = "allowlisted"
+)
+
+type secretFindingPolicy struct {
+	AllowlistedFingerprints map[string]struct{}
+}
+
+type secretFindingOptions struct {
+	Policy secretFindingPolicy
+}
+
+type secretFindingOption func(*secretFindingOptions)
+
+func withSecretFindingPolicy(policy secretFindingPolicy) secretFindingOption {
+	return func(options *secretFindingOptions) {
+		options.Policy = policy
+	}
+}
+
+type secretConfidenceClassification struct {
+	State       string
+	Score       float64
+	Reasons     []string
+	Allowlisted bool
+}
+
+var secretFingerprintPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
 var secretDetectorRegistry = []secretDetector{
 	{
 		ID:          "aws_access_key_id",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.98,
 		Title:       "Potential AWS access key exposed in commit history",
 		Provider:    "AWS",
 		Category:    "cloud_credentials",
@@ -63,6 +100,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "aws_secret_access_key",
 		Version:     "2026.05",
 		Severity:    domain.SeverityCritical,
+		Confidence:  0.96,
 		Title:       "Potential AWS secret key exposed in commit history",
 		Provider:    "AWS",
 		Category:    "cloud_credentials",
@@ -81,6 +119,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "github_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityCritical,
+		Confidence:  0.98,
 		Title:       "Potential GitHub token exposed in commit history",
 		Provider:    "GitHub",
 		Category:    "source_control",
@@ -98,6 +137,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "github_app_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.95,
 		Title:       "Potential GitHub App token exposed in commit history",
 		Provider:    "GitHub",
 		Category:    "source_control",
@@ -111,6 +151,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "slack_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.92,
 		Title:       "Potential Slack token exposed in commit history",
 		Provider:    "Slack",
 		Category:    "collaboration",
@@ -124,6 +165,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "gitlab_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.92,
 		Title:       "Potential GitLab token exposed in commit history",
 		Provider:    "GitLab",
 		Category:    "source_control",
@@ -137,6 +179,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "azure_service_secret",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.90,
 		Title:       "Potential Azure application secret exposed in commit history",
 		Provider:    "Azure",
 		Category:    "cloud_credentials",
@@ -155,6 +198,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "gcp_api_key",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.92,
 		Title:       "Potential Google API key exposed in commit history",
 		Provider:    "Google",
 		Category:    "cloud_credentials",
@@ -168,6 +212,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "stripe_api_key",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.94,
 		Title:       "Potential Stripe key exposed in commit history",
 		Provider:    "Stripe",
 		Category:    "payments",
@@ -182,6 +227,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "openai_api_key",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.94,
 		Title:       "Potential OpenAI token exposed in commit history",
 		Provider:    "OpenAI",
 		Category:    "ai_api",
@@ -196,6 +242,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "workos_api_key",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.92,
 		Title:       "Potential WorkOS token exposed in commit history",
 		Provider:    "WorkOS",
 		Category:    "identity_platform",
@@ -213,6 +260,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "vercel_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.92,
 		Title:       "Potential Vercel token exposed in commit history",
 		Provider:    "Vercel",
 		Category:    "deployment_platform",
@@ -226,6 +274,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "npm_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.86,
 		Title:       "Potential npm access token exposed in commit history",
 		Provider:    "npm",
 		Category:    "package_registry",
@@ -242,6 +291,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "dockerhub_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.90,
 		Title:       "Potential Docker Hub token exposed in commit history",
 		Provider:    "Docker Hub",
 		Category:    "container_registry",
@@ -255,6 +305,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "private_key_material",
 		Version:     "2026.05",
 		Severity:    domain.SeverityCritical,
+		Confidence:  0.99,
 		Title:       "Private key material exposed in commit history",
 		Provider:    "General",
 		Category:    "credential_storage",
@@ -268,6 +319,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "tls_key_material",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.72,
 		Title:       "TLS material exposed in commit history",
 		Provider:    "General",
 		Category:    "infrastructure_security",
@@ -281,6 +333,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "jwt_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.82,
 		Title:       "Potential JWT exposed in commit history",
 		Provider:    "General",
 		Category:    "identity_tokens",
@@ -294,6 +347,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "database_connection_url",
 		Version:     "2026.05",
 		Severity:    domain.SeverityMedium,
+		Confidence:  0.86,
 		Title:       "Potential database URL with embedded credentials",
 		Provider:    "General",
 		Category:    "configuration",
@@ -311,6 +365,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "oauth_client_secret",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.80,
 		Title:       "Potential OAuth client secret exposed in commit history",
 		Provider:    "General",
 		Category:    "identity_tokens",
@@ -329,6 +384,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "webhook_secret",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.78,
 		Title:       "Potential webhook signing secret exposed in commit history",
 		Provider:    "General",
 		Category:    "webhooks",
@@ -347,6 +403,7 @@ var secretDetectorRegistry = []secretDetector{
 		ID:          "ci_cd_token",
 		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
+		Confidence:  0.82,
 		Title:       "Potential CI/CD token exposed in commit history",
 		Provider:    "General",
 		Category:    "ci_cd",
@@ -434,10 +491,16 @@ var fileMisconfigRules = []fileMisconfigRule{
 	},
 }
 
-func detectSecretFindings(repo string, commit string, path string, line int, text string, detectedAt time.Time) []domain.Finding {
+func detectSecretFindings(repo string, commit string, path string, line int, text string, detectedAt time.Time, options ...secretFindingOption) []domain.Finding {
 	normalized := strings.TrimSpace(text)
 	if normalized == "" {
 		return nil
+	}
+	secretOptions := secretFindingOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(&secretOptions)
+		}
 	}
 	type detectedSecret struct {
 		rule  secretDetector
@@ -462,11 +525,13 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 			secretMaterial = item.match
 		}
 		fingerprint := hashSHA256(secretMaterial)
+		classification := classifySecretMatch(item.rule, path, normalized, secretMaterial, fingerprint, secretOptions.Policy)
 		id := hashDeterministicID("repo-secret", repo, commit, path, strconv.Itoa(line), item.rule.ID, fingerprint)
 		findings = append(findings, domain.Finding{
 			ID:                  "finding:" + id,
 			Type:                domain.FindingSecretExposure,
 			Severity:            item.rule.Severity,
+			ConfidenceScore:     classification.Score,
 			Title:               item.rule.Title,
 			HumanSummary:        item.rule.Summary,
 			Path:                []string{path},
@@ -492,12 +557,262 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 				"history_source":        "commit_diff",
 				"raw_secret_stored":     false,
 				"secret_value_masked":   true,
+				"confidence_score":      classification.Score,
+				"confidence_state":      classification.State,
+				"confidence_reasons":    classification.Reasons,
+				"confidence_source":     "repo_secret_classifier_v" + secretConfidenceClassifierVersion,
+				"secret_allowlisted":    classification.Allowlisted,
 			},
 			Remediation: item.rule.Remediation,
 			CreatedAt:   detectedAt,
 		})
 	}
 	return findings
+}
+
+func parseSecretFindingPolicy(content []byte) secretFindingPolicy {
+	policy := secretFindingPolicy{AllowlistedFingerprints: map[string]struct{}{}}
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if index := strings.Index(line, "#"); index >= 0 {
+			line = strings.TrimSpace(line[:index])
+		}
+		fingerprint := normalizeSecretFingerprint(line)
+		if fingerprint == "" {
+			continue
+		}
+		policy.AllowlistedFingerprints[fingerprint] = struct{}{}
+	}
+	if len(policy.AllowlistedFingerprints) == 0 {
+		policy.AllowlistedFingerprints = nil
+	}
+	return policy
+}
+
+func normalizeSecretFingerprint(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	for _, prefix := range []string{"secret-fingerprint:", "secret_fingerprint:", "secret-fingerprint=", "secret_fingerprint=", "sha256:", "sha256=", "secret:", "secret="} {
+		if strings.HasPrefix(normalized, prefix) {
+			normalized = strings.TrimSpace(strings.TrimPrefix(normalized, prefix))
+			break
+		}
+	}
+	if secretFingerprintPattern.MatchString(normalized) {
+		return normalized
+	}
+	return ""
+}
+
+func classifySecretMatch(rule secretDetector, filePath string, line string, secretMaterial string, fingerprint string, policy secretFindingPolicy) secretConfidenceClassification {
+	reasons := []string{"detector:" + rule.ID, fmt.Sprintf("detector_confidence:%.2f", baseSecretDetectorConfidence(rule))}
+	if _, allowlisted := policy.AllowlistedFingerprints[strings.ToLower(strings.TrimSpace(fingerprint))]; allowlisted {
+		return secretConfidenceClassification{
+			State:       secretClassificationAllowlisted,
+			Score:       0.05,
+			Reasons:     append(reasons, "fingerprint_allowlisted"),
+			Allowlisted: true,
+		}
+	}
+
+	score := baseSecretDetectorConfidence(rule)
+	state := ""
+	testFixturePath := isSecretTestFixturePath(filePath)
+	samplePath := isSecretSamplePath(filePath)
+	if !testFixturePath && !samplePath && isProductionSecretPath(filePath) {
+		score += 0.03
+		reasons = append(reasons, "path_context:production_secret_file")
+	}
+	if testFixturePath {
+		state = secretClassificationTestFixture
+		score = math.Min(score, 0.35)
+		reasons = append(reasons, "path_context:test_fixture")
+	}
+	if samplePath {
+		if state == "" {
+			state = secretClassificationSamplePlaceholder
+		}
+		score = math.Min(score, 0.40)
+		reasons = append(reasons, "path_context:sample_or_docs")
+	}
+
+	placeholderReasons := secretPlaceholderReasons(line, secretMaterial)
+	if len(placeholderReasons) > 0 {
+		if state == "" {
+			state = secretClassificationSamplePlaceholder
+		}
+		score = math.Min(score, 0.25)
+		reasons = append(reasons, placeholderReasons...)
+	}
+
+	score = roundSecretConfidenceScore(clampSecretConfidence(score))
+	if state == "" {
+		if score >= 0.85 {
+			state = secretClassificationHighConfidence
+		} else {
+			state = secretClassificationMediumConfidence
+		}
+	}
+	return secretConfidenceClassification{State: state, Score: score, Reasons: reasons}
+}
+
+func baseSecretDetectorConfidence(rule secretDetector) float64 {
+	if rule.Confidence > 0 {
+		return clampSecretConfidence(rule.Confidence)
+	}
+	switch rule.Severity {
+	case domain.SeverityCritical:
+		return 0.94
+	case domain.SeverityHigh:
+		return 0.86
+	case domain.SeverityMedium:
+		return 0.74
+	default:
+		return 0.65
+	}
+}
+
+func clampSecretConfidence(score float64) float64 {
+	if score < 0.01 {
+		return 0.01
+	}
+	if score > 0.99 {
+		return 0.99
+	}
+	return score
+}
+
+func roundSecretConfidenceScore(score float64) float64 {
+	return math.Round(score*100) / 100
+}
+
+func isSecretTestFixturePath(filePath string) bool {
+	normalized := normalizeSecretPath(filePath)
+	base := filepath.Base(normalized)
+	return strings.HasSuffix(base, "_test.go") ||
+		strings.HasPrefix(normalized, "testdata/") ||
+		strings.HasPrefix(normalized, "tests/") ||
+		strings.HasPrefix(normalized, "fixtures/") ||
+		strings.HasPrefix(normalized, "fixture/") ||
+		strings.HasPrefix(normalized, "__fixtures__/") ||
+		strings.Contains(normalized, "/testdata/") ||
+		strings.Contains(normalized, "/tests/") ||
+		strings.Contains(normalized, "/fixtures/") ||
+		strings.Contains(normalized, "/fixture/") ||
+		strings.Contains(normalized, "/__fixtures__/")
+}
+
+func isSecretSamplePath(filePath string) bool {
+	normalized := normalizeSecretPath(filePath)
+	base := filepath.Base(normalized)
+	return strings.HasPrefix(normalized, "docs/") ||
+		strings.HasPrefix(normalized, "examples/") ||
+		strings.HasPrefix(normalized, "example/") ||
+		strings.HasPrefix(normalized, "samples/") ||
+		strings.HasPrefix(normalized, "sample/") ||
+		strings.Contains(normalized, "/docs/") ||
+		strings.Contains(normalized, "/examples/") ||
+		strings.Contains(normalized, "/example/") ||
+		strings.Contains(normalized, "/samples/") ||
+		strings.Contains(normalized, "/sample/") ||
+		base == "readme.md" ||
+		base == ".env.example" ||
+		base == ".env.sample" ||
+		base == "env.example" ||
+		base == "env.sample" ||
+		strings.HasSuffix(base, ".example") ||
+		strings.HasSuffix(base, ".sample")
+}
+
+func isProductionSecretPath(filePath string) bool {
+	normalized := normalizeSecretPath(filePath)
+	base := filepath.Base(normalized)
+	switch base {
+	case ".env", "app.env", "secrets.env", "secret.env", "credentials.env", "config.env":
+		return true
+	}
+	return strings.HasPrefix(normalized, "secrets/") ||
+		strings.HasPrefix(normalized, "credentials/") ||
+		strings.Contains(normalized, "/secrets/") ||
+		strings.Contains(normalized, "/credentials/")
+}
+
+func normalizeSecretPath(filePath string) string {
+	normalized := filepath.ToSlash(strings.TrimSpace(filePath))
+	normalized = strings.TrimPrefix(normalized, "./")
+	return strings.ToLower(normalized)
+}
+
+func secretPlaceholderReasons(line string, secretMaterial string) []string {
+	lowerMaterial := strings.ToLower(strings.TrimSpace(secretMaterial))
+	lowerLine := strings.ToLower(strings.TrimSpace(line))
+	reasons := []string{}
+	for _, marker := range []string{"example", "changeme", "change_me", "dummy", "fake", "sample", "placeholder", "notasecret", "not_a_secret", "replace_me", "your_", "todo", "testsecret", "test_secret", "test-secret", "sk_test_", "pk_test_"} {
+		if strings.Contains(lowerMaterial, marker) || strings.Contains(lowerLine, marker) {
+			reasons = append(reasons, "value_marker:"+marker)
+			break
+		}
+	}
+
+	compact := compactSecretValue(secretMaterial)
+	if len(compact) >= 12 && isRepeatedOrLowVarietySecret(compact) {
+		reasons = append(reasons, "value_shape:repeated_or_low_variety")
+	}
+	if len(compact) >= 16 && containsSequentialSecretPattern(compact) {
+		reasons = append(reasons, "value_shape:sequential")
+	}
+	if len(compact) >= 16 && entropy(secretMaterial) < 2.6 && !strings.Contains(lowerMaterial, "-----begin ") {
+		reasons = append(reasons, "value_entropy:low")
+	}
+	return reasons
+}
+
+func compactSecretValue(value string) string {
+	var builder strings.Builder
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+func isRepeatedOrLowVarietySecret(compact string) bool {
+	seen := map[rune]struct{}{}
+	for _, r := range compact {
+		seen[r] = struct{}{}
+	}
+	if len(seen) <= 3 {
+		return true
+	}
+	for size := 2; size <= 8; size++ {
+		if len(compact)%size != 0 {
+			continue
+		}
+		prefix := compact[:size]
+		if strings.Repeat(prefix, len(compact)/size) == compact {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSequentialSecretPattern(compact string) bool {
+	for _, pattern := range []string{
+		"0123456789abcdef",
+		"abcdef0123456789",
+		"1234567890abcdef",
+		"abcdefghijklmnopqrstuvwxyz",
+		"abcdefghijklmnop",
+	} {
+		if strings.Contains(compact, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 func detectSecretMatch(text string, rule secretDetector) (match string, value string) {

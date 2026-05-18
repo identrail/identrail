@@ -123,8 +123,43 @@ The scanner uses a versioned secret detector registry for commit-history secret 
   - `detector_version`
   - `detector_category`
   - `detector_provider`
+  - `confidence_score`
+  - `confidence_state`
+  - `confidence_reasons`
 
 To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
+
+## Secret Confidence Classification
+
+Secret findings are not silently dropped when they look like examples or test
+fixtures. Instead, the scanner emits confidence metadata so API clients and
+analysts can triage the result without losing auditability.
+
+Current `confidence_state` values for repo secret findings:
+
+- `high_confidence`: provider-shaped secret material in a production-like path.
+- `medium_confidence`: matched secret material with weaker detector confidence or generic shape.
+- `sample_or_placeholder`: sample, docs, `.env.example`, obvious placeholder, sequential, repeated, or low-entropy values.
+- `test_fixture`: findings under test, fixture, or `testdata` paths.
+- `allowlisted`: the secret fingerprint is listed in the repository's local `.identrailignore` file.
+
+Confidence is evidence metadata and also populates the top-level
+`confidence_score` field in finding API responses. Scores are deterministic and
+bounded from `0.01` to `0.99`; allowlisted fingerprints are emitted at `0.05`.
+
+The first suppression mechanism is repository-local and fingerprint based. Add a
+`.identrailignore` file at repository HEAD with one fingerprint per line:
+
+```text
+# Comments are ignored.
+secret-fingerprint: <sha256-secret-fingerprint>
+sha256=<sha256-secret-fingerprint>
+```
+
+The scanner still emits allowlisted findings by default, but marks them as
+`allowlisted` and includes `secret_allowlisted: true` in evidence. Organization
+or dashboard-managed suppression policies are intentionally left to a later
+workflow layer.
 
 ## Security Guardrails
 

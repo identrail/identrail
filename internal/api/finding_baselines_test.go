@@ -39,6 +39,24 @@ func TestScoreFindingBaselineMatch(t *testing.T) {
 	}
 }
 
+func TestScoreFindingConfidenceHonorsClassifierScore(t *testing.T) {
+	finding := domain.Finding{
+		Type:            domain.FindingSecretExposure,
+		ConfidenceScore: 0.35,
+		FilePath:        "app.env",
+		Detector:        "github_token",
+		Evidence:        map[string]any{"confidence_score": 0.92, "confidence_source": "repo_secret_classifier_v2026.05"},
+	}
+	if got := scoreFindingConfidence(finding); got != 0.35 {
+		t.Fatalf("expected explicit finding confidence score to win, got %.2f", got)
+	}
+
+	finding.ConfidenceScore = 0
+	if got := scoreFindingConfidence(finding); got != 0.92 {
+		t.Fatalf("expected evidence confidence score to win, got %.2f", got)
+	}
+}
+
 func TestValidateFindingBaselineImportRequestRejectsInvalidShapes(t *testing.T) {
 	valid := FindingBaselineImportRequest{
 		Baseline: FindingBaseline{
