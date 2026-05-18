@@ -373,7 +373,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Standard terms/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /Acceptance and scope/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /Acceptable use/i })).toBeInTheDocument();
-    expect(screen.getByText(/Customer data and integrations/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Customer data and integrations/i })).toBeInTheDocument();
     expect(screen.getByText(/Questions about these Terms of Use can be sent to security@identrail.com/i)).toBeInTheDocument();
   });
 

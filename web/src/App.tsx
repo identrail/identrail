@@ -4044,6 +4044,138 @@ const TERMS_OF_USE_SECTIONS = [
   }
 ] as const;
 
+type LegalDocumentSection = {
+  title: string;
+  body: readonly string[];
+};
+
+type LegalDocumentMeta = {
+  label: string;
+  value: string;
+};
+
+function legalAnchorID(title: string) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function LegalDocumentPage({
+  tone,
+  eyebrow,
+  title,
+  intro,
+  summaryTitle,
+  summaryItems,
+  meta,
+  sectionsTitle,
+  sectionsIntro,
+  sections,
+  contactTitle,
+  contactBody,
+  contactHref,
+  contactLabel
+}: {
+  tone: 'privacy' | 'terms';
+  eyebrow: string;
+  title: string;
+  intro: string;
+  summaryTitle: string;
+  summaryItems: readonly string[];
+  meta: readonly LegalDocumentMeta[];
+  sectionsTitle: string;
+  sectionsIntro: string;
+  sections: readonly LegalDocumentSection[];
+  contactTitle: string;
+  contactBody: ReactNode;
+  contactHref?: string;
+  contactLabel?: string;
+}) {
+  const sectionsHeadingID = legalAnchorID(sectionsTitle);
+
+  return (
+    <div className={`idt-legal-page is-${tone}`}>
+      <section className="idt-legal-hero idt-shell">
+        <div className="idt-legal-hero-copy">
+          <p className="idt-eyebrow">{eyebrow}</p>
+          <h1>{title}</h1>
+          <p>{intro}</p>
+          <dl className="idt-legal-meta-list" aria-label={`${title} details`}>
+            {meta.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <aside className="idt-legal-summary-card" aria-labelledby={`${tone}-plain-summary`}>
+          <p className="idt-legal-summary-label">Plain-English summary</p>
+          <h2 id={`${tone}-plain-summary`}>{summaryTitle}</h2>
+          <ul>
+            {summaryItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </aside>
+      </section>
+
+      <section className="idt-legal-body idt-shell" aria-labelledby={sectionsHeadingID}>
+        <aside className="idt-legal-sidebar">
+          <p>On this page</p>
+          <nav aria-label={`${title} sections`}>
+            <a href={`#${sectionsHeadingID}`}>{sectionsTitle}</a>
+            {sections.map((section) => (
+              <a key={section.title} href={`#${legalAnchorID(section.title)}`}>
+                {section.title}
+              </a>
+            ))}
+          </nav>
+        </aside>
+
+        <div className="idt-legal-main">
+          <div className="idt-legal-section-heading">
+            <p className="idt-eyebrow">Policy detail</p>
+            <h2 id={sectionsHeadingID}>{sectionsTitle}</h2>
+            <p>{sectionsIntro}</p>
+          </div>
+
+          <div className="idt-legal-section-list">
+            {sections.map((section, index) => (
+              <article key={section.title} id={legalAnchorID(section.title)} className="idt-legal-section-card">
+                <span className="idt-legal-section-number" aria-hidden="true">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <div>
+                  <h3>{section.title}</h3>
+                  {section.body.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="idt-legal-contact-panel">
+            <div>
+              <p className="idt-eyebrow">Need help?</p>
+              <h2>{contactTitle}</h2>
+              <p>{contactBody}</p>
+            </div>
+            {contactHref && contactLabel ? (
+              <a className="idt-btn idt-btn-primary" href={contactHref}>
+                {contactLabel}
+              </a>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function PrivacyPage() {
   useSeo({
     title: 'Privacy Policy | Identrail',
@@ -4053,47 +4185,36 @@ function PrivacyPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <h1>Privacy Policy</h1>
-        <p>
-          Identrail handles personal data with a security-first posture. This policy explains how we process
-          website, account, and Google sign-in data for Identrail users.
-        </p>
-      </section>
-
-      <section className="idt-section idt-shell idt-legal-policy" aria-labelledby="google-user-data">
-        <div className="idt-section-title">
-          <h2 id="google-user-data">Google user data disclosure</h2>
-          <p>
-            This section documents how Identrail interacts with Google user data when users sign in or sign up
-            with Google.
-          </p>
-        </div>
-
-        <div className="idt-card-grid two-col">
-          {PRIVACY_POLICY_SECTIONS.map((section) => (
-            <article key={section.title} className="idt-card">
-              <h3>{section.title}</h3>
-              {section.body.map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
-              ))}
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="idt-section idt-shell idt-section-tight">
-        <div className="idt-card">
-          <h2>Questions and requests</h2>
-          <p>
-            For privacy questions, account deletion requests, or requests about Google-derived user data, email{' '}
-            <a href="mailto:security@identrail.com?subject=Privacy%20Request">security@identrail.com</a> with
-            the subject Privacy Request.
-          </p>
-        </div>
-      </section>
-    </>
+    <LegalDocumentPage
+      tone="privacy"
+      eyebrow="Privacy and data use"
+      title="Privacy Policy"
+      intro="Identrail treats account data as security-sensitive operational data. This policy explains what we collect, how we use it, and the controls available to people who use our website, sign-in flows, and product experiences."
+      summaryTitle="What we keep intentionally narrow"
+      summaryItems={[
+        'Google sign-in is used for identity and account access, not for Gmail, Drive, Calendar, Contacts, or Workspace content.',
+        'We do not sell personal data or use Google user data for advertising, retargeting, data brokerage, or credit decisions.',
+        'Deletion and privacy requests go directly to the security team so they can be verified and handled with care.'
+      ]}
+      meta={[
+        { label: 'Last updated', value: 'May 18, 2026' },
+        { label: 'Applies to', value: 'Website, sign-in, account, and hosted product experiences' },
+        { label: 'Primary contact', value: 'security@identrail.com' }
+      ]}
+      sectionsTitle="Google user data disclosure"
+      sectionsIntro="This section documents how Identrail interacts with Google user data when a user signs in or signs up with Google."
+      sections={PRIVACY_POLICY_SECTIONS}
+      contactTitle="Questions and requests"
+      contactBody={
+        <>
+          For privacy questions, account deletion requests, or requests about Google-derived user data, email{' '}
+          <a href="mailto:security@identrail.com?subject=Privacy%20Request">security@identrail.com</a> with the
+          subject Privacy Request.
+        </>
+      }
+      contactHref="mailto:security@identrail.com?subject=Privacy%20Request"
+      contactLabel="Start privacy request"
+    />
   );
 }
 
@@ -4106,36 +4227,30 @@ function TermsPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <h1>Terms of Use</h1>
-        <p>
-          These terms set the baseline for using Identrail websites, product experiences, documentation,
-          public resources, accounts, and integrations.
-        </p>
-      </section>
-
-      <section className="idt-section idt-shell idt-legal-policy" aria-labelledby="terms-sections">
-        <div className="idt-section-title">
-          <h2 id="terms-sections">Standard terms</h2>
-          <p>
-            This page summarizes the obligations, restrictions, and operational expectations that apply when
-            you use Identrail.
-          </p>
-        </div>
-
-        <div className="idt-card-grid two-col">
-          {TERMS_OF_USE_SECTIONS.map((section) => (
-            <article key={section.title} className="idt-card">
-              <h3>{section.title}</h3>
-              {section.body.map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
-              ))}
-            </article>
-          ))}
-        </div>
-      </section>
-    </>
+    <LegalDocumentPage
+      tone="terms"
+      eyebrow="Terms and acceptable use"
+      title="Terms of Use"
+      intro="These terms set the baseline for using Identrail websites, documentation, public resources, hosted product experiences, accounts, and integrations. They are written to make the operating rules clear before a formal enterprise agreement is needed."
+      summaryTitle="The operating baseline"
+      summaryItems={[
+        'Use Identrail only for systems, organizations, and data you are authorized to assess.',
+        'Connector permissions, API keys, and identity-provider scopes remain your responsibility to approve and maintain.',
+        'Separate signed agreements, order forms, data-processing terms, or open-source licenses control where they are more specific.'
+      ]}
+      meta={[
+        { label: 'Last updated', value: 'May 18, 2026' },
+        { label: 'Applies to', value: 'Website, documentation, demos, accounts, and hosted product use' },
+        { label: 'Security testing', value: 'Responsible Disclosure policy required' }
+      ]}
+      sectionsTitle="Standard terms"
+      sectionsIntro="This page summarizes the obligations, restrictions, and operational expectations that apply when you use Identrail."
+      sections={TERMS_OF_USE_SECTIONS}
+      contactTitle="Terms questions"
+      contactBody="For questions about these terms, procurement reviews, or security-testing boundaries, email the Identrail security contact."
+      contactHref="mailto:security@identrail.com?subject=Terms%20of%20Use"
+      contactLabel="Email legal contact"
+    />
   );
 }
 
