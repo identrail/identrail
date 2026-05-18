@@ -39,7 +39,7 @@ jobs:
         run: jq empty .github/branch-protection/dev.json
 
       - name: Audit drift and optionally apply protection
-        uses: actions/github-script@v9
+        uses: actions/github-script@v9.0.0
         env:
           REPO_ADMIN_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
           MODE: ${{ env.MODE }}

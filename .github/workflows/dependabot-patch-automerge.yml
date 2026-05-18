@@ -26,7 +26,7 @@ jobs:
 
       - name: Enable auto-merge for patch updates
         if: steps.metadata.outcome == 'success' && steps.metadata.outputs.update-type == 'version-update:semver-patch' && !github.event.pull_request.draft
-        uses: actions/github-script@v9
+        uses: actions/github-script@v9.0.0
         with:
           script: |
             const pr = context.payload.pull_request;

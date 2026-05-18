@@ -171,13 +171,14 @@ jobs:
         id: deploy-action
         if: steps.normalize-token.outputs.has_token == 'true'
         continue-on-error: true
-        uses: amondnet/vercel-action@4b810e26f7bb2a331c698af186f890cbf20d5f72 # v42.2.0
+        uses: amondnet/vercel-action@de09aeac2ace6599ec9b11ef87558759a496bac4 # v42.3.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           github-comment: false
           vercel-token: ${{ steps.normalize-token.outputs.token }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          experimental-api: true
           target: production
           force: true
           root-directory: web
