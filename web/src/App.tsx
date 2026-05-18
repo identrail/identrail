@@ -2008,12 +2008,21 @@ function FaqPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">FAQ</p>
-        <h1>Technical and operational questions teams ask before rollout</h1>
-        <p>Answers focus on read-only collection boundaries, deployment models, and safe remediation workflows.</p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-faq-page">
+      <PageHero
+        eyebrow="FAQ"
+        title="Technical and operational questions teams ask before rollout"
+        body="Answers focus on read-only collection boundaries, deployment models, and safe remediation workflows."
+        variant="docs"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              Review Docs
+            </Link>
+          </>
+        }
+      />
       <section className="idt-section idt-shell">
         <div className="idt-faq-list">
           {HOME_FAQ_ITEMS.map((item) => (
@@ -2024,7 +2033,7 @@ function FaqPage() {
           ))}
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -2814,12 +2823,21 @@ function FeaturesPage() {
   ] as const;
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Features</p>
-        <h1>Built for cloud-native machine identity security at scale</h1>
-        <p>Deep technical workflows for security and platform teams, from discovery to rollout-safe control.</p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-features-page">
+      <PageHero
+        eyebrow="Features"
+        title="Built for cloud-native machine identity security at scale"
+        body="Deep technical workflows for security and platform teams, from discovery to rollout-safe control."
+        variant="product"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/demo" className="idt-btn idt-btn-dark">
+              Open Demo
+            </Link>
+          </>
+        }
+      />
 
       {featureSummaries.map((feature) => (
         <section key={feature.id} className="idt-section idt-shell" id={feature.id}>
@@ -2842,7 +2860,7 @@ function FeaturesPage() {
           </article>
         </section>
       ))}
-    </>
+    </div>
   );
 }
 
@@ -2854,21 +2872,24 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Feature: {page.navLabel}</p>
-        <h1>{page.heroTitle}</h1>
-        <p>{page.description}</p>
-        <div className="idt-inline-actions">
-          <Link to="/demo" className="idt-btn idt-btn-primary">
-            Open Interactive Demo
-          </Link>
-          <ScanIntakeCTA className="idt-btn idt-btn-dark" />
-          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-            Star on GitHub
-          </SafeLink>
-        </div>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-feature-detail-page">
+      <PageHero
+        eyebrow={`Feature: ${page.navLabel}`}
+        title={page.heroTitle}
+        body={page.description}
+        variant="product"
+        actions={
+          <>
+            <Link to="/demo" className="idt-btn idt-btn-primary">
+              Open Interactive Demo
+            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-dark" />
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+              Star on GitHub
+            </SafeLink>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-feature-detail-grid">
@@ -2898,7 +2919,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
           ctaLabel={SCAN_CTA_LABEL}
         />
       </section>
-    </>
+    </div>
   );
 }
 
@@ -2944,11 +2965,21 @@ function SolutionsPage() {
   ] as const;
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Solutions</p>
-        <h1>Deployment-ready outcomes for every team responsible for machine identity risk</h1>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-solutions-page">
+      <PageHero
+        eyebrow="Solutions"
+        title="Deployment-ready outcomes for every team responsible for machine identity risk"
+        body="Choose the operating pattern that matches your cloud footprint, platform model, and remediation ownership."
+        variant="product"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Book Demo
+            </Link>
+          </>
+        }
+      />
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-solutions-grid">
           {solutions.map((solution) => (
@@ -2968,7 +2999,7 @@ function SolutionsPage() {
       <section className="idt-section idt-shell">
         <CalendlyEmbed />
       </section>
-    </>
+    </div>
   );
 }
 
@@ -2980,12 +3011,23 @@ function SolutionDetailPage({ page }: { page: (typeof SOLUTION_DEEP_PAGES)[numbe
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Solution: {page.navLabel}</p>
-        <h1>{page.heroTitle}</h1>
-        <p>{page.description}</p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-solution-detail-page">
+      <PageHero
+        eyebrow={`Solution: ${page.navLabel}`}
+        title={page.heroTitle}
+        body={page.description}
+        variant="product"
+        actions={
+          <>
+            <Link to="/enterprise" className="idt-btn idt-btn-primary">
+              Book Demo
+            </Link>
+            <Link to="/pricing" className="idt-btn idt-btn-dark">
+              Compare Plans
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-solution-detail-grid">
@@ -3021,7 +3063,7 @@ function SolutionDetailPage({ page }: { page: (typeof SOLUTION_DEEP_PAGES)[numbe
           </SafeLink>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3204,15 +3246,21 @@ function RoiAssessmentPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">ROI Assessment</p>
-        <h1>Model risk-reduction impact with transparent assumptions</h1>
-        <p>
-          This tool is a planning model, not a guarantee. Adjust each input to match your environment and validate assumptions with
-          your security and finance stakeholders.
-        </p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-roi-page">
+      <PageHero
+        eyebrow="ROI Assessment"
+        title="Model risk-reduction impact with transparent assumptions"
+        body="This tool is a planning model, not a guarantee. Adjust each input to match your environment and validate assumptions with your security and finance stakeholders."
+        variant="pricing"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/pricing" className="idt-btn idt-btn-dark">
+              Compare Pricing Plans
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <RoiCalculator />
@@ -3230,7 +3278,7 @@ function RoiAssessmentPage() {
           </Link>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3243,15 +3291,21 @@ function DeploymentModelsPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Deployment Models</p>
-        <h1>Choose your control boundary without changing operating model</h1>
-        <p>
-          Identrail keeps the same trust-path workflow across open-core, hosted SaaS, and enterprise deployments. Choose based on
-          control, speed, and governance requirements.
-        </p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-deployment-page">
+      <PageHero
+        eyebrow="Deployment Models"
+        title="Choose your control boundary without changing operating model"
+        body="Identrail keeps the same trust-path workflow across open-core, hosted SaaS, and enterprise deployments. Choose based on control, speed, and governance requirements."
+        variant="pricing"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-dark">
+              View Open Source
+            </SafeLink>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid three-col">
@@ -3327,7 +3381,7 @@ function DeploymentModelsPage() {
           </table>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3340,15 +3394,21 @@ function IntegrationsPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Integrations</p>
-        <h1>Identity signal coverage across cloud, cluster, and code workflows</h1>
-        <p>
-          Identrail unifies machine identity telemetry into one trust-path analysis model. Use this page to verify connector depth
-          before rollout.
-        </p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-integrations-page">
+      <PageHero
+        eyebrow="Integrations"
+        title="Identity signal coverage across cloud, cluster, and code workflows"
+        body="Identrail unifies machine identity telemetry into one trust-path analysis model. Use this page to verify connector depth before rollout."
+        variant="product"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-dark">
+              Review Docs
+            </SafeLink>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <div className="idt-table-wrap">
@@ -3397,7 +3457,7 @@ function IntegrationsPage() {
           </article>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3410,12 +3470,21 @@ function DemoPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Interactive Demo</p>
-        <h1>Simulate real trust-path investigation in a production-style environment</h1>
-        <p>Explore node relationships, inspect risk context, and test rollout-safe controls from one console.</p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-demo-page">
+      <PageHero
+        eyebrow="Interactive Demo"
+        title="Simulate real trust-path investigation in a production-style environment"
+        body="Explore node relationships, inspect risk context, and test rollout-safe controls from one console."
+        variant="product"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Book Demo
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <TrustGraphDemo variant="full" />
@@ -3457,7 +3526,7 @@ function DemoPage() {
           </SafeLink>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3621,12 +3690,21 @@ function BlogArticlePage() {
   }
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">{post.category}</p>
-        <h1>{post.title}</h1>
-        <p>{post.description}</p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-blog-article-page">
+      <PageHero
+        eyebrow={post.category}
+        title={post.title}
+        body={post.description}
+        variant="blog"
+        actions={
+          <>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/blog" className="idt-btn idt-btn-dark">
+              Back to Blog
+            </Link>
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <article className="idt-card idt-blog-article">
@@ -3674,7 +3752,7 @@ function BlogArticlePage() {
           </div>
         </article>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3687,12 +3765,21 @@ function SecurityPage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Security & Compliance</p>
-        <h1>Security-first architecture with transparent compliance posture</h1>
-        <p>Built for teams that need hardening depth, audit evidence, and enterprise trust controls.</p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-security-page">
+      <PageHero
+        eyebrow="Security & Compliance"
+        title="Security-first architecture with transparent compliance posture"
+        body="Built for teams that need hardening depth, audit evidence, and enterprise trust controls."
+        variant="enterprise"
+        actions={
+          <>
+            <Link to="/responsible-disclosure" className="idt-btn idt-btn-primary">
+              Responsible Disclosure
+            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-dark" />
+          </>
+        }
+      />
 
       <section className="idt-section idt-shell">
         <SectionTitle
@@ -3769,7 +3856,7 @@ function SecurityPage() {
           </SafeLink>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3782,12 +3869,23 @@ function ResponsibleDisclosurePage() {
   });
 
   return (
-    <>
-      <section className="idt-page-hero idt-shell">
-        <p className="idt-eyebrow">Responsible Disclosure</p>
-        <h1>Report security issues through a coordinated disclosure process</h1>
-        <p>We investigate security reports promptly and coordinate remediation and communication with reporters.</p>
-      </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-disclosure-page">
+      <PageHero
+        eyebrow="Responsible Disclosure"
+        title="Report security issues through a coordinated disclosure process"
+        body="We investigate security reports promptly and coordinate remediation and communication with reporters."
+        variant="enterprise"
+        actions={
+          <>
+            <a className="idt-btn idt-btn-primary" href="mailto:security@identrail.com">
+              Email Security
+            </a>
+            <Link to="/security" className="idt-btn idt-btn-dark">
+              Review Security
+            </Link>
+          </>
+        }
+      />
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col">
           <article className="idt-card">
@@ -3815,7 +3913,7 @@ function ResponsibleDisclosurePage() {
           </article>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3881,7 +3979,7 @@ function EnterprisePage() {
   });
 
   return (
-    <>
+    <div className="idt-marketing-page idt-modern-public-page idt-enterprise-page">
       <PageHero
         eyebrow="Enterprise"
         title="Enterprise machine identity programs that satisfy security, platform, and procurement stakeholders"
@@ -3922,7 +4020,7 @@ function EnterprisePage() {
       <section className="idt-section idt-shell">
         <CalendlyEmbed />
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3934,10 +4032,40 @@ function LegalPage({ title, body }: { title: string; body: string }) {
   });
 
   return (
-    <section className="idt-page-hero idt-shell">
-      <h1>{title}</h1>
-      <p>{body}</p>
-    </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-privacy-choices-page">
+      <PageHero
+        eyebrow="Privacy choices"
+        title={title}
+        body={body}
+        variant="docs"
+        actions={
+          <>
+            <a className="idt-btn idt-btn-primary" href="mailto:security@identrail.com?subject=Privacy%20Choices">
+              Contact Privacy
+            </a>
+            <Link to="/privacy" className="idt-btn idt-btn-dark">
+              Read Privacy Policy
+            </Link>
+          </>
+        }
+      />
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid three-col">
+          <article className="idt-card">
+            <h2>Account data</h2>
+            <p>Request access, correction, or deletion of account information tied to your Identrail profile.</p>
+          </article>
+          <article className="idt-card">
+            <h2>Communications</h2>
+            <p>Update preferences for product updates, security notices, onboarding follow-up, and sales contact.</p>
+          </article>
+          <article className="idt-card">
+            <h2>Website analytics</h2>
+            <p>Ask how web analytics and product telemetry are handled for Identrail website experiences.</p>
+          </article>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -4262,18 +4390,47 @@ function NotFoundPage() {
   });
 
   return (
-    <section className="idt-page-hero idt-shell">
-      <h1>404: Page not found</h1>
-      <p>The page may have moved. Use the links below to continue.</p>
-      <div className="idt-inline-actions">
-        <Link to="/" className="idt-btn idt-btn-primary">
-          Go to Homepage
-        </Link>
-        <Link to="/docs" className="idt-btn idt-btn-ghost">
-          Open Docs
-        </Link>
-      </div>
-    </section>
+    <div className="idt-marketing-page idt-modern-public-page idt-not-found-page">
+      <PageHero
+        eyebrow="Page not found"
+        title="This trust path does not exist"
+        body="The page may have moved, the URL may be mistyped, or the resource may no longer be published. Start from a stable destination below."
+        variant="docs"
+        actions={
+          <>
+            <Link to="/" className="idt-btn idt-btn-primary">
+              Go to Homepage
+            </Link>
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              Open Docs
+            </Link>
+          </>
+        }
+      />
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid three-col">
+          <article className="idt-card">
+            <h2>Explore product</h2>
+            <p>Review how Identrail maps machine identity trust paths across cloud, cluster, and code surfaces.</p>
+            <Link to="/product" className="idt-inline-link">
+              Open product overview
+            </Link>
+          </article>
+          <article className="idt-card">
+            <h2>Request review</h2>
+            <p>Share public company context and request a focused trust path review from the Identrail team.</p>
+            <ScanIntakeCTA className="idt-btn idt-btn-ghost" />
+          </article>
+          <article className="idt-card">
+            <h2>Security contact</h2>
+            <p>Need to report a sensitive issue or disclosure? Use the coordinated security reporting path.</p>
+            <Link to="/responsible-disclosure" className="idt-inline-link">
+              Responsible disclosure
+            </Link>
+          </article>
+        </div>
+      </section>
+    </div>
   );
 }
 
