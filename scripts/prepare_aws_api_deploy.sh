@@ -76,10 +76,21 @@ validate_repo_scan_positive_int_bound() {
   local value="$1"
   local name="$2"
   local max="$3"
-  if ! [[ "${value}" =~ ^[0-9]+$ ]] || [ "${value}" -le 0 ]; then
+  local value_len
+  if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
     fail "${name} must be a positive integer"
   fi
-  if [ "${value}" -gt "${max}" ]; then
+  while [ "${#value}" -gt 1 ] && [ "${value:0:1}" = "0" ]; do
+    value="${value#0}"
+  done
+  if [ "${value}" = "0" ]; then
+    fail "${name} must be a positive integer"
+  fi
+  value_len="${#value}"
+  if [ "${value_len}" -gt "${#max}" ]; then
+    fail "${name} must be <= ${max}"
+  fi
+  if [ "${value_len}" -eq "${#max}" ] && [[ "${value}" > "${max}" ]]; then
     fail "${name} must be <= ${max}"
   fi
 }
