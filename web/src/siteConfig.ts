@@ -42,6 +42,7 @@ export const siteLinks = {
   security: '/security',
   trustCenter: '/security', // TODO: add dedicated /trust-center route later.
   contact: '/responsible-disclosure',
+  changelog: 'https://github.com/identrail/identrail/blob/dev/CHANGELOG.md',
   linkedin: 'https://www.linkedin.com/company/identrail',
   x: 'https://x.com/identrail'
 } as const;

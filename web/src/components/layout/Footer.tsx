@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { SafeLink } from '../SafeLink';
+import { siteLinks } from '../../siteConfig';
 
 function GitHubIcon() {
   return (
@@ -57,7 +58,7 @@ export const FOOTER_TRUST_LINKS = [
   { label: 'Privacy', to: '/privacy', external: false },
   { label: 'Terms', to: '/terms', external: false },
   { label: 'Responsible Disclosure', to: '/responsible-disclosure', external: false },
-  { label: 'Changelog', to: 'https://github.com/identrail/identrail/releases', external: true }
+  { label: 'Changelog', to: siteLinks.changelog, external: true }
 ] as const;
 
 export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProps) {

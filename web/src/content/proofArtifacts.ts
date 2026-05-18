@@ -1,3 +1,5 @@
+import { siteLinks } from '../siteConfig';
+
 export type ProofArtifact = {
   label: string;
   href: string;
@@ -30,10 +32,10 @@ export const TRUST_PROOF_LINKS: readonly ProofArtifact[] = [
   },
   {
     label: 'Changelog',
-    href: 'https://github.com/identrail/identrail/releases',
+    href: siteLinks.changelog,
     external: true,
-    description: 'Release cadence and shipped platform improvements.',
-    freshness: 'Versioned'
+    description: 'Live product and platform changes from the maintained changelog.',
+    freshness: 'Continuously updated'
   },
   {
     label: 'Responsible Disclosure',
