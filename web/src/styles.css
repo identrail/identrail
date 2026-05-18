@@ -18286,6 +18286,8 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   --app-warning: #f5c451;
   --app-danger: #ff6b6b;
   color: var(--app-text);
+  font-size: 1rem;
+  line-height: 1.5;
   letter-spacing: 0;
 }
 
@@ -18320,7 +18322,7 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   top: 0;
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 1rem;
   padding: 1rem;
   overflow-y: auto;
@@ -18414,6 +18416,161 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   margin-top: 0.22rem;
   color: #ffffff;
   font-size: 0.88rem;
+}
+
+.idt-app-quick-find,
+html[data-theme='light'] .idt-app-quick-find {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.58rem 0.68rem;
+  background: #0b0b0c;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.idt-app-quick-find span {
+  flex: 1 1 auto;
+}
+
+.idt-app-quick-find kbd,
+.idt-command-palette kbd {
+  min-width: 1.45rem;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 0.14rem 0.34rem;
+  background: #050505;
+  color: #d7d7dd;
+  font-family: var(--idt-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.idt-app-quick-find:hover,
+.idt-app-quick-find:focus-visible {
+  border-color: #ffffff;
+  outline: none;
+}
+
+.idt-command-palette-backdrop {
+  --app-panel: #0a0a0b;
+  --app-border: #252529;
+  --app-muted: #b8b8c0;
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: start center;
+  padding: min(12vh, 7rem) 1rem 1rem;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(12px);
+}
+
+.idt-command-palette {
+  width: min(100%, 42rem);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.9rem;
+  background: var(--app-panel);
+  color: #ffffff;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.idt-command-palette header,
+.idt-command-palette-results button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.idt-command-palette h2 {
+  margin: 0.15rem 0 0;
+  color: #ffffff;
+  font-family: var(--idt-display);
+  font-size: 1.45rem;
+  line-height: 1.05;
+}
+
+.idt-command-palette .idt-app-kicker {
+  color: #a3a3a3;
+}
+
+.idt-command-palette-close {
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.35rem 0.55rem;
+  background: #111113;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.idt-command-palette input {
+  width: 100%;
+  margin: 0.95rem 0 0.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.85rem 0.9rem;
+  background: #050505;
+  color: #ffffff;
+  font: inherit;
+}
+
+.idt-command-palette input:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.idt-command-palette-results {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.idt-command-palette-results button {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.72rem;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.idt-command-palette-results button:hover,
+.idt-command-palette-results button:focus-visible {
+  border-color: #ffffff;
+  background: #111113;
+  outline: none;
+}
+
+.idt-command-palette-results strong,
+.idt-command-palette-results small {
+  display: block;
+}
+
+.idt-command-palette-results small {
+  margin-top: 0.1rem;
+  color: var(--app-muted);
+}
+
+.idt-command-palette-results p {
+  margin: 0;
+  border: 1px dashed var(--app-border);
+  border-radius: 8px;
+  padding: 0.95rem;
+  color: var(--app-muted);
 }
 
 .idt-app-console {
@@ -18560,7 +18717,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
   width: 100%;
   max-width: none;
   min-height: 0;
-  padding: 1.25rem clamp(1rem, 4vw, 3.5rem) 4rem;
+  padding: 1.45rem clamp(1.1rem, 4vw, 3.5rem) 4rem;
 }
 
 .idt-app-console-layout .idt-app-kicker,
@@ -18590,6 +18747,17 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
   box-shadow: none;
 }
 
+.idt-app-console-layout .idt-app-route-loading {
+  width: min(100%, 42rem);
+  margin: clamp(2rem, 14vh, 8rem) auto 0;
+  padding: 1.15rem;
+}
+
+.idt-app-console-layout .idt-app-route-loading h2 {
+  margin: 0.25rem 0 0.35rem;
+  font-size: clamp(1.55rem, 2vw, 1.95rem);
+}
+
 .idt-app-console-layout .idt-overview-page,
 .idt-app-console-layout .idt-workspace-admin,
 .idt-app-console-layout .idt-projects-page,
@@ -18600,7 +18768,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
   padding: 0;
   background: transparent;
   display: grid;
-  gap: 1rem;
+  gap: 1.15rem;
 }
 
 .idt-app-console-layout .idt-overview-header,
@@ -18611,7 +18779,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
 .idt-app-console-layout .idt-settings-header {
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  padding: 1rem;
+  padding: 1.15rem;
   background: #080809;
 }
 
@@ -18639,7 +18807,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
 .idt-app-console-layout .idt-repo-findings-header h2,
 .idt-app-console-layout .idt-settings-header h2 {
   margin: 0.2rem 0 0.35rem;
-  font-size: clamp(1.65rem, 2.4vw, 2.2rem);
+  font-size: clamp(1.8rem, 2.4vw, 2.35rem);
   line-height: 1.02;
   text-transform: none;
 }
@@ -18652,6 +18820,8 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
 .idt-executive-report-shell p,
 .idt-executive-report-shell dd {
   color: var(--app-muted);
+  font-size: 0.98rem;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
@@ -18682,7 +18852,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metri
   border-radius: 8px;
   background: var(--app-panel);
   color: var(--app-text);
-  padding: 0.9rem;
+  padding: 1rem;
 }
 
 .idt-app-console-layout .idt-overview-metrics span,
@@ -18773,7 +18943,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-secti
 .idt-app-console-layout .idt-repo-finding-detail,
 .idt-app-console-layout .idt-repo-finding-trend,
 .idt-app-console-layout .idt-settings-card {
-  padding: 1rem;
+  padding: 1.15rem;
 }
 
 .idt-app-console-layout .idt-source-card:hover,
@@ -18944,17 +19114,17 @@ html[data-theme='light'] .idt-account-security-page label {
 
 .idt-app-console-layout .idt-workspace-table th:nth-child(1),
 .idt-app-console-layout .idt-workspace-table td:nth-child(1) {
-  width: 20%;
+  width: 34%;
 }
 
 .idt-app-console-layout .idt-workspace-table th:nth-child(2),
 .idt-app-console-layout .idt-workspace-table td:nth-child(2) {
-  width: 18%;
+  width: 16%;
 }
 
 .idt-app-console-layout .idt-workspace-table th:nth-child(5),
 .idt-app-console-layout .idt-workspace-table td:nth-child(5) {
-  width: 18%;
+  width: 16%;
 }
 
 .idt-app-console-layout .idt-workspace-table th,
@@ -18975,8 +19145,108 @@ html[data-theme='light'] .idt-account-security-page label {
   flex-wrap: wrap;
 }
 
+.idt-workspace-member-details,
+.idt-project-card-details,
+.idt-repo-filter-panel {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #080809;
+}
+
+.idt-workspace-member-details {
+  margin-top: 0.65rem;
+  background: transparent;
+}
+
+.idt-workspace-member-details summary,
+.idt-project-card-details summary,
+.idt-repo-filter-panel summary {
+  cursor: pointer;
+  color: #ffffff;
+  font-weight: 900;
+  line-height: 1.25;
+  list-style-position: inside;
+}
+
+.idt-workspace-member-details summary {
+  padding: 0.42rem 0.55rem;
+  font-size: 0.84rem;
+}
+
+.idt-workspace-member-details dl,
+.idt-project-card-meta {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.idt-workspace-member-details dl {
+  padding: 0 0.55rem 0.55rem;
+}
+
+.idt-workspace-member-details dt,
+.idt-project-card-meta dt,
+.idt-repo-filter-panel small {
+  color: var(--app-muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-workspace-member-details dd,
+.idt-project-card-meta dd,
+html[data-theme='light'] .idt-workspace-member-details dd,
+html[data-theme='light'] .idt-project-card-meta dd {
+  margin: 0.15rem 0 0;
+  color: #ffffff;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.idt-project-card-details {
+  margin-top: 1rem;
+}
+
+.idt-project-card-details summary {
+  padding: 0.7rem 0.8rem;
+}
+
+.idt-project-card-details[open] summary {
+  border-bottom: 1px solid var(--app-border);
+}
+
+.idt-project-card-meta {
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  padding: 0.8rem;
+}
+
+.idt-project-card-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.72rem;
+  background: #050505;
+}
+
+.idt-repo-filter-panel {
+  padding: 0;
+}
+
+.idt-repo-filter-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+}
+
+.idt-repo-filter-panel[open] summary {
+  border-bottom: 1px solid var(--app-border);
+}
+
 .idt-app-console-layout .idt-repo-finding-filters {
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  padding: 1rem;
 }
 
 .idt-app-console-layout .idt-repo-finding-row-top,

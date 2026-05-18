@@ -1,4 +1,5 @@
 import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ApiError,
@@ -672,12 +673,138 @@ function AppShellLoading({ message }: { message: string }) {
   );
 }
 
+function AppRouteLoadingState({ title, body }: { title: string; body: string }) {
+  return (
+    <section className="idt-app-panel idt-app-route-loading" aria-busy="true" aria-live="polite">
+      <p className="idt-app-kicker">Loading</p>
+      <h2>{title}</h2>
+      <p>{body}</p>
+    </section>
+  );
+}
+
 function AppShellEmptyState({ title, body }: { title: string; body: string }) {
   return (
     <article className="idt-app-empty-state">
       <h2>{title}</h2>
       <p>{body}</p>
     </article>
+  );
+}
+
+type CommandPaletteItem = {
+  id: string;
+  label: string;
+  description: string;
+  keywords: string[];
+  shortcut?: string;
+  path?: string;
+  action?: () => void;
+};
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === 'input' || tagName === 'select' || tagName === 'textarea';
+}
+
+function CommandPalette({
+  open,
+  items,
+  onClose,
+  onSelect
+}: {
+  open: boolean;
+  items: CommandPaletteItem[];
+  onClose: () => void;
+  onSelect: (item: CommandPaletteItem) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      return;
+    }
+
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [open]);
+
+  const filteredItems = useMemo(() => {
+    const search = normalizeValue(query).toLowerCase();
+    if (!search) {
+      return items;
+    }
+    return items.filter((item) =>
+      [item.label, item.description, ...item.keywords].some((value) => value.toLowerCase().includes(search))
+    );
+  }, [items, query]);
+
+  if (!open) {
+    return null;
+  }
+
+  const handleInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key === 'Enter' && filteredItems[0]) {
+      event.preventDefault();
+      onSelect(filteredItems[0]);
+    }
+  };
+
+  return (
+    <div
+      className="idt-command-palette-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section className="idt-command-palette" role="dialog" aria-modal="true" aria-labelledby="idt-command-palette-title">
+        <header>
+          <div>
+            <p className="idt-app-kicker">Workspace finder</p>
+            <h2 id="idt-command-palette-title">Go to anything</h2>
+          </div>
+          <button type="button" className="idt-command-palette-close" onClick={onClose} aria-label="Close workspace finder">
+            Esc
+          </button>
+        </header>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={handleInputKeyDown}
+          placeholder="Search views, reports, settings, and actions"
+          aria-label="Search workspace commands"
+        />
+        <div className="idt-command-palette-results" role="listbox" aria-label="Workspace commands">
+          {filteredItems.length > 0 ? (
+            filteredItems.map((item) => (
+              <button key={item.id} type="button" role="option" onClick={() => onSelect(item)}>
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.description}</small>
+                </span>
+                {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
+              </button>
+            ))
+          ) : (
+            <p>No matching commands yet.</p>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -966,16 +1093,130 @@ export function ProductShellLayout() {
   const params = useParams<ScopeRouteParams>();
   const navigate = useNavigate();
   const scope = resolveScopeFromParams(params);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const basePath = scope ? buildScopedPath(scope) : '/app';
+  const commandItems = useMemo<CommandPaletteItem[]>(() => {
+    if (!scope) {
+      return [];
+    }
+    const items: CommandPaletteItem[] = [
+      {
+        id: 'overview',
+        label: 'Overview',
+        description: 'Project coverage, recent scans, and next actions',
+        keywords: ['home', 'dashboard', 'workspace'],
+        shortcut: 'O',
+        path: basePath
+      },
+      {
+        id: 'projects',
+        label: 'Projects',
+        description: 'Choose or create a project boundary',
+        keywords: ['project', 'registry', 'source'],
+        shortcut: 'P',
+        path: `${basePath}/projects`
+      },
+      {
+        id: 'findings',
+        label: 'Findings',
+        description: 'Review repository exposure and triage work',
+        keywords: ['risk', 'repository', 'triage'],
+        shortcut: 'F',
+        path: `${basePath}/findings`
+      },
+      {
+        id: 'workspaces',
+        label: 'Workspaces',
+        description: 'Members, roles, and active workspace scope',
+        keywords: ['members', 'roles', 'invite'],
+        path: `${basePath}/workspaces`
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        description: 'Workspace identity, access model, and routes',
+        keywords: ['identity', 'access', 'authentication'],
+        path: `${basePath}/settings`
+      },
+      {
+        id: 'executive-report',
+        label: 'Executive report',
+        description: 'Board-ready risk posture for this workspace',
+        keywords: ['report', 'board', 'risk'],
+        path: '/reports/executive'
+      },
+      {
+        id: 'security',
+        label: 'Account security',
+        description: 'Current session, access scope, and sign-out controls',
+        keywords: ['account', 'session', 'security'],
+        path: '/app/account/security'
+      },
+      {
+        id: 'marketing-site',
+        label: 'Marketing site',
+        description: 'Return to the public Identrail site',
+        keywords: ['public', 'website', 'home'],
+        path: '/'
+      },
+      {
+        id: 'sign-out',
+        label: 'Sign out',
+        description: 'End this workspace session',
+        keywords: ['logout', 'session'],
+        action: () => navigate('/app/logout', { replace: true })
+      }
+    ];
+    if (scope.projectID) {
+      items.splice(2, 0, {
+        id: 'current-project-sources',
+        label: 'Current project sources',
+        description: `Connect and review sources for ${formatScopeDisplay(scope.projectID)}`,
+        keywords: ['source', 'connector', 'github', 'aws', 'kubernetes'],
+        path: buildProjectPath(scope, scope.projectID)
+      });
+    }
+    return items;
+  }, [basePath, navigate, scope]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isEditableTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && key === 'k') {
+        event.preventDefault();
+        setCommandOpen(true);
+        return;
+      }
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && (key === '/' || key === 'f')) {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   if (!scope) {
     return <AppShellLoading message="Resolving workspace scope" />;
   }
 
-  const basePath = buildScopedPath(scope);
   const tenantLabel = formatScopeDisplay(scope.tenantID);
   const workspaceLabel = formatScopeDisplay(scope.workspaceID);
   const projectLabel = scope.projectID ? formatScopeDisplay(scope.projectID) : '';
   const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
+  const runCommand = (item: CommandPaletteItem) => {
+    setCommandOpen(false);
+    if (item.path) {
+      navigate(item.path);
+      return;
+    }
+    item.action?.();
+  };
 
   return (
     <ProductErrorBoundary>
@@ -1007,6 +1248,18 @@ export function ProductShellLayout() {
               ) : null}
             </dl>
           </section>
+
+          <button
+            type="button"
+            className="idt-app-quick-find"
+            onClick={() => setCommandOpen(true)}
+            aria-label="Open workspace finder"
+          >
+            <span>Find</span>
+            <kbd>/</kbd>
+            <kbd>F</kbd>
+            <kbd>⌘K</kbd>
+          </button>
 
           <nav className="idt-app-shell-nav" aria-label="App sections">
             <NavLink to={basePath} end>
@@ -1071,6 +1324,12 @@ export function ProductShellLayout() {
           </main>
         </div>
       </div>
+      <CommandPalette
+        open={commandOpen}
+        items={commandItems}
+        onClose={() => setCommandOpen(false)}
+        onSelect={runCommand}
+      />
     </ProductErrorBoundary>
   );
 }
@@ -1932,7 +2191,12 @@ export function ProductWorkspacesPage() {
   };
 
   if (loading) {
-    return <AppShellLoading message="Loading workspace administration" />;
+    return (
+      <AppRouteLoadingState
+        title="Preparing workspace access"
+        body="Keeping the workspace shell ready while member access details refresh."
+      />
+    );
   }
 
   const availableWorkspaces = whoAmI?.workspaces ?? [];
@@ -2122,7 +2386,6 @@ export function ProductWorkspacesPage() {
           <thead>
             <tr>
               <th>User</th>
-              <th>Member ID</th>
               <th>Role</th>
               <th>Status</th>
               <th>Last updated</th>
@@ -2138,8 +2401,16 @@ export function ProductWorkspacesPage() {
                   <td>
                     <strong>{member.user_id}</strong>
                     {member.email ? <span>{member.email}</span> : null}
+                    <details className="idt-workspace-member-details">
+                      <summary>Member details</summary>
+                      <dl>
+                        <div>
+                          <dt>Member ID</dt>
+                          <dd>{member.member_id}</dd>
+                        </div>
+                      </dl>
+                    </details>
                   </td>
-                  <td>{member.member_id}</td>
                   <td>
                     <select
                       value={draft.role}
@@ -2301,7 +2572,12 @@ export function ProductProjectsPage() {
   }
 
   if (loading) {
-    return <AppShellLoading message="Loading projects" />;
+    return (
+      <AppRouteLoadingState
+        title="Preparing project registry"
+        body="Keeping the workspace shell ready while project boundaries refresh."
+      />
+    );
   }
 
   const handleNameChange = (value: string) => {
@@ -2453,20 +2729,23 @@ export function ProductProjectsPage() {
                       </span>
                     </div>
 
-                    <dl className="idt-project-card-meta">
-                      <div>
-                        <dt>Project ID</dt>
-                        <dd>{project.project_id}</dd>
-                      </div>
-                      <div>
-                        <dt>Slug</dt>
-                        <dd>{project.slug}</dd>
-                      </div>
-                      <div>
-                        <dt>Updated</dt>
-                        <dd>{formatConnectionTime(project.updated_at)}</dd>
-                      </div>
-                    </dl>
+                    <details className="idt-project-card-details">
+                      <summary>Project details</summary>
+                      <dl className="idt-project-card-meta">
+                        <div>
+                          <dt>Project ID</dt>
+                          <dd>{project.project_id}</dd>
+                        </div>
+                        <div>
+                          <dt>Slug</dt>
+                          <dd>{project.slug}</dd>
+                        </div>
+                        <div>
+                          <dt>Updated</dt>
+                          <dd>{formatConnectionTime(project.updated_at)}</dd>
+                        </div>
+                      </dl>
+                    </details>
 
                     <div className="idt-inline-actions">
                       <Link className="idt-btn idt-btn-primary" to={buildProjectPath(scope, project.project_id)}>
@@ -2901,7 +3180,12 @@ export function ProductProjectDetailPage() {
   }
 
   if (loading) {
-    return <AppShellLoading message="Loading source connections" />;
+    return (
+      <AppRouteLoadingState
+        title="Preparing source connections"
+        body="Keeping the project workspace visible while connector status refreshes."
+      />
+    );
   }
 
   const selectedStatus = sourceConnection(connections, selectedSource);
@@ -4463,7 +4747,12 @@ export function ProductFindingsPage() {
   }
 
   if (loading) {
-    return <AppShellLoading message="Loading repository findings" />;
+    return (
+      <AppRouteLoadingState
+        title="Preparing repository findings"
+        body="Keeping the workspace shell ready while finding and trend data refresh."
+      />
+    );
   }
 
   const handleRefresh = () => {
@@ -4599,78 +4888,84 @@ export function ProductFindingsPage() {
         </div>
       </div>
 
-      <div className="idt-repo-finding-filters">
-        <label>
-          Repository scan
-          <select value={repoScanFilter} onChange={(event) => setRepoScanFilter(event.target.value)}>
-            <option value="">All repository scans</option>
-            {repoScans.map((scan) => (
-              <option key={scan.id} value={scan.id}>
-                {canonicalGitHubRepositoryDisplay(scan.repository)} · {formatTokenLabel(scan.status)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Severity
-          <select
-            value={severityFilter}
-            onChange={(event) => setSeverityFilter(event.target.value as (typeof REPO_FINDING_SEVERITY_FILTERS)[number])}
-          >
-            {REPO_FINDING_SEVERITY_FILTERS.map((value) => (
-              <option key={value} value={value}>
-                {value === 'all' ? 'All severities' : formatTokenLabel(value)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Type
-          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as (typeof REPO_FINDING_TYPE_FILTERS)[number])}>
-            {REPO_FINDING_TYPE_FILTERS.map((value) => (
-              <option key={value} value={value}>
-                {value === 'all' ? 'All finding types' : formatTokenLabel(value)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Sort by
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value as (typeof REPO_FINDING_SORT_FIELDS)[number])}>
-            {REPO_FINDING_SORT_FIELDS.map((value) => (
-              <option key={value} value={value}>
-                {SORT_LABEL_BY_FIELD[value]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Sort order
-          <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as 'asc' | 'desc')}>
-            <option value="asc">Ascending</option>
-            <option value="desc">Descending</option>
-          </select>
-        </label>
-        <label>
-          Lifecycle status
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof REPO_FINDING_STATUS_FILTERS)[number])}>
-            {REPO_FINDING_STATUS_FILTERS.map((value) => (
-              <option key={value} value={value}>
-                {formatTokenLabel(value)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Assignee
-          <input
-            type="text"
-            placeholder="Filter by assignee"
-            value={assigneeFilter}
-            onChange={(event) => setAssigneeFilter(event.target.value)}
-          />
-        </label>
-      </div>
+      <details className="idt-repo-filter-panel">
+        <summary>
+          <span>Filters and sorting</span>
+          <small>{filteredFindings.length ? `${filteredFindings.length} findings shown` : 'No findings in scope'}</small>
+        </summary>
+        <div className="idt-repo-finding-filters">
+          <label>
+            Repository scan
+            <select value={repoScanFilter} onChange={(event) => setRepoScanFilter(event.target.value)}>
+              <option value="">All repository scans</option>
+              {repoScans.map((scan) => (
+                <option key={scan.id} value={scan.id}>
+                  {canonicalGitHubRepositoryDisplay(scan.repository)} · {formatTokenLabel(scan.status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Severity
+            <select
+              value={severityFilter}
+              onChange={(event) => setSeverityFilter(event.target.value as (typeof REPO_FINDING_SEVERITY_FILTERS)[number])}
+            >
+              {REPO_FINDING_SEVERITY_FILTERS.map((value) => (
+                <option key={value} value={value}>
+                  {value === 'all' ? 'All severities' : formatTokenLabel(value)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Type
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as (typeof REPO_FINDING_TYPE_FILTERS)[number])}>
+              {REPO_FINDING_TYPE_FILTERS.map((value) => (
+                <option key={value} value={value}>
+                  {value === 'all' ? 'All finding types' : formatTokenLabel(value)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Sort by
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as (typeof REPO_FINDING_SORT_FIELDS)[number])}>
+              {REPO_FINDING_SORT_FIELDS.map((value) => (
+                <option key={value} value={value}>
+                  {SORT_LABEL_BY_FIELD[value]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Sort order
+            <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as 'asc' | 'desc')}>
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </label>
+          <label>
+            Lifecycle status
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof REPO_FINDING_STATUS_FILTERS)[number])}>
+              {REPO_FINDING_STATUS_FILTERS.map((value) => (
+                <option key={value} value={value}>
+                  {formatTokenLabel(value)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Assignee
+            <input
+              type="text"
+              placeholder="Filter by assignee"
+              value={assigneeFilter}
+              onChange={(event) => setAssigneeFilter(event.target.value)}
+            />
+          </label>
+        </div>
+      </details>
 
       <div className="idt-repo-finding-layout">
         <div className="idt-repo-finding-list">

@@ -271,6 +271,38 @@ describe('ProductShellLayout', () => {
   });
 });
 
+describe('ProductShellLayout', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('opens the workspace finder from keyboard shortcuts and routes to a selected section', async () => {
+    const { ProductShellLayout } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route index element={<h2>Overview content</h2>} />
+            <Route path="findings" element={<h2>Findings content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('button', { name: /Open workspace finder/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '/' });
+    expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'findings' } });
+    fireEvent.keyDown(screen.getByLabelText(/Search workspace commands/i), { key: 'Enter' });
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Findings content/i })).toBeInTheDocument();
+  });
+});
+
 describe('ProductProjectDetailPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
