@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added first-class AWS API deployment variables for repository scan runtime
+  configuration, including allowlist validation before Terraform so hosted
+  GitHub scans cannot be enabled without an explicit target boundary.
 - Fixed the authenticated workspace Settings view so a `whoami` response with
   `scopes: null` renders as `None granted` instead of tripping the app error
   boundary, and replaced the fallback error copy with user-facing workspace

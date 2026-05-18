@@ -143,11 +143,29 @@ Optional repository variables:
   deployment settings above are provided
 - `API_FEATURE_CONNECTOR_GITHUB_V2`: defaults to `true` for Identrail Cloud; set
   to `false` only as a rollback knob for the GitHub connector API
+- `API_REPO_SCAN_ENABLED`: set to `true` only when the hosted API should accept
+  repository scan queue requests; omitted means the application default remains
+  disabled
+- `API_REPO_SCAN_ALLOWLIST`: required when `API_REPO_SCAN_ENABLED=true`;
+  comma-separated exact repositories or prefix wildcards, for example
+  `identrail/identrail` or `trusted-org/*`
+- `API_REPO_SCAN_HISTORY_LIMIT`
+- `API_REPO_SCAN_MAX_FINDINGS`
+- `API_REPO_SCAN_HISTORY_LIMIT_MAX`
+- `API_REPO_SCAN_MAX_FINDINGS_MAX`
+- `API_REPO_SCAN_QUEUE_MAX_PENDING`
 - `API_EXTRA_ENVIRONMENT_JSON`: JSON object for additional non-secret runtime
   variables. Use this to enable native SAML/SCIM, for example
   `{"IDENTRAIL_FEATURE_NATIVE_SSO":"true"}`.
 - `API_SECRET_KMS_KEY_ARNS_JSON`
 - `API_CONNECTOR_ROLE_ARNS_JSON`
+
+The first-class `API_REPO_SCAN_*` variables override matching
+`IDENTRAIL_REPO_SCAN_*` keys in `API_EXTRA_ENVIRONMENT_JSON` when they are set.
+The preparation script fails before Terraform if repository scans are enabled
+without an effective allowlist. This workflow only configures the API task to
+accept and queue repository scan requests; queued scans still require the worker
+queue processor from the worker deploy path before they complete.
 
 Optional repository secret:
 
