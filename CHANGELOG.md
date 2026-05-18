@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Required explicit review before read-only scan intake submission and added
+  stronger lead-quality checks for work emails, disposable domains, matching
+  company websites, and publicly verifiable company DNS.
 - Failed closed when the API does not explicitly advertise self-serve
   onboarding support, so authenticated users without a workspace see the
   existing onboarding-unavailable state instead of entering a wizard that

@@ -14942,6 +14942,43 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   color: #d4d4d8;
 }
 
+.idt-scan-form .idt-intake-review {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.idt-scan-form .idt-intake-review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  background: #050505;
+  padding: 1rem;
+}
+
+.idt-scan-form .idt-intake-review-row span {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: #a1a1aa;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.idt-scan-form .idt-intake-review-row strong {
+  display: block;
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.idt-scan-form .idt-intake-review-row p {
+  margin: 0.2rem 0 0;
+  color: #d4d4d8;
+}
+
 .idt-scan-form .idt-form-error {
   grid-column: 2;
   color: #ffffff;
@@ -14972,7 +15009,8 @@ html[data-theme='light'] .idt-scan-hero-copy > p,
 html[data-theme='light'] .idt-scan-form-header > p:last-child,
 html[data-theme='light'] .idt-scan-form .idt-intake-summary ul,
 html[data-theme='light'] .idt-scan-form .idt-intake-confirmation,
-html[data-theme='light'] .idt-scan-form .idt-intake-confirmation p {
+html[data-theme='light'] .idt-scan-form .idt-intake-confirmation p,
+html[data-theme='light'] .idt-scan-form .idt-intake-review-row p {
   color: #d4d4d8;
 }
 
@@ -15013,6 +15051,19 @@ html[data-theme='light'] .idt-scan-form .idt-intake-grid select {
   background-color: #050505;
   color: #ffffff;
   box-shadow: none;
+}
+
+html[data-theme='light'] .idt-scan-form .idt-intake-review-row {
+  border-color: #2a2a2a;
+  background: #050505;
+}
+
+html[data-theme='light'] .idt-scan-form .idt-intake-review-row span {
+  color: #a1a1aa;
+}
+
+html[data-theme='light'] .idt-scan-form .idt-intake-review-row strong {
+  color: #ffffff;
 }
 
 html[data-theme='light'] .idt-scan-form .idt-intake-grid input:focus-visible,

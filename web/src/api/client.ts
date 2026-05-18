@@ -392,6 +392,7 @@ export type LeadCapturePayload = {
   email: string;
   environment: string;
   company?: string;
+  company_domain?: string;
   challenge?: string;
   website?: string;
   deployment_model?: string;
