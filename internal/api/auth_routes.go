@@ -936,9 +936,9 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 		// timeout), and reusing it would skip the cleanup and permanently
 		// de-duplicate the event, suppressing the provider retry.
 		rollbackIdempotency := func() {
-			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+			rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
 			defer cancel()
-			if delErr := svc.Store.DeleteWebhookEvent(rollbackCtx, "workos", eventID); delErr != nil && logger != nil {
+			if delErr := svc.Store.DeleteWebhookEvent(rollbackContext, "workos", eventID); delErr != nil && logger != nil {
 				logger.Error("rollback workos webhook idempotency", telemetry.ZapError(delErr))
 			}
 		}
