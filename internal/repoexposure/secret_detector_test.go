@@ -178,7 +178,7 @@ func TestSecretDetectorFixtures(t *testing.T) {
 				if got := finding.Evidence["confidence_score"]; got != finding.ConfidenceScore {
 					t.Fatalf("expected detector %s evidence confidence to match top-level score, got %v and %.2f", fixture.ID, got, finding.ConfidenceScore)
 				}
-				if got := finding.Evidence["confidence_state"]; got == "" {
+				if got, ok := finding.Evidence["confidence_state"].(string); !ok || got == "" {
 					t.Fatalf("expected detector %s to include confidence state", fixture.ID)
 				}
 			}
@@ -243,6 +243,21 @@ func TestSecretConfidenceClassifiesSamplePlaceholder(t *testing.T) {
 	}
 	if finding.ConfidenceScore > 0.40 {
 		t.Fatalf("expected downgraded sample score, got %.2f", finding.ConfidenceScore)
+	}
+}
+
+func TestSecretConfidenceUsesMatchedSecretContext(t *testing.T) {
+	secretValue := fixtureToken("aB3dE5fG7hJ9kLmN2pQrS4tUvW6xYz8", "AbCde")
+	finding := firstFindingForDetector(t,
+		detectSecretFindings("owner/repo", "HEAD", "app.env", 7, fixtureToken("GITHUB_TOKEN=ghp_", secretValue, " client_secret=exampleclientsecretvalue123"), time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)),
+		"github_token",
+	)
+
+	if got := finding.Evidence["confidence_state"]; got != secretClassificationHighConfidence {
+		t.Fatalf("expected real token confidence to ignore a separate placeholder match on the same line, got %v in %+v", got, finding.Evidence)
+	}
+	if finding.ConfidenceScore < 0.95 {
+		t.Fatalf("expected high confidence score, got %.2f", finding.ConfidenceScore)
 	}
 }
 

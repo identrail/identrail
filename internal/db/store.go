@@ -2299,6 +2299,7 @@ type Store interface {
 	CountQueuedRepoScans(ctx context.Context) (int, error)
 	CountPendingRepoScansByRepository(ctx context.Context, repository string) (int, error)
 	RequeueRepoScan(ctx context.Context, repoScanID string) error
+	RequeueStaleRepoScansAnyScope(ctx context.Context, staleBefore time.Time, limit int) (int, error)
 	GetRepoScan(ctx context.Context, repoScanID string) (RepoScanRecord, error)
 	CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, errorMessage string) error
 	UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error

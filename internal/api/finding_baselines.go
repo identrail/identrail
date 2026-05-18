@@ -262,11 +262,13 @@ func (s *Service) loadTargetFindingsForBaselineImport(
 
 func scoreFindingConfidence(finding domain.Finding) float64 {
 	if isRepoSecretClassifierFinding(finding) {
-		if finding.ConfidenceScore > 0 {
-			return roundConfidenceScore(finding.ConfidenceScore)
+		if score, ok := normalizeFindingConfidenceScore(finding.ConfidenceScore); ok {
+			return score
 		}
-		if score, ok := findingEvidenceFloat(finding.Evidence, "confidence_score"); ok && score > 0 {
-			return roundConfidenceScore(score)
+		if score, ok := findingEvidenceFloat(finding.Evidence, "confidence_score"); ok {
+			if normalized, ok := normalizeFindingConfidenceScore(score); ok {
+				return normalized
+			}
 		}
 	}
 	score := 0.70
@@ -337,6 +339,16 @@ func findingEvidenceFloat(evidence map[string]any, key string) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func normalizeFindingConfidenceScore(score float64) (float64, bool) {
+	if score <= 0 || math.IsNaN(score) || math.IsInf(score, 0) {
+		return 0, false
+	}
+	if score > 0.99 {
+		score = 0.99
+	}
+	return roundConfidenceScore(score), true
 }
 
 func scoreFindingBaselineMatch(entry FindingBaselineEntry, finding domain.Finding) float64 {

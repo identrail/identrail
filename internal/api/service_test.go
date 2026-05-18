@@ -3642,6 +3642,41 @@ func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
 	}
 }
 
+func TestServiceProcessNextQueuedRepoScanRecoversStaleRunningScan(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 18, 23, 45, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: historyLimit,
+				FilesScanned:   2,
+			},
+		}
+	}
+	staleRunning, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now.Add(-40*time.Minute))
+	if err != nil {
+		t.Fatalf("create stale running repo scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process stale running repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected stale running repo scan to be recovered and processed")
+	}
+	stored, err := svc.GetRepoScan(defaultScopeContext(), staleRunning.ID)
+	if err != nil {
+		t.Fatalf("get recovered repo scan: %v", err)
+	}
+	if stored.Status != "succeeded" || stored.FilesScanned != 2 {
+		t.Fatalf("expected stale running repo scan to complete, got %+v", stored)
+	}
+}
+
 func TestServiceEnqueueRepoScanConcurrentDeduplicatesTarget(t *testing.T) {
 	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
 	svc.RepoScanAllowedTargets = []string{"owner/*"}

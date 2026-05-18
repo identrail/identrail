@@ -525,7 +525,7 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 			secretMaterial = item.match
 		}
 		fingerprint := hashSHA256(secretMaterial)
-		classification := classifySecretMatch(item.rule, path, normalized, secretMaterial, fingerprint, secretOptions.Policy)
+		classification := classifySecretMatch(item.rule, path, item.match, secretMaterial, fingerprint, secretOptions.Policy)
 		id := hashDeterministicID("repo-secret", repo, commit, path, strconv.Itoa(line), item.rule.ID, fingerprint)
 		findings = append(findings, domain.Finding{
 			ID:                  "finding:" + id,

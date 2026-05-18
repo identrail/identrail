@@ -2712,7 +2712,7 @@ func (p *PostgresStore) ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (Re
 
 func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scope) (RepoScanRecord, error) {
 	query := `WITH next_repo_scan AS (
-			SELECT id
+		SELECT id, started_at
 			FROM repo_scans
 			WHERE status = 'queued'
 			ORDER BY started_at ASC
@@ -2721,6 +2721,7 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 		)
 		UPDATE repo_scans AS r
 		SET status = 'running',
+		    started_at = NOW(),
 		    finished_at = NULL,
 		    error_message = NULL
 		FROM next_repo_scan
@@ -2731,7 +2732,7 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.workspace_id,
 			r.repository,
 			r.status,
-			r.started_at,
+			next_repo_scan.started_at,
 			r.finished_at,
 			r.commits_scanned,
 			r.files_scanned,
@@ -2749,7 +2750,7 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 	args := []any{}
 	if scope != nil {
 		query = `WITH next_repo_scan AS (
-			SELECT id
+			SELECT id, started_at
 			FROM repo_scans
 			WHERE tenant_id = $1
 			  AND workspace_id = $2
@@ -2760,6 +2761,7 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 		)
 		UPDATE repo_scans AS r
 		SET status = 'running',
+		    started_at = NOW(),
 		    finished_at = NULL,
 		    error_message = NULL
 		FROM next_repo_scan
@@ -2770,7 +2772,7 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.workspace_id,
 			r.repository,
 			r.status,
-			r.started_at,
+			next_repo_scan.started_at,
 			r.finished_at,
 			r.commits_scanned,
 			r.files_scanned,
@@ -2893,6 +2895,42 @@ func (p *PostgresStore) RequeueRepoScan(ctx context.Context, repoScanID string) 
 		return ErrNotFound
 	}
 	return nil
+}
+
+// RequeueStaleRepoScansAnyScope moves stale running repository scans back to queued across all scopes.
+func (p *PostgresStore) RequeueStaleRepoScansAnyScope(ctx context.Context, staleBefore time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	result, err := p.execContextAnyScope(
+		ctx,
+		`WITH stale_repo_scans AS (
+			SELECT id
+			FROM repo_scans
+			WHERE status = 'running'
+			  AND started_at < $1
+			ORDER BY started_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT $2
+		)
+		UPDATE repo_scans AS r
+		SET status = 'queued',
+		    started_at = NOW(),
+		    finished_at = NULL,
+		    error_message = NULL
+		FROM stale_repo_scans
+		WHERE r.id = stale_repo_scans.id`,
+		staleBefore.UTC(),
+		limit,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("requeue stale repo scans: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("requeue stale repo scans rows affected: %w", err)
+	}
+	return int(affected), nil
 }
 
 func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository string, source RepoScanSource, status string, historyLimit int, maxFindings int, startedAt time.Time) (RepoScanRecord, error) {

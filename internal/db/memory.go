@@ -1957,10 +1957,13 @@ func (m *MemoryStore) claimNextQueuedRepoScanLocked(scope *Scope) (RepoScanRecor
 	if !found {
 		return RepoScanRecord{}, ErrNotFound
 	}
+	queuedAt := claimed.StartedAt
 	claimed.Status = "running"
+	claimed.StartedAt = time.Now().UTC()
 	claimed.FinishedAt = nil
 	claimed.ErrorMessage = ""
 	m.repoScans[claimed.ID] = claimed
+	claimed.StartedAt = queuedAt
 	return claimed, nil
 }
 
@@ -2049,6 +2052,40 @@ func (m *MemoryStore) RequeueRepoScan(ctx context.Context, repoScanID string) er
 	record.ErrorMessage = ""
 	m.repoScans[repoScanID] = record
 	return nil
+}
+
+// RequeueStaleRepoScansAnyScope moves stale running repository scans back to queued state across all scopes.
+func (m *MemoryStore) RequeueStaleRepoScansAnyScope(_ context.Context, staleBefore time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cutoff := staleBefore.UTC()
+	candidates := make([]RepoScanRecord, 0)
+	for _, scanID := range m.repoScanIDs {
+		record := m.repoScans[scanID]
+		if record.Status != "running" || !record.StartedAt.Before(cutoff) {
+			continue
+		}
+		candidates = append(candidates, record)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].StartedAt.Before(candidates[j].StartedAt)
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	now := time.Now().UTC()
+	for _, record := range candidates {
+		record.Status = "queued"
+		record.StartedAt = now
+		record.FinishedAt = nil
+		record.ErrorMessage = ""
+		m.repoScans[record.ID] = record
+	}
+	return len(candidates), nil
 }
 
 func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, source RepoScanSource, status string, historyLimit int, maxFindings int, startedAt time.Time) RepoScanRecord {

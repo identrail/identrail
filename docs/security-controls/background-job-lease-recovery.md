@@ -8,6 +8,11 @@ Worker failures should not leave scans stuck or duplicated.
 
 ## Current partial state
 Queue claims exist, but stale/crashed-job recovery with heartbeat leases is not comprehensive.
+Repository scan workers also perform bounded stale-running recovery: before
+claiming work, the worker moves `repo_scans` rows that have remained `running`
+beyond the repo worker timeout grace period back to `queued`. This prevents a
+worker restart or replacement from leaving GitHub repository scans permanently
+blocked, while the broader heartbeat/lease design remains tracked here.
 
 ## Priority
 High
