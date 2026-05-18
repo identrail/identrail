@@ -770,7 +770,21 @@ function CommandPalette({
         }
       }}
     >
-      <section className="idt-command-palette" role="dialog" aria-modal="true" aria-labelledby="idt-command-palette-title">
+      <section
+        className="idt-command-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="idt-command-palette-title"
+        onKeyDown={(event) => {
+          if (event.defaultPrevented) {
+            return;
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onClose();
+          }
+        }}
+      >
         <header>
           <div>
             <p className="idt-app-kicker">Workspace finder</p>
