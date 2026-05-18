@@ -8,6 +8,13 @@
   worker with separate IAM roles, logging, and security group. The worker also
   gained `IDENTRAIL_WORKER_SCAN_ENABLED` so the hosted queue processor can drain
   API-enqueued work without starting unrelated scheduled cloud scans.
+- Added per-request defense-in-depth on `/auth/manual`: the handler now
+  rejects any request whose resolved client IP (honoring the configured
+  trusted-proxy list) is not a loopback address, unless
+  `IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true`. This layers a runtime
+  check on top of the `IDENTRAIL_AUTH_MANUAL_MODE` startup guard, since the
+  process cannot observe a Docker port publish, reverse proxy, or ingress
+  at boot but can check the actual client at request time.
 - Made `IDENTRAIL_AUTH_MANUAL_MODE` a local-development-only feature at
   startup validation. The server now refuses to boot with manual mode
   enabled unless `IDENTRAIL_PUBLIC_BASE_URL` is a loopback origin

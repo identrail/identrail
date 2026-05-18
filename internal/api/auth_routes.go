@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,18 +20,19 @@ import (
 )
 
 type authSessionRouteOptions struct {
-	AuditSink           audit.AuditSink
-	AuditFingerprinter  *audit.Fingerprinter
-	ManualMode          bool
-	WorkOSEnabled       bool
-	WorkOSClientID      string
-	WorkOSClient        sessionauth.WorkOSClient
-	WorkOSWebhookSecret string
-	StateManager        *sessionauth.OAuthStateManager
-	TransactionStore    *sessionauth.OAuthTransactionStore
-	PendingMFAManager   *sessionauth.MFAPendingStateManager
-	PublicBaseURL       string
-	ReturnToOrigins     []string
+	AuditSink             audit.AuditSink
+	AuditFingerprinter    *audit.Fingerprinter
+	ManualMode            bool
+	ManualModeAllowUnsafe bool
+	WorkOSEnabled         bool
+	WorkOSClientID        string
+	WorkOSClient          sessionauth.WorkOSClient
+	WorkOSWebhookSecret   string
+	StateManager          *sessionauth.OAuthStateManager
+	TransactionStore      *sessionauth.OAuthTransactionStore
+	PendingMFAManager     *sessionauth.MFAPendingStateManager
+	PublicBaseURL         string
+	ReturnToOrigins       []string
 }
 
 func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions) {
@@ -49,7 +51,7 @@ func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, 
 		authGroup.POST("/webhooks/workos", rateLimitMiddleware(60, 60), workOSWebhookHandler(logger, svc, opts))
 	}
 	if opts.ManualMode {
-		authGroup.POST("/manual", rateLimitMiddleware(10, 10), manualLoginHandler(logger, svc, manager))
+		authGroup.POST("/manual", rateLimitMiddleware(10, 10), manualLoginHandler(logger, svc, manager, opts.ManualModeAllowUnsafe))
 	}
 
 	authGroup.POST("/logout", rateLimitMiddleware(100, 100), manager.Middleware(), func(c *gin.Context) {
@@ -763,10 +765,41 @@ type manualLoginRequest struct {
 	DisplayName string `json:"display_name"`
 }
 
-func manualLoginHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manager) gin.HandlerFunc {
+// isLoopbackClientIP reports whether the gin-resolved client IP is a
+// loopback address. c.ClientIP() already honors the configured
+// trusted-proxy list, so behind a correctly configured proxy this reflects
+// the real client. An unparseable or empty value fails closed.
+func isLoopbackClientIP(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		raw = host
+	}
+	ip := net.ParseIP(strings.TrimSpace(raw))
+	return ip != nil && ip.IsLoopback()
+}
+
+func manualLoginHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manager, allowUnsafe bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if svc == nil || svc.Store == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
+			return
+		}
+		// Per-request defense-in-depth layered on the #1202 startup guard.
+		// /auth/manual mints a workspace-owner session purely from request
+		// body fields, so it must only ever be reachable from the local
+		// machine. The startup guard cannot see a Docker port publish, a
+		// reverse proxy, or an ingress; the resolved client IP can. Reject
+		// any non-loopback caller unless the operator explicitly accepted
+		// the risk with IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true.
+		if !allowUnsafe && !isLoopbackClientIP(c.ClientIP()) {
+			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+			if logger != nil {
+				logger.Warn("manual login rejected from non-loopback client")
+			}
+			c.JSON(http.StatusForbidden, gin.H{"error": "manual login is restricted to local development"})
 			return
 		}
 		var request manualLoginRequest

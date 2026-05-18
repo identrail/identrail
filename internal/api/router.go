@@ -58,35 +58,36 @@ const (
 
 // RouterOptions controls API middleware behavior.
 type RouterOptions struct {
-	APIKeys                  []string
-	WriteAPIKeys             []string
-	APIKeyScopes             map[string][]string
-	APIKeyScopeBindings      map[string]db.Scope
-	OIDCTokenVerifier        TokenVerifier
-	OIDCWriteScopes          []string
-	RateLimitRPM             int
-	RateLimitBurst           int
-	AuditSink                audit.AuditSink
-	AuditFingerprinter       *audit.Fingerprinter
-	TrustedProxies           []string
-	CORSAllowedOrigins       []string
-	DefaultTenantID          string
-	DefaultWorkspaceID       string
-	RequireExplicitScope     bool
-	FeatureNewAuth           bool
-	FeatureWorkOSLogin       bool
-	FeatureConnectorAWS      bool
-	FeatureConnectorGitHubV2 bool
-	FeatureConnectorK8S      bool
-	FeatureOnboardingWizard  bool
-	FeatureNativeSSO         bool
-	PublicBaseURL            string
-	SessionKey               string
-	AuthManualMode           bool
-	WorkOSClientID           string
-	WorkOSAPIKey             string
-	WorkOSWebhookSecret      string
-	WorkOSAuthClient         sessionauth.WorkOSClient
+	APIKeys                   []string
+	WriteAPIKeys              []string
+	APIKeyScopes              map[string][]string
+	APIKeyScopeBindings       map[string]db.Scope
+	OIDCTokenVerifier         TokenVerifier
+	OIDCWriteScopes           []string
+	RateLimitRPM              int
+	RateLimitBurst            int
+	AuditSink                 audit.AuditSink
+	AuditFingerprinter        *audit.Fingerprinter
+	TrustedProxies            []string
+	CORSAllowedOrigins        []string
+	DefaultTenantID           string
+	DefaultWorkspaceID        string
+	RequireExplicitScope      bool
+	FeatureNewAuth            bool
+	FeatureWorkOSLogin        bool
+	FeatureConnectorAWS       bool
+	FeatureConnectorGitHubV2  bool
+	FeatureConnectorK8S       bool
+	FeatureOnboardingWizard   bool
+	FeatureNativeSSO          bool
+	PublicBaseURL             string
+	SessionKey                string
+	AuthManualMode            bool
+	AuthManualModeAllowUnsafe bool
+	WorkOSClientID            string
+	WorkOSAPIKey              string
+	WorkOSWebhookSecret       string
+	WorkOSAuthClient          sessionauth.WorkOSClient
 }
 
 type scopedAPIKeyAuthConfig struct {
@@ -314,18 +315,19 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			oauthTransactionStore = sessionauth.NewOAuthTransactionStore(svc.Store, svc.Now)
 		}
 		registerAuthSessionRoutes(r, logger, svc, sessionManager, authSessionRouteOptions{
-			AuditSink:           opts.AuditSink,
-			AuditFingerprinter:  opts.AuditFingerprinter,
-			ManualMode:          opts.AuthManualMode,
-			WorkOSEnabled:       opts.FeatureWorkOSLogin,
-			WorkOSClientID:      opts.WorkOSClientID,
-			WorkOSClient:        workOSClient,
-			WorkOSWebhookSecret: opts.WorkOSWebhookSecret,
-			StateManager:        stateManager,
-			TransactionStore:    oauthTransactionStore,
-			PendingMFAManager:   sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil),
-			PublicBaseURL:       opts.PublicBaseURL,
-			ReturnToOrigins:     authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
+			AuditSink:             opts.AuditSink,
+			AuditFingerprinter:    opts.AuditFingerprinter,
+			ManualMode:            opts.AuthManualMode,
+			ManualModeAllowUnsafe: opts.AuthManualModeAllowUnsafe,
+			WorkOSEnabled:         opts.FeatureWorkOSLogin,
+			WorkOSClientID:        opts.WorkOSClientID,
+			WorkOSClient:          workOSClient,
+			WorkOSWebhookSecret:   opts.WorkOSWebhookSecret,
+			StateManager:          stateManager,
+			TransactionStore:      oauthTransactionStore,
+			PendingMFAManager:     sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil),
+			PublicBaseURL:         opts.PublicBaseURL,
+			ReturnToOrigins:       authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
 		})
 		// Native SAML SP-initiated login + ACS share the same HMAC state
 		// manager so a single SessionKey rotation invalidates every
