@@ -178,6 +178,7 @@ jobs:
           vercel-token: ${{ steps.normalize-token.outputs.token }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          experimental-api: true
           target: production
           force: true
           root-directory: web
