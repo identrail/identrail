@@ -554,6 +554,65 @@ func TestMemoryStore_SAMLRelayStateRejectsUnknownConnectionAndExpiredRows(t *tes
 	}
 }
 
+func TestMemoryStore_OAuthTransactionLifecycle(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	created, err := store.CreateOAuthTransaction(context.Background(), OAuthTransaction{
+		Nonce:       " nonce-1 ",
+		CookieToken: " cookie-token-1 ",
+		Intent:      "login",
+		ReturnTo:    "/app/welcome",
+		ExpiresAt:   now.Add(10 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("create oauth transaction: %v", err)
+	}
+	if created.Nonce != "nonce-1" || created.CookieToken != "cookie-token-1" || created.CreatedAt.IsZero() {
+		t.Fatalf("oauth transaction was not normalized: %+v", created)
+	}
+	if _, err := store.CreateOAuthTransaction(context.Background(), created); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate nonce should return ErrConflict, got %v", err)
+	}
+
+	if _, err := store.ConsumeOAuthTransaction(context.Background(), "nonce-1", "wrong-cookie", now.Add(time.Minute)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cookie-token mismatch should return ErrNotFound, got %v", err)
+	}
+
+	consumed, err := store.ConsumeOAuthTransaction(context.Background(), " nonce-1 ", " cookie-token-1 ", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("consume oauth transaction: %v", err)
+	}
+	if consumed.ConsumedAt == nil || !consumed.ConsumedAt.Equal(now.Add(time.Minute)) || consumed.ReturnTo != "/app/welcome" {
+		t.Fatalf("consume did not record state: %+v", consumed)
+	}
+	if _, err := store.ConsumeOAuthTransaction(context.Background(), "nonce-1", "cookie-token-1", now.Add(2*time.Minute)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("replay should return ErrNotFound, got %v", err)
+	}
+}
+
+func TestMemoryStore_OAuthTransactionRejectsExpiredAndInvalidInput(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	if _, err := store.CreateOAuthTransaction(context.Background(), OAuthTransaction{Nonce: "n", ExpiresAt: now.Add(time.Minute)}); err == nil {
+		t.Fatal("missing cookie token should error")
+	}
+	if _, err := store.CreateOAuthTransaction(context.Background(), OAuthTransaction{Nonce: "n", CookieToken: "c"}); err == nil {
+		t.Fatal("missing expires_at should error")
+	}
+	if _, err := store.CreateOAuthTransaction(context.Background(), OAuthTransaction{
+		Nonce:       "expired",
+		CookieToken: "cookie",
+		ExpiresAt:   now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("create expired transaction: %v", err)
+	}
+	if _, err := store.ConsumeOAuthTransaction(context.Background(), "expired", "cookie", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired transaction should be pruned, got %v", err)
+	}
+}
+
 func TestMemoryStore_DeleteIdentityConnection_CascadesSCIMEvents(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

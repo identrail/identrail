@@ -50,6 +50,40 @@ optional_positive_int() {
   fi
 }
 
+validate_repo_scan_allowlist() {
+  local raw="$1"
+  local item
+  local target
+  if [ -z "${raw}" ]; then
+    return 0
+  fi
+  IFS=',' read -r -a items <<< "${raw}"
+  for item in "${items[@]}"; do
+    target="$(trim "${item}")"
+    if [ -z "${target}" ]; then
+      fail "repo scan allowlist entries must be non-empty owner/repo patterns; remove blank comma-separated entries"
+    fi
+    if ! [[ "${target}" =~ ^[^[:space:]]+/[^[:space:]]+$ ]]; then
+      fail "repo scan allowlist entry ${target} must follow owner/repo or owner/* format"
+    fi
+    if [[ "${target}" == *\** ]] && ! [[ "${target}" =~ ^[^[:space:]]+/\*$ ]]; then
+      fail "repo scan allowlist wildcard entries must use the owner/* pattern"
+    fi
+  done
+}
+
+validate_repo_scan_positive_int_bound() {
+  local value="$1"
+  local name="$2"
+  local max="$3"
+  if ! [[ "${value}" =~ ^[0-9]+$ ]] || [ "${value}" -le 0 ]; then
+    fail "${name} must be a positive integer"
+  fi
+  if [ "${value}" -gt "${max}" ]; then
+    fail "${name} must be <= ${max}"
+  fi
+}
+
 json_string_array() {
   local name="$1"
   local fallback="${2:-}"
@@ -296,6 +330,8 @@ for numeric in \
   optional_positive_int "${numeric}"
 done
 
+validate_repo_scan_allowlist "${api_repo_scan_allowlist}"
+
 repo_scan_environment="$(
   jq -nce \
     --arg enabled "${api_repo_scan_enabled}" \
@@ -326,6 +362,25 @@ case "${effective_repo_scan_enabled}" in
   *) fail "IDENTRAIL_REPO_SCAN_ENABLED must be true or false when set through API_EXTRA_ENVIRONMENT_JSON or API_REPO_SCAN_ENABLED" ;;
 esac
 effective_repo_scan_allowlist="$(jq -r '.IDENTRAIL_REPO_SCAN_ALLOWLIST // ""' <<< "${effective_repo_scan_environment}")"
+validate_repo_scan_allowlist "${effective_repo_scan_allowlist}"
+
+effective_repo_scan_history_limit="$(jq -r '.IDENTRAIL_REPO_SCAN_HISTORY_LIMIT // "500"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_max_findings="$(jq -r '.IDENTRAIL_REPO_SCAN_MAX_FINDINGS // "200"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_history_limit_max="$(jq -r '.IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX // "5000"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_max_findings_max="$(jq -r '.IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX // "1000"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_queue_max_pending="$(jq -r '.IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING // "100"' <<< "${effective_repo_scan_environment}")"
+
+validate_repo_scan_positive_int_bound "${effective_repo_scan_history_limit}" IDENTRAIL_REPO_SCAN_HISTORY_LIMIT 20000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_history_limit_max}" IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX 20000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS 5000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings_max}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX 5000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_queue_max_pending}" IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING 50000
+if [ "${effective_repo_scan_history_limit}" -gt "${effective_repo_scan_history_limit_max}" ]; then
+  fail "IDENTRAIL_REPO_SCAN_HISTORY_LIMIT must be <= IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX"
+fi
+if [ "${effective_repo_scan_max_findings}" -gt "${effective_repo_scan_max_findings_max}" ]; then
+  fail "IDENTRAIL_REPO_SCAN_MAX_FINDINGS must be <= IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX"
+fi
 if [ "${effective_repo_scan_enabled}" = "true" ] && [ -z "$(trim "${effective_repo_scan_allowlist}")" ]; then
   fail "API_REPO_SCAN_ALLOWLIST or IDENTRAIL_REPO_SCAN_ALLOWLIST in API_EXTRA_ENVIRONMENT_JSON is required when repo scanning is enabled"
 fi

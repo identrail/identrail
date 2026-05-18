@@ -141,7 +141,7 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 		t.Fatalf("expected default authkit provider, got %q", workOS.authorizationInput.Provider)
 	}
 
-	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil)
+	callbackReq := workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp))
 	callbackResp := httptest.NewRecorder()
 	router.ServeHTTP(callbackResp, callbackReq)
 	if callbackResp.Code != http.StatusFound {
@@ -150,7 +150,7 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	if got := callbackResp.Header().Get("Location"); got != "/app/welcome" {
 		t.Fatalf("unexpected post-login redirect: %q", got)
 	}
-	if callbackResp.Result().Cookies()[0].Name != sessionauth.CookieName {
+	if findTestCookie(callbackResp.Result().Cookies(), sessionauth.CookieName) == nil {
 		t.Fatalf("expected session cookie, got %+v", callbackResp.Result().Cookies())
 	}
 	identity, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_workos_1")
@@ -307,7 +307,7 @@ func TestWorkOSHostedLoginAllowsConfiguredWebReturnOrigin(t *testing.T) {
 		t.Fatalf("expected API callback URL, got %q", workOS.authorizationInput.RedirectURI)
 	}
 
-	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil)
+	callbackReq := workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp))
 	callbackResp := httptest.NewRecorder()
 	router.ServeHTTP(callbackResp, callbackReq)
 	if callbackResp.Code != http.StatusFound {
@@ -397,8 +397,9 @@ func TestWorkOSCallbackPreservesSelectedOrganization(t *testing.T) {
 		RateLimitRPM:        1000,
 		RateLimitBurst:      1000,
 	})
-	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/auth/login", nil))
-	callbackReq := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil)
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	callbackReq := workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp))
 	callbackResp := httptest.NewRecorder()
 	router.ServeHTTP(callbackResp, callbackReq)
 	if callbackResp.Code != http.StatusFound {
@@ -407,12 +408,12 @@ func TestWorkOSCallbackPreservesSelectedOrganization(t *testing.T) {
 	if got := callbackResp.Header().Get("Location"); got != "/app/tenant-a/workspace-a" {
 		t.Fatalf("expected selected organization redirect, got %q", got)
 	}
-	cookies := callbackResp.Result().Cookies()
-	if len(cookies) == 0 {
+	sessionCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.CookieName)
+	if sessionCookie == nil {
 		t.Fatal("expected session cookie")
 	}
 	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
-	meReq.AddCookie(cookies[0])
+	meReq.AddCookie(sessionCookie)
 	meResp := httptest.NewRecorder()
 	router.ServeHTTP(meResp, meReq)
 	if meResp.Code != http.StatusOK {
@@ -479,9 +480,10 @@ func TestWorkOSCallbackRejectsEmailIdentityConflict(t *testing.T) {
 		RateLimitRPM:        1000,
 		RateLimitBurst:      1000,
 	})
-	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
 	callbackResp := httptest.NewRecorder()
-	router.ServeHTTP(callbackResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil))
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	if callbackResp.Code != http.StatusConflict {
 		t.Fatalf("expected identity conflict, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
 	}
@@ -513,7 +515,7 @@ func TestWorkOSSignupUsesScreenHintAndFallsBackToOnboarding(t *testing.T) {
 		t.Fatalf("expected signup screen hint, got %q", workOS.authorizationInput.ScreenHint)
 	}
 	callbackResp := httptest.NewRecorder()
-	router.ServeHTTP(callbackResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil))
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	if callbackResp.Code != http.StatusFound {
 		t.Fatalf("expected callback redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
 	}
@@ -542,9 +544,10 @@ func TestWorkOSCallbackRejectsInvalidStateAndUnavailableProvider(t *testing.T) {
 	if invalidResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid state 400, got %d", invalidResp.Code)
 	}
-	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
 	unavailableResp := httptest.NewRecorder()
-	router.ServeHTTP(unavailableResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil))
+	router.ServeHTTP(unavailableResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	if unavailableResp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected unavailable provider 503, got %d body=%s", unavailableResp.Code, unavailableResp.Body.String())
 	}
@@ -604,7 +607,7 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 	}
 
 	callbackResp := httptest.NewRecorder()
-	router.ServeHTTP(callbackResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil))
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	if callbackResp.Code != http.StatusFound {
 		t.Fatalf("expected mfa redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
 	}
@@ -714,7 +717,7 @@ func TestWorkOSCallbackContinuesExistingMFAChallenge(t *testing.T) {
 	startResp := httptest.NewRecorder()
 	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
 	callbackResp := httptest.NewRecorder()
-	router.ServeHTTP(callbackResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil))
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingMFACookieName)
 	if callbackResp.Code != http.StatusFound || pendingCookie == nil {
 		t.Fatalf("expected mfa redirect and cookie, code=%d cookies=%+v body=%s", callbackResp.Code, callbackResp.Result().Cookies(), callbackResp.Body.String())
@@ -780,7 +783,7 @@ func TestWorkOSMFAChallengeRejectsBadFactorAndInvalidCode(t *testing.T) {
 	startResp := httptest.NewRecorder()
 	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
 	callbackResp := httptest.NewRecorder()
-	router.ServeHTTP(callbackResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(workOS.authorizationInput.State), nil))
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingMFACookieName)
 	if pendingCookie == nil {
 		t.Fatalf("expected pending cookie, got %+v", callbackResp.Result().Cookies())
@@ -813,6 +816,173 @@ func TestWorkOSMFAChallengeRejectsBadFactorAndInvalidCode(t *testing.T) {
 	if verifyResp.Code != http.StatusUnauthorized || !strings.Contains(verifyResp.Body.String(), "invalid verification code") {
 		t.Fatalf("unexpected invalid verify response: code=%d body=%s", verifyResp.Code, verifyResp.Body.String())
 	}
+}
+
+func newWorkOSTestRouter(t *testing.T, store db.Store, workOS sessionauth.WorkOSClient) http.Handler {
+	t.Helper()
+	svc := NewService(store, fakeScanner{}, "aws")
+	return NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+}
+
+func TestWorkOSCallbackRequiresBrowserBoundTransaction(t *testing.T) {
+	store := db.NewMemoryStore()
+	workOS := &fakeWorkOSClient{authentication: sessionauth.WorkOSAuthentication{
+		User: sessionauth.WorkOSProfile{ID: "user_txn_1", Email: "txn@example.com", EmailVerified: true},
+	}}
+	router := newWorkOSTestRouter(t, store, workOS)
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/welcome", nil))
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected login redirect, got %d", startResp.Code)
+	}
+	state := workOS.authorizationInput.State
+	txnCookie := oauthTxnCookieFromStart(t, startResp)
+
+	// A callback without the issued transaction cookie is rejected even
+	// though the signed state is valid.
+	noCookieResp := httptest.NewRecorder()
+	router.ServeHTTP(noCookieResp, workOSCallbackRequest(state, nil))
+	if noCookieResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing-cookie callback to be rejected, got %d body=%s", noCookieResp.Code, noCookieResp.Body.String())
+	}
+
+	// A second, independent login produces a different transaction cookie;
+	// pairing it with the first state must be rejected (state/cookie
+	// mismatch).
+	otherStart := httptest.NewRecorder()
+	router.ServeHTTP(otherStart, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/other", nil))
+	otherCookie := oauthTxnCookieFromStart(t, otherStart)
+	mismatchResp := httptest.NewRecorder()
+	router.ServeHTTP(mismatchResp, workOSCallbackRequest(state, otherCookie))
+	if mismatchResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected mismatched state/cookie to be rejected, got %d body=%s", mismatchResp.Code, mismatchResp.Body.String())
+	}
+
+	// The genuine pair succeeds exactly once.
+	okResp := httptest.NewRecorder()
+	router.ServeHTTP(okResp, workOSCallbackRequest(state, txnCookie))
+	if okResp.Code != http.StatusFound || okResp.Header().Get("Location") != "/app/welcome" {
+		t.Fatalf("expected successful callback redirect, got %d loc=%q body=%s", okResp.Code, okResp.Header().Get("Location"), okResp.Body.String())
+	}
+
+	// Replaying the same state + cookie fails because the row is consumed.
+	replayResp := httptest.NewRecorder()
+	router.ServeHTTP(replayResp, workOSCallbackRequest(state, txnCookie))
+	if replayResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected reused state to be rejected, got %d body=%s", replayResp.Code, replayResp.Body.String())
+	}
+}
+
+// TestWorkOSConcurrentStartsKeepIndependentTransactions proves a second
+// in-flight login (double-click, two tabs, switching provider) does not
+// invalidate the first: each start sets a nonce-scoped transaction cookie,
+// so both callbacks complete independently.
+func TestWorkOSConcurrentStartsKeepIndependentTransactions(t *testing.T) {
+	store := db.NewMemoryStore()
+	workOS := &fakeWorkOSClient{authentication: sessionauth.WorkOSAuthentication{
+		User: sessionauth.WorkOSProfile{ID: "user_txn_concurrent", Email: "concurrent@example.com", EmailVerified: true},
+	}}
+	router := newWorkOSTestRouter(t, store, workOS)
+
+	startA := httptest.NewRecorder()
+	router.ServeHTTP(startA, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/a", nil))
+	stateA := workOS.authorizationInput.State
+	cookieA := oauthTxnCookieFromStart(t, startA)
+
+	// Second flow starts before the first callback returns.
+	startB := httptest.NewRecorder()
+	router.ServeHTTP(startB, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/b", nil))
+	stateB := workOS.authorizationInput.State
+	cookieB := oauthTxnCookieFromStart(t, startB)
+
+	if cookieA.Name == cookieB.Name {
+		t.Fatalf("expected nonce-scoped cookie names, both were %q", cookieA.Name)
+	}
+
+	// The first flow's callback still succeeds even though a second flow
+	// started in between.
+	respA := httptest.NewRecorder()
+	router.ServeHTTP(respA, workOSCallbackRequest(stateA, cookieA))
+	if respA.Code != http.StatusFound || respA.Header().Get("Location") != "/app/a" {
+		t.Fatalf("expected first concurrent flow to complete, got %d loc=%q body=%s", respA.Code, respA.Header().Get("Location"), respA.Body.String())
+	}
+
+	respB := httptest.NewRecorder()
+	router.ServeHTTP(respB, workOSCallbackRequest(stateB, cookieB))
+	if respB.Code != http.StatusFound || respB.Header().Get("Location") != "/app/b" {
+		t.Fatalf("expected second concurrent flow to complete, got %d loc=%q body=%s", respB.Code, respB.Header().Get("Location"), respB.Body.String())
+	}
+}
+
+// TestWorkOSCallbackReplayFailsAcrossInstances proves the single-use guarantee
+// holds across API instances that share a database, which the previous
+// process-local replay map could not provide.
+func TestWorkOSCallbackReplayFailsAcrossInstances(t *testing.T) {
+	store := db.NewMemoryStore()
+	workOS := &fakeWorkOSClient{authentication: sessionauth.WorkOSAuthentication{
+		User: sessionauth.WorkOSProfile{ID: "user_txn_xinst", Email: "xinst@example.com", EmailVerified: true},
+	}}
+	// Two routers with the same SessionKey (so signed state validates on
+	// both) backed by the same store, simulating a multi-instance fleet.
+	instanceA := newWorkOSTestRouter(t, store, workOS)
+	instanceB := newWorkOSTestRouter(t, store, workOS)
+
+	startResp := httptest.NewRecorder()
+	instanceA.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/welcome", nil))
+	state := workOS.authorizationInput.State
+	txnCookie := oauthTxnCookieFromStart(t, startResp)
+
+	// Callback lands on instance B (different node than issued the redirect)
+	// and still succeeds because the transaction row is store-backed.
+	bResp := httptest.NewRecorder()
+	instanceB.ServeHTTP(bResp, workOSCallbackRequest(state, txnCookie))
+	if bResp.Code != http.StatusFound {
+		t.Fatalf("expected cross-instance callback to succeed, got %d body=%s", bResp.Code, bResp.Body.String())
+	}
+
+	// Replaying the captured state + cookie against instance A fails: the
+	// shared row is already consumed, even though A's process-local replay
+	// map never saw this nonce consumed.
+	aReplay := httptest.NewRecorder()
+	instanceA.ServeHTTP(aReplay, workOSCallbackRequest(state, txnCookie))
+	if aReplay.Code != http.StatusBadRequest {
+		t.Fatalf("expected cross-instance replay to be rejected, got %d body=%s", aReplay.Code, aReplay.Body.String())
+	}
+}
+
+// oauthTxnCookieFromStart extracts the browser-bound OAuth transaction cookie
+// the start handler set. The callback now requires it: OAuth state is
+// store-backed and bound to the browser that initiated the login.
+func oauthTxnCookieFromStart(t *testing.T, resp *httptest.ResponseRecorder) *http.Cookie {
+	t.Helper()
+	for _, c := range resp.Result().Cookies() {
+		if c.Value != "" && strings.HasPrefix(c.Name, sessionauth.OAuthTransactionCookiePrefix+"_") {
+			return &http.Cookie{Name: c.Name, Value: c.Value}
+		}
+	}
+	t.Fatalf("expected oauth transaction cookie on start response (code=%d), got %+v", resp.Code, resp.Result().Cookies())
+	return nil
+}
+
+// workOSCallbackRequest builds a /auth/callback request carrying the
+// browser-bound transaction cookie issued at login start.
+func workOSCallbackRequest(state string, txn *http.Cookie) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state="+url.QueryEscape(state), nil)
+	if txn != nil {
+		req.AddCookie(txn)
+	}
+	return req
 }
 
 func findTestCookie(cookies []*http.Cookie, name string) *http.Cookie {
