@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added first-class AWS API deployment variables for repository scan runtime
+  configuration, including allowlist validation before Terraform so hosted
+  GitHub scans cannot be enabled without an explicit target boundary.
 - Added a request-side CSRF/origin guard for unsafe (`POST`/`PUT`/`PATCH`/
   `DELETE`) browser session-authenticated `/v1/*` API writes. CORS is no
   longer relied on as a CSRF control: a guarded request must present a

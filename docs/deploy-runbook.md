@@ -70,6 +70,16 @@ Portable deployment profiles:
   - `IDENTRAIL_WORKER_REPO_SCAN_ENABLED=true`
   - `IDENTRAIL_WORKER_REPO_SCAN_TARGETS` has intended repositories
   - targets are covered by `IDENTRAIL_REPO_SCAN_ALLOWLIST` when allowlist is set
+- If API-triggered repo scans are enabled for the AWS-hosted API, confirm the
+  `AWS API Manual Deploy` repository variables:
+  - `API_REPO_SCAN_ENABLED=true`
+  - `API_REPO_SCAN_ALLOWLIST` covers only intended repositories
+  - optional scan bounds and queue guardrails are set through
+    `API_REPO_SCAN_HISTORY_LIMIT`, `API_REPO_SCAN_MAX_FINDINGS`,
+    `API_REPO_SCAN_HISTORY_LIMIT_MAX`, `API_REPO_SCAN_MAX_FINDINGS_MAX`, and
+    `API_REPO_SCAN_QUEUE_MAX_PENDING`
+  - the worker queue processor is deployed before relying on queued scans to
+    complete
 - Confirm API queue controls:
   - `IDENTRAIL_SCAN_QUEUE_MAX_PENDING`
   - `IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING`

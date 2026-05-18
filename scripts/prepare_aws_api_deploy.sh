@@ -25,6 +25,91 @@ require_value() {
   printf '%s' "${value}"
 }
 
+optional_bool() {
+  local name="$1"
+  local value
+  value="$(trim "${!name:-}")"
+  if [ -z "${value}" ]; then
+    return 0
+  fi
+  case "${value}" in
+    true|false) ;;
+    *) fail "${name} must be true or false when set" ;;
+  esac
+}
+
+optional_positive_int() {
+  local name="$1"
+  local value
+  value="$(trim "${!name:-}")"
+  if [ -z "${value}" ]; then
+    return 0
+  fi
+  if ! [[ "${value}" =~ ^[0-9]+$ ]] || [ "${value}" -le 0 ]; then
+    fail "${name} must be a positive integer when set"
+  fi
+}
+
+validate_repo_scan_allowlist() {
+  local raw="$1"
+  local item
+  local target
+  local non_empty_count
+
+  non_empty_count=0
+  if [ -z "${raw}" ]; then
+    return 0
+  fi
+  IFS=',' read -r -a items <<< "${raw}"
+  for item in "${items[@]}"; do
+    target="$(trim "${item}")"
+    if [ -z "${target}" ]; then
+      continue
+    fi
+    non_empty_count=$((non_empty_count + 1))
+    if ! [[ "${target}" =~ ^[^[:space:]]+/[^[:space:]]+$ ]]; then
+      fail "repo scan allowlist entry ${target} must follow owner/repo or owner/* format"
+    fi
+    if [[ "${target}" == *\** ]] && ! [[ "${target}" =~ ^[^[:space:]]+/[^[:space:]]*\*$ ]]; then
+      fail "repo scan allowlist wildcard entries must be a prefix match in the repository segment"
+    fi
+  done
+  if [ "${non_empty_count}" -eq 0 ]; then
+    fail "repo scan allowlist must include at least one non-empty owner/repo pattern"
+  fi
+}
+
+validate_repo_scan_positive_int_bound() {
+  local value="$1"
+  local name="$2"
+  local max="$3"
+  local value_len
+  local max_len
+  if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+    fail "${name} must be a positive integer"
+  fi
+  while [ "${#value}" -gt 1 ] && [ "${value:0:1}" = "0" ]; do
+    value="${value#0}"
+  done
+  if [ -z "${max}" ] || ! [[ "${max}" =~ ^[0-9]+$ ]]; then
+    fail "${name} max bound must be a positive integer"
+  fi
+  while [ "${#max}" -gt 1 ] && [ "${max:0:1}" = "0" ]; do
+    max="${max#0}"
+  done
+  if [ "${value}" = "0" ]; then
+    fail "${name} must be a positive integer"
+  fi
+  value_len="${#value}"
+  max_len="${#max}"
+  if [ "${value_len}" -gt "${max_len}" ]; then
+    fail "${name} must be <= ${max}"
+  fi
+  if [ "${value_len}" -eq "${max_len}" ] && (( value > max )); then
+    fail "${name} must be <= ${max}"
+  fi
+}
+
 json_string_array() {
   local name="$1"
   local fallback="${2:-}"
@@ -253,6 +338,75 @@ if [ "${github_feature_enabled}" = "true" ]; then
   )"
 fi
 
+api_repo_scan_enabled="$(trim "${API_REPO_SCAN_ENABLED:-}")"
+api_repo_scan_allowlist="$(trim "${API_REPO_SCAN_ALLOWLIST:-}")"
+api_repo_scan_history_limit="$(trim "${API_REPO_SCAN_HISTORY_LIMIT:-}")"
+api_repo_scan_max_findings="$(trim "${API_REPO_SCAN_MAX_FINDINGS:-}")"
+api_repo_scan_history_limit_max="$(trim "${API_REPO_SCAN_HISTORY_LIMIT_MAX:-}")"
+api_repo_scan_max_findings_max="$(trim "${API_REPO_SCAN_MAX_FINDINGS_MAX:-}")"
+api_repo_scan_queue_max_pending="$(trim "${API_REPO_SCAN_QUEUE_MAX_PENDING:-}")"
+
+optional_bool API_REPO_SCAN_ENABLED
+for numeric in \
+  API_REPO_SCAN_HISTORY_LIMIT \
+  API_REPO_SCAN_MAX_FINDINGS \
+  API_REPO_SCAN_HISTORY_LIMIT_MAX \
+  API_REPO_SCAN_MAX_FINDINGS_MAX \
+  API_REPO_SCAN_QUEUE_MAX_PENDING; do
+  optional_positive_int "${numeric}"
+done
+
+validate_repo_scan_allowlist "${api_repo_scan_allowlist}"
+
+repo_scan_environment="$(
+  jq -nce \
+    --arg enabled "${api_repo_scan_enabled}" \
+    --arg allowlist "${api_repo_scan_allowlist}" \
+    --arg history_limit "${api_repo_scan_history_limit}" \
+    --arg max_findings "${api_repo_scan_max_findings}" \
+    --arg history_limit_max "${api_repo_scan_history_limit_max}" \
+    --arg max_findings_max "${api_repo_scan_max_findings_max}" \
+    --arg queue_max_pending "${api_repo_scan_queue_max_pending}" \
+    '{}
+    + (if $enabled != "" then {IDENTRAIL_REPO_SCAN_ENABLED: $enabled} else {} end)
+    + (if $allowlist != "" then {IDENTRAIL_REPO_SCAN_ALLOWLIST: $allowlist} else {} end)
+    + (if $history_limit != "" then {IDENTRAIL_REPO_SCAN_HISTORY_LIMIT: $history_limit} else {} end)
+    + (if $max_findings != "" then {IDENTRAIL_REPO_SCAN_MAX_FINDINGS: $max_findings} else {} end)
+    + (if $history_limit_max != "" then {IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX: $history_limit_max} else {} end)
+    + (if $max_findings_max != "" then {IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX: $max_findings_max} else {} end)
+    + (if $queue_max_pending != "" then {IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING: $queue_max_pending} else {} end)'
+)"
+effective_repo_scan_environment="$(
+  jq -nce \
+    --argjson extra_environment "${extra_environment}" \
+    --argjson repo_scan_environment "${repo_scan_environment}" \
+    '$extra_environment + $repo_scan_environment'
+)"
+effective_repo_scan_enabled="$(jq -r '(.IDENTRAIL_REPO_SCAN_ENABLED // "") | ascii_downcase' <<< "${effective_repo_scan_environment}")"
+case "${effective_repo_scan_enabled}" in
+  ""|true|false) ;;
+  *) fail "IDENTRAIL_REPO_SCAN_ENABLED must be true or false when set through API_EXTRA_ENVIRONMENT_JSON or API_REPO_SCAN_ENABLED" ;;
+esac
+effective_repo_scan_allowlist="$(jq -r '.IDENTRAIL_REPO_SCAN_ALLOWLIST // ""' <<< "${effective_repo_scan_environment}")"
+validate_repo_scan_allowlist "${effective_repo_scan_allowlist}"
+
+effective_repo_scan_history_limit="$(jq -r '.IDENTRAIL_REPO_SCAN_HISTORY_LIMIT // "500"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_max_findings="$(jq -r '.IDENTRAIL_REPO_SCAN_MAX_FINDINGS // "200"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_history_limit_max="$(jq -r '.IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX // "5000"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_max_findings_max="$(jq -r '.IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX // "1000"' <<< "${effective_repo_scan_environment}")"
+effective_repo_scan_queue_max_pending="$(jq -r '.IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING // "100"' <<< "${effective_repo_scan_environment}")"
+
+validate_repo_scan_positive_int_bound "${effective_repo_scan_history_limit}" IDENTRAIL_REPO_SCAN_HISTORY_LIMIT 20000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_history_limit_max}" IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX 20000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS 5000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings_max}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX 5000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_queue_max_pending}" IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING 50000
+validate_repo_scan_positive_int_bound "${effective_repo_scan_history_limit}" IDENTRAIL_REPO_SCAN_HISTORY_LIMIT "${effective_repo_scan_history_limit_max}"
+validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS "${effective_repo_scan_max_findings_max}"
+if [ "${effective_repo_scan_enabled}" = "true" ] && [ -z "$(trim "${effective_repo_scan_allowlist}")" ]; then
+  fail "API_REPO_SCAN_ALLOWLIST or IDENTRAIL_REPO_SCAN_ALLOWLIST in API_EXTRA_ENVIRONMENT_JSON is required when repo scanning is enabled"
+fi
+
 api_desired_count="$(trim "${API_DESIRED_COUNT:-1}")"
 api_task_cpu="$(trim "${API_TASK_CPU:-512}")"
 api_task_memory="$(trim "${API_TASK_MEMORY:-1024}")"
@@ -283,6 +437,7 @@ jq -n \
   --argjson api_secret_kms_key_arns "${secret_kms_keys}" \
   --argjson extra_environment "${extra_environment}" \
   --argjson extra_secrets "${extra_secrets}" \
+  --argjson repo_scan_environment "${repo_scan_environment}" \
   --argjson workos_environment "${workos_environment}" \
   --argjson workos_secrets "${workos_secrets}" \
   --argjson github_environment "${github_environment}" \
@@ -310,7 +465,7 @@ jq -n \
     api_desired_count: $api_desired_count,
     api_task_cpu: $api_task_cpu,
     api_task_memory: $api_task_memory,
-    api_environment_variables: ($extra_environment + $workos_environment + $github_environment + {
+    api_environment_variables: ($extra_environment + $repo_scan_environment + $workos_environment + $github_environment + {
       IDENTRAIL_FEATURE_NEW_AUTH: "true",
       IDENTRAIL_FEATURE_ONBOARDING_WIZARD: $onboarding_feature_enabled,
       IDENTRAIL_PUBLIC_BASE_URL: "https://api.identrail.com"
