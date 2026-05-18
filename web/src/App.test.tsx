@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
+import { StaticRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App } from './App';
+import { App, RoutedSite, ScanIntakeModalProvider } from './App';
 
 function okJSON(payload: unknown) {
   return {
@@ -52,6 +54,34 @@ function setCurrentPath(pathname: string) {
   });
 }
 
+function fillScanIdentityStep({
+  email = 'security@company.com',
+  fullName = 'Alex Morgan',
+  roleTitle = 'Security Engineering Lead',
+  company = 'Company Inc',
+  companyWebsite = 'company.com'
+} = {}) {
+  fireEvent.change(screen.getByLabelText(/Work email/i), {
+    target: { value: email }
+  });
+  fireEvent.change(screen.getByLabelText(/Your name/i), {
+    target: { value: fullName }
+  });
+  fireEvent.change(screen.getByLabelText(/Role or title/i), {
+    target: { value: roleTitle }
+  });
+  fireEvent.change(screen.getByLabelText(/Company name/i), {
+    target: { value: company }
+  });
+  fireEvent.change(screen.getByLabelText(/Company website/i), {
+    target: { value: companyWebsite }
+  });
+}
+
+function leadCaptureCalls(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter(([url]) => url === '/api/leads');
+}
+
 describe('App', () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -76,9 +106,10 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
 
-    const scanLinks = screen.getAllByRole('link', { name: 'Start Free Risk Scan' });
-    expect(scanLinks.length).toBeGreaterThan(0);
-    expect(scanLinks[0]).toHaveAttribute('href', '/read-only-scan');
+    const scanButtons = screen.getAllByRole('button', { name: 'Request Trust Path Review' });
+    expect(scanButtons.length).toBeGreaterThan(0);
+    fireEvent.click(scanButtons[0]);
+    expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Book Demo/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
@@ -120,7 +151,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Four connected surfaces/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /The Trust Graph is the control plane/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /From discovery to fix/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /Start Free Risk Scan/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Request Trust Path Review/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('main main')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-product-hero-visual')).toHaveAttribute('aria-hidden', 'true');
   });
@@ -130,14 +161,28 @@ describe('App', () => {
     render(<App />);
 
     expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: /Start a read-only identity risk scan/i
+      screen.getByRole('dialog', {
+        name: /Verify company identity/i
       })
     ).toBeInTheDocument();
 
+    expect(screen.getByRole('heading', { name: /Request a trust path review/i })).toBeInTheDocument();
     expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
+
+  it('prerenders read-only scan intake content without relying on effects', () => {
+    const html = renderToString(
+      <StaticRouter location="/read-only-scan">
+        <ScanIntakeModalProvider>
+          <RoutedSite />
+        </ScanIntakeModalProvider>
+      </StaticRouter>
+    );
+
+    expect(html).toContain('Request a trust path review');
+    expect(html).toContain('Verify company identity');
+    expect(html).toContain('idt-intake-step');
   });
 
   it('rejects personal email domains before advancing the read-only scan intake', () => {
@@ -146,20 +191,15 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText(/Work email/i), {
-      target: { value: 'person@gmail.com' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company name/i), {
-      target: { value: 'Personal Co' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company website/i), {
-      target: { value: 'company.com' }
+    fillScanIdentityStep({
+      email: 'person@gmail.com',
+      company: 'Personal Co'
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent(/company or work email/i);
     expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(leadCaptureCalls(fetchMock)).toHaveLength(0);
   });
 
   it('rejects company domains that do not match the work email domain', () => {
@@ -168,20 +208,14 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText(/Work email/i), {
-      target: { value: 'security@company.com' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company name/i), {
-      target: { value: 'Company Inc' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company website/i), {
-      target: { value: 'other-company.com' }
+    fillScanIdentityStep({
+      companyWebsite: 'other-company.com'
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent(/match the domain/i);
     expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(leadCaptureCalls(fetchMock)).toHaveLength(0);
   });
 
   it('rejects a whitespace-only company name before advancing', () => {
@@ -190,20 +224,14 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText(/Work email/i), {
-      target: { value: 'security@company.com' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company name/i), {
-      target: { value: '   ' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company website/i), {
-      target: { value: 'company.com' }
+    fillScanIdentityStep({
+      company: '   '
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent(/enter your company name/i);
     expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(leadCaptureCalls(fetchMock)).toHaveLength(0);
   });
 
   it('does not submit the read-only scan intake before the final step', async () => {
@@ -212,21 +240,13 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText(/Work email/i), {
-      target: { value: 'security@company.com' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company name/i), {
-      target: { value: 'Company Inc' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company website/i), {
-      target: { value: 'company.com' }
-    });
+    fillScanIdentityStep();
     const form = document.querySelector('form.idt-scan-form');
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
     await waitFor(() => expect(screen.getByText(/Step 2 of 4/i)).toBeInTheDocument());
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(leadCaptureCalls(fetchMock)).toHaveLength(0);
   });
 
   it('submits read-only scan challenge details to lead capture', async () => {
@@ -235,33 +255,37 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText(/Work email/i), {
-      target: { value: 'security@company.com' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company name/i), {
-      target: { value: 'Company Inc' }
-    });
-    fireEvent.change(screen.getByLabelText(/Company website/i), {
-      target: { value: 'https://www.company.com' }
+    fillScanIdentityStep({
+      companyWebsite: 'https://www.company.com'
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.change(screen.getByLabelText(/Public code host/i), {
+      target: { value: 'gitlab.com/platform/security/identity-risk' }
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Review Request' }));
     expect(screen.getByText(/Step 4 of 4/i)).toBeInTheDocument();
     expect(screen.getByText('security@company.com')).toBeInTheDocument();
+    expect(screen.getByText(/Alex Morgan - Security Engineering Lead/i)).toBeInTheDocument();
     expect(screen.getByText('company.com')).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText('https://gitlab.com/platform/security/identity-risk')).toBeInTheDocument();
+    expect(leadCaptureCalls(fetchMock)).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Submit Risk Scan Request' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Review Request' }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/leads', expect.any(Object)));
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    await waitFor(() => expect(leadCaptureCalls(fetchMock)).toHaveLength(1));
+    const [, init] = leadCaptureCalls(fetchMock)[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       email: 'security@company.com',
+      full_name: 'Alex Morgan',
+      role_title: 'Security Engineering Lead',
       company: 'Company Inc',
       company_domain: 'company.com',
       environment: 'AWS IAM + Kubernetes',
       challenge: 'Trust path visibility',
+      identity_provider: 'AWS IAM Identity Center / SSO',
+      infrastructure_scope: '1-5 cloud accounts or clusters',
+      repository_url: 'https://gitlab.com/platform/security/identity-risk',
       page_path: '/read-only-scan'
     });
   });
@@ -349,7 +373,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Standard terms/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /Acceptance and scope/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /Acceptable use/i })).toBeInTheDocument();
-    expect(screen.getByText(/Customer data and integrations/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Customer data and integrations/i })).toBeInTheDocument();
     expect(screen.getByText(/Questions about these Terms of Use can be sent to security@identrail.com/i)).toBeInTheDocument();
   });
 

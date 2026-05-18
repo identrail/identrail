@@ -390,10 +390,15 @@ export type FindingLifecycleStatus = 'open' | 'ack' | 'suppressed' | 'resolved';
 
 export type LeadCapturePayload = {
   email: string;
+  full_name?: string;
+  role_title?: string;
   environment: string;
   company?: string;
   company_domain?: string;
   challenge?: string;
+  identity_provider?: string;
+  infrastructure_scope?: string;
+  repository_url?: string;
   website?: string;
   deployment_model?: string;
   scan_goal?: string;

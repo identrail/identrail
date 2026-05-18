@@ -52,6 +52,13 @@ function mockCompanyDomainDNS(hasRecords = true) {
   resolveMxMock.mockRejectedValue(new Error('not found'));
 }
 
+const readOnlyScanDetails = {
+  full_name: 'Alex Morgan',
+  role_title: 'Security Engineering Lead',
+  identity_provider: 'AWS IAM Identity Center / SSO',
+  infrastructure_scope: '1-5 cloud accounts or clusters'
+};
+
 describe('web/api/leads handler', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -152,6 +159,7 @@ describe('web/api/leads handler', () => {
           company: 'Company Inc',
           company_domain: 'other-company.com',
           environment: 'AWS IAM',
+          ...readOnlyScanDetails,
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
         }
@@ -161,6 +169,37 @@ describe('web/api/leads handler', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({ error: 'Company website must match the domain in your work email.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('requires requester details for read-only scan requests', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
+          environment: 'AWS IAM',
+          role_title: readOnlyScanDetails.role_title,
+          identity_provider: readOnlyScanDetails.identity_provider,
+          infrastructure_scope: readOnlyScanDetails.infrastructure_scope,
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Full name is required.' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -181,6 +220,7 @@ describe('web/api/leads handler', () => {
           company: 'Company Inc',
           company_domain: 'company.com',
           environment: 'AWS IAM',
+          ...readOnlyScanDetails,
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
         }
@@ -190,6 +230,102 @@ describe('web/api/leads handler', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({ error: 'Company website must be a registered domain with public DNS records.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid public repository URLs for read-only scan requests', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
+          environment: 'AWS IAM',
+          repository_url: 'https://example.com/company/repo',
+          ...readOnlyScanDetails,
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      error: 'Public repository URL must be a valid GitHub, GitLab, or Bitbucket organization or repository URL.'
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-string public repository URL values without throwing', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
+          environment: 'AWS IAM',
+          repository_url: 123,
+          ...readOnlyScanDetails,
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      error: 'Public repository URL must be a valid GitHub, GitLab, or Bitbucket organization or repository URL.'
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-web public repository URL schemes', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
+          environment: 'AWS IAM',
+          repository_url: 'ssh://git@github.com/company/repo',
+          ...readOnlyScanDetails,
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      error: 'Public repository URL must be a valid GitHub, GitLab, or Bitbucket organization or repository URL.'
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -217,6 +353,7 @@ describe('web/api/leads handler', () => {
           company: 'Company Inc',
           company_domain: 'company.com',
           environment: 'AWS IAM',
+          ...readOnlyScanDetails,
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
         }
@@ -246,6 +383,7 @@ describe('web/api/leads handler', () => {
           urgency: 'This quarter',
           team_size: '6-20',
           scan_goal: 'AWS IAM + Kubernetes trust-path risk reduction',
+          ...readOnlyScanDetails,
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
         }
@@ -430,7 +568,7 @@ describe('web/api/leads handler', () => {
         method: 'POST',
         body: {
           email: 'security@company.com',
-          company: 'Acme Corp',
+          company: 'Company Inc',
           company_domain: 'company.com',
           environment: 'AWS IAM + Kubernetes',
           challenge: 'Trust path visibility',
@@ -438,6 +576,8 @@ describe('web/api/leads handler', () => {
           urgency: 'This quarter',
           team_size: '6-20',
           scan_goal: 'AWS IAM + Kubernetes trust-path risk reduction',
+          repository_url: 'gitlab.com/platform/security/identity-risk/-/tree/main',
+          ...readOnlyScanDetails,
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
         }
@@ -453,12 +593,16 @@ describe('web/api/leads handler', () => {
     const notificationHeaders = (notificationInit.headers ?? {}) as Record<string, string>;
     expect(notificationHeaders.Authorization).toBe('Bearer re_test_key');
     expect(notificationHeaders['Idempotency-Key']).toMatch(/lead-notification$/);
-    expect(JSON.parse(String(notificationInit.body))).toMatchObject({
+    const notificationBody = JSON.parse(String(notificationInit.body));
+    expect(notificationBody).toMatchObject({
       from: 'Identrail <scan@identrail.com>',
       to: ['sales@identrail.com', 'security@identrail.com'],
       reply_to: 'security@company.com',
-      subject: '[Identrail] New risk scan request from Acme Corp (security@company.com)'
+      subject: '[Identrail] New risk scan request from Company Inc (security@company.com)'
     });
+    expect(notificationBody.text).toContain('Name: Alex Morgan');
+    expect(notificationBody.text).toContain('Role/title: Security Engineering Lead');
+    expect(notificationBody.text).toContain('Public repository: https://gitlab.com/platform/security/identity-risk');
 
     const [, confirmationInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     const confirmationHeaders = (confirmationInit.headers ?? {}) as Record<string, string>;
@@ -592,6 +736,7 @@ describe('web/api/leads handler', () => {
           company: 'Company Inc',
           company_domain: 'company.com',
           environment: 'AWS IAM + Kubernetes',
+          ...readOnlyScanDetails,
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
         }
@@ -691,6 +836,7 @@ describe('web/api/leads handler', () => {
           urgency: 'This quarter',
           team_size: '6-20',
           scan_goal: 'AWS IAM + Kubernetes trust-path risk reduction',
+          ...readOnlyScanDetails,
           source: 'Read-Only Scan Intake',
           page_path: '/read-only-scan'
         }
@@ -704,8 +850,12 @@ describe('web/api/leads handler', () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       email: 'security@company.com',
+      full_name: 'Alex Morgan',
+      role_title: 'Security Engineering Lead',
       environment: 'AWS IAM + Kubernetes',
-      challenge: 'Trust path visibility'
+      challenge: 'Trust path visibility',
+      identity_provider: 'AWS IAM Identity Center / SSO',
+      infrastructure_scope: '1-5 cloud accounts or clusters'
     });
   });
 });
