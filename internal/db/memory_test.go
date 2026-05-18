@@ -1180,6 +1180,13 @@ func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	if claimed.TraceParent == "" {
 		t.Fatal("expected claimed repo scan to retain queue traceparent")
 	}
+	storedClaimed, err := store.GetRepoScan(defaultScopeContext(), claimed.ID)
+	if err != nil {
+		t.Fatalf("get claimed repo scan: %v", err)
+	}
+	if !storedClaimed.StartedAt.After(claimed.StartedAt) {
+		t.Fatal("expected stored running repo scan to receive a fresh start timestamp")
+	}
 	if err := store.RequeueRepoScan(defaultScopeContext(), claimed.ID); err != nil {
 		t.Fatalf("requeue repo scan: %v", err)
 	}
@@ -1254,6 +1261,70 @@ func TestMemoryStoreClaimNextQueuedRepoScanAnyScope(t *testing.T) {
 	}
 	if claimed.ID != first.ID || claimed.TenantID != "tenant-b" || claimed.Status != "running" {
 		t.Fatalf("unexpected claimed repo scan across scopes: %+v", claimed)
+	}
+}
+
+func TestMemoryStoreRequeueStaleRepoScansAnyScope(t *testing.T) {
+	store := NewMemoryStore()
+	staleAt := time.Date(2026, 5, 18, 20, 0, 0, 0, time.UTC)
+	cutoff := staleAt.Add(35 * time.Minute)
+	otherScope := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+
+	firstStale, err := store.CreateRepoScan(defaultScopeContext(), "owner/stale-a", RepoScanSource{}, staleAt)
+	if err != nil {
+		t.Fatalf("create first stale repo scan: %v", err)
+	}
+	secondStale, err := store.CreateRepoScan(otherScope, "owner/stale-b", RepoScanSource{}, staleAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create second stale repo scan: %v", err)
+	}
+	fresh, err := store.CreateRepoScan(defaultScopeContext(), "owner/fresh", RepoScanSource{}, cutoff.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create fresh repo scan: %v", err)
+	}
+
+	requeued, err := store.RequeueStaleRepoScansAnyScope(context.Background(), cutoff, 1)
+	if err != nil {
+		t.Fatalf("requeue stale repo scans: %v", err)
+	}
+	if requeued != 1 {
+		t.Fatalf("expected one stale repo scan requeued, got %d", requeued)
+	}
+	firstStored, err := store.GetRepoScan(defaultScopeContext(), firstStale.ID)
+	if err != nil {
+		t.Fatalf("get first stale repo scan: %v", err)
+	}
+	if firstStored.Status != "queued" {
+		t.Fatalf("expected first stale scan to be queued, got %q", firstStored.Status)
+	}
+	secondStored, err := store.GetRepoScan(otherScope, secondStale.ID)
+	if err != nil {
+		t.Fatalf("get second stale repo scan: %v", err)
+	}
+	if secondStored.Status != "running" {
+		t.Fatalf("expected second stale scan to remain running after limited recovery, got %q", secondStored.Status)
+	}
+
+	requeued, err = store.RequeueStaleRepoScansAnyScope(context.Background(), cutoff, 10)
+	if err != nil {
+		t.Fatalf("requeue remaining stale repo scans: %v", err)
+	}
+	if requeued != 1 {
+		t.Fatalf("expected one remaining stale repo scan requeued, got %d", requeued)
+	}
+	secondStored, err = store.GetRepoScan(otherScope, secondStale.ID)
+	if err != nil {
+		t.Fatalf("get requeued second stale repo scan: %v", err)
+	}
+	if secondStored.Status != "queued" {
+		t.Fatalf("expected second stale scan to be queued, got %q", secondStored.Status)
+	}
+	freshStored, err := store.GetRepoScan(defaultScopeContext(), fresh.ID)
+	if err != nil {
+		t.Fatalf("get fresh repo scan: %v", err)
+	}
+	if freshStored.Status != "running" {
+		t.Fatalf("expected fresh running scan to remain running, got %q", freshStored.Status)
 	}
 }
 

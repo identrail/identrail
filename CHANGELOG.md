@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Recovered stale repository scans after worker replacement. Hosted workers now
+  requeue `running` repository scan rows older than the worker timeout grace
+  period before claiming new work, and repo scan claims refresh the stored
+  run timestamp so future recovery decisions measure execution age instead of
+  queue age.
 - Added GitHub App connector-backed private repository scans. Repo scan queue
   rows now store only non-secret source metadata, while API, scheduled, and
   webhook-triggered scans resolve the selected project connection and workers

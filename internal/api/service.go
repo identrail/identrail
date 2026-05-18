@@ -37,6 +37,8 @@ const (
 	defaultScanRetryBaseDelay        = 30 * time.Second
 	defaultScanRetryMaxDelay         = 15 * time.Minute
 	defaultRepoQueueMaxPending       = 100
+	defaultRepoScanRunningStaleAfter = 35 * time.Minute
+	defaultRepoScanStaleRequeueLimit = 100
 	defaultGitHubWebhookReplayWindow = 24 * time.Hour
 	defaultGitHubWebhookBurstWindow  = 30 * time.Second
 	maxSourceErrorsInEvent           = 25
@@ -1059,6 +1061,21 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 // ProcessNextQueuedRepoScan claims and executes one queued repository scan. It returns false when no job is available.
 func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	ctx = s.scopeContext(ctx)
+	requeuedStale, err := s.Store.RequeueStaleRepoScansAnyScope(
+		ctx,
+		s.Now().UTC().Add(-defaultRepoScanRunningStaleAfter),
+		defaultRepoScanStaleRequeueLimit,
+	)
+	if err != nil {
+		s.recordWorkerJob("repo_scan", "failure")
+		return false, fmt.Errorf("requeue stale repo scans: %w", err)
+	}
+	if requeuedStale > 0 {
+		for i := 0; i < requeuedStale; i++ {
+			s.recordWorkerRequeue("repo_scan")
+		}
+		s.recordAutomationRun("api_queue", "repo_scan", "requeued")
+	}
 	record, err := s.Store.ClaimNextQueuedRepoScanAnyScope(ctx)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {

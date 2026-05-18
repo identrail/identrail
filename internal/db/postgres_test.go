@@ -1550,6 +1550,47 @@ func TestPostgresStoreCountQueuedRepoScansAnyScope(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreRequeueStaleRepoScansAnyScope(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	staleBefore := time.Date(2026, 5, 18, 22, 40, 0, 0, time.UTC)
+	mock.ExpectExec(regexp.QuoteMeta(`WITH stale_repo_scans AS (
+			SELECT id
+			FROM repo_scans
+			WHERE status = 'running'
+			  AND started_at < $1
+			ORDER BY started_at ASC
+			FOR UPDATE SKIP LOCKED
+			LIMIT $2
+		)
+		UPDATE repo_scans AS r
+		SET status = 'queued',
+		    started_at = NOW(),
+		    finished_at = NULL,
+		    error_message = NULL
+		FROM stale_repo_scans
+		WHERE r.id = stale_repo_scans.id`)).
+		WithArgs(staleBefore, 25).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	requeued, err := store.RequeueStaleRepoScansAnyScope(context.Background(), staleBefore, 25)
+	if err != nil {
+		t.Fatalf("requeue stale repo scans any scope: %v", err)
+	}
+	if requeued != 2 {
+		t.Fatalf("expected two stale repo scans requeued, got %d", requeued)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
