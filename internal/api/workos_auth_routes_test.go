@@ -1247,6 +1247,89 @@ func TestWorkOSWebhookIsIdempotentByEventID(t *testing.T) {
 	}
 }
 
+// webhookRollbackProbeStore forces the user.deleted side effect to fail
+// transiently and records the context handed to DeleteWebhookEvent so the
+// test can assert the rollback runs on a context detached from the
+// (cancelled) request.
+type webhookRollbackProbeStore struct {
+	*db.MemoryStore
+	deleteCalled bool
+	deleteCtxErr error
+}
+
+func (s *webhookRollbackProbeStore) RevokeAllUserSessions(ctx context.Context, userID string, now time.Time) (int, error) {
+	return 0, errors.New("transient downstream failure")
+}
+
+func (s *webhookRollbackProbeStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error {
+	s.deleteCalled = true
+	s.deleteCtxErr = ctx.Err()
+	return s.MemoryStore.DeleteWebhookEvent(ctx, provider, eventID)
+}
+
+func TestWorkOSWebhookRollbackSurvivesCancelledRequestContext(t *testing.T) {
+	base := db.NewMemoryStore()
+	probe := &webhookRollbackProbeStore{MemoryStore: base}
+	now := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
+	svc := NewService(probe, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	user, err := base.UpsertUser(context.Background(), db.User{PrimaryEmail: "rollback@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := base.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_rollback",
+		LastAuthenticatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	secret := "whsec_123"
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: secret,
+		WorkOSAuthClient:    &fakeWorkOSClient{},
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+	payload := `{"event":"user.deleted","id":"event_rollback_1","data":{"object":"user","id":"user_workos_rollback","email":"rollback@example.com"}}`
+	sig := workOSTestSignature(time.Now().UTC(), secret, payload)
+
+	// The request context is already cancelled when the handler runs,
+	// mimicking a client disconnect / timeout that also caused the side
+	// effect to fail.
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload)).WithContext(cancelledCtx)
+	req.Header.Set("WorkOS-Signature", sig)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected transient failure 500, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if !probe.deleteCalled {
+		t.Fatal("rollback must delete the idempotency record on transient failure")
+	}
+	if probe.deleteCtxErr != nil {
+		t.Fatalf("rollback must run on a context detached from the cancelled request, got ctx err %v", probe.deleteCtxErr)
+	}
+	// The record was rolled back, so a provider retry is treated as a first
+	// delivery again instead of being permanently de-duplicated.
+	firstAgain, err := probe.RecordWebhookEventOnce(context.Background(), db.WebhookEvent{
+		Provider: "workos",
+		EventID:  "event_rollback_1",
+	})
+	if err != nil || !firstAgain {
+		t.Fatalf("after rollback the retry must reprocess (first=true), got first=%v err=%v", firstAgain, err)
+	}
+}
+
 func TestWorkOSWebhookRejectsBadSignatureAndIgnoresUnknownEvents(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

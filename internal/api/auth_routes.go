@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -929,8 +930,15 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 		// being applied. Deterministic outcomes (bad payload, identity
 		// conflict) intentionally keep the record so identical retries stay
 		// no-ops.
+		// The rollback runs on a fresh, bounded context detached from the
+		// request: a transient side-effect failure is often caused by the
+		// request context itself being cancelled (client disconnect,
+		// timeout), and reusing it would skip the cleanup and permanently
+		// de-duplicate the event, suppressing the provider retry.
 		rollbackIdempotency := func() {
-			if delErr := svc.Store.DeleteWebhookEvent(c.Request.Context(), "workos", eventID); delErr != nil && logger != nil {
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+			defer cancel()
+			if delErr := svc.Store.DeleteWebhookEvent(rollbackCtx, "workos", eventID); delErr != nil && logger != nil {
 				logger.Error("rollback workos webhook idempotency", telemetry.ZapError(delErr))
 			}
 		}
