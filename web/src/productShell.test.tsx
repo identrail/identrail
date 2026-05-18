@@ -39,7 +39,8 @@ async function renderProductIndexRedirect(featureEnabled: boolean, backendOnboar
       useBackendFeatures: () => ({
         features: {
           onboardingWizard: backendOnboarding,
-          connectors: { github: undefined, aws: undefined, kubernetes: undefined }
+          connectors: { github: undefined, aws: undefined, kubernetes: undefined },
+          configReachable: true
         },
         loading: false
       })
@@ -130,7 +131,8 @@ async function renderProjectDetail(
       useBackendFeatures: () => ({
         features: {
           onboardingWizard: undefined,
-          connectors: { github: githubBackend, aws: undefined, kubernetes: undefined }
+          connectors: { github: githubBackend, aws: undefined, kubernetes: undefined },
+          configReachable: true
         },
         loading: false
       })
@@ -198,10 +200,13 @@ describe('ProductAppIndexRedirect', () => {
     expect(screen.queryByText(/No workspace is attached yet/i)).not.toBeInTheDocument();
   });
 
-  it('falls back to the bundle flag when the API does not advertise onboarding', async () => {
+  it('shows a clear unavailable state when the API does not advertise onboarding', async () => {
     await renderProductIndexRedirect(true, undefined);
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Start onboarding' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Self-serve onboarding is not enabled on this API/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Start onboarding' })).not.toBeInTheDocument();
   });
 
   it('shows a clear unavailable state instead of a 404 when the API lacks onboarding', async () => {

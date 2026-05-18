@@ -44,6 +44,7 @@ describe('loadBackendFeatures', () => {
     const features = await loadBackendFeatures();
     expect(features.onboardingWizard).toBe(true);
     expect(features.connectors).toEqual({ github: false, aws: true, kubernetes: false });
+    expect(features.configReachable).toBe(true);
   });
 
   it('treats a missing features object as unknown (legacy API)', async () => {
@@ -52,6 +53,9 @@ describe('loadBackendFeatures', () => {
     const features = await loadBackendFeatures();
     expect(features.onboardingWizard).toBeUndefined();
     expect(features.connectors).toEqual({ github: undefined, aws: undefined, kubernetes: undefined });
+    // A reachable API that simply omits feature metadata still counts as
+    // reachable, so onboarding callers fail closed rather than falling back.
+    expect(features.configReachable).toBe(true);
   });
 
   it('degrades to unknown rather than throwing when auth/config fails', async () => {
@@ -59,6 +63,9 @@ describe('loadBackendFeatures', () => {
 
     const features = await loadBackendFeatures();
     expect(features.onboardingWizard).toBeUndefined();
+    // A transient fetch failure is distinguishable from missing metadata so
+    // onboarding callers can preserve the Vite-only fallback.
+    expect(features.configReachable).toBe(false);
   });
 
   it('memoizes a single auth/config call across callers', async () => {

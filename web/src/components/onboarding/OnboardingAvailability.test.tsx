@@ -6,6 +6,7 @@ async function renderGuard(opts: {
   featureEnabled: boolean;
   loading: boolean;
   onboardingWizard?: BackendFeatureState;
+  configReachable?: boolean;
 }) {
   vi.resetModules();
   vi.doMock('../../pages/onboarding/onboardingUtils', () => ({
@@ -18,7 +19,8 @@ async function renderGuard(opts: {
       useBackendFeatures: () => ({
         features: {
           onboardingWizard: opts.onboardingWizard,
-          connectors: { github: undefined, aws: undefined, kubernetes: undefined }
+          connectors: { github: undefined, aws: undefined, kubernetes: undefined },
+          configReachable: opts.configReachable ?? true
         },
         loading: opts.loading
       })
@@ -65,5 +67,24 @@ describe('RequireOnboardingBackend', () => {
     await renderGuard({ featureEnabled: true, loading: false, onboardingWizard: false });
 
     expect(await screen.findByRole('heading', { name: 'Fallback shown' })).toBeInTheDocument();
+  });
+
+  it('renders the fallback when the API does not advertise onboarding availability', async () => {
+    await renderGuard({ featureEnabled: true, loading: false, onboardingWizard: undefined });
+
+    expect(await screen.findByRole('heading', { name: 'Fallback shown' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Onboarding page' })).not.toBeInTheDocument();
+  });
+
+  it('preserves the Vite-only behavior when the auth/config request itself failed', async () => {
+    await renderGuard({
+      featureEnabled: true,
+      loading: false,
+      onboardingWizard: undefined,
+      configReachable: false
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Onboarding page' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Fallback shown' })).not.toBeInTheDocument();
   });
 });

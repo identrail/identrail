@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Failed closed when the API does not explicitly advertise self-serve
+  onboarding support, so authenticated users without a workspace see the
+  existing onboarding-unavailable state instead of entering a wizard that
+  immediately fails with a raw `Request failed (404)`.
 - Kept Vercel production connector UI flags in sync with GitHub Actions
   variables: the production deploy workflow now validates and upserts
   `VITE_FEATURE_CONNECTOR_AWS`, `VITE_FEATURE_CONNECTOR_GITHUB_V2`, and
