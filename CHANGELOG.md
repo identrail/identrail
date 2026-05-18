@@ -46,6 +46,11 @@
   `scopes: null` renders as `None granted` instead of tripping the app error
   boundary, and replaced the fallback error copy with user-facing workspace
   recovery language.
+- Replaced the standalone read-only scan page with a rectangular multi-step
+  modal opened by the new `Request Trust Path Review` CTA, keeping
+  `/read-only-scan` as a compatibility opener and collecting extra verifiable
+  requester, identity-provider, scope, and public repository context before the
+  final review-and-submit step.
 - Required explicit review before read-only scan intake submission and added
   stronger lead-quality checks for work emails, disposable domains, matching
   company websites, and publicly verifiable company DNS.

@@ -1,5 +1,5 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HeroOpenSourceProofPills } from './components/home/HeroOpenSourceProofPills';
@@ -65,11 +65,15 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 const THEME_STORAGE_KEY = 'identrail-theme';
+const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
 const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
+const FULL_NAME_ERROR = 'Please enter your name.';
+const ROLE_TITLE_ERROR = 'Please enter your role or title.';
 const COMPANY_NAME_ERROR = 'Please enter your company name.';
 const COMPANY_DOMAIN_ERROR = 'Please enter a real company website or domain.';
 const COMPANY_DOMAIN_MATCH_ERROR = 'Company website must match the domain in your work email.';
+const REPOSITORY_URL_ERROR = 'Please enter a valid public GitHub, GitLab, or Bitbucket organization or repository URL.';
 const PERSONAL_EMAIL_DOMAINS = new Set([
   'aol.com',
   'fastmail.com',
@@ -170,6 +174,76 @@ function companyDomainMatchesEmail(email: string, companyDomain: string): boolea
     domain &&
       companyDomain &&
       (domain === companyDomain || domain.endsWith(`.${companyDomain}`) || companyDomain.endsWith(`.${domain}`))
+  );
+}
+
+function normalizePublicRepositoryURLInput(value: string): string {
+  const raw = value.trim();
+  if (!raw) {
+    return '';
+  }
+  const candidate = raw.includes('://') ? raw : `https://${raw}`;
+  try {
+    const url = new URL(candidate);
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return '';
+    }
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (!['github.com', 'gitlab.com', 'bitbucket.org'].includes(host)) {
+      return '';
+    }
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const specialPathIndex = host === 'gitlab.com' ? pathParts.indexOf('-') : -1;
+    const canonicalPathParts = specialPathIndex >= 0 ? pathParts.slice(0, specialPathIndex) : pathParts;
+    const maxPathParts = host === 'gitlab.com' ? 20 : 2;
+    if (canonicalPathParts.length < 1 || canonicalPathParts.length > maxPathParts) {
+      return '';
+    }
+    return `${url.protocol}//${host}/${canonicalPathParts.join('/')}`;
+  } catch {
+    return '';
+  }
+}
+
+type ScanIntakeModalContextValue = {
+  openScanIntake: () => void;
+};
+
+const ScanIntakeModalContext = createContext<ScanIntakeModalContextValue | null>(null);
+
+function useScanIntakeModal() {
+  const context = useContext(ScanIntakeModalContext);
+  if (!context) {
+    throw new Error('Scan intake modal context is missing.');
+  }
+  return context;
+}
+
+function ScanIntakeCTA({
+  className,
+  children = SCAN_CTA_LABEL
+}: {
+  className: string;
+  children?: ReactNode;
+}) {
+  const { openScanIntake } = useScanIntakeModal();
+  return (
+    <button type="button" className={className} onClick={openScanIntake}>
+      {children}
+    </button>
+  );
+}
+
+export function ScanIntakeModalProvider({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const openScanIntake = useCallback(() => setOpen(true), []);
+  const closeScanIntake = useCallback(() => setOpen(false), []);
+
+  return (
+    <ScanIntakeModalContext.Provider value={{ openScanIntake }}>
+      {children}
+      {open ? <ScanIntakeModal onClose={closeScanIntake} /> : null}
+    </ScanIntakeModalContext.Provider>
   );
 }
 
@@ -1127,7 +1201,7 @@ function LeadCaptureForm({
             <>
               <label>
                 Company (optional)
-                <input type="text" name="company" autoComplete="organization" placeholder="Acme Corp" />
+                <input type="text" name="company" autoComplete="organization" placeholder="Registered company name" />
               </label>
               <label>
                 Biggest challenge
@@ -1156,11 +1230,13 @@ function LeadCaptureForm({
 function ModalShell({
   titleId,
   onClose,
-  children
+  children,
+  className = ''
 }: {
   titleId: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const modalRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -1225,7 +1301,7 @@ function ModalShell({
     <div className="idt-modal-backdrop" role="presentation" onClick={onClose}>
       <div
         ref={modalRef}
-        className="idt-modal"
+        className={`idt-modal ${className}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -1978,9 +2054,7 @@ function HomePage() {
               sensitive resources, then packages the proof and safest first fix for the owner.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-                Start Free Risk Scan
-              </Link>
+              <ScanIntakeCTA className="idt-btn idt-btn-primary" />
               <HeroOpenSourceProofPills />
             </div>
             <dl className="idt-hero-metrics" aria-label="Product assurances">
@@ -2066,12 +2140,17 @@ function HomePage() {
   );
 }
 
-function ReadOnlyScanPage() {
+function ScanIntakeModal({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [roleTitle, setRoleTitle] = useState('');
   const [environment, setEnvironment] = useState('AWS IAM + Kubernetes');
   const [deployment, setDeployment] = useState('Hosted SaaS');
+  const [identityProvider, setIdentityProvider] = useState('AWS IAM Identity Center / SSO');
+  const [infrastructureScope, setInfrastructureScope] = useState('1-5 cloud accounts or clusters');
   const [challenge, setChallenge] = useState('Trust path visibility');
+  const [repositoryUrl, setRepositoryUrl] = useState('');
   const [urgency, setUrgency] = useState('This quarter');
   const [teamSize, setTeamSize] = useState('6-20');
   const [company, setCompany] = useState('');
@@ -2080,14 +2159,8 @@ function ReadOnlyScanPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useSeo({
-    title: 'Start Free Risk Scan | Identrail',
-    description:
-      'Start a read-only machine identity risk scan with Identrail. Share planning context and receive a prioritized trust path report with rollout-safe remediation guidance.',
-    path: '/read-only-scan'
-  });
-
   const normalizedCompanyDomain = normalizeCompanyDomainInput(companyDomain);
+  const normalizedRepositoryUrl = normalizePublicRepositoryURLInput(repositoryUrl);
 
   const validateIdentityStep = (form?: HTMLFormElement | null) => {
     if (form && !form.reportValidity()) {
@@ -2095,6 +2168,14 @@ function ReadOnlyScanPage() {
     }
     if (!isWorkEmailAddress(email)) {
       setError(WORK_EMAIL_ERROR);
+      return false;
+    }
+    if (!fullName.trim()) {
+      setError(FULL_NAME_ERROR);
+      return false;
+    }
+    if (!roleTitle.trim()) {
+      setError(ROLE_TITLE_ERROR);
       return false;
     }
     if (!company.trim()) {
@@ -2113,8 +2194,23 @@ function ReadOnlyScanPage() {
     return true;
   };
 
+  const validateRepositoryStep = (form?: HTMLFormElement | null) => {
+    if (form && !form.reportValidity()) {
+      return false;
+    }
+    if (repositoryUrl.trim() && !normalizedRepositoryUrl) {
+      setError(REPOSITORY_URL_ERROR);
+      return false;
+    }
+    setError(null);
+    return true;
+  };
+
   const advanceStep = (form?: HTMLFormElement | null) => {
     if (step === 1 && !validateIdentityStep(form)) {
+      return;
+    }
+    if (step === 3 && !validateRepositoryStep(form)) {
       return;
     }
     setError(null);
@@ -2133,6 +2229,9 @@ function ReadOnlyScanPage() {
     if (!validateIdentityStep(event.currentTarget)) {
       return;
     }
+    if (!validateRepositoryStep(event.currentTarget)) {
+      return;
+    }
 
     const formData = new FormData(event.currentTarget);
     const website = String(formData.get('website') ?? '').trim();
@@ -2143,15 +2242,25 @@ function ReadOnlyScanPage() {
     try {
       await apiClient.submitLeadCapture({
         email: email.trim(),
+        full_name: fullName.trim(),
+        role_title: roleTitle.trim(),
         environment,
         company: company.trim(),
         company_domain: normalizedCompanyDomain,
         challenge: challenge,
+        identity_provider: identityProvider,
+        infrastructure_scope: infrastructureScope,
+        repository_url: normalizedRepositoryUrl || undefined,
         website: website || undefined,
         deployment_model: deployment,
         urgency,
         team_size: teamSize,
-        scan_goal: `${environment} trust path risk reduction`,
+        scan_goal: [
+          `${environment} trust path risk reduction`,
+          `identity provider: ${identityProvider}`,
+          `scope: ${infrastructureScope}`,
+          normalizedRepositoryUrl ? `public repo: ${normalizedRepositoryUrl}` : ''
+        ].filter(Boolean).join('; '),
         source: 'Read-Only Scan Intake',
         page_path: '/read-only-scan'
       });
@@ -2164,47 +2273,54 @@ function ReadOnlyScanPage() {
     }
   };
 
-  return (
-    <>
-      <section className="idt-scan-hero">
-        <div className="idt-scan-hero-copy">
-          <p className="idt-eyebrow">Read-only scan</p>
-          <h1>Start a read-only identity risk scan</h1>
-          <p>
-            Share planning context only. We never ask for environment credentials here, and your first report focuses on machine
-            identity trust paths, reachable blast radius, and rollout-safe next steps.
-          </p>
-          <ul className="idt-scan-assurances" aria-label="Read-only scan assurances">
-            <li>No credentials requested</li>
-            <li>Prioritized trust path findings</li>
-            <li>Deployment-safe remediation plan</li>
-          </ul>
-        </div>
-        <div className="idt-scan-visual" aria-hidden="true">
-          <div className="idt-scan-visual-heading">
-            <span>Identity trust path</span>
-            <strong>Preview report</strong>
-          </div>
-          <div className="idt-scan-path">
-            <span className="is-source">GitHub runner</span>
-            <span className="is-hop">OIDC trust</span>
-            <span className="is-risk">AWS admin role</span>
-          </div>
-          <dl className="idt-scan-risk-metrics">
-            <div>
-              <dt>Exposure</dt>
-              <dd>High</dd>
-            </div>
-            <div>
-              <dt>Action</dt>
-              <dd>Sequence safely</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
+  const stepTitle = submitted
+    ? 'Request received'
+    : step === INTAKE_TOTAL_STEPS
+      ? 'Review before submitting'
+      : step === 1
+        ? 'Verify company identity'
+        : step === 2
+          ? 'Describe the environment'
+          : 'Prioritize the first review';
 
-      <section className="idt-scan-intake" aria-labelledby="scan-intake-title">
-        <form className="idt-scan-form" onSubmit={submitIntake}>
+  const guidance = [
+    'Use a company email, not a personal inbox.',
+    'Enter the registered company website that matches the email domain.',
+    'Share public context only: no keys, tokens, credentials, or screenshots of secrets.',
+    'Add a public GitHub, GitLab, or Bitbucket organization or repository URL only if it helps verify the workspace.'
+  ];
+
+  return (
+    <ModalShell titleId="scan-intake-title" onClose={onClose} className="idt-scan-modal">
+      <button type="button" className="idt-modal-close" onClick={onClose} aria-label="Close dialog">
+        x
+      </button>
+      <div className="idt-scan-modal-shell">
+        <aside className="idt-scan-modal-guide" aria-label="Scan request guidance">
+          <p className="idt-eyebrow">Read-only trust review</p>
+          <h2>Request a trust path review</h2>
+          <p>
+            A short, review-first request gives the team enough public context to prepare a useful trust-path report.
+          </p>
+          <ol className="idt-scan-stepper" aria-label="Scan request steps">
+            {['Identity', 'Environment', 'Priority', 'Review'].map((label, index) => (
+              <li key={label} className={step === index + 1 ? 'is-active' : ''}>
+                <span>{index + 1}</span>
+                {label}
+              </li>
+            ))}
+          </ol>
+          <div className="idt-scan-guidance-list">
+            <h3>What to prepare</h3>
+            <ul>
+              {guidance.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </aside>
+
+        <form className="idt-scan-form idt-scan-modal-form" onSubmit={submitIntake}>
           <input
             className="idt-honeypot"
             type="text"
@@ -2215,9 +2331,9 @@ function ReadOnlyScanPage() {
           />
           <div className="idt-scan-form-header">
             <p className="idt-intake-step">Step {submitted ? INTAKE_TOTAL_STEPS : step} of {INTAKE_TOTAL_STEPS}</p>
-            <h2 id="scan-intake-title">{submitted ? 'Request received' : step === INTAKE_TOTAL_STEPS ? 'Review before submitting' : 'Tell us where to start'}</h2>
+            <h2 id="scan-intake-title">{stepTitle}</h2>
             <p>
-              A short intake keeps the first scan focused. Review your details before anything is sent to the team.
+              Nothing is sent until you review and submit the final step.
             </p>
           </div>
           {!submitted ? (
@@ -2241,13 +2357,50 @@ function ReadOnlyScanPage() {
                     />
                   </label>
                   <label>
+                    Your name
+                    <input
+                      required
+                      type="text"
+                      value={fullName}
+                      onChange={(event) => {
+                        setFullName(event.target.value);
+                        if (error === FULL_NAME_ERROR) {
+                          setError(null);
+                        }
+                      }}
+                      placeholder="Alex Morgan"
+                      autoComplete="name"
+                    />
+                  </label>
+                  <label>
+                    Role or title
+                    <input
+                      required
+                      type="text"
+                      value={roleTitle}
+                      onChange={(event) => {
+                        setRoleTitle(event.target.value);
+                        if (error === ROLE_TITLE_ERROR) {
+                          setError(null);
+                        }
+                      }}
+                      placeholder="Security Engineering Lead"
+                      autoComplete="organization-title"
+                    />
+                  </label>
+                  <label>
                     Company name
                     <input
                       required
                       type="text"
                       value={company}
-                      onChange={(event) => setCompany(event.target.value)}
-                      placeholder="Your registered company name"
+                      onChange={(event) => {
+                        setCompany(event.target.value);
+                        if (error === COMPANY_NAME_ERROR) {
+                          setError(null);
+                        }
+                      }}
+                      placeholder="Registered company name"
                       autoComplete="organization"
                     />
                   </label>
@@ -2290,6 +2443,26 @@ function ReadOnlyScanPage() {
                       <option>Enterprise private tenancy</option>
                     </select>
                   </label>
+                  <label>
+                    Identity provider
+                    <select value={identityProvider} onChange={(event) => setIdentityProvider(event.target.value)}>
+                      <option>AWS IAM Identity Center / SSO</option>
+                      <option>GitHub Actions OIDC</option>
+                      <option>Kubernetes service accounts</option>
+                      <option>Okta / WorkOS / SAML</option>
+                      <option>Mixed or unsure</option>
+                    </select>
+                  </label>
+                  <label>
+                    Infrastructure scope
+                    <select value={infrastructureScope} onChange={(event) => setInfrastructureScope(event.target.value)}>
+                      <option>1-5 cloud accounts or clusters</option>
+                      <option>6-20 cloud accounts or clusters</option>
+                      <option>21-50 cloud accounts or clusters</option>
+                      <option>50+ cloud accounts or clusters</option>
+                      <option>Unsure / discovery needed</option>
+                    </select>
+                  </label>
                 </div>
               ) : null}
 
@@ -2321,6 +2494,22 @@ function ReadOnlyScanPage() {
                       <option>50+</option>
                     </select>
                   </label>
+                  <label>
+                    Public code host organization or repository
+                    <input
+                      type="text"
+                      inputMode="url"
+                      value={repositoryUrl}
+                      onChange={(event) => {
+                        setRepositoryUrl(event.target.value);
+                        if (error === REPOSITORY_URL_ERROR) {
+                          setError(null);
+                        }
+                      }}
+                      placeholder="https://github.com/company/repo"
+                      autoComplete="url"
+                    />
+                  </label>
                   <article className="idt-intake-summary">
                     <h3>What you receive</h3>
                     <ul>
@@ -2338,6 +2527,7 @@ function ReadOnlyScanPage() {
                     <div>
                       <span>Work email</span>
                       <strong>{email.trim()}</strong>
+                      <p>{fullName.trim()} - {roleTitle.trim()}</p>
                     </div>
                     <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep(1)}>
                       Edit
@@ -2357,7 +2547,8 @@ function ReadOnlyScanPage() {
                     <div>
                       <span>Environment</span>
                       <strong>{environment}</strong>
-                      <p>{deployment}</p>
+                      <p>{deployment} - {identityProvider}</p>
+                      <p>{infrastructureScope}</p>
                     </div>
                     <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep(2)}>
                       Edit
@@ -2368,6 +2559,7 @@ function ReadOnlyScanPage() {
                       <span>Focus</span>
                       <strong>{challenge}</strong>
                       <p>{urgency} - Team size {teamSize}</p>
+                      {normalizedRepositoryUrl ? <p>{normalizedRepositoryUrl}</p> : null}
                     </div>
                     <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep(3)}>
                       Edit
@@ -2397,27 +2589,43 @@ function ReadOnlyScanPage() {
                   </button>
                 ) : (
                   <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting}>
-                    {submitting ? 'Submitting...' : 'Submit Risk Scan Request'}
+                    {submitting ? 'Submitting...' : 'Submit Review Request'}
                   </button>
                 )}
               </div>
             </>
           ) : (
             <div className="idt-intake-confirmation">
-              <h3>Intake submitted</h3>
-              <p>Your read-only scan intake was sent to the Identrail team. We will follow up by email with the next step.</p>
+              <h3>Review request submitted</h3>
+              <p>Your trust path review request was sent to the Identrail team. We will follow up by email with the next step.</p>
               <div className="idt-inline-actions">
-                <Link to="/demo" className="idt-btn idt-btn-dark">
-                  Book Demo
-                </Link>
-                <Link to="/docs" className="idt-btn idt-btn-ghost">
-                  Review Documentation
-                </Link>
+                <button type="button" className="idt-btn idt-btn-primary" onClick={onClose}>
+                  Close
+                </button>
               </div>
             </div>
           )}
         </form>
-      </section>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ReadOnlyScanPage() {
+  const { openScanIntake } = useScanIntakeModal();
+  const navigate = useNavigate();
+  const [handoffStarted, setHandoffStarted] = useState(false);
+
+  useEffect(() => {
+    setHandoffStarted(true);
+    openScanIntake();
+    navigate('/', { replace: true });
+  }, [navigate, openScanIntake]);
+
+  return (
+    <>
+      <HomePage />
+      {!handoffStarted ? <ScanIntakeModal onClose={() => navigate('/', { replace: true })} /> : null}
     </>
   );
 }
@@ -2445,9 +2653,7 @@ function ProductPage() {
             <Link to="/demo" className="idt-btn idt-btn-primary">
               Explore Product Demo
             </Link>
-            <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
-              Start Free Risk Scan
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-dark" />
           </div>
         </div>
         <ProductHeroVisual />
@@ -2657,9 +2863,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
           <Link to="/demo" className="idt-btn idt-btn-primary">
             Open Interactive Demo
           </Link>
-          <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
-            Start Free Risk Scan
-          </Link>
+          <ScanIntakeCTA className="idt-btn idt-btn-dark" />
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
             Star on GitHub
           </SafeLink>
@@ -2691,7 +2895,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
         <LeadCaptureForm
           title={`Get a ${page.navLabel} workflow walkthrough`}
           caption="Share your environment goals and we will tailor a practical machine identity rollout plan."
-          ctaLabel="Start Free Risk Scan"
+          ctaLabel={SCAN_CTA_LABEL}
         />
       </section>
     </>
@@ -2845,9 +3049,7 @@ function PricingPage() {
         visual={<PricingHeroVisual />}
         actions={
           <>
-            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Pro Trial
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
               Talk to Enterprise
             </button>
@@ -2903,9 +3105,7 @@ function PricingPage() {
               <li>SAML SSO, alerts, and workflow integrations</li>
               <li>14-day hosted trial with guided setup</li>
             </ul>
-            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Pro Trial
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
           </article>
 
           <article className="idt-pricing-card">
@@ -2967,9 +3167,7 @@ function PricingPage() {
           <Link to="/roi-assessment" className="idt-btn idt-btn-primary">
             Open ROI Assessment
           </Link>
-          <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
-            Start Free Risk Scan
-          </Link>
+          <ScanIntakeCTA className="idt-btn idt-btn-dark" />
         </div>
       </section>
 
@@ -3026,9 +3224,7 @@ function RoiAssessmentPage() {
 
       <section className="idt-section idt-shell">
         <div className="idt-inline-actions">
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
-          </Link>
+          <ScanIntakeCTA className="idt-btn idt-btn-primary" />
           <Link to="/pricing" className="idt-btn idt-btn-dark">
             Compare Pricing Plans
           </Link>
@@ -3083,9 +3279,7 @@ function DeploymentModelsPage() {
               <li>Read-only onboarding for first scan</li>
               <li>Accelerated query and collaboration workflows</li>
             </ul>
-            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
           </article>
           <article className="idt-card">
             <h2>Enterprise Private</h2>
@@ -3198,9 +3392,7 @@ function IntegrationsPage() {
               <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
                 Open Documentation
               </SafeLink>
-              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-                Start Free Risk Scan
-              </Link>
+              <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             </div>
           </article>
         </div>
@@ -3241,11 +3433,9 @@ function DemoPage() {
           </article>
           <article className="idt-card">
             <h2>What to do next</h2>
-            <p>Run a free risk scan to map your own trust paths, or book a guided walkthrough with security engineering.</p>
+            <p>Run a read-only risk scan to map your own trust paths, or book a guided walkthrough with security engineering.</p>
             <div className="idt-inline-actions">
-              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-                Start Free Risk Scan
-              </Link>
+              <ScanIntakeCTA className="idt-btn idt-btn-primary" />
               <Link to="/enterprise" className="idt-btn idt-btn-dark">
                 Book Demo
               </Link>
@@ -3261,9 +3451,7 @@ function DemoPage() {
           body="Start in hosted SaaS or self-host OSS and import your first AWS account or Kubernetes cluster."
         />
         <div className="idt-inline-actions">
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
-          </Link>
+          <ScanIntakeCTA className="idt-btn idt-btn-primary" />
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
             Run Self-Hosted
           </SafeLink>
@@ -3479,9 +3667,7 @@ function BlogArticlePage() {
             </ul>
           </section>
           <div className="idt-inline-actions">
-            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             <Link to="/blog" className="idt-btn idt-btn-ghost">
               Back to Blog
             </Link>
@@ -3577,9 +3763,7 @@ function SecurityPage() {
           <Link to="/responsible-disclosure" className="idt-btn idt-btn-dark">
             Responsible Disclosure
           </Link>
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
-          </Link>
+          <ScanIntakeCTA className="idt-btn idt-btn-primary" />
           <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
             Review Security Docs
           </SafeLink>
@@ -4158,7 +4342,9 @@ export function RoutedSite() {
 export function App() {
   return (
     <BrowserRouter>
-      <RoutedSite />
+      <ScanIntakeModalProvider>
+        <RoutedSite />
+      </ScanIntakeModalProvider>
     </BrowserRouter>
   );
 }

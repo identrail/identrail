@@ -2220,7 +2220,11 @@ h2 {
   position: fixed;
   inset: 0;
   z-index: 420;
-  background: rgba(4, 11, 23, 0.83);
+  background:
+    radial-gradient(circle at 50% 8%, rgba(98, 58, 196, 0.14), transparent 34%),
+    rgba(2, 5, 12, 0.76);
+  -webkit-backdrop-filter: blur(30px) saturate(0.78) brightness(0.58);
+  backdrop-filter: blur(30px) saturate(0.78) brightness(0.58);
   display: grid;
   place-items: center;
   padding: 1rem;
@@ -15098,6 +15102,253 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
   box-shadow: none;
 }
 
+.idt-modal.idt-scan-modal {
+  width: min(96vw, 980px);
+  max-height: min(90vh, 860px);
+  overflow: hidden;
+  padding: 0;
+  border-color: #2d2d30;
+  border-radius: 8px;
+  background: #050505;
+  color: #ffffff;
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.idt-scan-modal .idt-modal-close {
+  z-index: 2;
+  top: 0.8rem;
+  right: 0.8rem;
+  border-color: #303033;
+  background: #0f0f10;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.idt-scan-modal-shell {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.38fr) minmax(0, 1fr);
+  max-height: min(90vh, 860px);
+}
+
+.idt-scan-modal-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: auto;
+  border-right: 1px solid #242427;
+  background: #090909;
+  padding: 1.35rem;
+}
+
+.idt-scan-modal-guide h2 {
+  margin: 0;
+  max-width: 12ch;
+  color: #ffffff;
+  font-size: clamp(1.8rem, 3vw, 2.65rem);
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.idt-scan-modal-guide p {
+  margin: 0;
+  color: #c9c9cf;
+  line-height: 1.55;
+}
+
+.idt-scan-stepper {
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.idt-scan-stepper li {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 42px;
+  border: 1px solid #26262a;
+  border-radius: 8px;
+  padding: 0.42rem 0.55rem;
+  color: #b8b8bf;
+  font-weight: 760;
+}
+
+.idt-scan-stepper li span {
+  display: inline-grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 999px;
+  background: #141416;
+  color: #d7d7dc;
+  font-size: 0.78rem;
+}
+
+.idt-scan-stepper li.is-active {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-scan-stepper li.is-active span {
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-scan-guidance-list {
+  margin-top: auto;
+  border-top: 1px solid #242427;
+  padding-top: 1rem;
+}
+
+.idt-scan-guidance-list h3 {
+  margin: 0 0 0.65rem;
+  color: #ffffff;
+  font-size: 0.9rem;
+}
+
+.idt-scan-guidance-list ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.45rem;
+  color: #c9c9cf;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.idt-scan-modal-form.idt-scan-form {
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-content: start;
+  overflow: auto;
+  max-width: none;
+  max-height: min(90vh, 860px);
+  padding: 1.35rem;
+}
+
+.idt-scan-modal-form .idt-scan-form-header {
+  position: static;
+  gap: 0.5rem;
+  border-left: 0;
+  border-bottom: 1px solid #242427;
+  padding: 0 2rem 1rem 0;
+}
+
+.idt-scan-modal-form .idt-scan-form-header h2 {
+  font-family: var(--idt-display);
+  font-size: clamp(1.45rem, 2.5vw, 2rem);
+  line-height: 1.08;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idt-scan-modal-form .idt-scan-form-header > p:last-child {
+  max-width: 54ch;
+  line-height: 1.5;
+}
+
+.idt-scan-modal-form .idt-intake-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.idt-scan-modal-form .idt-intake-grid label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.idt-scan-modal-form .idt-intake-grid input,
+.idt-scan-modal-form .idt-intake-grid select {
+  min-height: 52px;
+}
+
+.idt-scan-modal-form .idt-inline-actions,
+.idt-scan-modal-form .idt-form-error {
+  grid-column: auto;
+}
+
+.idt-scan-modal-form .idt-inline-actions {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+.idt-scan-modal-form .idt-form-error {
+  margin: 0;
+  border: 1px solid #4b2a2a;
+  border-radius: 8px;
+  background: #1a0909;
+  padding: 0.75rem 0.85rem;
+}
+
+.idt-scan-modal-form .idt-intake-summary {
+  grid-column: 1 / -1;
+  border: 1px solid #2a2a2a;
+  border-left: 3px solid #ffffff;
+  border-radius: 8px;
+  background: #090909;
+  padding: 1rem;
+}
+
+.idt-scan-modal-form .idt-intake-review {
+  gap: 0.65rem;
+}
+
+.idt-scan-modal-form .idt-intake-review-row {
+  padding: 0.85rem;
+}
+
+.idt-scan-modal-form .idt-intake-confirmation {
+  display: grid;
+  gap: 0.8rem;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  background: #090909;
+  padding: 1rem;
+}
+
+.idt-scan-modal-form .idt-intake-confirmation h3 {
+  margin: 0;
+}
+
+html[data-theme='light'] .idt-modal.idt-scan-modal,
+html[data-theme='light'] .idt-modal.idt-scan-modal h2,
+html[data-theme='light'] .idt-modal.idt-scan-modal h3,
+html[data-theme='light'] .idt-scan-modal-guide h2,
+html[data-theme='light'] .idt-scan-guidance-list h3,
+html[data-theme='light'] .idt-scan-modal-form .idt-scan-form-header h2,
+html[data-theme='light'] .idt-scan-modal-form .idt-intake-summary h3,
+html[data-theme='light'] .idt-scan-modal-form .idt-intake-confirmation h3 {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .idt-scan-modal-guide p,
+html[data-theme='light'] .idt-scan-modal-guide li,
+html[data-theme='light'] .idt-scan-modal-form .idt-scan-form-header > p:last-child,
+html[data-theme='light'] .idt-scan-modal-form .idt-intake-confirmation,
+html[data-theme='light'] .idt-scan-modal-form .idt-intake-confirmation p,
+html[data-theme='light'] .idt-scan-modal-form .idt-intake-review-row p {
+  color: #d9d9df;
+}
+
+html[data-theme='light'] .idt-scan-modal-form .idt-intake-step,
+html[data-theme='light'] .idt-scan-modal-form .idt-intake-grid label {
+  color: #f7f7fa;
+}
+
+html[data-theme='light'] .idt-scan-stepper li {
+  color: #c6c6cc;
+}
+
+html[data-theme='light'] .idt-scan-stepper li.is-active {
+  color: #000000;
+}
+
 @media (max-width: 980px) {
   .idt-scan-hero {
     grid-template-columns: 1fr;
@@ -15123,6 +15374,31 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
   .idt-scan-form .idt-inline-actions,
   .idt-scan-form .idt-form-error {
     grid-column: auto;
+  }
+
+  .idt-scan-modal-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-scan-modal-guide {
+    border-right: 0;
+    border-bottom: 1px solid #242427;
+  }
+
+  .idt-scan-modal-guide h2 {
+    max-width: none;
+  }
+
+  .idt-scan-stepper {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .idt-scan-stepper li {
+    justify-content: center;
+  }
+
+  .idt-scan-guidance-list {
+    margin-top: 0;
   }
 }
 
@@ -15159,6 +15435,33 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
 
   .idt-scan-form .idt-inline-actions .idt-btn {
     width: 100%;
+  }
+
+  .idt-modal.idt-scan-modal {
+    width: min(100%, calc(100vw - 1rem));
+    overflow: auto;
+  }
+
+  .idt-scan-modal-shell {
+    max-height: none;
+  }
+
+  .idt-scan-modal-form.idt-scan-form {
+    max-height: none;
+    overflow: visible;
+    padding: 1rem;
+  }
+
+  .idt-scan-modal-guide {
+    padding: 1rem;
+  }
+
+  .idt-scan-stepper {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-scan-modal-form .idt-intake-grid {
+    grid-template-columns: 1fr;
   }
 }
 

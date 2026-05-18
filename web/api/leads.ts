@@ -4,10 +4,15 @@ import { isIP } from 'node:net';
 
 type LeadCapturePayload = {
   email?: string;
+  full_name?: string;
+  role_title?: string;
   environment?: string;
   company?: string;
   company_domain?: string;
   challenge?: string;
+  identity_provider?: string;
+  infrastructure_scope?: string;
+  repository_url?: string;
   website?: string;
   deployment_model?: string;
   scan_goal?: string;
@@ -28,10 +33,15 @@ const MIN_RATE_LIMIT_PER_MIN = 1;
 const MAX_RATE_LIMIT_PER_MIN = 120;
 const RATE_WINDOW_MS = 60_000;
 const MAX_EMAIL_LENGTH = 254;
+const MAX_PERSON_NAME_LENGTH = 120;
+const MAX_ROLE_TITLE_LENGTH = 120;
 const MAX_ENVIRONMENT_LENGTH = 180;
 const MAX_COMPANY_LENGTH = 120;
 const MAX_COMPANY_DOMAIN_LENGTH = 253;
 const MAX_CHALLENGE_LENGTH = 2_000;
+const MAX_IDENTITY_PROVIDER_LENGTH = 120;
+const MAX_INFRASTRUCTURE_SCOPE_LENGTH = 120;
+const MAX_REPOSITORY_URL_LENGTH = 240;
 const MAX_SCAN_GOAL_LENGTH = 600;
 const MAX_SOURCE_LENGTH = 120;
 const MAX_PAGE_PATH_LENGTH = 240;
@@ -40,9 +50,14 @@ const MAX_URGENCY_LENGTH = 32;
 const MAX_DEPLOYMENT_MODEL_LENGTH = 64;
 const RESEND_EMAILS_URL = 'https://api.resend.com/emails';
 const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
+const FULL_NAME_ERROR = 'Full name is required.';
+const ROLE_TITLE_ERROR = 'Role or title is required.';
+const IDENTITY_PROVIDER_ERROR = 'Identity provider is required.';
+const INFRASTRUCTURE_SCOPE_ERROR = 'Infrastructure scope is required.';
 const COMPANY_DOMAIN_ERROR = 'Please enter a real company website or domain.';
 const COMPANY_DOMAIN_MATCH_ERROR = 'Company website must match the domain in your work email.';
 const COMPANY_DOMAIN_VERIFICATION_ERROR = 'Company website must be a registered domain with public DNS records.';
+const REPOSITORY_URL_ERROR = 'Public repository URL must be a valid GitHub, GitLab, or Bitbucket organization or repository URL.';
 const PERSONAL_EMAIL_DOMAINS = new Set([
   'aol.com',
   'fastmail.com',
@@ -90,10 +105,15 @@ const leadRequestBuckets = new Map<string, number[]>();
 
 type LeadDeliveryPayload = {
   email: string;
+  full_name?: string;
+  role_title?: string;
   environment: string;
   company?: string;
   company_domain?: string;
   challenge?: string;
+  identity_provider?: string;
+  infrastructure_scope?: string;
+  repository_url?: string;
   deployment_model?: string;
   scan_goal?: string;
   urgency?: string;
@@ -180,6 +200,44 @@ function companyDomainMatchesEmail(email: string, companyDomain: string): boolea
   );
 }
 
+function normalizePublicRepositoryURLInput(value: unknown): string {
+  const raw = trimOptional(value) ?? '';
+  if (!raw) {
+    return '';
+  }
+  const candidate = raw.includes('://') ? raw : `https://${raw}`;
+  try {
+    const url = new URL(candidate);
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return '';
+    }
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (!['github.com', 'gitlab.com', 'bitbucket.org'].includes(host)) {
+      return '';
+    }
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const specialPathIndex = host === 'gitlab.com' ? pathParts.indexOf('-') : -1;
+    const canonicalPathParts = specialPathIndex >= 0 ? pathParts.slice(0, specialPathIndex) : pathParts;
+    const maxPathParts = host === 'gitlab.com' ? 20 : 2;
+    if (canonicalPathParts.length < 1 || canonicalPathParts.length > maxPathParts) {
+      return '';
+    }
+    return `${url.protocol}//${host}/${canonicalPathParts.join('/')}`;
+  } catch {
+    return '';
+  }
+}
+
+function hasPublicRepositoryURLInput(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === 'string') {
+    return Boolean(value.trim());
+  }
+  return true;
+}
+
 const DNS_LOOKUP_TIMEOUT_MS = 2_000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -201,10 +259,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 async function hasPublicDNSRecords(domain: string): Promise<boolean> {
   // Bound each resolver call so a slow/unresponsive DNS server cannot stall
   // lead submission and degrade overall API responsiveness.
-  const lookups = [resolveMx(domain), resolve4(domain), resolve6(domain)].map((lookup) =>
+  const lookups: Array<Promise<unknown[]>> = [resolveMx(domain), resolve4(domain), resolve6(domain)];
+  const boundedLookups = lookups.map((lookup) =>
     withTimeout(lookup, DNS_LOOKUP_TIMEOUT_MS)
   );
-  const results = await Promise.allSettled(lookups);
+  const results = await Promise.allSettled(boundedLookups);
   return results.some((result) => result.status === 'fulfilled' && result.value.length > 0);
 }
 
@@ -342,10 +401,15 @@ function leadDisplayName(payload: LeadDeliveryPayload): string {
 function leadRows(payload: LeadDeliveryPayload): Array<[string, string | undefined]> {
   return [
     ['Work email', payload.email],
+    ['Name', payload.full_name],
+    ['Role/title', payload.role_title],
     ['Company', payload.company],
     ['Company domain', payload.company_domain],
     ['Environment', payload.environment],
     ['Challenge', payload.challenge],
+    ['Identity provider', payload.identity_provider],
+    ['Infrastructure scope', payload.infrastructure_scope],
+    ['Public repository', payload.repository_url],
     ['Deployment model', payload.deployment_model],
     ['Urgency', payload.urgency],
     ['Team size', payload.team_size],
@@ -394,8 +458,13 @@ function renderConfirmationText(payload: LeadDeliveryPayload): string {
     '',
     'We received your intake and will review the context before following up.',
     '',
+    `Requester: ${payload.full_name || 'Not provided'}`,
+    `Role/title: ${payload.role_title || 'Not provided'}`,
     `Environment: ${payload.environment}`,
     `Company domain: ${payload.company_domain || 'Not provided'}`,
+    `Identity provider: ${payload.identity_provider || 'Not provided'}`,
+    `Infrastructure scope: ${payload.infrastructure_scope || 'Not provided'}`,
+    `Public repository: ${payload.repository_url || 'Not provided'}`,
     `Focus area: ${payload.challenge || 'Trust path visibility'}`,
     `Deployment preference: ${payload.deployment_model || 'Not provided'}`,
     '',
@@ -409,8 +478,13 @@ function renderConfirmationHTML(payload: LeadDeliveryPayload): string {
       <h1 style="font-size:20px;margin:0 0 12px;">We received your Identrail risk scan request</h1>
       <p style="margin:0 0 16px;">Thanks for requesting a read-only machine identity risk scan. We will review the context before following up.</p>
       <ul style="padding-left:20px;margin:0 0 16px;color:#374151;">
+        <li><strong>Requester:</strong> ${escapeHTML(payload.full_name || 'Not provided')}</li>
+        <li><strong>Role/title:</strong> ${escapeHTML(payload.role_title || 'Not provided')}</li>
         <li><strong>Environment:</strong> ${escapeHTML(payload.environment)}</li>
         <li><strong>Company domain:</strong> ${escapeHTML(payload.company_domain || 'Not provided')}</li>
+        <li><strong>Identity provider:</strong> ${escapeHTML(payload.identity_provider || 'Not provided')}</li>
+        <li><strong>Infrastructure scope:</strong> ${escapeHTML(payload.infrastructure_scope || 'Not provided')}</li>
+        <li><strong>Public repository:</strong> ${escapeHTML(payload.repository_url || 'Not provided')}</li>
         <li><strong>Focus area:</strong> ${escapeHTML(payload.challenge || 'Trust path visibility')}</li>
         <li><strong>Deployment preference:</strong> ${escapeHTML(payload.deployment_model || 'Not provided')}</li>
       </ul>
@@ -544,10 +618,15 @@ export default async function handler(
 
   const body: LeadCapturePayload = req.body && typeof req.body === 'object' ? (req.body as LeadCapturePayload) : {};
   const email = trimOptional(body.email) ?? '';
+  const fullName = trimOptional(body.full_name);
+  const roleTitle = trimOptional(body.role_title);
   const environment = trimOptional(body.environment) ?? '';
   const company = trimOptional(body.company);
   const companyDomain = normalizeCompanyDomainInput(body.company_domain);
   const challenge = trimOptional(body.challenge);
+  const identityProvider = trimOptional(body.identity_provider);
+  const infrastructureScope = trimOptional(body.infrastructure_scope);
+  const repositoryURL = normalizePublicRepositoryURLInput(body.repository_url);
   const website = trimOptional(body.website);
   const scanGoal = trimOptional(body.scan_goal);
   const source = trimOptional(body.source) || 'unknown';
@@ -568,6 +647,22 @@ export default async function handler(
     badRequest(res, 'Environment is required.');
     return;
   }
+  if (requiresCompanyDomain && !fullName) {
+    badRequest(res, FULL_NAME_ERROR);
+    return;
+  }
+  if (requiresCompanyDomain && !roleTitle) {
+    badRequest(res, ROLE_TITLE_ERROR);
+    return;
+  }
+  if (requiresCompanyDomain && !identityProvider) {
+    badRequest(res, IDENTITY_PROVIDER_ERROR);
+    return;
+  }
+  if (requiresCompanyDomain && !infrastructureScope) {
+    badRequest(res, INFRASTRUCTURE_SCOPE_ERROR);
+    return;
+  }
   if (requiresCompanyDomain && !company) {
     badRequest(res, 'Company name is required.');
     return;
@@ -584,6 +679,12 @@ export default async function handler(
   if (!assertLength(res, email, MAX_EMAIL_LENGTH, 'Email is too long.')) {
     return;
   }
+  if (fullName && !assertLength(res, fullName, MAX_PERSON_NAME_LENGTH, 'Name is too long.')) {
+    return;
+  }
+  if (roleTitle && !assertLength(res, roleTitle, MAX_ROLE_TITLE_LENGTH, 'Role or title is too long.')) {
+    return;
+  }
   if (!assertLength(res, environment, MAX_ENVIRONMENT_LENGTH, 'Environment value is too long.')) {
     return;
   }
@@ -594,6 +695,19 @@ export default async function handler(
     return;
   }
   if (challenge && !assertLength(res, challenge, MAX_CHALLENGE_LENGTH, 'Challenge value is too long.')) {
+    return;
+  }
+  if (identityProvider && !assertLength(res, identityProvider, MAX_IDENTITY_PROVIDER_LENGTH, 'Identity provider value is too long.')) {
+    return;
+  }
+  if (infrastructureScope && !assertLength(res, infrastructureScope, MAX_INFRASTRUCTURE_SCOPE_LENGTH, 'Infrastructure scope value is too long.')) {
+    return;
+  }
+  if (hasPublicRepositoryURLInput(body.repository_url) && !repositoryURL) {
+    badRequest(res, REPOSITORY_URL_ERROR);
+    return;
+  }
+  if (repositoryURL && !assertLength(res, repositoryURL, MAX_REPOSITORY_URL_LENGTH, 'Public repository URL is too long.')) {
     return;
   }
   if (scanGoal && !assertLength(res, scanGoal, MAX_SCAN_GOAL_LENGTH, 'Scan goal value is too long.')) {
@@ -627,10 +741,15 @@ export default async function handler(
 
   const payload: LeadDeliveryPayload = {
     email,
+    full_name: fullName,
+    role_title: roleTitle,
     environment,
     company,
     company_domain: companyDomain || undefined,
     challenge,
+    identity_provider: identityProvider,
+    infrastructure_scope: infrastructureScope,
+    repository_url: repositoryURL || undefined,
     deployment_model: deploymentModel && ALLOWED_DEPLOYMENT_MODELS.has(deploymentModel) ? deploymentModel : undefined,
     scan_goal: scanGoal,
     urgency: urgency && ALLOWED_URGENCY.has(urgency) ? urgency : undefined,
