@@ -1261,10 +1261,10 @@ func (s *webhookRollbackProbeStore) RevokeAllUserSessions(ctx context.Context, u
 	return 0, errors.New("transient downstream failure")
 }
 
-func (s *webhookRollbackProbeStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error {
+func (s *webhookRollbackProbeStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string) error {
 	s.deleteCalled = true
 	s.deleteCtxErr = ctx.Err()
-	return s.MemoryStore.DeleteWebhookEvent(ctx, provider, eventID)
+	return s.MemoryStore.DeleteWebhookEvent(ctx, provider, eventID, claimToken)
 }
 
 func TestWorkOSWebhookRollbackSurvivesCancelledRequestContext(t *testing.T) {
@@ -1321,7 +1321,7 @@ func TestWorkOSWebhookRollbackSurvivesCancelledRequestContext(t *testing.T) {
 	}
 	// The record was rolled back, so a provider retry is treated as a first
 	// delivery again instead of being permanently de-duplicated.
-	firstAgain, err := probe.BeginWebhookEvent(context.Background(), db.WebhookEvent{
+	firstAgain, _, err := probe.BeginWebhookEvent(context.Background(), db.WebhookEvent{
 		Provider: "workos",
 		EventID:  "event_rollback_1",
 	}, now)
@@ -1333,7 +1333,7 @@ func TestWorkOSWebhookRollbackSurvivesCancelledRequestContext(t *testing.T) {
 func TestWorkOSWebhookDuplicateInFlightIsRetryable(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
-	if _, err := store.BeginWebhookEvent(context.Background(), db.WebhookEvent{Provider: "workos", EventID: "event_inflight"}, now); err != nil {
+	if _, _, err := store.BeginWebhookEvent(context.Background(), db.WebhookEvent{Provider: "workos", EventID: "event_inflight"}, now); err != nil {
 		t.Fatalf("seed webhook claim: %v", err)
 	}
 

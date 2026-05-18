@@ -12,7 +12,10 @@
   check is durable across restarts and shared across API instances; a
   transient server-side failure rolls back the claim so a provider retry can
   reprocess, and a claim left behind by a crashed instance is reclaimable
-  after a grace period.
+  after a grace period. Each claim carries a token so a superseded stale
+  handler cannot complete or erase the reclaiming retry's in-flight claim;
+  completion and rollback run on a request-detached context; and rows that
+  predate the ledger are treated as already-processed.
 - Added per-request defense-in-depth on `/auth/manual`: the handler now
   rejects any request whose resolved client IP (honoring the configured
   trusted-proxy list) is not a loopback address, unless

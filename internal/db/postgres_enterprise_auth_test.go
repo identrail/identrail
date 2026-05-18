@@ -646,57 +646,64 @@ func TestPostgresBeginWebhookEvent(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
 
-	// First delivery: the insert wins and RETURNING yields the event id.
+	// First delivery: the insert wins (claim_token is random -> AnyArg) and
+	// RETURNING yields the event id.
 	mock.ExpectQuery("INSERT INTO webhook_events").
-		WithArgs("workos", "event_1", "user.deleted", now).
+		WithArgs("workos", "event_1", "user.deleted", sqlmock.AnyArg(), now).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id"}).AddRow("event_1"))
-	first, err := store.BeginWebhookEvent(ctx, WebhookEvent{
+	first, tok, err := store.BeginWebhookEvent(ctx, WebhookEvent{
 		Provider:   " workos ",
 		EventID:    " event_1 ",
 		EventType:  "user.deleted",
 		ReceivedAt: now,
 	}, now)
-	if err != nil || first != WebhookEventClaimed {
-		t.Fatalf("expected first delivery to be claimed, got %v err=%v", first, err)
+	if err != nil || first != WebhookEventClaimed || tok == "" {
+		t.Fatalf("expected first delivery claimed with token, got %v tok=%q err=%v", first, tok, err)
 	}
 
-	// Duplicate while in-flight: status remains processing.
+	// Duplicate while in-flight: insert conflicts, stale-reclaim UPDATE
+	// matches nothing, status read returns 'processing'.
 	mock.ExpectQuery("INSERT INTO webhook_events").
-		WithArgs("workos", "event_1", "", now).
+		WithArgs("workos", "event_1", "", sqlmock.AnyArg(), now).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
 	mock.ExpectQuery("UPDATE webhook_events").
-		WithArgs("workos", "event_1", now, "", now.Add(-WebhookProcessingReclaimAfter)).
+		WithArgs("workos", "event_1", now, "", now.Add(-WebhookProcessingReclaimAfter), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
 	mock.ExpectQuery("SELECT status FROM webhook_events").
 		WithArgs("workos", "event_1").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("processing"))
-	processing, err := store.BeginWebhookEvent(ctx, WebhookEvent{
+	processing, ptok, err := store.BeginWebhookEvent(ctx, WebhookEvent{
 		Provider:   "workos",
 		EventID:    "event_1",
 		ReceivedAt: now,
 	}, now)
-	if err != nil || processing != WebhookEventProcessing {
-		t.Fatalf("expected duplicate delivery to be processing, got %v err=%v", processing, err)
+	if err != nil || processing != WebhookEventProcessing || ptok != "" {
+		t.Fatalf("expected duplicate delivery processing with no token, got %v tok=%q err=%v", processing, ptok, err)
 	}
 
+	// Completion is fenced by the claim token.
 	mock.ExpectExec("UPDATE webhook_events SET status = 'processed'").
-		WithArgs("workos", "event_1", now).
+		WithArgs("workos", "event_1", "tok-1", now).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", now); err != nil {
+	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", "tok-1", now); err != nil {
 		t.Fatalf("complete webhook event: %v", err)
+	}
+	// A superseded handler with no/blank token never touches the DB.
+	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", "", now); err != nil {
+		t.Fatalf("blank-token complete should be a no-op: %v", err)
 	}
 
 	// Duplicate after processing is a no-op success.
 	mock.ExpectQuery("INSERT INTO webhook_events").
-		WithArgs("workos", "event_1", "", now).
+		WithArgs("workos", "event_1", "", sqlmock.AnyArg(), now).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
 	mock.ExpectQuery("UPDATE webhook_events").
-		WithArgs("workos", "event_1", now, "", now.Add(-WebhookProcessingReclaimAfter)).
+		WithArgs("workos", "event_1", now, "", now.Add(-WebhookProcessingReclaimAfter), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
 	mock.ExpectQuery("SELECT status FROM webhook_events").
 		WithArgs("workos", "event_1").
 		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("processed"))
-	processed, err := store.BeginWebhookEvent(ctx, WebhookEvent{
+	processed, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{
 		Provider:   "workos",
 		EventID:    "event_1",
 		ReceivedAt: now,
@@ -706,13 +713,16 @@ func TestPostgresBeginWebhookEvent(t *testing.T) {
 	}
 
 	mock.ExpectExec("DELETE FROM webhook_events").
-		WithArgs("workos", "event_1").
+		WithArgs("workos", "event_1", "tok-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1"); err != nil {
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1", "tok-1"); err != nil {
 		t.Fatalf("delete webhook event: %v", err)
 	}
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1", ""); err != nil {
+		t.Fatalf("blank-token delete should be a no-op: %v", err)
+	}
 
-	if _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "", EventID: "x"}, now); err == nil {
+	if _, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "", EventID: "x"}, now); err == nil {
 		t.Fatal("missing provider should be rejected before any query")
 	}
 

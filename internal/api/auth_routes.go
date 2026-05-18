@@ -908,7 +908,7 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 		if svc.Now != nil {
 			now = svc.Now().UTC()
 		}
-		status, err := svc.Store.BeginWebhookEvent(c.Request.Context(), db.WebhookEvent{
+		status, claimToken, err := svc.Store.BeginWebhookEvent(c.Request.Context(), db.WebhookEvent{
 			Provider:  "workos",
 			EventID:   eventID,
 			EventType: strings.TrimSpace(event.Event),
@@ -934,23 +934,28 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhook is being processed; retry later"})
 			return
 		}
-		// status == claimed: this delivery owns processing.
+		// status == claimed: this delivery owns processing, fenced by
+		// claimToken so a handler whose claim was reclaimed cannot complete
+		// or erase the successor's claim.
+		//
+		// Both completion and rollback run on a fresh, bounded context
+		// detached from the request. The request context is frequently
+		// cancelled exactly when these need to run (client disconnect /
+		// timeout): reusing it for completion would leave the row
+		// 'processing' so later deliveries 503 until the stale window and
+		// then reapply the side effect; reusing it for rollback would skip
+		// the cleanup and permanently de-duplicate the event.
 		completeIdempotency := func() {
-			if cmpErr := svc.Store.CompleteWebhookEvent(c.Request.Context(), "workos", eventID, now); cmpErr != nil && logger != nil {
+			completeContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+			defer cancel()
+			if cmpErr := svc.Store.CompleteWebhookEvent(completeContext, "workos", eventID, claimToken, now); cmpErr != nil && logger != nil {
 				logger.Error("complete workos webhook idempotency", telemetry.ZapError(cmpErr))
 			}
 		}
-		// rollbackIdempotency lets a provider retry reprocess the event when
-		// a transient server-side failure prevented the side effects from
-		// being applied. It runs on a fresh, bounded context detached from
-		// the request: a transient failure is often caused by the request
-		// context itself being cancelled (client disconnect, timeout), and
-		// reusing it would skip the cleanup and permanently de-duplicate the
-		// event, suppressing the provider retry.
 		rollbackIdempotency := func() {
 			rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
 			defer cancel()
-			if delErr := svc.Store.DeleteWebhookEvent(rollbackContext, "workos", eventID); delErr != nil && logger != nil {
+			if delErr := svc.Store.DeleteWebhookEvent(rollbackContext, "workos", eventID, claimToken); delErr != nil && logger != nil {
 				logger.Error("rollback workos webhook idempotency", telemetry.ZapError(delErr))
 			}
 		}

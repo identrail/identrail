@@ -2224,17 +2224,27 @@ type Store interface {
 	// already fully handled (the caller returns a no-op success). Atomic at
 	// the database, so it holds across restarts and concurrent API
 	// instances.
-	BeginWebhookEvent(ctx context.Context, event WebhookEvent, now time.Time) (WebhookEventStatus, error)
+	// When the status is WebhookEventClaimed the returned claim token
+	// identifies this specific claim; it must be passed back to
+	// CompleteWebhookEvent / DeleteWebhookEvent so a handler whose claim was
+	// reclaimed (because it ran past WebhookProcessingReclaimAfter and a
+	// retry took over) cannot complete or erase the successor's claim. The
+	// token is empty for the non-claimed statuses.
+	BeginWebhookEvent(ctx context.Context, event WebhookEvent, now time.Time) (WebhookEventStatus, string, error)
 	// CompleteWebhookEvent marks a claimed event as fully processed so later
 	// duplicate deliveries become no-op successes. Called after side effects
 	// are durably applied, or for a deterministic terminal outcome (bad
 	// payload, identity conflict) that an identical retry would not resolve.
-	CompleteWebhookEvent(ctx context.Context, provider string, eventID string, now time.Time) error
-	// DeleteWebhookEvent removes a claimed webhook row. It rolls back the
-	// claim when a transient (server-side) failure prevented the side
-	// effects from being applied, so a provider retry can reprocess it
-	// instead of being permanently de-duplicated.
-	DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error
+	// It only acts on the row if claimToken still matches the active claim,
+	// so a superseded stale handler cannot mark the successor's in-flight
+	// claim processed.
+	CompleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string, now time.Time) error
+	// DeleteWebhookEvent rolls back a claimed webhook row when a transient
+	// (server-side) failure prevented the side effects from being applied,
+	// so a provider retry can reprocess it. It only deletes the row if
+	// claimToken still matches the active claim, so a superseded stale
+	// handler cannot erase the successor's claim.
+	DeleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string) error
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
 	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	DeleteIdentityConnection(ctx context.Context, orgID string, connectionID string) error
