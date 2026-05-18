@@ -71,6 +71,7 @@ type SourceProfile = {
   summary: string;
   primarySignal: string;
   requiredAccess: string;
+  logo: string;
 };
 
 type SourceAvailability = {
@@ -116,7 +117,8 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
     eyebrow: 'Code and workflow identity',
     summary: 'Connect a GitHub App installation and select repositories that should feed exposure telemetry.',
     primarySignal: 'Repositories, workflow identity, webhook scan triggers',
-    requiredAccess: 'GitHub App installation with selected repository access'
+    requiredAccess: 'GitHub App installation with selected repository access',
+    logo: '/brand-logos/github.svg'
   },
   aws: {
     provider: 'aws',
@@ -124,7 +126,8 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
     eyebrow: 'Cloud IAM identity',
     summary: 'Validate a read-only IAM role before Identrail records the account connector.',
     primarySignal: 'Roles, trust policies, account identity, IAM read checks',
-    requiredAccess: 'Assumable read-only IAM role ARN'
+    requiredAccess: 'Assumable read-only IAM role ARN',
+    logo: '/brand-logos/aws.svg'
   },
   kubernetes: {
     provider: 'kubernetes',
@@ -132,7 +135,8 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
     eyebrow: 'Cluster service identity',
     summary: 'Install a read-only in-cluster agent or use kubeconfig fallback for ad-hoc development.',
     primarySignal: 'Service accounts, RBAC bindings, pods, cluster metadata',
-    requiredAccess: 'Read-only ClusterRole through the Identrail agent'
+    requiredAccess: 'Read-only ClusterRole through the Identrail agent',
+    logo: '/brand-logos/kubernetes.svg'
   }
 };
 const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as const;
@@ -143,6 +147,7 @@ const SOURCE_ORDER: SourceProvider[] = [
   'aws',
   ...(FEATURE_CONNECTOR_K8S ? (['kubernetes'] as SourceProvider[]) : [])
 ];
+const SOURCE_STACK: SourceProvider[] = [...SOURCE_ORDER];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
@@ -162,6 +167,59 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
 };
 
 const TREND_POINTS = 10;
+
+function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
+  return SOURCE_STACK.includes(provider) ? provider : null;
+}
+
+export function SourceLogoMark({ provider, className = '' }: { provider: SourceProvider; className?: string }) {
+  const enabledProvider = resolveEnabledSourceProvider(provider);
+  if (!enabledProvider) {
+    return null;
+  }
+
+  const profile = SOURCE_PROFILES[enabledProvider];
+  const classes = ['idt-source-logo-mark', `is-${enabledProvider}`, className].filter(Boolean).join(' ');
+  return (
+    <span className={classes} role="img" aria-label={profile.name}>
+      <img src={profile.logo} alt="" aria-hidden="true" loading="lazy" />
+    </span>
+  );
+}
+
+function SourceLogoStack({
+  providers = SOURCE_STACK,
+  label = 'Source coverage stack',
+  className = ''
+}: {
+  providers?: SourceProvider[];
+  label?: string;
+  className?: string;
+}) {
+  const classes = ['idt-source-logo-stack', className].filter(Boolean).join(' ');
+  return (
+    <div className={classes} role="group" aria-label={label}>
+      {providers.map((provider) => (
+        <SourceLogoMark key={provider} provider={provider} />
+      ))}
+    </div>
+  );
+}
+
+function formatSourceNameList(providers: SourceProvider[]): string {
+  const names = providers.map((provider) => SOURCE_PROFILES[provider].name);
+  if (names.length === 0) {
+    return 'source';
+  }
+  if (names.length === 1) {
+    return names[0];
+  }
+  if (names.length === 2) {
+    return `${names[0]} and ${names[1]}`;
+  }
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
 async function listOverviewProjects(
   workspaceID: string,
   filters: { include_archived: boolean },
@@ -906,6 +964,7 @@ export function ProductShellLayout() {
   }
 
   const basePath = buildScopedPath(scope);
+  const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
 
   return (
     <ProductErrorBoundary>
@@ -913,7 +972,7 @@ export function ProductShellLayout() {
         <aside className="idt-app-sidebar" aria-label="Workspace navigation">
           <div className="idt-app-sidebar-brand">
             <Link className="idt-app-sidebar-mark" to={basePath} aria-label="Identrail app home">
-              I
+              <img src="/identrail-logo.png" alt="" aria-hidden="true" />
             </Link>
             <div>
               <strong>Identrail</strong>
@@ -951,6 +1010,7 @@ export function ProductShellLayout() {
           </nav>
 
           <div className="idt-app-sidebar-footer">
+            <SourceLogoStack className="idt-app-sidebar-logo-stack" label="Workspace source logos" />
             <span>Read-only evidence first</span>
             <strong>Operator-ready workflow</strong>
           </div>
@@ -970,6 +1030,10 @@ export function ProductShellLayout() {
                   </>
                 ) : null}
               </p>
+              <div className="idt-app-header-stack">
+                <SourceLogoStack label="Available machine identity sources" />
+                <span>{enabledSourceLabel} signals stay visible across the workflow.</span>
+              </div>
             </div>
             <div className="idt-app-shell-actions">
               <Link to="/app/account/security" className="idt-btn idt-btn-ghost">
@@ -1152,6 +1216,10 @@ export function ProductOverviewPage() {
               Operating view for tenant <strong>{scope?.tenantID ?? 'unknown'}</strong> and workspace{' '}
               <strong>{scope?.workspaceID ?? 'unknown'}</strong>.
             </p>
+            <div className="idt-overview-source-strip">
+              <SourceLogoStack label="Workspace source stack" />
+              <span>Source telemetry, cloud IAM, and runtime identity in one queue.</span>
+            </div>
           </div>
           <div className="idt-inline-actions">
             <Link className="idt-btn idt-btn-primary" to={projectsPath}>
@@ -1164,23 +1232,35 @@ export function ProductOverviewPage() {
         </header>
 
         <div className="idt-overview-metrics" aria-label="Workspace health metrics">
-          <article>
-            <span>Active projects</span>
+          <article className="idt-overview-metric-card is-light-surface">
+            <div className="idt-overview-metric-top">
+              <span>Active projects</span>
+              <SourceLogoStack label="Project source coverage" />
+            </div>
             <strong>{activeProjects.length}</strong>
             <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : 'All listed projects are active'}</p>
           </article>
-          <article>
-            <span>Priority findings</span>
+          <article className="idt-overview-metric-card is-danger-surface">
+            <div className="idt-overview-metric-top">
+              <span>Priority findings</span>
+              <SourceLogoStack label="Priority finding source coverage" />
+            </div>
             <strong>{openFindingCount}</strong>
             <p>{urgentFindingCount} critical or high in the ranked queue</p>
           </article>
-          <article>
-            <span>Recent scans</span>
+          <article className="idt-overview-metric-card is-provider-surface">
+            <div className="idt-overview-metric-top">
+              <span>Recent scans</span>
+              <SourceLogoMark provider="github" />
+            </div>
             <strong>{repoScans.length}</strong>
             <p>{activeScanCount > 0 ? `${activeScanCount} still running` : `${completedScanCount} completed`}</p>
           </article>
-          <article>
-            <span>Trend delta</span>
+          <article className="idt-overview-metric-card">
+            <div className="idt-overview-metric-top">
+              <span>Trend delta</span>
+              <SourceLogoStack label="Trend source coverage" />
+            </div>
             <strong>{trendDelta === null ? 'N/A' : trendDelta > 0 ? `+${trendDelta}` : trendDelta}</strong>
             <p>
               {latestTrend
@@ -1207,13 +1287,16 @@ export function ProductOverviewPage() {
                   const repository = canonicalGitHubRepositoryDisplay(finding.repository ?? '');
                   return (
                     <article key={`${finding.scan_id}:${finding.id}`} className="idt-overview-risk-row">
-                      <div>
-                        <strong>{finding.title}</strong>
-                        <p>
-                          {repository || 'Repository unavailable'} · {repoFindingLocationLabel(finding)}
-                        </p>
+                      <SourceLogoMark provider="github" className="is-row" />
+                      <div className="idt-overview-row-copy">
+                        <div>
+                          <strong>{finding.title}</strong>
+                          <p>
+                            {repository || 'Repository unavailable'} · {repoFindingLocationLabel(finding)}
+                          </p>
+                        </div>
+                        <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
                       </div>
-                      <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
                     </article>
                   );
                 })}
@@ -1238,15 +1321,18 @@ export function ProductOverviewPage() {
               <div className="idt-overview-list">
                 {repoScans.map((scan) => (
                   <article key={scan.id} className="idt-overview-scan-row">
-                    <div>
-                      <strong>{canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository}</strong>
-                      <p>
-                        {scan.finding_count} findings · {scan.files_scanned} files · {formatDateLabel(scan.started_at)}
-                      </p>
+                    <SourceLogoMark provider="github" className="is-row" />
+                    <div className="idt-overview-row-copy">
+                      <div>
+                        <strong>{canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository}</strong>
+                        <p>
+                          {scan.finding_count} findings · {scan.files_scanned} files · {formatDateLabel(scan.started_at)}
+                        </p>
+                      </div>
+                      <span className={`idt-source-status-pill is-${isActiveScanStatus(scan.status) ? 'warning' : scan.status === 'failed' ? 'error' : 'success'}`}>
+                        {formatTokenLabel(scan.status)}
+                      </span>
                     </div>
-                    <span className={`idt-source-status-pill is-${isActiveScanStatus(scan.status) ? 'warning' : scan.status === 'failed' ? 'error' : 'success'}`}>
-                      {formatTokenLabel(scan.status)}
-                    </span>
                   </article>
                 ))}
               </div>
@@ -1272,7 +1358,10 @@ export function ProductOverviewPage() {
               <div className="idt-overview-projects">
                 {activeProjects.slice(0, 6).map((project) => (
                   <Link key={project.project_id} to={scope ? buildProjectPath(scope, project.project_id) : projectsPath}>
-                    <strong>{project.name}</strong>
+                    <div className="idt-overview-project-title">
+                      <strong>{project.name}</strong>
+                      <SourceLogoStack label={`${project.name} source stack`} />
+                    </div>
                     <span>{project.description || `Project ${project.project_id}`}</span>
                     <small>Updated {formatDateLabel(project.updated_at)}</small>
                   </Link>
@@ -1295,18 +1384,22 @@ export function ProductOverviewPage() {
             </div>
             <div className="idt-overview-actions">
               <Link to={projectsPath}>
+                <SourceLogoStack label="Project action source stack" />
                 <strong>Create or select a project</strong>
                 <span>Define the scope that connectors and scan policies will attach to.</span>
               </Link>
               <Link to={scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath}>
+                <SourceLogoStack label="Connector action source stack" />
                 <strong>Connect sources</strong>
-                <span>Attach GitHub, AWS, or Kubernetes telemetry to an active project.</span>
+                <span>Attach enabled source telemetry to an active project.</span>
               </Link>
               <Link to={findingsPath}>
+                <SourceLogoMark provider="github" />
                 <strong>Triage open findings</strong>
                 <span>Review direct GitHub line links, severity, remediation, and workflow status.</span>
               </Link>
               <Link to={workspacesPath}>
+                <SourceLogoStack label="Operator access source coverage" />
                 <strong>Invite operators</strong>
                 <span>Give analysts and admins access to the workspace they operate.</span>
               </Link>
@@ -2195,6 +2288,7 @@ export function ProductProjectsPage() {
   );
   const archivedProjectCount = projects.length - activeProjectCount;
   const latestProject = projects[0];
+  const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
 
   if (!scope) {
     return <AppShellLoading message="Resolving workspace scope" />;
@@ -2275,7 +2369,11 @@ export function ProductProjectsPage() {
         <div>
           <p className="idt-app-kicker">Project registry</p>
           <h2>Choose a project before connecting source data</h2>
-          <p>Projects set the workspace boundary for GitHub, AWS, and Kubernetes onboarding.</p>
+          <p>Projects set the workspace boundary for {enabledSourceLabel} onboarding.</p>
+          <div className="idt-overview-source-strip">
+            <SourceLogoStack label="Project source stack" />
+            <span>Each project can carry enabled source signals without losing ownership context.</span>
+          </div>
         </div>
         <div className="idt-inline-actions">
           <Link className="idt-btn idt-btn-ghost" to={buildScopedPath(scope)}>
@@ -2285,16 +2383,25 @@ export function ProductProjectsPage() {
       </div>
 
       <div className="idt-projects-summary">
-        <article>
-          <span>{projects.length}</span>
+        <article className="is-light-surface">
+          <div className="idt-overview-metric-top">
+            <span>{projects.length}</span>
+            <SourceLogoStack label="All projects source coverage" />
+          </div>
           <p>Total projects</p>
         </article>
         <article>
-          <span>{activeProjectCount}</span>
+          <div className="idt-overview-metric-top">
+            <span>{activeProjectCount}</span>
+            <SourceLogoStack label="Active project source coverage" />
+          </div>
           <p>Active boundaries</p>
         </article>
         <article>
-          <span>{latestProject ? formatConnectionTime(latestProject.updated_at) : 'No activity yet'}</span>
+          <div className="idt-overview-metric-top">
+            <span>{latestProject ? formatConnectionTime(latestProject.updated_at) : 'No activity yet'}</span>
+            <SourceLogoStack label="Latest project source coverage" />
+          </div>
           <p>Latest update</p>
         </article>
       </div>
@@ -2327,7 +2434,10 @@ export function ProductProjectsPage() {
                   <article key={project.project_id} className="idt-project-card">
                     <div className="idt-project-card-header">
                       <div>
-                        <h4>{project.name}</h4>
+                        <div className="idt-project-card-title">
+                          <h4>{project.name}</h4>
+                          <SourceLogoStack label={`${project.name} source stack`} />
+                        </div>
                         <p>{project.description || 'No description yet. Use this project to scope connector onboarding and scan ownership.'}</p>
                       </div>
                       <span
@@ -2543,6 +2653,7 @@ export function ProductProjectDetailPage() {
   const repoScanRepository = normalizeValue(repoScanForm.repository);
   const effectiveRepoScanRepository = repoScanRepository || githubSelectedRepositories[0] || '';
   const repoScanFindingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
+  const enabledSourceLabel = formatSourceNameList(sourceOrder);
 
   const nextRequestSequence = () => {
     const nextSequence = refreshSequenceRef.current + 1;
@@ -3197,9 +3308,9 @@ export function ProductProjectDetailPage() {
         historyLimit: String(policy.history_limit),
         maxFindings: String(policy.max_findings)
       });
-	      setSuccessMessage('Scan policy saved.');
-	      setPolicySaving(false);
-	      void refreshConnections(true);
+      setSuccessMessage('Scan policy saved.');
+      setPolicySaving(false);
+      void refreshConnections(true);
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
@@ -3227,9 +3338,9 @@ export function ProductProjectDetailPage() {
       if (isStaleRequestSequence(requestSequence)) {
         return;
       }
-	      setSuccessMessage(`Scan policy ${normalizedPolicyID} deleted.`);
-	      setPolicyDeletingID('');
-	      void refreshConnections(true);
+      setSuccessMessage(`Scan policy ${normalizedPolicyID} deleted.`);
+      setPolicyDeletingID('');
+      void refreshConnections(true);
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
@@ -3249,9 +3360,13 @@ export function ProductProjectDetailPage() {
           <p className="idt-app-kicker">Project source onboarding</p>
           <h2>Connect sources for {projectID}</h2>
           <p>
-            Add GitHub, AWS, or Kubernetes signals for workspace <strong>{scope.workspaceID}</strong> with live
+            Add {enabledSourceLabel} signals for workspace <strong>{scope.workspaceID}</strong> with live
             validation and remediation feedback.
           </p>
+          <div className="idt-overview-source-strip">
+            <SourceLogoStack providers={sourceOrder} label="Available project sources" />
+            <span>Connect only the systems this project actually owns.</span>
+          </div>
         </div>
         <button
           type="button"
@@ -3266,16 +3381,25 @@ export function ProductProjectDetailPage() {
       </div>
 
       <div className="idt-source-summary" aria-label="source connection summary">
-        <article>
-          <span>{connectedCount}</span>
+        <article className="is-light-surface">
+          <div className="idt-overview-metric-top">
+            <span>{connectedCount}</span>
+            <SourceLogoStack providers={actionableSourceOrder.length > 0 ? actionableSourceOrder : sourceOrder} label="Connected source count" />
+          </div>
           <p>Active sources</p>
         </article>
         <article>
-          <span>{remainingCount}</span>
+          <div className="idt-overview-metric-top">
+            <span>{remainingCount}</span>
+            <SourceLogoMark provider={selectedSource} />
+          </div>
           <p>Remaining</p>
         </article>
         <article>
-          <span>{selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}</span>
+          <div className="idt-overview-metric-top">
+            <span>{selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}</span>
+            <SourceLogoMark provider={selectedSource} />
+          </div>
           <p>Selected status</p>
         </article>
       </div>
@@ -3306,7 +3430,7 @@ export function ProductProjectDetailPage() {
               <button
                 key={provider}
                 type="button"
-                className={`idt-source-card ${selectedSource === provider ? 'is-selected' : ''} ${
+                className={`idt-source-card is-provider-${provider} ${selectedSource === provider ? 'is-selected' : ''} ${
                   availability.available ? '' : 'is-unavailable'
                 }`}
                 aria-pressed={selectedSource === provider}
@@ -3315,7 +3439,10 @@ export function ProductProjectDetailPage() {
                 disabled={!availability.available}
               >
                 <span className="idt-source-card-topline">
-                  <span>{profile.eyebrow}</span>
+                  <span className="idt-source-card-identity">
+                    <SourceLogoMark provider={provider} />
+                    <span>{profile.eyebrow}</span>
+                  </span>
                   <span className={`idt-source-status-pill is-${sourceAvailabilityTone(availability, status)}`}>
                     {!availability.available ? 'Unavailable' : error ? 'Needs retry' : connectionLifecycle(status)}
                   </span>
@@ -3329,10 +3456,13 @@ export function ProductProjectDetailPage() {
 
         <div className="idt-source-config">
           <div className="idt-source-config-header">
-            <div>
-              <p className="idt-app-kicker">{selectedProfile.eyebrow}</p>
-              <h3>{selectedProfile.name}</h3>
-              <p>{selectedProfile.summary}</p>
+            <div className="idt-source-config-title">
+              <SourceLogoMark provider={selectedSource} className="is-hero" />
+              <div>
+                <p className="idt-app-kicker">{selectedProfile.eyebrow}</p>
+                <h3>{selectedProfile.name}</h3>
+                <p>{selectedProfile.summary}</p>
+              </div>
             </div>
             <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
               {selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}
@@ -3381,8 +3511,8 @@ export function ProductProjectDetailPage() {
                       }
                       placeholder="GitHub App"
                     />
-	                  </label>
-	                </div>
+                  </label>
+                </div>
                 <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
                   {submitting === 'github' ? 'Preparing...' : 'Generate install link'}
                 </button>
@@ -4363,6 +4493,10 @@ export function ProductFindingsPage() {
           <p className="idt-app-kicker">Repository Exposure</p>
           <h2>Findings</h2>
           <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
+          <div className="idt-overview-source-strip">
+            <SourceLogoMark provider="github" />
+            <span>GitHub evidence stays tied to triage, remediation, and ownership state.</span>
+          </div>
         </div>
         <div className="idt-inline-actions">
           <button className="idt-btn idt-btn-ghost" type="button" onClick={handleRefresh} disabled={refreshing}>
@@ -4391,19 +4525,31 @@ export function ProductFindingsPage() {
 
       <div className="idt-repo-finding-stats" aria-label="Repository finding summary">
         <article className="idt-repo-finding-stat">
-          <span>Total repo findings</span>
+          <div className="idt-overview-metric-top">
+            <span>Total repo findings</span>
+            <SourceLogoMark provider="github" />
+          </div>
           <strong>{filteredFindings.length}</strong>
         </article>
         <article className="idt-repo-finding-stat">
-          <span>GitHub-linked findings</span>
+          <div className="idt-overview-metric-top">
+            <span>GitHub-linked findings</span>
+            <SourceLogoMark provider="github" />
+          </div>
           <strong>{linkedFindingCount}</strong>
         </article>
         <article className="idt-repo-finding-stat">
-          <span>Open findings</span>
+          <div className="idt-overview-metric-top">
+            <span>Open findings</span>
+            <SourceLogoStack label="Open finding source coverage" />
+          </div>
           <strong>{openFindingCount}</strong>
         </article>
         <article className="idt-repo-finding-stat">
-          <span>Critical findings</span>
+          <div className="idt-overview-metric-top">
+            <span>Critical findings</span>
+            <SourceLogoStack label="Critical finding source coverage" />
+          </div>
           <strong>{criticalFindingCount}</strong>
         </article>
         <article className="idt-repo-finding-stat">
@@ -4550,20 +4696,23 @@ export function ProductFindingsPage() {
                           className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
                           onClick={() => setSelectedFindingKey(selectionKey)}
                         >
-                          <div className="idt-repo-finding-row-top">
-                            <strong>{finding.title}</strong>
-                            <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
-                          </div>
-                          <p>{finding.human_summary}</p>
-                          <div className="idt-repo-finding-row-meta">
-                            <span>{repositoryLabel}</span>
-                            <span>{repoFindingLocationLabel(finding)}</span>
-                            <span>{formatTokenLabel(finding.type)}</span>
-                            <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
-                          </div>
-                          <div className="idt-repo-finding-row-meta">
-                            <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
-                            <span>{`Assignee ${finding.triage?.assignee || 'Unassigned'}`}</span>
+                          <SourceLogoMark provider="github" className="is-row" />
+                          <div className="idt-repo-finding-row-copy">
+                            <div className="idt-repo-finding-row-top">
+                              <strong>{finding.title}</strong>
+                              <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
+                            </div>
+                            <p>{finding.human_summary}</p>
+                            <div className="idt-repo-finding-row-meta">
+                              <span>{repositoryLabel}</span>
+                              <span>{repoFindingLocationLabel(finding)}</span>
+                              <span>{formatTokenLabel(finding.type)}</span>
+                              <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
+                            </div>
+                            <div className="idt-repo-finding-row-meta">
+                              <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
+                              <span>{`Assignee ${finding.triage?.assignee || 'Unassigned'}`}</span>
+                            </div>
                           </div>
                         </button>
                       );
@@ -4592,9 +4741,14 @@ export function ProductFindingsPage() {
           {selectedFinding ? (
             <>
               <div className="idt-repo-finding-detail-copy">
-                <p className="idt-app-kicker">Finding detail</p>
-                <h3>{selectedFinding.title}</h3>
-                <p>{selectedFinding.human_summary}</p>
+                <div className="idt-source-config-title">
+                  <SourceLogoMark provider="github" className="is-hero" />
+                  <div>
+                    <p className="idt-app-kicker">Finding detail</p>
+                    <h3>{selectedFinding.title}</h3>
+                    <p>{selectedFinding.human_summary}</p>
+                  </div>
+                </div>
               </div>
 
               <dl className="idt-repo-finding-facts">

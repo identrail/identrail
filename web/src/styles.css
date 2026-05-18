@@ -18492,3 +18492,430 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
   background: #050505;
   color: #ffffff;
 }
+
+/* Product app visual richness */
+.idt-app-console-layout,
+.idt-account-security-page,
+.idt-app-shell-screen,
+.idt-executive-report-shell {
+  --source-github: #f5f5f5;
+  --source-aws: #ff9900;
+  --source-kubernetes: #326ce5;
+  --app-ink: #050505;
+  --app-paper: #f6f6f4;
+  --app-paper-muted: #646464;
+  --app-blueprint: #0b1220;
+}
+
+.idt-app-console-layout {
+  background:
+    radial-gradient(circle at 78% 8%, rgba(50, 108, 229, 0.16), transparent 20rem),
+    radial-gradient(circle at 14% 18%, rgba(255, 153, 0, 0.1), transparent 16rem),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.038) 1px, transparent 1px) 0 0 / 72px 72px,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 72px 72px,
+    #000000;
+}
+
+.idt-app-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 15rem),
+    rgba(5, 5, 5, 0.98);
+}
+
+.idt-app-sidebar-mark {
+  overflow: hidden;
+  padding: 0;
+}
+
+.idt-app-sidebar-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.idt-app-sidebar-logo-stack {
+  margin-bottom: 0.75rem;
+}
+
+.idt-source-logo-mark {
+  --source-accent: #ffffff;
+  display: inline-grid;
+  width: 2.1rem;
+  height: 2.1rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.26), 0 0 22px color-mix(in srgb, var(--source-accent) 28%, transparent);
+}
+
+.idt-source-logo-mark.is-github {
+  --source-accent: var(--source-github);
+}
+
+.idt-source-logo-mark.is-aws {
+  --source-accent: var(--source-aws);
+}
+
+.idt-source-logo-mark.is-kubernetes {
+  --source-accent: var(--source-kubernetes);
+}
+
+.idt-source-logo-mark img {
+  width: 1.28rem;
+  height: 1.28rem;
+  object-fit: contain;
+}
+
+.idt-source-logo-mark.is-row {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.idt-source-logo-mark.is-hero {
+  width: 3.35rem;
+  height: 3.35rem;
+  border-radius: 10px;
+}
+
+.idt-source-logo-mark.is-hero img {
+  width: 2rem;
+  height: 2rem;
+}
+
+.idt-source-logo-stack {
+  display: flex;
+  align-items: center;
+}
+
+.idt-source-logo-stack .idt-source-logo-mark {
+  width: 2rem;
+  height: 2rem;
+}
+
+.idt-source-logo-stack .idt-source-logo-mark + .idt-source-logo-mark {
+  margin-left: -0.45rem;
+}
+
+.idt-source-logo-stack .idt-source-logo-mark img {
+  width: 1.16rem;
+  height: 1.16rem;
+}
+
+.idt-app-header-stack,
+.idt-overview-source-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.idt-app-header-stack > span,
+.idt-overview-source-strip > span {
+  max-width: 52ch;
+  color: #c6c6c6;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.idt-app-console-layout .idt-overview-header,
+.idt-app-console-layout .idt-projects-header,
+.idt-app-console-layout .idt-source-onboarding-header,
+.idt-app-console-layout .idt-repo-findings-header,
+.idt-app-console-layout .idt-settings-header {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.012) 50%, rgba(50, 108, 229, 0.08)),
+    #050505;
+}
+
+.idt-app-console-layout .idt-overview-metrics article,
+.idt-app-console-layout .idt-projects-summary article,
+.idt-app-console-layout .idt-source-summary article,
+.idt-app-console-layout .idt-repo-finding-stat {
+  min-height: 8.25rem;
+  display: grid;
+  align-content: space-between;
+  gap: 0.8rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.idt-app-console-layout .idt-overview-metrics article::after,
+.idt-app-console-layout .idt-projects-summary article::after,
+.idt-app-console-layout .idt-source-summary article::after,
+.idt-app-console-layout .idt-repo-finding-stat::after {
+  content: '';
+  position: absolute;
+  right: -2.25rem;
+  bottom: -2.25rem;
+  width: 7rem;
+  height: 7rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 68%);
+  pointer-events: none;
+}
+
+.idt-overview-metric-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.idt-app-console-layout .idt-overview-metric-top > span {
+  color: #a3a3a3;
+}
+
+.idt-app-console-layout .is-light-surface,
+.idt-app-console-layout .idt-overview-metrics article.is-light-surface,
+.idt-app-console-layout .idt-projects-summary article.is-light-surface,
+.idt-app-console-layout .idt-source-summary article.is-light-surface,
+html[data-theme='light'] .idt-app-console-layout .is-light-surface,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article.is-light-surface,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article.is-light-surface,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-light-surface {
+  border-color: rgba(255, 255, 255, 0.9);
+  background:
+    radial-gradient(circle at 85% 0%, rgba(255, 153, 0, 0.18), transparent 10rem),
+    var(--app-paper);
+  color: var(--app-ink);
+}
+
+.idt-app-console-layout .is-light-surface strong,
+.idt-app-console-layout .is-light-surface h3,
+.idt-app-console-layout .is-light-surface h4,
+.idt-app-console-layout .is-light-surface .idt-overview-metric-top > span,
+.idt-app-console-layout .is-light-surface span,
+.idt-app-console-layout .idt-overview-metrics article.is-light-surface strong,
+.idt-app-console-layout .idt-overview-metrics article.is-light-surface span,
+.idt-app-console-layout .idt-projects-summary article.is-light-surface strong,
+.idt-app-console-layout .idt-projects-summary article.is-light-surface span,
+.idt-app-console-layout .idt-source-summary article.is-light-surface strong,
+.idt-app-console-layout .idt-source-summary article.is-light-surface span,
+html[data-theme='light'] .idt-app-console-layout .is-light-surface strong,
+html[data-theme='light'] .idt-app-console-layout .is-light-surface h3,
+html[data-theme='light'] .idt-app-console-layout .is-light-surface h4,
+html[data-theme='light'] .idt-app-console-layout .is-light-surface .idt-overview-metric-top > span,
+html[data-theme='light'] .idt-app-console-layout .is-light-surface span,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article.is-light-surface strong,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article.is-light-surface span,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article.is-light-surface strong,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article.is-light-surface span,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-light-surface strong,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-light-surface span {
+  color: var(--app-ink);
+}
+
+.idt-app-console-layout .is-light-surface p,
+html[data-theme='light'] .idt-app-console-layout .is-light-surface p,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article.is-light-surface p,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article.is-light-surface p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-light-surface p {
+  color: var(--app-paper-muted);
+}
+
+.idt-app-console-layout .is-danger-surface {
+  border-color: rgba(255, 107, 107, 0.38);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 107, 107, 0.17), transparent 10rem),
+    #080808;
+}
+
+.idt-app-console-layout .is-provider-surface {
+  border-color: rgba(50, 108, 229, 0.42);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(50, 108, 229, 0.2), transparent 10rem),
+    #080808;
+}
+
+.idt-overview-risk-row,
+.idt-overview-scan-row,
+.idt-repo-finding-row {
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.idt-overview-row-copy,
+.idt-repo-finding-row-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.idt-overview-row-copy {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: flex-start;
+}
+
+.idt-overview-project-title,
+.idt-project-card-title,
+.idt-source-card-identity,
+.idt-source-config-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.idt-overview-project-title,
+.idt-project-card-title {
+  justify-content: space-between;
+}
+
+.idt-overview-project-title .idt-source-logo-stack,
+.idt-project-card-title .idt-source-logo-stack {
+  flex: 0 0 auto;
+}
+
+.idt-app-console-layout .idt-overview-actions a {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  min-height: 8.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.idt-app-console-layout .idt-overview-actions a:nth-child(2),
+html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-child(2) {
+  border-color: rgba(255, 255, 255, 0.9);
+  background: var(--app-paper);
+  color: var(--app-ink);
+}
+
+.idt-app-console-layout .idt-overview-actions a:nth-child(2) strong,
+.idt-app-console-layout .idt-overview-actions a:nth-child(2) span,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-child(2) strong,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-child(2) span {
+  color: var(--app-ink);
+}
+
+.idt-app-console-layout .idt-overview-actions a:nth-child(2) .idt-source-logo-mark {
+  border-color: rgba(0, 0, 0, 0.14);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.idt-source-card {
+  --provider-accent: rgba(255, 255, 255, 0.6);
+  position: relative;
+  overflow: hidden;
+}
+
+.idt-source-card.is-provider-aws {
+  --provider-accent: var(--source-aws);
+}
+
+.idt-source-card.is-provider-kubernetes {
+  --provider-accent: var(--source-kubernetes);
+}
+
+.idt-source-card.is-provider-github {
+  --provider-accent: #ffffff;
+}
+
+.idt-source-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--provider-accent);
+  opacity: 0.75;
+}
+
+.idt-app-console-layout .idt-source-card.is-selected {
+  border-color: color-mix(in srgb, var(--provider-accent) 70%, #ffffff);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--provider-accent) 18%, transparent), transparent 10rem),
+    #111111;
+}
+
+.idt-source-card-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.idt-source-card-identity {
+  min-width: 0;
+}
+
+.idt-source-card-identity > span:last-child {
+  overflow-wrap: anywhere;
+}
+
+.idt-source-config-title {
+  min-width: 0;
+  align-items: flex-start;
+}
+
+.idt-source-config-title > div {
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-source-meta {
+  gap: 0.75rem;
+}
+
+.idt-app-console-layout .idt-source-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
+  border-color: rgba(255, 255, 255, 0.16);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.055), transparent),
+    #060606;
+}
+
+.idt-app-console-layout .idt-source-install-card {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent),
+    #060606;
+}
+
+.idt-app-console-layout .idt-repo-finding-row {
+  display: flex;
+  text-align: left;
+}
+
+.idt-app-console-layout .idt-repo-finding-row.is-selected {
+  border-color: rgba(255, 255, 255, 0.86);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.12), transparent 12rem),
+    #111111;
+}
+
+.idt-app-console-layout .idt-repo-finding-row-top {
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-trend {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px) 0 0 / 56px 56px,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 56px 56px,
+    #080808;
+}
+
+.idt-app-console-layout .idt-repo-finding-trend-bar {
+  background: linear-gradient(90deg, #ffffff, rgba(50, 108, 229, 0.88));
+}
+
+@media (max-width: 700px) {
+  .idt-app-header-stack,
+  .idt-overview-source-strip,
+  .idt-source-config-title {
+    align-items: flex-start;
+  }
+
+  .idt-overview-row-copy {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-source-card-topline,
+  .idt-overview-project-title,
+  .idt-project-card-title {
+    display: grid;
+    justify-content: stretch;
+  }
+}
