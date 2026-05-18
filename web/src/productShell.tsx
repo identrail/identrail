@@ -909,55 +909,91 @@ export function ProductShellLayout() {
 
   return (
     <ProductErrorBoundary>
-      <div className="idt-app-shell" data-tenant={scope.tenantID} data-workspace={scope.workspaceID}>
-        <header className="idt-app-shell-header">
-          <div>
-            <p className="idt-app-kicker">Authenticated app shell</p>
-            <h1>Identrail Workspace</h1>
-            <p>
-              Tenant <strong>{scope.tenantID}</strong> · Workspace <strong>{scope.workspaceID}</strong>
+      <div className="idt-app-shell idt-app-console-layout" data-tenant={scope.tenantID} data-workspace={scope.workspaceID}>
+        <aside className="idt-app-sidebar" aria-label="Workspace navigation">
+          <div className="idt-app-sidebar-brand">
+            <Link className="idt-app-sidebar-mark" to={basePath} aria-label="Identrail app home">
+              I
+            </Link>
+            <div>
+              <strong>Identrail</strong>
+              <span>Trust operations</span>
+            </div>
+          </div>
+
+          <section className="idt-app-sidebar-scope" aria-label="Active workspace">
+            <p className="idt-app-kicker">Active scope</p>
+            <h2>{scope.workspaceID}</h2>
+            <dl>
+              <div>
+                <dt>Tenant</dt>
+                <dd>{scope.tenantID}</dd>
+              </div>
               {scope.projectID ? (
-                <>
-                  {' '}
-                  · Project <strong>{scope.projectID}</strong>
-                </>
+                <div>
+                  <dt>Project</dt>
+                  <dd>{scope.projectID}</dd>
+                </div>
               ) : null}
-            </p>
-          </div>
-          <div className="idt-app-shell-actions">
-            <Link to="/app/account/security" className="idt-btn idt-btn-ghost">
-              Account security
-            </Link>
-            <button
-              type="button"
-              className="idt-btn idt-btn-ghost"
-              onClick={() => {
-                navigate('/app/logout', { replace: true });
-              }}
-            >
-              Sign out
-            </button>
-            <Link to="/" className="idt-btn idt-btn-dark">
-              Marketing site
-            </Link>
-          </div>
-        </header>
+            </dl>
+          </section>
 
-        <nav className="idt-app-shell-nav" aria-label="App sections">
-          <NavLink to={basePath} end>
-            Overview
-          </NavLink>
-          <NavLink to={`${basePath}/workspaces`}>Workspaces</NavLink>
-          <NavLink to={`${basePath}/projects`}>Projects</NavLink>
-          <NavLink to={`${basePath}/findings`}>Findings</NavLink>
-          <NavLink to="/reports/executive">Executive report</NavLink>
-          <NavLink to={`${basePath}/settings`}>Settings</NavLink>
-          <NavLink to="/app/account/security">Security</NavLink>
-        </nav>
+          <nav className="idt-app-shell-nav" aria-label="App sections">
+            <NavLink to={basePath} end>
+              Overview
+            </NavLink>
+            <NavLink to={`${basePath}/workspaces`}>Workspaces</NavLink>
+            <NavLink to={`${basePath}/projects`}>Projects</NavLink>
+            <NavLink to={`${basePath}/findings`}>Findings</NavLink>
+            <NavLink to="/reports/executive">Executive report</NavLink>
+            <NavLink to={`${basePath}/settings`}>Settings</NavLink>
+            <NavLink to="/app/account/security">Security</NavLink>
+          </nav>
 
-        <main className="idt-app-shell-main">
-          <Outlet />
-        </main>
+          <div className="idt-app-sidebar-footer">
+            <span>Read-only evidence first</span>
+            <strong>Operator-ready workflow</strong>
+          </div>
+        </aside>
+
+        <div className="idt-app-console">
+          <header className="idt-app-shell-header">
+            <div>
+              <p className="idt-app-kicker">Operations console</p>
+              <h1>Identrail Workspace</h1>
+              <p>
+                Tenant <strong>{scope.tenantID}</strong> · Workspace <strong>{scope.workspaceID}</strong>
+                {scope.projectID ? (
+                  <>
+                    {' '}
+                    · Project <strong>{scope.projectID}</strong>
+                  </>
+                ) : null}
+              </p>
+            </div>
+            <div className="idt-app-shell-actions">
+              <Link to="/app/account/security" className="idt-btn idt-btn-ghost">
+                Account security
+              </Link>
+              <button
+                type="button"
+                className="idt-btn idt-btn-ghost"
+                onClick={() => {
+                  navigate('/app/logout', { replace: true });
+                }}
+              >
+                Sign out
+              </button>
+              <Link to="/" className="idt-btn idt-btn-dark">
+                Marketing site
+              </Link>
+            </div>
+          </header>
+
+          <main className="idt-app-shell-main">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </ProductErrorBoundary>
   );
@@ -1804,9 +1840,13 @@ export function ProductWorkspacesPage() {
 
   return (
     <section className="idt-app-panel idt-workspace-admin">
-      <p className="idt-app-kicker">Workspace administration</p>
-      <h2>Members and roles</h2>
-      <p>Invite members, update roles instantly, and switch active workspace scope without leaving the app shell.</p>
+      <header className="idt-workspace-admin-header">
+        <div>
+          <p className="idt-app-kicker">Workspace administration</p>
+          <h2>Members and roles</h2>
+          <p>Invite members, update roles instantly, and switch active workspace scope without leaving the app shell.</p>
+        </div>
+      </header>
 
       {error ? (
         <p role="alert" className="idt-app-alert idt-app-alert-error">
@@ -4317,7 +4357,7 @@ export function ProductFindingsPage() {
   const trendDisplayLoading = signalsLoading;
 
   return (
-    <section className="idt-app-panel">
+    <section className="idt-app-panel idt-repo-findings-page">
       <div className="idt-repo-findings-header">
         <div>
           <p className="idt-app-kicker">Repository Exposure</p>

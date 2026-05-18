@@ -17227,3 +17227,1217 @@ html[data-theme='light'] .idt-blog-page .idt-page-hero-copy > p {
     grid-template-columns: 1fr;
   }
 }
+
+/* Product app console redesign */
+#main-content:has(.idt-app-console-layout),
+#main-content:has(.idt-account-security-page),
+#main-content:has(.idt-executive-report-shell) {
+  min-height: 100dvh;
+  overflow-x: clip;
+  background: #000000;
+}
+
+.idt-app-console-layout,
+.idt-account-security-page,
+.idt-app-shell-screen,
+.idt-executive-report-shell {
+  --app-bg: #000000;
+  --app-panel: #080808;
+  --app-panel-strong: #0d0d0d;
+  --app-border: #242424;
+  --app-border-soft: #191919;
+  --app-text: #f5f5f5;
+  --app-muted: #a3a3a3;
+  --app-dim: #737373;
+  --app-success: #58d68d;
+  --app-warning: #f5c451;
+  --app-danger: #ff6b6b;
+  color: var(--app-text);
+  letter-spacing: 0;
+}
+
+.idt-app-console-layout *,
+.idt-app-console-layout *::before,
+.idt-app-console-layout *::after,
+.idt-account-security-page *,
+.idt-account-security-page *::before,
+.idt-account-security-page *::after,
+.idt-executive-report-shell *,
+.idt-executive-report-shell *::before,
+.idt-executive-report-shell *::after {
+  box-sizing: border-box;
+  min-width: 0;
+  letter-spacing: 0;
+}
+
+.idt-app-console-layout {
+  width: 100%;
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 18rem minmax(0, 1fr);
+  gap: 0;
+  overflow-x: clip;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 72px 72px,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 72px 72px,
+    #000000;
+}
+
+.idt-app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding: 1rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--app-border);
+  background: rgba(5, 5, 5, 0.98);
+}
+
+.idt-app-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.idt-app-sidebar-mark {
+  display: grid;
+  width: 2.4rem;
+  height: 2.4rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #ffffff;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #000000;
+  font-family: var(--idt-display);
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.idt-app-sidebar-brand strong,
+.idt-app-sidebar-brand span,
+.idt-app-sidebar-footer span,
+.idt-app-sidebar-footer strong {
+  display: block;
+}
+
+.idt-app-sidebar-brand strong {
+  color: #ffffff;
+  font-size: 0.98rem;
+}
+
+.idt-app-sidebar-brand span,
+.idt-app-sidebar-footer span {
+  color: var(--app-muted);
+  font-size: 0.82rem;
+}
+
+.idt-app-sidebar-scope,
+.idt-app-sidebar-footer {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.9rem;
+  background: var(--app-panel);
+}
+
+.idt-app-sidebar-scope h2 {
+  margin: 0.25rem 0 0.7rem;
+  color: #ffffff;
+  font-family: var(--idt-display);
+  font-size: 1.2rem;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.idt-app-sidebar-scope dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.idt-app-sidebar-scope dt {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.idt-app-sidebar-scope dd {
+  margin: 0.12rem 0 0;
+  color: #e5e5e5;
+  font-family: var(--idt-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.idt-app-sidebar-footer {
+  align-self: end;
+}
+
+.idt-app-sidebar-footer strong {
+  margin-top: 0.22rem;
+  color: #ffffff;
+  font-size: 0.88rem;
+}
+
+.idt-app-console {
+  width: 100%;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow-x: clip;
+}
+
+.idt-app-console-layout .idt-app-shell-header,
+.idt-account-security-page .idt-app-shell-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 7rem;
+  padding: 1.25rem clamp(1rem, 4vw, 3.5rem);
+  border: 0;
+  border-bottom: 1px solid var(--app-border);
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 82% 0%, rgba(255, 255, 255, 0.08), transparent 18rem),
+    #000000;
+}
+
+.idt-app-console-layout .idt-app-shell-header h1,
+.idt-account-security-page .idt-app-shell-header h1,
+.idt-executive-report-header h1 {
+  margin: 0.1rem 0 0.35rem;
+  color: #ffffff;
+  font-family: var(--idt-display);
+  font-size: 2.15rem;
+  line-height: 0.98;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.idt-app-console-layout .idt-app-shell-header p,
+.idt-account-security-page .idt-app-shell-header p,
+.idt-executive-report-header p {
+  margin: 0;
+  max-width: 78ch;
+  color: var(--app-muted);
+  overflow-wrap: anywhere;
+}
+
+.idt-app-console-layout .idt-app-shell-header strong,
+.idt-account-security-page .idt-app-shell-header strong {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-shell-actions,
+.idt-account-security-page .idt-app-shell-actions,
+.idt-executive-report-shell .idt-executive-report-actions,
+.idt-app-console-layout .idt-inline-actions,
+.idt-account-security-page .idt-inline-actions,
+.idt-executive-report-shell .idt-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
+.idt-app-console-layout .idt-btn,
+.idt-account-security-page .idt-btn,
+.idt-app-shell-screen .idt-btn,
+.idt-executive-report-shell .idt-btn {
+  max-width: 100%;
+  border-radius: 8px;
+  white-space: normal;
+  text-align: center;
+}
+
+.idt-app-console-layout .idt-btn-primary,
+.idt-account-security-page .idt-btn-primary,
+.idt-app-shell-screen .idt-btn-primary,
+.idt-executive-report-shell .idt-btn-primary,
+html[data-theme='light'] .idt-app-console-layout .idt-btn-primary,
+html[data-theme='light'] .idt-account-security-page .idt-btn-primary,
+html[data-theme='light'] .idt-app-shell-screen .idt-btn-primary,
+html[data-theme='light'] .idt-executive-report-shell .idt-btn-primary {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #000000;
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-btn-ghost,
+.idt-app-console-layout .idt-btn-dark,
+.idt-account-security-page .idt-btn-ghost,
+.idt-account-security-page .idt-btn-dark,
+.idt-app-shell-screen .idt-btn-ghost,
+.idt-app-shell-screen .idt-btn-dark,
+.idt-executive-report-shell .idt-btn-ghost,
+.idt-executive-report-shell .idt-btn-dark,
+html[data-theme='light'] .idt-app-console-layout .idt-btn-ghost,
+html[data-theme='light'] .idt-app-console-layout .idt-btn-dark,
+html[data-theme='light'] .idt-account-security-page .idt-btn-ghost,
+html[data-theme='light'] .idt-account-security-page .idt-btn-dark,
+html[data-theme='light'] .idt-app-shell-screen .idt-btn-ghost,
+html[data-theme='light'] .idt-app-shell-screen .idt-btn-dark,
+html[data-theme='light'] .idt-executive-report-shell .idt-btn-ghost,
+html[data-theme='light'] .idt-executive-report-shell .idt-btn-dark {
+  border-color: var(--app-border);
+  background: #050505;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-app-shell-nav {
+  display: grid;
+  align-content: start;
+  gap: 0.28rem;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 2.45rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.58rem 0.7rem;
+  background: transparent;
+  color: #a3a3a3;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a:hover,
+.idt-app-console-layout .idt-app-shell-nav a:focus-visible,
+.idt-app-console-layout .idt-app-shell-nav a.active,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:hover,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
+  border-color: var(--app-border);
+  background: #ffffff;
+  color: #000000;
+  text-decoration: none;
+}
+
+.idt-app-console-layout .idt-app-shell-main {
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  padding: 1.25rem clamp(1rem, 4vw, 3.5rem) 4rem;
+}
+
+.idt-app-console-layout .idt-app-kicker,
+.idt-account-security-page .idt-app-kicker,
+.idt-app-shell-screen .idt-app-kicker,
+.idt-executive-report-shell .idt-app-kicker,
+html[data-theme='light'] .idt-app-console-layout .idt-app-kicker,
+html[data-theme='light'] .idt-account-security-page .idt-app-kicker,
+html[data-theme='light'] .idt-app-shell-screen .idt-app-kicker,
+html[data-theme='light'] .idt-executive-report-shell .idt-app-kicker {
+  color: #a3a3a3;
+  letter-spacing: 0;
+}
+
+.idt-app-console-layout .idt-app-panel,
+.idt-account-security-page .idt-app-panel,
+.idt-app-shell-screen .idt-app-panel,
+.idt-executive-report-shell .idt-app-panel,
+html[data-theme='light'] .idt-app-console-layout .idt-app-panel,
+html[data-theme='light'] .idt-account-security-page .idt-app-panel,
+html[data-theme='light'] .idt-app-shell-screen .idt-app-panel,
+html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-panel);
+  color: var(--app-text);
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-overview-page,
+.idt-app-console-layout .idt-workspace-admin,
+.idt-app-console-layout .idt-projects-page,
+.idt-app-console-layout .idt-source-onboarding,
+.idt-app-console-layout .idt-settings-page,
+.idt-app-console-layout .idt-repo-findings-page {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.idt-app-console-layout .idt-overview-header,
+.idt-app-console-layout .idt-workspace-admin-header,
+.idt-app-console-layout .idt-projects-header,
+.idt-app-console-layout .idt-source-onboarding-header,
+.idt-app-console-layout .idt-repo-findings-header,
+.idt-app-console-layout .idt-settings-header {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: #050505;
+}
+
+.idt-app-console-layout h2,
+.idt-app-console-layout h3,
+.idt-app-console-layout h4,
+.idt-account-security-page h2,
+.idt-account-security-page h3,
+.idt-executive-report-shell h2,
+.idt-executive-report-shell h3,
+.idt-executive-report-shell h4 {
+  color: #ffffff;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.idt-app-console-layout p,
+.idt-app-console-layout dd,
+.idt-app-console-layout li,
+.idt-account-security-page p,
+.idt-account-security-page dd,
+.idt-executive-report-shell p,
+.idt-executive-report-shell dd {
+  color: var(--app-muted);
+  overflow-wrap: anywhere;
+}
+
+.idt-app-console-layout .idt-overview-metrics,
+.idt-app-console-layout .idt-workspace-stats,
+.idt-app-console-layout .idt-projects-summary,
+.idt-app-console-layout .idt-source-summary,
+.idt-app-console-layout .idt-settings-counts,
+.idt-app-console-layout .idt-repo-finding-stats,
+.idt-executive-report-shell .idt-executive-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-app-console-layout .idt-overview-metrics article,
+.idt-app-console-layout .idt-workspace-stats article,
+.idt-app-console-layout .idt-projects-summary article,
+.idt-app-console-layout .idt-source-summary article,
+.idt-app-console-layout .idt-settings-counts article,
+.idt-app-console-layout .idt-repo-finding-stat,
+.idt-executive-report-shell .idt-executive-report-metrics article,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-counts article,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-stat,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics article {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #080808;
+  padding: 0.9rem;
+}
+
+.idt-app-console-layout .idt-overview-metrics span,
+.idt-app-console-layout .idt-settings-counts span,
+.idt-app-console-layout .idt-repo-finding-stat span,
+.idt-executive-report-shell .idt-executive-report-metrics span {
+  color: var(--app-dim);
+  letter-spacing: 0;
+}
+
+.idt-app-console-layout .idt-overview-metrics strong,
+.idt-app-console-layout .idt-settings-counts strong,
+.idt-app-console-layout .idt-repo-finding-stat strong,
+.idt-executive-report-shell .idt-executive-report-metrics strong {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-overview-grid,
+.idt-app-console-layout .idt-projects-grid,
+.idt-app-console-layout .idt-settings-grid,
+.idt-executive-report-shell .idt-executive-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.idt-app-console-layout .idt-source-wizard-grid {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.42fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.72fr);
+  gap: 1rem;
+}
+
+.idt-app-console-layout .idt-overview-card,
+.idt-app-console-layout .idt-projects-list,
+.idt-app-console-layout .idt-project-composer,
+.idt-app-console-layout .idt-project-card,
+.idt-app-console-layout .idt-source-card,
+.idt-app-console-layout .idt-source-config,
+.idt-app-console-layout .idt-source-install-card,
+.idt-app-console-layout .idt-source-advanced,
+.idt-app-console-layout .idt-source-diagnostics article,
+.idt-app-console-layout .idt-repo-finding-list,
+.idt-app-console-layout .idt-repo-finding-detail,
+.idt-app-console-layout .idt-repo-finding-trend,
+.idt-app-console-layout .idt-repo-finding-row,
+.idt-app-console-layout .idt-settings-card,
+.idt-app-console-layout .idt-settings-facts div,
+.idt-app-console-layout .idt-overview-risk-row,
+.idt-app-console-layout .idt-overview-scan-row,
+.idt-app-console-layout .idt-overview-projects a,
+.idt-app-console-layout .idt-overview-actions a,
+.idt-account-security-page .idt-security-overview article,
+.idt-account-security-page .idt-session-row,
+.idt-executive-report-shell .idt-executive-report-section,
+.idt-executive-report-shell .idt-executive-severity-list article,
+.idt-executive-report-shell .idt-executive-type-list article,
+.idt-executive-report-shell .idt-executive-narrative article,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-card,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-config,
+html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics article,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-list,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row,
+html[data-theme='light'] .idt-account-security-page .idt-security-overview article,
+html[data-theme='light'] .idt-account-security-page .idt-session-row,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #080808;
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-overview-card,
+.idt-app-console-layout .idt-projects-list,
+.idt-app-console-layout .idt-project-composer,
+.idt-app-console-layout .idt-source-config,
+.idt-app-console-layout .idt-repo-finding-list,
+.idt-app-console-layout .idt-repo-finding-detail,
+.idt-app-console-layout .idt-repo-finding-trend,
+.idt-app-console-layout .idt-settings-card {
+  padding: 1rem;
+}
+
+.idt-app-console-layout .idt-source-card:hover,
+.idt-app-console-layout .idt-source-card:focus-visible,
+.idt-app-console-layout .idt-source-card.is-selected,
+.idt-app-console-layout .idt-repo-finding-row:hover,
+.idt-app-console-layout .idt-repo-finding-row:focus-visible,
+.idt-app-console-layout .idt-repo-finding-row.is-selected,
+.idt-app-console-layout .idt-overview-projects a:hover,
+.idt-app-console-layout .idt-overview-projects a:focus-visible,
+.idt-app-console-layout .idt-overview-actions a:hover,
+.idt-app-console-layout .idt-overview-actions a:focus-visible {
+  border-color: #ffffff;
+  background: #111111;
+  color: #ffffff;
+  transform: none;
+}
+
+.idt-app-console-layout .idt-source-card.is-unavailable,
+.idt-app-console-layout .idt-source-card:disabled {
+  opacity: 0.64;
+}
+
+.idt-app-console-layout .idt-source-stepper {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #050505;
+}
+
+.idt-app-console-layout .idt-source-stepper li {
+  border: 0;
+  border-right: 1px solid var(--app-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--app-muted);
+}
+
+.idt-app-console-layout .idt-source-stepper li:last-child {
+  border-right: 0;
+}
+
+.idt-app-console-layout .idt-source-stepper li.is-active {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-app-console-layout .idt-source-stepper span {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.idt-app-console-layout .idt-source-stepper li.is-active span {
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-alert,
+.idt-account-security-page .idt-app-alert,
+.idt-executive-report-shell .idt-app-alert,
+html[data-theme='light'] .idt-app-console-layout .idt-app-alert,
+html[data-theme='light'] .idt-account-security-page .idt-app-alert,
+html[data-theme='light'] .idt-executive-report-shell .idt-app-alert {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #0d0d0d;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-alert-error,
+.idt-account-security-page .idt-app-alert-error,
+.idt-executive-report-shell .idt-app-alert-error,
+html[data-theme='light'] .idt-app-console-layout .idt-app-alert-error,
+html[data-theme='light'] .idt-account-security-page .idt-app-alert-error,
+html[data-theme='light'] .idt-executive-report-shell .idt-app-alert-error {
+  border-color: rgba(255, 107, 107, 0.55);
+  color: #ffd0d0;
+}
+
+.idt-app-console-layout .idt-app-alert-success,
+.idt-account-security-page .idt-app-alert-success,
+.idt-executive-report-shell .idt-app-alert-success,
+html[data-theme='light'] .idt-app-console-layout .idt-app-alert-success,
+html[data-theme='light'] .idt-account-security-page .idt-app-alert-success,
+html[data-theme='light'] .idt-executive-report-shell .idt-app-alert-success {
+  border-color: rgba(88, 214, 141, 0.48);
+  color: #d9ffe8;
+}
+
+.idt-app-console-layout .idt-app-empty-state,
+.idt-account-security-page .idt-app-empty-state,
+.idt-executive-report-shell .idt-app-empty-state,
+html[data-theme='light'] .idt-app-console-layout .idt-app-empty-state,
+html[data-theme='light'] .idt-account-security-page .idt-app-empty-state,
+html[data-theme='light'] .idt-executive-report-shell .idt-app-empty-state {
+  border: 1px dashed #333333;
+  border-radius: 8px;
+  background: #070707;
+  color: var(--app-muted);
+}
+
+.idt-app-console-layout input,
+.idt-app-console-layout select,
+.idt-app-console-layout textarea,
+.idt-account-security-page input,
+.idt-account-security-page select,
+.idt-account-security-page textarea,
+.idt-executive-report-shell input,
+.idt-executive-report-shell select,
+.idt-executive-report-shell textarea,
+html[data-theme='light'] .idt-app-console-layout input,
+html[data-theme='light'] .idt-app-console-layout select,
+html[data-theme='light'] .idt-app-console-layout textarea,
+html[data-theme='light'] .idt-account-security-page input,
+html[data-theme='light'] .idt-account-security-page select,
+html[data-theme='light'] .idt-account-security-page textarea {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #050505;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-app-console-layout input:focus-visible,
+.idt-app-console-layout select:focus-visible,
+.idt-app-console-layout textarea:focus-visible,
+.idt-account-security-page input:focus-visible,
+.idt-account-security-page select:focus-visible,
+.idt-account-security-page textarea:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+  border-color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-app-console-layout label,
+.idt-account-security-page label,
+.idt-executive-report-shell label,
+html[data-theme='light'] .idt-app-console-layout label,
+html[data-theme='light'] .idt-account-security-page label {
+  color: #d4d4d4;
+}
+
+.idt-app-console-layout .idt-workspace-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border-color: var(--app-border);
+  border-radius: 8px;
+  background: #050505;
+}
+
+.idt-app-console-layout .idt-workspace-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.idt-app-console-layout .idt-workspace-table th:nth-child(1),
+.idt-app-console-layout .idt-workspace-table td:nth-child(1) {
+  width: 20%;
+}
+
+.idt-app-console-layout .idt-workspace-table th:nth-child(2),
+.idt-app-console-layout .idt-workspace-table td:nth-child(2) {
+  width: 18%;
+}
+
+.idt-app-console-layout .idt-workspace-table th:nth-child(5),
+.idt-app-console-layout .idt-workspace-table td:nth-child(5) {
+  width: 18%;
+}
+
+.idt-app-console-layout .idt-workspace-table th,
+.idt-app-console-layout .idt-workspace-table td {
+  border-color: var(--app-border-soft);
+  color: #e5e5e5;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.idt-app-console-layout .idt-workspace-table th {
+  color: var(--app-muted);
+  letter-spacing: 0;
+}
+
+.idt-app-console-layout .idt-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.idt-app-console-layout .idt-repo-finding-filters {
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.idt-app-console-layout .idt-repo-finding-row-top,
+.idt-app-console-layout .idt-overview-risk-row,
+.idt-app-console-layout .idt-overview-scan-row,
+.idt-app-console-layout .idt-projects-header,
+.idt-app-console-layout .idt-projects-section-header,
+.idt-app-console-layout .idt-project-card-header,
+.idt-app-console-layout .idt-source-onboarding-header,
+.idt-app-console-layout .idt-source-config-header,
+.idt-app-console-layout .idt-source-install-card,
+.idt-app-console-layout .idt-settings-header,
+.idt-app-console-layout .idt-settings-card-header,
+.idt-app-console-layout .idt-repo-findings-header {
+  flex-wrap: wrap;
+}
+
+.idt-app-console-layout .idt-repo-finding-row p,
+.idt-app-console-layout .idt-repo-finding-row-meta,
+.idt-app-console-layout .idt-repo-finding-detail-copy p:last-child,
+.idt-app-console-layout .idt-repo-finding-remediation p,
+.idt-app-console-layout .idt-overview-risk-row p,
+.idt-app-console-layout .idt-overview-scan-row p,
+.idt-app-console-layout .idt-source-card small,
+.idt-app-console-layout .idt-source-config-header p,
+.idt-app-console-layout .idt-source-install-card p,
+.idt-app-console-layout .idt-source-diagnostics p,
+.idt-app-console-layout .idt-source-diagnostics small,
+.idt-app-console-layout .idt-project-card p,
+.idt-app-console-layout .idt-settings-route-grid span {
+  color: var(--app-muted);
+}
+
+.idt-app-console-layout .idt-repo-finding-severity,
+.idt-app-console-layout .idt-repo-finding-status,
+.idt-app-console-layout .idt-source-status-pill {
+  border-radius: 999px;
+  letter-spacing: 0;
+}
+
+.idt-app-console-layout .idt-source-status-pill.is-success {
+  border-color: rgba(88, 214, 141, 0.5);
+  background: rgba(88, 214, 141, 0.12);
+  color: #b9f6ce;
+}
+
+.idt-app-console-layout .idt-source-status-pill.is-warning {
+  border-color: rgba(245, 196, 81, 0.5);
+  background: rgba(245, 196, 81, 0.12);
+  color: #ffe5a3;
+}
+
+.idt-app-console-layout .idt-source-status-pill.is-error {
+  border-color: rgba(255, 107, 107, 0.56);
+  background: rgba(255, 107, 107, 0.12);
+  color: #ffc3c3;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity.is-critical,
+.idt-app-console-layout .idt-repo-finding-severity.is-high {
+  background: rgba(255, 107, 107, 0.14);
+  color: #ffc3c3;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity.is-medium {
+  background: rgba(245, 196, 81, 0.14);
+  color: #ffe5a3;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity.is-low,
+.idt-app-console-layout .idt-repo-finding-severity.is-info,
+.idt-app-console-layout .idt-repo-finding-severity.is-unknown {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e5e5e5;
+}
+
+.idt-app-console-layout .idt-repo-finding-trend-bar-track,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-bar-track {
+  border-color: var(--app-border);
+  background: #050505;
+}
+
+.idt-app-console-layout .idt-repo-finding-trend-bar {
+  background: #ffffff;
+}
+
+.idt-app-console-layout .idt-executive-bar,
+.idt-executive-report-shell .idt-executive-bar {
+  background: #151515;
+}
+
+.idt-app-console-layout .idt-executive-bar span,
+.idt-executive-report-shell .idt-executive-bar span {
+  background: #ffffff;
+}
+
+.idt-app-console-layout code,
+.idt-account-security-page code,
+.idt-executive-report-shell code {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.idt-app-console-layout pre,
+.idt-account-security-page pre,
+.idt-executive-report-shell pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.idt-app-console-layout .idt-source-diagnostics code {
+  display: block;
+  margin-top: 0.4rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.72rem;
+  background: #000000;
+  color: #ffffff;
+  font-family: var(--idt-mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.idt-account-security-page {
+  width: 100%;
+  max-width: none;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0 0 4rem;
+  display: grid;
+  gap: 1rem;
+  background: #000000;
+}
+
+.idt-account-security-page > .idt-app-panel,
+.idt-account-security-page > .idt-error-panel,
+.idt-account-security-page > .idt-inline-actions {
+  margin-right: clamp(1rem, 4vw, 3.5rem);
+  margin-left: clamp(1rem, 4vw, 3.5rem);
+}
+
+.idt-account-security-page .idt-security-overview {
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+
+.idt-account-security-page .idt-session-row {
+  align-items: flex-start;
+}
+
+.idt-app-shell-screen,
+.idt-executive-report-shell {
+  width: 100%;
+  min-height: 100dvh;
+  margin: 0;
+  padding: clamp(1rem, 4vw, 3.5rem);
+  display: grid;
+  place-items: center;
+  background: #000000;
+}
+
+.idt-app-shell-screen .idt-app-panel {
+  width: min(100%, 42rem);
+}
+
+.idt-executive-report-shell {
+  place-items: stretch;
+}
+
+.idt-executive-report-shell .idt-executive-report-page {
+  width: 100%;
+  max-width: none;
+  display: grid;
+  gap: 1rem;
+  background: transparent;
+}
+
+.idt-executive-report-shell .idt-executive-report-header {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: #050505;
+}
+
+.idt-executive-report-shell .idt-executive-narrative {
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+@media (max-width: 1180px) {
+  .idt-app-console-layout {
+    grid-template-columns: 15.5rem minmax(0, 1fr);
+  }
+
+  .idt-app-console-layout .idt-repo-finding-layout,
+  .idt-app-console-layout .idt-source-wizard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 940px) {
+  .idt-app-console-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-app-sidebar {
+    position: relative;
+    height: auto;
+    grid-template-rows: auto auto auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .idt-app-console-layout .idt-app-shell-nav {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+  }
+
+  .idt-app-console-layout .idt-app-shell-nav a {
+    flex: 0 0 auto;
+  }
+
+  .idt-app-sidebar-footer {
+    display: none;
+  }
+
+  .idt-app-console-layout .idt-overview-grid,
+  .idt-app-console-layout .idt-projects-grid,
+  .idt-app-console-layout .idt-settings-grid,
+  .idt-executive-report-shell .idt-executive-report-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .idt-app-console-layout .idt-app-shell-header,
+  .idt-account-security-page .idt-app-shell-header,
+  .idt-executive-report-shell .idt-executive-report-header {
+    display: grid;
+  }
+
+  .idt-app-console-layout .idt-app-shell-actions,
+  .idt-account-security-page .idt-app-shell-actions,
+  .idt-app-console-layout .idt-inline-actions,
+  .idt-account-security-page .idt-inline-actions,
+  .idt-executive-report-shell .idt-executive-report-actions,
+  .idt-executive-report-shell .idt-inline-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .idt-app-console-layout .idt-app-shell-actions .idt-btn,
+  .idt-account-security-page .idt-app-shell-actions .idt-btn,
+  .idt-app-console-layout .idt-inline-actions .idt-btn,
+  .idt-account-security-page .idt-inline-actions .idt-btn,
+  .idt-executive-report-shell .idt-executive-report-actions .idt-btn,
+  .idt-executive-report-shell .idt-inline-actions .idt-btn {
+    width: 100%;
+  }
+
+  .idt-app-console-layout .idt-app-shell-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .idt-app-console-layout .idt-app-shell-nav a {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .idt-app-sidebar,
+  .idt-app-console,
+  .idt-app-console-layout .idt-app-shell-header,
+  .idt-app-console-layout .idt-app-shell-main,
+  .idt-app-console-layout .idt-overview-header,
+  .idt-app-console-layout .idt-workspace-admin-header,
+  .idt-app-console-layout .idt-projects-header,
+  .idt-app-console-layout .idt-source-onboarding-header,
+  .idt-app-console-layout .idt-repo-findings-header,
+  .idt-app-console-layout .idt-settings-header {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .idt-app-console-layout .idt-overview-header,
+  .idt-app-console-layout .idt-settings-header,
+  .idt-app-console-layout .idt-overview-card-header,
+  .idt-app-console-layout .idt-settings-card-header {
+    display: grid;
+  }
+
+  .idt-app-console-layout .idt-app-shell-header h1,
+  .idt-account-security-page .idt-app-shell-header h1,
+  .idt-executive-report-header h1 {
+    font-size: 1.7rem;
+  }
+
+  .idt-app-console-layout .idt-app-shell-main,
+  .idt-app-console-layout .idt-app-shell-header,
+  .idt-account-security-page .idt-app-shell-header,
+  .idt-app-shell-screen,
+  .idt-executive-report-shell {
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .idt-app-console-layout .idt-source-stepper,
+  .idt-app-console-layout .idt-overview-metrics,
+  .idt-app-console-layout .idt-workspace-stats,
+  .idt-app-console-layout .idt-projects-summary,
+  .idt-app-console-layout .idt-source-summary,
+  .idt-app-console-layout .idt-settings-counts,
+  .idt-app-console-layout .idt-repo-finding-stats,
+  .idt-executive-report-shell .idt-executive-report-metrics,
+  .idt-app-console-layout .idt-source-inline-fields,
+  .idt-app-console-layout .idt-workspace-inline-fields,
+  .idt-app-console-layout .idt-workspace-member-toolbar,
+  .idt-app-console-layout .idt-project-inline-fields,
+  .idt-app-console-layout .idt-project-card-meta,
+  .idt-app-console-layout .idt-source-meta,
+  .idt-app-console-layout .idt-settings-facts,
+  .idt-app-console-layout .idt-repo-finding-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-app-console-layout .idt-source-stepper li {
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .idt-app-console-layout .idt-source-stepper li:last-child {
+    border-bottom: 0;
+  }
+}
+
+html[data-theme='light'] .idt-app-console-layout,
+html[data-theme='light'] .idt-account-security-page,
+html[data-theme='light'] .idt-app-shell-screen,
+html[data-theme='light'] .idt-executive-report-shell {
+  color-scheme: dark;
+  background: #000000;
+  color: #f5f5f5;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-header,
+html[data-theme='light'] .idt-account-security-page .idt-app-shell-header,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-header {
+  border-color: var(--app-border);
+  background:
+    radial-gradient(circle at 82% 0%, rgba(255, 255, 255, 0.08), transparent 18rem),
+    #000000;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-header h1,
+html[data-theme='light'] .idt-account-security-page .idt-app-shell-header h1,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-header h1,
+html[data-theme='light'] .idt-app-console-layout h2,
+html[data-theme='light'] .idt-app-console-layout h3,
+html[data-theme='light'] .idt-app-console-layout h4,
+html[data-theme='light'] .idt-account-security-page h2,
+html[data-theme='light'] .idt-account-security-page h3,
+html[data-theme='light'] .idt-executive-report-shell h2,
+html[data-theme='light'] .idt-executive-report-shell h3,
+html[data-theme='light'] .idt-executive-report-shell h4,
+html[data-theme='light'] .idt-app-console-layout strong,
+html[data-theme='light'] .idt-account-security-page strong,
+html[data-theme='light'] .idt-executive-report-shell strong {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .idt-app-console-layout p,
+html[data-theme='light'] .idt-app-console-layout dd,
+html[data-theme='light'] .idt-app-console-layout li,
+html[data-theme='light'] .idt-account-security-page p,
+html[data-theme='light'] .idt-account-security-page dd,
+html[data-theme='light'] .idt-executive-report-shell p,
+html[data-theme='light'] .idt-executive-report-shell dd,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-header p,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-card p,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics p,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-risk-row p,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-scan-row p,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-projects span,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-actions span,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-projects small,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-header p,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-section-header p,
+html[data-theme='light'] .idt-app-console-layout .idt-project-card p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding-header p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-config-header p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-card small,
+html[data-theme='light'] .idt-app-console-layout .idt-source-install-card p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics > p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics small,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row p,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row-meta,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-row p,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-subtitle,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-meta span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-group h4,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-facts dt,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-code span,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-header p,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-card p,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-route-grid span,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-facts dt,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-header p,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section p,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics p {
+  color: #a3a3a3;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-counts article,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-stats article,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary article,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-stat,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-card,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-card,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-list,
+html[data-theme='light'] .idt-app-console-layout .idt-project-composer,
+html[data-theme='light'] .idt-app-console-layout .idt-project-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-config,
+html[data-theme='light'] .idt-app-console-layout .idt-source-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-source-install-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-advanced,
+html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics article,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-list,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-risk-row,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-scan-row,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-projects a,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-route-grid a,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-facts div,
+html[data-theme='light'] .idt-account-security-page .idt-security-overview article,
+html[data-theme='light'] .idt-account-security-page .idt-session-row,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics article,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-severity-list article,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-type-list article,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-narrative article {
+  border-color: var(--app-border);
+  background: #080808;
+  color: #f5f5f5;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-overview-header,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-admin-header,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-header,
+html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding-header,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-header {
+  border-color: var(--app-border);
+  background: #050505;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics span,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-counts span,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary span,
+html[data-theme='light'] .idt-app-console-layout .idt-source-card-topline > span:first-child,
+html[data-theme='light'] .idt-app-console-layout .idt-source-meta dt,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-stat span,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics span,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-severity-list span,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-type-list span {
+  color: #737373;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics strong,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-counts strong,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary span,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-stat strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row-top strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-facts dd,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-facts dd,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics strong {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-overview-card-header a,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-card-header a,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-link,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section-header a {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-filters select,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-filters input,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-triage-form select,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-triage-form input,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-triage-form textarea,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-switcher select,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-inline-fields select,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-member-toolbar select,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-member-toolbar input,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-table select,
+html[data-theme='light'] .idt-app-console-layout .idt-app-form input,
+html[data-theme='light'] .idt-app-console-layout .idt-app-form select,
+html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
+  border-color: var(--app-border);
+  background: #050505;
+  color: #ffffff;
+}
