@@ -131,19 +131,37 @@ func TestValidateSecurityRejectsInvalidSessionAuthConfig(t *testing.T) {
 }
 
 func TestValidateSecurityAllowsManualModeOnLoopback(t *testing.T) {
-	for _, base := range []string{
-		"http://localhost:8080",
-		"http://127.0.0.1:8080",
-		"http://[::1]:8080",
+	for _, tc := range []struct{ base, addr string }{
+		{"http://localhost:8080", "127.0.0.1:8080"},
+		{"http://127.0.0.1:8080", "127.0.0.1:8080"},
+		{"http://[::1]:8080", "[::1]:8080"},
+		{"http://localhost:8080", "localhost:8080"},
 	} {
 		cfg := Config{
 			FeatureNewAuth: true,
-			PublicBaseURL:  base,
+			PublicBaseURL:  tc.base,
+			HTTPAddr:       tc.addr,
 			SessionKey:     strings.Repeat("a", 64),
 			AuthManualMode: true,
 		}
 		if err := ValidateSecurity(cfg); err != nil {
-			t.Fatalf("expected manual mode to be valid on %s, got %v", base, err)
+			t.Fatalf("expected manual mode to be valid on %s / %s, got %v", tc.base, tc.addr, err)
+		}
+	}
+}
+
+func TestValidateSecurityRejectsManualModeWithRemoteBindAddr(t *testing.T) {
+	for _, addr := range []string{"", ":8080", "0.0.0.0:8080", "[::]:8080", "10.0.0.5:8080"} {
+		cfg := Config{
+			FeatureNewAuth: true,
+			PublicBaseURL:  "http://localhost:8080",
+			HTTPAddr:       addr,
+			SessionKey:     strings.Repeat("a", 64),
+			AuthManualMode: true,
+		}
+		err := ValidateSecurity(cfg)
+		if err == nil || !strings.Contains(err.Error(), "IDENTRAIL_HTTP_ADDR") {
+			t.Fatalf("expected loopback bind requirement for addr %q, got %v", addr, err)
 		}
 	}
 }
@@ -179,6 +197,7 @@ func TestSecurityWarningsManualMode(t *testing.T) {
 	local := SecurityWarnings(Config{
 		FeatureNewAuth: true,
 		PublicBaseURL:  "http://localhost:8080",
+		HTTPAddr:       "127.0.0.1:8080",
 		SessionKey:     strings.Repeat("a", 64),
 		AuthManualMode: true,
 	})

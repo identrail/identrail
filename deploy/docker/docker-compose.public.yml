@@ -25,6 +25,11 @@ x-identrail-env: &identrail-env
   IDENTRAIL_FEATURE_NEW_AUTH: "${IDENTRAIL_FEATURE_NEW_AUTH:-true}"
   IDENTRAIL_FEATURE_ONBOARDING_WIZARD: "${IDENTRAIL_FEATURE_ONBOARDING_WIZARD:-true}"
   IDENTRAIL_AUTH_MANUAL_MODE: "${IDENTRAIL_AUTH_MANUAL_MODE:-true}"
+  # The container binds :8080 but the api port is published only on the host
+  # loopback (127.0.0.1:8080:8080 below), so /auth/manual is not remotely
+  # reachable. ALLOW_UNSAFE acknowledges that constrained reachability so the
+  # manual-mode startup guard passes. Never set this on an exposed host.
+  IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE: "${IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE:-true}"
   IDENTRAIL_PUBLIC_BASE_URL: "${IDENTRAIL_PUBLIC_BASE_URL:-http://localhost:8080}"
   IDENTRAIL_SESSION_KEY: "${IDENTRAIL_SESSION_KEY:-identrail-local-session-key-for-evaluation-only-change-before-sharing}"
 

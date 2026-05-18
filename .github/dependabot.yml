@@ -52,7 +52,7 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - deps/github-actions
+      - deps/other
     groups:
       gha-security-updates:
         applies-to: security-updates

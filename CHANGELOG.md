@@ -4,13 +4,18 @@
 - Made `IDENTRAIL_AUTH_MANUAL_MODE` a local-development-only feature at
   startup validation. The server now refuses to boot with manual mode
   enabled unless `IDENTRAIL_PUBLIC_BASE_URL` is a loopback origin
-  (`http://localhost`, `http://127.0.0.1`, or `http://[::1]`), so the
-  request-trusting `/auth/manual` session endpoint cannot be exposed
-  accidentally outside local development. A deliberately non-production test
-  deployment must opt in explicitly with the clearly named
-  `IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true`. Manual mode now also emits
-  a startup security warning, and the WorkOS mutual-exclusion checks are
-  unchanged.
+  (`http://localhost`, `http://127.0.0.1`, or `http://[::1]`) **and**
+  `IDENTRAIL_HTTP_ADDR` binds a loopback interface, so the request-trusting
+  `/auth/manual` session endpoint cannot be exposed accidentally — a
+  loopback base URL alone does not stop a `0.0.0.0` bind or ingress from
+  reaching it. A deliberately non-production test deployment whose
+  reachability is constrained another way must opt in explicitly with the
+  clearly named `IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true`. Manual mode
+  now also emits a startup security warning, and the WorkOS mutual-exclusion
+  checks are unchanged.
+- Added first-class AWS API deployment variables for repository scan runtime
+  configuration, including allowlist validation before Terraform so hosted
+  GitHub scans cannot be enabled without an explicit target boundary.
 - Added a request-side CSRF/origin guard for unsafe (`POST`/`PUT`/`PATCH`/
   `DELETE`) browser session-authenticated `/v1/*` API writes. CORS is no
   longer relied on as a CSRF control: a guarded request must present a
@@ -41,11 +46,10 @@
   onboarding support, so authenticated users without a workspace see the
   existing onboarding-unavailable state instead of entering a wizard that
   immediately fails with a raw `Request failed (404)`.
-- Kept Vercel production connector UI flags in sync with GitHub Actions
-  variables: the production deploy workflow now validates and upserts
-  `VITE_FEATURE_CONNECTOR_AWS`, `VITE_FEATURE_CONNECTOR_GITHUB_V2`, and
-  `VITE_FEATURE_CONNECTOR_K8S` before building so an enabled API connector does
-  not appear as "not included in this web build" after redeploys.
+- Tightened Dependabot metadata handling and linked-issue workflow policy:
+  Dependabot metadata is now updated without dropping `pull_request` values while
+  preserving current behavior for known bots, and the linked-issue workflow
+  exemption now applies only to bot-authored PRs (not to bot trigger events).
 - Added the first GitHub repository scan action after connection:
   - the product source screen can queue `POST /v1/repo-scans` for a selected
     GitHub repository, show queued/running/completed/failed activity, and link

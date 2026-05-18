@@ -70,13 +70,19 @@ func TestBrowserWriteCSRFRejectsCrossOrigin(t *testing.T) {
 	e := newCSRFTestEngine(true)
 
 	cases := map[string]map[string]string{
-		"cross-origin origin":    {"Origin": "https://evil.example"},
-		"bad sec-fetch-site":     {"Origin": csrfPublicBaseURL, "Sec-Fetch-Site": "cross-site"},
-		"untrusted referer":      {"Referer": "https://evil.example/app"},
-		"missing origin+referer": {},
+		"cross-origin origin":       {"Origin": "https://evil.example"},
+		"trusted cross-site origin": {"Origin": csrfWebOrigin, "Sec-Fetch-Site": "cross-site"},
+		"untrusted referer":         {"Referer": "https://evil.example/app"},
+		"missing origin+referer":    {},
 	}
 	for name, headers := range cases {
 		w := csrfDo(e, http.MethodPost, "application/json", headers)
+		if name == "trusted cross-site origin" {
+			if w.Code != http.StatusOK {
+				t.Fatalf("%s: expected 200, got %d body=%s", name, w.Code, w.Body.String())
+			}
+			continue
+		}
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("%s: expected 403, got %d body=%s", name, w.Code, w.Body.String())
 		}

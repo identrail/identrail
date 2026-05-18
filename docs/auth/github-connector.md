@@ -71,6 +71,9 @@ Webhook-triggered scans still honor the repo scan allowlist and queue controls.
 Before enabling `IDENTRAIL_REPO_SCAN_ENABLED=true` for hosted production, set an
 explicit `IDENTRAIL_REPO_SCAN_ALLOWLIST` or equivalent scoped target guard so a
 GitHub webhook cannot enqueue scans outside approved repositories.
+For the AWS-hosted API workflow, use the first-class repository variables
+`API_REPO_SCAN_ENABLED=true` and `API_REPO_SCAN_ALLOWLIST=<owner/repo>` instead
+of hiding the same runtime values inside `API_EXTRA_ENVIRONMENT_JSON`.
 
 ## Rollback
 

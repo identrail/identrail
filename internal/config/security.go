@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -219,8 +220,17 @@ func ValidateSecurity(cfg Config) error {
 	if cfg.FeatureWorkOSLogin && cfg.AuthManualMode {
 		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true cannot be combined with IDENTRAIL_AUTH_MANUAL_MODE=true")
 	}
-	if cfg.AuthManualMode && !cfg.AuthManualModeAllowUnsafe && !isLoopbackBaseURL(cfg.PublicBaseURL) {
-		return fmt.Errorf("IDENTRAIL_AUTH_MANUAL_MODE=true is a local-development-only feature: /auth/manual mints a browser session from request-supplied tenant and identity fields. It requires a loopback IDENTRAIL_PUBLIC_BASE_URL (http://localhost, http://127.0.0.1, or http://[::1]). For a deliberately non-production test deployment, set IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true to override this guard")
+	if cfg.AuthManualMode && !cfg.AuthManualModeAllowUnsafe {
+		// /auth/manual mints a browser session from request-supplied tenant
+		// and identity fields, so it must be unreachable from anywhere but
+		// the local machine. A loopback IDENTRAIL_PUBLIC_BASE_URL alone is
+		// not sufficient: it only declares intent. The server must also bind
+		// a loopback IDENTRAIL_HTTP_ADDR, otherwise it can listen on
+		// 0.0.0.0 / sit behind an ingress while still advertising
+		// http://localhost and remain remotely reachable.
+		if !isLoopbackBaseURL(cfg.PublicBaseURL) || !isLoopbackListenAddr(cfg.HTTPAddr) {
+			return fmt.Errorf("IDENTRAIL_AUTH_MANUAL_MODE=true is a local-development-only feature: /auth/manual mints a browser session from request-supplied tenant and identity fields. It requires a loopback IDENTRAIL_PUBLIC_BASE_URL (http://localhost, http://127.0.0.1, or http://[::1]) and a loopback IDENTRAIL_HTTP_ADDR (e.g. 127.0.0.1:8080), so the endpoint cannot be reached remotely. For a deliberately non-production test deployment whose reachability is constrained another way, set IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true to override this guard")
+		}
 	}
 	if cfg.FeatureWorkOSLogin && !cfg.FeatureNewAuth {
 		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
@@ -688,6 +698,33 @@ func isLoopbackBaseURL(raw string) bool {
 	}
 }
 
+// isLoopbackListenAddr reports whether addr binds only the loopback
+// interface. An empty addr, a port-only form (":8080"), or an explicit
+// all-interfaces host ("0.0.0.0", "::") all bind every interface and are not
+// loopback, so manual mode fails closed for them. A bare loopback IP literal
+// (e.g. 127.0.0.5) is honored via netip.IsLoopback.
+func isLoopbackListenAddr(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return false
+	}
+	host := addr
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
 func validateSessionKey(envName string, raw string) error {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -760,8 +797,8 @@ func SecurityWarnings(cfg Config) []string {
 		warnings = append(warnings, "postgres row-level scope enforcement is disabled; set IDENTRAIL_POSTGRES_RLS_ENFORCED=true for deployment environments")
 	}
 	if cfg.AuthManualMode {
-		if cfg.AuthManualModeAllowUnsafe && !isLoopbackBaseURL(cfg.PublicBaseURL) {
-			warnings = append(warnings, "IDENTRAIL_AUTH_MANUAL_MODE is enabled with IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE on a non-loopback IDENTRAIL_PUBLIC_BASE_URL; /auth/manual can mint a session from request-supplied identity and must never be exposed to production or internet-accessible deployments")
+		if cfg.AuthManualModeAllowUnsafe && (!isLoopbackBaseURL(cfg.PublicBaseURL) || !isLoopbackListenAddr(cfg.HTTPAddr)) {
+			warnings = append(warnings, "IDENTRAIL_AUTH_MANUAL_MODE is enabled with IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE on a non-loopback IDENTRAIL_PUBLIC_BASE_URL or IDENTRAIL_HTTP_ADDR; /auth/manual can mint a session from request-supplied identity and must never be exposed to production or internet-accessible deployments")
 		} else {
 			warnings = append(warnings, "IDENTRAIL_AUTH_MANUAL_MODE is enabled; /auth/manual is a local-development-only login and must never be enabled outside local development")
 		}
