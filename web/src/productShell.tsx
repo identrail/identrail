@@ -147,7 +147,7 @@ const SOURCE_ORDER: SourceProvider[] = [
   'aws',
   ...(FEATURE_CONNECTOR_K8S ? (['kubernetes'] as SourceProvider[]) : [])
 ];
-const SOURCE_STACK: SourceProvider[] = ['github', 'aws', 'kubernetes'];
+const SOURCE_STACK: SourceProvider[] = [...SOURCE_ORDER];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
@@ -168,9 +168,14 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
 
 const TREND_POINTS = 10;
 
-function SourceLogoMark({ provider, className = '' }: { provider: SourceProvider; className?: string }) {
-  const profile = SOURCE_PROFILES[provider];
-  const classes = ['idt-source-logo-mark', `is-${provider}`, className].filter(Boolean).join(' ');
+function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider {
+  return SOURCE_STACK.includes(provider) ? provider : SOURCE_STACK[0] ?? provider;
+}
+
+export function SourceLogoMark({ provider, className = '' }: { provider: SourceProvider; className?: string }) {
+  const enabledProvider = resolveEnabledSourceProvider(provider);
+  const profile = SOURCE_PROFILES[enabledProvider];
+  const classes = ['idt-source-logo-mark', `is-${enabledProvider}`, className].filter(Boolean).join(' ');
   return (
     <span className={classes} role="img" aria-label={profile.name}>
       <img src={profile.logo} alt="" aria-hidden="true" loading="lazy" />
@@ -195,6 +200,20 @@ function SourceLogoStack({
       ))}
     </div>
   );
+}
+
+function formatSourceNameList(providers: SourceProvider[]): string {
+  const names = providers.map((provider) => SOURCE_PROFILES[provider].name);
+  if (names.length === 0) {
+    return 'source';
+  }
+  if (names.length === 1) {
+    return names[0];
+  }
+  if (names.length === 2) {
+    return `${names[0]} and ${names[1]}`;
+  }
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
 async function listOverviewProjects(
@@ -941,6 +960,7 @@ export function ProductShellLayout() {
   }
 
   const basePath = buildScopedPath(scope);
+  const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
 
   return (
     <ProductErrorBoundary>
@@ -1008,7 +1028,7 @@ export function ProductShellLayout() {
               </p>
               <div className="idt-app-header-stack">
                 <SourceLogoStack label="Available machine identity sources" />
-                <span>GitHub, AWS, and Kubernetes signals stay visible across the workflow.</span>
+                <span>{enabledSourceLabel} signals stay visible across the workflow.</span>
               </div>
             </div>
             <div className="idt-app-shell-actions">
@@ -1219,7 +1239,7 @@ export function ProductOverviewPage() {
           <article className="idt-overview-metric-card is-danger-surface">
             <div className="idt-overview-metric-top">
               <span>Priority findings</span>
-              <SourceLogoMark provider="github" />
+              <SourceLogoStack label="Priority finding source coverage" />
             </div>
             <strong>{openFindingCount}</strong>
             <p>{urgentFindingCount} critical or high in the ranked queue</p>
@@ -1235,7 +1255,7 @@ export function ProductOverviewPage() {
           <article className="idt-overview-metric-card">
             <div className="idt-overview-metric-top">
               <span>Trend delta</span>
-              <SourceLogoMark provider="aws" />
+              <SourceLogoStack label="Trend source coverage" />
             </div>
             <strong>{trendDelta === null ? 'N/A' : trendDelta > 0 ? `+${trendDelta}` : trendDelta}</strong>
             <p>
@@ -1367,7 +1387,7 @@ export function ProductOverviewPage() {
               <Link to={scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath}>
                 <SourceLogoStack label="Connector action source stack" />
                 <strong>Connect sources</strong>
-                <span>Attach GitHub, AWS, or Kubernetes telemetry to an active project.</span>
+                <span>Attach enabled source telemetry to an active project.</span>
               </Link>
               <Link to={findingsPath}>
                 <SourceLogoMark provider="github" />
@@ -1375,7 +1395,7 @@ export function ProductOverviewPage() {
                 <span>Review direct GitHub line links, severity, remediation, and workflow status.</span>
               </Link>
               <Link to={workspacesPath}>
-                <SourceLogoMark provider="kubernetes" />
+                <SourceLogoStack label="Operator access source coverage" />
                 <strong>Invite operators</strong>
                 <span>Give analysts and admins access to the workspace they operate.</span>
               </Link>
@@ -2264,6 +2284,7 @@ export function ProductProjectsPage() {
   );
   const archivedProjectCount = projects.length - activeProjectCount;
   const latestProject = projects[0];
+  const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
 
   if (!scope) {
     return <AppShellLoading message="Resolving workspace scope" />;
@@ -2344,10 +2365,10 @@ export function ProductProjectsPage() {
         <div>
           <p className="idt-app-kicker">Project registry</p>
           <h2>Choose a project before connecting source data</h2>
-          <p>Projects set the workspace boundary for GitHub, AWS, and Kubernetes onboarding.</p>
+          <p>Projects set the workspace boundary for {enabledSourceLabel} onboarding.</p>
           <div className="idt-overview-source-strip">
             <SourceLogoStack label="Project source stack" />
-            <span>Each project can carry code, cloud, and cluster signals without losing ownership context.</span>
+            <span>Each project can carry enabled source signals without losing ownership context.</span>
           </div>
         </div>
         <div className="idt-inline-actions">
@@ -2368,14 +2389,14 @@ export function ProductProjectsPage() {
         <article>
           <div className="idt-overview-metric-top">
             <span>{activeProjectCount}</span>
-            <SourceLogoMark provider="kubernetes" />
+            <SourceLogoStack label="Active project source coverage" />
           </div>
           <p>Active boundaries</p>
         </article>
         <article>
           <div className="idt-overview-metric-top">
             <span>{latestProject ? formatConnectionTime(latestProject.updated_at) : 'No activity yet'}</span>
-            <SourceLogoMark provider="aws" />
+            <SourceLogoStack label="Latest project source coverage" />
           </div>
           <p>Latest update</p>
         </article>
@@ -2628,6 +2649,7 @@ export function ProductProjectDetailPage() {
   const repoScanRepository = normalizeValue(repoScanForm.repository);
   const effectiveRepoScanRepository = repoScanRepository || githubSelectedRepositories[0] || '';
   const repoScanFindingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
+  const enabledSourceLabel = formatSourceNameList(sourceOrder);
 
   const nextRequestSequence = () => {
     const nextSequence = refreshSequenceRef.current + 1;
@@ -3334,7 +3356,7 @@ export function ProductProjectDetailPage() {
           <p className="idt-app-kicker">Project source onboarding</p>
           <h2>Connect sources for {projectID}</h2>
           <p>
-            Add GitHub, AWS, or Kubernetes signals for workspace <strong>{scope.workspaceID}</strong> with live
+            Add {enabledSourceLabel} signals for workspace <strong>{scope.workspaceID}</strong> with live
             validation and remediation feedback.
           </p>
           <div className="idt-overview-source-strip">
@@ -4515,14 +4537,14 @@ export function ProductFindingsPage() {
         <article className="idt-repo-finding-stat">
           <div className="idt-overview-metric-top">
             <span>Open findings</span>
-            <SourceLogoMark provider="aws" />
+            <SourceLogoStack label="Open finding source coverage" />
           </div>
           <strong>{openFindingCount}</strong>
         </article>
         <article className="idt-repo-finding-stat">
           <div className="idt-overview-metric-top">
             <span>Critical findings</span>
-            <SourceLogoMark provider="kubernetes" />
+            <SourceLogoStack label="Critical finding source coverage" />
           </div>
           <strong>{criticalFindingCount}</strong>
         </article>
