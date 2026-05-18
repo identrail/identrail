@@ -596,6 +596,12 @@ const (
 // than the webhook handler's own processing time.
 const WebhookProcessingReclaimAfter = 5 * time.Minute
 
+// WebhookEventRetention bounds how long a webhook idempotency row is kept.
+// It must comfortably exceed any provider's retry/replay window (WorkOS
+// retries over days) while keeping the ledger from growing unbounded; rows
+// older than this are opportunistically pruned on the claim path.
+const WebhookEventRetention = 30 * 24 * time.Hour
+
 // SCIMProvisioningEventRecord is the persisted form of one SCIM op recorded
 // for tenant-visible governance audit. Append-only.
 type SCIMProvisioningEventRecord struct {

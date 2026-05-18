@@ -677,6 +677,7 @@ func (p *PostgresStore) BeginWebhookEvent(ctx context.Context, event WebhookEven
 			now,
 		).Scan(&claimed)
 		if err == nil {
+			p.pruneWebhookEvents(ctx, now)
 			return WebhookEventClaimed, claimToken, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -702,6 +703,7 @@ func (p *PostgresStore) BeginWebhookEvent(ctx context.Context, event WebhookEven
 			claimToken,
 		).Scan(&claimed)
 		if err == nil {
+			p.pruneWebhookEvents(ctx, now)
 			return WebhookEventClaimed, claimToken, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -773,6 +775,19 @@ func (p *PostgresStore) DeleteWebhookEvent(ctx context.Context, provider string,
 		claimToken,
 	)
 	return err
+}
+
+// pruneWebhookEvents opportunistically removes idempotency rows past the
+// retention window so the ledger does not grow unbounded. It is best-effort
+// housekeeping invoked on the claim path: a failure here must not fail the
+// claim, so the error is intentionally ignored.
+func (p *PostgresStore) pruneWebhookEvents(ctx context.Context, now time.Time) {
+	cutoff := now.UTC().Add(-WebhookEventRetention)
+	_, _ = p.execContextAnyScope(
+		ctx,
+		`DELETE FROM webhook_events WHERE received_at < $1`,
+		cutoff,
+	)
 }
 
 // newWebhookClaimToken returns a random opaque token identifying one claim.

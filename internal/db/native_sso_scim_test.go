@@ -707,6 +707,34 @@ func TestMemoryStore_WebhookEventIdempotency(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_WebhookEventRetentionPrune(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	// Claim and complete an event well in the past.
+	st, tok, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: "old"}, now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("seed old claim: %q err=%v", st, err)
+	}
+	if err := store.CompleteWebhookEvent(ctx, "workos", "old", tok, now); err != nil {
+		t.Fatalf("complete old: %v", err)
+	}
+
+	// A later claim past the retention window prunes the stale row.
+	later := now.Add(WebhookEventRetention + time.Hour)
+	if st, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: "new"}, later); err != nil || st != WebhookEventClaimed {
+		t.Fatalf("later claim: %q err=%v", st, err)
+	}
+
+	// The pruned event id is treated as a fresh first delivery again, not as
+	// an already-processed duplicate.
+	st, _, err = store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: "old"}, later.Add(time.Minute))
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("expected pruned event to be claimable again, got %q err=%v", st, err)
+	}
+}
+
 func TestMemoryStore_DeleteIdentityConnection_CascadesSCIMEvents(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

@@ -594,6 +594,14 @@ func (m *MemoryStore) BeginWebhookEvent(ctx context.Context, event WebhookEvent,
 		claimToken: claimToken,
 		claimedAt:  now,
 	}
+	// Opportunistically prune rows past the retention window so the ledger
+	// does not grow unbounded (mirrors the Postgres claim-path sweep).
+	cutoff := now.Add(-WebhookEventRetention)
+	for k, rec := range m.webhookEvents {
+		if rec.claimedAt.Before(cutoff) {
+			delete(m.webhookEvents, k)
+		}
+	}
 	return WebhookEventClaimed, claimToken, nil
 }
 

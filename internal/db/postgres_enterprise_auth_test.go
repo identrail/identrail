@@ -651,6 +651,10 @@ func TestPostgresBeginWebhookEvent(t *testing.T) {
 	mock.ExpectQuery("INSERT INTO webhook_events").
 		WithArgs("workos", "event_1", "user.deleted", sqlmock.AnyArg(), now).
 		WillReturnRows(sqlmock.NewRows([]string{"event_id"}).AddRow("event_1"))
+	// The claim path opportunistically prunes rows past the retention window.
+	mock.ExpectExec("DELETE FROM webhook_events").
+		WithArgs(now.Add(-WebhookEventRetention)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	first, tok, err := store.BeginWebhookEvent(ctx, WebhookEvent{
 		Provider:   " workos ",
 		EventID:    " event_1 ",
