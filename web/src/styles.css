@@ -14352,8 +14352,8 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-shell {
   min-height: 100vh;
-  background: #f7f9fc;
-  color: #111827;
+  background: #050506;
+  color: #f5f5f5;
   padding: 24px clamp(16px, 4vw, 56px) 48px;
 }
 
@@ -14366,9 +14366,26 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   margin: 0 auto 32px;
 }
 
+.idt-onboarding-logo-mark {
+  display: inline-grid;
+  width: 2.3rem;
+  height: 2.3rem;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.idt-onboarding-logo-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .idt-onboarding-grid {
   display: grid;
-  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 24px;
   max-width: 1180px;
   margin: 0 auto;
@@ -14377,10 +14394,10 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-rail,
 .idt-onboarding-panel {
-  border: 1px solid #d7dfeb;
-  background: #ffffff;
+  border: 1px solid #242424;
+  background: #0a0a0b;
   border-radius: 8px;
-  box-shadow: 0 18px 48px rgba(17, 24, 39, 0.07);
+  box-shadow: none;
 }
 
 .idt-onboarding-rail {
@@ -14390,21 +14407,40 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 }
 
 .idt-onboarding-panel {
+  min-height: 34rem;
   padding: clamp(28px, 5vw, 56px);
 }
 
+.idt-onboarding-rail-label {
+  margin: 0 0 12px;
+  color: #8f8f95;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .idt-onboarding-panel h1 {
-  max-width: 760px;
+  max-width: 680px;
   margin: 0;
-  font-size: 4rem;
-  line-height: 1;
+  color: #ffffff;
+  font-size: clamp(2.45rem, 5vw, 4rem);
+  line-height: 0.98;
   letter-spacing: 0;
 }
 
+html[data-theme='light'] .idt-onboarding-shell .idt-onboarding-panel h1 {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
+  color: #8f6fff;
+}
+
 .idt-onboarding-panel > p {
-  max-width: 720px;
+  max-width: 680px;
   margin: 18px 0 0;
-  color: #42526b;
+  color: #b7b7bd;
   font-size: 1.04rem;
   line-height: 1.7;
 }
@@ -14422,7 +14458,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   min-height: 48px;
   padding: 8px;
   border-radius: 8px;
-  color: #64748b;
+  color: #8f8f95;
 }
 
 .idt-onboarding-step span {
@@ -14431,9 +14467,9 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  background: #edf2f7;
+  background: #171719;
   font-weight: 800;
-  color: #475569;
+  color: #a6a6ad;
 }
 
 .idt-onboarding-step strong {
@@ -14441,18 +14477,22 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 }
 
 .idt-onboarding-step.is-current {
-  background: #111827;
+  background: #ffffff;
   color: #ffffff;
 }
 
 .idt-onboarding-step.is-current span {
-  background: #ffffff;
-  color: #111827;
+  background: #000000;
+  color: #ffffff;
+}
+
+.idt-onboarding-step.is-current strong {
+  color: #000000;
 }
 
 .idt-onboarding-step.is-complete span {
-  background: #d9f99d;
-  color: #365314;
+  background: rgba(112, 44, 225, 0.18);
+  color: #d8c7ff;
 }
 
 .idt-onboarding-assurance {
@@ -14460,13 +14500,13 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   gap: 8px;
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid #e5eaf2;
-  color: #536179;
+  border-top: 1px solid #242424;
+  color: #a6a6ad;
   line-height: 1.55;
 }
 
 .idt-onboarding-assurance strong {
-  color: #13233a;
+  color: #ffffff;
 }
 
 .idt-onboarding-form {
@@ -14477,19 +14517,27 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 }
 
 .idt-onboarding-form label {
-  color: #253858;
+  color: #f0f0f0;
   font-weight: 800;
 }
 
 .idt-onboarding-form input,
 .idt-onboarding-form textarea {
   width: 100%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #2c2c30;
   border-radius: 8px;
   padding: 14px 16px;
   font: inherit;
-  color: #111827;
-  background: #ffffff;
+  color: #ffffff;
+  background: #050506;
+  box-shadow: none;
+}
+
+.idt-onboarding-form input:focus-visible,
+.idt-onboarding-form textarea:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+  border-color: #ffffff;
 }
 
 .idt-onboarding-form textarea {
@@ -14517,18 +14565,19 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   gap: 10px;
   align-content: start;
   text-align: left;
-  border: 1px solid #d4dde9;
+  border: 1px solid #26262a;
   border-radius: 8px;
   padding: 18px;
-  background: #ffffff;
-  color: #14213d;
+  background: #070708;
+  color: #f5f5f5;
   cursor: pointer;
 }
 
 .idt-onboarding-provider:hover,
 .idt-onboarding-provider.is-selected {
-  border-color: #111827;
-  box-shadow: inset 0 0 0 1px #111827;
+  border-color: #ffffff;
+  background: #111113;
+  box-shadow: none;
 }
 
 .idt-onboarding-provider:disabled {
@@ -14548,7 +14597,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-provider small,
 .idt-onboarding-scan-status small {
-  color: #536179;
+  color: #a6a6ad;
   line-height: 1.5;
 }
 
@@ -14559,12 +14608,12 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   margin-top: 32px;
   padding: 20px;
   border-radius: 8px;
-  border: 1px solid #d7dfeb;
-  background: #f8fafc;
+  border: 1px solid #26262a;
+  background: #070708;
 }
 
 .idt-onboarding-scan-status span {
-  color: #334e68;
+  color: #a6a6ad;
   font-weight: 800;
   text-transform: uppercase;
   font-size: 0.75rem;
@@ -14574,6 +14623,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 .idt-onboarding-scan-status strong {
   font-size: 2rem;
   letter-spacing: 0;
+  color: #ffffff;
 }
 
 .idt-onboarding-tour {
@@ -14584,10 +14634,10 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   display: grid;
   gap: 16px;
   padding: 22px;
-  border: 1px solid #cad6e5;
+  border: 1px solid #242424;
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 24px 72px rgba(15, 23, 42, 0.2);
+  background: #0a0a0b;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.38);
   z-index: 30;
 }
 
@@ -14601,7 +14651,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   gap: 8px;
   margin: 0;
   padding-left: 20px;
-  color: #364154;
+  color: #c8c8ce;
 }
 
 @media (max-width: 900px) {
@@ -18223,14 +18273,15 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
 .idt-account-security-page,
 .idt-app-shell-screen,
 .idt-executive-report-shell {
-  --app-bg: #000000;
-  --app-panel: #080808;
-  --app-panel-strong: #0d0d0d;
-  --app-border: #242424;
+  --app-bg: #050506;
+  --app-panel: #0a0a0b;
+  --app-panel-strong: #101013;
+  --app-border: #252529;
   --app-border-soft: #191919;
   --app-text: #f5f5f5;
-  --app-muted: #a3a3a3;
-  --app-dim: #737373;
+  --app-muted: #b8b8c0;
+  --app-dim: #85858f;
+  --app-accent: #702ce1;
   --app-success: #58d68d;
   --app-warning: #f5c451;
   --app-danger: #ff6b6b;
@@ -18261,10 +18312,7 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   grid-template-columns: 18rem minmax(0, 1fr);
   gap: 0;
   overflow-x: clip;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 72px 72px,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 72px 72px,
-    #000000;
+  background: var(--app-bg);
 }
 
 .idt-app-sidebar {
@@ -18277,7 +18325,7 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   padding: 1rem;
   overflow-y: auto;
   border-right: 1px solid var(--app-border);
-  background: rgba(5, 5, 5, 0.98);
+  background: #050506;
 }
 
 .idt-app-sidebar-brand {
@@ -18325,14 +18373,14 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   border: 1px solid var(--app-border);
   border-radius: 8px;
   padding: 0.9rem;
-  background: var(--app-panel);
+  background: #09090a;
 }
 
 .idt-app-sidebar-scope h2 {
   margin: 0.25rem 0 0.7rem;
   color: #ffffff;
   font-family: var(--idt-display);
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   line-height: 1.05;
   overflow-wrap: anywhere;
 }
@@ -18352,7 +18400,7 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
 
 .idt-app-sidebar-scope dd {
   margin: 0.12rem 0 0;
-  color: #e5e5e5;
+  color: #c8c8ce;
   font-family: var(--idt-mono);
   font-size: 0.78rem;
   overflow-wrap: anywhere;
@@ -18379,17 +18427,15 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
 .idt-app-console-layout .idt-app-shell-header,
 .idt-account-security-page .idt-app-shell-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  min-height: 7rem;
-  padding: 1.25rem clamp(1rem, 4vw, 3.5rem);
+  min-height: 6rem;
+  padding: 1rem clamp(1rem, 4vw, 3rem);
   border: 0;
   border-bottom: 1px solid var(--app-border);
   border-radius: 0;
-  background:
-    radial-gradient(circle at 82% 0%, rgba(255, 255, 255, 0.08), transparent 18rem),
-    #000000;
+  background: #050506;
 }
 
 .idt-app-console-layout .idt-app-shell-header h1,
@@ -18398,9 +18444,9 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   margin: 0.1rem 0 0.35rem;
   color: #ffffff;
   font-family: var(--idt-display);
-  font-size: 2.15rem;
-  line-height: 0.98;
-  text-transform: uppercase;
+  font-size: clamp(1.7rem, 2.4vw, 2.35rem);
+  line-height: 1;
+  text-transform: none;
   text-wrap: balance;
 }
 
@@ -18554,7 +18600,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
   padding: 0;
   background: transparent;
   display: grid;
-  gap: 1.1rem;
+  gap: 1rem;
 }
 
 .idt-app-console-layout .idt-overview-header,
@@ -18566,7 +18612,11 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
   border: 1px solid var(--app-border);
   border-radius: 8px;
   padding: 1rem;
-  background: #050505;
+  background: #080809;
+}
+
+.idt-app-console-layout .idt-overview-header {
+  padding: 1rem 1.1rem;
 }
 
 .idt-app-console-layout h2,
@@ -18580,6 +18630,18 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
   color: #ffffff;
   overflow-wrap: anywhere;
   text-wrap: balance;
+}
+
+.idt-app-console-layout .idt-overview-header h2,
+.idt-app-console-layout .idt-workspace-admin-header h2,
+.idt-app-console-layout .idt-projects-header h2,
+.idt-app-console-layout .idt-source-onboarding-header h2,
+.idt-app-console-layout .idt-repo-findings-header h2,
+.idt-app-console-layout .idt-settings-header h2 {
+  margin: 0.2rem 0 0.35rem;
+  font-size: clamp(1.65rem, 2.4vw, 2.2rem);
+  line-height: 1.02;
+  text-transform: none;
 }
 
 .idt-app-console-layout p,
@@ -18618,7 +18680,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-stat,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics article {
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: #080808;
+  background: var(--app-panel);
+  color: var(--app-text);
   padding: 0.9rem;
 }
 
@@ -18697,7 +18760,8 @@ html[data-theme='light'] .idt-account-security-page .idt-session-row,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section {
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: #080808;
+  background: var(--app-panel);
+  color: var(--app-text);
   box-shadow: none;
 }
 
@@ -18723,7 +18787,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-secti
 .idt-app-console-layout .idt-overview-actions a:hover,
 .idt-app-console-layout .idt-overview-actions a:focus-visible {
   border-color: #ffffff;
-  background: #111111;
+  background: #111113;
   color: #ffffff;
   transform: none;
 }
@@ -18808,8 +18872,16 @@ html[data-theme='light'] .idt-account-security-page .idt-app-empty-state,
 html[data-theme='light'] .idt-executive-report-shell .idt-app-empty-state {
   border: 1px dashed #333333;
   border-radius: 8px;
-  background: #070707;
+  background: #070708;
   color: var(--app-muted);
+}
+
+.idt-app-console-layout .idt-app-empty-state h2,
+.idt-account-security-page .idt-app-empty-state h2,
+.idt-executive-report-shell .idt-app-empty-state h2 {
+  margin: 0 0 0.55rem;
+  font-size: clamp(1.35rem, 2.2vw, 1.85rem);
+  line-height: 1.05;
 }
 
 .idt-app-console-layout input,
@@ -19251,7 +19323,7 @@ html[data-theme='light'] .idt-account-security-page,
 html[data-theme='light'] .idt-app-shell-screen,
 html[data-theme='light'] .idt-executive-report-shell {
   color-scheme: dark;
-  background: #000000;
+  background: var(--app-bg);
   color: #f5f5f5;
 }
 
@@ -19259,9 +19331,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-header,
 html[data-theme='light'] .idt-account-security-page .idt-app-shell-header,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-header {
   border-color: var(--app-border);
-  background:
-    radial-gradient(circle at 82% 0%, rgba(255, 255, 255, 0.08), transparent 18rem),
-    #000000;
+  background: #050506;
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-app-shell-header h1,
@@ -19322,7 +19392,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-settings-facts dt,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-header p,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section p,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics p {
-  color: #a3a3a3;
+  color: var(--app-muted);
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article,
@@ -19360,7 +19430,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-severity-lis
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-type-list article,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-narrative article {
   border-color: var(--app-border);
-  background: #080808;
+  background: var(--app-panel);
   color: #f5f5f5;
 }
 
@@ -19371,7 +19441,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding-header,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-header {
   border-color: var(--app-border);
-  background: #050505;
+  background: #080809;
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics span,
@@ -19430,27 +19500,20 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
 .idt-app-shell-screen,
 .idt-executive-report-shell {
   --source-github: #f5f5f5;
-  --source-aws: #ff9900;
-  --source-kubernetes: #326ce5;
+  --source-aws: #8f8f95;
+  --source-kubernetes: #8f8f95;
   --app-ink: #050505;
-  --app-paper: #f6f6f4;
-  --app-paper-muted: #646464;
+  --app-paper: #0a0a0b;
+  --app-paper-muted: #b8b8c0;
   --app-blueprint: #0b1220;
 }
 
 .idt-app-console-layout {
-  background:
-    radial-gradient(circle at 78% 8%, rgba(50, 108, 229, 0.16), transparent 20rem),
-    radial-gradient(circle at 14% 18%, rgba(255, 153, 0, 0.1), transparent 16rem),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.038) 1px, transparent 1px) 0 0 / 72px 72px,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 72px 72px,
-    #000000;
+  background: var(--app-bg);
 }
 
 .idt-app-sidebar {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 15rem),
-    rgba(5, 5, 5, 0.98);
+  background: #050506;
 }
 
 .idt-app-sidebar-mark {
@@ -19471,14 +19534,14 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
 .idt-source-logo-mark {
   --source-accent: #ffffff;
   display: inline-grid;
-  width: 2.1rem;
-  height: 2.1rem;
+  width: 1.85rem;
+  height: 1.85rem;
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.26), 0 0 22px color-mix(in srgb, var(--source-accent) 28%, transparent);
+  box-shadow: none;
 }
 
 .idt-source-logo-mark.is-github {
@@ -19494,8 +19557,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
 }
 
 .idt-source-logo-mark img {
-  width: 1.28rem;
-  height: 1.28rem;
+  width: 1.05rem;
+  height: 1.05rem;
   object-fit: contain;
 }
 
@@ -19521,51 +19584,64 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
 }
 
 .idt-source-logo-stack .idt-source-logo-mark {
-  width: 2rem;
-  height: 2rem;
+  width: 1.8rem;
+  height: 1.8rem;
 }
 
 .idt-source-logo-stack .idt-source-logo-mark + .idt-source-logo-mark {
-  margin-left: -0.45rem;
+  margin-left: -0.32rem;
 }
 
 .idt-source-logo-stack .idt-source-logo-mark img {
-  width: 1.16rem;
-  height: 1.16rem;
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .idt-app-header-stack,
+.idt-app-header-meta,
 .idt-overview-source-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.85rem;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
 }
 
 .idt-app-header-stack > span,
-.idt-overview-source-strip > span {
-  max-width: 52ch;
-  color: #c6c6c6;
-  font-size: 0.9rem;
-  line-height: 1.45;
+.idt-app-header-meta > span,
+.idt-overview-source-strip > span,
+html[data-theme='light'] .idt-app-header-stack > span,
+html[data-theme='light'] .idt-app-header-meta > span,
+html[data-theme='light'] .idt-overview-source-strip > span {
+  max-width: none;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.32rem 0.58rem;
+  background: #0d0d0f;
+  color: #d7d7dd;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.idt-app-header-meta > .idt-source-logo-stack {
+  margin-right: 0.12rem;
 }
 
 .idt-app-console-layout .idt-overview-header,
+.idt-app-console-layout .idt-workspace-admin-header,
 .idt-app-console-layout .idt-projects-header,
 .idt-app-console-layout .idt-source-onboarding-header,
 .idt-app-console-layout .idt-repo-findings-header,
 .idt-app-console-layout .idt-settings-header {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.012) 50%, rgba(50, 108, 229, 0.08)),
-    #050505;
+  background: #080809;
 }
 
 .idt-app-console-layout .idt-overview-metrics article,
 .idt-app-console-layout .idt-projects-summary article,
 .idt-app-console-layout .idt-source-summary article,
 .idt-app-console-layout .idt-repo-finding-stat {
-  min-height: 8.25rem;
+  min-height: 7rem;
   display: grid;
   align-content: space-between;
   gap: 0.8rem;
@@ -19577,15 +19653,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
 .idt-app-console-layout .idt-projects-summary article::after,
 .idt-app-console-layout .idt-source-summary article::after,
 .idt-app-console-layout .idt-repo-finding-stat::after {
-  content: '';
-  position: absolute;
-  right: -2.25rem;
-  bottom: -2.25rem;
-  width: 7rem;
-  height: 7rem;
-  border-radius: 999px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 68%);
-  pointer-events: none;
+  display: none;
 }
 
 .idt-overview-metric-top {
@@ -19607,11 +19675,9 @@ html[data-theme='light'] .idt-app-console-layout .is-light-surface,
 html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article.is-light-surface,
 html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article.is-light-surface,
 html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-light-surface {
-  border-color: rgba(255, 255, 255, 0.9);
-  background:
-    radial-gradient(circle at 85% 0%, rgba(255, 153, 0, 0.18), transparent 10rem),
-    var(--app-paper);
-  color: var(--app-ink);
+  border-color: var(--app-border);
+  background: var(--app-paper);
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .is-light-surface strong,
@@ -19636,7 +19702,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article.i
 html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article.is-light-surface span,
 html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-light-surface strong,
 html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-light-surface span {
-  color: var(--app-ink);
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .is-light-surface p,
@@ -19647,18 +19713,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-
   color: var(--app-paper-muted);
 }
 
-.idt-app-console-layout .is-danger-surface {
-  border-color: rgba(255, 107, 107, 0.38);
-  background:
-    radial-gradient(circle at 100% 0%, rgba(255, 107, 107, 0.17), transparent 10rem),
-    #080808;
-}
-
+.idt-app-console-layout .is-danger-surface,
 .idt-app-console-layout .is-provider-surface {
-  border-color: rgba(50, 108, 229, 0.42);
-  background:
-    radial-gradient(circle at 100% 0%, rgba(50, 108, 229, 0.2), transparent 10rem),
-    #080808;
+  border-color: var(--app-border);
+  background: var(--app-panel);
+  color: var(--app-text);
 }
 
 .idt-overview-risk-row,
@@ -19704,23 +19763,24 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-summary article.is-
   display: grid;
   align-content: start;
   gap: 0.55rem;
-  min-height: 8.5rem;
+  min-height: 6.8rem;
+  padding: 0.95rem;
   position: relative;
   overflow: hidden;
 }
 
 .idt-app-console-layout .idt-overview-actions a:nth-child(2),
 html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-child(2) {
-  border-color: rgba(255, 255, 255, 0.9);
+  border-color: var(--app-border);
   background: var(--app-paper);
-  color: var(--app-ink);
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .idt-overview-actions a:nth-child(2) strong,
 .idt-app-console-layout .idt-overview-actions a:nth-child(2) span,
 html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-child(2) strong,
 html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-child(2) span {
-  color: var(--app-ink);
+  color: inherit;
 }
 
 .idt-app-console-layout .idt-overview-actions a:nth-child(2) .idt-source-logo-mark {
@@ -19752,14 +19812,12 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-chi
   inset: 0 auto 0 0;
   width: 3px;
   background: var(--provider-accent);
-  opacity: 0.75;
+  opacity: 0.34;
 }
 
 .idt-app-console-layout .idt-source-card.is-selected {
-  border-color: color-mix(in srgb, var(--provider-accent) 70%, #ffffff);
-  background:
-    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--provider-accent) 18%, transparent), transparent 10rem),
-    #111111;
+  border-color: #ffffff;
+  background: #111113;
 }
 
 .idt-source-card-topline {
@@ -19792,16 +19850,12 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-actions a:nth-chi
 
 .idt-app-console-layout .idt-source-meta div,
 html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
-  border-color: rgba(255, 255, 255, 0.16);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.055), transparent),
-    #060606;
+  border-color: var(--app-border);
+  background: #080809;
 }
 
 .idt-app-console-layout .idt-source-install-card {
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent),
-    #060606;
+  background: #080809;
 }
 
 .idt-app-console-layout .idt-repo-finding-row {
@@ -19810,10 +19864,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
 }
 
 .idt-app-console-layout .idt-repo-finding-row.is-selected {
-  border-color: rgba(255, 255, 255, 0.86);
-  background:
-    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.12), transparent 12rem),
-    #111111;
+  border-color: #ffffff;
+  background: #111113;
 }
 
 .idt-app-console-layout .idt-repo-finding-row-top {
@@ -19822,18 +19874,16 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
 }
 
 .idt-app-console-layout .idt-repo-finding-trend {
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px) 0 0 / 56px 56px,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 56px 56px,
-    #080808;
+  background: var(--app-panel);
 }
 
 .idt-app-console-layout .idt-repo-finding-trend-bar {
-  background: linear-gradient(90deg, #ffffff, rgba(50, 108, 229, 0.88));
+  background: #ffffff;
 }
 
 @media (max-width: 700px) {
   .idt-app-header-stack,
+  .idt-app-header-meta,
   .idt-overview-source-strip,
   .idt-source-config-title {
     align-items: flex-start;

@@ -84,6 +84,14 @@ function normalizeValue(value: string): string {
   return value.trim();
 }
 
+function formatScopeDisplay(value: string): string {
+  const normalized = normalizeValue(value);
+  if (normalized.length <= 28) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 14)}...${normalized.slice(-8)}`;
+}
+
 function buildTenantWorkspacePath(tenantID: string, workspaceID: string): string {
   return `/app/${encodeURIComponent(tenantID)}/${encodeURIComponent(workspaceID)}`;
 }
@@ -964,6 +972,9 @@ export function ProductShellLayout() {
   }
 
   const basePath = buildScopedPath(scope);
+  const tenantLabel = formatScopeDisplay(scope.tenantID);
+  const workspaceLabel = formatScopeDisplay(scope.workspaceID);
+  const projectLabel = scope.projectID ? formatScopeDisplay(scope.projectID) : '';
   const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
 
   return (
@@ -982,16 +993,16 @@ export function ProductShellLayout() {
 
           <section className="idt-app-sidebar-scope" aria-label="Active workspace">
             <p className="idt-app-kicker">Active scope</p>
-            <h2>{scope.workspaceID}</h2>
+            <h2 title={scope.workspaceID}>{workspaceLabel}</h2>
             <dl>
               <div>
                 <dt>Tenant</dt>
-                <dd>{scope.tenantID}</dd>
+                <dd title={scope.tenantID}>{tenantLabel}</dd>
               </div>
               {scope.projectID ? (
                 <div>
                   <dt>Project</dt>
-                  <dd>{scope.projectID}</dd>
+                  <dd title={scope.projectID}>{projectLabel}</dd>
                 </div>
               ) : null}
             </dl>
@@ -1010,9 +1021,8 @@ export function ProductShellLayout() {
           </nav>
 
           <div className="idt-app-sidebar-footer">
-            <SourceLogoStack className="idt-app-sidebar-logo-stack" label="Workspace source logos" />
-            <span>Read-only evidence first</span>
-            <strong>Operator-ready workflow</strong>
+            <span>Workspace mode</span>
+            <strong>Read-only evidence first</strong>
           </div>
         </aside>
 
@@ -1020,19 +1030,21 @@ export function ProductShellLayout() {
           <header className="idt-app-shell-header">
             <div>
               <p className="idt-app-kicker">Operations console</p>
-              <h1>Identrail Workspace</h1>
+              <h1>Identrail workspace</h1>
               <p>
-                Tenant <strong>{scope.tenantID}</strong> · Workspace <strong>{scope.workspaceID}</strong>
+                Tenant <strong title={scope.tenantID}>{tenantLabel}</strong> · Workspace <strong title={scope.workspaceID}>{workspaceLabel}</strong>
                 {scope.projectID ? (
                   <>
                     {' '}
-                    · Project <strong>{scope.projectID}</strong>
+                    · Project <strong title={scope.projectID}>{projectLabel}</strong>
                   </>
                 ) : null}
               </p>
-              <div className="idt-app-header-stack">
-                <SourceLogoStack label="Available machine identity sources" />
+              <div className="idt-app-header-meta" aria-label="Workspace operating model">
+                <SourceLogoStack className="idt-app-header-source-stack" label="Enabled source connectors" />
                 <span>{enabledSourceLabel} signals stay visible across the workflow.</span>
+                <span>Project-scoped scans</span>
+                <span>Owner-ready findings</span>
               </div>
             </div>
             <div className="idt-app-shell-actions">
@@ -1213,12 +1225,14 @@ export function ProductOverviewPage() {
             <p className="idt-app-kicker">Workspace overview</p>
             <h2>Overview</h2>
             <p>
-              Operating view for tenant <strong>{scope?.tenantID ?? 'unknown'}</strong> and workspace{' '}
-              <strong>{scope?.workspaceID ?? 'unknown'}</strong>.
+              Project coverage, scans, and open findings for tenant{' '}
+              <strong title={scope?.tenantID ?? undefined}>{scope ? formatScopeDisplay(scope.tenantID) : 'unknown'}</strong> and workspace{' '}
+              <strong title={scope?.workspaceID ?? undefined}>{scope ? formatScopeDisplay(scope.workspaceID) : 'unknown'}</strong>.
             </p>
-            <div className="idt-overview-source-strip">
-              <SourceLogoStack label="Workspace source stack" />
-              <span>Source telemetry, cloud IAM, and runtime identity in one queue.</span>
+            <div className="idt-overview-source-strip" aria-label="Overview coverage">
+              <span>Evidence queue</span>
+              <span>Connector health</span>
+              <span>Remediation owners</span>
             </div>
           </div>
           <div className="idt-inline-actions">
@@ -1232,26 +1246,23 @@ export function ProductOverviewPage() {
         </header>
 
         <div className="idt-overview-metrics" aria-label="Workspace health metrics">
-          <article className="idt-overview-metric-card is-light-surface">
+          <article className="idt-overview-metric-card">
             <div className="idt-overview-metric-top">
               <span>Active projects</span>
-              <SourceLogoStack label="Project source coverage" />
             </div>
             <strong>{activeProjects.length}</strong>
             <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : 'All listed projects are active'}</p>
           </article>
-          <article className="idt-overview-metric-card is-danger-surface">
+          <article className="idt-overview-metric-card">
             <div className="idt-overview-metric-top">
               <span>Priority findings</span>
-              <SourceLogoStack label="Priority finding source coverage" />
             </div>
             <strong>{openFindingCount}</strong>
             <p>{urgentFindingCount} critical or high in the ranked queue</p>
           </article>
-          <article className="idt-overview-metric-card is-provider-surface">
+          <article className="idt-overview-metric-card">
             <div className="idt-overview-metric-top">
               <span>Recent scans</span>
-              <SourceLogoMark provider="github" />
             </div>
             <strong>{repoScans.length}</strong>
             <p>{activeScanCount > 0 ? `${activeScanCount} still running` : `${completedScanCount} completed`}</p>
@@ -1259,7 +1270,6 @@ export function ProductOverviewPage() {
           <article className="idt-overview-metric-card">
             <div className="idt-overview-metric-top">
               <span>Trend delta</span>
-              <SourceLogoStack label="Trend source coverage" />
             </div>
             <strong>{trendDelta === null ? 'N/A' : trendDelta > 0 ? `+${trendDelta}` : trendDelta}</strong>
             <p>
@@ -1384,22 +1394,18 @@ export function ProductOverviewPage() {
             </div>
             <div className="idt-overview-actions">
               <Link to={projectsPath}>
-                <SourceLogoStack label="Project action source stack" />
                 <strong>Create or select a project</strong>
                 <span>Define the scope that connectors and scan policies will attach to.</span>
               </Link>
               <Link to={scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath}>
-                <SourceLogoStack label="Connector action source stack" />
                 <strong>Connect sources</strong>
                 <span>Attach enabled source telemetry to an active project.</span>
               </Link>
               <Link to={findingsPath}>
-                <SourceLogoMark provider="github" />
                 <strong>Triage open findings</strong>
                 <span>Review direct GitHub line links, severity, remediation, and workflow status.</span>
               </Link>
               <Link to={workspacesPath}>
-                <SourceLogoStack label="Operator access source coverage" />
                 <strong>Invite operators</strong>
                 <span>Give analysts and admins access to the workspace they operate.</span>
               </Link>
