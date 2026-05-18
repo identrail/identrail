@@ -55,6 +55,7 @@ const (
 	defaultFeatureOnboardingWizard     = false
 	defaultFeatureNativeSSO            = false
 	defaultAuthManualMode              = false
+	defaultAuthManualModeAllowUnsafe   = false
 	defaultAppModeEnabled              = false
 	defaultAppModeConnectorsEnabled    = false
 	defaultAppModeSchedulerEnabled     = false
@@ -175,6 +176,7 @@ type Config struct {
 	SessionKey                   string
 	SessionKeyPrevious           string
 	AuthManualMode               bool
+	AuthManualModeAllowUnsafe    bool
 	WorkOSClientID               string
 	WorkOSAPIKey                 string
 	WorkOSWebhookSecret          string
@@ -325,6 +327,7 @@ func Load() Config {
 		SessionKey:                   getEnv("IDENTRAIL_SESSION_KEY", ""),
 		SessionKeyPrevious:           getEnv("IDENTRAIL_SESSION_KEY_PREVIOUS", ""),
 		AuthManualMode:               boolEnv("IDENTRAIL_AUTH_MANUAL_MODE", defaultAuthManualMode),
+		AuthManualModeAllowUnsafe:    boolEnv("IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE", defaultAuthManualModeAllowUnsafe),
 		WorkOSClientID:               getEnv("IDENTRAIL_WORKOS_CLIENT_ID", ""),
 		WorkOSAPIKey:                 getEnv("IDENTRAIL_WORKOS_API_KEY", ""),
 		WorkOSWebhookSecret:          getEnv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", ""),

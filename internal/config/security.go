@@ -219,6 +219,9 @@ func ValidateSecurity(cfg Config) error {
 	if cfg.FeatureWorkOSLogin && cfg.AuthManualMode {
 		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true cannot be combined with IDENTRAIL_AUTH_MANUAL_MODE=true")
 	}
+	if cfg.AuthManualMode && !cfg.AuthManualModeAllowUnsafe && !isLoopbackBaseURL(cfg.PublicBaseURL) {
+		return fmt.Errorf("IDENTRAIL_AUTH_MANUAL_MODE=true is a local-development-only feature: /auth/manual mints a browser session from request-supplied tenant and identity fields. It requires a loopback IDENTRAIL_PUBLIC_BASE_URL (http://localhost, http://127.0.0.1, or http://[::1]). For a deliberately non-production test deployment, set IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true to override this guard")
+	}
 	if cfg.FeatureWorkOSLogin && !cfg.FeatureNewAuth {
 		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
 	}
@@ -651,12 +654,38 @@ func validatePublicBaseURL(raw string) error {
 	case "https":
 		return nil
 	case "http":
-		host := strings.ToLower(parsed.Hostname())
-		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		if isLoopbackHost(parsed.Hostname()) {
 			return nil
 		}
 	}
 	return fmt.Errorf("IDENTRAIL_PUBLIC_BASE_URL must use https outside local development")
+}
+
+// isLoopbackHost reports whether host is a loopback address that only the
+// local machine can reach.
+func isLoopbackHost(host string) bool {
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
+}
+
+// isLoopbackBaseURL reports whether raw is an absolute URL whose host is a
+// loopback address. Manual auth mode is gated on this so /auth/manual can
+// never be reached from anywhere but the local machine.
+func isLoopbackBaseURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+		return isLoopbackHost(parsed.Hostname())
+	default:
+		return false
+	}
 }
 
 func validateSessionKey(envName string, raw string) error {
@@ -729,6 +758,13 @@ func SecurityWarnings(cfg Config) []string {
 	}
 	if !cfg.PostgresRLSEnforced {
 		warnings = append(warnings, "postgres row-level scope enforcement is disabled; set IDENTRAIL_POSTGRES_RLS_ENFORCED=true for deployment environments")
+	}
+	if cfg.AuthManualMode {
+		if cfg.AuthManualModeAllowUnsafe && !isLoopbackBaseURL(cfg.PublicBaseURL) {
+			warnings = append(warnings, "IDENTRAIL_AUTH_MANUAL_MODE is enabled with IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE on a non-loopback IDENTRAIL_PUBLIC_BASE_URL; /auth/manual can mint a session from request-supplied identity and must never be exposed to production or internet-accessible deployments")
+		} else {
+			warnings = append(warnings, "IDENTRAIL_AUTH_MANUAL_MODE is enabled; /auth/manual is a local-development-only login and must never be enabled outside local development")
+		}
 	}
 	if strings.TrimSpace(cfg.AuditLogFile) == "" {
 		warnings = append(warnings, "audit file sink is disabled; configure IDENTRAIL_AUDIT_LOG_FILE for durable local audit records")

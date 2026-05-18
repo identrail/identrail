@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Made `IDENTRAIL_AUTH_MANUAL_MODE` a local-development-only feature at
+  startup validation. The server now refuses to boot with manual mode
+  enabled unless `IDENTRAIL_PUBLIC_BASE_URL` is a loopback origin
+  (`http://localhost`, `http://127.0.0.1`, or `http://[::1]`), so the
+  request-trusting `/auth/manual` session endpoint cannot be exposed
+  accidentally outside local development. A deliberately non-production test
+  deployment must opt in explicitly with the clearly named
+  `IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true`. Manual mode now also emits
+  a startup security warning, and the WorkOS mutual-exclusion checks are
+  unchanged.
 - Added a request-side CSRF/origin guard for unsafe (`POST`/`PUT`/`PATCH`/
   `DELETE`) browser session-authenticated `/v1/*` API writes. CORS is no
   longer relied on as a CSRF control: a guarded request must present a

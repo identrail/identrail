@@ -15,7 +15,8 @@ The two variables marked `Required` in the table below apply regardless of which
 | `IDENTRAIL_PUBLIC_BASE_URL` | none | Required for any auth driver (WorkOS, OIDC, manual, or native SAML). Must parse as an absolute URL. Must be `https://` in any non-development build. Refuses to start if missing. | Auth foundation |
 | `IDENTRAIL_SESSION_KEY` | none | Required for any auth driver. 32 bytes minimum (64 hex chars). Refuses to start if missing or shorter. | Auth foundation |
 | `IDENTRAIL_SESSION_KEY_PREVIOUS` | empty | Optional. Same format as `IDENTRAIL_SESSION_KEY`. Used during a key rotation. | Auth foundation |
-| `IDENTRAIL_AUTH_MANUAL_MODE` | `false` | Boolean. Mutually exclusive with `IDENTRAIL_WORKOS_CLIENT_ID`; setting both refuses to start. | Auth foundation |
+| `IDENTRAIL_AUTH_MANUAL_MODE` | `false` | Boolean. **Local development only.** `/auth/manual` mints a browser session from request-supplied tenant and identity fields, so it must never be enabled for production or any internet-accessible deployment. The server refuses to start when this is `true` unless `IDENTRAIL_PUBLIC_BASE_URL` is a loopback origin (`http://localhost`, `http://127.0.0.1`, or `http://[::1]`). Mutually exclusive with `IDENTRAIL_WORKOS_CLIENT_ID`; setting both refuses to start. | Auth foundation |
+| `IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE` | `false` | Boolean. **Unsafe.** Overrides the loopback requirement above so `IDENTRAIL_AUTH_MANUAL_MODE=true` can run with a non-local `IDENTRAIL_PUBLIC_BASE_URL`. Intended only for a deliberately throwaway, non-production test deployment. Never set this in production or on an internet-accessible host. | Auth foundation |
 
 Production example values:
 
