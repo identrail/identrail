@@ -990,7 +990,11 @@ func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trac
 		}
 
 		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: connection.TenantID, WorkspaceID: connection.WorkspaceID})
-		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{Repository: repository})
+		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{
+			Repository:  repository,
+			ProjectID:   connection.ProjectID,
+			ConnectorID: firstNonEmptyString(connection.ConnectorID, githubConnectorID),
+		})
 		if err != nil {
 			if errors.Is(err, ErrRepoScanQueueFull) {
 				result.SkippedScans++
@@ -1775,8 +1779,9 @@ func gitHubConnectionStatus(connection githubProjectConnection, manager *secrets
 		rotationDueAt := rotatedAt.Add(githubWebhookSecretRotationWindow)
 		rotationDueAtPtr = &rotationDueAt
 	}
+	provider := firstNonEmptyString(strings.TrimSpace(connection.Provider), "github_app")
 	status := GitHubConnectionStatus{
-		Provider:                      "github_app",
+		Provider:                      provider,
 		Connected:                     true,
 		ConnectorID:                   firstNonEmptyString(connection.ConnectorID, githubConnectorID),
 		DisplayName:                   firstNonEmptyString(connection.DisplayName, githubConnectorDisplayName),
@@ -1937,9 +1942,20 @@ func githubWebhookTriggersScan(eventType string) bool {
 }
 
 func repositorySelected(selected []string, repository string) bool {
-	normalizedTarget := normalizeGitHubRepository(repository)
+	normalizedTarget := normalizeGitHubRepositoryPath(repository)
+	if normalizedTarget == "" {
+		normalizedTarget = normalizeGitHubRepository(repository)
+	} else {
+		normalizedTarget = strings.ToLower(normalizedTarget)
+	}
 	for _, candidate := range selected {
-		if normalizeGitHubRepository(candidate) == normalizedTarget {
+		normalizedCandidate := normalizeGitHubRepositoryPath(candidate)
+		if normalizedCandidate == "" {
+			normalizedCandidate = normalizeGitHubRepository(candidate)
+		} else {
+			normalizedCandidate = strings.ToLower(normalizedCandidate)
+		}
+		if normalizedCandidate == normalizedTarget {
 			return true
 		}
 	}

@@ -283,6 +283,81 @@ func TestEnqueueDueScanPolicyCountsQueueFullTowardConcurrency(t *testing.T) {
 	}
 }
 
+func TestEnqueueDueScanPolicyAttachesConnectorMetadataForGitHubApp(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a"})
+	connection := svc.githubConnections[githubConnectionKey("default", "default", "project-1")]
+	connection.Provider = "github_app"
+	connection.ConnectorID = "connector-123"
+	connection.InstallationID = 101
+	connection.SelectedRepositories = []string{"owner/repo-a"}
+	svc.githubConnections[githubConnectionKey("default", "default", "project-1")] = connection
+
+	upsertTestScanPolicy(t, store, ctx, now.Add(-time.Hour), 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.QueuedScans != 1 {
+		t.Fatalf("queued scans = %d, want 1", result.QueuedScans)
+	}
+
+	scans, err := store.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRepoScans returned error: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Fatalf("repo scans = %d, want 1", len(scans))
+	}
+	if scans[0].Source.Empty() {
+		t.Fatal("expected scan source metadata for github_app connection")
+	}
+	if scans[0].Source.Provider != "github_app" {
+		t.Fatalf("scan source provider = %q, want github_app", scans[0].Source.Provider)
+	}
+	if scans[0].Source.ProjectID != "project-1" {
+		t.Fatalf("scan source project id = %q, want project-1", scans[0].Source.ProjectID)
+	}
+	if scans[0].Source.ConnectorID != "connector-123" {
+		t.Fatalf("scan source connector id = %q, want connector-123", scans[0].Source.ConnectorID)
+	}
+	if scans[0].Source.InstallationID != 101 {
+		t.Fatalf("scan source installation id = %d, want 101", scans[0].Source.InstallationID)
+	}
+}
+
+func TestEnqueueDueScanPolicyDoesNotAttachConnectorMetadataForPAT(t *testing.T) {
+	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
+	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a"})
+	connection := svc.githubConnections[githubConnectionKey("default", "default", "project-1")]
+	connection.Provider = "github_pat"
+	connection.ConnectorID = "pat-connector"
+	connection.SelectedRepositories = []string{"owner/repo-a"}
+	svc.githubConnections[githubConnectionKey("default", "default", "project-1")] = connection
+
+	upsertTestScanPolicy(t, store, ctx, now.Add(-time.Hour), 1)
+
+	result, err := svc.EnqueueDueScanPolicies(ctx)
+	if err != nil {
+		t.Fatalf("EnqueueDueScanPolicies returned error: %v", err)
+	}
+	if result.QueuedScans != 1 {
+		t.Fatalf("queued scans = %d, want 1", result.QueuedScans)
+	}
+
+	scans, err := store.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRepoScans returned error: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Fatalf("repo scans = %d, want 1", len(scans))
+	}
+	if !scans[0].Source.Empty() {
+		t.Fatalf("unexpected scan source metadata for PAT connection: %+v", scans[0].Source)
+	}
+}
+
 func TestDueScanPolicyTickHandlesNoHistoryAndInvalidCron(t *testing.T) {
 	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
 	policy := db.TenancyScanPolicy{

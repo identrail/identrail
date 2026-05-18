@@ -134,11 +134,17 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 		if processed >= maxConcurrent {
 			break
 		}
-		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{
+
+		request := RepoScanRequest{
 			Repository:   repository,
 			HistoryLimit: policy.HistoryLimit,
 			MaxFindings:  policy.MaxFindings,
-		})
+		}
+		if strings.EqualFold(status.Provider, "github_app") {
+			request.ProjectID = policy.ProjectID
+			request.ConnectorID = firstNonEmptyString(status.ConnectorID, githubConnectorID)
+		}
+		_, err := s.EnqueueRepoScan(scopedCtx, request)
 		if err != nil {
 			if isExpectedScheduledRepoSkip(err) {
 				result.SkippedScans++

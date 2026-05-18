@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/audit"
+	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/findings/standards"
@@ -82,6 +83,14 @@ type RepoScanExecutor interface {
 // RepoScannerFactory creates a repository scanner with bounded scan parameters.
 type RepoScannerFactory func(historyLimit int, maxFindings int) RepoScanExecutor
 
+// AuthenticatedRepoScannerFactory creates a repository scanner with a short-lived clone credential.
+type AuthenticatedRepoScannerFactory func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor
+
+// GitHubInstallationTokenMinter mints short-lived GitHub App installation tokens.
+type GitHubInstallationTokenMinter interface {
+	Mint(ctx context.Context, installationID int64) (githubconnector.InstallationToken, error)
+}
+
 // AWSScannerFactory creates a scanner bound to one persisted AWS connector.
 type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
 
@@ -107,37 +116,39 @@ type Service struct {
 	ReadinessCheck func(context.Context) error
 	Metrics        *telemetry.Metrics
 	// Repo scan controls are intentionally separate from cloud identity scan flow.
-	RepoScanEnabled              bool
-	RepoScanDefaultHistoryLimit  int
-	RepoScanDefaultMaxFindings   int
-	RepoScanMaxHistoryLimit      int
-	RepoScanMaxFindingsLimit     int
-	RepoScanAllowedTargets       []string
-	ScanQueueMaxPending          int
-	RepoQueueMaxPending          int
-	RepoScannerFactory           RepoScannerFactory
-	ConnectorSecretManager       *secretstore.Manager
-	KubernetesPreflightFactory   KubernetesConnectorPreflightFactory
-	AWSConnectorValidator        AWSConnectorValidator
-	AWSScannerFactory            AWSScannerFactory
-	AWSCloudFormationTemplateURL string
-	AWSAccountID                 string
-	WorkflowRouter               *workflow.Router
-	GitHubAppID                  int64
-	GitHubAppName                string
-	GitHubAppPrivateKey          string
-	GitHubAppWebhookSecret       string
-	GitHubPATValidator           GitHubPATValidator
-	GitHubRepositoryLister       GitHubRepositoryLister
-	GitHubWebhookReplayWindow    time.Duration
-	GitHubWebhookBurstWindow     time.Duration
-	githubConnectMu              sync.RWMutex
-	githubConnections            map[string]githubProjectConnection
-	githubConnectStates          map[string]githubConnectState
-	githubWebhookSeen            map[string]time.Time
-	githubWebhookLastQueued      map[string]time.Time
-	kubernetesConnectMu          sync.RWMutex
-	kubernetesConnections        map[string]kubernetesProjectConnection
+	RepoScanEnabled                 bool
+	RepoScanDefaultHistoryLimit     int
+	RepoScanDefaultMaxFindings      int
+	RepoScanMaxHistoryLimit         int
+	RepoScanMaxFindingsLimit        int
+	RepoScanAllowedTargets          []string
+	ScanQueueMaxPending             int
+	RepoQueueMaxPending             int
+	RepoScannerFactory              RepoScannerFactory
+	AuthenticatedRepoScannerFactory AuthenticatedRepoScannerFactory
+	ConnectorSecretManager          *secretstore.Manager
+	KubernetesPreflightFactory      KubernetesConnectorPreflightFactory
+	AWSConnectorValidator           AWSConnectorValidator
+	AWSScannerFactory               AWSScannerFactory
+	AWSCloudFormationTemplateURL    string
+	AWSAccountID                    string
+	WorkflowRouter                  *workflow.Router
+	GitHubAppID                     int64
+	GitHubAppName                   string
+	GitHubAppPrivateKey             string
+	GitHubAppWebhookSecret          string
+	GitHubPATValidator              GitHubPATValidator
+	GitHubRepositoryLister          GitHubRepositoryLister
+	GitHubInstallationTokenMinter   GitHubInstallationTokenMinter
+	GitHubWebhookReplayWindow       time.Duration
+	GitHubWebhookBurstWindow        time.Duration
+	githubConnectMu                 sync.RWMutex
+	githubConnections               map[string]githubProjectConnection
+	githubConnectStates             map[string]githubConnectState
+	githubWebhookSeen               map[string]time.Time
+	githubWebhookLastQueued         map[string]time.Time
+	kubernetesConnectMu             sync.RWMutex
+	kubernetesConnections           map[string]kubernetesProjectConnection
 }
 
 // CheckReadiness validates critical runtime dependencies for readiness checks.
@@ -176,6 +187,8 @@ type RunRepoScanResult struct {
 // RepoScanRequest captures one repository exposure scan request.
 type RepoScanRequest struct {
 	Repository   string `json:"repository"`
+	ProjectID    string `json:"project_id,omitempty"`
+	ConnectorID  string `json:"connector_id,omitempty"`
 	HistoryLimit int    `json:"history_limit"`
 	MaxFindings  int    `json:"max_findings"`
 }
@@ -367,6 +380,14 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 				nil,
 				repoexposure.WithHistoryLimit(historyLimit),
 				repoexposure.WithMaxFindings(maxFindings),
+			)
+		},
+		AuthenticatedRepoScannerFactory: func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+			return repoexposure.NewScanner(
+				nil,
+				repoexposure.WithHistoryLimit(historyLimit),
+				repoexposure.WithMaxFindings(maxFindings),
+				repoexposure.WithHTTPSCloneCredential(credential),
 			)
 		},
 	}
@@ -1011,7 +1032,7 @@ func (s *Service) RunRepoScan(ctx context.Context, request RepoScanRequest) (rep
 func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) (db.RepoScanRecord, error) {
 	ctx = s.scopeContext(ctx)
 	ctx = withQueueTraceContext(ctx)
-	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
+	target, source, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
 	if err != nil {
 		return db.RepoScanRecord{}, err
 	}
@@ -1019,7 +1040,7 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	if maxPending <= 0 {
 		maxPending = defaultRepoQueueMaxPending
 	}
-	record, err := s.Store.CreateQueuedRepoScanWithinLimit(ctx, target, historyLimit, maxFindings, s.Now().UTC(), maxPending)
+	record, err := s.Store.CreateQueuedRepoScanWithinLimit(ctx, target, source, historyLimit, maxFindings, s.Now().UTC(), maxPending)
 	if err != nil {
 		switch {
 		case errors.Is(err, db.ErrPendingRepoScanExists):
@@ -1089,7 +1110,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 // RunRepoScanPersisted runs one repository scan and persists repo scan metadata + findings.
 func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequest) (RunRepoScanResult, error) {
 	ctx = s.scopeContext(ctx)
-	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
+	target, source, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
 	if err != nil {
 		return RunRepoScanResult{}, err
 	}
@@ -1100,41 +1121,110 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 		}
 		defer release(context.Background())
 	}
-	record, err := s.Store.CreateRepoScan(ctx, target, s.Now().UTC())
+	record, err := s.Store.CreateRepoScan(ctx, target, source, s.Now().UTC())
 	if err != nil {
 		return RunRepoScanResult{}, fmt.Errorf("create repo scan: %w", err)
 	}
 	return s.runRepoScanWithRecord(ctx, record, historyLimit, maxFindings)
 }
 
-func (s *Service) validateRepoScanRequest(ctx context.Context, request RepoScanRequest) (string, int, int, error) {
+func (s *Service) validateRepoScanRequest(ctx context.Context, request RepoScanRequest) (string, db.RepoScanSource, int, int, error) {
 	if !s.RepoScanEnabled {
-		return "", 0, 0, ErrRepoScanDisabled
+		return "", db.RepoScanSource{}, 0, 0, ErrRepoScanDisabled
 	}
 	target := strings.TrimSpace(request.Repository)
 	if target == "" {
-		return "", 0, 0, ErrInvalidRepoScanRequest
+		return "", db.RepoScanSource{}, 0, 0, ErrInvalidRepoScanRequest
 	}
 	if repoTargetContainsURLCredentials(target) {
-		return "", 0, 0, repoScanRequestValidationError{"repository target must not include credentials in URL userinfo"}
+		return "", db.RepoScanSource{}, 0, 0, repoScanRequestValidationError{"repository target must not include credentials in URL userinfo"}
 	}
 	if repoexposure.IsLocalRepositoryTarget(target) {
 		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
-		return "", 0, 0, ErrRepoTargetNotAllowed
-	}
-	if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
-		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
-		return "", 0, 0, ErrRepoTargetNotAllowed
+		return "", db.RepoScanSource{}, 0, 0, ErrRepoTargetNotAllowed
 	}
 	historyLimit, err := sanitizeRepoScanLimit(request.HistoryLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
 	if err != nil {
-		return "", 0, 0, ErrInvalidRepoScanRequest
+		return "", db.RepoScanSource{}, 0, 0, ErrInvalidRepoScanRequest
 	}
 	maxFindings, err := sanitizeRepoScanLimit(request.MaxFindings, s.RepoScanDefaultMaxFindings, s.RepoScanMaxFindingsLimit)
 	if err != nil {
-		return "", 0, 0, ErrInvalidRepoScanRequest
+		return "", db.RepoScanSource{}, 0, 0, ErrInvalidRepoScanRequest
 	}
-	return target, historyLimit, maxFindings, nil
+
+	if repoScanRequestUsesConnector(request) {
+		normalizedTarget := normalizeGitHubRepositoryPath(target)
+		if normalizedTarget == "" {
+			return "", db.RepoScanSource{}, 0, 0, ErrInvalidRepoScanRequest
+		}
+		target = normalizeGitHubRepository(normalizedTarget)
+
+		source, err := s.resolveRepoScanSource(ctx, target, request)
+		if err != nil {
+			return "", db.RepoScanSource{}, 0, 0, err
+		}
+
+		if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
+			s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
+			return "", db.RepoScanSource{}, 0, 0, ErrRepoTargetNotAllowed
+		}
+		return target, source, historyLimit, maxFindings, nil
+	}
+	if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
+		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
+		return "", db.RepoScanSource{}, 0, 0, ErrRepoTargetNotAllowed
+	}
+	return target, db.RepoScanSource{}, historyLimit, maxFindings, nil
+}
+
+func repoScanRequestUsesConnector(request RepoScanRequest) bool {
+	return strings.TrimSpace(request.ProjectID) != "" || strings.TrimSpace(request.ConnectorID) != ""
+}
+
+func (s *Service) resolveRepoScanSource(ctx context.Context, target string, request RepoScanRequest) (db.RepoScanSource, error) {
+	projectID := strings.TrimSpace(request.ProjectID)
+	connectorID := strings.TrimSpace(request.ConnectorID)
+	if projectID == "" && connectorID == "" {
+		return db.RepoScanSource{}, nil
+	}
+	if projectID == "" {
+		return db.RepoScanSource{}, ErrInvalidRepoScanRequest
+	}
+
+	project, _, err := s.requireScopedProject(ctx, "", projectID)
+	if err != nil {
+		if errors.Is(err, ErrInvalidGitHubConnectionRequest) {
+			return db.RepoScanSource{}, ErrInvalidRepoScanRequest
+		}
+		if errors.Is(err, db.ErrNotFound) {
+			return db.RepoScanSource{}, ErrInvalidRepoScanRequest
+		}
+		return db.RepoScanSource{}, err
+	}
+	status, err := s.GetGitHubConnection(ctx, project.WorkspaceID, project.ProjectID)
+	if err != nil {
+		if errors.Is(err, ErrInvalidGitHubConnectionRequest) || errors.Is(err, ErrGitHubConnectionNotFound) || errors.Is(err, db.ErrNotFound) {
+			return db.RepoScanSource{}, ErrRepoTargetNotAllowed
+		}
+		return db.RepoScanSource{}, err
+	}
+	effectiveConnectorID := firstNonEmptyString(status.ConnectorID, githubConnectorID)
+	if connectorID != "" && connectorID != effectiveConnectorID {
+		return db.RepoScanSource{}, ErrInvalidRepoScanRequest
+	}
+	if !status.Connected || !strings.EqualFold(status.Provider, "github_app") || status.InstallationID <= 0 {
+		return db.RepoScanSource{}, ErrRepoTargetNotAllowed
+	}
+	if !repositorySelected(status.SelectedRepositories, target) {
+		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
+		return db.RepoScanSource{}, ErrRepoTargetNotAllowed
+	}
+	return db.RepoScanSource{
+		Provider:       "github_app",
+		ProjectID:      project.ProjectID,
+		ConnectorID:    effectiveConnectorID,
+		InstallationID: status.InstallationID,
+	}.Normalize(), nil
 }
 
 // repoScanRequestValidationError keeps the user-facing message while preserving
@@ -1194,15 +1284,18 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, ErrInvalidRepoScanRequest.Error())
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
-	if s.RepoScannerFactory == nil {
-		s.recordRepoScanExecutionFailure()
-		return RunRepoScanResult{}, fmt.Errorf("repo scanner factory is not configured")
-	}
-	result, err := s.RepoScannerFactory(normalizedHistory, normalizedMaxFindings).ScanRepository(ctx, target)
+	executor, scanSecrets, err := s.repoScanExecutorForRecord(ctx, record, normalizedHistory, normalizedMaxFindings)
 	if err != nil {
 		s.recordRepoScanExecutionFailure()
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, err.Error())
 		return RunRepoScanResult{}, err
+	}
+	result, err := executor.ScanRepository(ctx, target)
+	if err != nil {
+		safeErr := sanitizeRepoScanError(err, scanSecrets...)
+		s.recordRepoScanExecutionFailure()
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, safeErr.Error())
+		return RunRepoScanResult{}, safeErr
 	}
 	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
@@ -1241,6 +1334,91 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		}
 	}
 	return RunRepoScanResult{RepoScan: record, Result: result}, nil
+}
+
+func (s *Service) repoScanExecutorForRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RepoScanExecutor, []string, error) {
+	source := record.Source.Normalize()
+	if source.Empty() {
+		if s.RepoScannerFactory == nil {
+			return nil, nil, fmt.Errorf("repo scanner factory is not configured")
+		}
+		return s.RepoScannerFactory(historyLimit, maxFindings), nil, nil
+	}
+	switch source.Provider {
+	case "github_app":
+		if s.AuthenticatedRepoScannerFactory == nil {
+			return nil, nil, fmt.Errorf("authenticated repo scanner factory is not configured")
+		}
+		credential, err := s.githubAppRepoScanCredential(ctx, record)
+		if err != nil {
+			return nil, nil, err
+		}
+		return s.AuthenticatedRepoScannerFactory(historyLimit, maxFindings, credential), []string{credential.Password}, nil
+	default:
+		return nil, nil, ErrInvalidRepoScanRequest
+	}
+}
+
+func (s *Service) githubAppRepoScanCredential(ctx context.Context, record db.RepoScanRecord) (repoexposure.HTTPSCloneCredential, error) {
+	source := record.Source.Normalize()
+	if source.ProjectID == "" || source.InstallationID <= 0 {
+		return repoexposure.HTTPSCloneCredential{}, ErrInvalidRepoScanRequest
+	}
+	status, err := s.GetGitHubConnection(ctx, record.WorkspaceID, source.ProjectID)
+	if err != nil {
+		if errors.Is(err, ErrInvalidGitHubConnectionRequest) || errors.Is(err, ErrGitHubConnectionNotFound) || errors.Is(err, db.ErrNotFound) {
+			return repoexposure.HTTPSCloneCredential{}, ErrRepoTargetNotAllowed
+		}
+		return repoexposure.HTTPSCloneCredential{}, err
+	}
+	effectiveConnectorID := firstNonEmptyString(status.ConnectorID, githubConnectorID)
+	if source.ConnectorID != "" && source.ConnectorID != effectiveConnectorID {
+		return repoexposure.HTTPSCloneCredential{}, ErrRepoTargetNotAllowed
+	}
+	if !status.Connected || !strings.EqualFold(status.Provider, "github_app") || status.InstallationID != source.InstallationID {
+		return repoexposure.HTTPSCloneCredential{}, ErrRepoTargetNotAllowed
+	}
+	if !repositorySelected(status.SelectedRepositories, record.Repository) {
+		return repoexposure.HTTPSCloneCredential{}, ErrRepoTargetNotAllowed
+	}
+	if s.GitHubInstallationTokenMinter == nil {
+		return repoexposure.HTTPSCloneCredential{}, fmt.Errorf("github installation token minter is not configured")
+	}
+	token, err := s.GitHubInstallationTokenMinter.Mint(ctx, source.InstallationID)
+	if err != nil {
+		return repoexposure.HTTPSCloneCredential{}, fmt.Errorf("mint github installation token: %w", err)
+	}
+	tokenValue := strings.TrimSpace(token.Token)
+	if tokenValue == "" {
+		return repoexposure.HTTPSCloneCredential{}, fmt.Errorf("github installation token is empty")
+	}
+	return repoexposure.HTTPSCloneCredential{
+		Host:     "github.com",
+		Username: "x-access-token",
+		Password: tokenValue,
+	}, nil
+}
+
+func sanitizeRepoScanError(err error, secrets ...string) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	redacted := false
+	for _, secret := range secrets {
+		secret = strings.TrimSpace(secret)
+		if secret == "" {
+			continue
+		}
+		if strings.Contains(message, secret) {
+			redacted = true
+		}
+		message = strings.ReplaceAll(message, secret, "[redacted]")
+	}
+	if !redacted {
+		return err
+	}
+	return errors.New(message)
 }
 
 func (s *Service) recordRepoScanExecutionFailure() {

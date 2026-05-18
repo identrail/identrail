@@ -587,12 +587,12 @@ type failOnceQueuedRepoStore struct {
 	failuresRemaining int
 }
 
-func (s *failOnceQueuedRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
+func (s *failOnceQueuedRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
 	if s.failuresRemaining > 0 {
 		s.failuresRemaining--
 		return db.RepoScanRecord{}, errors.New("simulated enqueue failure")
 	}
-	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, historyLimit, maxFindings, queuedAt, maxPending)
+	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, historyLimit, maxFindings, queuedAt, maxPending)
 }
 
 type failOnceQueueFullRepoStore struct {
@@ -600,12 +600,12 @@ type failOnceQueueFullRepoStore struct {
 	failuresRemaining int
 }
 
-func (s *failOnceQueueFullRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
+func (s *failOnceQueueFullRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
 	if s.failuresRemaining > 0 {
 		s.failuresRemaining--
 		return db.RepoScanRecord{}, db.ErrQueueLimitReached
 	}
-	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, historyLimit, maxFindings, queuedAt, maxPending)
+	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, historyLimit, maxFindings, queuedAt, maxPending)
 }
 
 func TestHandleGitHubWebhookRetryDeliveryAfterTransientEnqueueFailure(t *testing.T) {

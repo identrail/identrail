@@ -1858,7 +1858,7 @@ func normalizeFindingTriageEventForWrite(event FindingTriageEvent) (FindingTriag
 }
 
 // CreateRepoScan persists one repository exposure scan start event.
-func (m *MemoryStore) CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error) {
+func (m *MemoryStore) CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, startedAt time.Time) (RepoScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1866,11 +1866,11 @@ func (m *MemoryStore) CreateRepoScan(ctx context.Context, repository string, sta
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), "running", 0, 0, startedAt), nil
+	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), source, "running", 0, 0, startedAt), nil
 }
 
 // CreateQueuedRepoScan persists one queued repository exposure scan request.
-func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
+func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1878,14 +1878,14 @@ func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository strin
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	record := m.createRepoScanLocked(scope, strings.TrimSpace(repository), "queued", historyLimit, maxFindings, queuedAt)
+	record := m.createRepoScanLocked(scope, strings.TrimSpace(repository), source, "queued", historyLimit, maxFindings, queuedAt)
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	m.repoScans[record.ID] = record
 	return record, nil
 }
 
 // CreateQueuedRepoScanWithinLimit persists one queued repository scan only when the target is idle and queue capacity remains.
-func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1912,7 +1912,7 @@ func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repos
 	if queued >= maxPending {
 		return RepoScanRecord{}, ErrQueueLimitReached
 	}
-	record := m.createRepoScanLocked(scope, normalizedRepository, "queued", historyLimit, maxFindings, queuedAt)
+	record := m.createRepoScanLocked(scope, normalizedRepository, source, "queued", historyLimit, maxFindings, queuedAt)
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	m.repoScans[record.ID] = record
 	return record, nil
@@ -2051,7 +2051,7 @@ func (m *MemoryStore) RequeueRepoScan(ctx context.Context, repoScanID string) er
 	return nil
 }
 
-func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, status string, historyLimit int, maxFindings int, startedAt time.Time) RepoScanRecord {
+func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, source RepoScanSource, status string, historyLimit int, maxFindings int, startedAt time.Time) RepoScanRecord {
 	normalizedScope := scope.Normalize()
 	record := RepoScanRecord{
 		ID:           uuid.NewString(),
@@ -2062,6 +2062,7 @@ func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, statu
 		StartedAt:    startedAt.UTC(),
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
+		Source:       source.Normalize(),
 	}
 	m.repoScans[record.ID] = record
 	m.repoScanIDs = append(m.repoScanIDs, record.ID)

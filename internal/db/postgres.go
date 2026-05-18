@@ -2586,17 +2586,17 @@ func (p *PostgresStore) ListScanEvents(ctx context.Context, scanID string, limit
 }
 
 // CreateRepoScan inserts a new repository exposure scan row.
-func (p *PostgresStore) CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error) {
-	return p.createRepoScanWithStatus(ctx, repository, "running", 0, 0, startedAt)
+func (p *PostgresStore) CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, startedAt time.Time) (RepoScanRecord, error) {
+	return p.createRepoScanWithStatus(ctx, repository, source, "running", 0, 0, startedAt)
 }
 
 // CreateQueuedRepoScan inserts one queued repository scan request row.
-func (p *PostgresStore) CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
-	return p.createRepoScanWithStatus(ctx, repository, "queued", historyLimit, maxFindings, queuedAt)
+func (p *PostgresStore) CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
+	return p.createRepoScanWithStatus(ctx, repository, source, "queued", historyLimit, maxFindings, queuedAt)
 }
 
 // CreateQueuedRepoScanWithinLimit inserts one queued repository scan only when the target is idle and queue capacity remains.
-func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return RepoScanRecord{}, err
@@ -2655,6 +2655,7 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 	if queued >= maxPending {
 		return RepoScanRecord{}, ErrQueueLimitReached
 	}
+	normalizedSource := source.Normalize()
 
 	record := RepoScanRecord{
 		ID:           uuid.NewString(),
@@ -2665,12 +2666,13 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 		StartedAt:    queuedAt.UTC(),
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
+		Source:       normalizedSource,
 	}
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, trace_parent, trace_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, NULLIF($9, ''), NULLIF($10, ''))`,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12, NULLIF($13, ''), NULLIF($14, ''))`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
@@ -2679,6 +2681,10 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 		record.StartedAt,
 		record.HistoryLimit,
 		record.MaxFindings,
+		record.Source.Provider,
+		record.Source.ProjectID,
+		record.Source.ConnectorID,
+		record.Source.InstallationID,
 		record.TraceParent,
 		record.TraceState,
 	); err != nil {
@@ -2734,6 +2740,10 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			COALESCE(r.error_message, ''),
 			r.history_limit,
 			r.max_findings_limit,
+			COALESCE(r.source_provider, ''),
+			COALESCE(r.source_project_id, ''),
+			COALESCE(r.source_connector_id, ''),
+			COALESCE(r.source_installation_id, 0),
 			COALESCE(r.trace_parent, ''),
 			COALESCE(r.trace_state, '')`
 	args := []any{}
@@ -2769,6 +2779,10 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			COALESCE(r.error_message, ''),
 			r.history_limit,
 			r.max_findings_limit,
+			COALESCE(r.source_provider, ''),
+			COALESCE(r.source_project_id, ''),
+			COALESCE(r.source_connector_id, ''),
+			COALESCE(r.source_installation_id, 0),
 			COALESCE(r.trace_parent, ''),
 			COALESCE(r.trace_state, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID}
@@ -2881,11 +2895,12 @@ func (p *PostgresStore) RequeueRepoScan(ctx context.Context, repoScanID string) 
 	return nil
 }
 
-func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository string, status string, historyLimit int, maxFindings int, startedAt time.Time) (RepoScanRecord, error) {
+func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository string, source RepoScanSource, status string, historyLimit int, maxFindings int, startedAt time.Time) (RepoScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
+	normalizedSource := source.Normalize()
 	record := RepoScanRecord{
 		ID:           uuid.NewString(),
 		TenantID:     scope.TenantID,
@@ -2895,11 +2910,12 @@ func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository
 		StartedAt:    startedAt.UTC(),
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
+		Source:       normalizedSource,
 	}
 	_, err = p.execContext(
 		ctx,
-		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8)`,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12)`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
@@ -2908,6 +2924,10 @@ func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository
 		record.StartedAt,
 		record.HistoryLimit,
 		record.MaxFindings,
+		record.Source.Provider,
+		record.Source.ProjectID,
+		record.Source.ConnectorID,
+		record.Source.InstallationID,
 	)
 	if err != nil {
 		return RepoScanRecord{}, fmt.Errorf("insert repo scan: %w", err)
@@ -2923,7 +2943,7 @@ func (p *PostgresStore) GetRepoScan(ctx context.Context, repoScanID string) (Rep
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, ''), history_limit, max_findings_limit
+		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
 		 FROM repo_scans
 		 WHERE id = $1
 		   AND tenant_id = $2
@@ -3060,7 +3080,7 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, ''), history_limit, max_findings_limit
+		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
 		 FROM repo_scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -3871,10 +3891,15 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		&record.ErrorMessage,
 		&record.HistoryLimit,
 		&record.MaxFindings,
+		&record.Source.Provider,
+		&record.Source.ProjectID,
+		&record.Source.ConnectorID,
+		&record.Source.InstallationID,
 	); err != nil {
 		return RepoScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.Source = record.Source.Normalize()
 	if finishedAt.Valid {
 		converted := finishedAt.Time.UTC()
 		record.FinishedAt = &converted
@@ -3900,12 +3925,17 @@ func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		&record.ErrorMessage,
 		&record.HistoryLimit,
 		&record.MaxFindings,
+		&record.Source.Provider,
+		&record.Source.ProjectID,
+		&record.Source.ConnectorID,
+		&record.Source.InstallationID,
 		&record.TraceParent,
 		&record.TraceState,
 	); err != nil {
 		return RepoScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.Source = record.Source.Normalize()
 	record.TraceParent = strings.TrimSpace(record.TraceParent)
 	record.TraceState = strings.TrimSpace(record.TraceState)
 	if finishedAt.Valid {

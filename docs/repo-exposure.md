@@ -2,7 +2,7 @@
 
 ## Goal
 
-Detect leaked secrets and high-signal misconfigurations in public repository history, without storing raw secret values.
+Detect leaked secrets and high-signal misconfigurations in authorized repository history, without storing raw secret values.
 
 ## Command
 
@@ -39,6 +39,25 @@ API/worker repository target forms:
 - `git@...`
 
 Local filesystem repository paths are CLI-only and are not valid API/worker targets.
+
+For private GitHub repositories, pass the owning project id for a connected
+GitHub App installation:
+
+```bash
+curl -X POST http://localhost:8080/v1/repo-scans \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <write-enabled-key>" \
+  -d '{
+    "repository": "owner/private-repo",
+    "project_id": "project-1",
+    "history_limit": 500,
+    "max_findings": 200
+  }'
+```
+
+Connector-backed scans require the repository to be selected on the project's
+GitHub App connection and still honor `IDENTRAIL_REPO_SCAN_ALLOWLIST`, queue
+capacity, and per-repository concurrency controls.
 
 Read APIs:
 
@@ -87,6 +106,11 @@ Read APIs:
 - Findings are deterministic and deduplicated by stable IDs/fingerprints.
 - Output is capped by `--max-findings` to prevent runaway payloads.
 - Repo scan metadata/findings are persisted in dedicated storage (`repo_scans`, `repo_findings`) to avoid changing existing cloud scan APIs.
+- GitHub App private-repo scans persist only non-secret connector context
+  (`source_provider`, project id, connector id, installation id). The worker
+  mints the short-lived installation token at execution time and passes it to
+  git through `GIT_ASKPASS`, not through clone URLs, process arguments,
+  findings, scan rows, logs, or API responses.
 - Snapshot-based repo misconfiguration findings now persist the resolved HEAD commit SHA on new scans so GitHub links stay pinned to the scanned revision.
 
 ## Useful Flags
@@ -125,4 +149,8 @@ Read APIs:
 
 - Focused on high-signal patterns, not exhaustive secret taxonomy.
 - Full-history scanning on very large repositories can be expensive; tune `--history-limit`.
-- Current version supports public-repository remote targets in API/worker flows and public/local clone targets in CLI flows (no private-repo auth flow yet).
+- Private remote scans are supported for GitHub App connectors. Other private
+  git hosts still need an explicit connector-backed credential flow before API
+  or worker scans can authenticate to them.
+- CLI scans support public remotes and local repository paths, but do not use
+  saved Identrail connector credentials.

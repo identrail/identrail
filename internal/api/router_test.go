@@ -829,7 +829,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -922,7 +922,7 @@ func TestRouterRepoFindingsSeveritySortUsesFullResultSet(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}

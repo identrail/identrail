@@ -664,12 +664,12 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
 
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8)`)).
-		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "running", sqlmock.AnyArg(), 0, 0).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12)`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "running", sqlmock.AnyArg(), 0, 0, "", "", "", int64(0)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	record, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	record, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan failed: %v", err)
 	}
@@ -721,8 +721,8 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("complete repo scan failed: %v", err)
 	}
 
-	repoScanRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "error_message", "history_limit", "max_findings_limit"}).
-		AddRow(record.ID, "default", "default", "owner/repo", "completed", now, now, 12, 8, 1, false, "", 0, 0)
+	repoScanRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "error_message", "history_limit", "max_findings_limit", "source_provider", "source_project_id", "source_connector_id", "source_installation_id"}).
+		AddRow(record.ID, "default", "default", "owner/repo", "completed", now, now, 12, 8, 1, false, "", 0, 0, "", "", "", int64(0))
 	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").WithArgs("default", "default", 20).WillReturnRows(repoScanRows)
 	repoScans, err := store.ListRepoScans(defaultScopeContext(), 20)
 	if err != nil {
@@ -778,8 +778,8 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("expected repository backfill from repo scan, got %+v", unboundedRepoFindings[0])
 	}
 
-	repoScanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "error_message", "history_limit", "max_findings_limit"}).
-		AddRow(record.ID, "default", "default", "owner/repo", "completed", now, now, 12, 8, 1, false, "", 0, 0)
+	repoScanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "error_message", "history_limit", "max_findings_limit", "source_provider", "source_project_id", "source_connector_id", "source_installation_id"}).
+		AddRow(record.ID, "default", "default", "owner/repo", "completed", now, now, 12, 8, 1, false, "", 0, 0, "", "", "", int64(0))
 	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").WithArgs(record.ID, "default", "default").WillReturnRows(repoScanRow)
 	gotRepoScan, err := store.GetRepoScan(defaultScopeContext(), record.ID)
 	if err != nil {
@@ -1419,12 +1419,12 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
 
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8)`)).
-		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", sqlmock.AnyArg(), 50, 80).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12)`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", sqlmock.AnyArg(), 50, 80, "", "", "", int64(0)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	queued, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo", 50, 80, now)
+	queued, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, 50, 80, now)
 	if err != nil {
 		t.Fatalf("create queued repo scan failed: %v", err)
 	}
@@ -1485,9 +1485,13 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 		"coalesce",
 		"history_limit",
 		"max_findings_limit",
+		"source_provider",
+		"source_project_id",
+		"source_connector_id",
+		"source_installation_id",
 		"trace_parent",
 		"trace_state",
-	}).AddRow(queued.ID, "default", "default", "owner/repo", "running", now, nil, 0, 0, 0, false, "", 50, 80, "", "")
+	}).AddRow(queued.ID, "default", "default", "owner/repo", "running", now, nil, 0, 0, 0, false, "", 50, 80, "", "", "", int64(0), "", "")
 	mock.ExpectQuery("WITH next_repo_scan AS").WithArgs("default", "default").WillReturnRows(claimRows)
 
 	claimed, err := store.ClaimNextQueuedRepoScan(defaultScopeContext())
@@ -1578,13 +1582,13 @@ func TestPostgresStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
 		   AND status = 'queued'`)).
 		WithArgs("default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, trace_parent, trace_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, NULLIF($9, ''), NULLIF($10, ''))`)).
-		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", now, 50, 80, "", "").
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12, NULLIF($13, ''), NULLIF($14, ''))`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", now, 50, 80, "", "", "", int64(0), "", "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	record, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo", 50, 80, now, 2)
+	record, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo", RepoScanSource{}, 50, 80, now, 2)
 	if err != nil {
 		t.Fatalf("create queued repo scan within limit: %v", err)
 	}
@@ -1609,7 +1613,7 @@ func TestPostgresStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectRollback()
 
-	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo", 50, 80, now.Add(time.Minute), 2); !errors.Is(err, ErrPendingRepoScanExists) {
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo", RepoScanSource{}, 50, 80, now.Add(time.Minute), 2); !errors.Is(err, ErrPendingRepoScanExists) {
 		t.Fatalf("expected ErrPendingRepoScanExists, got %v", err)
 	}
 
@@ -1637,7 +1641,7 @@ func TestPostgresStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 	mock.ExpectRollback()
 
-	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/other", 50, 80, now.Add(2*time.Minute), 2); !errors.Is(err, ErrQueueLimitReached) {
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/other", RepoScanSource{}, 50, 80, now.Add(2*time.Minute), 2); !errors.Is(err, ErrQueueLimitReached) {
 		t.Fatalf("expected ErrQueueLimitReached, got %v", err)
 	}
 
@@ -2759,8 +2763,9 @@ func TestPostgresStoreClaimNextQueuedRepoScanAnyScopeBypassesScopeInjection(t *t
 	now := time.Now().UTC()
 	rows := sqlmock.NewRows([]string{
 		"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at",
-		"commits_scanned", "files_scanned", "finding_count", "truncated", "coalesce", "history_limit", "max_findings_limit", "trace_parent", "trace_state",
-	}).AddRow("repo-scan-1", "tenant-a", "workspace-a", "owner/repo", "running", now, nil, 0, 0, 0, false, "", 500, 200, "", "")
+		"commits_scanned", "files_scanned", "finding_count", "truncated", "coalesce", "history_limit", "max_findings_limit",
+		"source_provider", "source_project_id", "source_connector_id", "source_installation_id", "trace_parent", "trace_state",
+	}).AddRow("repo-scan-1", "tenant-a", "workspace-a", "owner/repo", "running", now, nil, 0, 0, 0, false, "", 500, 200, "", "", "", int64(0), "", "")
 	mock.ExpectQuery("WITH next_repo_scan AS").
 		WillReturnRows(rows)
 

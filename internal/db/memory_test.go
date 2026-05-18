@@ -506,11 +506,11 @@ func TestMemoryStoreListRepoFindingTrendCounts(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 	ctx := defaultScopeContext()
-	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", now)
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan A: %v", err)
 	}
-	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", now.Add(time.Minute))
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", RepoScanSource{}, now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("create repo scan B: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestMemoryStoreRepoScanLifecycle(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 17, 14, 0, 0, 0, time.UTC)
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestMemoryStoreListRepoFindingsDoesNotMutateLegacyStoredEvidence(t *testing
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 17, 14, 0, 0, 0, time.UTC)
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -726,15 +726,15 @@ func TestMemoryStoreListRepoFindingsDoesNotMutateLegacyStoredEvidence(t *testing
 func TestMemoryStoreListRepoFindingClustersPaginatesClusters(t *testing.T) {
 	store := NewMemoryStore()
 
-	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", RepoScanSource{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create first repo scan: %v", err)
 	}
-	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", RepoScanSource{}, time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create second repo scan: %v", err)
 	}
-	thirdScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC))
+	thirdScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", RepoScanSource{}, time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create third repo scan: %v", err)
 	}
@@ -1140,7 +1140,7 @@ func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
 	scopedCtx := WithQueueTraceContext(defaultScopeContext(), "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", "congo=t61rcWkgMzE")
-	queued, err := store.CreateQueuedRepoScan(scopedCtx, "owner/repo", 50, 80, now)
+	queued, err := store.CreateQueuedRepoScan(scopedCtx, "owner/repo", RepoScanSource{}, 50, 80, now)
 	if err != nil {
 		t.Fatalf("create queued repo scan: %v", err)
 	}
@@ -1200,10 +1200,10 @@ func TestMemoryStoreCountQueuedRepoScansAnyScope(t *testing.T) {
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
 	otherScope := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
 
-	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo-a", 10, 20, now); err != nil {
+	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo-a", RepoScanSource{}, 10, 20, now); err != nil {
 		t.Fatalf("create default queued repo scan: %v", err)
 	}
-	if _, err := store.CreateQueuedRepoScan(otherScope, "owner/repo-b", 10, 20, now.Add(time.Minute)); err != nil {
+	if _, err := store.CreateQueuedRepoScan(otherScope, "owner/repo-b", RepoScanSource{}, 10, 20, now.Add(time.Minute)); err != nil {
 		t.Fatalf("create scoped queued repo scan: %v", err)
 	}
 
@@ -1220,17 +1220,17 @@ func TestMemoryStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
 
-	first, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-a", 10, 20, now, 1)
+	first, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-a", RepoScanSource{}, 10, 20, now, 1)
 	if err != nil {
 		t.Fatalf("create queued repo scan within limit: %v", err)
 	}
 	if first.Status != "queued" || first.HistoryLimit != 10 || first.MaxFindings != 20 {
 		t.Fatalf("unexpected queued repo scan within limit: %+v", first)
 	}
-	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-b", 10, 20, now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-b", RepoScanSource{}, 10, 20, now.Add(time.Minute), 1); !errors.Is(err, ErrQueueLimitReached) {
 		t.Fatalf("expected repo queue limit to be reached, got %v", err)
 	}
-	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-a", 10, 20, now.Add(2*time.Minute), 2); !errors.Is(err, ErrPendingRepoScanExists) {
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo-a", RepoScanSource{}, 10, 20, now.Add(2*time.Minute), 2); !errors.Is(err, ErrPendingRepoScanExists) {
 		t.Fatalf("expected duplicate pending repo scan to be rejected, got %v", err)
 	}
 }
@@ -1240,11 +1240,11 @@ func TestMemoryStoreClaimNextQueuedRepoScanAnyScope(t *testing.T) {
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)
 	otherScope := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
 
-	first, err := store.CreateQueuedRepoScan(otherScope, "owner/repo-b", 10, 20, now)
+	first, err := store.CreateQueuedRepoScan(otherScope, "owner/repo-b", RepoScanSource{}, 10, 20, now)
 	if err != nil {
 		t.Fatalf("create earlier scoped queued repo scan: %v", err)
 	}
-	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo-a", 10, 20, now.Add(time.Minute)); err != nil {
+	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo-a", RepoScanSource{}, 10, 20, now.Add(time.Minute)); err != nil {
 		t.Fatalf("create default queued repo scan: %v", err)
 	}
 
@@ -1260,7 +1260,7 @@ func TestMemoryStoreClaimNextQueuedRepoScanAnyScope(t *testing.T) {
 func TestMemoryStorePendingRepoCountMatchingIsCaseInsensitive(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 25, 0, 0, time.UTC)
-	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "Owner/Repo", 10, 20, now); err != nil {
+	if _, err := store.CreateQueuedRepoScan(defaultScopeContext(), "Owner/Repo", RepoScanSource{}, 10, 20, now); err != nil {
 		t.Fatalf("create queued repo scan: %v", err)
 	}
 
@@ -1312,11 +1312,11 @@ func TestMemoryStoreScopeIsolation(t *testing.T) {
 		t.Fatalf("unexpected other scope scans: %+v", otherScans)
 	}
 
-	defaultRepo, err := store.CreateQueuedRepoScan(defaultCtx, "owner/repo", 10, 10, now)
+	defaultRepo, err := store.CreateQueuedRepoScan(defaultCtx, "owner/repo", RepoScanSource{}, 10, 10, now)
 	if err != nil {
 		t.Fatalf("create default repo scan: %v", err)
 	}
-	otherRepo, err := store.CreateQueuedRepoScan(otherCtx, "owner/repo", 10, 10, now.Add(2*time.Minute))
+	otherRepo, err := store.CreateQueuedRepoScan(otherCtx, "owner/repo", RepoScanSource{}, 10, 10, now.Add(2*time.Minute))
 	if err != nil {
 		t.Fatalf("create other repo scan: %v", err)
 	}

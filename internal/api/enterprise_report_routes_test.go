@@ -51,7 +51,7 @@ func seedExecReportFinding(t *testing.T, store db.Store, scope db.Scope, scanID,
 func seedExecReportRepoFinding(t *testing.T, store db.Store, scope db.Scope, repo, id string, sev domain.FindingSeverity, typ domain.FindingType, createdAt time.Time, resolvedAt *time.Time) {
 	t.Helper()
 	ctx := db.WithScope(context.Background(), scope)
-	repoScan, err := store.CreateRepoScan(ctx, repo, createdAt)
+	repoScan, err := store.CreateRepoScan(ctx, repo, db.RepoScanSource{}, createdAt)
 	if err != nil {
 		t.Fatalf("create repo scan for %s: %v", id, err)
 	}

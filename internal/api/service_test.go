@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/identrail/identrail/internal/app"
+	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
@@ -56,6 +57,22 @@ func (f *fakeRepoExecutor) ScanRepository(ctx context.Context, target string) (r
 		return repoexposure.ScanResult{}, f.err
 	}
 	return f.result, nil
+}
+
+type fakeGitHubInstallationTokenMinter struct {
+	token          githubconnector.InstallationToken
+	err            error
+	installationID int64
+	calls          int
+}
+
+func (f *fakeGitHubInstallationTokenMinter) Mint(ctx context.Context, installationID int64) (githubconnector.InstallationToken, error) {
+	f.calls++
+	f.installationID = installationID
+	if f.err != nil {
+		return githubconnector.InstallationToken{}, f.err
+	}
+	return f.token, nil
 }
 
 type traceCapturingScanner struct {
@@ -364,6 +381,25 @@ func seedDefaultProject(t *testing.T, store db.Store, ctx context.Context, proje
 		Slug:        projectID,
 	}); err != nil {
 		t.Fatalf("seed project: %v", err)
+	}
+}
+
+func seedGitHubAppConnection(t *testing.T, svc *Service, ctx context.Context, projectID string, installationID int64, repositories []string) {
+	t.Helper()
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		t.Fatalf("resolve scope: %v", err)
+	}
+	svc.githubConnections[githubConnectionKey(scope.TenantID, scope.WorkspaceID, projectID)] = githubProjectConnection{
+		TenantID:             scope.TenantID,
+		WorkspaceID:          scope.WorkspaceID,
+		ProjectID:            projectID,
+		ConnectorID:          githubConnectorID,
+		Status:               domain.ConnectorStatusActive,
+		HealthStatus:         "healthy",
+		Provider:             "github_app",
+		InstallationID:       installationID,
+		SelectedRepositories: repositories,
 	}
 }
 
@@ -819,7 +855,7 @@ func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testin
 func TestServiceListRepoFindingsFilterTriagedResultsBeyondLegacyWindow(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
-	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
 
 	repoFindings := make([]domain.Finding, 0, 5001)
 	for i := 0; i < 5001; i++ {
@@ -867,7 +903,7 @@ func TestServiceListRepoFindingsFilterTriagedResultsBeyondLegacyWindow(t *testin
 func TestServiceListRepoFindingsSortBySeverityHonorsLimitBeyondLegacyWindow(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
-	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
+	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
 
 	repoFindings := make([]domain.Finding, 0, 5001)
 	for i := 0; i < 5001; i++ {
@@ -910,8 +946,8 @@ func TestServiceListRepoFindingsSortBySeverityHonorsLimitBeyondLegacyWindow(t *t
 func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
-	firstScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now)
-	secondScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", now.Add(time.Hour))
+	firstScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
+	secondScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now.Add(time.Hour))
 
 	if err := store.UpsertRepoFindings(defaultScopeContext(), firstScan.ID, []domain.Finding{{
 		ID:        "shared-id",
@@ -1967,7 +2003,7 @@ func TestServiceGetRepoFindingsTrend(t *testing.T) {
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 	ctx := defaultScopeContext()
 
-	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", now)
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", db.RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan A: %v", err)
 	}
@@ -1977,7 +2013,7 @@ func TestServiceGetRepoFindingsTrend(t *testing.T) {
 		t.Fatalf("upsert repo findings for scan A: %v", err)
 	}
 
-	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", now.Add(3*time.Minute))
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", db.RepoScanSource{}, now.Add(3*time.Minute))
 	if err != nil {
 		t.Fatalf("create repo scan B: %v", err)
 	}
@@ -2008,7 +2044,7 @@ func TestServiceGetRepoFindingsTrendFiltered(t *testing.T) {
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 	ctx := defaultScopeContext()
 
-	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", now)
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", db.RepoScanSource{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan A: %v", err)
 	}
@@ -2019,7 +2055,7 @@ func TestServiceGetRepoFindingsTrendFiltered(t *testing.T) {
 		t.Fatalf("upsert repo findings for scan A: %v", err)
 	}
 
-	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", now.Add(3*time.Minute))
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", db.RepoScanSource{}, now.Add(3*time.Minute))
 	if err != nil {
 		t.Fatalf("create repo scan B: %v", err)
 	}
@@ -2153,11 +2189,11 @@ func TestServiceListRepoFindingClusters(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 
-	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC))
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create first repo scan: %v", err)
 	}
-	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create second repo scan: %v", err)
 	}
@@ -2255,7 +2291,7 @@ func TestServiceListRepoFindingClustersUsesBoundedPageFilter(t *testing.T) {
 	store := &repoFindingClusterFilterCaptureStore{MemoryStore: db.NewMemoryStore()}
 	svc := NewService(store, fakeScanner{}, "aws")
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -2288,11 +2324,11 @@ func TestServiceListRepoFindingClustersBackfillsLegacyRepositoryContext(t *testi
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 
-	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", db.RepoScanSource{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create first repo scan: %v", err)
 	}
-	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", db.RepoScanSource{}, time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create second repo scan: %v", err)
 	}
@@ -3323,6 +3359,161 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	}
 }
 
+func TestServiceEnqueueRepoScanWithGitHubAppSourceStoresConnectorContext(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/private",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	if record.Source.Provider != "github_app" || record.Source.ProjectID != "project-1" || record.Source.InstallationID != 101 {
+		t.Fatalf("expected connector source metadata, got %+v", record.Source)
+	}
+
+	stored, err := svc.GetRepoScan(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("get queued repo scan: %v", err)
+	}
+	if stored.Source.Provider != "github_app" || stored.Source.ProjectID != "project-1" || stored.Source.InstallationID != 101 {
+		t.Fatalf("expected stored connector source metadata, got %+v", stored.Source)
+	}
+}
+
+func TestServiceEnqueueRepoScanWithGitHubAppSourceCanonicalizesGitHubTarget(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "git@github.com:Owner/Private.git",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	if record.Repository != "owner/private" {
+		t.Fatalf("expected canonical github repository target, got %q", record.Repository)
+	}
+}
+
+func TestServiceEnqueueRepoScanUnknownProjectIDIsInvalidRequest(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+
+	_, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/repo",
+		ProjectID:  "project-missing",
+	})
+	if err == nil || !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid repo scan request for missing project, got %v", err)
+	}
+}
+
+func TestServiceProcessQueuedGitHubAppRepoScanUsesInstallationToken(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+
+	var gotCredential repoexposure.HTTPSCloneCredential
+	var gotHistory, gotMax int
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		gotHistory, gotMax = historyLimit, maxFindings
+		gotCredential = credential
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/private",
+				CommitsScanned: historyLimit,
+				FilesScanned:   2,
+			},
+		}
+	}
+
+	if _, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository:   "owner/private",
+		ProjectID:    "project-1",
+		HistoryLimit: 25,
+		MaxFindings:  30,
+	}); err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+	if err != nil {
+		t.Fatalf("process connector-backed repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued connector-backed repo scan to be processed")
+	}
+	minter := svc.GitHubInstallationTokenMinter.(*fakeGitHubInstallationTokenMinter)
+	if minter.calls != 1 || minter.installationID != 101 {
+		t.Fatalf("expected one token mint for installation 101, got calls=%d installation=%d", minter.calls, minter.installationID)
+	}
+	if gotHistory != 25 || gotMax != 30 {
+		t.Fatalf("unexpected scanner limits history=%d max=%d", gotHistory, gotMax)
+	}
+	if gotCredential.Host != "github.com" || gotCredential.Username != "x-access-token" || gotCredential.Password != "ghs_installation_token" {
+		t.Fatalf("unexpected clone credential %+v", gotCredential)
+	}
+}
+
+func TestServiceProcessQueuedGitHubAppRepoScanRedactsInstallationTokenErrors(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_secret_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{err: errors.New("clone failed with token ghs_secret_token")}
+	}
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/private",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+	if err == nil {
+		t.Fatal("expected connector-backed repo scan to fail")
+	}
+	if !processed {
+		t.Fatal("expected queued connector-backed repo scan to be claimed")
+	}
+	if strings.Contains(err.Error(), "ghs_secret_token") || !strings.Contains(err.Error(), "[redacted]") {
+		t.Fatalf("expected returned error to redact token, got %v", err)
+	}
+	stored, getErr := svc.GetRepoScan(ctx, record.ID)
+	if getErr != nil {
+		t.Fatalf("get failed repo scan: %v", getErr)
+	}
+	if strings.Contains(stored.ErrorMessage, "ghs_secret_token") || !strings.Contains(stored.ErrorMessage, "[redacted]") {
+		t.Fatalf("expected persisted error to redact token, got %q", stored.ErrorMessage)
+	}
+}
+
 func TestServiceProcessNextQueuedRepoScanContinuesEnqueuedTraceContext(t *testing.T) {
 	store := db.NewMemoryStore()
 	repoExecutor := &fakeRepoExecutor{
@@ -3372,7 +3563,7 @@ func TestServiceCountQueuedRepoScansForDepthReturnsZeroWhenAnyScopeCountFails(t 
 	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	now := time.Date(2026, 5, 10, 11, 45, 0, 0, time.UTC)
 
-	if _, err := store.CreateQueuedRepoScanWithinLimit(scopedCtx, "owner/repo", 50, 200, now, 5); err != nil {
+	if _, err := store.CreateQueuedRepoScanWithinLimit(scopedCtx, "owner/repo", db.RepoScanSource{}, 50, 200, now, 5); err != nil {
 		t.Fatalf("create queued repo scan: %v", err)
 	}
 	scopedCount, err := store.CountQueuedRepoScans(scopedCtx)

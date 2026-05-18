@@ -79,6 +79,11 @@ Current sequence in `migrations/`:
 26. `000023_onboarding_state` - onboarding wizard server-owned state
 27. `000024_native_sso_scim_scaffold` - native SAML and SCIM 2.0 schema scaffolding: extends `identity_connections` with native SAML fields + a SCIM bearer token hash, adds a composite-FK-backed `scim_provisioning_events` audit table, and reuses the existing `user_identities` table for SCIM-assigned external ids (no new column on `users`)
 28. `000025_saml_relay_states_and_session_saml` - persists in-flight SP-initiated SAML AuthnRequest state across API instances and widens `sessions.auth_method` to accept `'saml'`
+29. `000026_finding_triage_resolved_at` - stores finding triage resolution timestamps for MTTR/reporting queries
+30. `000027_oauth_transactions` - persists browser-bound OAuth transaction state across API instances
+31. `000028_webhook_events` - durable provider webhook idempotency ledger
+32. `000029_webhook_events_processing_status` - processing-state metadata for webhook event replay safety
+33. `000030_repo_scan_source_metadata` - non-secret repo scan source metadata for connector-backed private repository scans
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

@@ -5924,6 +5924,12 @@ components:
       required: [repository]
       properties:
         repository: { type: string }
+        project_id:
+          type: string
+          description: Optional project id for a GitHub App connector-backed scan. When provided, the repository must be selected on that project's GitHub App installation.
+        connector_id:
+          type: string
+          description: Optional connector id for connector-backed scans. Defaults to the project's standard GitHub App connector.
         history_limit:
           type: integer
           minimum: 1

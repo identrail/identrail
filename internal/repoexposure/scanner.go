@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -48,15 +49,31 @@ var repositoryHostLookupIPs = func(ctx context.Context, host string) ([]net.IP, 
 // CommandRunner executes git commands. It is injectable for deterministic tests.
 type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
+// EnvCommandRunner executes commands with additional environment variables.
+// The extra environment is kept out of command-line arguments so clone
+// credentials are not exposed through process arguments or error strings.
+type EnvCommandRunner func(ctx context.Context, env []string, name string, args ...string) ([]byte, error)
+
+// HTTPSCloneCredential supplies a temporary credential for HTTPS git clones.
+// Password must never be persisted; Scanner only keeps it in memory for the
+// duration of one scan.
+type HTTPSCloneCredential struct {
+	Host     string
+	Username string
+	Password string
+}
+
 // Option customizes scanner behavior.
 type Option func(*Scanner)
 
 // Scanner detects secret exposure and misconfiguration findings in Git repositories.
 type Scanner struct {
-	run          CommandRunner
-	now          func() time.Time
-	historyLimit int
-	maxFindings  int
+	run             CommandRunner
+	runEnv          EnvCommandRunner
+	now             func() time.Time
+	historyLimit    int
+	maxFindings     int
+	cloneCredential HTTPSCloneCredential
 }
 
 // ScanResult summarizes one repository exposure scan.
@@ -77,6 +94,7 @@ func NewScanner(runner CommandRunner, options ...Option) *Scanner {
 	}
 	s := &Scanner{
 		run:          runner,
+		runEnv:       defaultEnvCommandRunner,
 		now:          time.Now,
 		historyLimit: defaultHistoryLimit,
 		maxFindings:  defaultMaxFindings,
@@ -93,6 +111,16 @@ func NewScanner(runner CommandRunner, options ...Option) *Scanner {
 		s.maxFindings = defaultMaxFindings
 	}
 	return s
+}
+
+// WithEnvCommandRunner overrides command execution that needs extra env vars.
+// It is intended for tests and credential-safe git clone execution.
+func WithEnvCommandRunner(runner EnvCommandRunner) Option {
+	return func(s *Scanner) {
+		if runner != nil {
+			s.runEnv = runner
+		}
+	}
 }
 
 // WithHistoryLimit limits commit history depth for secret scanning.
@@ -115,6 +143,17 @@ func WithNow(now func() time.Time) Option {
 		if now != nil {
 			s.now = now
 		}
+	}
+}
+
+// WithHTTPSCloneCredential configures a short-lived HTTPS clone credential.
+// The credential is used only when the clone target host matches credential.Host.
+func WithHTTPSCloneCredential(credential HTTPSCloneCredential) Option {
+	return func(s *Scanner) {
+		credential.Host = strings.ToLower(strings.TrimSpace(credential.Host))
+		credential.Username = strings.TrimSpace(credential.Username)
+		credential.Password = strings.TrimSpace(credential.Password)
+		s.cloneCredential = credential
 	}
 }
 
@@ -256,11 +295,92 @@ func (s *Scanner) prepareRepository(ctx context.Context, target string) (reposit
 	}
 	cleanup := func() { _ = os.RemoveAll(workdir) }
 	mirrorPath := filepath.Join(workdir, "repo.git")
-	if _, runErr := s.run(ctx, "git", "clone", "--mirror", "--quiet", cloneURL, mirrorPath); runErr != nil {
+	if runErr := s.cloneMirror(ctx, workdir, cloneURL, mirrorPath); runErr != nil {
 		cleanup()
 		return repositoryLocation{}, nil, fmt.Errorf("clone repository: %w", runErr)
 	}
 	return repositoryLocation{Path: mirrorPath, Bare: true, Display: target}, cleanup, nil
+}
+
+func (s *Scanner) cloneMirror(ctx context.Context, workdir string, cloneURL string, mirrorPath string) error {
+	args := []string{"clone", "--mirror", "--quiet", cloneURL, mirrorPath}
+	credential, useCredential, err := s.credentialForCloneURL(cloneURL)
+	if err != nil {
+		return err
+	}
+	if !useCredential {
+		_, runErr := s.run(ctx, "git", args...)
+		return runErr
+	}
+	if s.runEnv == nil {
+		s.runEnv = defaultEnvCommandRunner
+	}
+	askpassPath, cleanup, err := writeGitAskPassScript(workdir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	env := []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=" + askpassPath,
+		"IDENTRAIL_GIT_USERNAME=" + credential.Username,
+		"IDENTRAIL_GIT_PASSWORD=" + credential.Password,
+	}
+	_, runErr := s.runEnv(ctx, env, "git", args...)
+	if runErr != nil {
+		return sanitizeError(runErr, credential.Password)
+	}
+	return nil
+}
+
+func (s *Scanner) credentialForCloneURL(cloneURL string) (HTTPSCloneCredential, bool, error) {
+	credential := s.cloneCredential
+	if credential.Password == "" && credential.Username == "" && credential.Host == "" {
+		return HTTPSCloneCredential{}, false, nil
+	}
+	if credential.Username == "" || credential.Password == "" || credential.Host == "" {
+		return HTTPSCloneCredential{}, false, fmt.Errorf("incomplete HTTPS clone credential")
+	}
+	parsed, err := url.Parse(cloneURL)
+	if err != nil || parsed == nil || parsed.Scheme == "" || parsed.Host == "" {
+		return HTTPSCloneCredential{}, false, fmt.Errorf("authenticated clone target must be an absolute HTTPS URL")
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return HTTPSCloneCredential{}, false, fmt.Errorf("authenticated clone target must use HTTPS")
+	}
+	if !strings.EqualFold(parsed.Hostname(), credential.Host) {
+		return HTTPSCloneCredential{}, false, fmt.Errorf("authenticated clone target host is not allowed")
+	}
+	return credential, true, nil
+}
+
+func writeGitAskPassScript(dir string) (string, func(), error) {
+	file, err := os.CreateTemp(dir, "identrail-git-askpass-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create git askpass helper: %w", err)
+	}
+	path := file.Name()
+	script := `#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "${IDENTRAIL_GIT_USERNAME:-x-access-token}" ;;
+  *) printf '%s\n' "${IDENTRAIL_GIT_PASSWORD:-}" ;;
+esac
+`
+	if _, err := file.WriteString(script); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", nil, fmt.Errorf("write git askpass helper: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", nil, fmt.Errorf("close git askpass helper: %w", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		_ = os.Remove(path)
+		return "", nil, fmt.Errorf("chmod git askpass helper: %w", err)
+	}
+	return path, func() { _ = os.Remove(path) }, nil
 }
 
 func (s *Scanner) listCommits(ctx context.Context, repo repositoryLocation) ([]string, error) {
@@ -845,4 +965,29 @@ func severityRank(severity domain.FindingSeverity) int {
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
+}
+
+func defaultEnvCommandRunner(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = append(os.Environ(), env...)
+	return cmd.CombinedOutput()
+}
+
+func sanitizeError(err error, secrets ...string) error {
+	if err == nil {
+		return nil
+	}
+	return errors.New(redactSecrets(err.Error(), secrets...))
+}
+
+func redactSecrets(text string, secrets ...string) string {
+	redacted := text
+	for _, secret := range secrets {
+		secret = strings.TrimSpace(secret)
+		if secret == "" {
+			continue
+		}
+		redacted = strings.ReplaceAll(redacted, secret, "[redacted]")
+	}
+	return redacted
 }

@@ -75,6 +75,26 @@ For the AWS-hosted API workflow, use the first-class repository variables
 `API_REPO_SCAN_ENABLED=true` and `API_REPO_SCAN_ALLOWLIST=<owner/repo>` instead
 of hiding the same runtime values inside `API_EXTRA_ENVIRONMENT_JSON`.
 
+## Private Repository Scans
+
+GitHub App connections can now back private repository exposure scans. When a
+repo scan request includes `project_id`, Identrail verifies that the scoped
+project has an active GitHub App connection, that the requested repository is in
+the selected repository list, and that the normal repo-scan allowlist still
+permits the target.
+
+Queued scans store only non-secret source metadata: provider, project id,
+connector id, and installation id. The API and worker never store the raw
+installation token in `repo_scans`, `repo_findings`, logs, traces, errors, or
+API responses. The worker mints a short-lived installation token immediately
+before cloning and passes it to git through an askpass helper so the token does
+not appear in clone URLs or command-line arguments.
+
+Scheduled policy scans and GitHub webhook-triggered scans automatically attach
+the project/connector source context when they enqueue selected repositories,
+so private repositories use the same short-lived GitHub App path as manually
+queued connector-backed scans.
+
 ## Rollback
 
 Set `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=false` to return the standard GitHub connector API to 404. Set `VITE_FEATURE_CONNECTOR_GITHUB_V2=false` to hide the frontend path.

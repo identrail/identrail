@@ -202,22 +202,52 @@ type ScanRecord struct {
 
 // RepoScanRecord tracks persisted repository exposure scan metadata.
 type RepoScanRecord struct {
-	ID             string     `json:"id"`
-	TenantID       string     `json:"-"`
-	WorkspaceID    string     `json:"-"`
-	Repository     string     `json:"repository"`
-	Status         string     `json:"status"`
-	StartedAt      time.Time  `json:"started_at"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	CommitsScanned int        `json:"commits_scanned"`
-	FilesScanned   int        `json:"files_scanned"`
-	FindingCount   int        `json:"finding_count"`
-	Truncated      bool       `json:"truncated"`
-	ErrorMessage   string     `json:"error_message,omitempty"`
-	HistoryLimit   int        `json:"-"`
-	MaxFindings    int        `json:"-"`
-	TraceParent    string     `json:"-"`
-	TraceState     string     `json:"-"`
+	ID             string         `json:"id"`
+	TenantID       string         `json:"-"`
+	WorkspaceID    string         `json:"-"`
+	Repository     string         `json:"repository"`
+	Status         string         `json:"status"`
+	StartedAt      time.Time      `json:"started_at"`
+	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
+	CommitsScanned int            `json:"commits_scanned"`
+	FilesScanned   int            `json:"files_scanned"`
+	FindingCount   int            `json:"finding_count"`
+	Truncated      bool           `json:"truncated"`
+	ErrorMessage   string         `json:"error_message,omitempty"`
+	HistoryLimit   int            `json:"-"`
+	MaxFindings    int            `json:"-"`
+	Source         RepoScanSource `json:"-"`
+	TraceParent    string         `json:"-"`
+	TraceState     string         `json:"-"`
+}
+
+// RepoScanSource carries non-secret connector context for repository scans.
+// It lets workers resolve short-lived credentials at execution time without
+// persisting raw tokens in the queue.
+type RepoScanSource struct {
+	Provider       string
+	ProjectID      string
+	ConnectorID    string
+	InstallationID int64
+}
+
+// Normalize returns a copy with stable whitespace/casing.
+func (s RepoScanSource) Normalize() RepoScanSource {
+	return RepoScanSource{
+		Provider:       strings.ToLower(strings.TrimSpace(s.Provider)),
+		ProjectID:      strings.TrimSpace(s.ProjectID),
+		ConnectorID:    strings.TrimSpace(s.ConnectorID),
+		InstallationID: s.InstallationID,
+	}
+}
+
+// Empty reports whether the scan has no connector-backed source.
+func (s RepoScanSource) Empty() bool {
+	normalized := s.Normalize()
+	return normalized.Provider == "" &&
+		normalized.ProjectID == "" &&
+		normalized.ConnectorID == "" &&
+		normalized.InstallationID == 0
 }
 
 // ScanArtifacts contains raw and normalized scan outputs to persist idempotently.
@@ -2261,9 +2291,9 @@ type Store interface {
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error
 	ListScanEvents(ctx context.Context, scanID string, limit int) ([]ScanEvent, error)
 	SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error)
-	CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error)
-	CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
-	CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error)
+	CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, startedAt time.Time) (RepoScanRecord, error)
+	CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
+	CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (RepoScanRecord, error)
 	CountQueuedRepoScans(ctx context.Context) (int, error)

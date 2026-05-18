@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added GitHub App connector-backed private repository scans. Repo scan queue
+  rows now store only non-secret source metadata, while API, scheduled, and
+  webhook-triggered scans resolve the selected project connection and workers
+  mint short-lived installation tokens at execution time. Clone credentials are
+  passed through `GIT_ASKPASS` and redacted from persisted scan failures.
 - Corrected the `IDENTRAIL_PUBLIC_BASE_URL` documentation so the auth
   env-var reference and the production-readiness guide agree: it is the
   externally reachable API callback origin (`https://api.identrail.com` for

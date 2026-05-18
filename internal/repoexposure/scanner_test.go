@@ -618,6 +618,94 @@ func TestPrepareRepositoryRejectsInsecureHTTPRepositoryURL(t *testing.T) {
 	}
 }
 
+func TestCloneMirrorUsesAskPassCredentialWithoutCommandArgLeak(t *testing.T) {
+	const secret = "ghs_secret_token"
+	var gotEnv []string
+	var gotArgs []string
+	scanner := NewScanner(
+		func(context.Context, string, ...string) ([]byte, error) {
+			t.Fatal("expected authenticated clone to use env command runner")
+			return nil, nil
+		},
+		WithHTTPSCloneCredential(HTTPSCloneCredential{
+			Host:     "github.com",
+			Username: "x-access-token",
+			Password: secret,
+		}),
+		WithEnvCommandRunner(func(_ context.Context, env []string, name string, args ...string) ([]byte, error) {
+			gotEnv = append([]string(nil), env...)
+			gotArgs = append([]string{name}, args...)
+			askPass := envValue(env, "GIT_ASKPASS")
+			if askPass == "" {
+				t.Fatal("expected GIT_ASKPASS to be configured")
+			}
+			if _, err := os.Stat(askPass); err != nil {
+				t.Fatalf("expected askpass helper to exist during clone: %v", err)
+			}
+			return []byte("ok"), nil
+		}),
+	)
+
+	err := scanner.cloneMirror(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err != nil {
+		t.Fatalf("clone mirror: %v", err)
+	}
+	if strings.Contains(strings.Join(gotArgs, " "), secret) {
+		t.Fatalf("clone command arguments leaked token: %+v", gotArgs)
+	}
+	if envValue(gotEnv, "IDENTRAIL_GIT_USERNAME") != "x-access-token" || envValue(gotEnv, "IDENTRAIL_GIT_PASSWORD") != secret {
+		t.Fatalf("expected clone credential in environment, got %+v", gotEnv)
+	}
+	if envValue(gotEnv, "GIT_TERMINAL_PROMPT") != "0" {
+		t.Fatalf("expected terminal prompts to be disabled, got %+v", gotEnv)
+	}
+}
+
+func TestCloneMirrorRedactsCredentialFromErrors(t *testing.T) {
+	const secret = "ghs_secret_token"
+	scanner := NewScanner(nil,
+		WithHTTPSCloneCredential(HTTPSCloneCredential{
+			Host:     "github.com",
+			Username: "x-access-token",
+			Password: secret,
+		}),
+		WithEnvCommandRunner(func(context.Context, []string, string, ...string) ([]byte, error) {
+			return nil, errors.New("remote rejected token " + secret)
+		}),
+	)
+
+	err := scanner.cloneMirror(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err == nil {
+		t.Fatal("expected clone error")
+	}
+	if strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), "[redacted]") {
+		t.Fatalf("expected redacted clone error, got %v", err)
+	}
+}
+
+func TestCloneMirrorRejectsCredentialHostMismatch(t *testing.T) {
+	called := false
+	scanner := NewScanner(nil,
+		WithHTTPSCloneCredential(HTTPSCloneCredential{
+			Host:     "github.com",
+			Username: "x-access-token",
+			Password: "ghs_secret_token",
+		}),
+		WithEnvCommandRunner(func(context.Context, []string, string, ...string) ([]byte, error) {
+			called = true
+			return nil, nil
+		}),
+	)
+
+	err := scanner.cloneMirror(context.Background(), t.TempDir(), "https://gitlab.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err == nil {
+		t.Fatal("expected credential host mismatch to fail")
+	}
+	if called {
+		t.Fatal("expected clone command not to run for credential host mismatch")
+	}
+}
+
 func TestValidateCloneURL(t *testing.T) {
 	originalLookup := repositoryHostLookupIPs
 	repositoryHostLookupIPs = func(_ context.Context, host string) ([]net.IP, error) {
@@ -705,6 +793,16 @@ func TestGitInvocationModes(t *testing.T) {
 	if !reflect.DeepEqual(got[1], expectedSecond) {
 		t.Fatalf("unexpected bare invocation %+v", got[1])
 	}
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
 }
 
 func TestHelperFunctions(t *testing.T) {
