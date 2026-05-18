@@ -168,12 +168,16 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
 
 const TREND_POINTS = 10;
 
-function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider {
-  return SOURCE_STACK.includes(provider) ? provider : SOURCE_STACK[0] ?? provider;
+function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
+  return SOURCE_STACK.includes(provider) ? provider : null;
 }
 
 export function SourceLogoMark({ provider, className = '' }: { provider: SourceProvider; className?: string }) {
   const enabledProvider = resolveEnabledSourceProvider(provider);
+  if (!enabledProvider) {
+    return null;
+  }
+
   const profile = SOURCE_PROFILES[enabledProvider];
   const classes = ['idt-source-logo-mark', `is-${enabledProvider}`, className].filter(Boolean).join(' ');
   return (
