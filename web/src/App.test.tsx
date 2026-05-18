@@ -140,6 +140,39 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
   });
 
+  it('rejects personal email domains before advancing the read-only scan intake', () => {
+    setCurrentPath('/read-only-scan');
+    const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Work email/i), {
+      target: { value: 'person@gmail.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/company or work email/i);
+    expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not submit the read-only scan intake before the final step', async () => {
+    setCurrentPath('/read-only-scan');
+    const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Work email/i), {
+      target: { value: 'security@company.com' }
+    });
+    const form = document.querySelector('form.idt-scan-form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await waitFor(() => expect(screen.getByText(/Step 2 of 3/i)).toBeInTheDocument());
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('submits read-only scan challenge details to lead capture', async () => {
     setCurrentPath('/read-only-scan');
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
@@ -147,7 +180,7 @@ describe('App', () => {
     render(<App />);
 
     fireEvent.change(screen.getByLabelText(/Work email/i), {
-      target: { value: 'security@example.com' }
+      target: { value: 'security@company.com' }
     });
     fireEvent.change(screen.getByLabelText(/Company/i), {
       target: { value: 'Example Co' }
@@ -159,7 +192,7 @@ describe('App', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/leads', expect.any(Object)));
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
-      email: 'security@example.com',
+      email: 'security@company.com',
       company: 'Example Co',
       environment: 'AWS IAM + Kubernetes',
       challenge: 'Trust path visibility',

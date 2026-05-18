@@ -35,6 +35,31 @@ const MAX_TEAM_SIZE_LENGTH = 16;
 const MAX_URGENCY_LENGTH = 32;
 const MAX_DEPLOYMENT_MODEL_LENGTH = 64;
 const RESEND_EMAILS_URL = 'https://api.resend.com/emails';
+const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  'aol.com',
+  'fastmail.com',
+  'gmail.com',
+  'gmx.com',
+  'gmx.net',
+  'googlemail.com',
+  'hey.com',
+  'hotmail.com',
+  'icloud.com',
+  'live.com',
+  'mac.com',
+  'mail.com',
+  'me.com',
+  'msn.com',
+  'outlook.com',
+  'pm.me',
+  'proton.me',
+  'protonmail.com',
+  'rocketmail.com',
+  'yahoo.com',
+  'ymail.com',
+  'zoho.com'
+]);
 const leadRequestBuckets = new Map<string, number[]>();
 
 type LeadDeliveryPayload = {
@@ -75,6 +100,12 @@ function trimOptional(value: unknown): string | undefined {
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isWorkEmail(email: string): boolean {
+  const trimmed = email.trim().toLowerCase();
+  const domain = trimmed.split('@').pop() ?? '';
+  return isValidEmail(trimmed) && Boolean(domain) && !PERSONAL_EMAIL_DOMAINS.has(domain);
 }
 
 function badRequest(res: HandlerResponse, message: string) {
@@ -418,8 +449,8 @@ export default async function handler(
   const source = trimOptional(body.source) || 'unknown';
   const pagePath = trimOptional(body.page_path) || '/';
 
-  if (!email || !isValidEmail(email)) {
-    badRequest(res, 'Valid work email is required.');
+  if (!email || !isWorkEmail(email)) {
+    badRequest(res, WORK_EMAIL_ERROR);
     return;
   }
 
