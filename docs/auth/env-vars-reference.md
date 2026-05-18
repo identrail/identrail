@@ -27,8 +27,10 @@ IDENTRAIL_SESSION_KEY=<64 hex chars from openssl rand -hex 32>
 ```
 
 `IDENTRAIL_PUBLIC_BASE_URL` is the API callback origin, distinct from the web
-app origins (e.g. `https://app.identrail.com`, configured separately via
-`IDENTRAIL_CORS_ALLOWED_ORIGINS` / `VITE_IDENTRAIL_API_URL`). Because the
+app origins (e.g. `https://app.identrail.com`), which the API authorizes via
+`IDENTRAIL_CORS_ALLOWED_ORIGINS`. (`VITE_IDENTRAIL_API_URL` is a separate,
+frontend-build setting that points the web app at the API origin — it is not
+a web-origin allowlist.) Because the
 server builds the callback as `<IDENTRAIL_PUBLIC_BASE_URL>/auth/callback`,
 the redirect URI registered in the WorkOS dashboard must exactly match —
 for the example above, `https://api.identrail.com/auth/callback`. A
