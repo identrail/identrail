@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Process open code scanning alerts
-        uses: actions/github-script@v9
+        uses: actions/github-script@v9.0.0
         with:
           script: |
             const owner = context.repo.owner;
