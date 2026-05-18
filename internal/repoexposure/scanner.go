@@ -329,6 +329,9 @@ func (s *Scanner) cloneMirror(ctx context.Context, workdir string, cloneURL stri
 	}
 	_, runErr := s.runEnv(ctx, env, "git", args...)
 	if runErr != nil {
+		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			return runErr
+		}
 		return sanitizeError(runErr, credential.Password)
 	}
 	return nil
