@@ -617,40 +617,67 @@ func TestMemoryStore_WebhookEventIdempotency(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
-
-	first, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{
-		Provider:   "workos",
-		EventID:    " event_1 ",
-		EventType:  "user.deleted",
-		ReceivedAt: now,
-	})
-	if err != nil || !first {
-		t.Fatalf("first delivery should record (true), got first=%v err=%v", first, err)
-	}
-	dup, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "workos", EventID: "event_1"})
-	if err != nil || dup {
-		t.Fatalf("duplicate delivery should be no-op (false), got dup=%v err=%v", dup, err)
+	wkEvent := func(provider, id string) WebhookEvent {
+		return WebhookEvent{Provider: provider, EventID: id, EventType: "user.deleted"}
 	}
 
+	// First delivery claims the row.
+	st, err := store.BeginWebhookEvent(ctx, wkEvent("workos", " event_1 "), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("first delivery should be claimed, got %q err=%v", st, err)
+	}
+	// A concurrent duplicate while still processing must be told to retry,
+	// never acknowledged.
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_1"), now.Add(time.Second))
+	if err != nil || st != WebhookEventProcessing {
+		t.Fatalf("in-flight duplicate should be processing, got %q err=%v", st, err)
+	}
 	// A different provider with the same event id is independent.
-	otherProvider, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "github", EventID: "event_1"})
-	if err != nil || !otherProvider {
-		t.Fatalf("different provider should be first delivery, got %v err=%v", otherProvider, err)
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("github", "event_1"), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("different provider should be claimed, got %q err=%v", st, err)
 	}
 
-	// Rolling back the record lets a retry reprocess.
-	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1"); err != nil {
+	// Once completed, duplicates are a no-op success.
+	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", now.Add(2*time.Second)); err != nil {
+		t.Fatalf("complete webhook event: %v", err)
+	}
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_1"), now.Add(3*time.Second))
+	if err != nil || st != WebhookEventProcessed {
+		t.Fatalf("completed duplicate should be processed, got %q err=%v", st, err)
+	}
+
+	// Rolling back a claim lets a retry reprocess.
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_rollback"), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("expected claim, got %q err=%v", st, err)
+	}
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_rollback"); err != nil {
 		t.Fatalf("delete webhook event: %v", err)
 	}
-	reprocess, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "workos", EventID: "event_1"})
-	if err != nil || !reprocess {
-		t.Fatalf("after rollback the event should record again, got %v err=%v", reprocess, err)
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_rollback"), now.Add(time.Second))
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("after rollback the event should be claimable again, got %q err=%v", st, err)
 	}
 
-	if _, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "", EventID: "x"}); err == nil {
+	// A 'processing' row left by a crashed instance is reclaimable once stale.
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_stale"), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("expected claim, got %q err=%v", st, err)
+	}
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_stale"), now.Add(WebhookProcessingReclaimAfter-time.Second))
+	if err != nil || st != WebhookEventProcessing {
+		t.Fatalf("not-yet-stale claim should still be processing, got %q err=%v", st, err)
+	}
+	st, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_stale"), now.Add(WebhookProcessingReclaimAfter+time.Second))
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("stale claim should be reclaimable, got %q err=%v", st, err)
+	}
+
+	if _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "", EventID: "x"}, now); err == nil {
 		t.Fatal("missing provider should error")
 	}
-	if _, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "workos", EventID: " "}); err == nil {
+	if _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: " "}, now); err == nil {
 		t.Fatal("missing event id should error")
 	}
 }

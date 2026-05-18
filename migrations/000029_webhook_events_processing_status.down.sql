@@ -1,0 +1,4 @@
+-- 000029_webhook_events_processing_status.down.sql
+
+ALTER TABLE webhook_events
+    DROP COLUMN IF EXISTS status;

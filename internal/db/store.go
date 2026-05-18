@@ -556,18 +556,45 @@ type OAuthTransaction struct {
 }
 
 // WebhookEvent is the persisted idempotency record for one provider-issued
-// webhook delivery. (Provider, EventID) is unique: the first delivery
-// inserts the row, and any duplicate or replayed delivery (provider retry,
-// at-least-once delivery, replay inside the signature tolerance window)
-// finds the row already present and is handled as a no-op. The row is
-// recorded only after signature validation so an attacker cannot poison the
-// table with arbitrary IDs.
+// webhook delivery. (Provider, EventID) is unique. The row carries a status
+// so concurrent deliveries of the same event are handled correctly: the
+// first delivery claims the row ("processing") and applies side effects;
+// only once it finishes ("processed") does a duplicate get a no-op success.
+// A duplicate that arrives while the first is still in flight must be told
+// to retry, never acknowledged — otherwise the provider could stop retrying
+// before the side effects are durably applied. The row is recorded only
+// after signature validation so an attacker cannot poison the table.
 type WebhookEvent struct {
 	Provider   string    `json:"provider"`
 	EventID    string    `json:"event_id"`
 	EventType  string    `json:"event_type,omitempty"`
 	ReceivedAt time.Time `json:"received_at"`
 }
+
+// WebhookEventStatus is the result of BeginWebhookEvent. Claimed/Processing
+// are transient outcomes for the caller; only Processed authorizes a no-op
+// acknowledgement of a duplicate.
+type WebhookEventStatus string
+
+const (
+	// WebhookEventClaimed means this delivery won the insert (or reclaimed a
+	// stale in-flight row) and must apply the side effects, then call
+	// CompleteWebhookEvent.
+	WebhookEventClaimed WebhookEventStatus = "claimed"
+	// WebhookEventProcessing means another delivery of the same event is
+	// still in flight. The caller must NOT acknowledge success; it should
+	// return a retryable response so the provider redelivers later.
+	WebhookEventProcessing WebhookEventStatus = "processing"
+	// WebhookEventProcessed means the event was already fully handled. The
+	// caller returns a successful no-op without reapplying side effects.
+	WebhookEventProcessed WebhookEventStatus = "processed"
+)
+
+// WebhookProcessingReclaimAfter bounds how long a "processing" row may sit
+// before another delivery may reclaim it. It protects against an instance
+// that crashed mid-processing wedging an event forever; it is far longer
+// than the webhook handler's own processing time.
+const WebhookProcessingReclaimAfter = 5 * time.Minute
 
 // SCIMProvisioningEventRecord is the persisted form of one SCIM op recorded
 // for tenant-visible governance audit. Append-only.
@@ -2187,17 +2214,26 @@ type Store interface {
 	// transaction. Any later, expired, missing, or cookie-mismatched call
 	// returns ErrNotFound so the OAuth state cannot be replayed.
 	ConsumeOAuthTransaction(ctx context.Context, nonce string, cookieToken string, now time.Time) (OAuthTransaction, error)
-	// RecordWebhookEventOnce atomically records a provider webhook event for
-	// idempotency. It returns true when this is the first delivery (the row
-	// was inserted) and false when the (provider, event_id) row already
-	// exists (duplicate/replayed delivery) so the caller can no-op without
-	// reapplying side effects. Durable across restarts and shared by every
-	// API instance pointed at the same database.
-	RecordWebhookEventOnce(ctx context.Context, event WebhookEvent) (bool, error)
-	// DeleteWebhookEvent removes a recorded webhook idempotency row. It is
-	// used to roll back the claim when a transient (server-side) failure
-	// prevented the event's side effects from being applied, so a provider
-	// retry can reprocess it instead of being permanently de-duplicated.
+	// BeginWebhookEvent atomically claims a provider webhook event for
+	// processing. It returns WebhookEventClaimed when this delivery inserted
+	// the row (or reclaimed a stale in-flight row older than
+	// WebhookProcessingReclaimAfter) and must apply the side effects;
+	// WebhookEventProcessing when another delivery of the same event is
+	// still in flight (the caller must return a retryable response, never a
+	// success acknowledgement); and WebhookEventProcessed when the event was
+	// already fully handled (the caller returns a no-op success). Atomic at
+	// the database, so it holds across restarts and concurrent API
+	// instances.
+	BeginWebhookEvent(ctx context.Context, event WebhookEvent, now time.Time) (WebhookEventStatus, error)
+	// CompleteWebhookEvent marks a claimed event as fully processed so later
+	// duplicate deliveries become no-op successes. Called after side effects
+	// are durably applied, or for a deterministic terminal outcome (bad
+	// payload, identity conflict) that an identical retry would not resolve.
+	CompleteWebhookEvent(ctx context.Context, provider string, eventID string, now time.Time) error
+	// DeleteWebhookEvent removes a claimed webhook row. It rolls back the
+	// claim when a transient (server-side) failure prevented the side
+	// effects from being applied, so a provider retry can reprocess it
+	// instead of being permanently de-duplicated.
 	DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
 	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)

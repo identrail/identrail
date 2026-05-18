@@ -1321,12 +1321,45 @@ func TestWorkOSWebhookRollbackSurvivesCancelledRequestContext(t *testing.T) {
 	}
 	// The record was rolled back, so a provider retry is treated as a first
 	// delivery again instead of being permanently de-duplicated.
-	firstAgain, err := probe.RecordWebhookEventOnce(context.Background(), db.WebhookEvent{
+	firstAgain, err := probe.BeginWebhookEvent(context.Background(), db.WebhookEvent{
 		Provider: "workos",
 		EventID:  "event_rollback_1",
+	}, now)
+	if err != nil || firstAgain != db.WebhookEventClaimed {
+		t.Fatalf("after rollback the retry must reprocess (claimed), got first=%v err=%v", firstAgain, err)
+	}
+}
+
+func TestWorkOSWebhookDuplicateInFlightIsRetryable(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
+	if _, err := store.BeginWebhookEvent(context.Background(), db.WebhookEvent{Provider: "workos", EventID: "event_inflight"}, now); err != nil {
+		t.Fatalf("seed webhook claim: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	secret := "whsec_123"
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: secret,
+		WorkOSAuthClient:    &fakeWorkOSClient{},
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
 	})
-	if err != nil || !firstAgain {
-		t.Fatalf("after rollback the retry must reprocess (first=true), got first=%v err=%v", firstAgain, err)
+
+	payload := `{"event":"user.deleted","id":"event_inflight","data":{"object":"user","id":"user_workos_inflight","email":"inflight@example.com"}}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload))
+	req.Header.Set("WorkOS-Signature", workOSTestSignature(time.Now().UTC(), secret, payload))
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected in-flight duplicate to be retryable, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 

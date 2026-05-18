@@ -546,35 +546,71 @@ func (m *MemoryStore) ConsumeOAuthTransaction(ctx context.Context, nonce string,
 	return txn, nil
 }
 
-// RecordWebhookEventOnce records a provider webhook event for idempotency.
-// Returns true on first delivery (row inserted) and false when the
-// (provider, event_id) pair was already recorded.
-func (m *MemoryStore) RecordWebhookEventOnce(ctx context.Context, event WebhookEvent) (bool, error) {
+type webhookEventRecord struct {
+	event     WebhookEvent
+	status    WebhookEventStatus
+	claimedAt time.Time
+}
+
+// BeginWebhookEvent atomically claims a webhook event for processing. The
+// mutex makes the read-decide-write sequence atomic, mirroring the Postgres
+// INSERT ... ON CONFLICT path.
+func (m *MemoryStore) BeginWebhookEvent(ctx context.Context, event WebhookEvent, now time.Time) (WebhookEventStatus, error) {
 	provider := strings.TrimSpace(event.Provider)
 	eventID := strings.TrimSpace(event.EventID)
 	if provider == "" || eventID == "" {
-		return false, fmt.Errorf("webhook event requires provider and event_id")
+		return "", fmt.Errorf("webhook event requires provider and event_id")
 	}
-	if event.ReceivedAt.IsZero() {
-		event.ReceivedAt = time.Now().UTC()
-	} else {
-		event.ReceivedAt = event.ReceivedAt.UTC()
+	now = now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
 	}
 	event.Provider = provider
 	event.EventID = eventID
 	event.EventType = strings.TrimSpace(event.EventType)
+	event.ReceivedAt = now
 	key := webhookEventKey(provider, eventID)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, exists := m.webhookEvents[key]; exists {
-		return false, nil
+	existing, exists := m.webhookEvents[key]
+	if !exists {
+		m.webhookEvents[key] = webhookEventRecord{event: event, status: WebhookEventProcessing, claimedAt: now}
+		return WebhookEventClaimed, nil
 	}
-	m.webhookEvents[key] = event
-	return true, nil
+	if existing.status == WebhookEventProcessed {
+		return WebhookEventProcessed, nil
+	}
+	// status == processing: reclaim only if the prior claim is stale (the
+	// claiming instance likely crashed mid-processing).
+	if now.Sub(existing.claimedAt) >= WebhookProcessingReclaimAfter {
+		m.webhookEvents[key] = webhookEventRecord{event: event, status: WebhookEventProcessing, claimedAt: now}
+		return WebhookEventClaimed, nil
+	}
+	return WebhookEventProcessing, nil
 }
 
-// DeleteWebhookEvent removes a recorded webhook idempotency row so a
-// provider retry can reprocess an event whose side effects failed.
+// CompleteWebhookEvent marks a claimed event processed so later duplicates
+// become no-op successes.
+func (m *MemoryStore) CompleteWebhookEvent(ctx context.Context, provider string, eventID string, now time.Time) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := webhookEventKey(provider, eventID)
+	rec, exists := m.webhookEvents[key]
+	if !exists {
+		return nil
+	}
+	rec.status = WebhookEventProcessed
+	m.webhookEvents[key] = rec
+	return nil
+}
+
+// DeleteWebhookEvent rolls back a claim so a provider retry can reprocess an
+// event whose side effects failed transiently.
 func (m *MemoryStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error {
 	provider = strings.TrimSpace(provider)
 	eventID = strings.TrimSpace(eventID)

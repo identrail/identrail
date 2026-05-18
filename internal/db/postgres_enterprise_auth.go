@@ -633,47 +633,118 @@ func (p *PostgresStore) ConsumeOAuthTransaction(ctx context.Context, nonce strin
 	return txn, nil
 }
 
-// RecordWebhookEventOnce inserts the (provider, event_id) idempotency row.
-// INSERT ... ON CONFLICT DO NOTHING RETURNING makes this atomic: a returned
-// row means this delivery won the insert (first delivery); sql.ErrNoRows
-// means the row already existed (duplicate/replayed delivery). Atomic at the
-// database, so it holds across API restarts and concurrent instances.
-func (p *PostgresStore) RecordWebhookEventOnce(ctx context.Context, event WebhookEvent) (bool, error) {
+// BeginWebhookEvent atomically claims the (provider, event_id) row. It first
+// tries to win the insert; on conflict it tries to reclaim a stale
+// 'processing' row (claiming instance likely crashed); failing that it reads
+// the current status. Every branch is a single atomic statement, so the
+// claim holds across API restarts and concurrent instances.
+func (p *PostgresStore) BeginWebhookEvent(ctx context.Context, event WebhookEvent, now time.Time) (WebhookEventStatus, error) {
 	provider := strings.TrimSpace(event.Provider)
 	eventID := strings.TrimSpace(event.EventID)
 	if provider == "" || eventID == "" {
-		return false, fmt.Errorf("webhook event requires provider and event_id")
+		return "", fmt.Errorf("webhook event requires provider and event_id")
 	}
-	receivedAt := event.ReceivedAt
-	if receivedAt.IsZero() {
-		receivedAt = time.Now().UTC()
+	now = now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
 	}
+	staleBefore := now.Add(-WebhookProcessingReclaimAfter)
+	eventType := strings.TrimSpace(event.EventType)
+
 	// The webhook endpoint is unauthenticated (HMAC-verified, no
 	// db.WithScope), so use the AnyScope path; the row is global
-	// idempotency state, not tenant-scoped data.
-	var inserted string
-	err := p.queryRowContextAnyScope(
-		ctx,
-		`INSERT INTO webhook_events (provider, event_id, event_type, received_at)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (provider, event_id) DO NOTHING
-		 RETURNING event_id`,
-		provider,
-		eventID,
-		strings.TrimSpace(event.EventType),
-		receivedAt.UTC(),
-	).Scan(&inserted)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+	// idempotency state, not tenant-scoped data. The loop only re-runs in
+	// the rare race where a concurrent DeleteWebhookEvent rollback removed
+	// the row between the conflicting insert and the status read.
+	for attempt := 0; attempt < 3; attempt++ {
+		var claimed string
+		err := p.queryRowContextAnyScope(
+			ctx,
+			`INSERT INTO webhook_events (provider, event_id, event_type, status, received_at)
+			 VALUES ($1, $2, $3, 'processing', $4)
+			 ON CONFLICT (provider, event_id) DO NOTHING
+			 RETURNING event_id`,
+			provider,
+			eventID,
+			eventType,
+			now,
+		).Scan(&claimed)
+		if err == nil {
+			return WebhookEventClaimed, nil
 		}
-		return false, err
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+
+		// Row already exists. Atomically reclaim it only if it is still
+		// 'processing' and the prior claim is stale (crashed instance).
+		err = p.queryRowContextAnyScope(
+			ctx,
+			`UPDATE webhook_events
+			    SET received_at = $3, event_type = $4
+			  WHERE provider = $1 AND event_id = $2
+			    AND status = 'processing' AND received_at < $5
+			  RETURNING event_id`,
+			provider,
+			eventID,
+			now,
+			eventType,
+			staleBefore,
+		).Scan(&claimed)
+		if err == nil {
+			return WebhookEventClaimed, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+
+		var status string
+		err = p.queryRowContextAnyScope(
+			ctx,
+			`SELECT status FROM webhook_events WHERE provider = $1 AND event_id = $2`,
+			provider,
+			eventID,
+		).Scan(&status)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// Raced with a rollback delete; retry the claim.
+				continue
+			}
+			return "", err
+		}
+		if status == string(WebhookEventProcessed) {
+			return WebhookEventProcessed, nil
+		}
+		return WebhookEventProcessing, nil
 	}
-	return true, nil
+	return WebhookEventProcessing, nil
 }
 
-// DeleteWebhookEvent removes a recorded webhook idempotency row so a
-// provider retry can reprocess an event whose side effects failed.
+// CompleteWebhookEvent marks a claimed event processed so later duplicate
+// deliveries become no-op successes.
+func (p *PostgresStore) CompleteWebhookEvent(ctx context.Context, provider string, eventID string, now time.Time) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" {
+		return nil
+	}
+	now = now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	_, err := p.execContextAnyScope(
+		ctx,
+		`UPDATE webhook_events SET status = 'processed', received_at = $3
+		  WHERE provider = $1 AND event_id = $2`,
+		provider,
+		eventID,
+		now,
+	)
+	return err
+}
+
+// DeleteWebhookEvent rolls back a claim so a provider retry can reprocess an
+// event whose side effects failed transiently.
 func (p *PostgresStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error {
 	provider = strings.TrimSpace(provider)
 	eventID = strings.TrimSpace(eventID)
