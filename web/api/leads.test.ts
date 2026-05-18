@@ -54,7 +54,31 @@ describe('web/api/leads handler', () => {
     );
 
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({ error: 'Valid work email is required.' });
+    expect(res.body).toEqual({ error: 'Please use a company or work email address.' });
+  });
+
+  it('rejects common personal email domains before delivery', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'person@gmail.com',
+          environment: 'AWS IAM'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Please use a company or work email address.' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns 503 when no lead delivery channel is configured', async () => {

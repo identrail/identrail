@@ -65,8 +65,43 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 const THEME_STORAGE_KEY = 'identrail-theme';
+const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  'aol.com',
+  'fastmail.com',
+  'gmail.com',
+  'gmx.com',
+  'gmx.net',
+  'googlemail.com',
+  'hey.com',
+  'hotmail.com',
+  'icloud.com',
+  'live.com',
+  'mac.com',
+  'mail.com',
+  'me.com',
+  'msn.com',
+  'outlook.com',
+  'pm.me',
+  'proton.me',
+  'protonmail.com',
+  'rocketmail.com',
+  'yahoo.com',
+  'ymail.com',
+  'zoho.com'
+]);
 let activeModalLocks = 0;
 let bodyOverflowBeforeModal = '';
+
+function isValidEmailAddress(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isWorkEmailAddress(email: string): boolean {
+  const trimmed = email.trim().toLowerCase();
+  const domain = trimmed.split('@').pop() ?? '';
+  return isValidEmailAddress(trimmed) && Boolean(domain) && !PERSONAL_EMAIL_DOMAINS.has(domain);
+}
 
 const NAV_LINKS = [
   { to: '/product', label: 'Product' },
@@ -960,8 +995,13 @@ function LeadCaptureForm({
     const challenge = String(formData.get('challenge') ?? '').trim();
     const website = String(formData.get('website') ?? '').trim();
 
-    setSubmitting(true);
     setError(null);
+    if (!isWorkEmailAddress(email)) {
+      setError(WORK_EMAIL_ERROR);
+      return;
+    }
+
+    setSubmitting(true);
 
     try {
       await apiClient.submitLeadCapture({
@@ -1033,11 +1073,11 @@ function LeadCaptureForm({
           <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting}>
             {submitting ? 'Submitting...' : ctaLabel}
           </button>
-          {error ? <p className="idt-form-error">{error} If urgent, use Book Demo.</p> : null}
+          {error ? <p className="idt-form-error" role="alert">{error} If urgent, use Book Demo.</p> : null}
           <p className="idt-form-note">Receive a practical 30-day machine identity risk reduction plan.</p>
         </form>
       ) : (
-        <p className="idt-form-success">Thanks. We will send your machine identity risk reduction plan within one business day.</p>
+        <p className="idt-form-success">Request sent. The Identrail team will follow up by email with the risk reduction plan.</p>
       )}
     </section>
   );
@@ -1976,11 +2016,39 @@ function ReadOnlyScanPage() {
     path: '/read-only-scan'
   });
 
+  const validateWorkEmail = (form?: HTMLFormElement | null) => {
+    if (form && !form.reportValidity()) {
+      return false;
+    }
+    if (!isWorkEmailAddress(email)) {
+      setError(WORK_EMAIL_ERROR);
+      return false;
+    }
+    setError(null);
+    return true;
+  };
+
+  const advanceStep = (form?: HTMLFormElement | null) => {
+    if (step === 1 && !validateWorkEmail(form)) {
+      return;
+    }
+    setError(null);
+    setStep((value) => Math.min(3, value + 1));
+  };
+
   const submitIntake = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitting) {
       return;
     }
+    if (step < 3) {
+      advanceStep(event.currentTarget);
+      return;
+    }
+    if (!validateWorkEmail(event.currentTarget)) {
+      return;
+    }
+
     const formData = new FormData(event.currentTarget);
     const website = String(formData.get('website') ?? '').trim();
 
@@ -2076,7 +2144,12 @@ function ReadOnlyScanPage() {
                       required
                       type="email"
                       value={email}
-                      onChange={(event) => setEmail(event.target.value)}
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        if (error === WORK_EMAIL_ERROR) {
+                          setError(null);
+                        }
+                      }}
                       placeholder="you@company.com"
                       autoComplete="email"
                     />
@@ -2156,7 +2229,7 @@ function ReadOnlyScanPage() {
                 </div>
               ) : null}
 
-              {error ? <p className="idt-form-error">{error}</p> : null}
+              {error ? <p className="idt-form-error" role="alert">{error}</p> : null}
 
               <div className="idt-inline-actions">
                 {step > 1 ? (
@@ -2169,11 +2242,7 @@ function ReadOnlyScanPage() {
                     type="button"
                     className="idt-btn idt-btn-primary"
                     onClick={(event) => {
-                      const form = event.currentTarget.form;
-                      if (step === 1 && form && !form.reportValidity()) {
-                        return;
-                      }
-                      setStep((value) => Math.min(3, value + 1));
+                      advanceStep(event.currentTarget.form);
                     }}
                   >
                     Continue
@@ -2188,7 +2257,7 @@ function ReadOnlyScanPage() {
           ) : (
             <div className="idt-intake-confirmation">
               <h3>Intake submitted</h3>
-              <p>Thanks. We will send your first read-only scan onboarding response within one business day.</p>
+              <p>Your read-only scan intake was sent to the Identrail team. We will follow up by email with the next step.</p>
               <div className="idt-inline-actions">
                 <Link to="/demo" className="idt-btn idt-btn-dark">
                   Book Demo
