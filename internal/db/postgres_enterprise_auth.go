@@ -517,6 +517,122 @@ func (p *PostgresStore) ConsumeSAMLRelayState(ctx context.Context, handle string
 	return state, nil
 }
 
+const oauthTransactionColumns = "nonce, cookie_token, intent, return_to, expected_user_id, expected_session_id, expires_at, consumed_at, created_at"
+
+func scanOAuthTransaction(row rowScanner) (OAuthTransaction, error) {
+	var txn OAuthTransaction
+	var consumedAt sql.NullTime
+	if err := row.Scan(
+		&txn.Nonce,
+		&txn.CookieToken,
+		&txn.Intent,
+		&txn.ReturnTo,
+		&txn.ExpectedUserID,
+		&txn.ExpectedSessionID,
+		&txn.ExpiresAt,
+		&consumedAt,
+		&txn.CreatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return OAuthTransaction{}, ErrNotFound
+		}
+		return OAuthTransaction{}, err
+	}
+	if consumedAt.Valid {
+		t := consumedAt.Time
+		txn.ConsumedAt = &t
+	}
+	return txn, nil
+}
+
+// CreateOAuthTransaction persists one in-flight WorkOS OAuth login keyed by
+// the signed-state nonce.
+func (p *PostgresStore) CreateOAuthTransaction(ctx context.Context, txn OAuthTransaction) (OAuthTransaction, error) {
+	nonce := strings.TrimSpace(txn.Nonce)
+	if nonce == "" {
+		return OAuthTransaction{}, fmt.Errorf("oauth transaction nonce is required")
+	}
+	cookieToken := strings.TrimSpace(txn.CookieToken)
+	if cookieToken == "" {
+		return OAuthTransaction{}, fmt.Errorf("oauth transaction cookie token is required")
+	}
+	if txn.ExpiresAt.IsZero() {
+		return OAuthTransaction{}, fmt.Errorf("oauth transaction requires expires_at")
+	}
+	if txn.CreatedAt.IsZero() {
+		txn.CreatedAt = time.Now().UTC()
+	}
+	// /auth/login and /auth/callback are unauthenticated, so the request
+	// context carries no db.WithScope. Use the AnyScope path so RLS-enforced
+	// deployments do not short-circuit with ErrScopeRequired. The nonce and
+	// cookie token are cryptographically random and opaque, so bypassing
+	// scope here does not expose any cross-tenant data.
+	saved, err := scanOAuthTransaction(p.queryRowContextAnyScope(
+		ctx,
+		`INSERT INTO oauth_transactions (
+		     nonce, cookie_token, intent, return_to, expected_user_id, expected_session_id, expires_at, created_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING `+oauthTransactionColumns,
+		nonce,
+		cookieToken,
+		strings.TrimSpace(txn.Intent),
+		txn.ReturnTo,
+		strings.TrimSpace(txn.ExpectedUserID),
+		strings.TrimSpace(txn.ExpectedSessionID),
+		txn.ExpiresAt.UTC(),
+		txn.CreatedAt.UTC(),
+	))
+	if err != nil {
+		if isTenancyUniqueViolation(err) {
+			return OAuthTransaction{}, ErrConflict
+		}
+		return OAuthTransaction{}, err
+	}
+	return saved, nil
+}
+
+// ConsumeOAuthTransaction atomically consumes the row matching nonce and
+// cookieToken. The UPDATE ... RETURNING with WHERE consumed_at IS NULL AND
+// expires_at > now() guarantees one-shot consumption even under concurrent
+// callbacks hitting different API instances. Any later, expired, missing, or
+// cookie-mismatched call returns ErrNotFound.
+func (p *PostgresStore) ConsumeOAuthTransaction(ctx context.Context, nonce string, cookieToken string, now time.Time) (OAuthTransaction, error) {
+	nonce = strings.TrimSpace(nonce)
+	cookieToken = strings.TrimSpace(cookieToken)
+	if nonce == "" || cookieToken == "" {
+		return OAuthTransaction{}, ErrNotFound
+	}
+	now = now.UTC()
+	txn, err := scanOAuthTransaction(p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE oauth_transactions
+		    SET consumed_at = $3
+		  WHERE nonce = $1
+		    AND cookie_token = $2
+		    AND consumed_at IS NULL
+		    AND expires_at > $3
+		  RETURNING `+oauthTransactionColumns,
+		nonce,
+		cookieToken,
+		now,
+	))
+	if err != nil {
+		return OAuthTransaction{}, err
+	}
+	_, err = p.execContextAnyScope(
+		ctx,
+		`DELETE FROM oauth_transactions
+		  WHERE consumed_at IS NOT NULL
+		     OR expires_at <= $1`,
+		now,
+	)
+	if err != nil {
+		return OAuthTransaction{}, err
+	}
+	return txn, nil
+}
+
 // GetIdentityConnectionByID resolves a connection by its globally unique
 // UUID, bypassing the org-scope filter applied by GetIdentityConnection.
 // Used by entry points (SAML SP-initiated login) that do not know the org id

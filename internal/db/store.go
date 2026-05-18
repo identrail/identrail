@@ -537,6 +537,24 @@ type SAMLRelayState struct {
 	ConsumedAt    *time.Time `json:"consumed_at,omitempty"`
 }
 
+// OAuthTransaction is the persisted server-side record for one in-flight
+// WorkOS OAuth login. The signed `state` token carries Nonce; the matching
+// callback must present both the signed state (Nonce) and the browser-bound
+// CookieToken set when the redirect was issued. The row is one-shot consumed
+// by the callback handler so a captured state cannot be replayed — including
+// against a different API instance that shares this database.
+type OAuthTransaction struct {
+	Nonce             string     `json:"nonce"`
+	CookieToken       string     `json:"cookie_token"`
+	Intent            string     `json:"intent"`
+	ReturnTo          string     `json:"return_to,omitempty"`
+	ExpectedUserID    string     `json:"expected_user_id,omitempty"`
+	ExpectedSessionID string     `json:"expected_session_id,omitempty"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ConsumedAt        *time.Time `json:"consumed_at,omitempty"`
+}
+
 // SCIMProvisioningEventRecord is the persisted form of one SCIM op recorded
 // for tenant-visible governance audit. Append-only.
 type SCIMProvisioningEventRecord struct {
@@ -2145,6 +2163,16 @@ type Store interface {
 	// state. A subsequent call with the same handle returns ErrNotFound so
 	// the relay value cannot be replayed.
 	ConsumeSAMLRelayState(ctx context.Context, handle string, now time.Time) (SAMLRelayState, error)
+	// CreateOAuthTransaction persists one in-flight WorkOS OAuth login so the
+	// callback (potentially handled by a different API instance) can match
+	// the signed state nonce and browser-bound cookie token against a
+	// single-use, short-TTL row.
+	CreateOAuthTransaction(ctx context.Context, txn OAuthTransaction) (OAuthTransaction, error)
+	// ConsumeOAuthTransaction atomically consumes the row matching nonce and
+	// cookieToken when it is unexpired and unconsumed, returning the stored
+	// transaction. Any later, expired, missing, or cookie-mismatched call
+	// returns ErrNotFound so the OAuth state cannot be replayed.
+	ConsumeOAuthTransaction(ctx context.Context, nonce string, cookieToken string, now time.Time) (OAuthTransaction, error)
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
 	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	DeleteIdentityConnection(ctx context.Context, orgID string, connectionID string) error

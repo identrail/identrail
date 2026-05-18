@@ -21,14 +21,15 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 
 ## OAuth State Replay
 
-**Attack.** An attacker captures a valid `state` parameter from an OAuth flow and replays it to log themselves into the victim's account on a future flow.
+**Attack.** An attacker captures a valid `state` parameter from an OAuth flow and replays it to log themselves into the victim's account on a future flow — including against a different API instance than the one that issued the redirect.
 
 **Defenses.**
 
 1. `state` is HMAC-signed with `IDENTRAIL_SESSION_KEY`. A tampered state fails verification.
-2. `state` is single-use. The first successful exchange marks it consumed; any later use is rejected.
+2. `state` carries only a fresh random nonce, an intent, a sanitized return path, and an expiry. It never contains the session ID, the user ID, or any other identifier that would leak into IdP logs, browser history, or referer headers.
 3. `state` has a 10-minute TTL. Old captures are useless.
-4. `state` is a fresh random nonce. It never contains the session ID, the user ID, or any other identifier that would leak into IdP logs, browser history, or referer headers. The server stores `(nonce, expected_user_id_or_null, expected_session_id_or_null, created_at)` in a small `oauth_states` table at the moment the redirect is issued, and the callback handler exchanges the nonce for the stored row. Rows are single-use and expire after 10 minutes.
+4. The signed token is not sufficient on its own. At the moment the redirect is issued, the server persists a row in the `oauth_transactions` table (`nonce`, an opaque browser-bound `cookie_token`, `intent`, sanitized `return_to`, optional `expected_user_id`/`expected_session_id`, `created_at`, `expires_at`) and sets the `cookie_token` in a short-lived `HttpOnly`, `Secure`, `SameSite=Lax` transaction cookie whose name is scoped to the state nonce (so concurrent in-flight logins — double-click, two tabs, switching provider — each keep their own browser-bound token instead of one overwriting another). The `/auth/callback` handler requires the signed state, the transaction cookie, and the persisted row to all match. The row is atomically consumed (`UPDATE ... WHERE consumed_at IS NULL AND expires_at > now() RETURNING`), so a second callback attempt fails even when routed to a different API instance that shares the database. Because consumption is store-backed rather than a process-local map, replay protection holds across the whole fleet. A callback with no transaction cookie, a cookie that does not match the issued row, or an expired/already-consumed row is rejected, and the transaction cookie is cleared on success and on terminal failure. The authoritative post-login `return_to` is read from the persisted row, not the URL, so it cannot be tampered with in transit.
+5. `/auth/callback` stays exempt from the generic browser CSRF middleware (it is cross-site by protocol design); this nonce-plus-browser-bound-cookie check is its dedicated, stronger replacement.
 
 ## Session Fixation
 

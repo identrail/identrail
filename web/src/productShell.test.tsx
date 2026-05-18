@@ -225,6 +225,52 @@ describe('ProductAppIndexRedirect', () => {
   });
 });
 
+describe('ProductShellLayout', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  it('limits default source logo stacks to feature-enabled connectors', async () => {
+    vi.resetModules();
+    vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
+      return {
+        ...actual,
+        FEATURE_ONBOARDING_CONNECTOR_GITHUB: false,
+        FEATURE_ONBOARDING_CONNECTOR_K8S: false
+      };
+    });
+
+    const { ProductShellLayout, SourceLogoMark } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route
+              index
+              element={
+                <>
+                  <p>Child view</p>
+                  <SourceLogoMark provider="github" />
+                  <SourceLogoMark provider="kubernetes" />
+                </>
+              }
+            />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getAllByRole('img', { name: 'AWS' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('img', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Kubernetes' })).not.toBeInTheDocument();
+    expect(screen.getByText(/AWS signals stay visible across the workflow/i)).toBeInTheDocument();
+  });
+});
+
 describe('ProductProjectDetailPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();

@@ -27,6 +27,7 @@ type authSessionRouteOptions struct {
 	WorkOSClient        sessionauth.WorkOSClient
 	WorkOSWebhookSecret string
 	StateManager        *sessionauth.OAuthStateManager
+	TransactionStore    *sessionauth.OAuthTransactionStore
 	PendingMFAManager   *sessionauth.MFAPendingStateManager
 	PublicBaseURL       string
 	ReturnToOrigins     []string
@@ -145,6 +146,29 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start login"})
 			return
 		}
+		if opts.TransactionStore != nil {
+			decoded, err := opts.StateManager.Decode(state)
+			if err != nil {
+				if logger != nil {
+					logger.Error("decode workos state", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start login"})
+				return
+			}
+			cookieToken, err := opts.TransactionStore.Issue(c.Request.Context(), sessionauth.OAuthTransactionEntry{
+				Nonce:    decoded.Nonce,
+				Intent:   intent,
+				ReturnTo: returnTo,
+			})
+			if err != nil {
+				if logger != nil {
+					logger.Error("issue workos oauth transaction", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start login"})
+				return
+			}
+			http.SetCookie(c.Writer, oauthTransactionCookie(opts.PublicBaseURL, decoded.Nonce, cookieToken, opts.TransactionStore.TTL()))
+		}
 		screenHint := ""
 		action := "auth.login.start"
 		if intent == "signup" {
@@ -207,11 +231,57 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			c.JSON(http.StatusBadRequest, gin.H{"error": "code is required"})
 			return
 		}
-		state, err := opts.StateManager.Consume(c.Query("state"))
-		if err != nil {
-			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
-			return
+		// The store-backed, browser-bound transaction is the authoritative
+		// single-use check: it proves the same browser started this specific
+		// login and enforces one-shot consumption across every API instance
+		// sharing the database. The signed state only proves integrity and
+		// TTL, so it is verified without the process-local replay map (Decode,
+		// not Consume) — otherwise a failed-cookie attempt or a callback
+		// routed to a different instance would burn an otherwise valid state.
+		// When no transaction store is wired (no db.Store), fall back to the
+		// signed-state replay map. /auth/callback stays exempt from generic
+		// CSRF middleware because OAuth callbacks are cross-site by protocol
+		// design — this nonce+cookie check is its dedicated replacement.
+		var state sessionauth.OAuthState
+		if opts.TransactionStore != nil {
+			decoded, decodeErr := opts.StateManager.Decode(c.Query("state"))
+			if decodeErr != nil {
+				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				return
+			}
+			http.SetCookie(c.Writer, oauthTransactionClearCookie(opts.PublicBaseURL, decoded.Nonce))
+			cookie, cookieErr := c.Request.Cookie(sessionauth.OAuthTransactionCookieName(decoded.Nonce))
+			if cookieErr != nil || strings.TrimSpace(cookie.Value) == "" {
+				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				return
+			}
+			txn, txnErr := opts.TransactionStore.Consume(c.Request.Context(), decoded.Nonce, cookie.Value)
+			if txnErr != nil {
+				if !errors.Is(txnErr, sessionauth.ErrOAuthTransactionInvalid) && logger != nil {
+					logger.Error("consume workos oauth transaction", telemetry.ZapError(txnErr))
+				}
+				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				return
+			}
+			// The persisted row is the authoritative return target. It was
+			// sanitized when the redirect was issued and cannot be tampered
+			// with in transit the way a URL query parameter could.
+			decoded.ReturnTo = txn.ReturnTo
+			if decoded.Intent == "" {
+				decoded.Intent = txn.Intent
+			}
+			state = decoded
+		} else {
+			consumed, consumeErr := opts.StateManager.Consume(c.Query("state"))
+			if consumeErr != nil {
+				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				return
+			}
+			state = consumed
 		}
 		authenticated, err := opts.WorkOSClient.AuthenticateWithCode(c.Request.Context(), sessionauth.WorkOSAuthenticationRequest{
 			Code:      code,
@@ -611,6 +681,33 @@ func workOSMFAClearCookie(publicBaseURL string) *http.Cookie {
 		Name:     sessionauth.PendingMFACookieName,
 		Value:    "",
 		Path:     "/auth/mfa",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   sessionauthCookieSecure(publicBaseURL),
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
+func oauthTransactionCookie(publicBaseURL string, nonce string, value string, ttl time.Duration) *http.Cookie {
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+	return &http.Cookie{
+		Name:     sessionauth.OAuthTransactionCookieName(nonce),
+		Value:    value,
+		Path:     "/auth",
+		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   sessionauthCookieSecure(publicBaseURL),
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
+func oauthTransactionClearCookie(publicBaseURL string, nonce string) *http.Cookie {
+	return &http.Cookie{
+		Name:     sessionauth.OAuthTransactionCookieName(nonce),
+		Value:    "",
+		Path:     "/auth",
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   sessionauthCookieSecure(publicBaseURL),

@@ -746,7 +746,7 @@ describe('App', () => {
         return okJSON({
           principal: { type: 'subject', id: 'user-1' },
           roles: ['admin'],
-          scopes: ['tenancy.read', 'tenancy.write'],
+          scopes: null,
           scope: { tenant_id: 'tenant-a', workspace_id: 'workspace-a' },
           active_workspace: {
             workspace: {
@@ -814,6 +814,7 @@ describe('App', () => {
     expect(await screen.findByText(/Security Workspace/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
     expect(await screen.findByText(/Hosted WorkOS login/i)).toBeInTheDocument();
+    expect(await screen.findByText(/None granted/i)).toBeInTheDocument();
     expect(await screen.findByText(/Total members/i)).toBeInTheDocument();
     const accountSecurityLinks = await screen.findAllByRole('link', { name: /Account security/i });
     expect(accountSecurityLinks.some((link) => link.getAttribute('href') === '/app/account/security')).toBe(true);

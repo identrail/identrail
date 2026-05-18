@@ -88,7 +88,12 @@ func (m *OAuthStateManager) IssueWithSAML(intent, returnTo, connectionID, samlRe
 	return payloadPart + "." + signature, nil
 }
 
-func (m *OAuthStateManager) Consume(raw string) (OAuthState, error) {
+// Decode verifies the HMAC signature and expiry of a signed state token and
+// returns the embedded state WITHOUT marking the nonce consumed. The start
+// handler uses it to recover the freshly minted nonce so it can bind a
+// store-backed, browser-bound transaction to it. Single-use enforcement is
+// the job of Consume and the store-backed OAuth transaction.
+func (m *OAuthStateManager) Decode(raw string) (OAuthState, error) {
 	if m == nil || len(m.secret) == 0 {
 		return OAuthState{}, ErrOAuthStateInvalid
 	}
@@ -109,15 +114,28 @@ func (m *OAuthStateManager) Consume(raw string) (OAuthState, error) {
 	if err := json.Unmarshal(payload, &state); err != nil {
 		return OAuthState{}, ErrOAuthStateInvalid
 	}
-	now := m.now()
 	if state.Nonce == "" || state.ExpiresAt <= 0 {
 		return OAuthState{}, ErrOAuthStateInvalid
 	}
-	if !time.Unix(state.ExpiresAt, 0).After(now) {
+	if !time.Unix(state.ExpiresAt, 0).After(m.now()) {
 		return OAuthState{}, ErrOAuthStateExpired
+	}
+	return state, nil
+}
+
+// Consume verifies the signed state (via Decode, the single source of
+// token-verification truth) and then marks the nonce consumed in the
+// process-local replay map. It is only the single-use authority when no
+// store-backed OAuth transaction is wired; otherwise the callback uses
+// Decode and the store row enforces single-use across the fleet.
+func (m *OAuthStateManager) Consume(raw string) (OAuthState, error) {
+	state, err := m.Decode(raw)
+	if err != nil {
+		return OAuthState{}, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := m.now()
 	m.pruneLocked(now)
 	if _, exists := m.used[state.Nonce]; exists {
 		return OAuthState{}, ErrOAuthStateReused
