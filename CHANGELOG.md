@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Corrected the `IDENTRAIL_PUBLIC_BASE_URL` documentation so the auth
+  env-var reference and the production-readiness guide agree: it is the
+  externally reachable API callback origin (`https://api.identrail.com` for
+  Identrail Cloud), not the web app origin. The production example now uses
+  the API origin, the WorkOS redirect URI example matches the
+  code-generated `<base>/auth/callback`, and the docs explicitly contrast
+  the API callback origin with web app origins. Docs-only; no behavior
+  change. A potential config rename/split
+  (`IDENTRAIL_PUBLIC_API_BASE_URL` / `IDENTRAIL_WEB_APP_ORIGINS`) is left to
+  a separate tracked change.
 - Wired `IDENTRAIL_SESSION_KEY_PREVIOUS` into signed/sealed auth artifact
   verification so rotating `IDENTRAIL_SESSION_KEY` no longer invalidates
   in-flight OAuth `state` or WorkOS MFA pending state. The active key remains

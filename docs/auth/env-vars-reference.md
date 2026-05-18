@@ -4,7 +4,7 @@ A flat list of authentication and connector environment variables, with
 defaults and validation notes. The "Track" column reflects the current roadmap;
 older PR-number references are historical.
 
-The rule that drives every example below: domain references are always config-driven. The doc never hardcodes `app.identrail.com` outside of an example value column.
+The rule that drives every example below: domain references are always config-driven. The doc never hardcodes a deployment's domains as if they were defaults — concrete hosts like `https://api.identrail.com` (API callback origin) and `https://app.identrail.com` (web app origin) appear only as illustrative example values, including where the prose must contrast the two so operators do not confuse them.
 
 ## Core Session and Identity
 
@@ -12,18 +12,29 @@ The two variables marked `Required` in the table below apply regardless of which
 
 | Variable | Default | Validation | Track |
 | --- | --- | --- | --- |
-| `IDENTRAIL_PUBLIC_BASE_URL` | none | Required for any auth driver (WorkOS, OIDC, manual, or native SAML). Must parse as an absolute URL. Must be `https://` in any non-development build. Refuses to start if missing. | Auth foundation |
+| `IDENTRAIL_PUBLIC_BASE_URL` | none | Required for any auth driver (WorkOS, OIDC, manual, or native SAML). This is the **externally reachable API origin** — the host the auth provider redirects back to. The WorkOS callback URL is constructed as `<IDENTRAIL_PUBLIC_BASE_URL>/auth/callback`, so for Identrail Cloud it is the API service origin (`https://api.identrail.com`), **not** the web app origin (`https://app.identrail.com`). Must parse as an absolute URL. Must be `https://` in any non-development build. Refuses to start if missing. See [`production-api-readiness.md`](./production-api-readiness.md). | Auth foundation |
 | `IDENTRAIL_SESSION_KEY` | none | Required for any auth driver. 32 bytes minimum (64 hex chars). Refuses to start if missing or shorter. | Auth foundation |
 | `IDENTRAIL_SESSION_KEY_PREVIOUS` | empty | Optional. Same format as `IDENTRAIL_SESSION_KEY`. Used during a key rotation. | Auth foundation |
 | `IDENTRAIL_AUTH_MANUAL_MODE` | `false` | Boolean. **Local development only.** `/auth/manual` mints a browser session from request-supplied tenant and identity fields, so it must never be enabled for production or any internet-accessible deployment. The server refuses to start when this is `true` unless **both** `IDENTRAIL_PUBLIC_BASE_URL` is a loopback origin (`http://localhost`, `http://127.0.0.1`, or `http://[::1]`) **and** `IDENTRAIL_HTTP_ADDR` binds a loopback interface (e.g. `127.0.0.1:8080`) — a loopback base URL alone does not stop a `0.0.0.0` bind or ingress from exposing the endpoint. As additional per-request defense-in-depth, `/auth/manual` also rejects any caller whose resolved client IP is not loopback unless the unsafe override is set. Mutually exclusive with `IDENTRAIL_WORKOS_CLIENT_ID`; setting both refuses to start. | Auth foundation |
 | `IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE` | `false` | Boolean. **Unsafe.** Overrides the loopback base-URL and bind-address requirements above so `IDENTRAIL_AUTH_MANUAL_MODE=true` can run when reachability is constrained another way (for example a container that publishes its port only on the host loopback). Intended only for a deliberately throwaway, non-production test deployment. Never set this in production or on an internet-accessible host. | Auth foundation |
 
-Production example values:
+Production example values (Identrail Cloud, where WorkOS callbacks terminate
+at the API service):
 
 ```
-IDENTRAIL_PUBLIC_BASE_URL=https://app.identrail.com
+IDENTRAIL_PUBLIC_BASE_URL=https://api.identrail.com
 IDENTRAIL_SESSION_KEY=<64 hex chars from openssl rand -hex 32>
 ```
+
+`IDENTRAIL_PUBLIC_BASE_URL` is the API callback origin, distinct from the web
+app origins (e.g. `https://app.identrail.com`, configured separately via
+`IDENTRAIL_CORS_ALLOWED_ORIGINS` / `VITE_IDENTRAIL_API_URL`). Because the
+server builds the callback as `<IDENTRAIL_PUBLIC_BASE_URL>/auth/callback`,
+the redirect URI registered in the WorkOS dashboard must exactly match —
+for the example above, `https://api.identrail.com/auth/callback`. A
+self-hosted single-service deployment that serves the API and app from one
+origin uses that shared origin here. This matches the production walkthrough
+in [`production-api-readiness.md`](./production-api-readiness.md).
 
 ## WorkOS Hosted Login
 
