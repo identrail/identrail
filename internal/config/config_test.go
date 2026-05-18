@@ -256,6 +256,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RepoQueueMaxPending != defaultRepoQueueMaxPending {
 		t.Fatalf("expected default repo queue max pending %d, got %d", defaultRepoQueueMaxPending, cfg.RepoQueueMaxPending)
 	}
+	if !cfg.WorkerScanEnabled {
+		t.Fatal("expected worker scheduled scan enabled by default")
+	}
 	if cfg.WorkerRepoScanEnabled {
 		t.Fatal("expected worker repo scan disabled by default")
 	}
@@ -418,6 +421,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "trusted/*,owner/repo")
 	t.Setenv("IDENTRAIL_SCAN_QUEUE_MAX_PENDING", "40")
 	t.Setenv("IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING", "160")
+	t.Setenv("IDENTRAIL_WORKER_SCAN_ENABLED", "false")
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_ENABLED", "true")
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW", "true")
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL", "45m")
@@ -620,6 +624,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.RepoQueueMaxPending != 160 {
 		t.Fatalf("unexpected repo queue max pending: %d", cfg.RepoQueueMaxPending)
+	}
+	if cfg.WorkerScanEnabled {
+		t.Fatal("expected worker scheduled scan disabled")
 	}
 	if !cfg.WorkerRepoScanEnabled {
 		t.Fatal("expected worker repo scan enabled")

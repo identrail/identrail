@@ -1,6 +1,6 @@
 # AWS API Hosting
 
-This document describes the first AWS API hosting layer for Identrail.
+This document describes the first AWS API and worker hosting layer for Identrail.
 
 The Terraform remains plan-first and safe by default. CI validates the shape, but
 does not create AWS resources or move production traffic.
@@ -15,6 +15,14 @@ When `create_api_hosting_resources=true`, `deploy/aws/terraform` can create:
   traffic from the load balancer to the API tasks
 - task execution and task IAM roles
 - CloudWatch logs for API runtime output
+
+When `create_worker_hosting_resources=true`, the same Terraform root also
+creates a private ECS/Fargate worker service in the API cluster. The hosted
+worker uses the same database, auth, connector, and repo-scan runtime settings
+as the API, but sets `IDENTRAIL_WORKER_SCAN_ENABLED=false` and
+`IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED=true` by default. That means the first
+hosted worker drains queued API jobs, including GitHub repo scans submitted
+from the app, without also launching unrelated periodic cloud scans.
 
 The ECS task definition sets production-oriented runtime defaults for the hosted
 API: `IDENTRAIL_AWS_SOURCE=sdk`, `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`, and
@@ -32,6 +40,11 @@ The API task role receives the read-only IAM discovery permissions that the live
 AWS collector uses. Cross-account connector access is still explicit: add
 approved connector role ARNs to `api_connector_role_arns` only after those roles
 exist and have been reviewed.
+
+The worker task has its own execution role, task role, and egress-only security
+group. It inherits `api_secrets` and may receive worker-only overrides through
+`worker_secrets`; secret values still stay in Secrets Manager rather than
+Terraform state.
 
 ## Required Operator Inputs
 
@@ -132,6 +145,14 @@ The workflow dispatch input `api_container_image` must be immutable, such as
 `ghcr.io/identrail/identrail-api:sha-<commit>`. Do not deploy the mutable `dev`
 tag to this hosted API path.
 
+Worker hosting is enabled by default in this manual workflow through
+`API_WORKER_ENABLED=true`. If `API_WORKER_CONTAINER_IMAGE` is omitted, the
+preparation script derives the matching immutable worker image from the API
+image tag or digest, for example
+`ghcr.io/identrail/identrail-worker:sha-<commit>`. Set
+`API_WORKER_ENABLED=false` only as a rollback knob when the API should stay up
+but queued scan processing must be paused.
+
 Optional repository variables:
 
 - `API_ALLOWED_CIDR_BLOCKS_JSON`
@@ -154,6 +175,13 @@ Optional repository variables:
 - `API_REPO_SCAN_HISTORY_LIMIT_MAX`
 - `API_REPO_SCAN_MAX_FINDINGS_MAX`
 - `API_REPO_SCAN_QUEUE_MAX_PENDING`
+- `API_WORKER_ENABLED`: defaults to `true`; set to `false` to deploy only the
+  hosted API and leave queued scans pending
+- `API_WORKER_CONTAINER_IMAGE`: optional immutable worker image; blank derives
+  the matching `identrail-worker` image from `api_container_image`
+- `API_WORKER_DESIRED_COUNT`: defaults to `1`
+- `API_WORKER_TASK_CPU`: defaults to `256`
+- `API_WORKER_TASK_MEMORY`: defaults to `512`
 - `API_EXTRA_ENVIRONMENT_JSON`: JSON object for additional non-secret runtime
   variables. Use this to enable native SAML/SCIM, for example
   `{"IDENTRAIL_FEATURE_NATIVE_SSO":"true"}`.
@@ -163,9 +191,9 @@ Optional repository variables:
 The first-class `API_REPO_SCAN_*` variables override matching
 `IDENTRAIL_REPO_SCAN_*` keys in `API_EXTRA_ENVIRONMENT_JSON` when they are set.
 The preparation script fails before Terraform if repository scans are enabled
-without an effective allowlist. This workflow only configures the API task to
-accept and queue repository scan requests; queued scans still require the worker
-queue processor from the worker deploy path before they complete.
+without an effective allowlist. With the default worker deployment enabled, the
+workflow configures both sides of the flow: the API accepts and queues
+repository scan requests, and the worker processes those queued scans.
 
 Optional repository secret:
 
@@ -295,5 +323,4 @@ If the failure happens after DNS cutover:
 - production database provisioning and backups
 - runtime secret creation and rotation workflow
 - migration job wiring
-- worker hosting
 - final `api.identrail.com` DNS cutover

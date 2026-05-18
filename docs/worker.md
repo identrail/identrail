@@ -14,6 +14,7 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 ## Config
 
 - `IDENTRAIL_SCAN_INTERVAL` (default `15m`)
+- `IDENTRAIL_WORKER_SCAN_ENABLED` (default `true`)
 - `IDENTRAIL_WORKER_RUN_NOW` (default `true`)
 - `IDENTRAIL_AWS_FIXTURES`
 - `IDENTRAIL_DATABASE_URL`
@@ -34,8 +35,8 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 
 ## Behavior
 
-- Optional scan on startup (`WORKER_RUN_NOW=true`)
-- Repeats scans every interval
+- Optional cloud scan on startup (`IDENTRAIL_WORKER_SCAN_ENABLED=true` and `IDENTRAIL_WORKER_RUN_NOW=true`)
+- Repeats cloud scans every interval when `IDENTRAIL_WORKER_SCAN_ENABLED=true`
 - Uses same persistence flow as API-triggered scan
 - Skips overlapping runs via existing service lock
 - Optional repo scan scheduler is additive and disabled by default
