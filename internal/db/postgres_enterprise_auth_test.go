@@ -636,6 +636,59 @@ func TestPostgresCreateOAuthTransactionBypassesScopeAndMapsConflict(t *testing.T
 	}
 }
 
+func TestPostgresRecordWebhookEventOnce(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	// First delivery: the insert wins and RETURNING yields the event id.
+	mock.ExpectQuery("INSERT INTO webhook_events").
+		WithArgs("workos", "event_1", "user.deleted", now).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id"}).AddRow("event_1"))
+	first, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{
+		Provider:   " workos ",
+		EventID:    " event_1 ",
+		EventType:  "user.deleted",
+		ReceivedAt: now,
+	})
+	if err != nil || !first {
+		t.Fatalf("expected first delivery true, got %v err=%v", first, err)
+	}
+
+	// Duplicate: ON CONFLICT DO NOTHING returns no row -> sql.ErrNoRows.
+	mock.ExpectQuery("INSERT INTO webhook_events").
+		WithArgs("workos", "event_1", "", now).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
+	dup, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{
+		Provider:   "workos",
+		EventID:    "event_1",
+		ReceivedAt: now,
+	})
+	if err != nil || dup {
+		t.Fatalf("expected duplicate delivery false, got %v err=%v", dup, err)
+	}
+
+	mock.ExpectExec("DELETE FROM webhook_events").
+		WithArgs("workos", "event_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1"); err != nil {
+		t.Fatalf("delete webhook event: %v", err)
+	}
+
+	if _, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "", EventID: "x"}); err == nil {
+		t.Fatal("missing provider should be rejected before any query")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func postgresSCIMProvisioningEventRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "org_id", "connection_id", "op", "external_id", "user_id", "payload", "occurred_at"})
 }

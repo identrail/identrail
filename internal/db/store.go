@@ -555,6 +555,20 @@ type OAuthTransaction struct {
 	ConsumedAt        *time.Time `json:"consumed_at,omitempty"`
 }
 
+// WebhookEvent is the persisted idempotency record for one provider-issued
+// webhook delivery. (Provider, EventID) is unique: the first delivery
+// inserts the row, and any duplicate or replayed delivery (provider retry,
+// at-least-once delivery, replay inside the signature tolerance window)
+// finds the row already present and is handled as a no-op. The row is
+// recorded only after signature validation so an attacker cannot poison the
+// table with arbitrary IDs.
+type WebhookEvent struct {
+	Provider   string    `json:"provider"`
+	EventID    string    `json:"event_id"`
+	EventType  string    `json:"event_type,omitempty"`
+	ReceivedAt time.Time `json:"received_at"`
+}
+
 // SCIMProvisioningEventRecord is the persisted form of one SCIM op recorded
 // for tenant-visible governance audit. Append-only.
 type SCIMProvisioningEventRecord struct {
@@ -2173,6 +2187,18 @@ type Store interface {
 	// transaction. Any later, expired, missing, or cookie-mismatched call
 	// returns ErrNotFound so the OAuth state cannot be replayed.
 	ConsumeOAuthTransaction(ctx context.Context, nonce string, cookieToken string, now time.Time) (OAuthTransaction, error)
+	// RecordWebhookEventOnce atomically records a provider webhook event for
+	// idempotency. It returns true when this is the first delivery (the row
+	// was inserted) and false when the (provider, event_id) row already
+	// exists (duplicate/replayed delivery) so the caller can no-op without
+	// reapplying side effects. Durable across restarts and shared by every
+	// API instance pointed at the same database.
+	RecordWebhookEventOnce(ctx context.Context, event WebhookEvent) (bool, error)
+	// DeleteWebhookEvent removes a recorded webhook idempotency row. It is
+	// used to roll back the claim when a transient (server-side) failure
+	// prevented the event's side effects from being applied, so a provider
+	// retry can reprocess it instead of being permanently de-duplicated.
+	DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error
 	ListIdentityConnections(ctx context.Context, orgID string, limit int) ([]IdentityConnection, error)
 	UpdateIdentityConnection(ctx context.Context, connection IdentityConnection) (IdentityConnection, error)
 	DeleteIdentityConnection(ctx context.Context, orgID string, connectionID string) error

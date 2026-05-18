@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Made WorkOS webhook delivery idempotent. After signature validation the
+  handler records the provider event ID in a new durable `webhook_events`
+  table before applying user-lifecycle side effects; a duplicate, retried,
+  or replayed delivery returns a successful no-op without reapplying
+  `user.deleted` / `user.email_changed` / `user.updated` effects. The check
+  is durable across restarts and shared across API instances, and a
+  transient server-side failure rolls back the record so a provider retry
+  can reprocess.
 - Added per-request defense-in-depth on `/auth/manual`: the handler now
   rejects any request whose resolved client IP (honoring the configured
   trusted-proxy list) is not a loopback address, unless

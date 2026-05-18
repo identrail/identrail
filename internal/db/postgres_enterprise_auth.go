@@ -633,6 +633,62 @@ func (p *PostgresStore) ConsumeOAuthTransaction(ctx context.Context, nonce strin
 	return txn, nil
 }
 
+// RecordWebhookEventOnce inserts the (provider, event_id) idempotency row.
+// INSERT ... ON CONFLICT DO NOTHING RETURNING makes this atomic: a returned
+// row means this delivery won the insert (first delivery); sql.ErrNoRows
+// means the row already existed (duplicate/replayed delivery). Atomic at the
+// database, so it holds across API restarts and concurrent instances.
+func (p *PostgresStore) RecordWebhookEventOnce(ctx context.Context, event WebhookEvent) (bool, error) {
+	provider := strings.TrimSpace(event.Provider)
+	eventID := strings.TrimSpace(event.EventID)
+	if provider == "" || eventID == "" {
+		return false, fmt.Errorf("webhook event requires provider and event_id")
+	}
+	receivedAt := event.ReceivedAt
+	if receivedAt.IsZero() {
+		receivedAt = time.Now().UTC()
+	}
+	// The webhook endpoint is unauthenticated (HMAC-verified, no
+	// db.WithScope), so use the AnyScope path; the row is global
+	// idempotency state, not tenant-scoped data.
+	var inserted string
+	err := p.queryRowContextAnyScope(
+		ctx,
+		`INSERT INTO webhook_events (provider, event_id, event_type, received_at)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (provider, event_id) DO NOTHING
+		 RETURNING event_id`,
+		provider,
+		eventID,
+		strings.TrimSpace(event.EventType),
+		receivedAt.UTC(),
+	).Scan(&inserted)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// DeleteWebhookEvent removes a recorded webhook idempotency row so a
+// provider retry can reprocess an event whose side effects failed.
+func (p *PostgresStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" {
+		return nil
+	}
+	_, err := p.execContextAnyScope(
+		ctx,
+		`DELETE FROM webhook_events WHERE provider = $1 AND event_id = $2`,
+		provider,
+		eventID,
+	)
+	return err
+}
+
 // GetIdentityConnectionByID resolves a connection by its globally unique
 // UUID, bypassing the org-scope filter applied by GetIdentityConnection.
 // Used by entry points (SAML SP-initiated login) that do not know the org id

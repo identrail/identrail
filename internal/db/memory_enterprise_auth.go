@@ -546,6 +546,51 @@ func (m *MemoryStore) ConsumeOAuthTransaction(ctx context.Context, nonce string,
 	return txn, nil
 }
 
+// RecordWebhookEventOnce records a provider webhook event for idempotency.
+// Returns true on first delivery (row inserted) and false when the
+// (provider, event_id) pair was already recorded.
+func (m *MemoryStore) RecordWebhookEventOnce(ctx context.Context, event WebhookEvent) (bool, error) {
+	provider := strings.TrimSpace(event.Provider)
+	eventID := strings.TrimSpace(event.EventID)
+	if provider == "" || eventID == "" {
+		return false, fmt.Errorf("webhook event requires provider and event_id")
+	}
+	if event.ReceivedAt.IsZero() {
+		event.ReceivedAt = time.Now().UTC()
+	} else {
+		event.ReceivedAt = event.ReceivedAt.UTC()
+	}
+	event.Provider = provider
+	event.EventID = eventID
+	event.EventType = strings.TrimSpace(event.EventType)
+	key := webhookEventKey(provider, eventID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.webhookEvents[key]; exists {
+		return false, nil
+	}
+	m.webhookEvents[key] = event
+	return true, nil
+}
+
+// DeleteWebhookEvent removes a recorded webhook idempotency row so a
+// provider retry can reprocess an event whose side effects failed.
+func (m *MemoryStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.webhookEvents, webhookEventKey(provider, eventID))
+	return nil
+}
+
+func webhookEventKey(provider string, eventID string) string {
+	return provider + "\x00" + eventID
+}
+
 // CreateSCIMProvisioningEvent appends one SCIM provisioning event to the
 // append-only audit log scoped to the org + connection.
 func (m *MemoryStore) CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error) {

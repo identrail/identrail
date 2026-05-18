@@ -893,6 +893,47 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
 			return
 		}
+		eventID := strings.TrimSpace(event.ID)
+		if eventID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
+			return
+		}
+		// Idempotency is recorded only after signature validation so a forged
+		// request cannot poison the ledger. The first delivery inserts the
+		// row; a duplicate / retried / replayed (within the provider
+		// signature tolerance window) delivery finds it and is a no-op,
+		// durable across restarts and shared by every API instance.
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		firstDelivery, err := svc.Store.RecordWebhookEventOnce(c.Request.Context(), db.WebhookEvent{
+			Provider:   "workos",
+			EventID:    eventID,
+			EventType:  strings.TrimSpace(event.Event),
+			ReceivedAt: now,
+		})
+		if err != nil {
+			if logger != nil {
+				logger.Error("record workos webhook event", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process webhook"})
+			return
+		}
+		if !firstDelivery {
+			c.JSON(http.StatusOK, gin.H{"ok": true, "duplicate": true})
+			return
+		}
+		// rollbackIdempotency lets a provider retry reprocess the event when
+		// a transient server-side failure prevented the side effects from
+		// being applied. Deterministic outcomes (bad payload, identity
+		// conflict) intentionally keep the record so identical retries stay
+		// no-ops.
+		rollbackIdempotency := func() {
+			if delErr := svc.Store.DeleteWebhookEvent(c.Request.Context(), "workos", eventID); delErr != nil && logger != nil {
+				logger.Error("rollback workos webhook idempotency", telemetry.ZapError(delErr))
+			}
+		}
 		var user workOSWebhookUser
 		if len(event.Data) > 0 {
 			_ = json.Unmarshal(event.Data, &user)
@@ -905,6 +946,7 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 			}
 			revoked, err := svc.DeactivateWorkOSUser(c.Request.Context(), user.ID)
 			if err != nil && !errors.Is(err, db.ErrNotFound) {
+				rollbackIdempotency()
 				if logger != nil {
 					logger.Error("handle workos user deleted", telemetry.ZapError(err))
 				}
@@ -922,6 +964,7 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 					c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
 					return
 				}
+				rollbackIdempotency()
 				if logger != nil {
 					logger.Error("handle workos user email change", telemetry.ZapError(err))
 				}

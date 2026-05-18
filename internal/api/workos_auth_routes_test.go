@@ -1180,6 +1180,73 @@ func TestWorkOSUserDeletedWebhookRevokesSessions(t *testing.T) {
 	}
 }
 
+func TestWorkOSWebhookIsIdempotentByEventID(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "dupe@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_dupe",
+		LastAuthenticatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	secret := "whsec_123"
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: secret,
+		WorkOSAuthClient:    &fakeWorkOSClient{},
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+	payload := `{"event":"user.deleted","id":"event_dupe_1","data":{"object":"user","id":"user_workos_dupe","email":"dupe@example.com"}}`
+	sig := workOSTestSignature(time.Now().UTC(), secret, payload)
+
+	first := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload))
+	first.Header.Set("WorkOS-Signature", sig)
+	firstResp := httptest.NewRecorder()
+	router.ServeHTTP(firstResp, first)
+	if firstResp.Code != http.StatusOK || !strings.Contains(firstResp.Body.String(), `"revoked_sessions"`) {
+		t.Fatalf("expected first delivery to apply side effect, got %d body=%s", firstResp.Code, firstResp.Body.String())
+	}
+
+	// Recreate an active identity so a (wrongly) reapplied side effect would
+	// be observable as another deactivation.
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_dupe",
+		LastAuthenticatedAt: now,
+	}); err != nil {
+		t.Fatalf("re-seed identity: %v", err)
+	}
+
+	dup := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload))
+	dup.Header.Set("WorkOS-Signature", sig)
+	dupResp := httptest.NewRecorder()
+	router.ServeHTTP(dupResp, dup)
+	if dupResp.Code != http.StatusOK || !strings.Contains(dupResp.Body.String(), `"duplicate":true`) {
+		t.Fatalf("expected duplicate delivery no-op, got %d body=%s", dupResp.Code, dupResp.Body.String())
+	}
+	if strings.Contains(dupResp.Body.String(), `"revoked_sessions"`) {
+		t.Fatalf("duplicate delivery must not reapply side effects: %s", dupResp.Body.String())
+	}
+	// The re-seeded identity proves the side effect was not reapplied.
+	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_workos_dupe"); err != nil {
+		t.Fatalf("duplicate webhook must not have re-deactivated the user: %v", err)
+	}
+}
+
 func TestWorkOSWebhookRejectsBadSignatureAndIgnoresUnknownEvents(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

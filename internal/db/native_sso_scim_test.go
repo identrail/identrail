@@ -613,6 +613,48 @@ func TestMemoryStore_OAuthTransactionRejectsExpiredAndInvalidInput(t *testing.T)
 	}
 }
 
+func TestMemoryStore_WebhookEventIdempotency(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	first, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{
+		Provider:   "workos",
+		EventID:    " event_1 ",
+		EventType:  "user.deleted",
+		ReceivedAt: now,
+	})
+	if err != nil || !first {
+		t.Fatalf("first delivery should record (true), got first=%v err=%v", first, err)
+	}
+	dup, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "workos", EventID: "event_1"})
+	if err != nil || dup {
+		t.Fatalf("duplicate delivery should be no-op (false), got dup=%v err=%v", dup, err)
+	}
+
+	// A different provider with the same event id is independent.
+	otherProvider, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "github", EventID: "event_1"})
+	if err != nil || !otherProvider {
+		t.Fatalf("different provider should be first delivery, got %v err=%v", otherProvider, err)
+	}
+
+	// Rolling back the record lets a retry reprocess.
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1"); err != nil {
+		t.Fatalf("delete webhook event: %v", err)
+	}
+	reprocess, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "workos", EventID: "event_1"})
+	if err != nil || !reprocess {
+		t.Fatalf("after rollback the event should record again, got %v err=%v", reprocess, err)
+	}
+
+	if _, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "", EventID: "x"}); err == nil {
+		t.Fatal("missing provider should error")
+	}
+	if _, err := store.RecordWebhookEventOnce(ctx, WebhookEvent{Provider: "workos", EventID: " "}); err == nil {
+		t.Fatal("missing event id should error")
+	}
+}
+
 func TestMemoryStore_DeleteIdentityConnection_CascadesSCIMEvents(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

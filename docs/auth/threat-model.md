@@ -128,7 +128,7 @@ The short version: Identrail never auto-links identities by email. Email-claim e
 
 1. Every webhook endpoint requires an HMAC signature header. The signature is verified using a per-provider secret (`IDENTRAIL_WORKOS_WEBHOOK_SECRET`, `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`).
 2. Verification uses `subtle.ConstantTimeCompare`.
-3. Each webhook event has a provider-issued ID. We store seen IDs in a small idempotency table; replays are no-ops.
+3. Each webhook event has a provider-issued ID. After signature validation (so a forged request cannot poison the ledger), the WorkOS handler atomically records `(provider, event_id)` in the durable `webhook_events` table before applying any user-lifecycle side effect. The first delivery wins the insert; a duplicate, retried, or replayed (within the provider's signature tolerance window) delivery finds the row and returns a successful no-op without reapplying side effects. The check is durable across API restarts and shared by every API instance pointed at the same database. If a transient server-side failure prevents the side effect from being applied, the idempotency row is rolled back so a provider retry can reprocess; deterministic failures (bad payload, identity conflict) intentionally keep the record so identical retries stay no-ops.
 4. Rate limits on the webhook endpoint absorb floods.
 
 ## Connector Credential Leakage
