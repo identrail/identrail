@@ -227,6 +227,7 @@ func TestManualLoginCreatesCookieBackedSessionWhenEnabled(t *testing.T) {
 		"display_name":"Dev User"
 	}`))
 	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:54321"
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -262,6 +263,49 @@ func TestManualLoginCreatesCookieBackedSessionWhenEnabled(t *testing.T) {
 		!strings.Contains(meW.Body.String(), `"workspace_id":"workspace-a"`) ||
 		!strings.Contains(meW.Body.String(), `"project_id":"project-a"`) {
 		t.Fatalf("unexpected /v1/me body after manual login: %s", meW.Body.String())
+	}
+}
+
+func TestManualLoginRejectsNonLoopbackClientUnlessAllowUnsafe(t *testing.T) {
+	body := `{"tenant_id":"tenant-a","workspace_id":"workspace-a","email":"dev@example.com"}`
+	newRouter := func(allowUnsafe bool) http.Handler {
+		store := db.NewMemoryStore()
+		svc := NewService(store, fakeScanner{}, "aws")
+		return NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+			FeatureNewAuth:            true,
+			AuthManualMode:            true,
+			AuthManualModeAllowUnsafe: allowUnsafe,
+			PublicBaseURL:             "http://localhost:8080",
+			RateLimitRPM:              1000,
+			RateLimitBurst:            1000,
+		})
+	}
+	post := func(router http.Handler, remoteAddr string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/auth/manual", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = remoteAddr
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	// Non-loopback caller is rejected with 403 when the unsafe override is off.
+	guarded := newRouter(false)
+	if w := post(guarded, "203.0.113.7:40000"); w.Code != http.StatusForbidden {
+		t.Fatalf("expected non-loopback manual login to be forbidden, got %d body=%s", w.Code, w.Body.String())
+	}
+	if w := post(guarded, "[::1]:40000"); w.Code != http.StatusOK {
+		t.Fatalf("expected IPv6 loopback manual login to succeed, got %d body=%s", w.Code, w.Body.String())
+	}
+	if w := post(guarded, "127.0.0.5:40000"); w.Code != http.StatusOK {
+		t.Fatalf("expected 127.0.0.0/8 loopback manual login to succeed, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// With the explicit unsafe override (e.g. loopback-published container),
+	// a non-loopback client IP is accepted again.
+	unsafe := newRouter(true)
+	if w := post(unsafe, "203.0.113.7:40000"); w.Code != http.StatusOK {
+		t.Fatalf("expected unsafe override to permit non-loopback manual login, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -315,6 +359,7 @@ func TestManualLoginRejectsInvalidRequests(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/auth/manual", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
+			req.RemoteAddr = "127.0.0.1:54321"
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 			if w.Code != http.StatusBadRequest {
