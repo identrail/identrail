@@ -44,12 +44,12 @@ func browserWriteCSRFMiddleware(publicBaseURL string, corsAllowedOrigins []strin
 		}
 
 		// Sec-Fetch-Site is set by the browser and cannot be forged by page
-		// JavaScript. Anything beyond same-origin / same-site (configured
-		// sibling web origin) / none (user-initiated, e.g. address bar) is a
-		// cross-site attempt against a cookie-authenticated write.
+		// JavaScript. For browser-session writes, we allow cross-site when the
+		// request later passes trusted-origin checks (for deployments that split
+		// web and API registrable domains).
 		if site := strings.ToLower(strings.TrimSpace(c.GetHeader("Sec-Fetch-Site"))); site != "" {
 			switch site {
-			case "same-origin", "same-site", "none":
+			case "same-origin", "same-site", "cross-site", "none":
 			default:
 				rejectBrowserWriteCSRF(c)
 				return
