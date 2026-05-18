@@ -14,8 +14,17 @@
   reprocess, and a claim left behind by a crashed instance is reclaimable
   after a grace period. Each claim carries a token so a superseded stale
   handler cannot complete or erase the reclaiming retry's in-flight claim;
-  completion and rollback run on a request-detached context; and rows that
-  predate the ledger are treated as already-processed.
+  completion and rollback run on a request-detached context; rows that
+  predate the ledger are treated as already-processed; and processed rows
+  past a retention window are opportunistically pruned so the ledger does
+  not grow unbounded.
+- Added the hosted AWS worker deploy path for queued GitHub repository scans.
+  The manual AWS API deploy workflow now enables the worker service by default,
+  derives the matching immutable worker image from the API image when no
+  worker-specific image is supplied, and provisions a queue-only ECS/Fargate
+  worker with separate IAM roles, logging, and security group. The worker also
+  gained `IDENTRAIL_WORKER_SCAN_ENABLED` so the hosted queue processor can drain
+  API-enqueued work without starting unrelated scheduled cloud scans.
 - Added per-request defense-in-depth on `/auth/manual`: the handler now
   rejects any request whose resolved client IP (honoring the configured
   trusted-proxy list) is not a loopback address, unless

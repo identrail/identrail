@@ -32,3 +32,13 @@ output "api_service_name" {
   description = "ECS service name for the API service when API hosting is enabled."
   value       = try(aws_ecs_service.api[0].name, local.api_service_name)
 }
+
+output "worker_hosting_enabled" {
+  description = "Whether this plan creates the AWS worker hosting layer."
+  value       = var.create_worker_hosting_resources
+}
+
+output "worker_service_name" {
+  description = "ECS service name for the worker service when worker hosting is enabled."
+  value       = try(aws_ecs_service.worker[0].name, local.worker_service_name)
+}

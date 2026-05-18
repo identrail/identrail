@@ -29,6 +29,7 @@ const (
 	defaultRepoScanMaxFindingsLimitMax = 1000
 	defaultScanQueueMaxPending         = 25
 	defaultRepoQueueMaxPending         = 100
+	defaultWorkerScanEnabled           = true
 	defaultWorkerRepoScanEnabled       = false
 	defaultWorkerRepoScanRunNow        = false
 	defaultWorkerRepoScanInterval      = 1 * time.Hour
@@ -137,6 +138,7 @@ type Config struct {
 	RepoScanAllowlist            []string
 	ScanQueueMaxPending          int
 	RepoQueueMaxPending          int
+	WorkerScanEnabled            bool
 	WorkerRepoScanEnabled        bool
 	WorkerRepoScanRunNow         bool
 	WorkerRepoScanInterval       time.Duration
@@ -287,6 +289,7 @@ func Load() Config {
 		RepoScanAllowlist:            parseCommaSeparated(getEnv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "")),
 		ScanQueueMaxPending:          parseInt(getEnv("IDENTRAIL_SCAN_QUEUE_MAX_PENDING", "25"), defaultScanQueueMaxPending),
 		RepoQueueMaxPending:          parseInt(getEnv("IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING", "100"), defaultRepoQueueMaxPending),
+		WorkerScanEnabled:            boolEnv("IDENTRAIL_WORKER_SCAN_ENABLED", defaultWorkerScanEnabled),
 		WorkerRepoScanEnabled:        boolEnv("IDENTRAIL_WORKER_REPO_SCAN_ENABLED", defaultWorkerRepoScanEnabled),
 		WorkerRepoScanRunNow:         boolEnv("IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW", defaultWorkerRepoScanRunNow),
 		WorkerRepoScanInterval:       durationEnv("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL", defaultWorkerRepoScanInterval),

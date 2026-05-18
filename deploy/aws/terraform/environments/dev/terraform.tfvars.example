@@ -5,6 +5,7 @@ name_prefix = "identrail"
 # Keep false until the API hosting stack and rollback runbook are ready.
 create_foundation_resources = false
 create_api_hosting_resources = false
+create_worker_hosting_resources = false
 
 create_runtime_secret = true
 log_retention_days    = 30
@@ -22,6 +23,8 @@ log_retention_days    = 30
 # api_task_assign_public_ip = true
 # api_certificate_arn    = "<api-certificate-arn>"
 # api_container_image    = "ghcr.io/identrail/identrail-api:<immutable-release-tag>"
+# worker_container_image = "ghcr.io/identrail/identrail-worker:<immutable-release-tag>"
+# worker_desired_count   = 1
 # api_cors_allowed_origins = [
 #   "https://app.identrail.com",
 #   "https://identrail.com",

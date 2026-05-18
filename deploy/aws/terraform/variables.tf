@@ -388,3 +388,98 @@ variable "api_autoscaling_target_cpu_percent" {
     error_message = "api_autoscaling_target_cpu_percent must be between 10 and 90."
   }
 }
+
+variable "create_worker_hosting_resources" {
+  description = "Create the AWS ECS/Fargate worker service that drains API-queued scan jobs. Requires create_api_hosting_resources=true so the worker shares the API cluster, network, and runtime secrets."
+  type        = bool
+  default     = false
+}
+
+variable "worker_container_image" {
+  description = "Immutable Identrail worker container image reference. Required when create_worker_hosting_resources=true."
+  type        = string
+  default     = ""
+  validation {
+    condition     = length(var.worker_container_image) == length(trimspace(var.worker_container_image))
+    error_message = "worker_container_image must not have leading or trailing whitespace."
+  }
+}
+
+variable "worker_task_cpu" {
+  description = "Fargate CPU units for the worker task."
+  type        = number
+  default     = 256
+}
+
+variable "worker_task_memory" {
+  description = "Fargate memory in MiB for the worker task."
+  type        = number
+  default     = 512
+}
+
+variable "worker_desired_count" {
+  description = "Desired number of worker tasks."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.worker_desired_count >= 1 && var.worker_desired_count <= 20
+    error_message = "worker_desired_count must be between 1 and 20."
+  }
+}
+
+variable "worker_environment_variables" {
+  description = "Non-secret environment variables for the worker task definition. Values here override the hosted worker defaults."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition = alltrue([
+      for name in keys(var.worker_environment_variables) : !contains([
+        "IDENTRAIL_ALERT_HMAC_SECRET",
+        "IDENTRAIL_API_KEYS",
+        "IDENTRAIL_API_KEY_SCOPE_BINDINGS",
+        "IDENTRAIL_API_KEY_SCOPES",
+        "IDENTRAIL_AUDIT_FINGERPRINT_SECRET",
+        "IDENTRAIL_AUDIT_FORWARD_HMAC_SECRET",
+        "IDENTRAIL_CONNECTOR_SECRET_KEYS",
+        "IDENTRAIL_DATABASE_URL",
+        "IDENTRAIL_EMAIL_API_KEY",
+        "IDENTRAIL_GITHUB_APP_PRIVATE_KEY",
+        "IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET",
+        "IDENTRAIL_METRICS_API_KEY",
+        "IDENTRAIL_SESSION_KEY",
+        "IDENTRAIL_SESSION_KEY_PREVIOUS",
+        "IDENTRAIL_WORKOS_API_KEY",
+        "IDENTRAIL_WORKOS_WEBHOOK_SECRET",
+        "IDENTRAIL_WRITE_API_KEYS",
+      ], name)
+    ])
+    error_message = "worker_environment_variables is for non-secret settings only. Put database URLs, API keys, session keys, OAuth/webhook secrets, and HMAC secrets in worker_secrets."
+  }
+}
+
+variable "worker_secrets" {
+  description = "Additional or overriding worker environment variable names mapped to Secrets Manager secret ARNs or ECS valueFrom selectors. The worker inherits api_secrets by default."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition = alltrue([
+      for name, value_from in var.worker_secrets :
+      can(regex("^[A-Z][A-Z0-9_]*$", name)) &&
+      can(regex("^arn:(aws|aws-us-gov|aws-cn):secretsmanager:[a-z]{2}(-gov)?-[a-z]+-[0-9]+:[0-9]{12}:secret:.+$", value_from))
+    ])
+    error_message = "worker_secrets must map uppercase environment variable names to Secrets Manager secret ARNs."
+  }
+}
+
+variable "worker_secret_kms_key_arns" {
+  description = "Customer-managed KMS key ARNs needed to decrypt worker-only Secrets Manager references during ECS secret injection. The worker also inherits api_secret_kms_key_arns."
+  type        = list(string)
+  default     = []
+  validation {
+    condition = alltrue([
+      for key_arn in var.worker_secret_kms_key_arns :
+      can(regex("^arn:(aws|aws-us-gov|aws-cn):kms:[a-z]{2}(-gov)?-[a-z]+-[0-9]+:[0-9]{12}:key/.+$", key_arn))
+    ])
+    error_message = "worker_secret_kms_key_arns must contain KMS key ARNs."
+  }
+}

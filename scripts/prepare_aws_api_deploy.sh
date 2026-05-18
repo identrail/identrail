@@ -185,6 +185,22 @@ if ! [[ "${api_container_image}" =~ ^ghcr\.io/identrail/identrail-api:(sha-[0-9a
   fail "API_CONTAINER_IMAGE must be an immutable ghcr.io/identrail/identrail-api image, such as ghcr.io/identrail/identrail-api:sha-<commit>"
 fi
 
+api_worker_enabled="$(trim "${API_WORKER_ENABLED:-false}")"
+optional_bool API_WORKER_ENABLED
+worker_container_image="$(trim "${API_WORKER_CONTAINER_IMAGE:-}")"
+if [ "${api_worker_enabled}" = "true" ]; then
+  if [ -z "${worker_container_image}" ]; then
+    if [[ "${api_container_image}" == *"@sha256:"* ]]; then
+      fail "API_WORKER_CONTAINER_IMAGE must be set explicitly when API_CONTAINER_IMAGE uses a digest"
+    fi
+
+    worker_container_image="${api_container_image/\/identrail-api:/\/identrail-worker:}"
+  fi
+  if ! [[ "${worker_container_image}" =~ ^ghcr\.io/identrail/identrail-worker:(sha-[0-9a-f]{12,40}|v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ || "${worker_container_image}" =~ ^ghcr\.io/identrail/identrail-worker@sha256:[0-9a-f]{64}$ ]]; then
+    fail "API_WORKER_CONTAINER_IMAGE must be an immutable ghcr.io/identrail/identrail-worker image, such as ghcr.io/identrail/identrail-worker:sha-<commit>"
+  fi
+fi
+
 api_database_secret="$(require_value API_DATABASE_URL_SECRET_ARN)"
 api_session_secret="$(require_value API_SESSION_KEY_SECRET_ARN)"
 for secret_arn in "${api_database_secret}" "${api_session_secret}"; do
@@ -410,7 +426,15 @@ fi
 api_desired_count="$(trim "${API_DESIRED_COUNT:-1}")"
 api_task_cpu="$(trim "${API_TASK_CPU:-512}")"
 api_task_memory="$(trim "${API_TASK_MEMORY:-1024}")"
+worker_desired_count="$(trim "${API_WORKER_DESIRED_COUNT:-1}")"
+worker_task_cpu="$(trim "${API_WORKER_TASK_CPU:-256}")"
+worker_task_memory="$(trim "${API_WORKER_TASK_MEMORY:-512}")"
 for numeric in api_desired_count api_task_cpu api_task_memory; do
+  if ! [[ "${!numeric}" =~ ^[0-9]+$ ]]; then
+    fail "${numeric^^} must be a positive integer"
+  fi
+done
+for numeric in worker_desired_count worker_task_cpu worker_task_memory; do
   if ! [[ "${!numeric}" =~ ^[0-9]+$ ]]; then
     fail "${numeric^^} must be a positive integer"
   fi
@@ -425,6 +449,8 @@ jq -n \
   --arg api_vpc_id "${api_vpc_id}" \
   --arg api_certificate_arn "${api_certificate_arn}" \
   --arg api_container_image "${api_container_image}" \
+  --arg api_worker_enabled "${api_worker_enabled}" \
+  --arg worker_container_image "${worker_container_image}" \
   --arg api_database_secret "${api_database_secret}" \
   --arg api_session_secret "${api_session_secret}" \
   --arg onboarding_feature_enabled "${onboarding_feature_enabled}" \
@@ -445,12 +471,16 @@ jq -n \
   --argjson api_desired_count "${api_desired_count}" \
   --argjson api_task_cpu "${api_task_cpu}" \
   --argjson api_task_memory "${api_task_memory}" \
+  --argjson worker_desired_count "${worker_desired_count}" \
+  --argjson worker_task_cpu "${worker_task_cpu}" \
+  --argjson worker_task_memory "${worker_task_memory}" \
   '{
     aws_region: $aws_region,
     environment: "dev",
     name_prefix: "identrail",
     create_foundation_resources: true,
     create_api_hosting_resources: true,
+    create_worker_hosting_resources: ($api_worker_enabled == "true"),
     create_runtime_secret: true,
     api_vpc_id: $api_vpc_id,
     api_public_subnet_ids: $api_public_subnet_ids,
@@ -465,6 +495,10 @@ jq -n \
     api_desired_count: $api_desired_count,
     api_task_cpu: $api_task_cpu,
     api_task_memory: $api_task_memory,
+    worker_container_image: $worker_container_image,
+    worker_desired_count: $worker_desired_count,
+    worker_task_cpu: $worker_task_cpu,
+    worker_task_memory: $worker_task_memory,
     api_environment_variables: ($extra_environment + $repo_scan_environment + $workos_environment + $github_environment + {
       IDENTRAIL_FEATURE_NEW_AUTH: "true",
       IDENTRAIL_FEATURE_ONBOARDING_WIZARD: $onboarding_feature_enabled,

@@ -180,25 +180,28 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		scanPolicyRunnerKey = namespace + ":" + scanPolicyRunnerKey
 	}
 
-	runners := []scheduledRunner{{
-		name:   "cloud",
-		runNow: cfg.WorkerRunNow,
-		runner: scheduler.Runner{
-			Interval:     cfg.ScanInterval,
-			Key:          "scan:" + cfg.Provider,
-			Trigger:      cloudTrigger,
-			MaxAttempts:  defaultWorkerTriggerMaxAttempts,
-			RetryBackoff: defaultWorkerRetryBackoff,
-			OnDeadLetter: func(_ context.Context, err error) {
-				metrics.WorkerDeadLettersTotal.WithLabelValues("cloud").Inc()
-				logger.Error("cloud trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+	runners := []scheduledRunner{}
+	if cfg.WorkerScanEnabled {
+		runners = append(runners, scheduledRunner{
+			name:   "cloud",
+			runNow: cfg.WorkerRunNow,
+			runner: scheduler.Runner{
+				Interval:     cfg.ScanInterval,
+				Key:          "scan:" + cfg.Provider,
+				Trigger:      cloudTrigger,
+				MaxAttempts:  defaultWorkerTriggerMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("cloud").Inc()
+					logger.Error("cloud trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("cloud").Inc()
+					logger.Error("cloud runner iteration failed", telemetry.ZapError(err))
+				},
 			},
-			OnError: func(_ context.Context, err error) {
-				metrics.WorkerRetriesTotal.WithLabelValues("cloud").Inc()
-				logger.Error("cloud runner iteration failed", telemetry.ZapError(err))
-			},
-		},
-	}}
+		})
+	}
 	if cfg.WorkerRepoScanEnabled {
 		runners = append(runners, scheduledRunner{
 			name:   "repo",
