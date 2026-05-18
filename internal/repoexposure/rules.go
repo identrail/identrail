@@ -20,55 +20,345 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 )
 
-type secretRule struct {
+type secretDetectorPattern struct {
+	Regexp       *regexp.Regexp
+	CaptureGroup int
+	MinLength    int
+	MaxLength    int
+	EntropyMin   float64
+	EntropyMax   float64
+}
+
+type secretDetector struct {
 	ID          string
 	Severity    domain.FindingSeverity
 	Title       string
 	Summary     string
 	Remediation string
-	Pattern     *regexp.Regexp
+	Provider    string
+	Category    string
+	Version     string
+	Examples    []string
+	Patterns    []secretDetectorPattern
 }
 
-var secretRules = []secretRule{
+var secretDetectorRegistry = []secretDetector{
 	{
 		ID:          "aws_access_key_id",
+		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
 		Title:       "Potential AWS access key exposed in commit history",
+		Provider:    "AWS",
+		Category:    "cloud_credentials",
 		Summary:     "A line added in commit history appears to contain an AWS access key identifier.",
 		Remediation: "Rotate the key, purge secrets from history, and move credentials to a secret manager.",
-		Pattern:     regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:    regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
+				MinLength: 20,
+			},
+		},
 	},
 	{
 		ID:          "aws_secret_access_key",
+		Version:     "2026.05",
 		Severity:    domain.SeverityCritical,
 		Title:       "Potential AWS secret key exposed in commit history",
+		Provider:    "AWS",
+		Category:    "cloud_credentials",
 		Summary:     "A line added in commit history appears to contain an AWS secret access key.",
 		Remediation: "Rotate affected credentials immediately and replace static secrets with short-lived credentials.",
-		Pattern:     regexp.MustCompile(`(?i)\baws(?:_| |\.)?(?:secret(?:_| |\.)?)?access(?:_| |\.)?key(?:_| |\.)?=?\s*['"]?([A-Za-z0-9/+=]{40})['"]?`),
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:       regexp.MustCompile(`(?i)(?:aws_secret_access_key|aws_secret|aws_access_key_secret)\b\s*[:=]\s*['"]?([A-Za-z0-9/+=]{40})['"]?`),
+				CaptureGroup: 1,
+				MinLength:    40,
+				MaxLength:    120,
+			},
+		},
 	},
 	{
 		ID:          "github_token",
+		Version:     "2026.05",
 		Severity:    domain.SeverityCritical,
 		Title:       "Potential GitHub token exposed in commit history",
+		Provider:    "GitHub",
+		Category:    "source_control",
 		Summary:     "A line added in commit history appears to contain a GitHub token.",
 		Remediation: "Revoke the token immediately, rotate dependent credentials, and enforce secret scanning in CI.",
-		Pattern:     regexp.MustCompile(`\b(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,})\b`),
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bghp_[A-Za-z0-9]{36}\b`)},
+			{Regexp: regexp.MustCompile(`\bgho_[A-Za-z0-9]{36}\b`)},
+			{Regexp: regexp.MustCompile(`\bghu_[A-Za-z0-9]{36}\b`)},
+			{Regexp: regexp.MustCompile(`\bghr_[A-Za-z0-9]{36}\b`)},
+			{Regexp: regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`)},
+		},
+	},
+	{
+		ID:          "github_app_token",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential GitHub App token exposed in commit history",
+		Provider:    "GitHub",
+		Category:    "source_control",
+		Summary:     "A line added in commit history appears to contain a GitHub App token.",
+		Remediation: "Rotate GitHub App credentials and replace with vault-backed credentials.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bghs_[A-Za-z0-9]{40,}\b`)},
+		},
 	},
 	{
 		ID:          "slack_token",
+		Version:     "2026.05",
 		Severity:    domain.SeverityHigh,
 		Title:       "Potential Slack token exposed in commit history",
+		Provider:    "Slack",
+		Category:    "collaboration",
 		Summary:     "A line added in commit history appears to contain a Slack token.",
 		Remediation: "Revoke and rotate the token in Slack, then remove token usage from repository files.",
-		Pattern:     regexp.MustCompile(`\bxox(?:b|p|a|r|s)-[A-Za-z0-9-]{10,}\b`),
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bxox(?:b|p|o|r|s|a|x)-[A-Za-z0-9-]{10,}\b`)},
+		},
+	},
+	{
+		ID:          "gitlab_token",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential GitLab token exposed in commit history",
+		Provider:    "GitLab",
+		Category:    "source_control",
+		Summary:     "A line added in commit history appears to contain a GitLab token.",
+		Remediation: "Revoke the token and rotate with repository-integrated credential rotation where possible.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}\b`)},
+		},
+	},
+	{
+		ID:          "azure_service_secret",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential Azure application secret exposed in commit history",
+		Provider:    "Azure",
+		Category:    "cloud_credentials",
+		Summary:     "A line added in commit history appears to contain an Azure application secret.",
+		Remediation: "Rotate application secrets and use managed identities where possible.",
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:       regexp.MustCompile(`(?i)(?:azure_client_secret|AZURE_CLIENT_SECRET)\s*[:=]\s*['"]?([A-Za-z0-9~!@#$%^&*()_+=\-]{35,})['"]?`),
+				CaptureGroup: 1,
+				MinLength:    35,
+				EntropyMin:   3.3,
+			},
+		},
+	},
+	{
+		ID:          "gcp_api_key",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential Google API key exposed in commit history",
+		Provider:    "Google",
+		Category:    "cloud_credentials",
+		Summary:     "A line added in commit history appears to contain a Google API key.",
+		Remediation: "Rotate the API key immediately and scope/limit the affected project APIs.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bAIza[0-9A-Za-z-_]{35}\b`)},
+		},
+	},
+	{
+		ID:          "stripe_api_key",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential Stripe key exposed in commit history",
+		Provider:    "Stripe",
+		Category:    "payments",
+		Summary:     "A line added in commit history appears to contain Stripe keys.",
+		Remediation: "Revoke leaked Stripe keys and rotate restricted tokens.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bsk_(?:live|test)_[A-Za-z0-9]{24,}\b`)},
+			{Regexp: regexp.MustCompile(`\bpk_(?:live|test)_[A-Za-z0-9]{24,}\b`)},
+		},
+	},
+	{
+		ID:          "openai_api_key",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential OpenAI token exposed in commit history",
+		Provider:    "OpenAI",
+		Category:    "ai_api",
+		Summary:     "A line added in commit history appears to contain an OpenAI API key.",
+		Remediation: "Revoke the key and regenerate a replacement with scoped limits.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bsk-[A-Za-z0-9]{48,}\b`)},
+			{Regexp: regexp.MustCompile(`\bsk-proj-[A-Za-z0-9]{40,}\b`)},
+		},
+	},
+	{
+		ID:          "workos_api_key",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential WorkOS token exposed in commit history",
+		Provider:    "WorkOS",
+		Category:    "identity_platform",
+		Summary:     "A line added in commit history appears to contain a WorkOS key or token.",
+		Remediation: "Revoke leaked WorkOS credentials and replace with secure vault-backed secrets.",
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:     regexp.MustCompile(`\bworkos_(?:live|test)_[A-Za-z0-9_-]{20,}\b`),
+				MinLength:  30,
+				EntropyMin: 3.3,
+			},
+		},
+	},
+	{
+		ID:          "vercel_token",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential Vercel token exposed in commit history",
+		Provider:    "Vercel",
+		Category:    "deployment_platform",
+		Summary:     "A line added in commit history appears to contain a Vercel token.",
+		Remediation: "Rotate the token and remove static tokens from repository history.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bvercel_pat_[A-Za-z0-9-_=]{24,}\b`)},
+		},
+	},
+	{
+		ID:          "npm_token",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential npm access token exposed in commit history",
+		Provider:    "npm",
+		Category:    "package_registry",
+		Summary:     "A line added in commit history appears to contain an npm token.",
+		Remediation: "Revoke the token and regenerate access tokens with publish scope minimized.",
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:       regexp.MustCompile(`(?i)\b(?:npm_)?(?:token|_authtoken|_auth)\b\s*[:=]\s*['"]?([A-Za-z0-9_]{16,})['"]?`),
+				CaptureGroup: 1,
+			},
+		},
+	},
+	{
+		ID:          "dockerhub_token",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential Docker Hub token exposed in commit history",
+		Provider:    "Docker Hub",
+		Category:    "container_registry",
+		Summary:     "A line added in commit history appears to contain a Docker Hub token.",
+		Remediation: "Revoke and regenerate credentials; enforce Docker Hub token rotation.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\bdckr_pat_[A-Za-z0-9=_-]{30,}\b`)},
+		},
 	},
 	{
 		ID:          "private_key_material",
+		Version:     "2026.05",
 		Severity:    domain.SeverityCritical,
 		Title:       "Private key material exposed in commit history",
+		Provider:    "General",
+		Category:    "credential_storage",
 		Summary:     "A line added in commit history contains private key header material.",
 		Remediation: "Revoke and rotate affected keys, remove key files from history, and store keys in a vault/KMS.",
-		Pattern:     regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----`),
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----`)},
+		},
+	},
+	{
+		ID:          "tls_key_material",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "TLS material exposed in commit history",
+		Provider:    "General",
+		Category:    "infrastructure_security",
+		Summary:     "A line added in commit history appears to contain TLS key or certificate material.",
+		Remediation: "Reissue TLS certificates/keys and remove static private material from source control.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`-----BEGIN CERTIFICATE-----`)},
+		},
+	},
+	{
+		ID:          "jwt_token",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential JWT exposed in commit history",
+		Provider:    "General",
+		Category:    "identity_tokens",
+		Summary:     "A line added in commit history appears to contain a JWT-like bearer value.",
+		Remediation: "Rotate signing keys and revoke sessions using this token family.",
+		Patterns: []secretDetectorPattern{
+			{Regexp: regexp.MustCompile(`\beyJ[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]{10,}\b`)},
+		},
+	},
+	{
+		ID:          "database_connection_url",
+		Version:     "2026.05",
+		Severity:    domain.SeverityMedium,
+		Title:       "Potential database URL with embedded credentials",
+		Provider:    "General",
+		Category:    "configuration",
+		Summary:     "A line added in commit history appears to include a database URL with inline credentials.",
+		Remediation: "Move connection credentials to a secret store and use short-lived runtime env injection.",
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:     regexp.MustCompile(`\b(?:postgres|postgresql|mysql|mysql2|mssql|redis|mongodb|mongodb\+srv|cockroach|oracle)://[^\s'\"<>]+:[^\s'\"<>]+@[^\s'\"<>]+`),
+				MinLength:  24,
+				EntropyMin: 2.8,
+			},
+		},
+	},
+	{
+		ID:          "oauth_client_secret",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential OAuth client secret exposed in commit history",
+		Provider:    "General",
+		Category:    "identity_tokens",
+		Summary:     "A line added in commit history appears to contain an OAuth client secret.",
+		Remediation: "Regenerate client secrets and remove hardcoded values from repository files.",
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:       regexp.MustCompile(`(?i)\b(?:client_secret|oauth_secret)\s*[:=]\s*['"]?([A-Za-z0-9-_.=]{20,})['"]?`),
+				CaptureGroup: 1,
+				MinLength:    20,
+				EntropyMin:   3.1,
+			},
+		},
+	},
+	{
+		ID:          "webhook_secret",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential webhook signing secret exposed in commit history",
+		Provider:    "General",
+		Category:    "webhooks",
+		Summary:     "A line added in commit history appears to include webhook signing secret material.",
+		Remediation: "Regenerate webhook secrets and verify endpoint webhook validation logic.",
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:       regexp.MustCompile(`(?i)\bwebhook(?:_?)secret\b\s*[:=]\s*['"]?([A-Za-z0-9\-_]{16,})['"]?`),
+				CaptureGroup: 1,
+				MinLength:    16,
+				EntropyMin:   2.8,
+			},
+		},
+	},
+	{
+		ID:          "ci_cd_token",
+		Version:     "2026.05",
+		Severity:    domain.SeverityHigh,
+		Title:       "Potential CI/CD token exposed in commit history",
+		Provider:    "General",
+		Category:    "ci_cd",
+		Summary:     "A line added in commit history appears to contain CI/CD platform token material.",
+		Remediation: "Rotate the token and move CI/CD secrets to runner-protected variable vaults.",
+		Patterns: []secretDetectorPattern{
+			{
+				Regexp:       regexp.MustCompile(`(?i)\b(?:CI_JOB_TOKEN|ACTIONS_RUNTIME_TOKEN|CIRCLE_TOKEN|TRAVIS_TOKEN|GITLAB_CI_TOKEN|CODECOV_TOKEN)\b\s*[:=]\s*['"]?([A-Za-z0-9-_=]{16,})['"]?`),
+				CaptureGroup: 1,
+				MinLength:    16,
+			},
+		},
 	},
 }
 
@@ -150,23 +440,28 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 		return nil
 	}
 	type detectedSecret struct {
-		rule  secretRule
+		rule  secretDetector
 		match string
+		value string
 	}
-	detected := make([]detectedSecret, 0, len(secretRules))
+	detected := make([]detectedSecret, 0, len(secretDetectorRegistry))
 	sanitizedLine := normalized
-	for _, rule := range secretRules {
-		match := rule.Pattern.FindString(normalized)
+	for _, rule := range secretDetectorRegistry {
+		match, value := detectSecretMatch(normalized, rule)
 		if strings.TrimSpace(match) == "" {
 			continue
 		}
-		detected = append(detected, detectedSecret{rule: rule, match: match})
+		detected = append(detected, detectedSecret{rule: rule, match: match, value: value})
 		sanitizedLine = redactMatch(sanitizedLine, match)
 	}
 
 	findings := make([]domain.Finding, 0, len(detected))
 	for _, item := range detected {
-		fingerprint := hashSHA256(item.match)
+		secretMaterial := strings.TrimSpace(item.value)
+		if secretMaterial == "" {
+			secretMaterial = item.match
+		}
+		fingerprint := hashSHA256(secretMaterial)
 		id := hashDeterministicID("repo-secret", repo, commit, path, strconv.Itoa(line), item.rule.ID, fingerprint)
 		findings = append(findings, domain.Finding{
 			ID:                  "finding:" + id,
@@ -191,6 +486,9 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 				"line_snippet_redacted": true,
 				"secret_fingerprint":    fingerprint,
 				"redacted_line_snip":    sanitizedLine,
+				"detector_version":      item.rule.Version,
+				"detector_category":     item.rule.Category,
+				"detector_provider":     item.rule.Provider,
 				"history_source":        "commit_diff",
 				"raw_secret_stored":     false,
 				"secret_value_masked":   true,
@@ -200,6 +498,71 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 		})
 	}
 	return findings
+}
+
+func detectSecretMatch(text string, rule secretDetector) (match string, value string) {
+	for _, pattern := range rule.Patterns {
+		found, value := pattern.match(text)
+		if strings.TrimSpace(found) != "" {
+			return found, value
+		}
+	}
+	return "", ""
+}
+
+func (pattern secretDetectorPattern) match(text string) (match string, value string) {
+	submatches := pattern.Regexp.FindStringSubmatch(text)
+	if len(submatches) == 0 {
+		return "", ""
+	}
+
+	fullMatch := strings.TrimSpace(submatches[0])
+	if fullMatch == "" {
+		return "", ""
+	}
+	idx := 0
+	if pattern.CaptureGroup > 0 && pattern.CaptureGroup < len(submatches) {
+		idx = pattern.CaptureGroup
+	}
+
+	candidate := strings.TrimSpace(submatches[idx])
+	if candidate == "" {
+		candidate = fullMatch
+	}
+
+	if pattern.MinLength > 0 && len(candidate) < pattern.MinLength {
+		return "", ""
+	}
+	if pattern.MaxLength > 0 && len(candidate) > pattern.MaxLength {
+		return "", ""
+	}
+	if pattern.EntropyMin > 0 && entropy(candidate) < pattern.EntropyMin {
+		return "", ""
+	}
+	if pattern.EntropyMax > 0 && entropy(candidate) > pattern.EntropyMax {
+		return "", ""
+	}
+
+	return fullMatch, candidate
+}
+
+func entropy(value string) float64 {
+	if len(value) <= 1 {
+		return 0
+	}
+
+	frequencies := map[rune]int{}
+	for _, r := range value {
+		frequencies[r]++
+	}
+
+	n := float64(len(value))
+	entropy := 0.0
+	for _, count := range frequencies {
+		probability := float64(count) / n
+		entropy -= probability * math.Log2(probability)
+	}
+	return entropy
 }
 
 func detectMisconfigFindings(repo string, commit string, path string, content []byte, detectedAt time.Time) []domain.Finding {

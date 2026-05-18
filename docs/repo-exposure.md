@@ -79,12 +79,27 @@ Read APIs:
 
 ## Current Detections
 
-- Secret exposure detectors (history):
-  - AWS access key IDs
-  - AWS secret-access-key patterns
-  - GitHub tokens (`ghp_`, `github_pat_`)
-  - Slack tokens
-  - Private key headers
+The scanner uses a versioned secret detector registry for commit-history secret detection.
+
+- Secret detector families (history):
+  - AWS: access key IDs and secret keys
+  - GitHub: `ghp_`, `gho_`, `ghu_`, `ghr_`, `ghs_`, `github_pat_` and app tokens
+  - GitLab: `glpat-...`
+  - Slack: `xox*` tokens
+  - Azure: `AZURE_CLIENT_SECRET`
+  - GCP: `AIza...` API keys
+  - Stripe: `sk_*` / `pk_*` keys
+  - OpenAI: `sk-...` / `sk-proj-...`
+  - WorkOS: `workos_live_...` / `workos_test_...`
+  - Vercel: `vercel_pat_...`
+  - npm: registry token fields
+  - Docker Hub: `dckr_pat_...`
+  - TLS/PKI: private key and certificate headers
+  - JWT-like bearer material
+  - Database connection URLs with embedded credentials
+  - OAuth client secrets
+  - Webhook signing secrets
+  - CI/CD platform tokens
 - Misconfiguration detectors (HEAD):
   - GitHub Actions `permissions: write-all`
   - GitHub Actions `pull_request_target` trigger
@@ -92,6 +107,24 @@ Read APIs:
   - Terraform public S3 ACL
   - Terraform SSH/RDP open to world (`0.0.0.0/0`)
   - Docker `FROM ...:latest`
+
+## Registry model
+
+- The detector list is centrally maintained as a Go-structured registry in `internal/repoexposure/rules.go`.
+- Each detector includes:
+  - Stable detector ID
+  - Detector version
+  - Provider + category metadata
+  - Severity, summary, and remediation guidance
+  - One or more matcher patterns
+  - Optional entropy thresholds
+- Detection metadata includes registry details in each finding evidence:
+  - `detector`
+  - `detector_version`
+  - `detector_category`
+  - `detector_provider`
+
+To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
 
 ## Security Guardrails
 

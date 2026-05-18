@@ -74,6 +74,15 @@ func TestScanRepositoryDetectsSecretInCommitHistory(t *testing.T) {
 	if rawStored, _ := evidence["raw_secret_stored"].(bool); rawStored {
 		t.Fatal("raw_secret_stored must be false")
 	}
+	if got := evidence["detector_version"]; got != "2026.05" {
+		t.Fatalf("expected detector version in finding evidence, got %v", got)
+	}
+	if got := evidence["detector_category"]; got != "cloud_credentials" {
+		t.Fatalf("expected detector category in finding evidence, got %v", got)
+	}
+	if got := evidence["detector_provider"]; got != "AWS" {
+		t.Fatalf("expected detector provider in finding evidence, got %v", got)
+	}
 }
 
 func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
