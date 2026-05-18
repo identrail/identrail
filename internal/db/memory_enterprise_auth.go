@@ -546,6 +546,112 @@ func (m *MemoryStore) ConsumeOAuthTransaction(ctx context.Context, nonce string,
 	return txn, nil
 }
 
+type webhookEventRecord struct {
+	event      WebhookEvent
+	status     WebhookEventStatus
+	claimToken string
+	claimedAt  time.Time
+}
+
+// BeginWebhookEvent atomically claims a webhook event for processing. The
+// mutex makes the read-decide-write sequence atomic, mirroring the Postgres
+// INSERT ... ON CONFLICT path. A claim (insert or stale reclaim) mints a
+// fresh claim token that fences the eventual Complete/Delete.
+func (m *MemoryStore) BeginWebhookEvent(ctx context.Context, event WebhookEvent, now time.Time) (WebhookEventStatus, string, error) {
+	provider := strings.TrimSpace(event.Provider)
+	eventID := strings.TrimSpace(event.EventID)
+	if provider == "" || eventID == "" {
+		return "", "", fmt.Errorf("webhook event requires provider and event_id")
+	}
+	now = now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	event.Provider = provider
+	event.EventID = eventID
+	event.EventType = strings.TrimSpace(event.EventType)
+	event.ReceivedAt = now
+	key := webhookEventKey(provider, eventID)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, exists := m.webhookEvents[key]
+	if exists && existing.status == WebhookEventProcessed {
+		return WebhookEventProcessed, "", nil
+	}
+	if exists && now.Sub(existing.claimedAt) < WebhookProcessingReclaimAfter {
+		// Another claim is still in flight and not yet stale.
+		return WebhookEventProcessing, "", nil
+	}
+	// Fresh insert, or stale-claim reclaim (the prior claiming instance
+	// likely crashed mid-processing).
+	claimToken, err := newWebhookClaimToken()
+	if err != nil {
+		return "", "", err
+	}
+	m.webhookEvents[key] = webhookEventRecord{
+		event:      event,
+		status:     WebhookEventProcessing,
+		claimToken: claimToken,
+		claimedAt:  now,
+	}
+	// Opportunistically prune rows past the retention window so the ledger
+	// does not grow unbounded (mirrors the Postgres claim-path sweep).
+	cutoff := now.Add(-WebhookEventRetention)
+	for k, rec := range m.webhookEvents {
+		if rec.claimedAt.Before(cutoff) {
+			delete(m.webhookEvents, k)
+		}
+	}
+	return WebhookEventClaimed, claimToken, nil
+}
+
+// CompleteWebhookEvent marks a claimed event processed so later duplicates
+// become no-op successes. It is a no-op unless claimToken still matches the
+// active claim, so a superseded stale handler cannot complete the
+// successor's claim.
+func (m *MemoryStore) CompleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string, now time.Time) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" || claimToken == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := webhookEventKey(provider, eventID)
+	rec, exists := m.webhookEvents[key]
+	if !exists || rec.claimToken != claimToken {
+		return nil
+	}
+	rec.status = WebhookEventProcessed
+	m.webhookEvents[key] = rec
+	return nil
+}
+
+// DeleteWebhookEvent rolls back a claim so a provider retry can reprocess an
+// event whose side effects failed transiently. It is a no-op unless
+// claimToken still matches the active claim, so a superseded stale handler
+// cannot erase the successor's claim.
+func (m *MemoryStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" || claimToken == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := webhookEventKey(provider, eventID)
+	rec, exists := m.webhookEvents[key]
+	if !exists || rec.claimToken != claimToken {
+		return nil
+	}
+	delete(m.webhookEvents, key)
+	return nil
+}
+
+func webhookEventKey(provider string, eventID string) string {
+	return provider + "\x00" + eventID
+}
+
 // CreateSCIMProvisioningEvent appends one SCIM provisioning event to the
 // append-only audit log scoped to the org + connection.
 func (m *MemoryStore) CreateSCIMProvisioningEvent(ctx context.Context, event SCIMProvisioningEventRecord) (SCIMProvisioningEventRecord, error) {

@@ -71,6 +71,11 @@ jobs:
       API_TASK_SUBNET_IDS_JSON: ${{ inputs.api_task_subnet_ids_json || vars.API_TASK_SUBNET_IDS_JSON }}
       API_CERTIFICATE_ARN: ${{ inputs.api_certificate_arn || vars.API_CERTIFICATE_ARN }}
       API_CONTAINER_IMAGE: ${{ inputs.api_container_image }}
+      API_WORKER_ENABLED: ${{ vars.API_WORKER_ENABLED || 'true' }}
+      API_WORKER_CONTAINER_IMAGE: ${{ vars.API_WORKER_CONTAINER_IMAGE || '' }}
+      API_WORKER_DESIRED_COUNT: ${{ vars.API_WORKER_DESIRED_COUNT || '1' }}
+      API_WORKER_TASK_CPU: ${{ vars.API_WORKER_TASK_CPU || '256' }}
+      API_WORKER_TASK_MEMORY: ${{ vars.API_WORKER_TASK_MEMORY || '512' }}
       API_DATABASE_URL_SECRET_ARN: ${{ secrets.API_DATABASE_URL_SECRET_ARN }}
       API_SESSION_KEY_SECRET_ARN: ${{ secrets.API_SESSION_KEY_SECRET_ARN }}
       API_FEATURE_WORKOS_LOGIN: ${{ vars.API_FEATURE_WORKOS_LOGIN || '' }}
@@ -239,6 +244,8 @@ jobs:
           set -euo pipefail
           api_lb_dns="$(terraform output -raw api_load_balancer_dns_name)"
           api_service="$(terraform output -raw api_service_name)"
+          worker_service="$(terraform output -raw worker_service_name)"
+          worker_enabled="$(terraform output -raw worker_hosting_enabled)"
           api_cluster="$(terraform output -raw api_ecs_cluster_name)"
           {
             echo "## AWS API deploy outputs"
@@ -246,6 +253,8 @@ jobs:
             echo "- API load balancer DNS: \`${api_lb_dns}\`"
             echo "- ECS cluster: \`${api_cluster}\`"
             echo "- ECS service: \`${api_service}\`"
+            echo "- Worker hosting enabled: \`${worker_enabled}\`"
+            echo "- Worker service: \`${worker_service}\`"
             echo "- Terraform state key: \`${{ steps.prepare.outputs.state_key }}\`"
             echo
             echo "After health checks pass, create the Namecheap CNAME for \`api.identrail.com\` to the load balancer DNS name."

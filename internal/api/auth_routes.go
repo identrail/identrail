@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -893,6 +894,71 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
 			return
 		}
+		eventID := strings.TrimSpace(event.ID)
+		if eventID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
+			return
+		}
+		// Idempotency is claimed only after signature validation so a forged
+		// request cannot poison the ledger. The claim distinguishes an
+		// in-flight delivery from a completed one so concurrent duplicates
+		// are handled correctly, durable across restarts and shared by every
+		// API instance.
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		status, claimToken, err := svc.Store.BeginWebhookEvent(c.Request.Context(), db.WebhookEvent{
+			Provider:  "workos",
+			EventID:   eventID,
+			EventType: strings.TrimSpace(event.Event),
+		}, now)
+		if err != nil {
+			if logger != nil {
+				logger.Error("claim workos webhook event", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process webhook"})
+			return
+		}
+		switch status {
+		case db.WebhookEventProcessed:
+			// The event was already fully handled; safe no-op success.
+			c.JSON(http.StatusOK, gin.H{"ok": true, "duplicate": true})
+			return
+		case db.WebhookEventProcessing:
+			// Another delivery of this event is still applying side effects.
+			// We must NOT acknowledge success: if that delivery then rolls
+			// back on a transient failure, the provider must keep retrying.
+			// Return a retryable response so it redelivers later.
+			c.Header("Retry-After", "5")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhook is being processed; retry later"})
+			return
+		}
+		// status == claimed: this delivery owns processing, fenced by
+		// claimToken so a handler whose claim was reclaimed cannot complete
+		// or erase the successor's claim.
+		//
+		// Both completion and rollback run on a fresh, bounded context
+		// detached from the request. The request context is frequently
+		// cancelled exactly when these need to run (client disconnect /
+		// timeout): reusing it for completion would leave the row
+		// 'processing' so later deliveries 503 until the stale window and
+		// then reapply the side effect; reusing it for rollback would skip
+		// the cleanup and permanently de-duplicate the event.
+		completeIdempotency := func() {
+			completeContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+			defer cancel()
+			if cmpErr := svc.Store.CompleteWebhookEvent(completeContext, "workos", eventID, claimToken, now); cmpErr != nil && logger != nil {
+				logger.Error("complete workos webhook idempotency", telemetry.ZapError(cmpErr))
+			}
+		}
+		rollbackIdempotency := func() {
+			rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+			defer cancel()
+			if delErr := svc.Store.DeleteWebhookEvent(rollbackContext, "workos", eventID, claimToken); delErr != nil && logger != nil {
+				logger.Error("rollback workos webhook idempotency", telemetry.ZapError(delErr))
+			}
+		}
 		var user workOSWebhookUser
 		if len(event.Data) > 0 {
 			_ = json.Unmarshal(event.Data, &user)
@@ -900,36 +966,48 @@ func workOSWebhookHandler(logger *zap.Logger, svc *Service, opts authSessionRout
 		switch event.Event {
 		case "user.deleted":
 			if strings.TrimSpace(user.ID) == "" {
+				// Deterministic bad payload: an identical retry will not
+				// resolve it, so mark processed to keep retries no-ops.
+				completeIdempotency()
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
 				return
 			}
 			revoked, err := svc.DeactivateWorkOSUser(c.Request.Context(), user.ID)
 			if err != nil && !errors.Is(err, db.ErrNotFound) {
+				rollbackIdempotency()
 				if logger != nil {
 					logger.Error("handle workos user deleted", telemetry.ZapError(err))
 				}
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process webhook"})
 				return
 			}
+			completeIdempotency()
 			c.JSON(http.StatusOK, gin.H{"ok": true, "revoked_sessions": revoked})
 		case "user.email_changed", "user.updated":
 			if strings.TrimSpace(user.ID) == "" || strings.TrimSpace(user.Email) == "" {
+				completeIdempotency()
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
 				return
 			}
 			if err := svc.UpdateWorkOSUserEmail(c.Request.Context(), user.ID, user.Email); err != nil && !errors.Is(err, db.ErrNotFound) {
 				if errors.Is(err, ErrAuthIdentityConflict) {
+					// Deterministic conflict; an identical retry will not
+					// resolve it, so keep retries no-ops.
+					completeIdempotency()
 					c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
 					return
 				}
+				rollbackIdempotency()
 				if logger != nil {
 					logger.Error("handle workos user email change", telemetry.ZapError(err))
 				}
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process webhook"})
 				return
 			}
+			completeIdempotency()
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		default:
+			completeIdempotency()
 			c.JSON(http.StatusOK, gin.H{"ok": true, "ignored": true})
 		}
 	}

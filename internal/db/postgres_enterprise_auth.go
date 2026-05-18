@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -631,6 +633,170 @@ func (p *PostgresStore) ConsumeOAuthTransaction(ctx context.Context, nonce strin
 		return OAuthTransaction{}, err
 	}
 	return txn, nil
+}
+
+// BeginWebhookEvent atomically claims the (provider, event_id) row. It first
+// tries to win the insert; on conflict it tries to reclaim a stale
+// 'processing' row (claiming instance likely crashed); failing that it reads
+// the current status. Every branch is a single atomic statement, so the
+// claim holds across API restarts and concurrent instances.
+func (p *PostgresStore) BeginWebhookEvent(ctx context.Context, event WebhookEvent, now time.Time) (WebhookEventStatus, string, error) {
+	provider := strings.TrimSpace(event.Provider)
+	eventID := strings.TrimSpace(event.EventID)
+	if provider == "" || eventID == "" {
+		return "", "", fmt.Errorf("webhook event requires provider and event_id")
+	}
+	now = now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	staleBefore := now.Add(-WebhookProcessingReclaimAfter)
+	eventType := strings.TrimSpace(event.EventType)
+
+	// The webhook endpoint is unauthenticated (HMAC-verified, no
+	// db.WithScope), so use the AnyScope path; the row is global
+	// idempotency state, not tenant-scoped data. The loop only re-runs in
+	// the rare race where a concurrent DeleteWebhookEvent rollback removed
+	// the row between the conflicting insert and the status read.
+	for attempt := 0; attempt < 3; attempt++ {
+		claimToken, tokErr := newWebhookClaimToken()
+		if tokErr != nil {
+			return "", "", tokErr
+		}
+		var claimed string
+		err := p.queryRowContextAnyScope(
+			ctx,
+			`INSERT INTO webhook_events (provider, event_id, event_type, status, claim_token, received_at)
+			 VALUES ($1, $2, $3, 'processing', $4, $5)
+			 ON CONFLICT (provider, event_id) DO NOTHING
+			 RETURNING event_id`,
+			provider,
+			eventID,
+			eventType,
+			claimToken,
+			now,
+		).Scan(&claimed)
+		if err == nil {
+			p.pruneWebhookEvents(ctx, now)
+			return WebhookEventClaimed, claimToken, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", "", err
+		}
+
+		// Row already exists. Atomically reclaim it only if it is still
+		// 'processing' and the prior claim is stale (crashed instance). The
+		// new claim token fences out the superseded handler's eventual
+		// Complete/Delete.
+		err = p.queryRowContextAnyScope(
+			ctx,
+			`UPDATE webhook_events
+			    SET received_at = $3, event_type = $4, claim_token = $6
+			  WHERE provider = $1 AND event_id = $2
+			    AND status = 'processing' AND received_at < $5
+			  RETURNING event_id`,
+			provider,
+			eventID,
+			now,
+			eventType,
+			staleBefore,
+			claimToken,
+		).Scan(&claimed)
+		if err == nil {
+			p.pruneWebhookEvents(ctx, now)
+			return WebhookEventClaimed, claimToken, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", "", err
+		}
+
+		var status string
+		err = p.queryRowContextAnyScope(
+			ctx,
+			`SELECT status FROM webhook_events WHERE provider = $1 AND event_id = $2`,
+			provider,
+			eventID,
+		).Scan(&status)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// Raced with a rollback delete; retry the claim.
+				continue
+			}
+			return "", "", err
+		}
+		if status == string(WebhookEventProcessed) {
+			return WebhookEventProcessed, "", nil
+		}
+		return WebhookEventProcessing, "", nil
+	}
+	return WebhookEventProcessing, "", nil
+}
+
+// CompleteWebhookEvent marks a claimed event processed so later duplicate
+// deliveries become no-op successes. The claim_token predicate makes a
+// superseded stale handler's completion a no-op.
+func (p *PostgresStore) CompleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string, now time.Time) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" || claimToken == "" {
+		return nil
+	}
+	now = now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	_, err := p.execContextAnyScope(
+		ctx,
+		`UPDATE webhook_events SET status = 'processed', received_at = $4
+		  WHERE provider = $1 AND event_id = $2 AND claim_token = $3`,
+		provider,
+		eventID,
+		claimToken,
+		now,
+	)
+	return err
+}
+
+// DeleteWebhookEvent rolls back a claim so a provider retry can reprocess an
+// event whose side effects failed transiently. The claim_token predicate
+// makes a superseded stale handler's rollback a no-op so it cannot erase the
+// successor's active claim.
+func (p *PostgresStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string) error {
+	provider = strings.TrimSpace(provider)
+	eventID = strings.TrimSpace(eventID)
+	if provider == "" || eventID == "" || claimToken == "" {
+		return nil
+	}
+	_, err := p.execContextAnyScope(
+		ctx,
+		`DELETE FROM webhook_events WHERE provider = $1 AND event_id = $2 AND claim_token = $3`,
+		provider,
+		eventID,
+		claimToken,
+	)
+	return err
+}
+
+// pruneWebhookEvents opportunistically removes idempotency rows past the
+// retention window so the ledger does not grow unbounded. It is best-effort
+// housekeeping invoked on the claim path: a failure here must not fail the
+// claim, so the error is intentionally ignored.
+func (p *PostgresStore) pruneWebhookEvents(ctx context.Context, now time.Time) {
+	cutoff := now.UTC().Add(-WebhookEventRetention)
+	_, _ = p.execContextAnyScope(
+		ctx,
+		`DELETE FROM webhook_events WHERE received_at < $1`,
+		cutoff,
+	)
+}
+
+// newWebhookClaimToken returns a random opaque token identifying one claim.
+func newWebhookClaimToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // GetIdentityConnectionByID resolves a connection by its globally unique

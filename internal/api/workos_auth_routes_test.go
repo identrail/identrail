@@ -1180,6 +1180,189 @@ func TestWorkOSUserDeletedWebhookRevokesSessions(t *testing.T) {
 	}
 }
 
+func TestWorkOSWebhookIsIdempotentByEventID(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "dupe@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_dupe",
+		LastAuthenticatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	secret := "whsec_123"
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: secret,
+		WorkOSAuthClient:    &fakeWorkOSClient{},
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+	payload := `{"event":"user.deleted","id":"event_dupe_1","data":{"object":"user","id":"user_workos_dupe","email":"dupe@example.com"}}`
+	sig := workOSTestSignature(time.Now().UTC(), secret, payload)
+
+	first := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload))
+	first.Header.Set("WorkOS-Signature", sig)
+	firstResp := httptest.NewRecorder()
+	router.ServeHTTP(firstResp, first)
+	if firstResp.Code != http.StatusOK || !strings.Contains(firstResp.Body.String(), `"revoked_sessions"`) {
+		t.Fatalf("expected first delivery to apply side effect, got %d body=%s", firstResp.Code, firstResp.Body.String())
+	}
+
+	// Recreate an active identity so a (wrongly) reapplied side effect would
+	// be observable as another deactivation.
+	if _, err := store.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_dupe",
+		LastAuthenticatedAt: now,
+	}); err != nil {
+		t.Fatalf("re-seed identity: %v", err)
+	}
+
+	dup := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload))
+	dup.Header.Set("WorkOS-Signature", sig)
+	dupResp := httptest.NewRecorder()
+	router.ServeHTTP(dupResp, dup)
+	if dupResp.Code != http.StatusOK || !strings.Contains(dupResp.Body.String(), `"duplicate":true`) {
+		t.Fatalf("expected duplicate delivery no-op, got %d body=%s", dupResp.Code, dupResp.Body.String())
+	}
+	if strings.Contains(dupResp.Body.String(), `"revoked_sessions"`) {
+		t.Fatalf("duplicate delivery must not reapply side effects: %s", dupResp.Body.String())
+	}
+	// The re-seeded identity proves the side effect was not reapplied.
+	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_workos_dupe"); err != nil {
+		t.Fatalf("duplicate webhook must not have re-deactivated the user: %v", err)
+	}
+}
+
+// webhookRollbackProbeStore forces the user.deleted side effect to fail
+// transiently and records the context handed to DeleteWebhookEvent so the
+// test can assert the rollback runs on a context detached from the
+// (cancelled) request.
+type webhookRollbackProbeStore struct {
+	*db.MemoryStore
+	deleteCalled bool
+	deleteCtxErr error
+}
+
+func (s *webhookRollbackProbeStore) RevokeAllUserSessions(ctx context.Context, userID string, now time.Time) (int, error) {
+	return 0, errors.New("transient downstream failure")
+}
+
+func (s *webhookRollbackProbeStore) DeleteWebhookEvent(ctx context.Context, provider string, eventID string, claimToken string) error {
+	s.deleteCalled = true
+	s.deleteCtxErr = ctx.Err()
+	return s.MemoryStore.DeleteWebhookEvent(ctx, provider, eventID, claimToken)
+}
+
+func TestWorkOSWebhookRollbackSurvivesCancelledRequestContext(t *testing.T) {
+	base := db.NewMemoryStore()
+	probe := &webhookRollbackProbeStore{MemoryStore: base}
+	now := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
+	svc := NewService(probe, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	user, err := base.UpsertUser(context.Background(), db.User{PrimaryEmail: "rollback@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := base.UpsertUserIdentity(context.Background(), db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_rollback",
+		LastAuthenticatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	secret := "whsec_123"
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: secret,
+		WorkOSAuthClient:    &fakeWorkOSClient{},
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+	payload := `{"event":"user.deleted","id":"event_rollback_1","data":{"object":"user","id":"user_workos_rollback","email":"rollback@example.com"}}`
+	sig := workOSTestSignature(time.Now().UTC(), secret, payload)
+
+	// The request context is already cancelled when the handler runs,
+	// mimicking a client disconnect / timeout that also caused the side
+	// effect to fail.
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload)).WithContext(cancelledCtx)
+	req.Header.Set("WorkOS-Signature", sig)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected transient failure 500, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if !probe.deleteCalled {
+		t.Fatal("rollback must delete the idempotency record on transient failure")
+	}
+	if probe.deleteCtxErr != nil {
+		t.Fatalf("rollback must run on a context detached from the cancelled request, got ctx err %v", probe.deleteCtxErr)
+	}
+	// The record was rolled back, so a provider retry is treated as a first
+	// delivery again instead of being permanently de-duplicated.
+	firstAgain, _, err := probe.BeginWebhookEvent(context.Background(), db.WebhookEvent{
+		Provider: "workos",
+		EventID:  "event_rollback_1",
+	}, now)
+	if err != nil || firstAgain != db.WebhookEventClaimed {
+		t.Fatalf("after rollback the retry must reprocess (claimed), got first=%v err=%v", firstAgain, err)
+	}
+}
+
+func TestWorkOSWebhookDuplicateInFlightIsRetryable(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
+	if _, _, err := store.BeginWebhookEvent(context.Background(), db.WebhookEvent{Provider: "workos", EventID: "event_inflight"}, now); err != nil {
+		t.Fatalf("seed webhook claim: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	secret := "whsec_123"
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: secret,
+		WorkOSAuthClient:    &fakeWorkOSClient{},
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	payload := `{"event":"user.deleted","id":"event_inflight","data":{"object":"user","id":"user_workos_inflight","email":"inflight@example.com"}}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/webhooks/workos", strings.NewReader(payload))
+	req.Header.Set("WorkOS-Signature", workOSTestSignature(time.Now().UTC(), secret, payload))
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected in-flight duplicate to be retryable, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestWorkOSWebhookRejectsBadSignatureAndIgnoresUnknownEvents(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

@@ -636,6 +636,105 @@ func TestPostgresCreateOAuthTransactionBypassesScopeAndMapsConflict(t *testing.T
 	}
 }
 
+func TestPostgresBeginWebhookEvent(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	// First delivery: the insert wins (claim_token is random -> AnyArg) and
+	// RETURNING yields the event id.
+	mock.ExpectQuery("INSERT INTO webhook_events").
+		WithArgs("workos", "event_1", "user.deleted", sqlmock.AnyArg(), now).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id"}).AddRow("event_1"))
+	// The claim path opportunistically prunes rows past the retention window.
+	mock.ExpectExec("DELETE FROM webhook_events").
+		WithArgs(now.Add(-WebhookEventRetention)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	first, tok, err := store.BeginWebhookEvent(ctx, WebhookEvent{
+		Provider:   " workos ",
+		EventID:    " event_1 ",
+		EventType:  "user.deleted",
+		ReceivedAt: now,
+	}, now)
+	if err != nil || first != WebhookEventClaimed || tok == "" {
+		t.Fatalf("expected first delivery claimed with token, got %v tok=%q err=%v", first, tok, err)
+	}
+
+	// Duplicate while in-flight: insert conflicts, stale-reclaim UPDATE
+	// matches nothing, status read returns 'processing'.
+	mock.ExpectQuery("INSERT INTO webhook_events").
+		WithArgs("workos", "event_1", "", sqlmock.AnyArg(), now).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
+	mock.ExpectQuery("UPDATE webhook_events").
+		WithArgs("workos", "event_1", now, "", now.Add(-WebhookProcessingReclaimAfter), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
+	mock.ExpectQuery("SELECT status FROM webhook_events").
+		WithArgs("workos", "event_1").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("processing"))
+	processing, ptok, err := store.BeginWebhookEvent(ctx, WebhookEvent{
+		Provider:   "workos",
+		EventID:    "event_1",
+		ReceivedAt: now,
+	}, now)
+	if err != nil || processing != WebhookEventProcessing || ptok != "" {
+		t.Fatalf("expected duplicate delivery processing with no token, got %v tok=%q err=%v", processing, ptok, err)
+	}
+
+	// Completion is fenced by the claim token.
+	mock.ExpectExec("UPDATE webhook_events SET status = 'processed'").
+		WithArgs("workos", "event_1", "tok-1", now).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", "tok-1", now); err != nil {
+		t.Fatalf("complete webhook event: %v", err)
+	}
+	// A superseded handler with no/blank token never touches the DB.
+	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", "", now); err != nil {
+		t.Fatalf("blank-token complete should be a no-op: %v", err)
+	}
+
+	// Duplicate after processing is a no-op success.
+	mock.ExpectQuery("INSERT INTO webhook_events").
+		WithArgs("workos", "event_1", "", sqlmock.AnyArg(), now).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
+	mock.ExpectQuery("UPDATE webhook_events").
+		WithArgs("workos", "event_1", now, "", now.Add(-WebhookProcessingReclaimAfter), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"event_id"}))
+	mock.ExpectQuery("SELECT status FROM webhook_events").
+		WithArgs("workos", "event_1").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("processed"))
+	processed, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{
+		Provider:   "workos",
+		EventID:    "event_1",
+		ReceivedAt: now,
+	}, now)
+	if err != nil || processed != WebhookEventProcessed {
+		t.Fatalf("expected processed duplicate after completion, got %v err=%v", processed, err)
+	}
+
+	mock.ExpectExec("DELETE FROM webhook_events").
+		WithArgs("workos", "event_1", "tok-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1", "tok-1"); err != nil {
+		t.Fatalf("delete webhook event: %v", err)
+	}
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_1", ""); err != nil {
+		t.Fatalf("blank-token delete should be a no-op: %v", err)
+	}
+
+	if _, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "", EventID: "x"}, now); err == nil {
+		t.Fatal("missing provider should be rejected before any query")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func postgresSCIMProvisioningEventRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "org_id", "connection_id", "op", "external_id", "user_id", "payload", "occurred_at"})
 }

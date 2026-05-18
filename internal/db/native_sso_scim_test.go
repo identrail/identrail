@@ -613,6 +613,128 @@ func TestMemoryStore_OAuthTransactionRejectsExpiredAndInvalidInput(t *testing.T)
 	}
 }
 
+func TestMemoryStore_WebhookEventIdempotency(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	wkEvent := func(provider, id string) WebhookEvent {
+		return WebhookEvent{Provider: provider, EventID: id, EventType: "user.deleted"}
+	}
+
+	// First delivery claims the row and gets a non-empty claim token.
+	st, tok1, err := store.BeginWebhookEvent(ctx, wkEvent("workos", " event_1 "), now)
+	if err != nil || st != WebhookEventClaimed || tok1 == "" {
+		t.Fatalf("first delivery should be claimed with a token, got %q tok=%q err=%v", st, tok1, err)
+	}
+	// A concurrent duplicate while still processing must be told to retry.
+	st, tok, err := store.BeginWebhookEvent(ctx, wkEvent("workos", "event_1"), now.Add(time.Second))
+	if err != nil || st != WebhookEventProcessing || tok != "" {
+		t.Fatalf("in-flight duplicate should be processing with no token, got %q tok=%q err=%v", st, tok, err)
+	}
+	// A different provider with the same event id is independent.
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("github", "event_1"), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("different provider should be claimed, got %q err=%v", st, err)
+	}
+
+	// A stale handler whose token no longer matches cannot complete the row.
+	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", "not-the-token", now.Add(2*time.Second)); err != nil {
+		t.Fatalf("complete with wrong token: %v", err)
+	}
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_1"), now.Add(2*time.Second))
+	if err != nil || st != WebhookEventProcessing {
+		t.Fatalf("wrong-token complete must not mark processed, got %q err=%v", st, err)
+	}
+	// The real token completes it; duplicates then no-op.
+	if err := store.CompleteWebhookEvent(ctx, "workos", "event_1", tok1, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("complete webhook event: %v", err)
+	}
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_1"), now.Add(3*time.Second))
+	if err != nil || st != WebhookEventProcessed {
+		t.Fatalf("completed duplicate should be processed, got %q err=%v", st, err)
+	}
+
+	// A stale handler whose token no longer matches cannot delete the
+	// successor's claim.
+	st, tokA, err := store.BeginWebhookEvent(ctx, wkEvent("workos", "event_fence"), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("expected claim, got %q err=%v", st, err)
+	}
+	st, tokB, err := store.BeginWebhookEvent(ctx, wkEvent("workos", "event_fence"), now.Add(WebhookProcessingReclaimAfter+time.Second))
+	if err != nil || st != WebhookEventClaimed || tokB == tokA {
+		t.Fatalf("stale reclaim should mint a new token, got %q tokA=%q tokB=%q err=%v", st, tokA, tokB, err)
+	}
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_fence", tokA); err != nil {
+		t.Fatalf("delete with superseded token: %v", err)
+	}
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_fence"), now.Add(WebhookProcessingReclaimAfter+2*time.Second))
+	if err != nil || st != WebhookEventProcessing {
+		t.Fatalf("superseded delete must not erase the successor's claim, got %q err=%v", st, err)
+	}
+
+	// Rolling back with the active token lets a retry reprocess.
+	st, tokRB, err := store.BeginWebhookEvent(ctx, wkEvent("workos", "event_rollback"), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("expected claim, got %q err=%v", st, err)
+	}
+	if err := store.DeleteWebhookEvent(ctx, "workos", "event_rollback", tokRB); err != nil {
+		t.Fatalf("delete webhook event: %v", err)
+	}
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_rollback"), now.Add(time.Second))
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("after rollback the event should be claimable again, got %q err=%v", st, err)
+	}
+
+	// A 'processing' row left by a crashed instance is reclaimable once stale.
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_stale"), now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("expected claim, got %q err=%v", st, err)
+	}
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_stale"), now.Add(WebhookProcessingReclaimAfter-time.Second))
+	if err != nil || st != WebhookEventProcessing {
+		t.Fatalf("not-yet-stale claim should still be processing, got %q err=%v", st, err)
+	}
+	st, _, err = store.BeginWebhookEvent(ctx, wkEvent("workos", "event_stale"), now.Add(WebhookProcessingReclaimAfter+time.Second))
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("stale claim should be reclaimable, got %q err=%v", st, err)
+	}
+
+	if _, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "", EventID: "x"}, now); err == nil {
+		t.Fatal("missing provider should error")
+	}
+	if _, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: " "}, now); err == nil {
+		t.Fatal("missing event id should error")
+	}
+}
+
+func TestMemoryStore_WebhookEventRetentionPrune(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+
+	// Claim and complete an event well in the past.
+	st, tok, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: "old"}, now)
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("seed old claim: %q err=%v", st, err)
+	}
+	if err := store.CompleteWebhookEvent(ctx, "workos", "old", tok, now); err != nil {
+		t.Fatalf("complete old: %v", err)
+	}
+
+	// A later claim past the retention window prunes the stale row.
+	later := now.Add(WebhookEventRetention + time.Hour)
+	if st, _, err := store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: "new"}, later); err != nil || st != WebhookEventClaimed {
+		t.Fatalf("later claim: %q err=%v", st, err)
+	}
+
+	// The pruned event id is treated as a fresh first delivery again, not as
+	// an already-processed duplicate.
+	st, _, err = store.BeginWebhookEvent(ctx, WebhookEvent{Provider: "workos", EventID: "old"}, later.Add(time.Minute))
+	if err != nil || st != WebhookEventClaimed {
+		t.Fatalf("expected pruned event to be claimable again, got %q err=%v", st, err)
+	}
+}
+
 func TestMemoryStore_DeleteIdentityConnection_CascadesSCIMEvents(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

@@ -54,6 +54,7 @@ type MemoryStore struct {
 	identityConnections           map[string]IdentityConnection
 	samlRelayStates               map[string]SAMLRelayState
 	oauthTransactions             map[string]OAuthTransaction
+	webhookEvents                 map[string]webhookEventRecord
 	scimEvents                    map[string]SCIMProvisioningEventRecord
 	identities                    map[string]domain.Identity
 	policies                      map[string]domain.Policy
@@ -102,6 +103,7 @@ func NewMemoryStore() *MemoryStore {
 		identityConnections:           map[string]IdentityConnection{},
 		samlRelayStates:               map[string]SAMLRelayState{},
 		oauthTransactions:             map[string]OAuthTransaction{},
+		webhookEvents:                 map[string]webhookEventRecord{},
 		scimEvents:                    map[string]SCIMProvisioningEventRecord{},
 		identities:                    map[string]domain.Identity{},
 		policies:                      map[string]domain.Policy{},

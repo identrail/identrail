@@ -2,7 +2,8 @@ locals {
   service_names = toset(["api", "worker"])
   enabled_service_names = setunion(
     var.create_foundation_resources ? local.service_names : toset([]),
-    var.create_api_hosting_resources ? toset(["api"]) : toset([])
+    var.create_api_hosting_resources ? toset(["api"]) : toset([]),
+    var.create_worker_hosting_resources ? toset(["worker"]) : toset([])
   )
   runtime_secret_name = length(trimspace(var.runtime_secret_name)) > 0 ? trimspace(var.runtime_secret_name) : (
     "${var.name_prefix}/${var.environment}/runtime"

@@ -1,6 +1,30 @@
 # Changelog
 
 ## Unreleased
+- Made WorkOS webhook delivery idempotent. After signature validation the
+  handler claims the provider event ID in a new durable `webhook_events`
+  table (status `processing` → `processed`) before applying user-lifecycle
+  side effects. A completed duplicate, retry, or replay returns a no-op
+  success without reapplying `user.deleted` / `user.email_changed` /
+  `user.updated` effects; a duplicate that arrives while the first delivery
+  is still in flight is told to retry (HTTP 503) rather than acknowledged,
+  so the provider keeps retrying until the effects are durably applied. The
+  check is durable across restarts and shared across API instances; a
+  transient server-side failure rolls back the claim so a provider retry can
+  reprocess, and a claim left behind by a crashed instance is reclaimable
+  after a grace period. Each claim carries a token so a superseded stale
+  handler cannot complete or erase the reclaiming retry's in-flight claim;
+  completion and rollback run on a request-detached context; rows that
+  predate the ledger are treated as already-processed; and processed rows
+  past a retention window are opportunistically pruned so the ledger does
+  not grow unbounded.
+- Added the hosted AWS worker deploy path for queued GitHub repository scans.
+  The manual AWS API deploy workflow now enables the worker service by default,
+  derives the matching immutable worker image from the API image when no
+  worker-specific image is supplied, and provisions a queue-only ECS/Fargate
+  worker with separate IAM roles, logging, and security group. The worker also
+  gained `IDENTRAIL_WORKER_SCAN_ENABLED` so the hosted queue processor can drain
+  API-enqueued work without starting unrelated scheduled cloud scans.
 - Added per-request defense-in-depth on `/auth/manual`: the handler now
   rejects any request whose resolved client IP (honoring the configured
   trusted-proxy list) is not a loopback address, unless
@@ -46,6 +70,11 @@
   `scopes: null` renders as `None granted` instead of tripping the app error
   boundary, and replaced the fallback error copy with user-facing workspace
   recovery language.
+- Replaced the standalone read-only scan page with a rectangular multi-step
+  modal opened by the new `Request Trust Path Review` CTA, keeping
+  `/read-only-scan` as a compatibility opener and collecting extra verifiable
+  requester, identity-provider, scope, and public repository context before the
+  final review-and-submit step.
 - Required explicit review before read-only scan intake submission and added
   stronger lead-quality checks for work emails, disposable domains, matching
   company websites, and publicly verifiable company DNS.

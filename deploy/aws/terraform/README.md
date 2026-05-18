@@ -2,7 +2,8 @@
 
 This Terraform root prepares AWS deployment primitives for Identrail. It can
 validate the foundation in CI and, when explicitly enabled by an operator,
-define the API hosting layer that will eventually sit behind `api.identrail.com`.
+define the API and worker hosting layer that will eventually sit behind
+`api.identrail.com`.
 
 ## What It Can Create
 
@@ -19,6 +20,13 @@ When `create_api_hosting_resources=true`, the root can also create:
   HTTP-to-HTTPS redirect
 - API load balancer and ECS service security groups
 - task execution and task IAM roles
+
+When `create_worker_hosting_resources=true`, the root also creates:
+
+- an ECS/Fargate worker task definition and service in the API cluster
+- a worker task execution role, task role, and egress-only security group
+- a hosted worker runtime that drains API-queued scan jobs by default without
+  launching scheduled cloud scans
 
 The default network shape keeps API tasks in private subnets. For the first
 Identrail Cloud cutover, operators may opt into a lower-cost bootstrap mode by
@@ -58,8 +66,9 @@ collector. Optional `sts:AssumeRole` access is limited to ARNs listed in
 
 ## Safe Defaults
 
-The default configuration sets both `create_foundation_resources=false` and
-`create_api_hosting_resources=false`, so CI and pull requests can run
+The default configuration sets `create_foundation_resources=false`,
+`create_api_hosting_resources=false`, and
+`create_worker_hosting_resources=false`, so CI and pull requests can run
 `terraform init`, `terraform validate`, and `terraform plan` without creating
 billable AWS resources.
 
@@ -121,6 +130,27 @@ terraform plan \
   -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_API_KEY_SCOPES":"<api-key-scopes-secret-arn>"}' \
   -var='api_secret_kms_key_arns=[]' \
   -var='api_connector_role_arns=[]'
+```
+
+To include the hosted queue worker in the same plan, also provide an immutable
+worker image and enable worker hosting:
+
+```bash
+terraform plan \
+  -input=false \
+  -var-file=environments/dev/terraform.tfvars.example \
+  -var='create_foundation_resources=true' \
+  -var='create_api_hosting_resources=true' \
+  -var='create_worker_hosting_resources=true' \
+  -var='worker_container_image=ghcr.io/identrail/identrail-worker:<immutable-release-tag>' \
+  -var='api_vpc_id=<vpc-id>' \
+  -var='api_public_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
+  -var='api_task_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
+  -var='api_task_assign_public_ip=true' \
+  -var='api_certificate_arn=<api-certificate-arn>' \
+  -var='api_container_image=ghcr.io/identrail/identrail-api:<immutable-release-tag>' \
+  -var='api_environment_variables={"IDENTRAIL_FEATURE_NEW_AUTH":"true","IDENTRAIL_PUBLIC_BASE_URL":"https://api.identrail.com","IDENTRAIL_REPO_SCAN_ENABLED":"true","IDENTRAIL_REPO_SCAN_ALLOWLIST":"identrail/identrail"}' \
+  -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_SESSION_KEY":"<session-key-secret-arn>"}'
 ```
 
 For the lowest-cost first cutover, avoid NAT Gateway by using public task
