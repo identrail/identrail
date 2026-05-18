@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Kept Vercel production connector UI flags in sync with GitHub Actions
+  variables: the production deploy workflow now validates and upserts
+  `VITE_FEATURE_CONNECTOR_AWS`, `VITE_FEATURE_CONNECTOR_GITHUB_V2`, and
+  `VITE_FEATURE_CONNECTOR_K8S` before building so an enabled API connector does
+  not appear as "not included in this web build" after redeploys.
 - Added the first GitHub repository scan action after connection:
   - the product source screen can queue `POST /v1/repo-scans` for a selected
     GitHub repository, show queued/running/completed/failed activity, and link
