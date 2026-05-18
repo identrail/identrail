@@ -59,14 +59,21 @@ func NewOAuthStateManager(secret string, now func() time.Time) *OAuthStateManage
 // WithPreviousSecret registers a previous signing key accepted for
 // verification only during a key-rotation window. New state is always signed
 // with the active secret; the previous secret is never used to issue tokens.
-// An empty previous secret clears any prior value. Returns the manager so it
+// An empty previous secret clears any prior value.
+//
+// The bytes are stored verbatim, exactly as NewOAuthStateManager stores the
+// active secret. This is deliberate: state is signed with the active key's
+// raw bytes, so after a rotation the same raw bytes must be presented as the
+// previous key for in-flight signatures to verify. Trimming here (while the
+// active path does not) would break the rotation grace window for any
+// deployment whose key has surrounding whitespace. Returns the manager so it
 // can be chained off the constructor.
 func (m *OAuthStateManager) WithPreviousSecret(previous string) *OAuthStateManager {
 	if m == nil {
 		return m
 	}
-	if trimmed := strings.TrimSpace(previous); trimmed != "" {
-		m.previous = []byte(trimmed)
+	if previous != "" {
+		m.previous = []byte(previous)
 	} else {
 		m.previous = nil
 	}

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,8 +87,23 @@ func TestOAuthStateManagerPreviousKeyRotation(t *testing.T) {
 	if _, err := NewOAuthStateManager(newKey, clock).WithPreviousSecret("unrelated").Decode(raw); !errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("unrelated previous key must not accept old-key state, got %v", err)
 	}
-	// Clearing the previous key reverts to active-only.
-	if _, err := rotating.WithPreviousSecret("  ").Decode(raw); !errors.Is(err, ErrOAuthStateInvalid) {
+	// An empty previous key clears it, reverting to active-only.
+	if _, err := rotating.WithPreviousSecret("").Decode(raw); !errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("cleared previous key must reject old-key state, got %v", err)
+	}
+	// The previous key is stored verbatim (matching how the active key is
+	// stored): a key with surrounding whitespace still verifies tokens that
+	// were signed with those exact bytes, so a rotation grace window is not
+	// broken by trimming.
+	wsKey := "  ws-old-key  "
+	wsRaw, err := NewOAuthStateManager(wsKey, clock).Issue("login", "/app")
+	if err != nil {
+		t.Fatalf("issue with whitespace key: %v", err)
+	}
+	if _, err := NewOAuthStateManager(newKey, clock).WithPreviousSecret(wsKey).Decode(wsRaw); err != nil {
+		t.Fatalf("verbatim previous key must verify whitespace-key state, got %v", err)
+	}
+	if _, err := NewOAuthStateManager(newKey, clock).WithPreviousSecret(strings.TrimSpace(wsKey)).Decode(wsRaw); !errors.Is(err, ErrOAuthStateInvalid) {
+		t.Fatalf("trimmed previous key must NOT verify whitespace-key state, got %v", err)
 	}
 }
