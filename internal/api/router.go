@@ -372,6 +372,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1.Use(jsonBodyLimitMiddleware(defaultJSONBodyLimit))
 	if opts.FeatureNewAuth {
 		v1.Use(sessionManager.Middleware())
+		// Request-side CSRF/origin guard for browser session-authenticated
+		// writes. Installed after session resolution so it can tell a
+		// cookie-authenticated browser request apart from API-key/bearer/
+		// agent-token clients, and before handlers perform writes. CORS
+		// stays as response policy only; it is not the CSRF control.
+		v1.Use(browserWriteCSRFMiddleware(opts.PublicBaseURL, opts.CORSAllowedOrigins))
 	}
 	v1.Use(apiKeyAuthMiddleware(
 		opts.APIKeys,
