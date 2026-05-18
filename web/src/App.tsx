@@ -760,7 +760,11 @@ function PageHero({
   variant: PageHeroVariant;
 }) {
   return (
-    <section className={`idt-page-hero idt-page-hero-rich idt-shell is-${variant}`}>
+    <section
+      className={`idt-page-hero idt-page-hero-rich idt-shell is-${variant} ${
+        visual ? '' : 'is-no-visual'
+      }`}
+    >
       <div className="idt-page-hero-copy">
         <p className="idt-eyebrow">{eyebrow}</p>
         <h1>{title}</h1>

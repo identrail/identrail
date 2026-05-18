@@ -16909,6 +16909,8 @@ html[data-theme='light'] .idt-marketing-page .idt-inline-link {
   color: #ffffff;
 }
 
+.idt-modern-public-page > .idt-page-hero-rich.is-no-visual,
+html[data-theme='light'] .idt-modern-public-page > .idt-page-hero-rich.is-no-visual,
 .idt-modern-public-page > .idt-page-hero-rich:not(:has(.idt-page-hero-visual)),
 html[data-theme='light'] .idt-modern-public-page > .idt-page-hero-rich:not(:has(.idt-page-hero-visual)) {
   grid-template-columns: minmax(0, 1fr);
