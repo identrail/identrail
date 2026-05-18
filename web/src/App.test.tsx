@@ -184,6 +184,28 @@ describe('App', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a whitespace-only company name before advancing', () => {
+    setCurrentPath('/read-only-scan');
+    const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText(/Work email/i), {
+      target: { value: 'security@company.com' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company name/i), {
+      target: { value: '   ' }
+    });
+    fireEvent.change(screen.getByLabelText(/Company website/i), {
+      target: { value: 'company.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/enter your company name/i);
+    expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('does not submit the read-only scan intake before the final step', async () => {
     setCurrentPath('/read-only-scan');
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));

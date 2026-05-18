@@ -67,6 +67,7 @@ const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 const THEME_STORAGE_KEY = 'identrail-theme';
 const INTAKE_TOTAL_STEPS = 4;
 const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
+const COMPANY_NAME_ERROR = 'Please enter your company name.';
 const COMPANY_DOMAIN_ERROR = 'Please enter a real company website or domain.';
 const COMPANY_DOMAIN_MATCH_ERROR = 'Company website must match the domain in your work email.';
 const PERSONAL_EMAIL_DOMAINS = new Set([
@@ -2094,6 +2095,10 @@ function ReadOnlyScanPage() {
     }
     if (!isWorkEmailAddress(email)) {
       setError(WORK_EMAIL_ERROR);
+      return false;
+    }
+    if (!company.trim()) {
+      setError(COMPANY_NAME_ERROR);
       return false;
     }
     if (!normalizedCompanyDomain) {

@@ -193,6 +193,45 @@ describe('web/api/leads handler', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('treats a stalled DNS resolver as no public records instead of hanging', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    resolve4Mock.mockReset();
+    resolve6Mock.mockReset();
+    resolveMxMock.mockReset();
+    const never = new Promise<string[]>(() => {});
+    resolve4Mock.mockReturnValue(never);
+    resolve6Mock.mockReturnValue(never);
+    resolveMxMock.mockReturnValue(never);
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+
+    const res = createMockResponse();
+    const pending = handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          company: 'Company Inc',
+          company_domain: 'company.com',
+          environment: 'AWS IAM',
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    await pending;
+    vi.useRealTimers();
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: 'Company website must be a registered domain with public DNS records.' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('returns 503 when no lead delivery channel is configured', async () => {
     const res = createMockResponse();
     await handler(

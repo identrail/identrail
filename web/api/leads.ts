@@ -180,8 +180,30 @@ function companyDomainMatchesEmail(email: string, companyDomain: string): boolea
   );
 }
 
+const DNS_LOOKUP_TIMEOUT_MS = 2_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('DNS lookup timeout')), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 async function hasPublicDNSRecords(domain: string): Promise<boolean> {
-  const lookups = [resolveMx(domain), resolve4(domain), resolve6(domain)];
+  // Bound each resolver call so a slow/unresponsive DNS server cannot stall
+  // lead submission and degrade overall API responsiveness.
+  const lookups = [resolveMx(domain), resolve4(domain), resolve6(domain)].map((lookup) =>
+    withTimeout(lookup, DNS_LOOKUP_TIMEOUT_MS)
+  );
   const results = await Promise.allSettled(lookups);
   return results.some((result) => result.status === 'fulfilled' && result.value.length > 0);
 }
