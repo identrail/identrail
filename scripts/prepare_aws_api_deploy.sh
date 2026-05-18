@@ -54,6 +54,9 @@ validate_repo_scan_allowlist() {
   local raw="$1"
   local item
   local target
+  local non_empty_count
+
+  non_empty_count=0
   if [ -z "${raw}" ]; then
     return 0
   fi
@@ -61,15 +64,19 @@ validate_repo_scan_allowlist() {
   for item in "${items[@]}"; do
     target="$(trim "${item}")"
     if [ -z "${target}" ]; then
-      fail "repo scan allowlist entries must be non-empty owner/repo patterns; remove blank comma-separated entries"
+      continue
     fi
+    non_empty_count=$((non_empty_count + 1))
     if ! [[ "${target}" =~ ^[^[:space:]]+/[^[:space:]]+$ ]]; then
       fail "repo scan allowlist entry ${target} must follow owner/repo or owner/* format"
     fi
-    if [[ "${target}" == *\** ]] && ! [[ "${target}" =~ ^[^[:space:]]+/\*$ ]]; then
-      fail "repo scan allowlist wildcard entries must use the owner/* pattern"
+    if [[ "${target}" == *\** ]] && ! [[ "${target}" =~ ^[^[:space:]]+/[^[:space:]]*\*$ ]]; then
+      fail "repo scan allowlist wildcard entries must be a prefix match in the repository segment"
     fi
   done
+  if [ "${non_empty_count}" -eq 0 ]; then
+    fail "repo scan allowlist must include at least one non-empty owner/repo pattern"
+  fi
 }
 
 validate_repo_scan_positive_int_bound() {
@@ -98,7 +105,7 @@ validate_repo_scan_positive_int_bound() {
   if [ "${value_len}" -gt "${max_len}" ]; then
     fail "${name} must be <= ${max}"
   fi
-  if [ "${value_len}" -eq "${max_len}" ] && [[ "${value}" > "${max}" ]]; then
+  if [ "${value_len}" -eq "${max_len}" ] && (( value > max )); then
     fail "${name} must be <= ${max}"
   fi
 }
