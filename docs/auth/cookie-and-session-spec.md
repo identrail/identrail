@@ -111,14 +111,21 @@ Rotation prevents session fixation. Also flushes any in-memory caches keyed on t
 
 A job in the existing scheduler runs every hour and deletes session rows where `absolute_expires_at < now() - 7 days`. The 7-day grace window keeps audit-relevant session metadata around for a week past expiry.
 
-## HMAC Signing Keys
+## Signing / Sealing Key
 
-`IDENTRAIL_SESSION_KEY` is used for HMAC-signed values that travel outside the server: OAuth `state`, invitation tokens (the public part), CSRF tokens. Rules:
+`IDENTRAIL_SESSION_KEY` protects the short-lived auth artifacts that travel outside the server:
+
+- **OAuth `state`** — HMAC-SHA256 signed with the key (`internal/api/auth/oauth_state.go`), TTL 10 minutes. Native SAML SP-initiated login reuses the same signed-state manager.
+- **WorkOS MFA pending state** — sealed with AES-256-GCM under a key derived from `IDENTRAIL_SESSION_KEY` (`internal/api/auth/mfa_pending.go`), TTL 10 minutes.
+
+The session cookie itself is **not** signed with this key — it is an opaque, random value stored hashed in the `sessions` table. Invitation tokens are likewise random values stored SHA-256 hashed, not signed with this key. (A double-submit CSRF token signed with this key is planned but not yet implemented; this list will be updated when it lands.)
+
+Rules:
 
 1. Required at startup. The server refuses to start if it is missing or shorter than 32 bytes.
 2. Treated as a secret. Never logged, never returned in API responses.
-3. Rotation supports two simultaneous keys. `IDENTRAIL_SESSION_KEY` is the active signer. `IDENTRAIL_SESSION_KEY_PREVIOUS` is accepted for verification only.
-4. To rotate: set `IDENTRAIL_SESSION_KEY_PREVIOUS` to the current value, set `IDENTRAIL_SESSION_KEY` to a fresh value, deploy. Wait long enough for all signed values to expire (longest-lived signed value is the 24-hour invitation token), then unset `IDENTRAIL_SESSION_KEY_PREVIOUS`.
+3. Rotation supports two simultaneous keys. `IDENTRAIL_SESSION_KEY` is the only active signer/sealer. `IDENTRAIL_SESSION_KEY_PREVIOUS`, when set, is accepted for verification/decryption only — new artifacts are never signed or sealed with it. Both the OAuth state manager and the MFA pending-state manager honor the previous key.
+4. To rotate: set `IDENTRAIL_SESSION_KEY_PREVIOUS` to the current value, set `IDENTRAIL_SESSION_KEY` to a fresh value, deploy. Wait for all in-flight signed/sealed values to expire — the longest-lived value protected by this key is the 10-minute OAuth state / MFA pending state TTL, so a short drain (well under an hour) is sufficient — then unset `IDENTRAIL_SESSION_KEY_PREVIOUS` and deploy again.
 5. Rotation is a manual ops procedure documented in the operator runbook. Automated rotation lands in a follow-up.
 
 ## What This Cookie Does Not Do

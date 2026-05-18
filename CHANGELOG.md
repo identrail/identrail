@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Wired `IDENTRAIL_SESSION_KEY_PREVIOUS` into signed/sealed auth artifact
+  verification so rotating `IDENTRAIL_SESSION_KEY` no longer invalidates
+  in-flight OAuth `state` or WorkOS MFA pending state. The active key remains
+  the only signer/sealer; the previous key, when configured, is accepted for
+  verification/decryption only. Updated the cookie-and-session spec to
+  accurately list which artifacts this key protects (OAuth state and MFA
+  pending state, both 10-minute TTL — not the opaque session cookie or
+  random invitation tokens) and to give a correct rotation drain window.
 - Made WorkOS webhook delivery idempotent. After signature validation the
   handler claims the provider event ID in a new durable `webhook_events`
   table (status `processing` → `processed`) before applying user-lifecycle

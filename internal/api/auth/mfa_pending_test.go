@@ -78,3 +78,51 @@ func TestMFAPendingStateManagerRejectsInvalidState(t *testing.T) {
 		t.Fatalf("expected short nonce state to fail, got %v", err)
 	}
 }
+
+func TestMFAPendingStateManagerPreviousKeyRotation(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	oldKey, newKey := strings.Repeat("o", 64), strings.Repeat("n", 64)
+	pending := WorkOSMFAPendingState{
+		Mode:                       WorkOSMFAModeChallenge,
+		PendingAuthenticationToken: "pending-token",
+		User:                       WorkOSProfile{ID: "user_123", Email: "user@example.com"},
+	}
+
+	sealed, err := NewMFAPendingStateManager(oldKey, clock).Seal(pending)
+	if err != nil {
+		t.Fatalf("seal with old key: %v", err)
+	}
+
+	// Active key only: state sealed with the retired key cannot be opened.
+	if _, err := NewMFAPendingStateManager(newKey, clock).Open(sealed); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("expected old-key state rejected without previous key, got %v", err)
+	}
+
+	// Rotation window: previous key accepted for decryption.
+	rotating := NewMFAPendingStateManager(newKey, clock).WithPreviousSecret(oldKey)
+	opened, err := rotating.Open(sealed)
+	if err != nil || opened.PendingAuthenticationToken != "pending-token" {
+		t.Fatalf("expected previous-key Open to succeed, got %+v err=%v", opened, err)
+	}
+
+	// New state is always sealed with the active key.
+	fresh, err := rotating.Seal(pending)
+	if err != nil {
+		t.Fatalf("seal with active key: %v", err)
+	}
+	if _, err := NewMFAPendingStateManager(oldKey, clock).Open(fresh); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("active-key state must not open under the old key, got %v", err)
+	}
+	if _, err := rotating.Open(fresh); err != nil {
+		t.Fatalf("active-key state must open under the active key, got %v", err)
+	}
+
+	// A wrong previous key does not widen acceptance, and clearing it reverts.
+	if _, err := NewMFAPendingStateManager(newKey, clock).WithPreviousSecret(strings.Repeat("x", 64)).Open(sealed); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("unrelated previous key must not open old-key state, got %v", err)
+	}
+	if _, err := rotating.WithPreviousSecret("").Open(sealed); !errors.Is(err, ErrMFAPendingStateInvalid) {
+		t.Fatalf("cleared previous key must reject old-key state, got %v", err)
+	}
+}

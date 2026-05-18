@@ -41,3 +41,53 @@ func TestOAuthStateManagerRejectsExpiredState(t *testing.T) {
 		t.Fatalf("expected expired state to be rejected, got %v", err)
 	}
 }
+
+func TestOAuthStateManagerPreviousKeyRotation(t *testing.T) {
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	oldKey, newKey := "old-state-secret", "new-state-secret"
+
+	oldManager := NewOAuthStateManager(oldKey, clock)
+	raw, err := oldManager.Issue("login", "/app")
+	if err != nil {
+		t.Fatalf("issue with old key: %v", err)
+	}
+
+	// Active key only: state signed with the retired key is rejected.
+	active := NewOAuthStateManager(newKey, clock)
+	if _, err := active.Decode(raw); !errors.Is(err, ErrOAuthStateInvalid) {
+		t.Fatalf("expected old-key state rejected without previous key, got %v", err)
+	}
+
+	// Rotation window: previous key accepted for verification.
+	rotating := NewOAuthStateManager(newKey, clock).WithPreviousSecret(oldKey)
+	state, err := rotating.Decode(raw)
+	if err != nil || state.Intent != "login" || state.ReturnTo != "/app" {
+		t.Fatalf("expected previous-key state accepted, got state=%+v err=%v", state, err)
+	}
+	if _, err := rotating.Consume(raw); err != nil {
+		t.Fatalf("expected previous-key Consume to succeed, got %v", err)
+	}
+
+	// New state is always signed with the active key: an old-key-only
+	// manager must reject it.
+	fresh, err := rotating.Issue("signup", "/onboarding/org")
+	if err != nil {
+		t.Fatalf("issue with active key: %v", err)
+	}
+	if _, err := NewOAuthStateManager(oldKey, clock).Decode(fresh); !errors.Is(err, ErrOAuthStateInvalid) {
+		t.Fatalf("active-key state must not verify under the old key, got %v", err)
+	}
+	if state, err := rotating.Decode(fresh); err != nil || state.Intent != "signup" {
+		t.Fatalf("active-key state must verify under the active key, got %+v err=%v", state, err)
+	}
+
+	// A wrong previous key does not widen acceptance.
+	if _, err := NewOAuthStateManager(newKey, clock).WithPreviousSecret("unrelated").Decode(raw); !errors.Is(err, ErrOAuthStateInvalid) {
+		t.Fatalf("unrelated previous key must not accept old-key state, got %v", err)
+	}
+	// Clearing the previous key reverts to active-only.
+	if _, err := rotating.WithPreviousSecret("  ").Decode(raw); !errors.Is(err, ErrOAuthStateInvalid) {
+		t.Fatalf("cleared previous key must reject old-key state, got %v", err)
+	}
+}

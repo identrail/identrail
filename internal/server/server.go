@@ -150,6 +150,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		FeatureNativeSSO:          cfg.FeatureNativeSSO,
 		PublicBaseURL:             cfg.PublicBaseURL,
 		SessionKey:                cfg.SessionKey,
+		SessionKeyPrevious:        cfg.SessionKeyPrevious,
 		AuthManualMode:            cfg.AuthManualMode,
 		AuthManualModeAllowUnsafe: cfg.AuthManualModeAllowUnsafe,
 		WorkOSClientID:            cfg.WorkOSClientID,

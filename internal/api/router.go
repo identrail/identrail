@@ -82,6 +82,7 @@ type RouterOptions struct {
 	FeatureNativeSSO          bool
 	PublicBaseURL             string
 	SessionKey                string
+	SessionKeyPrevious        string
 	AuthManualMode            bool
 	AuthManualModeAllowUnsafe bool
 	WorkOSClientID            string
@@ -305,7 +306,11 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		if workOSClient == nil && opts.FeatureWorkOSLogin {
 			workOSClient = sessionauth.NewWorkOSSDKClient(opts.WorkOSAPIKey, opts.WorkOSClientID)
 		}
-		stateManager := sessionauth.NewOAuthStateManager(opts.SessionKey, nil)
+		// Active key signs new state; the previous key (set only during a
+		// rotation window) is accepted for verification so in-flight signed
+		// auth artifacts survive an IDENTRAIL_SESSION_KEY rotation.
+		stateManager := sessionauth.NewOAuthStateManager(opts.SessionKey, nil).
+			WithPreviousSecret(opts.SessionKeyPrevious)
 		// The signed-state replay map is process-local; back the WorkOS OAuth
 		// flow with a store-backed, browser-bound transaction so a captured
 		// state cannot be replayed against another API instance and a valid
@@ -325,7 +330,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			WorkOSWebhookSecret:   opts.WorkOSWebhookSecret,
 			StateManager:          stateManager,
 			TransactionStore:      oauthTransactionStore,
-			PendingMFAManager:     sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil),
+			PendingMFAManager:     sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil).WithPreviousSecret(opts.SessionKeyPrevious),
 			PublicBaseURL:         opts.PublicBaseURL,
 			ReturnToOrigins:       authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
 		})

@@ -35,9 +35,10 @@ type OAuthState struct {
 }
 
 type OAuthStateManager struct {
-	secret []byte
-	ttl    time.Duration
-	now    func() time.Time
+	secret   []byte
+	previous []byte
+	ttl      time.Duration
+	now      func() time.Time
 
 	mu   sync.Mutex
 	used map[string]time.Time
@@ -53,6 +54,23 @@ func NewOAuthStateManager(secret string, now func() time.Time) *OAuthStateManage
 		now:    now,
 		used:   map[string]time.Time{},
 	}
+}
+
+// WithPreviousSecret registers a previous signing key accepted for
+// verification only during a key-rotation window. New state is always signed
+// with the active secret; the previous secret is never used to issue tokens.
+// An empty previous secret clears any prior value. Returns the manager so it
+// can be chained off the constructor.
+func (m *OAuthStateManager) WithPreviousSecret(previous string) *OAuthStateManager {
+	if m == nil {
+		return m
+	}
+	if trimmed := strings.TrimSpace(previous); trimmed != "" {
+		m.previous = []byte(trimmed)
+	} else {
+		m.previous = nil
+	}
+	return m
 }
 
 func (m *OAuthStateManager) Issue(intent string, returnTo string) (string, error) {
@@ -102,8 +120,7 @@ func (m *OAuthStateManager) Decode(raw string) (OAuthState, error) {
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return OAuthState{}, ErrOAuthStateInvalid
 	}
-	expected := signOAuthState(m.secret, parts[0])
-	if !hmac.Equal([]byte(expected), []byte(parts[1])) {
+	if !m.signatureValid(parts[0], parts[1]) {
 		return OAuthState{}, ErrOAuthStateInvalid
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
@@ -150,6 +167,20 @@ func (m *OAuthStateManager) pruneLocked(now time.Time) {
 			delete(m.used, nonce)
 		}
 	}
+}
+
+// signatureValid accepts a signature produced by the active secret, or by
+// the previous secret when one is configured (key-rotation window). The
+// active key is always checked first so the common path is unchanged.
+func (m *OAuthStateManager) signatureValid(payloadPart, signature string) bool {
+	if hmac.Equal([]byte(signOAuthState(m.secret, payloadPart)), []byte(signature)) {
+		return true
+	}
+	if len(m.previous) > 0 &&
+		hmac.Equal([]byte(signOAuthState(m.previous, payloadPart)), []byte(signature)) {
+		return true
+	}
+	return false
 }
 
 func signOAuthState(secret []byte, payloadPart string) string {

@@ -46,9 +46,10 @@ type WorkOSPendingTOTP struct {
 }
 
 type MFAPendingStateManager struct {
-	secret []byte
-	ttl    time.Duration
-	now    func() time.Time
+	secret   []byte
+	previous []byte
+	ttl      time.Duration
+	now      func() time.Time
 }
 
 func NewMFAPendingStateManager(secret string, now func() time.Time) *MFAPendingStateManager {
@@ -60,6 +61,23 @@ func NewMFAPendingStateManager(secret string, now func() time.Time) *MFAPendingS
 		ttl:    DefaultMFAPendingTTL,
 		now:    now,
 	}
+}
+
+// WithPreviousSecret registers a previous sealing key accepted for opening
+// (decryption) only during a key-rotation window. State is always sealed
+// with the active secret; the previous secret is never used to seal. An
+// empty previous secret clears any prior value. Returns the manager so it
+// can be chained off the constructor.
+func (m *MFAPendingStateManager) WithPreviousSecret(previous string) *MFAPendingStateManager {
+	if m == nil {
+		return m
+	}
+	if trimmed := strings.TrimSpace(previous); trimmed != "" {
+		m.previous = []byte(trimmed)
+	} else {
+		m.previous = nil
+	}
+	return m
 }
 
 func (m *MFAPendingStateManager) TTL() time.Duration {
@@ -113,16 +131,9 @@ func (m *MFAPendingStateManager) Open(raw string) (WorkOSMFAPendingState, error)
 	if err != nil {
 		return WorkOSMFAPendingState{}, ErrMFAPendingStateInvalid
 	}
-	gcm, err := m.cipher()
+	payload, err := m.decrypt(nonce, ciphertext)
 	if err != nil {
 		return WorkOSMFAPendingState{}, err
-	}
-	if len(nonce) != gcm.NonceSize() {
-		return WorkOSMFAPendingState{}, ErrMFAPendingStateInvalid
-	}
-	payload, err := gcm.Open(nil, nonce, ciphertext, []byte(mfaPendingStateAAD))
-	if err != nil {
-		return WorkOSMFAPendingState{}, ErrMFAPendingStateInvalid
 	}
 	var state WorkOSMFAPendingState
 	if err := json.Unmarshal(payload, &state); err != nil {
@@ -134,8 +145,35 @@ func (m *MFAPendingStateManager) Open(raw string) (WorkOSMFAPendingState, error)
 	return state, nil
 }
 
+// decrypt opens the sealed payload with the active key, falling back to the
+// previous key when one is configured (key-rotation window). State is only
+// ever sealed with the active key, so the previous key is open-only.
+func (m *MFAPendingStateManager) decrypt(nonce, ciphertext []byte) ([]byte, error) {
+	secrets := [][]byte{m.secret}
+	if len(m.previous) > 0 {
+		secrets = append(secrets, m.previous)
+	}
+	for _, secret := range secrets {
+		gcm, err := cipherFor(secret)
+		if err != nil {
+			return nil, err
+		}
+		if len(nonce) != gcm.NonceSize() {
+			return nil, ErrMFAPendingStateInvalid
+		}
+		if payload, err := gcm.Open(nil, nonce, ciphertext, []byte(mfaPendingStateAAD)); err == nil {
+			return payload, nil
+		}
+	}
+	return nil, ErrMFAPendingStateInvalid
+}
+
 func (m *MFAPendingStateManager) cipher() (cipher.AEAD, error) {
-	key := sha256.Sum256(m.secret)
+	return cipherFor(m.secret)
+}
+
+func cipherFor(secret []byte) (cipher.AEAD, error) {
+	key := sha256.Sum256(secret)
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
