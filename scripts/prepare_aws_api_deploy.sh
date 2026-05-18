@@ -77,6 +77,7 @@ validate_repo_scan_positive_int_bound() {
   local name="$2"
   local max="$3"
   local value_len
+  local max_len
   if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
     fail "${name} must be a positive integer"
   fi
@@ -87,10 +88,11 @@ validate_repo_scan_positive_int_bound() {
     fail "${name} must be a positive integer"
   fi
   value_len="${#value}"
-  if [ "${value_len}" -gt "${#max}" ]; then
+  max_len="${#max}"
+  if [ "${value_len}" -gt "${max_len}" ]; then
     fail "${name} must be <= ${max}"
   fi
-  if [ "${value_len}" -eq "${#max}" ] && [[ "${value}" > "${max}" ]]; then
+  if [ "${value_len}" -eq "${max_len}" ] && [[ "${value}" > "${max}" ]]; then
     fail "${name} must be <= ${max}"
   fi
 }
@@ -386,12 +388,8 @@ validate_repo_scan_positive_int_bound "${effective_repo_scan_history_limit_max}"
 validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS 5000
 validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings_max}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX 5000
 validate_repo_scan_positive_int_bound "${effective_repo_scan_queue_max_pending}" IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING 50000
-if [ "${effective_repo_scan_history_limit}" -gt "${effective_repo_scan_history_limit_max}" ]; then
-  fail "IDENTRAIL_REPO_SCAN_HISTORY_LIMIT must be <= IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX"
-fi
-if [ "${effective_repo_scan_max_findings}" -gt "${effective_repo_scan_max_findings_max}" ]; then
-  fail "IDENTRAIL_REPO_SCAN_MAX_FINDINGS must be <= IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX"
-fi
+validate_repo_scan_positive_int_bound "${effective_repo_scan_history_limit}" IDENTRAIL_REPO_SCAN_HISTORY_LIMIT "${effective_repo_scan_history_limit_max}"
+validate_repo_scan_positive_int_bound "${effective_repo_scan_max_findings}" IDENTRAIL_REPO_SCAN_MAX_FINDINGS "${effective_repo_scan_max_findings_max}"
 if [ "${effective_repo_scan_enabled}" = "true" ] && [ -z "$(trim "${effective_repo_scan_allowlist}")" ]; then
   fail "API_REPO_SCAN_ALLOWLIST or IDENTRAIL_REPO_SCAN_ALLOWLIST in API_EXTRA_ENVIRONMENT_JSON is required when repo scanning is enabled"
 fi
