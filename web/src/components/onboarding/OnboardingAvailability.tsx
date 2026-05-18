@@ -16,6 +16,13 @@ export function useOnboardingAvailable(): boolean | undefined {
   if (loading) {
     return undefined;
   }
+  if (!features.configReachable) {
+    // The auth/config request itself failed (transient/network). Do not
+    // convert that into a permanent unsupported-API state for the session;
+    // preserve the legacy Vite-only behavior. FEATURE_ONBOARDING_WIZARD is
+    // true here because the bundle guard above already returned for false.
+    return FEATURE_ONBOARDING_WIZARD;
+  }
   return features.onboardingWizard === true;
 }
 

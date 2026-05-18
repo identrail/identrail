@@ -16,11 +16,24 @@ export type BackendFeatures = {
     aws: BackendFeatureState;
     kubernetes: BackendFeatureState;
   };
+  // false only when the GET /v1/auth/config request itself failed
+  // (transient/network error). A successful response that simply does not
+  // advertise feature metadata stays true. Callers that fail closed on
+  // missing metadata must still preserve the Vite-only fallback when the
+  // config call could not be reached, so a transient error is not turned
+  // into a permanent unsupported-API state for the session.
+  configReachable: boolean;
 };
 
 const UNKNOWN_FEATURES: BackendFeatures = {
   onboardingWizard: undefined,
-  connectors: { github: undefined, aws: undefined, kubernetes: undefined }
+  connectors: { github: undefined, aws: undefined, kubernetes: undefined },
+  configReachable: true
+};
+
+const CONFIG_UNREACHABLE_FEATURES: BackendFeatures = {
+  ...UNKNOWN_FEATURES,
+  configReachable: false
 };
 
 let cachedFeatures: Promise<BackendFeatures> | null = null;
@@ -45,12 +58,13 @@ async function fetchBackendFeatures(): Promise<BackendFeatures> {
         github: features.connectors?.github,
         aws: features.connectors?.aws,
         kubernetes: features.connectors?.kubernetes
-      }
+      },
+      configReachable: true
     };
   } catch {
     // A failed auth/config call must not be more disruptive than today's
     // Vite-only behavior, so degrade to "unknown" rather than blocking.
-    return UNKNOWN_FEATURES;
+    return CONFIG_UNREACHABLE_FEATURES;
   }
 }
 

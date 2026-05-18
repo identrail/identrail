@@ -85,6 +85,10 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: /From connector setup to evidence-ready remediation/i })
     ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Need enterprise procurement/i })).toHaveAttribute('href', '/enterprise');
+    expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
+    expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
+    expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();
   });
 
   it('renders pricing page routes and key elements', () => {

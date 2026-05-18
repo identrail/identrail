@@ -92,16 +92,33 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VITE_IDENTRAIL_API_URL: ${{ steps.check-api-url.outputs.api_url }}
           VITE_FEATURE_ONBOARDING_WIZARD: ${{ vars.VITE_FEATURE_ONBOARDING_WIZARD || 'true' }}
+          VITE_FEATURE_CONNECTOR_AWS: ${{ vars.VITE_FEATURE_CONNECTOR_AWS || 'false' }}
+          VITE_FEATURE_CONNECTOR_GITHUB_V2: ${{ vars.VITE_FEATURE_CONNECTOR_GITHUB_V2 || 'false' }}
+          VITE_FEATURE_CONNECTOR_K8S: ${{ vars.VITE_FEATURE_CONNECTOR_K8S || 'false' }}
         run: |
           set -euo pipefail
-          onboarding_flag="$(printf '%s' "${VITE_FEATURE_ONBOARDING_WIZARD}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-          case "${onboarding_flag}" in
-            true|false) ;;
-            *)
-              echo "VITE_FEATURE_ONBOARDING_WIZARD must be true or false; got ${onboarding_flag}." >&2
-              exit 1
-              ;;
-          esac
+
+          normalize_bool_flag() {
+            local key="$1"
+            local value="$2"
+            local normalized
+
+            normalized="$(printf '%s' "${value}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            case "${normalized}" in
+              true|false)
+                printf '%s' "${normalized}"
+                ;;
+              *)
+                echo "${key} must be true or false; got ${normalized}." >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          onboarding_flag="$(normalize_bool_flag "VITE_FEATURE_ONBOARDING_WIZARD" "${VITE_FEATURE_ONBOARDING_WIZARD}")"
+          connector_aws_flag="$(normalize_bool_flag "VITE_FEATURE_CONNECTOR_AWS" "${VITE_FEATURE_CONNECTOR_AWS}")"
+          connector_github_flag="$(normalize_bool_flag "VITE_FEATURE_CONNECTOR_GITHUB_V2" "${VITE_FEATURE_CONNECTOR_GITHUB_V2}")"
+          connector_k8s_flag="$(normalize_bool_flag "VITE_FEATURE_CONNECTOR_K8S" "${VITE_FEATURE_CONNECTOR_K8S}")"
 
           upsert_env() {
             local key="$1"
@@ -137,6 +154,18 @@ jobs:
             "VITE_FEATURE_ONBOARDING_WIZARD" \
             "${onboarding_flag}" \
             "Enable self-serve onboarding for Identrail Cloud production builds"
+          upsert_env \
+            "VITE_FEATURE_CONNECTOR_AWS" \
+            "${connector_aws_flag}" \
+            "Enable the AWS connector UI for Identrail Cloud production builds"
+          upsert_env \
+            "VITE_FEATURE_CONNECTOR_GITHUB_V2" \
+            "${connector_github_flag}" \
+            "Enable the GitHub connector UI for Identrail Cloud production builds"
+          upsert_env \
+            "VITE_FEATURE_CONNECTOR_K8S" \
+            "${connector_k8s_flag}" \
+            "Enable the Kubernetes connector UI for Identrail Cloud production builds"
 
       - name: Deploy to Vercel
         id: deploy-action

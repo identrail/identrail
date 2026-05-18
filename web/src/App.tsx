@@ -569,13 +569,15 @@ function PageHero({
   body,
   actions,
   visual,
+  visualHidden = true,
   variant
 }: {
   eyebrow: string;
   title: string;
   body?: ReactNode;
   actions?: ReactNode;
-  visual: ReactNode;
+  visual?: ReactNode;
+  visualHidden?: boolean;
   variant: PageHeroVariant;
 }) {
   return (
@@ -586,9 +588,11 @@ function PageHero({
         {body ? <p>{body}</p> : null}
         {actions ? <div className="idt-inline-actions">{actions}</div> : null}
       </div>
-      <div className="idt-page-hero-visual" aria-hidden="true">
-        {visual}
-      </div>
+      {visual ? (
+        <div className="idt-page-hero-visual" aria-hidden={visualHidden ? 'true' : undefined}>
+          {visual}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -601,22 +605,27 @@ function ProductHeroVisual() {
           <span />
           <span />
           <span />
-          <strong>Trust graph</strong>
+          <strong>Production trust graph</strong>
         </div>
         <div className="idt-product-hero-body">
-          <div className="idt-product-hero-sidebar">
-            <span className="is-active">Paths</span>
-            <span>Evidence</span>
-            <span>Fixes</span>
-          </div>
           <div className="idt-product-hero-graph">
+            <div className="idt-product-graph-title">
+              <span>Live path</span>
+              <strong>CI/CD identity to billing data</strong>
+            </div>
             <svg viewBox="0 0 720 420" aria-hidden="true" focusable="false">
-              <path className="is-muted" d="M118 118 C236 82 316 154 430 132 S600 92 658 166" />
-              <path className="is-risk" d="M310 236 C400 236 450 296 520 330 S620 358 675 318" />
-              <path className="is-safe" d="M196 330 C274 286 354 264 452 258" />
-              <circle className="idt-graph-node is-risk" cx="118" cy="118" r="6" />
-              <circle className="idt-graph-node is-risk" cx="452" cy="258" r="6" />
-              <circle className="idt-graph-node is-risk" cx="675" cy="318" r="6" />
+              <defs>
+                <marker id="idt-product-hero-arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto">
+                  <path d="M 1 1 L 11 6 L 1 11 L 3.4 6 Z" />
+                </marker>
+                <marker id="idt-product-hero-arrow-muted" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+                  <path d="M 1 1 L 11 6 L 1 11 L 3.4 6 Z" />
+                </marker>
+              </defs>
+              <path className="idt-product-graph-edge is-muted" d="M150 152 C230 166 284 209 338 248" />
+              <path className="idt-product-graph-edge is-proof" d="M162 334 C226 320 282 288 336 266" />
+              <path className="idt-product-graph-edge is-safe" d="M426 250 C500 220 545 164 606 128" />
+              <path className="idt-product-graph-edge is-risk" d="M428 278 C472 318 515 333 560 344" />
             </svg>
             <div className="idt-graph-pill is-github">
               <strong>GitHub OIDC</strong>
@@ -652,26 +661,11 @@ function ProductHeroVisual() {
 }
 
 function PricingHeroVisual() {
-  const plans = [
-    ['OSS', '$0', 'Self-hosted'],
-    ['Pro', '$59', 'Hosted trial'],
-    ['Enterprise', '$50k+', 'Private tenancy']
-  ] as const;
-
   return (
     <div className="idt-pricing-hero-visual">
       <div className="idt-pricing-hero-toggle">
         <span>Monthly</span>
         <strong>Annual - save 25%</strong>
-      </div>
-      <div className="idt-pricing-hero-plans">
-        {plans.map(([name, price, note]) => (
-          <div key={name} className={name === 'Pro' ? 'is-featured' : ''}>
-            <span>{name}</span>
-            <strong>{price}</strong>
-            <p>{note}</p>
-          </div>
-        ))}
       </div>
       <div className="idt-pricing-hero-matrix">
         <span>Capability</span>
@@ -701,29 +695,99 @@ function PricingHeroVisual() {
   );
 }
 
+const DOCS_PREVIEW_TABS = [
+  {
+    id: 'quickstart',
+    label: 'Quickstart',
+    kicker: 'Runbook',
+    title: 'Deploy read-only source collection',
+    bullets: ['Validate connector scope', 'Import trust-path evidence', 'Review first risk queue'],
+    command: [
+      ['identrail', 'command'],
+      ['scan', 'subcommand'],
+      ['--source', 'flag'],
+      ['kubernetes', 'value'],
+      ['--read-only', 'flag']
+    ]
+  },
+  {
+    id: 'connectors',
+    label: 'Connectors',
+    kicker: 'Integration',
+    title: 'Connect cloud and cluster identity sources',
+    bullets: ['Register AWS IAM role access', 'Attach Kubernetes read-only RBAC', 'Link GitHub OIDC workflow context'],
+    command: [
+      ['identrail', 'command'],
+      ['connector', 'subcommand'],
+      ['add', 'subcommand'],
+      ['kubernetes', 'value'],
+      ['--scope', 'flag'],
+      ['read-only', 'value']
+    ]
+  },
+  {
+    id: 'architecture',
+    label: 'Architecture',
+    kicker: 'Model',
+    title: 'Trace ingestion into the trust graph',
+    bullets: ['Normalize principals and assumptions', 'Build source-linked graph edges', 'Keep evidence packets attached'],
+    command: [
+      ['identrail', 'command'],
+      ['graph', 'subcommand'],
+      ['explain', 'subcommand'],
+      ['--path', 'flag'],
+      ['oidc-to-iam', 'value']
+    ]
+  },
+  {
+    id: 'operations',
+    label: 'Operations',
+    kicker: 'Workflow',
+    title: 'Simulate remediation before rollout',
+    bullets: ['Preview owner-ready fixes', 'Estimate workload impact', 'Export audit-ready timeline'],
+    command: [
+      ['identrail', 'command'],
+      ['fix', 'subcommand'],
+      ['simulate', 'subcommand'],
+      ['--target', 'flag'],
+      ['billing-prod', 'value']
+    ]
+  }
+] as const;
+
 function DocsHeroVisual() {
+  const [activeTabId, setActiveTabId] = useState<(typeof DOCS_PREVIEW_TABS)[number]['id']>('quickstart');
+  const activeTab = DOCS_PREVIEW_TABS.find((tab) => tab.id === activeTabId) ?? DOCS_PREVIEW_TABS[0];
+
   return (
     <div className="idt-docs-hero-visual">
       <div className="idt-docs-search-preview">
         <span>Search docs topics</span>
-        <strong>kubernetes connector hardening</strong>
+        <strong>{activeTab.title.toLowerCase()}</strong>
       </div>
       <div className="idt-docs-preview-shell">
-        <nav>
-          <span className="is-active">Quickstart</span>
-          <span>Connectors</span>
-          <span>Architecture</span>
-          <span>Operations</span>
+        <nav aria-label="Docs preview topics">
+          {DOCS_PREVIEW_TABS.map((tab) => (
+            <button key={tab.id} type="button" className={tab.id === activeTab.id ? 'is-active' : ''} onClick={() => setActiveTabId(tab.id)}>
+              {tab.label}
+            </button>
+          ))}
         </nav>
         <article>
-          <p>Runbook</p>
-          <h3>Deploy read-only source collection</h3>
+          <p>{activeTab.kicker}</p>
+          <h3>{activeTab.title}</h3>
           <ul>
-            <li>Validate connector scope</li>
-            <li>Import trust-path evidence</li>
-            <li>Review first risk queue</li>
+            {activeTab.bullets.map((bullet) => (
+              <li key={bullet}>{bullet}</li>
+            ))}
           </ul>
-          <code>identrail scan --source kubernetes --read-only</code>
+          <code aria-label={`${activeTab.command.map(([token]) => token).join(' ')} command`}>
+            {activeTab.command.map(([token, kind]) => (
+              <span key={`${activeTab.id}-${token}`} className={`is-${kind}`}>
+                {token}
+              </span>
+            ))}
+          </code>
         </article>
       </div>
     </div>
@@ -758,6 +822,59 @@ function BlogHeroVisual() {
         <strong>Cloud identity</strong>
       </div>
     </div>
+  );
+}
+
+const BLOG_ARTICLE_TREATMENTS = {
+  'Machine Identity Security': {
+    icon: '/brand-logos/openid.svg',
+    label: 'OpenID',
+    className: 'is-identity'
+  },
+  'AWS Security': {
+    icon: '/brand-logos/aws.svg',
+    label: 'AWS',
+    className: 'is-aws'
+  },
+  'Kubernetes Security': {
+    icon: '/brand-logos/kubernetes.svg',
+    label: 'Kubernetes',
+    className: 'is-kubernetes'
+  },
+  'Software Supply Chain': {
+    icon: '/brand-logos/github.svg',
+    label: 'GitHub',
+    className: 'is-supply-chain'
+  },
+  'Buying Guide': {
+    icon: '/favicon-64.png',
+    label: 'Identrail',
+    className: 'is-buying'
+  },
+  Compliance: {
+    icon: '/brand-logos/amazoniam.svg',
+    label: 'AWS IAM',
+    className: 'is-compliance'
+  },
+  'Platform Engineering': {
+    icon: '/brand-logos/terraform.svg',
+    label: 'Terraform',
+    className: 'is-platform'
+  },
+  'Security Leadership': {
+    icon: '/brand-logos/prometheus.svg',
+    label: 'Prometheus',
+    className: 'is-leadership'
+  }
+} as const;
+
+function getBlogArticleTreatment(category: string) {
+  return (
+    BLOG_ARTICLE_TREATMENTS[category as keyof typeof BLOG_ARTICLE_TREATMENTS] ?? {
+      icon: '/favicon-64.png',
+      label: 'Identrail',
+      className: 'is-default'
+    }
   );
 }
 
@@ -1036,12 +1153,6 @@ function CalendlyEmbed() {
               Talk to Sales
             </Link>
           </div>
-          <p className="idt-inline-link-note">
-            Need async scheduling?{' '}
-            <SafeLink href="mailto:sales@identrail.com" className="idt-inline-link">
-              Email sales
-            </SafeLink>
-          </p>
         </article>
         <aside className="idt-calendly-preview" aria-label="Demo agenda preview">
           <p className="idt-eyebrow">Sample agenda</p>
@@ -1160,12 +1271,19 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
 
     const dx = to.x - from.x;
     const dy = to.y - from.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const ux = dx / length;
+    const uy = dy / length;
+    const startX = from.x + ux * 5.8;
+    const startY = from.y + uy * 5.8;
+    const endX = to.x - ux * 7.2;
+    const endY = to.y - uy * 7.2;
     const bend = Math.min(12, Math.max(4.5, Math.abs(dx) * 0.14 + Math.abs(dy) * 0.06));
-    const c1x = from.x + dx * 0.32;
-    const c1y = from.y + dy * 0.16 - bend;
-    const c2x = to.x - dx * 0.26;
-    const c2y = to.y - dy * 0.12 + bend * 0.16;
-    return `M ${from.x} ${from.y} C ${c1x} ${c1y} ${c2x} ${c2y} ${to.x} ${to.y}`;
+    const c1x = startX + dx * 0.32;
+    const c1y = startY + dy * 0.16 - bend;
+    const c2x = endX - dx * 0.26;
+    const c2y = endY - dy * 0.12 + bend * 0.16;
+    return `M ${startX} ${startY} C ${c1x} ${c1y} ${c2x} ${c2y} ${endX} ${endY}`;
   };
 
   const connectedEdges = edges.filter((edge) => edge.from === selected.id || edge.to === selected.id);
@@ -1222,11 +1340,13 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
                 <stop offset="55%" stopColor="rgba(203, 222, 255, 0.95)" />
                 <stop offset="100%" stopColor="rgba(154, 184, 238, 0.42)" />
               </linearGradient>
+              <marker id={`idt-demo-edge-arrow-${variant}`} viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+                <path fill="context-stroke" d="M 1 1 L 11 6 L 1 11 L 3.2 6 Z" />
+              </marker>
             </defs>
             {edges.map((edge, index) => {
               const path = edgePath(edge.from, edge.to);
-              const toNode = getNode(edge.to);
-              if (!path || !toNode) {
+              if (!path) {
                 return null;
               }
 
@@ -1235,12 +1355,12 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
               return (
                 <g key={edge.id} className={edgeClass}>
                   <path className="idt-demo-edge-base" d={path} stroke={`url(#idt-demo-edge-base-gradient-${variant})`} />
+                  <path className="idt-demo-edge-arrow" d={path} markerEnd={`url(#idt-demo-edge-arrow-${variant})`} />
                   <path
                     className={`idt-demo-edge-flow idt-demo-edge-delay-${index}`}
                     d={path}
                     stroke={`url(#idt-demo-edge-flow-gradient-${variant})`}
                   />
-                  <circle className="idt-demo-edge-end" cx={toNode.x} cy={toNode.y} r={isConnected ? 0.72 : 0.56} />
                 </g>
               );
             })}
@@ -1466,7 +1586,7 @@ function RoiCalculator() {
 
 function DeploymentPathBanner() {
   return (
-    <section className="idt-section idt-shell idt-deployment-bridge" aria-label="Adoption paths">
+    <section className="idt-section idt-deployment-bridge" aria-label="Adoption paths">
       <div className="idt-deployment-panel">
         <p className="idt-eyebrow">Adoption Paths</p>
         <h2>Choose the deployment model that fits your operating constraints.</h2>
@@ -1545,7 +1665,7 @@ function DeploymentPathBanner() {
 
 function ProductTourSection() {
   return (
-    <section className="idt-section idt-shell idt-product-tour" aria-labelledby="product-tour-title">
+    <section className="idt-section idt-product-tour" aria-labelledby="product-tour-title">
       <div className="idt-product-tour-copy">
         <p className="idt-eyebrow">Product tour</p>
         <h2 id="product-tour-title">From connector setup to evidence-ready remediation.</h2>
@@ -1780,59 +1900,58 @@ function HomePage() {
 
       <TrustProofStrip />
 
-      <ProblemFramingSection />
+      <div className="idt-home-after-stack">
+        <ProblemFramingSection />
 
-      <CommandCenterSection />
+        <CommandCenterSection />
 
-      <ProductTourSection />
+        <ProductTourSection />
 
-      <HowItWorksSection />
+        <HowItWorksSection />
 
-      <DeploymentPathBanner />
+        <DeploymentPathBanner />
 
-      <section className="idt-section idt-shell">
-        <SectionTitle
-          eyebrow="Comparison"
-          title="Why teams choose Identrail over closed black-box workflows"
-          body="Compare on explainability, rollout safety, and day-two operability."
-        />
-        <div className="idt-table-wrap idt-home-compare">
-          <table className="idt-compare-table">
-            <thead>
-              <tr>
-                <th scope="col">Category</th>
-                <th scope="col">Identrail</th>
-                <th scope="col">Typical closed alternatives</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DIFFERENTIATION_ROWS.map((row) => (
-                <tr key={row.area}>
-                  <th scope="row">{row.area}</th>
-                  <td>{row.identrail}</td>
-                  <td>{row.closed}</td>
+        <section className="idt-section idt-home-compare-section">
+          <SectionTitle
+            eyebrow="Comparison"
+            title="Why teams choose Identrail over closed black-box workflows"
+            body="Compare on explainability, rollout safety, and day-two operability."
+          />
+          <div className="idt-table-wrap idt-home-compare">
+            <table className="idt-compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col">Identrail</th>
+                  <th scope="col">Typical closed alternatives</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {DIFFERENTIATION_ROWS.map((row) => (
+                  <tr key={row.area}>
+                    <th scope="row">{row.area}</th>
+                    <td>{row.identrail}</td>
+                    <td>{row.closed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      <section className="idt-section idt-shell idt-final-cta" id="risk-scan-form">
-        <SectionTitle
-          eyebrow="Ready to evaluate"
-          title="Map your first production trust path in minutes"
-          body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
-        />
-        <div className="idt-inline-actions">
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
-          </Link>
-          <Link to="/enterprise" className="idt-final-cta-link">
-            Need enterprise procurement? Contact Sales →
-          </Link>
-        </div>
-      </section>
+        <section className="idt-section idt-final-cta idt-home-final-cta" id="enterprise-procurement">
+          <SectionTitle
+            eyebrow="Ready to evaluate"
+            title="Map your first production trust path in minutes"
+            body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
+          />
+          <div className="idt-inline-actions">
+            <Link to="/enterprise" className="idt-btn idt-btn-primary">
+              Need enterprise procurement? Contact Sales
+            </Link>
+          </div>
+        </section>
+      </div>
     </>
   );
 }
@@ -2497,10 +2616,10 @@ function PricingPage() {
   const [annual, setAnnual] = useState(true);
   const [salesModalOpen, setSalesModalOpen] = useState(false);
 
-  const proPrice = annual ? 59 : 79;
+  const proPrice = annual ? 30 : 39;
 
   return (
-    <>
+    <div className="idt-marketing-page idt-pricing-page">
       <PageHero
         eyebrow="Pricing"
         title="Pricing aligned to how teams adopt machine identity security"
@@ -2510,7 +2629,7 @@ function PricingPage() {
         actions={
           <>
             <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
+              Start Pro Trial
             </Link>
             <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
               Talk to Enterprise
@@ -2567,14 +2686,14 @@ function PricingPage() {
               <li>SAML SSO, alerts, and workflow integrations</li>
               <li>14-day hosted trial with guided setup</li>
             </ul>
-            <Link to="/enterprise" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+              Start Pro Trial
             </Link>
           </article>
 
           <article className="idt-pricing-card">
             <h2>Enterprise</h2>
-            <p className="idt-price">Starting at $50k/yr</p>
+            <p className="idt-price">Custom quote</p>
             <p className="idt-plan-fit">
               <strong>Best for:</strong> Private deployment, procurement workflows, and advanced governance.
             </p>
@@ -2657,7 +2776,7 @@ function PricingPage() {
           />
         </ModalShell>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -2958,13 +3077,14 @@ function DocsPage() {
   });
 
   return (
-    <>
+    <div className="idt-marketing-page idt-docs-page">
       <PageHero
         eyebrow="Docs"
         title="Deploy, connect, and operate Identrail in production"
         body="Fast search, practical runbooks, and source-linked operator docs for production rollouts."
         variant="docs"
         visual={<DocsHeroVisual />}
+        visualHidden={false}
         actions={
           <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-primary">
             Open Full GitHub Docs
@@ -3026,7 +3146,7 @@ function DocsPage() {
       <section className="idt-section idt-shell">
         <CalendlyEmbed />
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3040,38 +3160,40 @@ function BlogPage() {
   });
 
   return (
-    <>
+    <div className="idt-marketing-page idt-blog-page">
       <PageHero
         eyebrow="Blog & Resources"
         title="Actionable content for security and platform teams operating machine identities"
         body="Educational deep dives, implementation playbooks, and strategic guidance for enterprise buyers."
         variant="blog"
-        visual={<BlogHeroVisual />}
-        actions={
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
-          </Link>
-        }
       />
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-blog-grid">
-          {BLOG_POSTS.map((post) => (
-            <article key={post.slug} className="idt-card">
-              <p className="idt-chip-row">
-                <span>{post.category}</span>
-                <span>{post.readTime}</span>
-              </p>
-              <h2>{post.title}</h2>
-              <p>{post.description}</p>
-              <Link to={`/blog/${post.slug}`} className="idt-btn idt-btn-ghost">
-                Read article
-              </Link>
-            </article>
-          ))}
+          {BLOG_POSTS.map((post) => {
+            const treatment = getBlogArticleTreatment(post.category);
+            return (
+              <article key={post.slug} className={`idt-card idt-blog-card ${treatment.className}`}>
+                <div className="idt-blog-card-head">
+                  <span className="idt-blog-card-logo">
+                    <img src={treatment.icon} alt={`${treatment.label} logo`} loading="lazy" />
+                  </span>
+                  <p className="idt-chip-row">
+                    <span>{post.category}</span>
+                    <span>{post.readTime}</span>
+                  </p>
+                </div>
+                <h2>{post.title}</h2>
+                <p>{post.description}</p>
+                <Link to={`/blog/${post.slug}`} className="idt-btn idt-btn-ghost">
+                  Read article
+                </Link>
+              </article>
+            );
+          })}
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -3306,7 +3428,7 @@ function AboutPage() {
   });
 
   return (
-    <>
+    <div className="idt-marketing-page idt-about-page">
       <PageHero
         eyebrow="Company"
         title="Building the future control plane for machine identity security"
@@ -3345,7 +3467,7 @@ function AboutPage() {
           </article>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 

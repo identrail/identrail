@@ -39,7 +39,8 @@ async function renderProductIndexRedirect(featureEnabled: boolean, backendOnboar
       useBackendFeatures: () => ({
         features: {
           onboardingWizard: backendOnboarding,
-          connectors: { github: undefined, aws: undefined, kubernetes: undefined }
+          connectors: { github: undefined, aws: undefined, kubernetes: undefined },
+          configReachable: true
         },
         loading: false
       })
@@ -130,7 +131,8 @@ async function renderProjectDetail(
       useBackendFeatures: () => ({
         features: {
           onboardingWizard: undefined,
-          connectors: { github: githubBackend, aws: undefined, kubernetes: undefined }
+          connectors: { github: githubBackend, aws: undefined, kubernetes: undefined },
+          configReachable: true
         },
         loading: false
       })
