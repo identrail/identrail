@@ -106,4 +106,21 @@ func TestOAuthStateManagerPreviousKeyRotation(t *testing.T) {
 	if _, err := NewOAuthStateManager(newKey, clock).WithPreviousSecret(strings.TrimSpace(wsKey)).Decode(wsRaw); !errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("trimmed previous key must NOT verify whitespace-key state, got %v", err)
 	}
+
+	// A whitespace-only previous key is treated as unset (matching config
+	// semantics), so it never becomes an accidental low-entropy verification
+	// key: state forged under that whitespace value must be rejected.
+	for _, blank := range []string{"   ", "\n", "\t "} {
+		mgr := NewOAuthStateManager(newKey, clock).WithPreviousSecret(blank)
+		forged, ferr := NewOAuthStateManager(blank, clock).Issue("login", "/app")
+		if ferr != nil {
+			t.Fatalf("issue under blank key %q: %v", blank, ferr)
+		}
+		if _, err := mgr.Decode(forged); !errors.Is(err, ErrOAuthStateInvalid) {
+			t.Fatalf("whitespace-only previous key %q must be unset, forged state accepted: %v", blank, err)
+		}
+		if _, err := mgr.Decode(raw); !errors.Is(err, ErrOAuthStateInvalid) {
+			t.Fatalf("whitespace-only previous key %q must not verify old-key state: %v", blank, err)
+		}
+	}
 }

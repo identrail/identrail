@@ -61,18 +61,23 @@ func NewOAuthStateManager(secret string, now func() time.Time) *OAuthStateManage
 // with the active secret; the previous secret is never used to issue tokens.
 // An empty previous secret clears any prior value.
 //
-// The bytes are stored verbatim, exactly as NewOAuthStateManager stores the
-// active secret. This is deliberate: state is signed with the active key's
-// raw bytes, so after a rotation the same raw bytes must be presented as the
-// previous key for in-flight signatures to verify. Trimming here (while the
-// active path does not) would break the rotation grace window for any
-// deployment whose key has surrounding whitespace. Returns the manager so it
-// can be chained off the constructor.
+// Set/clear is decided on the trimmed value so a whitespace-only string
+// (e.g. injected by env templating or a stray newline) is treated as unset,
+// matching how config (security.go) decides whether
+// IDENTRAIL_SESSION_KEY_PREVIOUS is configured. This prevents an accidental
+// low-entropy fallback key from ever being accepted for verification.
+//
+// When a real key is present it is stored verbatim, exactly as
+// NewOAuthStateManager stores the active secret. This is deliberate: state
+// is signed with the active key's raw bytes, so after a rotation the same
+// raw bytes (including any surrounding whitespace that was part of the real
+// key) must be presented as the previous key for in-flight signatures to
+// verify. Returns the manager so it can be chained off the constructor.
 func (m *OAuthStateManager) WithPreviousSecret(previous string) *OAuthStateManager {
 	if m == nil {
 		return m
 	}
-	if previous != "" {
+	if strings.TrimSpace(previous) != "" {
 		m.previous = []byte(previous)
 	} else {
 		m.previous = nil
