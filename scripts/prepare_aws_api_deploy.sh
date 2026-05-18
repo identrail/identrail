@@ -190,8 +190,11 @@ optional_bool API_WORKER_ENABLED
 worker_container_image="$(trim "${API_WORKER_CONTAINER_IMAGE:-}")"
 if [ "${api_worker_enabled}" = "true" ]; then
   if [ -z "${worker_container_image}" ]; then
+    if [[ "${api_container_image}" == *"@sha256:"* ]]; then
+      fail "API_WORKER_CONTAINER_IMAGE must be set explicitly when API_CONTAINER_IMAGE uses a digest"
+    fi
+
     worker_container_image="${api_container_image/\/identrail-api:/\/identrail-worker:}"
-    worker_container_image="${worker_container_image/\/identrail-api@sha256:/\/identrail-worker@sha256:}"
   fi
   if ! [[ "${worker_container_image}" =~ ^ghcr\.io/identrail/identrail-worker:(sha-[0-9a-f]{12,40}|v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ || "${worker_container_image}" =~ ^ghcr\.io/identrail/identrail-worker@sha256:[0-9a-f]{64}$ ]]; then
     fail "API_WORKER_CONTAINER_IMAGE must be an immutable ghcr.io/identrail/identrail-worker image, such as ghcr.io/identrail/identrail-worker:sha-<commit>"
