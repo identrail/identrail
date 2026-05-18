@@ -305,6 +305,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			workOSClient = sessionauth.NewWorkOSSDKClient(opts.WorkOSAPIKey, opts.WorkOSClientID)
 		}
 		stateManager := sessionauth.NewOAuthStateManager(opts.SessionKey, nil)
+		// The signed-state replay map is process-local; back the WorkOS OAuth
+		// flow with a store-backed, browser-bound transaction so a captured
+		// state cannot be replayed against another API instance and a valid
+		// state alone (without the issuing browser's cookie) is rejected.
+		var oauthTransactionStore *sessionauth.OAuthTransactionStore
+		if svc != nil && svc.Store != nil {
+			oauthTransactionStore = sessionauth.NewOAuthTransactionStore(svc.Store, svc.Now)
+		}
 		registerAuthSessionRoutes(r, logger, svc, sessionManager, authSessionRouteOptions{
 			AuditSink:           opts.AuditSink,
 			AuditFingerprinter:  opts.AuditFingerprinter,
@@ -314,6 +322,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			WorkOSClient:        workOSClient,
 			WorkOSWebhookSecret: opts.WorkOSWebhookSecret,
 			StateManager:        stateManager,
+			TransactionStore:    oauthTransactionStore,
 			PendingMFAManager:   sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil),
 			PublicBaseURL:       opts.PublicBaseURL,
 			ReturnToOrigins:     authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),

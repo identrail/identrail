@@ -547,6 +547,95 @@ func postgresSAMLRelayStateRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"handle", "connection_id", "saml_request_id", "return_to", "intent", "expires_at", "consumed_at", "created_at"})
 }
 
+func postgresOAuthTransactionRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"nonce", "cookie_token", "intent", "return_to", "expected_user_id", "expected_session_id", "expires_at", "consumed_at", "created_at"})
+}
+
+func TestPostgresConsumeOAuthTransactionMatchesCookieAndPrunes(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(10 * time.Minute)
+	createdAt := now.Add(-time.Minute)
+
+	mock.ExpectQuery("UPDATE oauth_transactions").
+		WithArgs("nonce-1", "cookie-token-1", now).
+		WillReturnRows(postgresOAuthTransactionRows().AddRow(
+			"nonce-1", "cookie-token-1", "login", "/app/welcome", "", "", expiresAt, now, createdAt,
+		))
+	mock.ExpectExec("DELETE FROM oauth_transactions").
+		WithArgs(now).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+
+	txn, err := store.ConsumeOAuthTransaction(ctx, " nonce-1 ", " cookie-token-1 ", now)
+	if err != nil {
+		t.Fatalf("consume oauth transaction: %v", err)
+	}
+	if txn.Nonce != "nonce-1" || txn.ConsumedAt == nil || txn.ReturnTo != "/app/welcome" {
+		t.Fatalf("unexpected oauth transaction: %+v", txn)
+	}
+	if _, err := store.ConsumeOAuthTransaction(ctx, "nonce-1", "", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty cookie token should return ErrNotFound, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestPostgresCreateOAuthTransactionBypassesScopeAndMapsConflict(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 18, 11, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(10 * time.Minute)
+
+	mock.ExpectQuery("INSERT INTO oauth_transactions").
+		WithArgs("nonce-1", "cookie-token-1", "login", "/app", "", "", expiresAt, now).
+		WillReturnRows(postgresOAuthTransactionRows().AddRow(
+			"nonce-1", "cookie-token-1", "login", "/app", "", "", expiresAt, nil, now,
+		))
+	txn, err := store.CreateOAuthTransaction(ctx, OAuthTransaction{
+		Nonce:       " nonce-1 ",
+		CookieToken: " cookie-token-1 ",
+		Intent:      " login ",
+		ReturnTo:    "/app",
+		ExpiresAt:   expiresAt,
+		CreatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("create oauth transaction: %v", err)
+	}
+	if txn.Nonce != "nonce-1" || txn.ConsumedAt != nil {
+		t.Fatalf("unexpected oauth transaction: %+v", txn)
+	}
+
+	mock.ExpectQuery("INSERT INTO oauth_transactions").
+		WillReturnError(testSQLStateError("23505"))
+	if _, err := store.CreateOAuthTransaction(ctx, OAuthTransaction{
+		Nonce:       "duplicate",
+		CookieToken: "cookie-token-2",
+		ExpiresAt:   expiresAt,
+		CreatedAt:   now,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate nonce should map to ErrConflict, got %v", err)
+	}
+	if _, err := store.CreateOAuthTransaction(ctx, OAuthTransaction{}); err == nil {
+		t.Fatal("missing nonce should be rejected")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func postgresSCIMProvisioningEventRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "org_id", "connection_id", "op", "external_id", "user_id", "payload", "occurred_at"})
 }

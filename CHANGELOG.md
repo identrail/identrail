@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Hardened the WorkOS OAuth login flow with a store-backed, browser-bound
+  transaction. The signed `state` token is no longer protected only by a
+  process-local replay map: `/auth/login` and `/auth/signup` now persist an
+  `oauth_transactions` row and set a short-lived `HttpOnly`, `Secure`,
+  `SameSite=Lax` transaction cookie, and `/auth/callback` requires the signed
+  state, the transaction cookie, and the persisted row to match before
+  atomically consuming it. Replays fail across every API instance that shares
+  the database, callbacks without the issuing browser's cookie are rejected,
+  and the post-login return target is read from the persisted row instead of
+  the URL.
 - Fixed the authenticated workspace Settings view so a `whoami` response with
   `scopes: null` renders as `None granted` instead of tripping the app error
   boundary, and replaced the fallback error copy with user-facing workspace

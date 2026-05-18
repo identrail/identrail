@@ -88,6 +88,41 @@ func (m *OAuthStateManager) IssueWithSAML(intent, returnTo, connectionID, samlRe
 	return payloadPart + "." + signature, nil
 }
 
+// Decode verifies the HMAC signature and expiry of a signed state token and
+// returns the embedded state WITHOUT marking the nonce consumed. The start
+// handler uses it to recover the freshly minted nonce so it can bind a
+// store-backed, browser-bound transaction to it. Single-use enforcement is
+// the job of Consume and the store-backed OAuth transaction.
+func (m *OAuthStateManager) Decode(raw string) (OAuthState, error) {
+	if m == nil || len(m.secret) == 0 {
+		return OAuthState{}, ErrOAuthStateInvalid
+	}
+	raw = strings.TrimSpace(raw)
+	parts := strings.Split(raw, ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return OAuthState{}, ErrOAuthStateInvalid
+	}
+	expected := signOAuthState(m.secret, parts[0])
+	if !hmac.Equal([]byte(expected), []byte(parts[1])) {
+		return OAuthState{}, ErrOAuthStateInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return OAuthState{}, ErrOAuthStateInvalid
+	}
+	var state OAuthState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		return OAuthState{}, ErrOAuthStateInvalid
+	}
+	if state.Nonce == "" || state.ExpiresAt <= 0 {
+		return OAuthState{}, ErrOAuthStateInvalid
+	}
+	if !time.Unix(state.ExpiresAt, 0).After(m.now()) {
+		return OAuthState{}, ErrOAuthStateExpired
+	}
+	return state, nil
+}
+
 func (m *OAuthStateManager) Consume(raw string) (OAuthState, error) {
 	if m == nil || len(m.secret) == 0 {
 		return OAuthState{}, ErrOAuthStateInvalid

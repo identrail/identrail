@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"sort"
 	"strings"
@@ -479,6 +480,70 @@ func (m *MemoryStore) ConsumeSAMLRelayState(ctx context.Context, handle string, 
 	state.ConsumedAt = &consumed
 	delete(m.samlRelayStates, handle)
 	return state, nil
+}
+
+// CreateOAuthTransaction persists one in-flight WorkOS OAuth login keyed by
+// the signed-state nonce. Used by /auth/login and /auth/signup; one-shot
+// consumed by /auth/callback.
+func (m *MemoryStore) CreateOAuthTransaction(ctx context.Context, txn OAuthTransaction) (OAuthTransaction, error) {
+	txn.Nonce = strings.TrimSpace(txn.Nonce)
+	if txn.Nonce == "" {
+		return OAuthTransaction{}, fmt.Errorf("oauth transaction nonce is required")
+	}
+	txn.CookieToken = strings.TrimSpace(txn.CookieToken)
+	if txn.CookieToken == "" {
+		return OAuthTransaction{}, fmt.Errorf("oauth transaction cookie token is required")
+	}
+	if txn.ExpiresAt.IsZero() {
+		return OAuthTransaction{}, fmt.Errorf("oauth transaction requires expires_at")
+	}
+	if txn.CreatedAt.IsZero() {
+		txn.CreatedAt = time.Now().UTC()
+	} else {
+		txn.CreatedAt = txn.CreatedAt.UTC()
+	}
+	txn.ExpiresAt = txn.ExpiresAt.UTC()
+	txn.Intent = strings.TrimSpace(txn.Intent)
+	txn.ConsumedAt = nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.oauthTransactions[txn.Nonce]; exists {
+		return OAuthTransaction{}, ErrConflict
+	}
+	m.oauthTransactions[txn.Nonce] = txn
+	return txn, nil
+}
+
+// ConsumeOAuthTransaction atomically consumes the row matching nonce and
+// cookieToken. Re-consuming, an expired row, a missing row, or a
+// cookie-token mismatch all return ErrNotFound so the OAuth state cannot be
+// replayed.
+func (m *MemoryStore) ConsumeOAuthTransaction(ctx context.Context, nonce string, cookieToken string, now time.Time) (OAuthTransaction, error) {
+	nonce = strings.TrimSpace(nonce)
+	cookieToken = strings.TrimSpace(cookieToken)
+	if nonce == "" || cookieToken == "" {
+		return OAuthTransaction{}, ErrNotFound
+	}
+	now = now.UTC()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Sweep expired entries first so a stale row cannot accumulate.
+	for n, t := range m.oauthTransactions {
+		if !t.ExpiresAt.After(now) {
+			delete(m.oauthTransactions, n)
+		}
+	}
+	txn, exists := m.oauthTransactions[nonce]
+	if !exists || txn.ConsumedAt != nil {
+		return OAuthTransaction{}, ErrNotFound
+	}
+	if subtle.ConstantTimeCompare([]byte(txn.CookieToken), []byte(cookieToken)) != 1 {
+		return OAuthTransaction{}, ErrNotFound
+	}
+	consumed := now
+	txn.ConsumedAt = &consumed
+	delete(m.oauthTransactions, nonce)
+	return txn, nil
 }
 
 // CreateSCIMProvisioningEvent appends one SCIM provisioning event to the
