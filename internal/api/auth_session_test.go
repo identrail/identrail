@@ -182,6 +182,8 @@ func TestCookieBackedWorkspaceSwitchUpdatesSessionContext(t *testing.T) {
 
 	switchReq := httptest.NewRequest(http.MethodPost, "/v1/workspaces/active", strings.NewReader(`{"workspace_id":"workspace-b"}`))
 	switchReq.Header.Set("Content-Type", "application/json")
+	switchReq.Header.Set("Origin", "http://localhost:8080")
+	switchReq.Header.Set("Content-Type", "application/json")
 	switchReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
 	switchResp := httptest.NewRecorder()
 	router.ServeHTTP(switchResp, switchReq)
@@ -428,6 +430,7 @@ func TestCurrentSessionRejectsTamperedCookie(t *testing.T) {
 func TestCurrentSessionRevokeOthersKeepsCurrentSession(t *testing.T) {
 	harness, cookieValue, _ := setupSessionRouter(t)
 	req := httptest.NewRequest(http.MethodPost, "/v1/me/sessions/revoke-others", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
 	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
 	w := httptest.NewRecorder()
 	harness.router.ServeHTTP(w, req)
@@ -450,6 +453,7 @@ func TestCurrentSessionRevokeOthersKeepsCurrentSession(t *testing.T) {
 func TestCurrentSessionDeleteCurrentSessionClearsCookie(t *testing.T) {
 	harness, cookieValue, currentPublicID := setupSessionRouter(t)
 	req := httptest.NewRequest(http.MethodDelete, "/v1/me/sessions/"+currentPublicID, nil)
+	req.Header.Set("Origin", "http://localhost:8080")
 	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
 	w := httptest.NewRecorder()
 	harness.router.ServeHTTP(w, req)
