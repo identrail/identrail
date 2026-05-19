@@ -14,7 +14,8 @@ func TestRepositoryClientCollectRepositoryPostureHappyPath(t *testing.T) {
 	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer inst-token" {
-			t.Fatalf("missing installation token for %s", r.URL.String())
+			t.Errorf("missing installation token for %s", r.URL.String())
+			return
 		}
 		w.Header().Set("X-RateLimit-Limit", "5000")
 		w.Header().Set("X-RateLimit-Remaining", "4990")
@@ -41,7 +42,8 @@ func TestRepositoryClientCollectRepositoryPostureHappyPath(t *testing.T) {
 			}`))
 		case "/repos/owner/repo/rulesets":
 			if r.URL.Query().Get("targets") != "branch" {
-				t.Fatalf("expected branch ruleset target, got %s", r.URL.RawQuery)
+				t.Errorf("expected branch ruleset target, got %s", r.URL.RawQuery)
+				return
 			}
 			_, _ = w.Write([]byte(`[{"id":1,"name":"main","target":"branch","enforcement":"active","rules":[{"type":"pull_request"}]}]`))
 		case "/repos/owner/repo/actions/permissions":
@@ -67,7 +69,8 @@ func TestRepositoryClientCollectRepositoryPostureHappyPath(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"total_count":2,"environments":[{"name":"staging","protection_rules":[{"type":"required_reviewers"}]}]}`))
 		default:
-			t.Fatalf("unexpected posture path %s", r.URL.String())
+			t.Errorf("unexpected posture path %s", r.URL.String())
+			return
 		}
 	}))
 	defer server.Close()
@@ -130,7 +133,8 @@ func TestRepositoryClientCollectRepositoryPostureClassifiesWeakSettings(t *testi
 		case "/repos/owner/repo/environments":
 			_, _ = w.Write([]byte(`{"total_count":1,"environments":[{"name":"production","protection_rules":[]}]}`))
 		default:
-			t.Fatalf("unexpected posture path %s", r.URL.String())
+			t.Errorf("unexpected posture path %s", r.URL.String())
+			return
 		}
 	}))
 	defer server.Close()
@@ -178,7 +182,8 @@ func TestRepositoryClientCollectRepositoryPosturePermissionAndRateLimitStates(t 
 		case "/repos/owner/repo/environments":
 			_, _ = w.Write([]byte(`{"total_count":0,"environments":[]}`))
 		default:
-			t.Fatalf("unexpected posture path %s", r.URL.String())
+			t.Errorf("unexpected posture path %s", r.URL.String())
+			return
 		}
 	}))
 	defer server.Close()

@@ -201,9 +201,19 @@ func (c RepositoryClient) CollectRepositoryPosture(ctx context.Context, installa
 
 	defaultBranch := strings.TrimSpace(metadata.DefaultBranch)
 	if defaultBranch == "" {
-		defaultBranch = "HEAD"
+		posture.Checks = append(posture.Checks, RepositoryPostureCheck{
+			ID:       "default_branch_protection",
+			Category: "branch_protection",
+			State:    RepositoryPostureStateUnavailable,
+			Reason:   "default_branch_unknown",
+			Summary:  "Repository metadata did not include a default branch, so branch protection posture could not be collected.",
+			Evidence: map[string]any{
+				"repository": normalizedRepository,
+			},
+		})
+	} else {
+		posture.Checks = append(posture.Checks, c.collectBranchProtection(ctx, token.Token, normalizedRepository, defaultBranch, updateRate))
 	}
-	posture.Checks = append(posture.Checks, c.collectBranchProtection(ctx, token.Token, normalizedRepository, defaultBranch, updateRate))
 	posture.Checks = append(posture.Checks, c.collectRulesets(ctx, token.Token, normalizedRepository, updateRate))
 	posture.Checks = append(posture.Checks, c.collectActionsPermissions(ctx, token.Token, normalizedRepository, updateRate))
 	posture.Checks = append(posture.Checks, c.collectDependabot(ctx, token.Token, normalizedRepository, updateRate))
@@ -763,8 +773,14 @@ func (c RepositoryClient) doGitHubRequestRaw(ctx context.Context, token string, 
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("call github posture api: %w", err)
 	}
-	body, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
-	_ = res.Body.Close()
+	body, bodyErr := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	closeErr := res.Body.Close()
+	if bodyErr != nil {
+		return nil, nil, "", fmt.Errorf("read github posture response body: %w", bodyErr)
+	}
+	if closeErr != nil {
+		return nil, nil, "", fmt.Errorf("close github posture response body: %w", closeErr)
+	}
 	rateLimit := rateLimitStateFromHeaders(res.Header)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return nil, rateLimit, "", githubAPIRequestError{
