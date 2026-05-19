@@ -1,15 +1,23 @@
-name: AWS API Log Diagnostics
+name: AWS Service Log Diagnostics
 
 on:
   workflow_dispatch:
     inputs:
       minutes:
-        description: "How many recent minutes of API logs to inspect."
+        description: "How many recent minutes of service logs to inspect."
         required: true
         type: string
         default: "60"
+      service:
+        description: "Hosted service log group to inspect."
+        required: true
+        type: choice
+        default: "api"
+        options:
+          - api
+          - worker
       filter_pattern:
-        description: "CloudWatch Logs filter pattern. Use <none> to fetch recent API events without a filter."
+        description: "CloudWatch Logs filter pattern. Use <none> to fetch recent service events without a filter."
         required: false
         type: string
         default: '"authenticate workos callback"'
@@ -24,19 +32,19 @@ permissions:
   id-token: write
 
 concurrency:
-  group: aws-api-log-diagnostics
+  group: aws-service-log-diagnostics
   cancel-in-progress: false
 
 jobs:
   inspect:
-    name: Inspect AWS API logs
+    name: Inspect AWS service logs
     if: github.repository == 'identrail/identrail'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
-      LOG_GROUP_NAME: /identrail/dev/api
+      LOG_SERVICE: ${{ inputs.service }}
       FILTER_PATTERN: ${{ inputs.filter_pattern }}
       LOOKBACK_MINUTES: ${{ inputs.minutes }}
       MAX_EVENTS: ${{ inputs.max_events }}
@@ -85,10 +93,23 @@ jobs:
             exit 1
           fi
 
+          log_service="$(printf '%s' "${LOG_SERVICE}" | tr -d '[:space:]')"
+          case "${log_service}" in
+            api|worker)
+              log_group_name="/identrail/dev/${log_service}"
+              ;;
+            *)
+              echo "service must be one of: api, worker."
+              exit 1
+              ;;
+          esac
+
           {
             echo "AWS_REGION=${aws_region}"
             echo "AWS_DEFAULT_REGION=${aws_region}"
             echo "AWS_ROLE_ARN=${aws_role_arn}"
+            echo "LOG_GROUP_NAME=${log_group_name}"
+            echo "LOG_SERVICE=${log_service}"
           } >> "${GITHUB_ENV}"
 
       - name: Configure AWS credentials from GitHub OIDC
@@ -110,7 +131,7 @@ jobs:
           credentials="$(
             aws sts assume-role-with-web-identity \
               --role-arn "${AWS_ROLE_ARN}" \
-              --role-session-name "identrail-api-logs-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --role-session-name "identrail-${LOG_SERVICE}-logs-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
               --web-identity-token "${oidc_token}" \
               --duration-seconds 900 \
               --query 'Credentials' \
@@ -128,13 +149,13 @@ jobs:
             echo "AWS_SESSION_TOKEN=${session_token}"
           } >> "${GITHUB_ENV}"
 
-      - name: Fetch sanitized API log events
+      - name: Fetch sanitized service log events
         shell: bash
         run: |
           set -euo pipefail
 
           start_time_ms="$(( $(date +%s) * 1000 - LOOKBACK_MINUTES * 60 * 1000 ))"
-          events_file="${RUNNER_TEMP}/identrail-api-log-events.json"
+          events_file="${RUNNER_TEMP}/identrail-${LOG_SERVICE}-log-events.json"
           printf '{"events":[]}\n' > "${events_file}"
           filter_pattern="$(printf '%s' "${FILTER_PATTERN}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           filter_pattern_lower="${filter_pattern,,}"
@@ -148,7 +169,7 @@ jobs:
           max_pages=20
 
           while :; do
-            page_file="${RUNNER_TEMP}/identrail-api-log-events-page-${pages_scanned}.json"
+            page_file="${RUNNER_TEMP}/identrail-${LOG_SERVICE}-log-events-page-${pages_scanned}.json"
             args=(
               --log-group-name "${LOG_GROUP_NAME}"
               --start-time "${start_time_ms}"
@@ -180,8 +201,9 @@ jobs:
           event_count="$(jq '.events | length' "${events_file}")"
 
           {
-            echo "## AWS API log diagnostics"
+            echo "## AWS service log diagnostics"
             echo
+            echo "- Service: \`${LOG_SERVICE}\`"
             echo "- Log group: \`${LOG_GROUP_NAME}\`"
             echo "- Lookback: \`${LOOKBACK_MINUTES}\` minutes"
             echo "- Filter pattern: \`${filter_pattern:-<none>}\`"
@@ -193,7 +215,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [ "${event_count}" -eq 0 ]; then
-            echo "No matching API log events found."
+            echo "No matching service log events found."
             exit 0
           fi
 
