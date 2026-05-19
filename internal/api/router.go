@@ -2000,6 +2000,43 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, response)
 	})
 
+	v1.GET("/connectors/github/:connector_id/posture", func(c *gin.Context) {
+		if !featureConnectorGitHubV2 {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		response, err := svc.GetGitHubConnectorRepositoryPosture(
+			c.Request.Context(),
+			c.Param("connector_id"),
+			c.Query("workspace_id"),
+			c.Query("project_id"),
+			c.Query("repository"),
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "github connector not found"})
+			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
+			case errors.Is(err, ErrRepoTargetNotAllowed):
+				c.JSON(http.StatusForbidden, gin.H{"error": "github repository is not selected for this connector"})
+			case errors.Is(err, ErrGitHubRepositoryPostureUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github repository posture unavailable"})
+			default:
+				if logger != nil {
+					logger.Error("collect github repository posture", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to collect github repository posture"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	})
+
 	v1.POST("/workspaces/:workspace_id/projects/:project_id/aws/connection", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
@@ -43,6 +44,22 @@ type fakeGitHubRepositoryLister struct {
 func (f *fakeGitHubRepositoryLister) ListInstallationRepositories(ctx context.Context, installationID int64) ([]githubconnector.Repository, error) {
 	f.seenInstallationID = installationID
 	return f.repositories, f.err
+}
+
+type fakeGitHubRepositoryPostureCollector struct {
+	seenInstallationID int64
+	seenRepository     string
+	posture            githubconnector.RepositoryPosture
+	err                error
+}
+
+func (f *fakeGitHubRepositoryPostureCollector) CollectRepositoryPosture(ctx context.Context, installationID int64, repository string) (githubconnector.RepositoryPosture, error) {
+	f.seenInstallationID = installationID
+	f.seenRepository = repository
+	if f.err != nil {
+		return githubconnector.RepositoryPosture{}, f.err
+	}
+	return f.posture, nil
 }
 
 func TestRouterGitHubConnectorV2StartsAppInstall(t *testing.T) {
@@ -158,6 +175,71 @@ func TestRouterGitHubConnectorV2CompletesAppInstall(t *testing.T) {
 	}
 	if repoBody.Provider != "github_app" || len(repoBody.Repositories) != 2 {
 		t.Fatalf("expected github app repositories, got %+v", repoBody)
+	}
+}
+
+func TestRouterGitHubConnectorV2CollectsRepositoryPosture(t *testing.T) {
+	lister := &fakeGitHubRepositoryLister{
+		repositories: []githubconnector.Repository{{FullName: "identrail/api", Private: true}},
+	}
+	collector := &fakeGitHubRepositoryPostureCollector{
+		posture: githubconnector.RepositoryPosture{
+			Repository:     "identrail/api",
+			InstallationID: 12345,
+			CollectedAt:    time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC),
+			Checks: []githubconnector.RepositoryPostureCheck{
+				{
+					ID:       "default_branch_protection",
+					Category: "branch_protection",
+					State:    githubconnector.RepositoryPostureStateSecure,
+					Reason:   "protection_enforced",
+					Summary:  "Default branch protection requires reviews and status checks.",
+				},
+			},
+		},
+	}
+	store := db.NewMemoryStore()
+	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
+	svc.GitHubRepositoryPostureCollector = collector
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"redirect_uri":"https://app.identrail.com/app/github/callback"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody GitHubConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
+		"state":%q,
+		"installation_id":12345
+	}`, startBody.State))
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+
+	postureResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-app/posture?workspace_id=workspace-a&project_id=project-1&repository=Identrail/API", "")
+	if postureResp.Code != http.StatusOK {
+		t.Fatalf("expected github posture 200, got %d body=%s", postureResp.Code, postureResp.Body.String())
+	}
+	var postureBody GitHubRepositoryPostureResponse
+	if err := json.Unmarshal(postureResp.Body.Bytes(), &postureBody); err != nil {
+		t.Fatalf("decode posture response: %v", err)
+	}
+	if collector.seenInstallationID != 12345 || collector.seenRepository != "identrail/api" {
+		t.Fatalf("unexpected collector call installation=%d repository=%q", collector.seenInstallationID, collector.seenRepository)
+	}
+	if postureBody.ConnectorID != githubConnectorID || postureBody.Provider != "github_app" || postureBody.Posture.Repository != "identrail/api" {
+		t.Fatalf("unexpected posture response %+v", postureBody)
+	}
+
+	unselectedResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-app/posture?workspace_id=workspace-a&project_id=project-1&repository=identrail/other", "")
+	if unselectedResp.Code != http.StatusForbidden {
+		t.Fatalf("expected unselected repository 403, got %d body=%s", unselectedResp.Code, unselectedResp.Body.String())
 	}
 }
 

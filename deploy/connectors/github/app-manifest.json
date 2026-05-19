@@ -8,10 +8,16 @@
   "redirect_url": "https://app.identrail.com/app/github/callback",
   "public": false,
   "default_permissions": {
-    "metadata": "read",
+    "actions": "read",
+    "administration": "read",
     "contents": "read",
+    "environments": "read",
+    "metadata": "read",
     "pull_requests": "read",
-    "security_events": "read"
+    "repository_hooks": "read",
+    "secret_scanning_alerts": "read",
+    "security_events": "read",
+    "vulnerability_alerts": "read"
   },
   "default_events": [
     "installation",

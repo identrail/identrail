@@ -13,6 +13,7 @@ GET  /v1/connectors/github
 POST /v1/connectors/github/complete
 POST /v1/connectors/github/pat
 GET  /v1/connectors/github/{connector_id}/repos
+GET  /v1/connectors/github/{connector_id}/posture
 POST /auth/webhooks/github
 ```
 
@@ -32,7 +33,7 @@ Required runtime configuration for the hosted GitHub App flow:
   `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true` for durable connector
   credential storage
 
-The GitHub App manifest lives at `deploy/connectors/github/app-manifest.json`. It requests read-only permissions: metadata, contents, pull requests, and code scanning alerts.
+The GitHub App manifest lives at `deploy/connectors/github/app-manifest.json`. It requests read-only permissions for repository metadata, contents, pull requests, administration settings, Actions settings, repository environments, code scanning alerts, secret scanning alerts, Dependabot alerts, and repository webhooks.
 
 For Identrail Cloud, the AWS API manual deploy workflow exposes first-class
 inputs for this path:
@@ -94,6 +95,49 @@ Scheduled policy scans and GitHub webhook-triggered scans automatically attach
 the project/connector source context when they enqueue selected repositories,
 so private repositories use the same short-lived GitHub App path as manually
 queued connector-backed scans.
+
+## Repository Posture Collection
+
+`GET /v1/connectors/github/{connector_id}/posture` collects security posture for
+one selected repository through the GitHub App connector. The request must
+include `workspace_id`, `project_id`, and a `repository` query value in
+`owner/name` form. The API normalizes the repository name, verifies that the
+connector belongs to the scoped project, requires an active GitHub App
+installation, and denies repositories outside the connector's selected
+repository list.
+
+The response is a normalized posture record with one check per control. Check
+states are:
+
+- `secure`: the setting was collected and matches Identrail's expected posture.
+- `insecure`: the setting was collected and is missing or weak.
+- `permission_limited`: GitHub returned a permission/authz response for that
+  signal, so the App needs more read permission or the repository/plan does not
+  expose it to the installation.
+- `unavailable`: GitHub returned an API or rate-limit failure that prevents
+  Identrail from making a posture decision for that signal.
+
+The collector currently evaluates repository metadata, default branch
+protection, branch rulesets, Actions repository permissions, Dependabot alerts
+and security updates, code scanning alerts, secret scanning alerts, deploy keys,
+repository webhooks, and deployment environments. Evidence is intentionally
+summary-shaped: webhook URLs, credentials, tokens, and other secret-bearing
+values are not persisted or returned.
+
+The manifest permissions that support this collection are read-only:
+
+- `metadata`: repository identity and ruleset metadata.
+- `administration`: branch protection, deploy keys, security feature toggles,
+  and repository administration settings that GitHub exposes as read APIs.
+- `actions`: Actions repository permissions.
+- `environments`: repository deployment environments and protection metadata.
+- `security_events`: code scanning alerts.
+- `secret_scanning_alerts`: secret scanning alerts.
+- `vulnerability_alerts`: Dependabot alerts.
+- `repository_hooks`: repository webhook status.
+
+If one of these permissions is missing, the corresponding posture check should
+return `permission_limited` instead of failing the whole collection.
 
 ## Rollback
 

@@ -366,6 +366,11 @@ x-identrail-route-authorizations:
     action: tenancy.read
     resource_type: connector
     resource_id_param: connector_id
+  - method: GET
+    path: /v1/connectors/github/{connector_id}/posture
+    action: tenancy.read
+    resource_type: connector
+    resource_id_param: connector_id
   - method: POST
     path: /v1/connectors/k8s
     action: tenancy.write
@@ -2801,6 +2806,60 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/connectors/github/{connector_id}/posture:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: connector_id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: project_id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: repository
+        required: true
+        description: Selected GitHub repository in `owner/name` form.
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Collect GitHub repository posture
+      operationId: getGitHubConnectorRepositoryPosture
+      responses:
+        "200":
+          description: GitHub repository posture
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubRepositoryPostureResponse"
+        "400":
+          description: Invalid GitHub posture request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Repository is not selected for this connector or caller lacks access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: GitHub repository posture collector unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -5138,6 +5197,68 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GitHubRepositoryStatus"
+    GitHubRepositoryPostureResponse:
+      type: object
+      required: [connector_id, provider, posture]
+      properties:
+        connector_id:
+          type: string
+        provider:
+          type: string
+          enum: [github_app]
+        posture:
+          $ref: "#/components/schemas/GitHubRepositoryPosture"
+    GitHubRepositoryPosture:
+      type: object
+      required: [repository, collected_at, checks]
+      properties:
+        repository:
+          type: string
+          description: Normalized selected repository in `owner/name` form.
+        installation_id:
+          type: integer
+          format: int64
+          minimum: 1
+        collected_at:
+          type: string
+          format: date-time
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitHubRepositoryPostureCheck"
+        rate_limit:
+          $ref: "#/components/schemas/GitHubRateLimitState"
+    GitHubRepositoryPostureCheck:
+      type: object
+      required: [id, category, state, summary]
+      properties:
+        id:
+          type: string
+          example: default_branch_protection
+        category:
+          type: string
+          example: branch_protection
+        state:
+          type: string
+          enum: [secure, insecure, unavailable, permission_limited]
+        reason:
+          type: string
+          example: protection_enforced
+        summary:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+    GitHubRateLimitState:
+      type: object
+      properties:
+        limit:
+          type: integer
+        remaining:
+          type: integer
+        reset_at:
+          type: string
+          format: date-time
     GitHubConnectionCompleteRequest:
       type: object
       required:

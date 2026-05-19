@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added GitHub App repository posture collection. The connector can now collect
+  normalized posture checks for selected repositories, including repository
+  metadata, default branch protection, branch rulesets, Actions permissions,
+  Dependabot security status, code and secret scanning alerts, deploy keys,
+  repository webhooks, and deployment environments. Posture checks distinguish
+  `secure`, `insecure`, `permission_limited`, and `unavailable` states, capture
+  rate-limit metadata, keep webhook evidence redacted, and document the
+  read-only GitHub App permissions required for the collector.
 - Added rule-aware confidence classification for repository secret findings.
   Secret detections now carry deterministic `confidence_score`,
   `confidence_state`, and `confidence_reasons` metadata, distinguish likely

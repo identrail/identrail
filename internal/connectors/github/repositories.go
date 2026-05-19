@@ -26,6 +26,7 @@ type RepositoryClient struct {
 	TokenClient InstallationTokenMinter
 	HTTPClient  *http.Client
 	APIBaseURL  string
+	Now         func() time.Time
 }
 
 // InstallationTokenMinter mints GitHub App installation access tokens.

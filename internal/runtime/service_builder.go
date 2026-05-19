@@ -139,7 +139,9 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			PrivateKeyPEM: svc.GitHubAppPrivateKey,
 		},
 	}
-	svc.GitHubRepositoryLister = githubconnector.RepositoryClient{TokenClient: tokenClient}
+	repositoryClient := githubconnector.RepositoryClient{TokenClient: tokenClient}
+	svc.GitHubRepositoryLister = repositoryClient
+	svc.GitHubRepositoryPostureCollector = repositoryClient
 	svc.GitHubInstallationTokenMinter = tokenClient
 	svc.AWSScannerFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.ScannerRunner, error) {
 		iamAPI, iamErr := awsprovider.NewSDKIAMAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan")

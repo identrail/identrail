@@ -65,6 +65,9 @@ var ErrGitHubAppConfigUnavailable = errors.New("github app config unavailable")
 // ErrGitHubRepositoryListUnavailable indicates the GitHub App repository list could not be loaded.
 var ErrGitHubRepositoryListUnavailable = errors.New("github repository list unavailable")
 
+// ErrGitHubRepositoryPostureUnavailable indicates repository posture could not be collected.
+var ErrGitHubRepositoryPostureUnavailable = errors.New("github repository posture unavailable")
+
 // ErrGitHubPATValidatorUnavailable indicates PAT validation is not configured.
 var ErrGitHubPATValidatorUnavailable = errors.New("github pat validator unavailable")
 
@@ -76,6 +79,11 @@ type GitHubPATValidator interface {
 // GitHubRepositoryLister lists repositories available to a GitHub App installation.
 type GitHubRepositoryLister interface {
 	ListInstallationRepositories(ctx context.Context, installationID int64) ([]githubconnector.Repository, error)
+}
+
+// GitHubRepositoryPostureCollector collects GitHub repository posture through an installation token.
+type GitHubRepositoryPostureCollector interface {
+	CollectRepositoryPosture(ctx context.Context, installationID int64, repository string) (githubconnector.RepositoryPosture, error)
 }
 
 // GitHubConnectorStartRequest captures the flat connector GitHub App bootstrap request.
@@ -136,6 +144,13 @@ type GitHubRepositoryListResponse struct {
 	ConnectorID  string                   `json:"connector_id"`
 	Provider     string                   `json:"provider"`
 	Repositories []GitHubRepositoryStatus `json:"repositories"`
+}
+
+// GitHubRepositoryPostureResponse returns normalized posture for one selected repository.
+type GitHubRepositoryPostureResponse struct {
+	ConnectorID string                            `json:"connector_id"`
+	Provider    string                            `json:"provider"`
+	Posture     githubconnector.RepositoryPosture `json:"posture"`
 }
 
 // GitHubConnectionStartRequest captures one project-scoped connection bootstrap request.
@@ -646,6 +661,48 @@ func (s *Service) GetGitHubConnectorRepositories(ctx context.Context, connectorI
 		ConnectorID:  stored.Connector.ConnectorID,
 		Provider:     provider,
 		Repositories: repositories,
+	}, nil
+}
+
+func (s *Service) GetGitHubConnectorRepositoryPosture(ctx context.Context, connectorID string, workspaceID string, projectID string, repository string) (GitHubRepositoryPostureResponse, error) {
+	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	if err != nil {
+		return GitHubRepositoryPostureResponse{}, err
+	}
+	connectorID = strings.TrimSpace(connectorID)
+	if connectorID == "" {
+		return GitHubRepositoryPostureResponse{}, ErrInvalidGitHubConnectionRequest
+	}
+	target := normalizeGitHubRepositoryPath(repository)
+	if target == "" {
+		return GitHubRepositoryPostureResponse{}, ErrInvalidGitHubConnectionRequest
+	}
+	target = normalizeGitHubRepository(target)
+
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+	if err != nil {
+		return GitHubRepositoryPostureResponse{}, err
+	}
+	provider := firstNonEmptyString(metadataString(stored.State.Metadata, "provider"), "github_app")
+	installationID := metadataInt64(stored.State.Metadata, "installation_id")
+	if provider != "github_app" || installationID <= 0 || stored.Connector.Status != domain.ConnectorStatusActive {
+		return GitHubRepositoryPostureResponse{}, ErrGitHubRepositoryPostureUnavailable
+	}
+	if !repositorySelected(metadataStringSlice(stored.State.Metadata, "selected_repositories"), target) {
+		s.recordServiceAuthzDenial(ctx, "github.posture.read", "repo_scan_target", target)
+		return GitHubRepositoryPostureResponse{}, ErrRepoTargetNotAllowed
+	}
+	if s.GitHubRepositoryPostureCollector == nil {
+		return GitHubRepositoryPostureResponse{}, ErrGitHubRepositoryPostureUnavailable
+	}
+	posture, err := s.GitHubRepositoryPostureCollector.CollectRepositoryPosture(ctx, installationID, target)
+	if err != nil {
+		return GitHubRepositoryPostureResponse{}, fmt.Errorf("collect github repository posture: %w", err)
+	}
+	return GitHubRepositoryPostureResponse{
+		ConnectorID: stored.Connector.ConnectorID,
+		Provider:    provider,
+		Posture:     posture,
 	}, nil
 }
 

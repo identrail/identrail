@@ -714,6 +714,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodPost, Path: "/v1/connectors/github/complete", Action: policyActionTenancyWrite, ResourceType: "connector"},
 		{Method: http.MethodPost, Path: "/v1/connectors/github/pat", Action: policyActionTenancyWrite, ResourceType: "connector"},
 		{Method: http.MethodGet, Path: "/v1/connectors/github/:connector_id/repos", Action: policyActionTenancyRead, ResourceType: "connector", ResourceIDParam: "connector_id"},
+		{Method: http.MethodGet, Path: "/v1/connectors/github/:connector_id/posture", Action: policyActionTenancyRead, ResourceType: "connector", ResourceIDParam: "connector_id"},
 		{Method: http.MethodPost, Path: "/v1/connectors/k8s", Action: policyActionTenancyWrite, ResourceType: "connector"},
 		{Method: http.MethodGet, Path: "/v1/connectors/k8s", Action: policyActionTenancyRead, ResourceType: "connector"},
 		{Method: http.MethodPost, Path: "/v1/connectors/k8s/kubeconfig", Action: policyActionTenancyWrite, ResourceType: "connector"},
