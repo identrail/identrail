@@ -362,16 +362,12 @@ func (c RepositoryClient) collectRulesets(ctx context.Context, token string, rep
 	}
 	active := 0
 	evaluate := 0
-	enabled := 0
 	for _, ruleset := range rulesets {
 		switch strings.ToLower(strings.TrimSpace(ruleset.Enforcement)) {
 		case "active":
 			active++
 		case "evaluate":
 			evaluate++
-		case "enabled":
-			active++
-			enabled++
 		}
 	}
 	evidence := map[string]any{
@@ -379,7 +375,6 @@ func (c RepositoryClient) collectRulesets(ctx context.Context, token string, rep
 		"ruleset_count":     len(rulesets),
 		"active_rulesets":   active,
 		"evaluate_rulesets": evaluate,
-		"enabled_rulesets":  enabled,
 	}
 	if active == 0 {
 		return RepositoryPostureCheck{
@@ -387,7 +382,7 @@ func (c RepositoryClient) collectRulesets(ctx context.Context, token string, rep
 			Category: "branch_protection",
 			State:    RepositoryPostureStateInsecure,
 			Reason:   "no_active_rulesets",
-			Summary:  "No active or enabled branch rulesets are configured.",
+			Summary:  "No active branch rulesets are configured.",
 			Evidence: evidence,
 		}
 	}
