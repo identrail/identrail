@@ -106,17 +106,18 @@ type queuedRepoScanDepthCounter interface {
 
 // Service orchestrates scan execution and persistence.
 type Service struct {
-	Store          db.Store
-	Scanner        ScannerRunner
-	Provider       string
-	DefaultScope   db.Scope
-	Now            func() time.Time
-	Locker         scheduler.Locker
-	LockNamespace  string
-	Alerter        FindingAlerter
-	OnAlertError   func(error)
-	ReadinessCheck func(context.Context) error
-	Metrics        *telemetry.Metrics
+	Store                db.Store
+	Scanner              ScannerRunner
+	Provider             string
+	DefaultScope         db.Scope
+	Now                  func() time.Time
+	Locker               scheduler.Locker
+	LockNamespace        string
+	Alerter              FindingAlerter
+	OnAlertError         func(error)
+	OnRepoScanQueueEvent func(RepoScanQueueEvent)
+	ReadinessCheck       func(context.Context) error
+	Metrics              *telemetry.Metrics
 	// Repo scan controls are intentionally separate from cloud identity scan flow.
 	RepoScanEnabled                 bool
 	RepoScanDefaultHistoryLimit     int
@@ -151,6 +152,17 @@ type Service struct {
 	githubWebhookLastQueued         map[string]time.Time
 	kubernetesConnectMu             sync.RWMutex
 	kubernetesConnections           map[string]kubernetesProjectConnection
+}
+
+// RepoScanQueueEvent reports visible lifecycle transitions for repository scans
+// drained by the worker API queue.
+type RepoScanQueueEvent struct {
+	Kind       string
+	RepoScanID string
+	Repository string
+	Status     string
+	Reason     string
+	Count      int
 }
 
 // CheckReadiness validates critical runtime dependencies for readiness checks.
@@ -1075,6 +1087,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 			s.recordWorkerRequeue("repo_scan")
 		}
 		s.recordAutomationRun("api_queue", "repo_scan", "requeued")
+		s.emitRepoScanQueueEvent(RepoScanQueueEvent{Kind: "stale_requeued", Status: "queued", Reason: "stale_running", Count: requeuedStale})
 	}
 	record, err := s.Store.ClaimNextQueuedRepoScanAnyScope(ctx)
 	if err != nil {
@@ -1085,6 +1098,12 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		s.recordWorkerJob("repo_scan", "failure")
 		return false, fmt.Errorf("claim queued repo scan: %w", err)
 	}
+	s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+		Kind:       "claimed",
+		RepoScanID: record.ID,
+		Repository: record.Repository,
+		Status:     "running",
+	})
 	recordScopeCtx := db.WithScope(ctx, db.Scope{
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
@@ -1108,6 +1127,13 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		s.recordAutomationRun("api_queue", "repo_scan", "requeued")
 		s.recordWorkerJob("repo_scan", "requeued")
 		s.recordWorkerRequeue("repo_scan")
+		s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+			Kind:       "requeued",
+			RepoScanID: record.ID,
+			Repository: record.Repository,
+			Status:     "queued",
+			Reason:     "execution_lock_held",
+		})
 		// A queued item was handled (requeued) even if this target is currently locked.
 		// Returning true lets the worker keep draining other queued targets in the same tick.
 		return true, nil
@@ -1117,11 +1143,29 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		s.recordAutomationRun("api_queue", "repo_scan", "failed")
 		s.recordWorkerJob("repo_scan", "failure")
 		s.recordWorkerDeadLetter("repo_scan")
+		s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+			Kind:       "failed",
+			RepoScanID: record.ID,
+			Repository: record.Repository,
+			Status:     "failed",
+		})
 		return true, runErr
 	}
 	s.recordAutomationRun("api_queue", "repo_scan", "succeeded")
 	s.recordWorkerJob("repo_scan", "success")
+	s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+		Kind:       "succeeded",
+		RepoScanID: record.ID,
+		Repository: record.Repository,
+		Status:     "succeeded",
+	})
 	return true, nil
+}
+
+func (s *Service) emitRepoScanQueueEvent(event RepoScanQueueEvent) {
+	if s != nil && s.OnRepoScanQueueEvent != nil {
+		s.OnRepoScanQueueEvent(event)
+	}
 }
 
 // RunRepoScanPersisted runs one repository scan and persists repo scan metadata + findings.

@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Hardened hosted repository scan execution so cancelled git subprocesses are
+  terminated as a process group with a bounded wait, preventing worker timeouts
+  from leaving scans stuck in `running`. Worker logs now include repository
+  queue claim, requeue, success, and failure lifecycle events for CloudWatch
+  incident diagnosis.
 - Added the runtime `git` dependency to the backend API/worker image so hosted
   repository exposure scans can clone and inspect selected repositories after
   deployment, and added a CI smoke check plus worker-selectable AWS log

@@ -3319,6 +3319,10 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	svc.RepoQueueMaxPending = 2
+	events := []RepoScanQueueEvent{}
+	svc.OnRepoScanQueueEvent = func(event RepoScanQueueEvent) {
+		events = append(events, event)
+	}
 	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
 		return &fakeRepoExecutor{
 			result: repoexposure.ScanResult{
@@ -3356,6 +3360,15 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	}
 	if stored.Status != "succeeded" || stored.CommitsScanned != 25 {
 		t.Fatalf("unexpected processed repo scan record: %+v", stored)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected claimed and succeeded queue events, got %+v", events)
+	}
+	if events[0].Kind != "claimed" || events[0].RepoScanID != record.ID || events[0].Repository != "owner/repo" || events[0].Status != "running" {
+		t.Fatalf("unexpected claimed queue event: %+v", events[0])
+	}
+	if events[1].Kind != "succeeded" || events[1].RepoScanID != record.ID || events[1].Repository != "owner/repo" || events[1].Status != "succeeded" {
+		t.Fatalf("unexpected succeeded queue event: %+v", events[1])
 	}
 }
 

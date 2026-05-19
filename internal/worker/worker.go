@@ -62,6 +62,27 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	svc.OnAlertError = func(alertErr error) {
 		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
 	}
+	svc.OnRepoScanQueueEvent = func(event api.RepoScanQueueEvent) {
+		fields := telemetry.StandardLogFields(
+			"worker",
+			"api_queue_repo_scan",
+			telemetry.String("event", event.Kind),
+			telemetry.String("outcome", event.Status),
+		)
+		if event.RepoScanID != "" {
+			fields = append(fields, telemetry.String("repo_scan_id", event.RepoScanID))
+		}
+		if event.Repository != "" {
+			fields = append(fields, telemetry.String("repository", event.Repository))
+		}
+		if event.Reason != "" {
+			fields = append(fields, telemetry.String("reason", event.Reason))
+		}
+		if event.Count > 0 {
+			fields = append(fields, telemetry.String("count", fmt.Sprint(event.Count)))
+		}
+		logger.Info("repo scan queue event", fields...)
+	}
 	writeHeartbeat := func() {
 		if err := writeWorkerHeartbeat(cfg.WorkerHeartbeatPath); err != nil {
 			logger.Warn("worker heartbeat write failed", telemetry.ZapError(err))
