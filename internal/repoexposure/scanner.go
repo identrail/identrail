@@ -465,7 +465,7 @@ func (s *Scanner) gitStream(ctx context.Context, repo repositoryLocation, args .
 	} else {
 		invocation = append([]string{"-C", repo.Path}, args...)
 	}
-	cmd := exec.CommandContext(ctx, "git", invocation...)
+	cmd := newRepositoryCommand(ctx, "git", invocation...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()
@@ -976,12 +976,12 @@ func severityRank(severity domain.FindingSeverity) int {
 }
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := newRepositoryCommand(ctx, name, args...)
 	return cmd.CombinedOutput()
 }
 
 func defaultEnvCommandRunner(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := newRepositoryCommand(ctx, name, args...)
 	cmd.Env = append(os.Environ(), env...)
 	return cmd.CombinedOutput()
 }
