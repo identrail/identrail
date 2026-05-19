@@ -697,7 +697,7 @@ func (s *Service) GetGitHubConnectorRepositoryPosture(ctx context.Context, conne
 	}
 	posture, err := s.GitHubRepositoryPostureCollector.CollectRepositoryPosture(ctx, installationID, target)
 	if err != nil {
-		return GitHubRepositoryPostureResponse{}, fmt.Errorf("collect github repository posture: %w", err)
+		return GitHubRepositoryPostureResponse{}, fmt.Errorf("%w: collect github repository posture: %w", ErrGitHubRepositoryPostureUnavailable, err)
 	}
 	return GitHubRepositoryPostureResponse{
 		ConnectorID: stored.Connector.ConnectorID,

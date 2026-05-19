@@ -241,6 +241,12 @@ func TestRouterGitHubConnectorV2CollectsRepositoryPosture(t *testing.T) {
 	if unselectedResp.Code != http.StatusForbidden {
 		t.Fatalf("expected unselected repository 403, got %d body=%s", unselectedResp.Code, unselectedResp.Body.String())
 	}
+
+	collector.err = errors.New("github temporarily unavailable")
+	unavailableResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-app/posture?workspace_id=workspace-a&project_id=project-1&repository=identrail/api", "")
+	if unavailableResp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected posture collector failure 503, got %d body=%s", unavailableResp.Code, unavailableResp.Body.String())
+	}
 }
 
 func TestRouterGitHubConnectorV2HydratesCustomAppConnector(t *testing.T) {
