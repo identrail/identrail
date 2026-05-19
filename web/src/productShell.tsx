@@ -3531,9 +3531,13 @@ export function ProductProjectDetailPage() {
     const requestSequence = refreshSequenceRef.current;
     const submitSequence = nextRepoScanSubmitSequence();
     try {
-      const request: RepoScanRequest = { repository, project_id: projectID };
-      if (connections.github?.connector_id) {
-        request.connector_id = connections.github.connector_id;
+      const githubConnection = connections.github;
+      const request: RepoScanRequest = { repository };
+      if (githubConnection?.provider === 'github_app') {
+        request.project_id = projectID;
+        if (githubConnection.connector_id) {
+          request.connector_id = githubConnection.connector_id;
+        }
       }
       const historyLimit = parseOptionalPositiveInteger(repoScanForm.historyLimit, 'History limit');
       const maxFindings = parseOptionalPositiveInteger(repoScanForm.maxFindings, 'Max findings');
