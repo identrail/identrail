@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added the runtime `git` dependency to the backend API/worker image so hosted
+  repository exposure scans can clone and inspect selected repositories after
+  deployment, and added a CI smoke check plus worker-selectable AWS log
+  diagnostics for repo scan incidents.
 - Added rule-aware confidence classification for repository secret findings.
   Secret detections now carry deterministic `confidence_score`,
   `confidence_state`, and `confidence_reasons` metadata, distinguish likely

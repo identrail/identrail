@@ -14,10 +14,14 @@ ARG TARGETARCH=amd64
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath -ldflags="-s -w" -o /out/identrail ./cmd/${TARGET}
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:a9329520abc449e3b14d5bc3a6ffae065bdde0f02667fa10880c49b35c109fd1
+FROM alpine:3.22@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e893909057601
 WORKDIR /app
 
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+RUN apk add --no-cache ca-certificates tzdata git \
+    && addgroup -S nonroot \
+    && adduser -S -G nonroot -H -h /app nonroot \
+    && git --version >/dev/null
+
 COPY --from=builder /out/identrail /usr/local/bin/identrail
 COPY --from=builder /src/migrations /app/migrations
 COPY --from=builder /src/testdata /app/testdata

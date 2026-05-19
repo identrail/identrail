@@ -229,6 +229,9 @@ jobs:
       - name: Build Worker Image
         run: docker build -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker -t identrail/worker:ci .
 
+      - name: Verify Worker Repo Scan Runtime
+        run: docker run --rm --entrypoint /usr/bin/git identrail/worker:ci --version
+
       - name: Build Web Image
         run: docker build -f deploy/docker/Dockerfile.web --build-arg VITE_IDENTRAIL_API_URL=http://localhost:8080 -t identrail/web:ci .
 

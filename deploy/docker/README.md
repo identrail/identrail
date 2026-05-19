@@ -3,6 +3,9 @@
 ## Files
 
 - `Dockerfile.backend`: builds API or worker image (`TARGET=server|worker`)
+  - the backend runtime image intentionally includes `git` because hosted
+    repository exposure scans perform read-only clone and history inspection at
+    runtime
 - `Dockerfile.web`: builds dashboard web image
   - production builds use the strict nginx CSP by default; Compose passes `NGINX_CONF=default.local.conf` for localhost API access.
 - `docker-compose.yml`: local single-host stack
