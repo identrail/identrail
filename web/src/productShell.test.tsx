@@ -70,7 +70,7 @@ const disconnectedAWS: AWSConnectionStatus = {
 };
 
 const connectedGitHub: GitHubConnectionStatus = {
-  provider: 'github',
+  provider: 'github_app',
   connected: true,
   connector_id: 'github-app',
   display_name: 'GitHub App',
@@ -92,6 +92,13 @@ const queuedRepoScan: RepoScanRecord = {
   files_scanned: 0,
   finding_count: 0,
   truncated: false
+};
+
+const connectedGitHubPAT: GitHubConnectionStatus = {
+  ...connectedGitHub,
+  provider: 'github_pat',
+  connector_id: 'github-enterprise',
+  display_name: 'GitHub Enterprise'
 };
 
 function deferred<T>() {
@@ -346,7 +353,7 @@ describe('ProductProjectDetailPage', () => {
 
     await waitFor(() =>
       expect(runRepoScan).toHaveBeenCalledWith(
-        { repository: 'identrail/identrail' },
+        { repository: 'identrail/identrail', project_id: 'project-1', connector_id: 'github-app' },
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
@@ -356,6 +363,22 @@ describe('ProductProjectDetailPage', () => {
       '/app/tenant-a/workspace-a/findings'
     );
     expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('Queued');
+  });
+
+  it('preserves the generic scan payload for GitHub PAT connections', async () => {
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHubPAT, { repoScans: [queuedRepoScan] });
+
+    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(queueButton).not.toBeDisabled());
+
+    fireEvent.click(queueButton);
+
+    await waitFor(() =>
+      expect(runRepoScan).toHaveBeenCalledWith(
+        { repository: 'identrail/identrail' },
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('keeps stale repo scan refresh responses from overwriting refreshed activity', async () => {
