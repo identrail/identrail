@@ -174,7 +174,8 @@ func TestRepositoryClientCollectRepositoryPosturePermissionAndRateLimitStates(t 
 			w.Header().Set("X-RateLimit-Reset", "1770000000")
 			http.Error(w, `{"message":"API rate limit exceeded"}`, http.StatusForbidden)
 		case "/repos/owner/repo/actions/permissions":
-			http.Error(w, `{"message":"Resource not accessible by integration"}`, http.StatusForbidden)
+			w.Header().Set("Retry-After", "60")
+			http.Error(w, `{"message":"You have exceeded a secondary rate limit. Please wait before you try again."}`, http.StatusForbidden)
 		case "/repos/owner/repo/vulnerability-alerts", "/repos/owner/repo/automated-security-fixes":
 			w.WriteHeader(http.StatusNoContent)
 		case "/repos/owner/repo/code-scanning/alerts", "/repos/owner/repo/secret-scanning/alerts", "/repos/owner/repo/keys", "/repos/owner/repo/hooks":
@@ -198,8 +199,8 @@ func TestRepositoryClientCollectRepositoryPosturePermissionAndRateLimitStates(t 
 	if check := postureCheckByID(posture, "repository_rulesets"); check.State != RepositoryPostureStateUnavailable || check.Reason != "rate_limited" {
 		t.Fatalf("expected rulesets rate limited, got %+v", check)
 	}
-	if check := postureCheckByID(posture, "actions_permissions"); check.State != RepositoryPostureStatePermissionLimited {
-		t.Fatalf("expected actions permission-limited, got %+v", check)
+	if check := postureCheckByID(posture, "actions_permissions"); check.State != RepositoryPostureStateUnavailable || check.Reason != "rate_limited" {
+		t.Fatalf("expected actions secondary rate limit, got %+v", check)
 	}
 }
 

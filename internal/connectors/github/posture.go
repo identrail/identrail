@@ -783,10 +783,11 @@ func (c RepositoryClient) doGitHubRequestRaw(ctx context.Context, token string, 
 	}
 	rateLimit := rateLimitStateFromHeaders(res.Header)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		message := githubAPIErrorMessage(body)
 		return nil, rateLimit, "", githubAPIRequestError{
 			StatusCode:   res.StatusCode,
-			Message:      githubAPIErrorMessage(body),
-			RateLimited:  githubRateLimited(res.StatusCode, res.Header),
+			Message:      message,
+			RateLimited:  githubRateLimited(res.StatusCode, res.Header, message),
 			RetryAfter:   strings.TrimSpace(res.Header.Get("Retry-After")),
 			RateLimit:    rateLimit,
 			ResponsePath: req.URL.Path,
@@ -805,11 +806,20 @@ func githubAPIErrorMessage(body []byte) string {
 	return strings.TrimSpace(string(body))
 }
 
-func githubRateLimited(statusCode int, header http.Header) bool {
+func githubRateLimited(statusCode int, header http.Header, message string) bool {
 	if statusCode == http.StatusTooManyRequests {
 		return true
 	}
-	return statusCode == http.StatusForbidden && strings.TrimSpace(header.Get("X-RateLimit-Remaining")) == "0"
+	if statusCode != http.StatusForbidden {
+		return false
+	}
+	if strings.TrimSpace(header.Get("X-RateLimit-Remaining")) == "0" {
+		return true
+	}
+	if strings.TrimSpace(header.Get("Retry-After")) != "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(message), "rate limit")
 }
 
 func rateLimitStateFromHeaders(header http.Header) *GitHubRateLimitState {
