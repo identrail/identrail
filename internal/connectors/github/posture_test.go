@@ -161,6 +161,33 @@ func TestRepositoryClientCollectRepositoryPostureClassifiesWeakSettings(t *testi
 	}
 }
 
+func TestRepositoryClientCollectRulesetsTreatsEnabledAsActive(t *testing.T) {
+	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/rulesets" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.Error(w, `{"message":"unexpected path"}`, http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`[
+			{"id":1,"name":"branch-rules","target":"branch","enforcement":"enabled","rules":[{"type":"pull_request"}]}
+		]`))
+	}))
+	defer server.Close()
+
+	check := (RepositoryClient{
+		TokenClient: minter,
+		APIBaseURL:  server.URL,
+	}).collectRulesets(context.Background(), "inst-token", "owner/repo", func(*GitHubRateLimitState) {})
+
+	if check.State != RepositoryPostureStateSecure {
+		t.Fatalf("expected enabled ruleset to be classified secure, got %+v", check)
+	}
+	if check.Reason != "active_rulesets_present" {
+		t.Fatalf("expected active_rulesets_present reason, got %s", check.Reason)
+	}
+}
+
 func TestRepositoryClientCollectRepositoryPosturePermissionAndRateLimitStates(t *testing.T) {
 	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
