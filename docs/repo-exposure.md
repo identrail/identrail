@@ -189,6 +189,9 @@ workflow layer.
 
 ## Runtime Configuration
 
+- Hosted API/worker images must include `git` at runtime. The scanner performs
+  read-only clone and history commands inside the running worker, not only
+  during image build.
 - `IDENTRAIL_REPO_SCAN_ENABLED` (default: `false`)
 - `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT` (default: `500`)
 - `IDENTRAIL_REPO_SCAN_MAX_FINDINGS` (default: `200`)
