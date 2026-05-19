@@ -346,7 +346,7 @@ describe('ProductProjectDetailPage', () => {
 
     await waitFor(() =>
       expect(runRepoScan).toHaveBeenCalledWith(
-        { repository: 'identrail/identrail' },
+        { repository: 'identrail/identrail', project_id: 'project-1', connector_id: 'github-app' },
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );

@@ -42,6 +42,8 @@ export type RepoScanRecord = {
 
 export type RepoScanRequest = {
   repository: string;
+  project_id?: string;
+  connector_id?: string;
   history_limit?: number;
   max_findings?: number;
 };
