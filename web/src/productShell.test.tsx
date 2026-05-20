@@ -424,6 +424,31 @@ describe('ProductProjectDetailPage', () => {
     expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('repository scan canceled by user');
   });
 
+  it('allows queueing another selected repository while a different repository is active', async () => {
+    const multiRepoConnection: GitHubConnectionStatus = {
+      ...connectedGitHub,
+      selected_repositories: ['identrail/identrail', 'identrail/docs']
+    };
+    const { runRepoScan } = await renderProjectDetail(true, multiRepoConnection, {
+      repoScans: [queuedRepoScan]
+    });
+
+    expect(await screen.findByRole('button', { name: /Scan already active/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/^Repository$/i), { target: { value: 'identrail/docs' } });
+
+    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(queueButton).not.toBeDisabled());
+    fireEvent.click(queueButton);
+
+    await waitFor(() =>
+      expect(runRepoScan).toHaveBeenCalledWith(
+        { repository: 'identrail/docs', project_id: 'project-1', connector_id: 'github-app' },
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
   it('keeps stale repo scan refresh responses from overwriting refreshed activity', async () => {
     const staleRefresh = deferred<{ items: RepoScanRecord[] }>();
     const refreshedRepoScan: RepoScanRecord = {

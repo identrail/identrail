@@ -2961,9 +2961,17 @@ export function ProductProjectDetailPage() {
       githubSelectedRepositoryKeys.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())
     );
   }, [githubSelectedRepositoryKeys, recentRepoScans]);
-  const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
   const repoScanRepository = normalizeValue(repoScanForm.repository);
   const effectiveRepoScanRepository = repoScanRepository || githubSelectedRepositories[0] || '';
+  const effectiveRepoScanRepositoryKey = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository).toLowerCase();
+  const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
+  const githubHasActiveSelectedRepoScan =
+    effectiveRepoScanRepositoryKey !== '' &&
+    githubRecentRepoScans.some(
+      (scan) =>
+        isActiveScanStatus(scan.status) &&
+        canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() === effectiveRepoScanRepositoryKey
+    );
   const repoScanFindingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
   const enabledSourceLabel = formatSourceNameList(sourceOrder);
 
@@ -4014,9 +4022,11 @@ export function ProductProjectDetailPage() {
                   <button
                     className="idt-btn idt-btn-primary"
                     type="submit"
-                    disabled={repoScanSubmitting || submitting !== '' || !effectiveRepoScanRepository || githubHasActiveRepoScan}
+                    disabled={
+                      repoScanSubmitting || submitting !== '' || !effectiveRepoScanRepository || githubHasActiveSelectedRepoScan
+                    }
                   >
-                    {repoScanSubmitting ? 'Queueing...' : githubHasActiveRepoScan ? 'Scan already active' : 'Queue first scan'}
+                    {repoScanSubmitting ? 'Queueing...' : githubHasActiveSelectedRepoScan ? 'Scan already active' : 'Queue first scan'}
                   </button>
 
                   <div className="idt-source-diagnostics idt-repo-scan-activity" aria-label="recent repository scan activity">
