@@ -190,7 +190,7 @@ installation cannot read code-scanning alerts, the native Identrail scan still
 completes and adapter findings are simply absent for that run.
 
 Adapter findings are normalized into the same `domain.Finding` shape as native
-repository findings:
+repository findings, and include adapter-specific evidence metadata:
 
 - `adapter_name`
 - `adapter_version`
