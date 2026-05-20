@@ -137,6 +137,22 @@ jobs:
 	}
 }
 
+func TestGitHubWorkflowAnalyzerDoesNotFlagSameRepoReusableWorkflowAsThirdParty(t *testing.T) {
+	content := []byte(`name: same-repo-reusable
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  build:
+    uses: octo-org/octo-repo/.github/workflows/build.yml@main
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/same-repo-reusable.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_unpinned_third_party_action") {
+		t.Fatalf("expected same-repo reusable workflow not to be third-party, got %+v", findings)
+	}
+}
+
 func TestGitHubWorkflowAnalyzerDetectsCompactSecretExpression(t *testing.T) {
 	content := []byte(`name: compact-secret-pr-target
 on: pull_request_target
@@ -344,6 +360,25 @@ jobs:
 	if tokens, _ := injection.Evidence["untrusted_context"].([]string); len(tokens) == 0 || tokens[0] != "github.event.review.body" {
 		t.Fatalf("expected review body evidence, got %+v", injection.Evidence)
 	}
+}
+
+func TestGitHubWorkflowAnalyzerTreatsPullRequestReviewOIDCAsBroadTrust(t *testing.T) {
+	content := []byte(`name: review-deploy
+on: pull_request_review
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@f00dbabe1234567890abcdef1234567890abcdef
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/review-deploy.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_oidc_broad_trust",
+	})
 }
 
 func TestGitHubWorkflowAnalyzerDoesNotFlagBranchScopedOIDCDeploy(t *testing.T) {

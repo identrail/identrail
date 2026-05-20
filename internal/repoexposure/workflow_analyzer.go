@@ -98,7 +98,7 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 				}))
 		}
 
-		if action := normalizeWorkflowUses(job.Uses); mutableThirdPartyAction(action) {
+		if action := normalizeWorkflowUses(job.Uses); mutableThirdPartyAction(repo, action) {
 			appendWorkflowFinding(&findings, seen, repo, commit, path, job.UsesLine, "workflow_unpinned_third_party_action", domain.SeverityMedium,
 				"Workflow uses an unpinned third-party action",
 				"A third-party reusable workflow is referenced by a mutable tag or branch, so upstream changes can alter workflow behavior without a repository change.",
@@ -161,7 +161,7 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 					}))
 			}
 
-			if mutableThirdPartyAction(action) {
+			if mutableThirdPartyAction(repo, action) {
 				appendWorkflowFinding(&findings, seen, repo, commit, path, step.UsesLine, "workflow_unpinned_third_party_action", domain.SeverityMedium,
 					"Workflow uses an unpinned third-party action",
 					"A third-party GitHub Action is referenced by a mutable tag or branch, so upstream changes can alter workflow behavior without a repository change.",
@@ -438,7 +438,7 @@ func (permissions workflowPermissions) writeScopeEvidence() []string {
 
 func (workflow githubWorkflowModel) oidcRiskContext(job githubWorkflowJob) string {
 	switch {
-	case workflowHasEvent(workflow, "pull_request") || workflowHasEvent(workflow, "pull_request_target") || workflowHasEvent(workflow, "issue_comment"):
+	case workflowHasUserControlledEvent(workflow):
 		return "untrusted_event"
 	case workflowHasEvent(workflow, "workflow_run"):
 		return "workflow_run"
@@ -635,6 +635,13 @@ func workflowHasEvent(workflow githubWorkflowModel, event string) bool {
 }
 
 func workflowHasUntrustedEvent(workflow githubWorkflowModel) bool {
+	if workflowHasUserControlledEvent(workflow) || workflowHasEvent(workflow, "workflow_run") {
+		return true
+	}
+	return false
+}
+
+func workflowHasUserControlledEvent(workflow githubWorkflowModel) bool {
 	for _, event := range []string{
 		"pull_request",
 		"pull_request_target",
@@ -712,7 +719,7 @@ func workflowActionMatches(action string, prefix string) bool {
 	return actionLower == prefixLower || strings.HasPrefix(actionLower, prefixLower+"@") || strings.HasPrefix(actionLower, prefixLower+"/")
 }
 
-func mutableThirdPartyAction(action string) bool {
+func mutableThirdPartyAction(repo string, action string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(action))
 	if normalized == "" || strings.HasPrefix(normalized, "./") || strings.HasPrefix(normalized, "docker://") {
 		return false
@@ -721,13 +728,43 @@ func mutableThirdPartyAction(action string) bool {
 	if len(parts) != 2 {
 		return false
 	}
-	repo := parts[0]
+	actionPath := parts[0]
 	ref := parts[1]
-	owner := strings.SplitN(repo, "/", 2)[0]
+	owner := strings.SplitN(actionPath, "/", 2)[0]
 	if owner == "actions" {
 		return false
 	}
+	if sameWorkflowRepository(repo, workflowActionRepository(normalized)) {
+		return false
+	}
 	return !gitHubActionCommitRefPattern.MatchString(ref)
+}
+
+func workflowActionRepository(action string) string {
+	actionWithoutRef := strings.SplitN(strings.TrimSpace(action), "@", 2)[0]
+	parts := strings.Split(actionWithoutRef, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
+}
+
+func sameWorkflowRepository(repo string, actionRepo string) bool {
+	return normalizeWorkflowRepository(repo) != "" && normalizeWorkflowRepository(repo) == normalizeWorkflowRepository(actionRepo)
+}
+
+func normalizeWorkflowRepository(repo string) string {
+	normalized := strings.ToLower(strings.TrimSpace(repo))
+	normalized = strings.TrimPrefix(normalized, "https://github.com/")
+	normalized = strings.TrimPrefix(normalized, "http://github.com/")
+	normalized = strings.TrimPrefix(normalized, "github.com/")
+	normalized = strings.TrimPrefix(normalized, "git@github.com:")
+	normalized = strings.TrimSuffix(normalized, ".git")
+	parts := strings.Split(normalized, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
 }
 
 func workflowActionRef(action string) string {
