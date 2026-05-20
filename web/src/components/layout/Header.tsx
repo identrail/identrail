@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { siteLinks } from '../../siteConfig';
 
 type NavLinkItem = {
@@ -15,6 +15,7 @@ export function Header({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setMenuOpen(false);
@@ -34,6 +35,34 @@ export function Header({
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [menuOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.repeat) {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.closest('input, textarea, select, [contenteditable="true"]') || target.getAttribute('role') === 'textbox')
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key !== 'l' && key !== 's') {
+        return;
+      }
+
+      event.preventDefault();
+      setMenuOpen(false);
+      navigate(key === 'l' ? siteLinks.signIn : '/signup');
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [navigate]);
 
   return (
     <header className="idt-header">

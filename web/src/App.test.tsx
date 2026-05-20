@@ -133,6 +133,18 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: /Open Full Demo Page/i })).toHaveAttribute('href', '/demo');
   });
 
+  it.each([
+    ['l', '/signin'],
+    ['S', '/signup']
+  ])('routes the %s header keyboard shortcut to %s', async (key, expectedPath) => {
+    setCurrentPath('/');
+    render(<App />);
+
+    fireEvent.keyDown(document, { key });
+
+    await waitFor(() => expect(window.location.pathname).toBe(expectedPath));
+  });
+
   it('closes the book demo modal when the route changes', async () => {
     setCurrentPath('/');
     render(<App />);
