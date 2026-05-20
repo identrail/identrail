@@ -1115,11 +1115,34 @@ function resolveScopeFromParams(params: ScopeRouteParams): ProductSession | null
   return { tenantID, workspaceID, projectID };
 }
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'idt:sidebar:collapsed';
+
+function readSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || '');
+}
+
 export function ProductShellLayout() {
   const params = useParams<ScopeRouteParams>();
   const navigate = useNavigate();
   const scope = resolveScopeFromParams(params);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => readSidebarCollapsed());
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const basePath = scope ? buildScopedPath(scope) : '/app';
   const commandItems = useMemo<CommandPaletteItem[]>(() => {
     if (!scope) {
@@ -1217,6 +1240,11 @@ export function ProductShellLayout() {
         setCommandOpen(true);
         return;
       }
+      if ((event.metaKey || event.ctrlKey) && key === 'b') {
+        event.preventDefault();
+        setSidebarCollapsed((current) => !current);
+        return;
+      }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && (key === '/' || key === 'f')) {
         event.preventDefault();
         setCommandOpen(true);
@@ -1227,14 +1255,50 @@ export function ProductShellLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? '1' : '0');
+    } catch {
+      // Storage failure should not break the layout.
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) {
+      return;
+    }
+    const handleClick = (event: MouseEvent) => {
+      if (!accountMenuRef.current || accountMenuRef.current.contains(event.target as Node)) {
+        return;
+      }
+      setAccountMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAccountMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClick);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [accountMenuOpen]);
+
   if (!scope) {
     return <AppShellLoading message="Resolving workspace scope" />;
   }
 
-  const tenantLabel = formatScopeDisplay(scope.tenantID);
-  const workspaceLabel = formatScopeDisplay(scope.workspaceID);
-  const projectLabel = scope.projectID ? formatScopeDisplay(scope.projectID) : '';
-  const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
+  const workspaceDisplayName = formatScopeDisplay(scope.workspaceID) || 'Workspace';
+  const userDisplayName = 'Account';
+  const userEmail = '';
+  const userInitial = (workspaceDisplayName.charAt(0) || 'A').toUpperCase();
+  const collapseShortcut = isMacPlatform() ? '⌘B' : 'Ctrl+B';
+  const collapseHint = `${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar (${collapseShortcut})`;
   const runCommand = (item: CommandPaletteItem) => {
     setCommandOpen(false);
     if (item.path) {
@@ -1246,105 +1310,172 @@ export function ProductShellLayout() {
 
   return (
     <ProductErrorBoundary>
-      <div className="idt-app-shell idt-app-console-layout" data-tenant={scope.tenantID} data-workspace={scope.workspaceID}>
-        <aside className="idt-app-sidebar" aria-label="Workspace navigation">
+      <div
+        className={`idt-app-shell idt-app-console-layout${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+        data-tenant={scope.tenantID}
+        data-workspace={scope.workspaceID}
+      >
+        <aside
+          className="idt-app-sidebar"
+          aria-label="Workspace navigation"
+          data-collapsed={sidebarCollapsed ? 'true' : 'false'}
+        >
           <div className="idt-app-sidebar-brand">
             <Link className="idt-app-sidebar-mark" to={basePath} aria-label="Identrail app home">
               <img src="/identrail-logo.png" alt="" aria-hidden="true" />
             </Link>
-            <div>
+            <div className="idt-app-sidebar-brand-copy">
               <strong>Identrail</strong>
-              <span>Trust operations</span>
+              <span title={scope.workspaceID}>{workspaceDisplayName}</span>
             </div>
           </div>
-
-          <section className="idt-app-sidebar-scope" aria-label="Active workspace">
-            <p className="idt-app-kicker">Active scope</p>
-            <h2 title={scope.workspaceID}>{workspaceLabel}</h2>
-            <dl>
-              <div>
-                <dt>Tenant</dt>
-                <dd title={scope.tenantID}>{tenantLabel}</dd>
-              </div>
-              {scope.projectID ? (
-                <div>
-                  <dt>Project</dt>
-                  <dd title={scope.projectID}>{projectLabel}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </section>
 
           <button
             type="button"
             className="idt-app-quick-find"
             onClick={() => setCommandOpen(true)}
             aria-label="Open workspace finder"
+            title={sidebarCollapsed ? 'Find (⌘K)' : undefined}
           >
-            <span>Find</span>
-            <kbd>/</kbd>
-            <kbd>F</kbd>
-            <kbd>⌘K</kbd>
+            <span className="idt-app-quick-find-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="7" cy="7" r="4.5" />
+                <path d="m13.5 13.5-3-3" />
+              </svg>
+            </span>
+            <span className="idt-app-quick-find-label">Find</span>
+            <kbd className="idt-app-quick-find-key">⌘K</kbd>
           </button>
 
           <nav className="idt-app-shell-nav" aria-label="App sections">
-            <NavLink to={basePath} end>
-              Overview
+            <NavLink to={basePath} end title={sidebarCollapsed ? 'Overview' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 8 8 2.5 14 8" />
+                  <path d="M3.5 7v6.5h9V7" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Overview</span>
             </NavLink>
-            <NavLink to={`${basePath}/workspaces`}>Workspaces</NavLink>
-            <NavLink to={`${basePath}/projects`}>Projects</NavLink>
-            <NavLink to={`${basePath}/findings`}>Findings</NavLink>
-            <NavLink to="/reports/executive">Executive report</NavLink>
-            <NavLink to={`${basePath}/settings`}>Settings</NavLink>
-            <NavLink to="/app/account/security">Security</NavLink>
+            <NavLink to={`${basePath}/workspaces`} title={sidebarCollapsed ? 'Workspaces' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="5.5" cy="6" r="2" />
+                  <circle cx="11" cy="6.5" r="1.6" />
+                  <path d="M2 13c.6-2 2-3 3.5-3S8.4 11 9 13" />
+                  <path d="M9.5 13c.4-1.6 1.5-2.4 2.5-2.4s2.1.8 2.5 2.4" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Workspaces</span>
+            </NavLink>
+            <NavLink to={`${basePath}/projects`} title={sidebarCollapsed ? 'Projects' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 5.5 7 3l5 2.5L7 8Z" />
+                  <path d="M2 5.5v5L7 13l5-2.5v-5" />
+                  <path d="M7 8v5" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Projects</span>
+            </NavLink>
+            <NavLink to={`${basePath}/findings`} title={sidebarCollapsed ? 'Findings' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 1.5 2 4v3.5c0 4 3 6.4 6 7 3-.6 6-3 6-7V4Z" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Findings</span>
+            </NavLink>
+            <NavLink to="/reports/executive" title={sidebarCollapsed ? 'Executive report' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                  <path d="M5 11V8M8 11V6M11 11V9" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Executive report</span>
+            </NavLink>
+            <NavLink to={`${basePath}/settings`} title={sidebarCollapsed ? 'Settings' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="8" r="2" />
+                  <path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.8 3.8l1 1M11.2 11.2l1 1M3.8 12.2l1-1M11.2 4.8l1-1" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Settings</span>
+            </NavLink>
           </nav>
 
           <div className="idt-app-sidebar-footer">
-            <span>Workspace mode</span>
-            <strong>Read-only evidence first</strong>
+            <div className="idt-app-sidebar-account" ref={accountMenuRef}>
+              <button
+                type="button"
+                className="idt-app-sidebar-account-trigger"
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
+                onClick={() => setAccountMenuOpen((current) => !current)}
+                title={sidebarCollapsed ? userDisplayName : undefined}
+              >
+                <span className="idt-app-sidebar-account-avatar" aria-hidden="true">
+                  {userInitial}
+                </span>
+                <span className="idt-app-sidebar-account-name">
+                  <strong>{userDisplayName}</strong>
+                  {userEmail && userEmail !== userDisplayName ? <span>{userEmail}</span> : null}
+                </span>
+                <span className="idt-app-sidebar-account-caret" aria-hidden="true">
+                  <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 7.5 6 4.5l3 3" />
+                  </svg>
+                </span>
+              </button>
+              {accountMenuOpen ? (
+                <div className="idt-app-sidebar-account-menu" role="menu">
+                  <div className="idt-app-sidebar-account-meta">
+                    <strong>{userDisplayName}</strong>
+                    {userEmail ? <span>{userEmail}</span> : null}
+                  </div>
+                  <Link
+                    role="menuitem"
+                    to={`${basePath}/settings`}
+                    onClick={() => setAccountMenuOpen(false)}
+                  >
+                    Workspace settings
+                  </Link>
+                  <Link role="menuitem" to="/" onClick={() => setAccountMenuOpen(false)}>
+                    Marketing site
+                  </Link>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      navigate('/app/logout', { replace: true });
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="idt-app-sidebar-collapse"
+              aria-label={collapseHint}
+              aria-pressed={sidebarCollapsed}
+              title={collapseHint}
+              onClick={() => setSidebarCollapsed((current) => !current)}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+                <path d="M6.5 3v10" />
+                {sidebarCollapsed ? <path d="m9 6 2 2-2 2" /> : <path d="m11 6-2 2 2 2" />}
+              </svg>
+            </button>
           </div>
         </aside>
 
         <div className="idt-app-console">
-          <header className="idt-app-shell-header">
-            <div>
-              <p className="idt-app-kicker">Operations console</p>
-              <h1>Identrail workspace</h1>
-              <p>
-                Tenant <strong title={scope.tenantID}>{tenantLabel}</strong> · Workspace <strong title={scope.workspaceID}>{workspaceLabel}</strong>
-                {scope.projectID ? (
-                  <>
-                    {' '}
-                    · Project <strong title={scope.projectID}>{projectLabel}</strong>
-                  </>
-                ) : null}
-              </p>
-              <div className="idt-app-header-meta" aria-label="Workspace operating model">
-                <SourceLogoStack className="idt-app-header-source-stack" label="Enabled source connectors" />
-                <span>{enabledSourceLabel} signals stay visible across the workflow.</span>
-                <span>Project-scoped scans</span>
-                <span>Owner-ready findings</span>
-              </div>
-            </div>
-            <div className="idt-app-shell-actions">
-              <Link to="/app/account/security" className="idt-btn idt-btn-ghost">
-                Account security
-              </Link>
-              <button
-                type="button"
-                className="idt-btn idt-btn-ghost"
-                onClick={() => {
-                  navigate('/app/logout', { replace: true });
-                }}
-              >
-                Sign out
-              </button>
-              <Link to="/" className="idt-btn idt-btn-dark">
-                Marketing site
-              </Link>
-            </div>
-          </header>
-
           <main className="idt-app-shell-main">
             <Outlet />
           </main>
@@ -1358,6 +1489,81 @@ export function ProductShellLayout() {
       />
     </ProductErrorBoundary>
   );
+}
+
+function formatRelativeTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  const diffMs = Date.now() - parsed.getTime();
+  const diffMinutes = Math.round(diffMs / 60000);
+  if (diffMinutes < 1) return 'just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function summarizeScanFailure(scan: RepoScanRecord): string {
+  const message = (scan.error_message || '').trim();
+  if (!message) {
+    return 'Failed without a reported reason';
+  }
+  const lowered = message.toLowerCase();
+  if (lowered.includes('rate limit') || lowered.includes('secondary rate')) {
+    return 'Hit GitHub rate limit';
+  }
+  if (lowered.includes('timeout') || lowered.includes('timed out')) {
+    return 'Scan timed out';
+  }
+  if (lowered.includes('unauthor') || lowered.includes('401') || lowered.includes('token') || lowered.includes('credential')) {
+    return 'Authentication failed — reconnect the source';
+  }
+  if (lowered.includes('not found') || lowered.includes('404')) {
+    return 'Repository not found or access revoked';
+  }
+  if (lowered.includes('forbid') || lowered.includes('403')) {
+    return 'Access forbidden — check permissions';
+  }
+  if (message.length <= 96) {
+    return message;
+  }
+  return `${message.slice(0, 93)}...`;
+}
+
+type ScanGroup = {
+  reason: string;
+  status: string;
+  count: number;
+  latest: RepoScanRecord;
+  repos: string[];
+};
+
+function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
+  const groups: ScanGroup[] = [];
+  scans.forEach((scan) => {
+    const status = normalizeValue(scan.status).toLowerCase();
+    const reason =
+      status === 'failed' || status === 'canceled'
+        ? summarizeScanFailure(scan)
+        : status === 'succeeded' || status === 'completed'
+          ? `${scan.finding_count} findings · ${scan.files_scanned} files`
+          : 'In progress';
+    const repo = canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository;
+    const last = groups[groups.length - 1];
+    if (last && last.status === status && last.reason === reason) {
+      last.count += 1;
+      if (!last.repos.includes(repo)) {
+        last.repos.push(repo);
+      }
+      return;
+    }
+    groups.push({ reason, status, count: 1, latest: scan, repos: [repo] });
+  });
+  return groups;
 }
 
 export function ProductOverviewPage() {
@@ -1474,95 +1680,186 @@ export function ProductOverviewPage() {
     return severity === 'critical' || severity === 'high';
   }).length;
   const activeScanCount = repoScans.filter((scan) => isActiveScanStatus(scan.status)).length;
-  const completedScanCount = repoScans.filter((scan) => isCompletedScanStatus(scan.status)).length;
+  const succeededScanCount = repoScans.filter((scan) => {
+    const normalized = normalizeValue(scan.status).toLowerCase();
+    return normalized === 'succeeded' || normalized === 'completed';
+  }).length;
+  const failedScanCount = repoScans.filter((scan) => {
+    const normalized = normalizeValue(scan.status).toLowerCase();
+    return normalized === 'failed' || normalized === 'canceled';
+  }).length;
   const latestTrend = trendPoints[trendPoints.length - 1];
   const previousTrend = trendPoints[trendPoints.length - 2];
   const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
   const projectsPath = scope ? buildProjectsPath(scope) : '/app';
   const findingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
+  const connectSourcesPath = scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath;
+  const hasAnySuccessfulScan = succeededScanCount > 0;
+  const hasConnectedSource = activeProjects.some((project) => {
+    const desc = (project.description ?? '').toLowerCase();
+    return desc.includes('connector') || desc.includes('source') || desc.includes('github') || desc.includes('aws');
+  });
+  const onboardingChecklist: Array<{
+    id: string;
+    label: string;
+    description: string;
+    complete: boolean;
+    actionLabel?: string;
+    to?: string;
+  }> = [
+    {
+      id: 'project',
+      label: 'Create your first project',
+      description: 'Define the scope that connectors and scan policies attach to.',
+      complete: activeProjects.length > 0,
+      actionLabel: activeProjects.length > 0 ? undefined : 'Create',
+      to: projectsPath
+    },
+    {
+      id: 'source',
+      label: 'Connect a source',
+      description: 'Attach GitHub, AWS, or Kubernetes telemetry to a project.',
+      complete: hasConnectedSource || repoScans.length > 0,
+      actionLabel: hasConnectedSource || repoScans.length > 0 ? undefined : 'Connect',
+      to: connectSourcesPath
+    },
+    {
+      id: 'scan',
+      label: 'Run your first scan',
+      description: 'Produce evidence the workspace can triage.',
+      complete: hasAnySuccessfulScan,
+      actionLabel: hasAnySuccessfulScan ? undefined : 'Run scan',
+      to: connectSourcesPath
+    },
+    {
+      id: 'invite',
+      label: 'Invite a teammate',
+      description: 'Give analysts and admins access to this workspace.',
+      complete: false,
+      actionLabel: 'Invite',
+      to: workspacesPath
+    }
+  ];
+  const onboardingComplete = onboardingChecklist.every((item) => item.complete);
+  const shouldShowOnboarding = !onboardingComplete;
 
   if (loading) {
     return (
-      <section className="idt-app-panel" aria-busy="true" aria-live="polite">
-        <p className="idt-app-kicker">Workspace overview</p>
-        <h2>Overview</h2>
-        <p>Loading workspace activity, project coverage, scans, and open findings.</p>
+      <section className="idt-app-panel idt-overview-page" aria-busy="true" aria-live="polite">
+        <header className="idt-overview-header">
+          <h2>Overview</h2>
+          <p>Loading workspace activity, project coverage, scans, and open findings.</p>
+        </header>
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="idt-app-panel idt-app-panel-error" role="alert">
-        <p className="idt-app-kicker">Workspace overview</p>
-        <h2>Overview</h2>
-        <p>{error}</p>
+      <section className="idt-app-panel idt-app-panel-error idt-overview-page" role="alert">
+        <header className="idt-overview-header">
+          <h2>Overview</h2>
+          <p>{error}</p>
+        </header>
       </section>
     );
   }
+
+  const scanGroups = groupRecentScans(repoScans);
 
   return (
     <>
       <section className="idt-app-panel idt-overview-page">
         <header className="idt-overview-header">
           <div>
-            <p className="idt-app-kicker">Workspace overview</p>
             <h2>Overview</h2>
-            <p>
-              Project coverage, scans, and open findings for tenant{' '}
-              <strong title={scope?.tenantID ?? undefined}>{scope ? formatScopeDisplay(scope.tenantID) : 'unknown'}</strong> and workspace{' '}
-              <strong title={scope?.workspaceID ?? undefined}>{scope ? formatScopeDisplay(scope.workspaceID) : 'unknown'}</strong>.
-            </p>
-            <div className="idt-overview-source-strip" aria-label="Overview coverage">
-              <span>Evidence queue</span>
-              <span>Connector health</span>
-              <span>Remediation owners</span>
-            </div>
+            <p>Last 7 days of project coverage, scans, and open findings.</p>
           </div>
           <div className="idt-inline-actions">
-            <Link className="idt-btn idt-btn-primary" to={projectsPath}>
-              Manage projects
-            </Link>
-            <Link className="idt-btn idt-btn-ghost" to={findingsPath}>
+            <Link className="idt-btn idt-btn-primary" to={findingsPath}>
               Review findings
+            </Link>
+            <Link className="idt-btn idt-btn-ghost" to={projectsPath}>
+              Manage projects
             </Link>
           </div>
         </header>
 
+        {shouldShowOnboarding ? (
+          <section className="idt-overview-checklist" aria-label="Get started">
+            <header>
+              <h3>Get started</h3>
+              <p>{onboardingChecklist.filter((item) => item.complete).length} of {onboardingChecklist.length} complete</p>
+            </header>
+            <ol>
+              {onboardingChecklist.map((item) => (
+                <li key={item.id} data-complete={item.complete ? 'true' : 'false'}>
+                  <span className="idt-overview-checklist-mark" aria-hidden="true">
+                    {item.complete ? (
+                      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m3.5 8.5 3 3 6-7" />
+                      </svg>
+                    ) : null}
+                  </span>
+                  <div className="idt-overview-checklist-body">
+                    <strong>{item.label}</strong>
+                    <span>{item.description}</span>
+                  </div>
+                  {item.actionLabel && item.to ? (
+                    <Link className="idt-overview-checklist-action" to={item.to}>
+                      {item.actionLabel}
+                    </Link>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
+
         <div className="idt-overview-metrics" aria-label="Workspace health metrics">
           <article className="idt-overview-metric-card">
-            <div className="idt-overview-metric-top">
-              <span>Active projects</span>
-            </div>
+            <span className="idt-overview-metric-label">Active projects</span>
             <strong>{activeProjects.length}</strong>
-            <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : 'All listed projects are active'}</p>
+            <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : activeProjects.length === 0 ? 'None yet' : activeProjects.length === 1 ? '1 project active' : `${activeProjects.length} projects active`}</p>
           </article>
           <article className="idt-overview-metric-card">
-            <div className="idt-overview-metric-top">
-              <span>Priority findings</span>
-            </div>
+            <span className="idt-overview-metric-label">Priority findings</span>
             <strong>{openFindingCount}</strong>
-            <p>{urgentFindingCount} critical or high in the ranked queue</p>
+            <p>{urgentFindingCount > 0 ? `${urgentFindingCount} critical or high` : 'No critical or high open'}</p>
           </article>
-          <article className="idt-overview-metric-card">
-            <div className="idt-overview-metric-top">
-              <span>Recent scans</span>
-            </div>
+          <article className={`idt-overview-metric-card${failedScanCount > 0 && succeededScanCount === 0 && repoScans.length > 0 ? ' is-attention' : ''}`}>
+            <span className="idt-overview-metric-label">Scans (7d)</span>
             <strong>{repoScans.length}</strong>
-            <p>{activeScanCount > 0 ? `${activeScanCount} still running` : `${completedScanCount} completed`}</p>
+            <p className="idt-overview-metric-breakdown">
+              {repoScans.length === 0 ? (
+                'No scans yet'
+              ) : (
+                <>
+                  {succeededScanCount > 0 ? <span className="is-success">{succeededScanCount} succeeded</span> : null}
+                  {failedScanCount > 0 ? <span className="is-error">{failedScanCount} failed</span> : null}
+                  {activeScanCount > 0 ? <span className="is-warning">{activeScanCount} running</span> : null}
+                </>
+              )}
+            </p>
           </article>
           <article className="idt-overview-metric-card">
-            <div className="idt-overview-metric-top">
-              <span>Trend delta</span>
-            </div>
-            <strong>{trendDelta === null ? 'N/A' : trendDelta > 0 ? `+${trendDelta}` : trendDelta}</strong>
+            <span className="idt-overview-metric-label">Trend</span>
+            <strong>
+              {trendDelta === null
+                ? '—'
+                : trendDelta > 0
+                  ? `+${trendDelta}`
+                  : trendDelta === 0
+                    ? '0'
+                    : trendDelta}
+            </strong>
             <p>
               {latestTrend
                 ? previousTrend
-                  ? `Latest scan total ${latestTrend.total}`
-                  : `Latest scan total ${latestTrend.total}; awaiting another scan`
-                : 'No trend points yet'}
+                  ? `vs. previous scan (${latestTrend.total} total)`
+                  : `${latestTrend.total} findings · awaiting another scan`
+                : 'No data yet'}
             </p>
           </article>
         </div>
@@ -1570,11 +1867,8 @@ export function ProductOverviewPage() {
         <div className="idt-overview-grid">
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
-              <div>
-                <p className="idt-app-kicker">Priority queue</p>
-                <h3>Open risk</h3>
-              </div>
-              <Link to={findingsPath}>All findings</Link>
+              <h3>Open risk</h3>
+              <Link to={findingsPath}>View all</Link>
             </div>
             {repoFindings.length > 0 ? (
               <div className="idt-overview-list">
@@ -1598,43 +1892,52 @@ export function ProductOverviewPage() {
               </div>
             ) : (
               <AppShellEmptyState
-                title="No open repository findings"
-                body="New repository scan findings will appear here with severity, repository, and line context."
+                title="No open findings"
+                body="Findings will appear here with severity, repository, and line context."
               />
             )}
           </section>
 
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
-              <div>
-                <p className="idt-app-kicker">Scan activity</p>
-                <h3>Recent scans</h3>
-              </div>
-              <Link to={findingsPath}>Open scans</Link>
+              <h3>Recent scans</h3>
+              <Link to={findingsPath}>View all</Link>
             </div>
-            {repoScans.length > 0 ? (
+            {scanGroups.length > 0 ? (
               <div className="idt-overview-list">
-                {repoScans.map((scan) => (
-                  <article key={scan.id} className="idt-overview-scan-row">
-                    <SourceLogoMark provider="github" className="is-row" />
-                    <div className="idt-overview-row-copy">
-                      <div>
-                        <strong>{canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository}</strong>
-                        <p>
-                          {scan.finding_count} findings · {scan.files_scanned} files · {formatDateLabel(scan.started_at)}
-                        </p>
+                {scanGroups.map((group) => {
+                  const isFailure = group.status === 'failed' || group.status === 'canceled';
+                  const isActive = isActiveScanStatus(group.status);
+                  const repoLabel =
+                    group.repos.length === 1
+                      ? group.repos[0]
+                      : `${group.repos[0]} +${group.repos.length - 1} more`;
+                  const countLabel = group.count > 1 ? `${group.count} scans` : '1 scan';
+                  return (
+                    <article
+                      key={`${group.status}-${group.reason}-${group.latest.id}`}
+                      className={`idt-overview-scan-row${isFailure ? ' is-failure' : isActive ? ' is-active' : ' is-success'}`}
+                    >
+                      <SourceLogoMark provider="github" className="is-row" />
+                      <div className="idt-overview-row-copy">
+                        <div>
+                          <strong>{repoLabel}</strong>
+                          <p>
+                            {countLabel} · {group.reason} · {formatRelativeTime(group.latest.started_at)}
+                          </p>
+                        </div>
+                        <span className={`idt-overview-scan-badge is-${isFailure ? 'error' : isActive ? 'warning' : 'success'}`}>
+                          {isFailure ? 'Failed' : isActive ? 'Running' : 'Succeeded'}
+                        </span>
                       </div>
-                      <span className={`idt-source-status-pill is-${isActiveScanStatus(scan.status) ? 'warning' : scan.status === 'failed' ? 'error' : 'success'}`}>
-                        {formatTokenLabel(scan.status)}
-                      </span>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             ) : (
               <AppShellEmptyState
                 title="No scans yet"
-                body="Connect a project source and run the first scan to populate repository activity."
+                body="Connect a project source and run the first scan to populate activity."
               />
             )}
           </section>
@@ -1643,11 +1946,8 @@ export function ProductOverviewPage() {
         <div className="idt-overview-grid">
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
-              <div>
-                <p className="idt-app-kicker">Coverage</p>
-                <h3>Project coverage</h3>
-              </div>
-              <Link to={projectsPath}>Project settings</Link>
+              <h3>Project coverage</h3>
+              <Link to={projectsPath}>Manage</Link>
             </div>
             {activeProjects.length > 0 ? (
               <div className="idt-overview-projects">
@@ -1657,44 +1957,17 @@ export function ProductOverviewPage() {
                       <strong>{project.name}</strong>
                       <SourceLogoStack label={`${project.name} source stack`} />
                     </div>
-                    <span>{project.description || `Project ${project.project_id}`}</span>
-                    <small>Updated {formatDateLabel(project.updated_at)}</small>
+                    <span>{project.description || 'No description'}</span>
+                    <small>Updated {formatRelativeTime(project.updated_at)}</small>
                   </Link>
                 ))}
               </div>
             ) : (
               <AppShellEmptyState
                 title="No active projects"
-                body="Create the first project to connect source telemetry and scan policies for this workspace."
+                body="Create the first project to connect source telemetry and scan policies."
               />
             )}
-          </section>
-
-          <section className="idt-overview-card">
-            <div className="idt-overview-card-header">
-              <div>
-                <p className="idt-app-kicker">Next actions</p>
-                <h3>Make the workspace useful</h3>
-              </div>
-            </div>
-            <div className="idt-overview-actions">
-              <Link to={projectsPath}>
-                <strong>Create or select a project</strong>
-                <span>Define the scope that connectors and scan policies will attach to.</span>
-              </Link>
-              <Link to={scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath}>
-                <strong>Connect sources</strong>
-                <span>Attach enabled source telemetry to an active project.</span>
-              </Link>
-              <Link to={findingsPath}>
-                <strong>Triage open findings</strong>
-                <span>Review direct GitHub line links, severity, remediation, and workflow status.</span>
-              </Link>
-              <Link to={workspacesPath}>
-                <strong>Invite operators</strong>
-                <span>Give analysts and admins access to the workspace they operate.</span>
-              </Link>
-            </div>
           </section>
         </div>
       </section>
