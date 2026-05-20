@@ -283,6 +283,15 @@ type RepoFindingClusterFilter struct {
 	Offset     int
 }
 
+// RepoRiskGraphFilter narrows the repository findings used to build a risk graph.
+type RepoRiskGraphFilter struct {
+	RepoScanID    string
+	Repository    string
+	Severity      string
+	Type          string
+	DefaultBranch string
+}
+
 // FindingsPage captures one paginated findings response.
 type FindingsPage struct {
 	Items      []domain.Finding
@@ -1693,6 +1702,38 @@ func (s *Service) ListRepoFindingClusters(ctx context.Context, limit int, filter
 		return nil, err
 	}
 	return enrichRepoFindingClusters(items), nil
+}
+
+// GetRepoRiskGraph returns the graph-backed machine-identity blast radius for repository findings.
+func (s *Service) GetRepoRiskGraph(ctx context.Context, filter RepoRiskGraphFilter) (domain.RepoRiskGraph, error) {
+	ctx = s.scopeContext(ctx)
+	repository := strings.TrimSpace(filter.Repository)
+	if repoScanID := strings.TrimSpace(filter.RepoScanID); repoScanID != "" {
+		record, err := s.Store.GetRepoScan(ctx, repoScanID)
+		if err != nil {
+			return domain.RepoRiskGraph{}, err
+		}
+		if repository == "" {
+			repository = strings.TrimSpace(record.Repository)
+		}
+	}
+
+	findings, err := s.Store.ListRepoFindings(ctx, db.RepoFindingFilter{
+		RepoScanID: strings.TrimSpace(filter.RepoScanID),
+		Repository: repository,
+		Severity:   strings.TrimSpace(filter.Severity),
+		Type:       strings.TrimSpace(filter.Type),
+		SortBy:     "created_at",
+		SortDesc:   true,
+	}, 0)
+	if err != nil {
+		return domain.RepoRiskGraph{}, err
+	}
+	return domain.BuildRepoRiskGraph(enrichFindingsWithRepoContext(findings), domain.RepoRiskGraphOptions{
+		Repository:    repository,
+		DefaultBranch: strings.TrimSpace(filter.DefaultBranch),
+		Now:           time.Now().UTC(),
+	}), nil
 }
 
 // GetOrganization returns the current scoped organization record.

@@ -54,6 +54,7 @@ func TestNormalizeRepoFindingFilter(t *testing.T) {
 	normalized := NormalizeRepoFindingFilter(RepoFindingFilter{
 		RepoScanID:      " repo-scan-1 ",
 		FindingID:       " finding-1 ",
+		Repository:      " owner/repo ",
 		Severity:        " HIGH ",
 		Type:            " SECRET_EXPOSURE ",
 		LifecycleStatus: " ACK ",
@@ -61,7 +62,7 @@ func TestNormalizeRepoFindingFilter(t *testing.T) {
 		SortBy:          "severity",
 		SortDesc:        true,
 	})
-	if normalized.RepoScanID != "repo-scan-1" || normalized.FindingID != "finding-1" {
+	if normalized.RepoScanID != "repo-scan-1" || normalized.FindingID != "finding-1" || normalized.Repository != "owner/repo" {
 		t.Fatalf("expected trimmed identifiers, got %+v", normalized)
 	}
 	if normalized.Severity != "high" || normalized.Type != "secret_exposure" {

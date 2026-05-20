@@ -3166,19 +3166,21 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 		   AND ($2 = '' OR rf.finding_id = $2)
 		   AND ($3 = '' OR rf.severity = $3)
 		   AND ($4 = '' OR rf.type = $4)
-		   AND rs.tenant_id = $5
-		   AND rs.workspace_id = $6
+		   AND ($5 = '' OR lower(rs.repository) = lower($5))
+		   AND rs.tenant_id = $6
+		   AND rs.workspace_id = $7
 		 ORDER BY ` + repoFindingOrderClause(normalized.SortBy, normalized.SortDesc)
 	args := []any{
 		repoScanID,
 		normalized.FindingID,
 		normalized.Severity,
 		normalized.Type,
+		normalized.Repository,
 		scope.TenantID,
 		scope.WorkspaceID,
 	}
 	if limit > 0 {
-		query += "\n\t\t LIMIT $7"
+		query += "\n\t\t LIMIT $8"
 		args = append(args, limit)
 	}
 	rows, err := p.queryContext(

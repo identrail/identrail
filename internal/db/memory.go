@@ -2207,6 +2207,7 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 	normalized := NormalizeRepoFindingFilter(filter)
 	repoScanID := normalized.RepoScanID
 	findingID := normalized.FindingID
+	repositoryFilter := normalized.Repository
 	repoScanRepository := ""
 	if repoScanID != "" {
 		record, exists := m.repoScans[repoScanID]
@@ -2236,6 +2237,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 				finding.Repository = repoScanRepository
 			}
 			domain.NormalizeRepoFindingMetadata(&finding)
+			if !repoFindingMatchesRepository(finding, repositoryFilter) {
+				continue
+			}
 			result = append(result, finding)
 		}
 	} else {
@@ -2257,6 +2261,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 				finding.Repository = strings.TrimSpace(record.Repository)
 			}
 			domain.NormalizeRepoFindingMetadata(&finding)
+			if !repoFindingMatchesRepository(finding, repositoryFilter) {
+				continue
+			}
 			result = append(result, finding)
 		}
 	}
@@ -2265,6 +2272,14 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 		result = result[:limit]
 	}
 	return result, nil
+}
+
+func repoFindingMatchesRepository(finding domain.Finding, repository string) bool {
+	repository = strings.TrimSpace(repository)
+	if repository == "" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(finding.Repository), repository)
 }
 
 // ListRepoFindingClusters returns repository finding clusters using store-backed pagination semantics.

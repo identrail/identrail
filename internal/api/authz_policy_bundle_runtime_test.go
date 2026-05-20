@@ -90,6 +90,13 @@ func TestDefaultRoutePolicyBundleUsesRepoScansReadForRepoFindingsTrends(t *testi
 	if policy.Action != policyActionRepoScansRead {
 		t.Fatalf("expected action %q, got %q", policyActionRepoScansRead, policy.Action)
 	}
+	policy, exists = compiled.RouteRegistry.lookup("GET", "/v1/repo-risk-graph")
+	if !exists {
+		t.Fatal("expected built-in authz policy for GET /v1/repo-risk-graph")
+	}
+	if policy.Action != policyActionRepoScansRead {
+		t.Fatalf("expected action %q, got %q", policyActionRepoScansRead, policy.Action)
+	}
 }
 
 func TestCentralPolicyRuntimeResolverFallsBackWhenNoActiveRollout(t *testing.T) {

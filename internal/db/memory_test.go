@@ -662,6 +662,14 @@ func TestMemoryStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("unexpected high severity findings: %+v", highOnly)
 	}
 
+	repositoryOnly, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{Repository: " OWNER/REPO "}, 10)
+	if err != nil {
+		t.Fatalf("list repo findings by repository: %v", err)
+	}
+	if len(repositoryOnly) != 2 {
+		t.Fatalf("expected repository filter to match stored scan repository, got %+v", repositoryOnly)
+	}
+
 	repoScans, err := store.ListRepoScans(defaultScopeContext(), 10)
 	if err != nil {
 		t.Fatalf("list repo scans: %v", err)

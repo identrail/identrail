@@ -119,6 +119,10 @@ x-identrail-route-authorizations:
     path: /v1/repo-finding-clusters
     action: repo_scans.read
     resource_type: repo_finding_cluster
+  - method: GET
+    path: /v1/repo-risk-graph
+    action: repo_scans.read
+    resource_type: repo_risk_graph
   - method: POST
     path: /v1/repo-scans
     action: repo_scans.run
@@ -3901,6 +3905,47 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/repo-risk-graph:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [RepositoryExposure]
+      summary: Build a repository machine-identity risk graph
+      operationId: getRepoRiskGraph
+      parameters:
+        - in: query
+          name: repo_scan_id
+          schema: { type: string }
+        - in: query
+          name: repository
+          schema: { type: string }
+        - in: query
+          name: default_branch
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema:
+            $ref: "#/components/schemas/FindingSeverity"
+        - in: query
+          name: type
+          schema:
+            $ref: "#/components/schemas/FindingType"
+      responses:
+        "200":
+          description: Repository risk graph
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRiskGraph"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -5915,6 +5960,130 @@ components:
             $ref: "#/components/schemas/RepoFindingCluster"
         next_cursor:
           type: string
+    RepoRiskGraph:
+      type: object
+      properties:
+        repository:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoRiskGraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoRiskGraphEdge"
+        scores:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoRiskGraphFindingScore"
+        summary:
+          $ref: "#/components/schemas/RepoRiskGraphSummary"
+    RepoRiskGraphNode:
+      type: object
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [repository, default_branch, finding, workflow, workflow_job, environment, secret, deploy_key, github_app, token, oidc_subject, cloud_role, kubernetes_service_account, unknown]
+        label: { type: string }
+        repository: { type: string }
+        evidence_state:
+          type: string
+          enum: [known, unknown]
+        evidence:
+          type: object
+          additionalProperties: true
+    RepoRiskGraphEdge:
+      type: object
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [repository_contains_workflow, repository_default_branch, finding_in_repository, finding_affects_workflow, workflow_runs_job, job_uses_secret, finding_exposes_token, workflow_can_mint_token, oidc_subject_can_assume_role, repo_deploys_to_environment, finding_references_identity, reachability_unknown]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_state:
+          type: string
+          enum: [known, unknown]
+        evidence:
+          type: object
+          additionalProperties: true
+    RepoRiskGraphFindingScore:
+      type: object
+      properties:
+        finding_id: { type: string }
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        severity:
+          $ref: "#/components/schemas/FindingSeverity"
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        factors:
+          $ref: "#/components/schemas/RepoRiskGraphScoreFactors"
+        unknowns:
+          type: array
+          items: { type: string }
+    RepoRiskGraphScoreFactors:
+      type: object
+      properties:
+        severity:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        exploitability:
+          type: integer
+          minimum: 0
+          maximum: 100
+        privilege:
+          type: integer
+          minimum: 0
+          maximum: 100
+        exposure:
+          type: integer
+          minimum: 0
+          maximum: 100
+        environment_criticality:
+          type: integer
+          minimum: 0
+          maximum: 100
+        freshness:
+          type: integer
+          minimum: 0
+          maximum: 100
+    RepoRiskGraphSummary:
+      type: object
+      properties:
+        finding_count:
+          type: integer
+          minimum: 0
+        node_count:
+          type: integer
+          minimum: 0
+        edge_count:
+          type: integer
+          minimum: 0
+        unknown_node_count:
+          type: integer
+          minimum: 0
+        unknown_edge_count:
+          type: integer
+          minimum: 0
+        high_risk_findings:
+          type: integer
+          minimum: 0
+        critical_findings:
+          type: integer
+          minimum: 0
     FindingsSummary:
       type: object
       properties:

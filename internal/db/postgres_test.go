@@ -743,7 +743,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "default", "default", 100).WillReturnRows(repoFindingsRows)
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "", "default", "default", 100).WillReturnRows(repoFindingsRows)
 	repoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 100)
 	if err != nil {
 		t.Fatalf("list repo findings failed: %v", err)
@@ -766,7 +766,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "default", "default").WillReturnRows(unboundedRepoFindingsRows)
+	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "", "default", "default").WillReturnRows(unboundedRepoFindingsRows)
 	unboundedRepoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 0)
 	if err != nil {
 		t.Fatalf("list repo findings unbounded failed: %v", err)

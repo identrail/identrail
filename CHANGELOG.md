@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added a GitHub repository risk graph domain model for repository findings.
+  Repo findings can now be deterministically associated with repository,
+  workflow, job, environment, secret/token, OIDC subject, cloud role,
+  Kubernetes service-account, GitHub App, and deploy-key nodes when evidence
+  exists. The graph deduplicates edges, represents missing blast-radius evidence
+  as `unknown` instead of guessing, and attaches inspectable risk-score factors
+  for severity, confidence, exploitability, privilege, exposure, environment
+  criticality, and freshness.
 - Added opt-in external repository finding adapters. SARIF 2.1.0 output and
   GitHub code-scanning alerts can now be normalized into Identrail repo
   findings with adapter name/version/rule/location/confidence evidence,

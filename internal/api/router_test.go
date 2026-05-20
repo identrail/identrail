@@ -690,6 +690,23 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 		t.Fatalf("expected GitHub source URL in response, got %+v", repoFindingsBody.Items[0].SourceURL)
 	}
 
+	repoRiskGraphReq := httptest.NewRequest(http.MethodGet, "/v1/repo-risk-graph?repo_scan_id="+repoScanID+"&default_branch=main", nil)
+	repoRiskGraphW := httptest.NewRecorder()
+	r.ServeHTTP(repoRiskGraphW, repoRiskGraphReq)
+	if repoRiskGraphW.Code != http.StatusOK {
+		t.Fatalf("expected repo risk graph 200, got %d", repoRiskGraphW.Code)
+	}
+	var repoRiskGraph domain.RepoRiskGraph
+	if err := json.Unmarshal(repoRiskGraphW.Body.Bytes(), &repoRiskGraph); err != nil {
+		t.Fatalf("decode repo risk graph body: %v", err)
+	}
+	if repoRiskGraph.Repository != "owner/repo" || repoRiskGraph.Summary.FindingCount != 1 {
+		t.Fatalf("expected repo risk graph summary for scan, got %+v", repoRiskGraph)
+	}
+	if !repoRiskGraphHasNode(repoRiskGraph, domain.RepoRiskNodeToken) || !repoRiskGraphHasEdge(repoRiskGraph, domain.RepoRiskEdgeFindingExposesToken) {
+		t.Fatalf("expected token blast-radius graph for repo finding, got %+v", repoRiskGraph)
+	}
+
 	repoClustersReq := httptest.NewRequest(http.MethodGet, "/v1/repo-finding-clusters?repo_scan_id="+repoScanID, nil)
 	repoClustersW := httptest.NewRecorder()
 	r.ServeHTTP(repoClustersW, repoClustersReq)
@@ -813,6 +830,13 @@ func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
 	r.ServeHTTP(repoFindingsW, repoFindingsReq)
 	if repoFindingsW.Code != http.StatusOK {
 		t.Fatalf("expected repo findings 200 without service, got %d", repoFindingsW.Code)
+	}
+
+	repoRiskGraphReq := httptest.NewRequest(http.MethodGet, "/v1/repo-risk-graph", nil)
+	repoRiskGraphW := httptest.NewRecorder()
+	r.ServeHTTP(repoRiskGraphW, repoRiskGraphReq)
+	if repoRiskGraphW.Code != http.StatusOK {
+		t.Fatalf("expected repo risk graph 200 without service, got %d", repoRiskGraphW.Code)
 	}
 
 	repoTrendsReq := httptest.NewRequest(http.MethodGet, "/v1/repo-findings/trends", nil)
@@ -4209,6 +4233,24 @@ func TestRateLimitKeySeparatesKubernetesHeartbeatBearerCredentials(t *testing.T)
 	if strings.Contains(first, "agent-token-a") || strings.Contains(second, "agent-token-b") {
 		t.Fatalf("rate limit keys must not expose raw bearer credentials: %q %q", first, second)
 	}
+}
+
+func repoRiskGraphHasNode(graph domain.RepoRiskGraph, kind domain.RepoRiskGraphNodeKind) bool {
+	for _, node := range graph.Nodes {
+		if node.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func repoRiskGraphHasEdge(graph domain.RepoRiskGraph, kind domain.RepoRiskGraphEdgeKind) bool {
+	for _, edge := range graph.Edges {
+		if edge.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRateLimitKeyKeepsGenericBearerBucketOutsideKubernetesHeartbeat(t *testing.T) {

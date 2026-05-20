@@ -485,6 +485,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/repo-finding-clusters", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.GET("/repo-risk-graph", func(c *gin.Context) {
+			c.JSON(http.StatusOK, domain.RepoRiskGraph{})
+		})
 		v1.POST("/scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
@@ -975,6 +978,34 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		c.JSON(http.StatusOK, paginatedItemsResponseWithBaseOffset(items, offset, limit))
+	})
+
+	v1.GET("/repo-risk-graph", func(c *gin.Context) {
+		repoScanID := strings.TrimSpace(c.Query("repo_scan_id"))
+		if repoScanID != "" && !isValidUUID(repoScanID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
+			return
+		}
+		graph, err := svc.GetRepoRiskGraph(
+			c.Request.Context(),
+			RepoRiskGraphFilter{
+				RepoScanID:    repoScanID,
+				Repository:    strings.TrimSpace(c.Query("repository")),
+				Severity:      strings.TrimSpace(c.Query("severity")),
+				Type:          strings.TrimSpace(c.Query("type")),
+				DefaultBranch: strings.TrimSpace(c.Query("default_branch")),
+			},
+		)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "repo scan not found"})
+				return
+			}
+			logger.Error("get repo risk graph", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build repo risk graph"})
+			return
+		}
+		c.JSON(http.StatusOK, graph)
 	})
 
 	v1.POST("/scans", func(c *gin.Context) {

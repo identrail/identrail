@@ -1960,6 +1960,7 @@ type RelationshipFilter struct {
 type RepoFindingFilter struct {
 	RepoScanID      string
 	FindingID       string
+	Repository      string
 	Severity        string
 	Type            string
 	LifecycleStatus string
@@ -2068,6 +2069,7 @@ func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
 	normalized := RepoFindingFilter{
 		RepoScanID:      strings.TrimSpace(filter.RepoScanID),
 		FindingID:       strings.TrimSpace(filter.FindingID),
+		Repository:      strings.TrimSpace(filter.Repository),
 		Severity:        strings.ToLower(strings.TrimSpace(filter.Severity)),
 		Type:            strings.ToLower(strings.TrimSpace(filter.Type)),
 		LifecycleStatus: strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),

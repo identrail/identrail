@@ -260,6 +260,7 @@ func TestOpenAPIV1SpecDocumentsRepresentativeErrorResponses(t *testing.T) {
 		{path: "/v1/repo-scans/{repo_scan_id}", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
 		{path: "/v1/repo-findings", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
 		{path: "/v1/repo-finding-clusters", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
+		{path: "/v1/repo-risk-graph", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"404":`, `#/components/responses/NotFound`, `"500":`, `#/components/responses/InternalServerError`}},
 		{path: "/v1/workspaces/{workspace_id}/projects", method: "get", required: []string{`"400":`, `#/components/responses/BadRequest`, `"401":`, `#/components/responses/Unauthorized`, `"500":`, `#/components/responses/InternalServerError`, `"503":`, `#/components/responses/ServiceUnavailable`}},
 	}
 

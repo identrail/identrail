@@ -65,6 +65,7 @@ Read APIs:
 - `GET /v1/repo-scans/:repo_scan_id`
 - `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
 - `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
+- `GET /v1/repo-risk-graph?repo_scan_id=&repository=&default_branch=&severity=&type=`
 - list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
 - repo finding responses expose stable repository and location fields when available: `repository`, `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, `line_snippet_redacted`, and `source_url`
 - `source_url` is a direct GitHub blob link pinned to the detected commit when Identrail can derive one
@@ -212,6 +213,65 @@ External findings are deduplicated by stable IDs, adapter dedupe keys, detector
 location, and same-line snippet fingerprints. This prevents a native detector
 and an external scanner from flooding the same path/line with repeated copies
 of the same underlying issue.
+
+## GitHub-to-Machine-Identity Risk Graph
+
+Repository findings can be projected into a deterministic risk graph through
+`GET /v1/repo-risk-graph` or `domain.BuildRepoRiskGraph`. The graph is built
+from existing finding fields and evidence metadata; it does not execute extra
+scanners or infer cloud state that was not observed.
+
+Supported node concepts:
+
+- Repository and default branch.
+- Repository finding.
+- GitHub Actions workflow and workflow job.
+- GitHub environment.
+- GitHub secret reference or exposed token/credential fingerprint.
+- GitHub Actions OIDC subject.
+- Cloud role or service-account reference when evidence names one.
+- Kubernetes service account when evidence names one.
+- GitHub App and deploy-key references when evidence names them.
+- Unknown node for missing blast-radius evidence that should not be guessed.
+
+Supported edge concepts:
+
+- Finding belongs to repository.
+- Repository contains workflow.
+- Finding affects workflow.
+- Workflow runs job.
+- Job uses secret.
+- Finding exposes token or credential material.
+- Workflow or job can mint an OIDC token.
+- OIDC subject can assume a named role when evidence identifies the role.
+- Repository deploys to an environment.
+- Finding references an identity such as a role, service account, GitHub App,
+  or deploy key.
+- Reachability is unknown when evidence proves a risky path exists but does not
+  name the downstream identity.
+
+Risk scoring is graph-aware and inspectable. Each finding score includes
+separate factors for severity, confidence, exploitability, privilege, exposure,
+environment criticality, and freshness. For example, a high-severity workflow
+finding with `id-token:write`, a cloud-auth action, a production environment,
+and a named role scores higher than a low-severity repository hygiene issue.
+An OIDC finding without a named cloud role still receives an OIDC privilege
+factor, but the missing role is recorded in `unknowns` and represented by an
+unknown reachability edge.
+
+Evidence limits are intentional:
+
+- Identrail links workflow, secret, OIDC, role, environment, and service-account
+  nodes only when fields or finding evidence provide those names.
+- A broad OIDC finding without `aws_role_arn`, `cloud_role_arn`,
+  `cloud_role`, `azure_client_id`, or `gcp_service_account` evidence gets an
+  unknown downstream identity instead of a guessed provider role.
+- Secret findings create token or secret nodes using fingerprints, detector
+  IDs, or non-secret labels. Raw secret values are not required and should not
+  be stored for graph construction.
+- The graph is a repo-finding evidence model. Full cloud-provider posture
+  collection, cross-account trust expansion, UI visualization, and
+  auto-remediation remain separate layers.
 
 ## Secret Confidence Classification
 
