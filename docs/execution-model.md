@@ -17,15 +17,24 @@ API behavior:
 ## Repository Scans
 
 1. Client calls `POST /v1/repo-scans`.
-2. API validates request and enqueues repo-scan record.
+2. API validates request, scan mode, source context, allowlist, and per-repo cursor.
 3. Worker claims and executes repo scan.
 4. Repo findings and scan lifecycle records are persisted.
+5. Successful scans update the repository cursor with the scanned head revision.
+
+Scan modes:
+- `deep`: bounded full-history scan plus HEAD configuration inspection. Manual
+  API requests default to this mode and scheduled policies enqueue this mode.
+- `delta`: commit-range scan scoped by `base_revision`, `head_revision`, and
+  optional `changed_paths`. GitHub push and pull-request webhooks enqueue this
+  mode when revision metadata is present.
+- `quick`: HEAD-focused scan mode for lightweight event refreshes.
 
 API behavior:
 - `202` accepted
 - `400` invalid request
 - `403` target outside allowlist
-- `409` target already in progress
+- `409` target already in progress or delta head already matches the stored cursor
 - `429` queue full
 - `503` repo scan disabled
 

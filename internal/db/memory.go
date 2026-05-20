@@ -25,6 +25,7 @@ type MemoryStore struct {
 	events         map[string][]ScanEvent
 	repoScans      map[string]RepoScanRecord
 	repoScanIDs    []string
+	repoCursors    map[string]RepoScanCursor
 	repoFindings   map[string]domain.Finding
 	repoFindingIDs map[string][]string
 
@@ -74,6 +75,7 @@ func NewMemoryStore() *MemoryStore {
 		events:         map[string][]ScanEvent{},
 		repoScans:      map[string]RepoScanRecord{},
 		repoScanIDs:    []string{},
+		repoCursors:    map[string]RepoScanCursor{},
 		repoFindings:   map[string]domain.Finding{},
 		repoFindingIDs: map[string][]string{},
 
@@ -1858,7 +1860,7 @@ func normalizeFindingTriageEventForWrite(event FindingTriageEvent) (FindingTriag
 }
 
 // CreateRepoScan persists one repository exposure scan start event.
-func (m *MemoryStore) CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, startedAt time.Time) (RepoScanRecord, error) {
+func (m *MemoryStore) CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, startedAt time.Time) (RepoScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1866,11 +1868,11 @@ func (m *MemoryStore) CreateRepoScan(ctx context.Context, repository string, sou
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), source, "running", 0, 0, startedAt), nil
+	return m.createRepoScanLocked(scope, strings.TrimSpace(repository), source, scanContext, "running", 0, 0, startedAt), nil
 }
 
 // CreateQueuedRepoScan persists one queued repository exposure scan request.
-func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
+func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1878,14 +1880,14 @@ func (m *MemoryStore) CreateQueuedRepoScan(ctx context.Context, repository strin
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
-	record := m.createRepoScanLocked(scope, strings.TrimSpace(repository), source, "queued", historyLimit, maxFindings, queuedAt)
+	record := m.createRepoScanLocked(scope, strings.TrimSpace(repository), source, scanContext, "queued", historyLimit, maxFindings, queuedAt)
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	m.repoScans[record.ID] = record
 	return record, nil
 }
 
 // CreateQueuedRepoScanWithinLimit persists one queued repository scan only when the target is idle and queue capacity remains.
-func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1912,7 +1914,7 @@ func (m *MemoryStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repos
 	if queued >= maxPending {
 		return RepoScanRecord{}, ErrQueueLimitReached
 	}
-	record := m.createRepoScanLocked(scope, normalizedRepository, source, "queued", historyLimit, maxFindings, queuedAt)
+	record := m.createRepoScanLocked(scope, normalizedRepository, source, scanContext, "queued", historyLimit, maxFindings, queuedAt)
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	m.repoScans[record.ID] = record
 	return record, nil
@@ -2087,8 +2089,9 @@ func (m *MemoryStore) FailStaleRepoScansAnyScope(_ context.Context, staleBefore 
 	return len(candidates), nil
 }
 
-func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, source RepoScanSource, status string, historyLimit int, maxFindings int, startedAt time.Time) RepoScanRecord {
+func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, source RepoScanSource, scanContext RepoScanContext, status string, historyLimit int, maxFindings int, startedAt time.Time) RepoScanRecord {
 	normalizedScope := scope.Normalize()
+	normalizedContext := NormalizeRepoScanContext(scanContext)
 	record := RepoScanRecord{
 		ID:           uuid.NewString(),
 		TenantID:     normalizedScope.TenantID,
@@ -2096,6 +2099,12 @@ func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, sourc
 		Repository:   strings.TrimSpace(repository),
 		Status:       strings.TrimSpace(status),
 		StartedAt:    startedAt.UTC(),
+		ScanMode:     normalizedContext.ScanMode,
+		BaseRevision: normalizedContext.BaseRevision,
+		HeadRevision: normalizedContext.HeadRevision,
+		CursorBefore: normalizedContext.CursorBefore,
+		CursorAfter:  normalizedContext.CursorAfter,
+		ChangedPaths: append([]string(nil), normalizedContext.ChangedPaths...),
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
 		Source:       source.Normalize(),
@@ -2122,7 +2131,7 @@ func (m *MemoryStore) GetRepoScan(ctx context.Context, repoScanID string) (RepoS
 }
 
 // CompleteRepoScan finalizes repo scan metadata.
-func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, errorMessage string) error {
+func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, cursorAfter string, errorMessage string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -2141,9 +2150,60 @@ func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, s
 	record.FilesScanned = filesScanned
 	record.FindingCount = findingCount
 	record.Truncated = truncated
+	record.CursorAfter = strings.TrimSpace(cursorAfter)
 	record.ErrorMessage = strings.TrimSpace(errorMessage)
 	m.repoScans[repoScanID] = record
 	return nil
+}
+
+// GetRepoScanCursor returns the last successful scan cursor for one repository source.
+func (m *MemoryStore) GetRepoScanCursor(ctx context.Context, repository string, source RepoScanSource) (RepoScanCursor, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanCursor{}, err
+	}
+	cursor, exists := m.repoCursors[repoScanCursorKey(scope, repository, source)]
+	if !exists {
+		return RepoScanCursor{}, ErrNotFound
+	}
+	return cursor, nil
+}
+
+// UpsertRepoScanCursor stores the latest successful scan cursor for one repository source.
+func (m *MemoryStore) UpsertRepoScanCursor(ctx context.Context, cursor RepoScanCursor) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	normalized := cursor.Normalize()
+	normalized.TenantID = scope.Normalize().TenantID
+	normalized.WorkspaceID = scope.Normalize().WorkspaceID
+	if strings.TrimSpace(normalized.Repository) == "" || strings.TrimSpace(normalized.LastScannedRevision) == "" {
+		return ErrNotFound
+	}
+	m.repoCursors[repoScanCursorKey(scope, normalized.Repository, normalized.Source)] = normalized
+	return nil
+}
+
+func repoScanCursorKey(scope Scope, repository string, source RepoScanSource) string {
+	normalizedScope := scope.Normalize()
+	normalizedSource := source.Normalize()
+	parts := []string{
+		normalizedScope.TenantID,
+		normalizedScope.WorkspaceID,
+		strings.ToLower(strings.TrimSpace(repository)),
+		normalizedSource.Provider,
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
+		fmt.Sprint(normalizedSource.InstallationID),
+	}
+	return strings.Join(parts, "\x00")
 }
 
 // UpsertRepoFindings persists repository findings idempotently by repo_scan_id + finding_id.

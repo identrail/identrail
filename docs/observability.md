@@ -30,6 +30,8 @@ Repository scan metrics:
 - `identrail_repo_scan_failure_total`
 - `identrail_repo_scan_truncated_total`
 - `identrail_repo_scan_duration_milliseconds`
+- `identrail_repo_scan_mode_runs_total{mode="quick|delta|deep",outcome="succeeded|failed|partial|skipped|requeued|queued"}`: bounded counter for scan-mode execution outcomes.
+- `identrail_repo_scan_skipped_total{mode="quick|delta|deep",reason="cursor_current|queue_full|in_progress|invalid_delta|disabled|target_not_allowed|throttled|replay|other"}`: bounded counter for repo scan work intentionally skipped before execution.
 
 Automation reliability metrics:
 - `identrail_queue_depth{queue="scan|repo_scan"}`: current API/worker queue backlog.
@@ -57,6 +59,7 @@ Allowed label examples:
 - Rollout labels controlled by configuration or code: `policy_source`, `policy_version`, `rollout_mode`.
 - Worker labels controlled by code constants: `queue`, `runner`, `source`.
 - Automation labels controlled by code constants: `connector`, `outcome`.
+- Repository scan labels controlled by code constants: `mode`, `reason`.
 
 Forbidden label examples:
 - Request-scoped identifiers: `request_id`, trace IDs, correlation IDs.

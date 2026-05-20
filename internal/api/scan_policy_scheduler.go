@@ -137,6 +137,7 @@ func (s *Service) enqueueDueScanPolicy(ctx context.Context, store scanPolicySche
 
 		request := RepoScanRequest{
 			Repository:   repository,
+			ScanMode:     db.RepoScanModeDeep,
 			HistoryLimit: policy.HistoryLimit,
 			MaxFindings:  policy.MaxFindings,
 		}

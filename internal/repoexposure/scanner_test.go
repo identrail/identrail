@@ -160,6 +160,83 @@ func TestScanRepositoryDetectsHeadMisconfiguration(t *testing.T) {
 	}
 }
 
+func TestScanRepositoryWithOptionsDeltaScopesHistoryAndHeadFiles(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-q")
+
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# demo\n"), 0o600); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-q", "-m", "initial commit")
+	base := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	if err := os.WriteFile(filepath.Join(repo, "app.env"), []byte("AWS_SECRET_ACCESS_KEY="+testSecretValue+"\n"), 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+	workflowDir := filepath.Join(repo, ".github", "workflows")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatalf("create workflow dir: %v", err)
+	}
+	workflow := `name: ci
+on:
+  pull_request_target:
+jobs:
+  test:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`
+	if err := os.WriteFile(filepath.Join(workflowDir, "build.yml"), []byte(workflow), 0o600); err != nil {
+		t.Fatalf("write workflow: %v", err)
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "introduce repo risks")
+	head := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	scanner := NewScanner(nil,
+		WithHistoryLimit(100),
+		WithMaxFindings(50),
+		WithNow(func() time.Time { return time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC) }),
+	)
+	result, err := scanner.ScanRepositoryWithOptions(context.Background(), repo, ScanOptions{
+		Mode:         ScanModeDelta,
+		BaseRevision: base,
+		HeadRevision: head,
+		ChangedPaths: []string{"app.env", ".github/workflows/build.yml", "README.md"},
+	})
+	if err != nil {
+		t.Fatalf("scan repository delta failed: %v", err)
+	}
+	if result.ScanMode != ScanModeDelta || result.BaseRevision != base || result.HeadRevision != head {
+		t.Fatalf("unexpected delta scan metadata: %+v", result)
+	}
+	if result.CommitsScanned != 1 {
+		t.Fatalf("expected one delta commit, got %d", result.CommitsScanned)
+	}
+	if result.FilesScanned != 1 {
+		t.Fatalf("expected only changed misconfiguration file to be inspected, got %d", result.FilesScanned)
+	}
+
+	var foundSecret, foundMisconfig bool
+	for _, finding := range result.Findings {
+		switch finding.Type {
+		case domain.FindingSecretExposure:
+			if finding.Commit == head && finding.FilePath == "app.env" {
+				foundSecret = true
+			}
+		case domain.FindingRepoMisconfig:
+			if finding.Commit == head && finding.FilePath == ".github/workflows/build.yml" {
+				foundMisconfig = true
+			}
+		}
+	}
+	if !foundSecret || !foundMisconfig {
+		t.Fatalf("expected delta secret and misconfiguration findings, got %+v", result.Findings)
+	}
+}
+
 func TestDetectMisconfigFindingsParsesWorkflowSignals(t *testing.T) {
 	content := []byte(`name: ci
 on:

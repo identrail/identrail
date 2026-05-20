@@ -52,6 +52,10 @@ const (
 	ScanEventLevelWarn  = "warn"
 	ScanEventLevelError = "error"
 
+	RepoScanModeDeep  = "deep"
+	RepoScanModeDelta = "delta"
+	RepoScanModeQuick = "quick"
+
 	FindingTriageActionAcknowledged = "acknowledged"
 	FindingTriageActionSuppressed   = "suppressed"
 	FindingTriageActionResolved     = "resolved"
@@ -178,6 +182,12 @@ var validIdentityConnectionStatuses = map[string]struct{}{
 	"disabled": {},
 }
 
+var validRepoScanModes = map[string]struct{}{
+	RepoScanModeDeep:  {},
+	RepoScanModeDelta: {},
+	RepoScanModeQuick: {},
+}
+
 // ScanRecord tracks persisted scan execution metadata.
 type ScanRecord struct {
 	ID              string     `json:"id"`
@@ -213,12 +223,88 @@ type RepoScanRecord struct {
 	FilesScanned   int            `json:"files_scanned"`
 	FindingCount   int            `json:"finding_count"`
 	Truncated      bool           `json:"truncated"`
+	ScanMode       string         `json:"scan_mode"`
+	BaseRevision   string         `json:"base_revision,omitempty"`
+	HeadRevision   string         `json:"head_revision,omitempty"`
+	CursorBefore   string         `json:"cursor_before,omitempty"`
+	CursorAfter    string         `json:"cursor_after,omitempty"`
+	ChangedPaths   []string       `json:"changed_paths,omitempty"`
 	ErrorMessage   string         `json:"error_message,omitempty"`
 	HistoryLimit   int            `json:"-"`
 	MaxFindings    int            `json:"-"`
 	Source         RepoScanSource `json:"-"`
 	TraceParent    string         `json:"-"`
 	TraceState     string         `json:"-"`
+}
+
+// RepoScanContext captures incremental execution metadata for one scan.
+type RepoScanContext struct {
+	ScanMode     string
+	BaseRevision string
+	HeadRevision string
+	CursorBefore string
+	CursorAfter  string
+	ChangedPaths []string
+}
+
+// NormalizeRepoScanContext returns stable scan-mode and revision metadata.
+func NormalizeRepoScanContext(scanContext RepoScanContext) RepoScanContext {
+	mode := strings.ToLower(strings.TrimSpace(scanContext.ScanMode))
+	if _, ok := validRepoScanModes[mode]; !ok {
+		mode = RepoScanModeDeep
+	}
+	normalized := RepoScanContext{
+		ScanMode:     mode,
+		BaseRevision: strings.TrimSpace(scanContext.BaseRevision),
+		HeadRevision: strings.TrimSpace(scanContext.HeadRevision),
+		CursorBefore: strings.TrimSpace(scanContext.CursorBefore),
+		CursorAfter:  strings.TrimSpace(scanContext.CursorAfter),
+		ChangedPaths: normalizeRepoScanChangedPaths(scanContext.ChangedPaths),
+	}
+	return normalized
+}
+
+// RepoScanCursor stores the latest scanned revision for one scoped repository source.
+type RepoScanCursor struct {
+	TenantID            string         `json:"-"`
+	WorkspaceID         string         `json:"-"`
+	Repository          string         `json:"repository"`
+	Source              RepoScanSource `json:"-"`
+	LastScannedRevision string         `json:"last_scanned_revision,omitempty"`
+	LastDeepScannedAt   *time.Time     `json:"last_deep_scanned_at,omitempty"`
+	LastScanID          string         `json:"last_scan_id,omitempty"`
+	LastScanMode        string         `json:"last_scan_mode,omitempty"`
+	LastScanCompletedAt time.Time      `json:"last_scan_completed_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+}
+
+// Normalize returns a stable cursor key and payload.
+func (c RepoScanCursor) Normalize() RepoScanCursor {
+	normalized := RepoScanCursor{
+		TenantID:            strings.TrimSpace(c.TenantID),
+		WorkspaceID:         strings.TrimSpace(c.WorkspaceID),
+		Repository:          strings.TrimSpace(c.Repository),
+		Source:              c.Source.Normalize(),
+		LastScannedRevision: strings.TrimSpace(c.LastScannedRevision),
+		LastScanID:          strings.TrimSpace(c.LastScanID),
+		LastScanMode:        strings.ToLower(strings.TrimSpace(c.LastScanMode)),
+		LastScanCompletedAt: c.LastScanCompletedAt.UTC(),
+		UpdatedAt:           c.UpdatedAt.UTC(),
+	}
+	if _, ok := validRepoScanModes[normalized.LastScanMode]; !ok {
+		normalized.LastScanMode = RepoScanModeDeep
+	}
+	if c.LastDeepScannedAt != nil {
+		converted := c.LastDeepScannedAt.UTC()
+		normalized.LastDeepScannedAt = &converted
+	}
+	if normalized.LastScanCompletedAt.IsZero() {
+		normalized.LastScanCompletedAt = normalized.UpdatedAt
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.LastScanCompletedAt
+	}
+	return normalized
 }
 
 // RepoScanSource carries non-secret connector context for repository scans.
@@ -248,6 +334,29 @@ func (s RepoScanSource) Empty() bool {
 		normalized.ProjectID == "" &&
 		normalized.ConnectorID == "" &&
 		normalized.InstallationID == 0
+}
+
+func normalizeRepoScanChangedPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(paths))
+	for _, path := range paths {
+		item := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+		item = strings.TrimPrefix(item, "/")
+		item = strings.TrimPrefix(item, "./")
+		if item == "" || strings.Contains(item, "\x00") || strings.HasPrefix(item, "../") || strings.Contains(item, "/../") {
+			continue
+		}
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		normalized = append(normalized, item)
+	}
+	sort.Strings(normalized)
+	return normalized
 }
 
 // ScanArtifacts contains raw and normalized scan outputs to persist idempotently.
@@ -2293,9 +2402,9 @@ type Store interface {
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error
 	ListScanEvents(ctx context.Context, scanID string, limit int) ([]ScanEvent, error)
 	SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error)
-	CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, startedAt time.Time) (RepoScanRecord, error)
-	CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
-	CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error)
+	CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, startedAt time.Time) (RepoScanRecord, error)
+	CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
+	CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScan(ctx context.Context) (RepoScanRecord, error)
 	ClaimNextQueuedRepoScanAnyScope(ctx context.Context) (RepoScanRecord, error)
 	CountQueuedRepoScans(ctx context.Context) (int, error)
@@ -2303,7 +2412,9 @@ type Store interface {
 	RequeueRepoScan(ctx context.Context, repoScanID string) error
 	FailStaleRepoScansAnyScope(ctx context.Context, staleBefore time.Time, limit int, errorMessage string) (int, error)
 	GetRepoScan(ctx context.Context, repoScanID string) (RepoScanRecord, error)
-	CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, errorMessage string) error
+	CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, cursorAfter string, errorMessage string) error
+	GetRepoScanCursor(ctx context.Context, repository string, source RepoScanSource) (RepoScanCursor, error)
+	UpsertRepoScanCursor(ctx context.Context, cursor RepoScanCursor) error
 	UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error
 	ListRepoScans(ctx context.Context, limit int) ([]RepoScanRecord, error)
 	ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error)

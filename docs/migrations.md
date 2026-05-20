@@ -84,6 +84,7 @@ Current sequence in `migrations/`:
 31. `000028_webhook_events` - durable provider webhook idempotency ledger
 32. `000029_webhook_events_processing_status` - processing-state metadata for webhook event replay safety
 33. `000030_repo_scan_source_metadata` - non-secret repo scan source metadata for connector-backed private repository scans
+34. `000031_incremental_repo_scans` - repo scan mode/revision metadata plus per-repository scan cursors for delta and deep scan scheduling
 
 Notes:
 - Each migration has matching `.up.sql` and `.down.sql` files.

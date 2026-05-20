@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added incremental repository scan execution. Repo scans now track scan mode,
+  base/head revisions, cursor before/after values, and changed paths; GitHub
+  push and pull-request webhooks enqueue delta scans when revision metadata is
+  available; scheduled policies continue to enqueue deep scans; and successful
+  scans update per-repository cursors so already-current deltas are skipped
+  before worker time is spent.
 - Added a GitHub repository risk graph domain model for repository findings.
   Repo findings can now be deterministically associated with repository,
   workflow, job, environment, secret/token, OIDC subject, cloud role,

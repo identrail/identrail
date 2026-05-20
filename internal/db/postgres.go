@@ -2586,17 +2586,17 @@ func (p *PostgresStore) ListScanEvents(ctx context.Context, scanID string, limit
 }
 
 // CreateRepoScan inserts a new repository exposure scan row.
-func (p *PostgresStore) CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, startedAt time.Time) (RepoScanRecord, error) {
-	return p.createRepoScanWithStatus(ctx, repository, source, "running", 0, 0, startedAt)
+func (p *PostgresStore) CreateRepoScan(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, startedAt time.Time) (RepoScanRecord, error) {
+	return p.createRepoScanWithStatus(ctx, repository, source, scanContext, "running", 0, 0, startedAt)
 }
 
 // CreateQueuedRepoScan inserts one queued repository scan request row.
-func (p *PostgresStore) CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
-	return p.createRepoScanWithStatus(ctx, repository, source, "queued", historyLimit, maxFindings, queuedAt)
+func (p *PostgresStore) CreateQueuedRepoScan(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error) {
+	return p.createRepoScanWithStatus(ctx, repository, source, scanContext, "queued", historyLimit, maxFindings, queuedAt)
 }
 
 // CreateQueuedRepoScanWithinLimit inserts one queued repository scan only when the target is idle and queue capacity remains.
-func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
+func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return RepoScanRecord{}, err
@@ -2656,6 +2656,11 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 		return RepoScanRecord{}, ErrQueueLimitReached
 	}
 	normalizedSource := source.Normalize()
+	normalizedContext := NormalizeRepoScanContext(scanContext)
+	changedPathsJSON, err := json.Marshal(repoScanChangedPathsForJSON(normalizedContext.ChangedPaths))
+	if err != nil {
+		return RepoScanRecord{}, fmt.Errorf("marshal queued repo scan changed paths: %w", err)
+	}
 
 	record := RepoScanRecord{
 		ID:           uuid.NewString(),
@@ -2664,6 +2669,12 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 		Repository:   normalizedRepository,
 		Status:       "queued",
 		StartedAt:    queuedAt.UTC(),
+		ScanMode:     normalizedContext.ScanMode,
+		BaseRevision: normalizedContext.BaseRevision,
+		HeadRevision: normalizedContext.HeadRevision,
+		CursorBefore: normalizedContext.CursorBefore,
+		CursorAfter:  normalizedContext.CursorAfter,
+		ChangedPaths: append([]string(nil), normalizedContext.ChangedPaths...),
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
 		Source:       normalizedSource,
@@ -2671,14 +2682,20 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12, NULLIF($13, ''), NULLIF($14, ''))`,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), $12::jsonb, $13, $14, $15, $16, $17, $18, NULLIF($19, ''), NULLIF($20, ''))`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
 		record.Repository,
 		record.Status,
 		record.StartedAt,
+		record.ScanMode,
+		record.BaseRevision,
+		record.HeadRevision,
+		record.CursorBefore,
+		record.CursorAfter,
+		string(changedPathsJSON),
 		record.HistoryLimit,
 		record.MaxFindings,
 		record.Source.Provider,
@@ -2738,6 +2755,12 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.files_scanned,
 			r.finding_count,
 			r.truncated,
+			COALESCE(r.scan_mode, 'deep'),
+			COALESCE(r.base_revision, ''),
+			COALESCE(r.head_revision, ''),
+			COALESCE(r.cursor_before, ''),
+			COALESCE(r.cursor_after, ''),
+			COALESCE(r.changed_paths, '[]'::jsonb),
 			COALESCE(r.error_message, ''),
 			r.history_limit,
 			r.max_findings_limit,
@@ -2778,6 +2801,12 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.files_scanned,
 			r.finding_count,
 			r.truncated,
+			COALESCE(r.scan_mode, 'deep'),
+			COALESCE(r.base_revision, ''),
+			COALESCE(r.head_revision, ''),
+			COALESCE(r.cursor_before, ''),
+			COALESCE(r.cursor_after, ''),
+			COALESCE(r.changed_paths, '[]'::jsonb),
 			COALESCE(r.error_message, ''),
 			r.history_limit,
 			r.max_findings_limit,
@@ -2933,12 +2962,17 @@ func (p *PostgresStore) FailStaleRepoScansAnyScope(ctx context.Context, staleBef
 	return int(affected), nil
 }
 
-func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository string, source RepoScanSource, status string, historyLimit int, maxFindings int, startedAt time.Time) (RepoScanRecord, error) {
+func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository string, source RepoScanSource, scanContext RepoScanContext, status string, historyLimit int, maxFindings int, startedAt time.Time) (RepoScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return RepoScanRecord{}, err
 	}
 	normalizedSource := source.Normalize()
+	normalizedContext := NormalizeRepoScanContext(scanContext)
+	changedPathsJSON, err := json.Marshal(repoScanChangedPathsForJSON(normalizedContext.ChangedPaths))
+	if err != nil {
+		return RepoScanRecord{}, fmt.Errorf("marshal repo scan changed paths: %w", err)
+	}
 	record := RepoScanRecord{
 		ID:           uuid.NewString(),
 		TenantID:     scope.TenantID,
@@ -2946,20 +2980,32 @@ func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository
 		Repository:   strings.TrimSpace(repository),
 		Status:       strings.TrimSpace(status),
 		StartedAt:    startedAt.UTC(),
+		ScanMode:     normalizedContext.ScanMode,
+		BaseRevision: normalizedContext.BaseRevision,
+		HeadRevision: normalizedContext.HeadRevision,
+		CursorBefore: normalizedContext.CursorBefore,
+		CursorAfter:  normalizedContext.CursorAfter,
+		ChangedPaths: append([]string(nil), normalizedContext.ChangedPaths...),
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
 		Source:       normalizedSource,
 	}
 	_, err = p.execContext(
 		ctx,
-		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12)`,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), $12::jsonb, $13, $14, $15, $16, $17, $18)`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
 		record.Repository,
 		record.Status,
 		record.StartedAt,
+		record.ScanMode,
+		record.BaseRevision,
+		record.HeadRevision,
+		record.CursorBefore,
+		record.CursorAfter,
+		string(changedPathsJSON),
 		record.HistoryLimit,
 		record.MaxFindings,
 		record.Source.Provider,
@@ -2981,7 +3027,7 @@ func (p *PostgresStore) GetRepoScan(ctx context.Context, repoScanID string) (Rep
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
+		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
 		 FROM repo_scans
 		 WHERE id = $1
 		   AND tenant_id = $2
@@ -3001,7 +3047,7 @@ func (p *PostgresStore) GetRepoScan(ctx context.Context, repoScanID string) (Rep
 }
 
 // CompleteRepoScan updates repository scan completion metadata.
-func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, errorMessage string) error {
+func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, cursorAfter string, errorMessage string) error {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return err
@@ -3015,10 +3061,11 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		     files_scanned = $5,
 		     finding_count = $6,
 		     truncated = $7,
-		     error_message = $8
+		     cursor_after = NULLIF($8, ''),
+		     error_message = $9
 		 WHERE id = $1
-		   AND tenant_id = $9
-		   AND workspace_id = $10`,
+		   AND tenant_id = $10
+		   AND workspace_id = $11`,
 		repoScanID,
 		strings.TrimSpace(status),
 		finishedAt.UTC(),
@@ -3026,6 +3073,7 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		filesScanned,
 		findingCount,
 		truncated,
+		strings.TrimSpace(cursorAfter),
 		nullableString(errorMessage),
 		scope.TenantID,
 		scope.WorkspaceID,
@@ -3035,6 +3083,100 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 	}
 	if err := ensureRowsAffected(result); err != nil {
 		return err
+	}
+	return nil
+}
+
+// GetRepoScanCursor returns the latest successful scan cursor for one repository source.
+func (p *PostgresStore) GetRepoScanCursor(ctx context.Context, repository string, source RepoScanSource) (RepoScanCursor, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanCursor{}, err
+	}
+	normalizedSource := source.Normalize()
+	row := p.queryRowContext(
+		ctx,
+		`SELECT tenant_id, workspace_id, repository, source_provider, source_project_id, source_connector_id, source_installation_id, COALESCE(last_scanned_revision, ''), last_deep_scanned_at, COALESCE(last_scan_id::text, ''), COALESCE(last_scan_mode, 'deep'), last_scan_completed_at, updated_at
+		 FROM repo_scan_cursors
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND LOWER(repository) = LOWER($3)
+		   AND source_provider = $4
+		   AND source_project_id = $5
+		   AND source_connector_id = $6
+		   AND source_installation_id = $7`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		strings.TrimSpace(repository),
+		normalizedSource.Provider,
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
+		normalizedSource.InstallationID,
+	)
+	cursor, err := scanRepoScanCursor(row)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return RepoScanCursor{}, ErrNotFound
+		}
+		return RepoScanCursor{}, fmt.Errorf("query repo scan cursor: %w", err)
+	}
+	return cursor, nil
+}
+
+// UpsertRepoScanCursor stores the latest successful scan cursor for one repository source.
+func (p *PostgresStore) UpsertRepoScanCursor(ctx context.Context, cursor RepoScanCursor) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	normalized := cursor.Normalize()
+	normalizedScope := scope.Normalize()
+	if strings.TrimSpace(normalized.Repository) == "" || strings.TrimSpace(normalized.LastScannedRevision) == "" {
+		return ErrNotFound
+	}
+	var lastScanID any
+	if normalized.LastScanID != "" {
+		lastScanID = normalized.LastScanID
+	}
+	var lastDeepScannedAt any
+	if normalized.LastDeepScannedAt != nil {
+		lastDeepScannedAt = normalized.LastDeepScannedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = time.Now().UTC()
+	}
+	if normalized.LastScanCompletedAt.IsZero() {
+		normalized.LastScanCompletedAt = normalized.UpdatedAt
+	}
+	_, err = p.execContext(
+		ctx,
+		`INSERT INTO repo_scan_cursors (tenant_id, workspace_id, repository, source_provider, source_project_id, source_connector_id, source_installation_id, last_scanned_revision, last_deep_scanned_at, last_scan_id, last_scan_mode, last_scan_completed_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10::uuid, $11, $12, $13)
+		 ON CONFLICT (tenant_id, workspace_id, (lower(repository)), source_provider, source_project_id, source_connector_id, source_installation_id)
+		 DO UPDATE SET
+		    repository = EXCLUDED.repository,
+		    last_scanned_revision = EXCLUDED.last_scanned_revision,
+		    last_deep_scanned_at = COALESCE(EXCLUDED.last_deep_scanned_at, repo_scan_cursors.last_deep_scanned_at),
+		    last_scan_id = EXCLUDED.last_scan_id,
+		    last_scan_mode = EXCLUDED.last_scan_mode,
+		    last_scan_completed_at = EXCLUDED.last_scan_completed_at,
+		    updated_at = EXCLUDED.updated_at`,
+		normalizedScope.TenantID,
+		normalizedScope.WorkspaceID,
+		normalized.Repository,
+		normalized.Source.Provider,
+		normalized.Source.ProjectID,
+		normalized.Source.ConnectorID,
+		normalized.Source.InstallationID,
+		normalized.LastScannedRevision,
+		lastDeepScannedAt,
+		lastScanID,
+		normalized.LastScanMode,
+		normalized.LastScanCompletedAt.UTC(),
+		normalized.UpdatedAt.UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert repo scan cursor: %w", err)
 	}
 	return nil
 }
@@ -3118,7 +3260,7 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
+		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
 		 FROM repo_scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -3916,6 +4058,7 @@ type scanner interface {
 func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 	var record RepoScanRecord
 	var finishedAt sql.NullTime
+	var changedPaths []byte
 	if err := scanner.Scan(
 		&record.ID,
 		&record.TenantID,
@@ -3928,6 +4071,12 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		&record.FilesScanned,
 		&record.FindingCount,
 		&record.Truncated,
+		&record.ScanMode,
+		&record.BaseRevision,
+		&record.HeadRevision,
+		&record.CursorBefore,
+		&record.CursorAfter,
+		&changedPaths,
 		&record.ErrorMessage,
 		&record.HistoryLimit,
 		&record.MaxFindings,
@@ -3939,6 +4088,8 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		return RepoScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.ScanMode = NormalizeRepoScanContext(RepoScanContext{ScanMode: record.ScanMode}).ScanMode
+	record.ChangedPaths = decodeRepoScanChangedPaths(changedPaths)
 	record.Source = record.Source.Normalize()
 	if finishedAt.Valid {
 		converted := finishedAt.Time.UTC()
@@ -3950,6 +4101,7 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 	var record RepoScanRecord
 	var finishedAt sql.NullTime
+	var changedPaths []byte
 	if err := scanner.Scan(
 		&record.ID,
 		&record.TenantID,
@@ -3962,6 +4114,12 @@ func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		&record.FilesScanned,
 		&record.FindingCount,
 		&record.Truncated,
+		&record.ScanMode,
+		&record.BaseRevision,
+		&record.HeadRevision,
+		&record.CursorBefore,
+		&record.CursorAfter,
+		&changedPaths,
 		&record.ErrorMessage,
 		&record.HistoryLimit,
 		&record.MaxFindings,
@@ -3975,6 +4133,8 @@ func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		return RepoScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.ScanMode = NormalizeRepoScanContext(RepoScanContext{ScanMode: record.ScanMode}).ScanMode
+	record.ChangedPaths = decodeRepoScanChangedPaths(changedPaths)
 	record.Source = record.Source.Normalize()
 	record.TraceParent = strings.TrimSpace(record.TraceParent)
 	record.TraceState = strings.TrimSpace(record.TraceState)
@@ -3983,6 +4143,55 @@ func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		record.FinishedAt = &converted
 	}
 	return record, nil
+}
+
+func scanRepoScanCursor(scanner scanner) (RepoScanCursor, error) {
+	var cursor RepoScanCursor
+	var lastDeepScannedAt sql.NullTime
+	var lastScanID sql.NullString
+	if err := scanner.Scan(
+		&cursor.TenantID,
+		&cursor.WorkspaceID,
+		&cursor.Repository,
+		&cursor.Source.Provider,
+		&cursor.Source.ProjectID,
+		&cursor.Source.ConnectorID,
+		&cursor.Source.InstallationID,
+		&cursor.LastScannedRevision,
+		&lastDeepScannedAt,
+		&lastScanID,
+		&cursor.LastScanMode,
+		&cursor.LastScanCompletedAt,
+		&cursor.UpdatedAt,
+	); err != nil {
+		return RepoScanCursor{}, err
+	}
+	if lastDeepScannedAt.Valid {
+		converted := lastDeepScannedAt.Time.UTC()
+		cursor.LastDeepScannedAt = &converted
+	}
+	if lastScanID.Valid {
+		cursor.LastScanID = strings.TrimSpace(lastScanID.String)
+	}
+	return cursor.Normalize(), nil
+}
+
+func decodeRepoScanChangedPaths(raw []byte) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var paths []string
+	if err := json.Unmarshal(raw, &paths); err != nil {
+		return nil
+	}
+	return normalizeRepoScanChangedPaths(paths)
+}
+
+func repoScanChangedPathsForJSON(paths []string) []string {
+	if len(paths) == 0 {
+		return []string{}
+	}
+	return paths
 }
 
 func scanScanRecord(scanner scanner) (ScanRecord, error) {

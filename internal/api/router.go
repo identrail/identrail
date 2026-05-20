@@ -143,6 +143,8 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.RepoScanSuccessTotal,
 		metrics.RepoScanFailureTotal,
 		metrics.RepoScanTruncatedTotal,
+		metrics.RepoScanModeRunsTotal,
+		metrics.RepoScanSkippedTotal,
 		metrics.RepoScanDurationMS,
 		metrics.ServiceAuthzDenialsTotal,
 		metrics.QueueDepth,
@@ -1096,6 +1098,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			}
 			if errors.Is(err, ErrRepoScanInProgress) {
 				c.JSON(http.StatusConflict, gin.H{"error": "repo scan already in progress"})
+				return
+			}
+			if errors.Is(err, ErrRepoScanAlreadyCurrent) {
+				c.JSON(http.StatusConflict, gin.H{"error": "repo scan already current"})
 				return
 			}
 			if errors.Is(err, ErrRepoTargetNotAllowed) {

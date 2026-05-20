@@ -3511,10 +3511,10 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/scans/{scan_id}/replay:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -6209,6 +6209,25 @@ components:
         files_scanned: { type: integer }
         finding_count: { type: integer }
         truncated: { type: boolean }
+        scan_mode:
+          type: string
+          enum: [quick, delta, deep]
+        base_revision:
+          type: string
+          description: Base git revision used for delta scans.
+        head_revision:
+          type: string
+          description: Resolved head git revision scanned.
+        cursor_before:
+          type: string
+          description: Stored repository cursor before the scan was queued or started.
+        cursor_after:
+          type: string
+          description: Repository cursor written after a successful scan.
+        changed_paths:
+          type: array
+          items: { type: string }
+          description: Normalized path list supplied by webhook or request metadata for delta scans.
         error_message: { type: string }
     RepoScanRequest:
       type: object
@@ -6221,6 +6240,20 @@ components:
         connector_id:
           type: string
           description: Optional connector id for connector-backed scans. Defaults to the project's standard GitHub App connector.
+        scan_mode:
+          type: string
+          enum: [quick, delta, deep]
+          description: Optional scan mode. Manual API requests default to deep. Delta scans require head_revision.
+        base_revision:
+          type: string
+          description: Optional base git revision for delta scans.
+        head_revision:
+          type: string
+          description: Required head git revision for delta scans.
+        changed_paths:
+          type: array
+          items: { type: string }
+          description: Optional normalized changed path list used to scope delta history and HEAD file inspection.
         history_limit:
           type: integer
           minimum: 1

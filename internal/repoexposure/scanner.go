@@ -28,6 +28,10 @@ const (
 	defaultHistoryLimit = 500
 	defaultMaxFindings  = 200
 	maxFileSizeBytes    = 1 << 20
+
+	ScanModeDeep  = "deep"
+	ScanModeDelta = "delta"
+	ScanModeQuick = "quick"
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
@@ -77,6 +81,14 @@ type Scanner struct {
 	adapters        []ExternalFindingAdapter
 }
 
+// ScanOptions scopes repository scanning for full backfills, push deltas, and quick HEAD checks.
+type ScanOptions struct {
+	Mode         string   `json:"mode,omitempty"`
+	BaseRevision string   `json:"base_revision,omitempty"`
+	HeadRevision string   `json:"head_revision,omitempty"`
+	ChangedPaths []string `json:"changed_paths,omitempty"`
+}
+
 // ScanResult summarizes one repository exposure scan.
 type ScanResult struct {
 	Repository     string           `json:"repository"`
@@ -84,6 +96,10 @@ type ScanResult struct {
 	FilesScanned   int              `json:"files_scanned"`
 	Findings       []domain.Finding `json:"findings"`
 	Truncated      bool             `json:"truncated"`
+	ScanMode       string           `json:"scan_mode"`
+	BaseRevision   string           `json:"base_revision,omitempty"`
+	HeadRevision   string           `json:"head_revision,omitempty"`
+	ChangedPaths   []string         `json:"changed_paths,omitempty"`
 	StartedAt      time.Time        `json:"started_at"`
 	CompletedAt    time.Time        `json:"completed_at"`
 }
@@ -158,12 +174,18 @@ func WithHTTPSCloneCredential(credential HTTPSCloneCredential) Option {
 	}
 }
 
-// ScanRepository performs read-only scanning for commit-history secret exposure and HEAD misconfigurations.
+// ScanRepository performs a full read-only repository exposure scan.
 func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult, error) {
+	return s.ScanRepositoryWithOptions(ctx, target, ScanOptions{Mode: ScanModeDeep})
+}
+
+// ScanRepositoryWithOptions performs read-only scanning for commit-history secret exposure and HEAD misconfigurations.
+func (s *Scanner) ScanRepositoryWithOptions(ctx context.Context, target string, options ScanOptions) (ScanResult, error) {
 	repo := strings.TrimSpace(target)
 	if repo == "" {
 		return ScanResult{}, fmt.Errorf("repository target is required")
 	}
+	options = normalizeScanOptions(options)
 
 	started := s.now().UTC()
 	location, cleanup, err := s.prepareRepository(ctx, repo)
@@ -172,56 +194,65 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 	}
 	defer cleanup()
 
-	commits, err := s.listCommits(ctx, location)
+	headCommit, err := s.resolveRevision(ctx, location, firstNonEmptyScanString(options.HeadRevision, "HEAD"))
 	if err != nil {
 		return ScanResult{}, err
 	}
+	if options.HeadRevision == "" {
+		options.HeadRevision = headCommit
+	}
+	commits, err := s.listCommitsForOptions(ctx, location, options)
+	if err != nil {
+		return ScanResult{}, err
+	}
+	changedPaths, err := s.changedPathsForOptions(ctx, location, options)
+	if err != nil {
+		return ScanResult{}, err
+	}
+	options.ChangedPaths = changedPaths
 
 	findings := make([]domain.Finding, 0, s.maxFindings)
 	seen := map[string]struct{}{}
 	truncated := false
-	secretPolicy := s.loadSecretFindingPolicy(ctx, location)
+	secretPolicy := s.loadSecretFindingPolicy(ctx, location, options.HeadRevision)
 	secretOptions := []secretFindingOption{withSecretFindingPolicy(secretPolicy)}
 
-	logArgs := []string{"log", "--all", "--max-count", strconv.Itoa(s.historyLimit), "--no-color", "--unified=0", "--format=commit:%H", "-p"}
-	historyReader, waitLog, logErr := s.gitStream(ctx, location, logArgs...)
-	if logErr != nil {
-		return ScanResult{}, fmt.Errorf("scan commit history: %w", logErr)
-	}
-	scanErr := scanHistoryLines(ctx, historyReader, func(added addedLine) bool {
-		secretFindings := detectSecretFindings(location.Display, added.Commit, added.Path, added.Line, added.Text, started, secretOptions...)
-		for _, finding := range secretFindings {
-			if _, exists := seen[finding.ID]; exists {
-				continue
-			}
-			seen[finding.ID] = struct{}{}
-			findings = append(findings, finding)
-			if len(findings) >= s.maxFindings {
-				truncated = true
-				return false
-			}
+	if options.Mode != ScanModeQuick {
+		logArgs := s.historyLogArgs(options)
+		historyReader, waitLog, logErr := s.gitStream(ctx, location, logArgs...)
+		if logErr != nil {
+			return ScanResult{}, fmt.Errorf("scan commit history: %w", logErr)
 		}
-		return true
-	})
-	waitErr := waitLog()
-	if ctx.Err() != nil {
-		return ScanResult{}, ctx.Err()
-	}
-	if scanErr != nil && !truncated {
-		return ScanResult{}, fmt.Errorf("scan commit history: %w", scanErr)
-	}
-	if waitErr != nil && !truncated {
-		return ScanResult{}, fmt.Errorf("scan commit history: %w", waitErr)
+		scanErr := scanHistoryLines(ctx, historyReader, func(added addedLine) bool {
+			secretFindings := detectSecretFindings(location.Display, added.Commit, added.Path, added.Line, added.Text, started, secretOptions...)
+			for _, finding := range secretFindings {
+				if _, exists := seen[finding.ID]; exists {
+					continue
+				}
+				seen[finding.ID] = struct{}{}
+				findings = append(findings, finding)
+				if len(findings) >= s.maxFindings {
+					truncated = true
+					return false
+				}
+			}
+			return true
+		})
+		waitErr := waitLog()
+		if ctx.Err() != nil {
+			return ScanResult{}, ctx.Err()
+		}
+		if scanErr != nil && !truncated {
+			return ScanResult{}, fmt.Errorf("scan commit history: %w", scanErr)
+		}
+		if waitErr != nil && !truncated {
+			return ScanResult{}, fmt.Errorf("scan commit history: %w", waitErr)
+		}
 	}
 
 	filesScanned := 0
-	headCommit := ""
 	if !truncated {
-		headCommit, headCommitErr := s.resolveHeadCommit(ctx, location)
-		if headCommitErr != nil {
-			return ScanResult{}, headCommitErr
-		}
-		headFiles, fileErr := s.listHeadFiles(ctx, location)
+		headFiles, fileErr := s.filesForHeadInspection(ctx, location, options)
 		if fileErr != nil {
 			return ScanResult{}, fileErr
 		}
@@ -232,9 +263,9 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 			if !shouldInspectMisconfiguration(filePath) {
 				continue
 			}
-			content, readErr := s.git(ctx, location, "show", "HEAD:"+filePath)
+			content, readErr := s.git(ctx, location, "show", options.HeadRevision+":"+filePath)
 			if readErr != nil {
-				return ScanResult{}, fmt.Errorf("read HEAD file %s: %w", filePath, readErr)
+				return ScanResult{}, fmt.Errorf("read %s file %s: %w", options.HeadRevision, filePath, readErr)
 			}
 			if len(content) == 0 || len(content) > maxFileSizeBytes || !utf8.Valid(content) {
 				continue
@@ -297,6 +328,10 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 		FilesScanned:   filesScanned,
 		Findings:       findings,
 		Truncated:      truncated,
+		ScanMode:       options.Mode,
+		BaseRevision:   options.BaseRevision,
+		HeadRevision:   headCommit,
+		ChangedPaths:   append([]string(nil), options.ChangedPaths...),
 		StartedAt:      started,
 		CompletedAt:    s.now().UTC(),
 	}, nil
@@ -432,10 +467,42 @@ func (s *Scanner) listCommits(ctx context.Context, repo repositoryLocation) ([]s
 	return commits, nil
 }
 
+func (s *Scanner) listCommitsForOptions(ctx context.Context, repo repositoryLocation, options ScanOptions) ([]string, error) {
+	switch options.Mode {
+	case ScanModeDelta:
+		args := []string{"rev-list", "--max-count", strconv.Itoa(s.historyLimit)}
+		if isZeroRevision(options.BaseRevision) || options.BaseRevision == "" {
+			args = append(args, options.HeadRevision)
+		} else {
+			args = append(args, options.BaseRevision+".."+options.HeadRevision)
+		}
+		output, err := s.git(ctx, repo, args...)
+		if err != nil {
+			return nil, fmt.Errorf("list delta commits: %w", err)
+		}
+		return parseRevisionLines(output), nil
+	case ScanModeQuick:
+		if strings.TrimSpace(options.HeadRevision) == "" {
+			return nil, nil
+		}
+		return []string{options.HeadRevision}, nil
+	default:
+		return s.listCommits(ctx, repo)
+	}
+}
+
 func (s *Scanner) listHeadFiles(ctx context.Context, repo repositoryLocation) ([]string, error) {
-	output, err := s.git(ctx, repo, "ls-tree", "-r", "--name-only", "HEAD")
+	return s.listFilesAtRevision(ctx, repo, "HEAD")
+}
+
+func (s *Scanner) listFilesAtRevision(ctx context.Context, repo repositoryLocation, revision string) ([]string, error) {
+	revision = strings.TrimSpace(revision)
+	if revision == "" {
+		revision = "HEAD"
+	}
+	output, err := s.git(ctx, repo, "ls-tree", "-r", "--name-only", revision)
 	if err != nil {
-		return nil, fmt.Errorf("list HEAD files: %w", err)
+		return nil, fmt.Errorf("list %s files: %w", revision, err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	files := make([]string, 0, len(lines))
@@ -449,8 +516,12 @@ func (s *Scanner) listHeadFiles(ctx context.Context, repo repositoryLocation) ([
 	return files, nil
 }
 
-func (s *Scanner) loadSecretFindingPolicy(ctx context.Context, repo repositoryLocation) secretFindingPolicy {
-	output, err := s.git(ctx, repo, "show", "HEAD:.identrailignore")
+func (s *Scanner) loadSecretFindingPolicy(ctx context.Context, repo repositoryLocation, revision string) secretFindingPolicy {
+	revision = strings.TrimSpace(revision)
+	if revision == "" {
+		revision = "HEAD"
+	}
+	output, err := s.git(ctx, repo, "show", revision+":.identrailignore")
 	if err != nil {
 		return secretFindingPolicy{}
 	}
@@ -458,11 +529,73 @@ func (s *Scanner) loadSecretFindingPolicy(ctx context.Context, repo repositoryLo
 }
 
 func (s *Scanner) resolveHeadCommit(ctx context.Context, repo repositoryLocation) (string, error) {
-	output, err := s.git(ctx, repo, "rev-parse", "HEAD")
+	return s.resolveRevision(ctx, repo, "HEAD")
+}
+
+func (s *Scanner) resolveRevision(ctx context.Context, repo repositoryLocation, revision string) (string, error) {
+	revision = strings.TrimSpace(revision)
+	if revision == "" {
+		revision = "HEAD"
+	}
+	output, err := s.git(ctx, repo, "rev-parse", revision)
 	if err != nil {
-		return "", fmt.Errorf("resolve HEAD commit: %w", err)
+		return "", fmt.Errorf("resolve %s commit: %w", revision, err)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func (s *Scanner) changedPathsForOptions(ctx context.Context, repo repositoryLocation, options ScanOptions) ([]string, error) {
+	if len(options.ChangedPaths) > 0 {
+		return normalizeScanChangedPaths(options.ChangedPaths), nil
+	}
+	if options.Mode != ScanModeDelta {
+		return nil, nil
+	}
+	if strings.TrimSpace(options.HeadRevision) == "" {
+		return nil, nil
+	}
+	var output []byte
+	var err error
+	if options.BaseRevision != "" && !isZeroRevision(options.BaseRevision) {
+		output, err = s.git(ctx, repo, "diff", "--name-only", options.BaseRevision, options.HeadRevision)
+	} else {
+		output, err = s.git(ctx, repo, "diff-tree", "--no-commit-id", "--name-only", "-r", options.HeadRevision)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list delta changed files: %w", err)
+	}
+	return normalizeScanChangedPaths(strings.Split(strings.TrimSpace(string(output)), "\n")), nil
+}
+
+func (s *Scanner) filesForHeadInspection(ctx context.Context, repo repositoryLocation, options ScanOptions) ([]string, error) {
+	if options.Mode == ScanModeDelta && len(options.ChangedPaths) > 0 {
+		existing := make([]string, 0, len(options.ChangedPaths))
+		for _, path := range options.ChangedPaths {
+			if _, err := s.git(ctx, repo, "cat-file", "-e", options.HeadRevision+":"+path); err == nil {
+				existing = append(existing, path)
+			}
+		}
+		return existing, nil
+	}
+	return s.listFilesAtRevision(ctx, repo, options.HeadRevision)
+}
+
+func (s *Scanner) historyLogArgs(options ScanOptions) []string {
+	args := []string{"log", "--max-count", strconv.Itoa(s.historyLimit), "--no-color", "--unified=0", "--format=commit:%H", "-p"}
+	if options.Mode == ScanModeDelta {
+		if options.BaseRevision != "" && !isZeroRevision(options.BaseRevision) {
+			args = append(args, options.BaseRevision+".."+options.HeadRevision)
+		} else {
+			args = append(args, options.HeadRevision)
+		}
+	} else {
+		args = append(args, "--all")
+	}
+	if options.Mode == ScanModeDelta && len(options.ChangedPaths) > 0 {
+		args = append(args, "--")
+		args = append(args, options.ChangedPaths...)
+	}
+	return args
 }
 
 func (s *Scanner) git(ctx context.Context, repo repositoryLocation, args ...string) ([]byte, error) {
@@ -592,6 +725,71 @@ type addedLine struct {
 	Path   string
 	Line   int
 	Text   string
+}
+
+func normalizeScanOptions(options ScanOptions) ScanOptions {
+	mode := strings.ToLower(strings.TrimSpace(options.Mode))
+	switch mode {
+	case ScanModeQuick, ScanModeDelta, ScanModeDeep:
+	default:
+		mode = ScanModeDeep
+	}
+	return ScanOptions{
+		Mode:         mode,
+		BaseRevision: strings.TrimSpace(options.BaseRevision),
+		HeadRevision: strings.TrimSpace(options.HeadRevision),
+		ChangedPaths: normalizeScanChangedPaths(options.ChangedPaths),
+	}
+}
+
+func normalizeScanChangedPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(paths))
+	for _, path := range paths {
+		item := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+		item = strings.TrimPrefix(item, "/")
+		item = strings.TrimPrefix(item, "./")
+		if item == "" || strings.Contains(item, "\x00") || strings.HasPrefix(item, "../") || strings.Contains(item, "/../") {
+			continue
+		}
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		normalized = append(normalized, item)
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func parseRevisionLines(output []byte) []string {
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	commits := make([]string, 0, len(lines))
+	for _, line := range lines {
+		sha := strings.TrimSpace(line)
+		if sha == "" {
+			continue
+		}
+		commits = append(commits, sha)
+	}
+	return commits
+}
+
+func isZeroRevision(revision string) bool {
+	trimmed := strings.TrimSpace(revision)
+	return len(trimmed) >= 40 && strings.Trim(trimmed, "0") == ""
+}
+
+func firstNonEmptyScanString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func parseAddedLines(patch []byte) []addedLine {

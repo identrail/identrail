@@ -259,6 +259,23 @@ type githubProjectConnection struct {
 }
 
 type githubWebhookEnvelope struct {
+	Before  string `json:"before"`
+	After   string `json:"after"`
+	Deleted bool   `json:"deleted"`
+	Commits []struct {
+		ID       string   `json:"id"`
+		Added    []string `json:"added"`
+		Modified []string `json:"modified"`
+		Removed  []string `json:"removed"`
+	} `json:"commits"`
+	PullRequest struct {
+		Base struct {
+			SHA string `json:"sha"`
+		} `json:"base"`
+		Head struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	} `json:"pull_request"`
 	Repository struct {
 		FullName string `json:"full_name"`
 	} `json:"repository"`
@@ -965,7 +982,8 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
 	}
 
-	result, err := s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, validConnections)
+	scanContext, scanContextOK := githubWebhookRepoScanContext(normalizedEventType, envelope)
+	result, err := s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, validConnections)
 	if err != nil {
 		return GitHubWebhookResult{}, err
 	}
@@ -1014,10 +1032,11 @@ func (s *Service) HandleGitHubAppWebhook(ctx context.Context, eventType string, 
 	}
 	ctx, span := otel.Tracer("identrail/automation").Start(ctx, "automation.github_app_webhook")
 	defer span.End()
-	return s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, candidates)
+	scanContext, scanContextOK := githubWebhookRepoScanContext(normalizedEventType, envelope)
+	return s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, candidates)
 }
 
-func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trace.Span, eventType string, deliveryID string, repository string, connections []githubProjectConnection) (GitHubWebhookResult, error) {
+func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trace.Span, eventType string, deliveryID string, repository string, scanContext db.RepoScanContext, scanContextOK bool, connections []githubProjectConnection) (GitHubWebhookResult, error) {
 	result := GitHubWebhookResult{
 		EventType:       eventType,
 		Repository:      repository,
@@ -1033,37 +1052,53 @@ func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trac
 		if replayed && scanTriggerEvent {
 			result.SkippedScans++
 			s.recordAutomationRun("event", "github", "skipped")
+			s.recordRepoScanSkipped(scanContext.ScanMode, "replay")
 			continue
 		}
 		if !scanTriggerEvent {
 			s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 			continue
 		}
+		if !scanContextOK {
+			result.SkippedScans++
+			s.recordAutomationRun("event", "github", "skipped")
+			s.recordRepoScanSkipped(scanContext.ScanMode, "invalid_delta")
+			s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
+			continue
+		}
 		if s.shouldThrottleGitHubWebhookScan(connection, repository, now) {
 			result.SkippedScans++
 			s.recordAutomationRun("event", "github", "skipped")
+			s.recordRepoScanSkipped(scanContext.ScanMode, "throttled")
 			s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 			continue
 		}
 
 		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: connection.TenantID, WorkspaceID: connection.WorkspaceID})
 		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{
-			Repository:  repository,
-			ProjectID:   connection.ProjectID,
-			ConnectorID: firstNonEmptyString(connection.ConnectorID, githubConnectorID),
+			Repository:   repository,
+			ProjectID:    connection.ProjectID,
+			ConnectorID:  firstNonEmptyString(connection.ConnectorID, githubConnectorID),
+			ScanMode:     scanContext.ScanMode,
+			BaseRevision: scanContext.BaseRevision,
+			HeadRevision: scanContext.HeadRevision,
+			ChangedPaths: append([]string(nil), scanContext.ChangedPaths...),
 		})
 		if err != nil {
 			if errors.Is(err, ErrRepoScanQueueFull) {
 				result.SkippedScans++
 				s.recordAutomationRun("event", "github", "skipped")
+				s.recordRepoScanSkipped(scanContext.ScanMode, "queue_full")
 				continue
 			}
 			if errors.Is(err, ErrRepoScanInProgress) ||
+				errors.Is(err, ErrRepoScanAlreadyCurrent) ||
 				errors.Is(err, ErrRepoScanDisabled) ||
 				errors.Is(err, ErrRepoTargetNotAllowed) ||
 				errors.Is(err, ErrInvalidRepoScanRequest) {
 				result.SkippedScans++
 				s.recordAutomationRun("event", "github", "skipped")
+				s.recordRepoScanSkipped(scanContext.ScanMode, repoScanWebhookSkipReason(err))
 				s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 				continue
 			}
@@ -1995,6 +2030,76 @@ func githubWebhookTriggersScan(eventType string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func githubWebhookRepoScanContext(eventType string, envelope githubWebhookEnvelope) (db.RepoScanContext, bool) {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "push":
+		if envelope.Deleted || strings.TrimSpace(envelope.After) == "" || webhookZeroRevision(envelope.After) {
+			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDelta}), false
+		}
+		baseRevision := strings.TrimSpace(envelope.Before)
+		if webhookZeroRevision(baseRevision) {
+			baseRevision = ""
+		}
+		return db.NormalizeRepoScanContext(db.RepoScanContext{
+			ScanMode:     db.RepoScanModeDelta,
+			BaseRevision: baseRevision,
+			HeadRevision: envelope.After,
+			ChangedPaths: githubWebhookChangedPaths(envelope),
+		}), true
+	case "pull_request":
+		headRevision := strings.TrimSpace(envelope.PullRequest.Head.SHA)
+		if headRevision == "" || webhookZeroRevision(headRevision) {
+			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDelta}), false
+		}
+		baseRevision := strings.TrimSpace(envelope.PullRequest.Base.SHA)
+		if webhookZeroRevision(baseRevision) {
+			baseRevision = ""
+		}
+		return db.NormalizeRepoScanContext(db.RepoScanContext{
+			ScanMode:     db.RepoScanModeDelta,
+			BaseRevision: baseRevision,
+			HeadRevision: headRevision,
+			ChangedPaths: githubWebhookChangedPaths(envelope),
+		}), true
+	case "repository_dispatch", "workflow_dispatch":
+		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), true
+	default:
+		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDeep}), false
+	}
+}
+
+func githubWebhookChangedPaths(envelope githubWebhookEnvelope) []string {
+	paths := []string{}
+	for _, commit := range envelope.Commits {
+		paths = append(paths, commit.Added...)
+		paths = append(paths, commit.Modified...)
+		paths = append(paths, commit.Removed...)
+	}
+	return db.NormalizeRepoScanContext(db.RepoScanContext{ChangedPaths: paths}).ChangedPaths
+}
+
+func webhookZeroRevision(revision string) bool {
+	trimmed := strings.TrimSpace(revision)
+	return len(trimmed) >= 40 && strings.Trim(trimmed, "0") == ""
+}
+
+func repoScanWebhookSkipReason(err error) string {
+	switch {
+	case errors.Is(err, ErrRepoScanInProgress):
+		return "in_progress"
+	case errors.Is(err, ErrRepoScanAlreadyCurrent):
+		return "cursor_current"
+	case errors.Is(err, ErrRepoScanDisabled):
+		return "disabled"
+	case errors.Is(err, ErrRepoTargetNotAllowed):
+		return "target_not_allowed"
+	case errors.Is(err, ErrInvalidRepoScanRequest):
+		return "invalid_delta"
+	default:
+		return "other"
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,6 +48,10 @@ func TestParseGitHubInstallationID(t *testing.T) {
 			t.Errorf("parseGitHubInstallationID(%q) = %d, want %d", tc.input, got, tc.wantID)
 		}
 	}
+}
+
+func githubPushWebhookPayload(repository string, installationID int64) []byte {
+	return []byte(fmt.Sprintf(`{"before":"1111111111111111111111111111111111111111","after":"2222222222222222222222222222222222222222","commits":[{"id":"2222222222222222222222222222222222222222","added":["app.env"],"modified":[".github/workflows/build.yml"],"removed":[]}],"repository":{"full_name":%q},"installation":{"id":%d}}`, repository, installationID))
 }
 
 func TestGitHubWebhookTriggersScan(t *testing.T) {
@@ -198,7 +203,7 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 		t.Fatalf("expected freshly rotated secret to not require immediate rotation, got %+v", rotateBody.Connection)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	if _, err := svc.HandleGitHubWebhook(
 		httptest.NewRequest(http.MethodPost, "/webhooks/github", nil).Context(),
 		"installation",
@@ -332,7 +337,7 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 		t.Fatalf("expected installation id 77, got %+v", connection)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	webhookResult, err := svcB.HandleGitHubWebhook(
 		ctx,
 		"installation",
@@ -398,7 +403,7 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 		t.Fatalf("complete github connection: %v", err)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
 	first, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
 	if err != nil {
@@ -412,7 +417,13 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim queued repo scan: %v", err)
 	}
-	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, ""); err != nil {
+	if claimed.ScanMode != db.RepoScanModeDelta || claimed.BaseRevision == "" || claimed.HeadRevision == "" {
+		t.Fatalf("expected push webhook to queue a delta scan, got %+v", claimed)
+	}
+	if len(claimed.ChangedPaths) != 2 {
+		t.Fatalf("expected push webhook changed paths, got %+v", claimed.ChangedPaths)
+	}
+	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, "", ""); err != nil {
 		t.Fatalf("complete claimed repo scan: %v", err)
 	}
 
@@ -500,7 +511,7 @@ func TestHandleGitHubWebhookReplayWindowExpiresPersistedDeliveryID(t *testing.T)
 	svc.githubWebhookSeen = map[string]time.Time{}
 	svc.githubConnectMu.Unlock()
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
 	result, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
 	if err != nil {
@@ -571,7 +582,7 @@ func TestHandleGitHubWebhookReplayWindowUsesPersistedDeliveryTimestamp(t *testin
 	svc.githubWebhookSeen = map[string]time.Time{}
 	svc.githubConnectMu.Unlock()
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
 	result, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
 	if err != nil {
@@ -587,12 +598,12 @@ type failOnceQueuedRepoStore struct {
 	failuresRemaining int
 }
 
-func (s *failOnceQueuedRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
+func (s *failOnceQueuedRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, scanContext db.RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
 	if s.failuresRemaining > 0 {
 		s.failuresRemaining--
 		return db.RepoScanRecord{}, errors.New("simulated enqueue failure")
 	}
-	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, historyLimit, maxFindings, queuedAt, maxPending)
+	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, scanContext, historyLimit, maxFindings, queuedAt, maxPending)
 }
 
 type failOnceQueueFullRepoStore struct {
@@ -600,12 +611,12 @@ type failOnceQueueFullRepoStore struct {
 	failuresRemaining int
 }
 
-func (s *failOnceQueueFullRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
+func (s *failOnceQueueFullRepoStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, scanContext db.RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
 	if s.failuresRemaining > 0 {
 		s.failuresRemaining--
 		return db.RepoScanRecord{}, db.ErrQueueLimitReached
 	}
-	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, historyLimit, maxFindings, queuedAt, maxPending)
+	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, scanContext, historyLimit, maxFindings, queuedAt, maxPending)
 }
 
 func TestHandleGitHubWebhookRetryDeliveryAfterTransientEnqueueFailure(t *testing.T) {
@@ -661,7 +672,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterTransientEnqueueFailure(t *testing
 		t.Fatalf("complete github connection: %v", err)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
 	if _, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload); err == nil {
 		t.Fatal("expected first webhook delivery to fail due to transient enqueue error")
@@ -745,7 +756,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterQueueFull(t *testing.T) {
 		t.Fatalf("complete github connection: %v", err)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":77}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
 	first, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
 	if err != nil {
@@ -830,7 +841,7 @@ func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
 		t.Fatalf("complete github connection: %v", err)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":88}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 88)
 	signature := githubWebhookSignature("burst-secret", webhookPayload)
 	first, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
 	if err != nil {
@@ -844,7 +855,7 @@ func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim queued repo scan: %v", err)
 	}
-	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, ""); err != nil {
+	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, "", ""); err != nil {
 		t.Fatalf("complete claimed repo scan: %v", err)
 	}
 
@@ -1053,7 +1064,7 @@ func TestGitHubConnectionReloadUpdateAndRotateAfterCacheMiss(t *testing.T) {
 		t.Fatalf("expected rotated secret reference, got %+v", status)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/infra"},"installation":{"id":101}}`)
+	webhookPayload := githubPushWebhookPayload("owner/infra", 101)
 	if _, err := svc.HandleGitHubWebhook(
 		ctx,
 		"push",

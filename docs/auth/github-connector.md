@@ -68,7 +68,14 @@ This fallback is for self-hosted GitHub Enterprise and development environments.
 
 Installation lifecycle events can mark matching connectors disconnected. Repository events are matched by installation ID and repository allowlist before queueing scans.
 
-Webhook-triggered scans still honor the repo scan allowlist and queue controls.
+Webhook-triggered scans still honor the repo scan allowlist, per-repository
+cursor, and queue controls. Push and pull-request events enqueue `delta` scans
+when GitHub supplies a usable head revision. Push events use `before` and
+`after` as the base/head revisions and fold commit `added`, `modified`, and
+`removed` paths into the scan request. Duplicate delivery IDs, burst-window
+repeats, queue pressure, disabled scanning, target-deny decisions, and
+already-current cursors are recorded as skipped work instead of creating
+unbounded duplicate queue entries.
 Before enabling `IDENTRAIL_REPO_SCAN_ENABLED=true` for hosted production, set an
 explicit `IDENTRAIL_REPO_SCAN_ALLOWLIST` or equivalent scoped target guard so a
 GitHub webhook cannot enqueue scans outside approved repositories.
@@ -91,10 +98,10 @@ API responses. The worker mints a short-lived installation token immediately
 before cloning and passes it to git through an askpass helper so the token does
 not appear in clone URLs or command-line arguments.
 
-Scheduled policy scans and GitHub webhook-triggered scans automatically attach
-the project/connector source context when they enqueue selected repositories,
-so private repositories use the same short-lived GitHub App path as manually
-queued connector-backed scans.
+Scheduled policy scans enqueue `deep` scans, while GitHub webhook-triggered
+scans attach the project/connector source context and enqueue `delta` or
+`quick` scans depending on event metadata. Private repositories use the same
+short-lived GitHub App path as manually queued connector-backed scans.
 
 ## Repository Posture Collection
 

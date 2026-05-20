@@ -21,6 +21,8 @@ type Metrics struct {
 	RepoScanSuccessTotal                   prometheus.Counter
 	RepoScanFailureTotal                   prometheus.Counter
 	RepoScanTruncatedTotal                 prometheus.Counter
+	RepoScanModeRunsTotal                  *prometheus.CounterVec
+	RepoScanSkippedTotal                   *prometheus.CounterVec
 	RepoScanDurationMS                     prometheus.Histogram
 	ServiceAuthzDenialsTotal               *prometheus.CounterVec
 	RepoFindingsGenerated                  prometheus.Counter
@@ -160,6 +162,18 @@ func NewMetrics() *Metrics {
 			Name:      "truncated_total",
 			Help:      "Total number of repository exposure scans that reached configured scan limits.",
 		}),
+		RepoScanModeRunsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_scan",
+			Name:      "mode_runs_total",
+			Help:      "Total repository exposure scan executions by scan mode and outcome.",
+		}, []string{"mode", "outcome"}),
+		RepoScanSkippedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "repo_scan",
+			Name:      "skipped_total",
+			Help:      "Total repository exposure scans skipped before execution by mode and bounded reason.",
+		}, []string{"mode", "reason"}),
 		RepoScanDurationMS: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "identrail",
 			Subsystem: "repo_scan",

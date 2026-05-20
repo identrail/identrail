@@ -37,6 +37,12 @@ export type RepoScanRecord = {
   files_scanned: number;
   finding_count: number;
   truncated: boolean;
+  scan_mode?: 'quick' | 'delta' | 'deep';
+  base_revision?: string;
+  head_revision?: string;
+  cursor_before?: string;
+  cursor_after?: string;
+  changed_paths?: string[];
   error_message?: string;
 };
 
@@ -44,6 +50,10 @@ export type RepoScanRequest = {
   repository: string;
   project_id?: string;
   connector_id?: string;
+  scan_mode?: 'quick' | 'delta' | 'deep';
+  base_revision?: string;
+  head_revision?: string;
+  changed_paths?: string[];
   history_limit?: number;
   max_findings?: number;
 };

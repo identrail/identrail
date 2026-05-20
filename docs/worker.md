@@ -40,9 +40,10 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 - Uses same persistence flow as API-triggered scan
 - Skips overlapping runs via existing service lock
 - Optional repo scan scheduler is additive and disabled by default
-- Project scan policies with `scheduled` or `hybrid` trigger mode are checked periodically. The worker claims each due cron tick before enqueueing selected GitHub repositories, so missed ticks recover on the next worker pass and concurrent workers do not duplicate the same policy run.
+- Project scan policies with `scheduled` or `hybrid` trigger mode are checked periodically. The worker claims each due cron tick before enqueueing selected GitHub repositories as `deep` repo scans, so missed ticks recover on the next worker pass and concurrent workers do not duplicate the same policy run.
 - API `POST /v1/scans` and `POST /v1/repo-scans` enqueue work; worker queue runner executes queued jobs asynchronously
 - Queue runner applies bounded batch processing per tick (`IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE`)
 - Heartbeat files are written at worker startup and before each configured runner tick when `IDENTRAIL_WORKER_HEARTBEAT_PATH` is set. Supervisors can alert when the file timestamp stops advancing.
 - Repo scans use per-target lock key (`repo-scan:<target>`) to avoid overlap between API and worker triggers
+- Successful repo scans update per-repository cursors; queued `delta` scans whose head revision already matches the cursor are skipped before execution.
 - In database mode, `IDENTRAIL_LOCK_BACKEND=auto` uses PostgreSQL advisory locks for multi-instance safety

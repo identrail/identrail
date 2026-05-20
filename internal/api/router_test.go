@@ -853,7 +853,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -946,7 +946,7 @@ func TestRouterRepoFindingsSeveritySortUsesFullResultSet(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -3502,7 +3502,7 @@ func TestRouterGitHubConnectionAndWebhookFlow(t *testing.T) {
 		t.Fatalf("unexpected github connection status: %+v", statusBody.Connection)
 	}
 
-	webhookPayload := []byte(`{"repository":{"full_name":"owner/repo"},"installation":{"id":123456}}`)
+	webhookPayload := githubPushWebhookPayload("owner/repo", 123456)
 	webhookReq := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(webhookPayload))
 	webhookReq.Header.Set("X-GitHub-Event", "push")
 	webhookReq.Header.Set("X-GitHub-Delivery", "delivery-1")
@@ -3534,6 +3534,9 @@ func TestRouterGitHubConnectionAndWebhookFlow(t *testing.T) {
 	}
 	if len(scansBody.Items) == 0 || scansBody.Items[0].Repository != "owner/repo" {
 		t.Fatalf("expected queued repo scan for owner/repo, got %+v", scansBody.Items)
+	}
+	if scansBody.Items[0].ScanMode != db.RepoScanModeDelta || scansBody.Items[0].HeadRevision == "" || len(scansBody.Items[0].ChangedPaths) == 0 {
+		t.Fatalf("expected queued delta repo scan metadata, got %+v", scansBody.Items[0])
 	}
 }
 

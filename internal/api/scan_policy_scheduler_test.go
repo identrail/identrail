@@ -34,6 +34,18 @@ func TestEnqueueDueScanPoliciesRecoversLatestMissedTick(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("queued repo scans = %d, want 2", count)
 	}
+	scans, err := store.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListRepoScans returned error: %v", err)
+	}
+	if len(scans) != 2 {
+		t.Fatalf("repo scans = %d, want 2", len(scans))
+	}
+	for _, scan := range scans {
+		if scan.ScanMode != db.RepoScanModeDeep {
+			t.Fatalf("scheduled policies must enqueue deep scans, got %+v", scan)
+		}
+	}
 
 	policy, err := store.GetTenancyScanPolicy(ctx, "default", "project-1", "default")
 	if err != nil {

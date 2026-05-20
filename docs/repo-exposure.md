@@ -323,12 +323,32 @@ workflow layer.
 - External adapter evidence stores normalized metadata only and explicitly
   records `raw_adapter_result_stored: false`.
 - Repo scan metadata/findings are persisted in dedicated storage (`repo_scans`, `repo_findings`) to avoid changing existing cloud scan APIs.
+- Repo scan records now include `scan_mode`, base/head revision, cursor before
+  and after values, changed paths, and truncation status. Successful scans also
+  update a scoped `repo_scan_cursors` row so repeated delta requests at the
+  same head revision can be skipped before worker time is spent.
 - GitHub App private-repo scans persist only non-secret connector context
   (`source_provider`, project id, connector id, installation id). The worker
   mints the short-lived installation token at execution time and passes it to
   git through `GIT_ASKPASS`, not through clone URLs, process arguments,
   findings, scan rows, logs, or API responses.
 - Snapshot-based repo misconfiguration findings now persist the resolved HEAD commit SHA on new scans so GitHub links stay pinned to the scanned revision.
+
+## Scan Modes
+
+- `deep`: full bounded history scan plus HEAD configuration inspection. Manual
+  API requests and scheduled scan policies use this mode unless a request
+  explicitly asks for another mode.
+- `delta`: commit-range scan for `base_revision..head_revision`, with optional
+  `changed_paths` used as a git pathspec and as the HEAD file-inspection scope.
+  Push and pull-request webhooks enqueue this mode only when the webhook payload
+  includes enough revision metadata.
+- `quick`: HEAD/configuration-focused scan mode for event types that should
+  refresh repository posture without replaying commit history.
+
+Delta scans require `head_revision`. If the stored cursor already matches the
+requested head revision, the API returns a conflict and the webhook path records
+the scan as skipped instead of queueing duplicate work.
 
 ## Useful Flags
 

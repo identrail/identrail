@@ -44,11 +44,12 @@ func (a *fakeAlerter) NotifyScan(context.Context, string, db.ScanRecord, []domai
 }
 
 type fakeRepoExecutor struct {
-	result repoexposure.ScanResult
-	err    error
-	target string
-	runCtx context.Context
-	calls  int
+	result  repoexposure.ScanResult
+	err     error
+	target  string
+	runCtx  context.Context
+	options repoexposure.ScanOptions
+	calls   int
 }
 
 func (f *fakeRepoExecutor) ScanRepository(ctx context.Context, target string) (repoexposure.ScanResult, error) {
@@ -59,6 +60,11 @@ func (f *fakeRepoExecutor) ScanRepository(ctx context.Context, target string) (r
 		return repoexposure.ScanResult{}, f.err
 	}
 	return f.result, nil
+}
+
+func (f *fakeRepoExecutor) ScanRepositoryWithOptions(ctx context.Context, target string, options repoexposure.ScanOptions) (repoexposure.ScanResult, error) {
+	f.options = options
+	return f.ScanRepository(ctx, target)
 }
 
 type fakeGitHubInstallationTokenMinter struct {
@@ -175,6 +181,7 @@ func (s *completionContextStore) CompleteRepoScan(
 	filesScanned int,
 	findingCount int,
 	truncated bool,
+	cursorAfter string,
 	errorMessage string,
 ) error {
 	s.lastRepoScanCompletionCtxErr = ctx.Err()
@@ -187,6 +194,7 @@ func (s *completionContextStore) CompleteRepoScan(
 		filesScanned,
 		findingCount,
 		truncated,
+		cursorAfter,
 		errorMessage,
 	)
 }
@@ -875,7 +883,7 @@ func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testin
 func TestServiceListRepoFindingsFilterTriagedResultsBeyondLegacyWindow(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
-	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
+	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
 
 	repoFindings := make([]domain.Finding, 0, 5001)
 	for i := 0; i < 5001; i++ {
@@ -923,7 +931,7 @@ func TestServiceListRepoFindingsFilterTriagedResultsBeyondLegacyWindow(t *testin
 func TestServiceListRepoFindingsSortBySeverityHonorsLimitBeyondLegacyWindow(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
-	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
+	repoScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
 
 	repoFindings := make([]domain.Finding, 0, 5001)
 	for i := 0; i < 5001; i++ {
@@ -966,8 +974,8 @@ func TestServiceListRepoFindingsSortBySeverityHonorsLimitBeyondLegacyWindow(t *t
 func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
-	firstScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now)
-	secondScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now.Add(time.Hour))
+	firstScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	secondScan, _ := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now.Add(time.Hour))
 
 	if err := store.UpsertRepoFindings(defaultScopeContext(), firstScan.ID, []domain.Finding{{
 		ID:        "shared-id",
@@ -2023,7 +2031,7 @@ func TestServiceGetRepoFindingsTrend(t *testing.T) {
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 	ctx := defaultScopeContext()
 
-	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", db.RepoScanSource{}, now)
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", db.RepoScanSource{}, db.RepoScanContext{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan A: %v", err)
 	}
@@ -2033,7 +2041,7 @@ func TestServiceGetRepoFindingsTrend(t *testing.T) {
 		t.Fatalf("upsert repo findings for scan A: %v", err)
 	}
 
-	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", db.RepoScanSource{}, now.Add(3*time.Minute))
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", db.RepoScanSource{}, db.RepoScanContext{}, now.Add(3*time.Minute))
 	if err != nil {
 		t.Fatalf("create repo scan B: %v", err)
 	}
@@ -2064,7 +2072,7 @@ func TestServiceGetRepoFindingsTrendFiltered(t *testing.T) {
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 	ctx := defaultScopeContext()
 
-	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", db.RepoScanSource{}, now)
+	scanA, err := store.CreateRepoScan(ctx, "owner/repo-a", db.RepoScanSource{}, db.RepoScanContext{}, now)
 	if err != nil {
 		t.Fatalf("create repo scan A: %v", err)
 	}
@@ -2075,7 +2083,7 @@ func TestServiceGetRepoFindingsTrendFiltered(t *testing.T) {
 		t.Fatalf("upsert repo findings for scan A: %v", err)
 	}
 
-	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", db.RepoScanSource{}, now.Add(3*time.Minute))
+	scanB, err := store.CreateRepoScan(ctx, "owner/repo-b", db.RepoScanSource{}, db.RepoScanContext{}, now.Add(3*time.Minute))
 	if err != nil {
 		t.Fatalf("create repo scan B: %v", err)
 	}
@@ -2205,13 +2213,67 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	}
 }
 
+func TestServiceRunRepoScanPersistedUpdatesCursorAndSkipsCurrentDelta(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	now := time.Date(2026, 5, 20, 9, 30, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+	executor := &fakeRepoExecutor{
+		result: repoexposure.ScanResult{
+			Repository:     "owner/repo",
+			CommitsScanned: 1,
+			FilesScanned:   1,
+		},
+	}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return executor
+	}
+
+	request := RepoScanRequest{
+		Repository:   "owner/repo",
+		ScanMode:     db.RepoScanModeDelta,
+		BaseRevision: "1111111111111111111111111111111111111111",
+		HeadRevision: "2222222222222222222222222222222222222222",
+		ChangedPaths: []string{"app.env", "app.env", ".github/workflows/build.yml"},
+	}
+	run, err := svc.RunRepoScanPersisted(defaultScopeContext(), request)
+	if err != nil {
+		t.Fatalf("run delta repo scan persisted: %v", err)
+	}
+	if run.RepoScan.ScanMode != db.RepoScanModeDelta || run.RepoScan.HeadRevision != request.HeadRevision {
+		t.Fatalf("expected delta scan metadata, got %+v", run.RepoScan)
+	}
+	if executor.options.Mode != db.RepoScanModeDelta || executor.options.BaseRevision != request.BaseRevision || executor.options.HeadRevision != request.HeadRevision {
+		t.Fatalf("expected executor delta options, got %+v", executor.options)
+	}
+	if len(executor.options.ChangedPaths) != 2 {
+		t.Fatalf("expected normalized changed paths, got %+v", executor.options.ChangedPaths)
+	}
+
+	cursor, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/repo", db.RepoScanSource{})
+	if err != nil {
+		t.Fatalf("get repo scan cursor: %v", err)
+	}
+	if cursor.LastScannedRevision != request.HeadRevision || cursor.LastScanMode != db.RepoScanModeDelta || cursor.LastScanID != run.RepoScan.ID {
+		t.Fatalf("unexpected cursor after delta scan: %+v", cursor)
+	}
+
+	if _, err := svc.EnqueueRepoScan(defaultScopeContext(), request); !errors.Is(err, ErrRepoScanAlreadyCurrent) {
+		t.Fatalf("expected current delta enqueue to be skipped, got %v", err)
+	}
+	if executor.calls != 1 {
+		t.Fatalf("expected current delta skip to avoid executor, got %d calls", executor.calls)
+	}
+}
+
 func TestServiceGetRepoRiskGraphUsesServiceClock(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 	now := time.Date(2030, 1, 2, 12, 0, 0, 0, time.UTC)
 	svc.Now = func() time.Time { return now }
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now.Add(-time.Hour))
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now.Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -2240,11 +2302,11 @@ func TestServiceListRepoFindingClusters(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 
-	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC))
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create first repo scan: %v", err)
 	}
-	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create second repo scan: %v", err)
 	}
@@ -2342,7 +2404,7 @@ func TestServiceListRepoFindingClustersUsesBoundedPageFilter(t *testing.T) {
 	store := &repoFindingClusterFilterCaptureStore{MemoryStore: db.NewMemoryStore()}
 	svc := NewService(store, fakeScanner{}, "aws")
 
-	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create repo scan: %v", err)
 	}
@@ -2375,11 +2437,11 @@ func TestServiceListRepoFindingClustersBackfillsLegacyRepositoryContext(t *testi
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 
-	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", db.RepoScanSource{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	firstScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", db.RepoScanSource{}, db.RepoScanContext{}, time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create first repo scan: %v", err)
 	}
-	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", db.RepoScanSource{}, time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
+	secondScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", db.RepoScanSource{}, db.RepoScanContext{}, time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("create second repo scan: %v", err)
 	}
@@ -3710,7 +3772,7 @@ func TestServiceCountQueuedRepoScansForDepthReturnsZeroWhenAnyScopeCountFails(t 
 	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	now := time.Date(2026, 5, 10, 11, 45, 0, 0, time.UTC)
 
-	if _, err := store.CreateQueuedRepoScanWithinLimit(scopedCtx, "owner/repo", db.RepoScanSource{}, 50, 200, now, 5); err != nil {
+	if _, err := store.CreateQueuedRepoScanWithinLimit(scopedCtx, "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, 50, 200, now, 5); err != nil {
 		t.Fatalf("create queued repo scan: %v", err)
 	}
 	scopedCount, err := store.CountQueuedRepoScans(scopedCtx)
@@ -3804,7 +3866,7 @@ func TestServiceProcessNextQueuedRepoScanFailsStaleRunningScan(t *testing.T) {
 	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
 		return executor
 	}
-	staleRunning, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now.Add(-40*time.Minute))
+	staleRunning, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now.Add(-40*time.Minute))
 	if err != nil {
 		t.Fatalf("create stale running repo scan: %v", err)
 	}

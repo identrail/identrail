@@ -29,6 +29,8 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	m.RepoScanSuccessTotal.Add(1)
 	m.RepoScanFailureTotal.Add(1)
 	m.RepoScanTruncatedTotal.Add(1)
+	m.RepoScanModeRunsTotal.WithLabelValues("delta", "succeeded").Add(1)
+	m.RepoScanSkippedTotal.WithLabelValues("delta", "cursor_current").Add(1)
 	m.RepoScanDurationMS.Observe(300)
 	m.ServiceAuthzDenialsTotal.WithLabelValues("repo_scans.run", "repo_scan_target").Add(1)
 	m.QueueDepth.WithLabelValues("scan").Set(2)
@@ -85,6 +87,12 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(m.RepoScanFailureTotal); got != 1 {
 		t.Fatalf("expected repo scan failures 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.RepoScanModeRunsTotal.WithLabelValues("delta", "succeeded")); got != 1 {
+		t.Fatalf("expected repo scan delta successes 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.RepoScanSkippedTotal.WithLabelValues("delta", "cursor_current")); got != 1 {
+		t.Fatalf("expected repo scan skipped cursor_current 1, got %v", got)
 	}
 	if got := testutil.ToFloat64(m.ServiceAuthzDenialsTotal.WithLabelValues("repo_scans.run", "repo_scan_target")); got != 1 {
 		t.Fatalf("expected service authz denials 1, got %v", got)
