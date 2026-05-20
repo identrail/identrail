@@ -16106,7 +16106,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-deployment-panel {
 
 .idt-home-after-stack .idt-deployment-head {
   display: grid;
-  grid-template-columns: minmax(340px, 0.88fr) minmax(360px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: clamp(2rem, 7vw, 8rem);
   align-items: end;
 }
