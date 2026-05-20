@@ -4598,6 +4598,10 @@ export function RoutedSite() {
   const closeBookDemoModal = useCallback(() => setBookDemoModalOpen(false), []);
 
   useEffect(() => {
+    setBookDemoModalOpen(false);
+  }, [location.pathname, location.search, location.hash]);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = 'light';
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, 'light');

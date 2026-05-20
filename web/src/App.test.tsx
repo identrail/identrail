@@ -133,6 +133,22 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: /Open Full Demo Page/i })).toHaveAttribute('href', '/demo');
   });
 
+  it('closes the book demo modal when the route changes', async () => {
+    setCurrentPath('/');
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Book Demo/i }));
+    expect(screen.getByRole('dialog', { name: /Walk through a live trust path/i })).toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, '', '/product');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /Walk through a live trust path/i })).not.toBeInTheDocument()
+    );
+  });
+
   it('resets scroll when a routed hash target is missing', async () => {
     setCurrentPath('/pricing');
     render(<App />);
