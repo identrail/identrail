@@ -249,6 +249,29 @@ jobs:
 	}
 }
 
+func TestGitHubWorkflowAnalyzerTreatsPullRequestReviewBodyAsUntrusted(t *testing.T) {
+	content := []byte(`name: review-triage
+on: pull_request_review
+permissions:
+  contents: read
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.review.body }}"
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/review.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_shell_injection_user_context",
+	})
+
+	injection := firstDetectorFinding(t, findings, "workflow_shell_injection_user_context")
+	if tokens, _ := injection.Evidence["untrusted_context"].([]string); len(tokens) == 0 || tokens[0] != "github.event.review.body" {
+		t.Fatalf("expected review body evidence, got %+v", injection.Evidence)
+	}
+}
+
 func TestGitHubWorkflowAnalyzerDoesNotFlagBranchScopedOIDCDeploy(t *testing.T) {
 	content := []byte(`name: deploy
 on:
@@ -270,6 +293,28 @@ jobs:
 	if containsDetector(findings, "workflow_oidc_broad_trust") {
 		t.Fatalf("expected branch-scoped deploy OIDC not to be flagged as broad trust, got %+v", findings)
 	}
+}
+
+func TestGitHubWorkflowAnalyzerFlagsBroadTagOIDCDeployWithNarrowBranches(t *testing.T) {
+	content := []byte(`name: mixed-deploy
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@f00dbabe1234567890abcdef1234567890abcdef
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/mixed-deploy.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_oidc_broad_trust",
+	})
 }
 
 func TestGitHubWorkflowAnalyzerFlagsBroadPushOIDCDeploy(t *testing.T) {

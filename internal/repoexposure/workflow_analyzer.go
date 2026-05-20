@@ -611,7 +611,15 @@ func workflowHasEvent(workflow githubWorkflowModel, event string) bool {
 }
 
 func workflowHasUntrustedEvent(workflow githubWorkflowModel) bool {
-	for _, event := range []string{"pull_request", "pull_request_target", "issues", "issue_comment", "workflow_run"} {
+	for _, event := range []string{
+		"pull_request",
+		"pull_request_target",
+		"pull_request_review",
+		"pull_request_review_comment",
+		"issues",
+		"issue_comment",
+		"workflow_run",
+	} {
 		if workflowHasEvent(workflow, event) {
 			return true
 		}
@@ -627,30 +635,24 @@ func workflowHasBroadPushEvent(workflow githubWorkflowModel) bool {
 	if node == nil || node.Kind != yaml.MappingNode {
 		return true
 	}
-	if workflowEventHasRestrictiveRefFilter(node, "branches") || workflowEventHasRestrictiveRefFilter(node, "tags") {
-		return false
+	branches, hasBranches := yamlMappingValue(node, "branches")
+	tags, hasTags := yamlMappingValue(node, "tags")
+	if hasBranches || hasTags {
+		return workflowNodeHasBroadRefFilter(branches) || workflowNodeHasBroadRefFilter(tags)
 	}
 	return true
 }
 
-func workflowEventHasRestrictiveRefFilter(node *yaml.Node, key string) bool {
-	value, ok := yamlMappingValue(node, key)
-	if !ok {
-		return false
-	}
-	return workflowNodeHasNonWildcardValue(value)
-}
-
-func workflowNodeHasNonWildcardValue(node *yaml.Node) bool {
+func workflowNodeHasBroadRefFilter(node *yaml.Node) bool {
 	if node == nil {
 		return false
 	}
 	switch node.Kind {
 	case yaml.ScalarNode:
-		return workflowRefFilterIsRestrictive(node.Value)
+		return workflowRefFilterIsBroad(node.Value)
 	case yaml.SequenceNode:
 		for _, item := range node.Content {
-			if item != nil && workflowRefFilterIsRestrictive(item.Value) {
+			if item != nil && workflowRefFilterIsBroad(item.Value) {
 				return true
 			}
 		}
@@ -658,9 +660,9 @@ func workflowNodeHasNonWildcardValue(node *yaml.Node) bool {
 	return false
 }
 
-func workflowRefFilterIsRestrictive(value string) bool {
+func workflowRefFilterIsBroad(value string) bool {
 	trimmed := strings.TrimSpace(value)
-	return trimmed != "" && trimmed != "*" && trimmed != "**"
+	return trimmed == "*" || trimmed == "**"
 }
 
 func sortedWorkflowEventNames(events map[string]*yaml.Node) []string {
@@ -744,6 +746,7 @@ func workflowUntrustedPRCodeTokens(value string) []string {
 		"github.head_ref",
 		"github.event.issue.title",
 		"github.event.issue.body",
+		"github.event.review.body",
 		"github.event.comment.body",
 	} {
 		if strings.Contains(lower, token) {
@@ -765,6 +768,7 @@ func workflowUserControlledTokens(value string) []string {
 		"github.head_ref",
 		"github.event.issue.title",
 		"github.event.issue.body",
+		"github.event.review.body",
 		"github.event.comment.body",
 	} {
 		if strings.Contains(lower, token) {
