@@ -7,6 +7,23 @@ type NavLinkItem = {
   label: string;
 };
 
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.closest('input, textarea, select')) {
+    return true;
+  }
+
+  const editableHost = target.closest('[contenteditable]');
+  if (editableHost instanceof HTMLElement && editableHost.contentEditable !== 'false') {
+    return true;
+  }
+
+  return Boolean(target.closest('[role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]'));
+}
+
 export function Header({
   navLinks
 }: {
@@ -43,10 +60,7 @@ export function Header({
       }
 
       const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.closest('input, textarea, select, [contenteditable="true"]') || target.getAttribute('role') === 'textbox')
-      ) {
+      if (isEditableShortcutTarget(target)) {
         return;
       }
 
