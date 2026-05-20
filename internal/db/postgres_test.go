@@ -1550,7 +1550,7 @@ func TestPostgresStoreCountQueuedRepoScansAnyScope(t *testing.T) {
 	}
 }
 
-func TestPostgresStoreRequeueStaleRepoScansAnyScope(t *testing.T) {
+func TestPostgresStoreFailStaleRepoScansAnyScope(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
@@ -1569,21 +1569,20 @@ func TestPostgresStoreRequeueStaleRepoScansAnyScope(t *testing.T) {
 			LIMIT $2
 		)
 		UPDATE repo_scans AS r
-		SET status = 'queued',
-		    started_at = NOW(),
-		    finished_at = NULL,
-		    error_message = NULL
+		SET status = 'failed',
+		    finished_at = NOW(),
+		    error_message = NULLIF($3, '')
 		FROM stale_repo_scans
 		WHERE r.id = stale_repo_scans.id`)).
-		WithArgs(staleBefore, 25).
+		WithArgs(staleBefore, 25, "worker timed out").
 		WillReturnResult(sqlmock.NewResult(0, 2))
 
-	requeued, err := store.RequeueStaleRepoScansAnyScope(context.Background(), staleBefore, 25)
+	failed, err := store.FailStaleRepoScansAnyScope(context.Background(), staleBefore, 25, " worker timed out ")
 	if err != nil {
-		t.Fatalf("requeue stale repo scans any scope: %v", err)
+		t.Fatalf("fail stale repo scans any scope: %v", err)
 	}
-	if requeued != 2 {
-		t.Fatalf("expected two stale repo scans requeued, got %d", requeued)
+	if failed != 2 {
+		t.Fatalf("expected two stale repo scans failed, got %d", failed)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

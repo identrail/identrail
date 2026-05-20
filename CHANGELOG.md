@@ -9,6 +9,10 @@
   `secure`, `insecure`, `permission_limited`, and `unavailable` states, capture
   rate-limit metadata, keep webhook evidence redacted, and document the
   read-only GitHub App permissions required for the collector.
+- Marked stale hosted repository scans as terminal `failed` records instead of
+  requeueing them into another silent `running` loop. Queue workers now emit
+  explicit claim-attempt and scan-start lifecycle events so hosted repo scan
+  incidents identify the exact boundary before scanner execution.
 - Hardened hosted repository scan execution so cancelled git subprocesses are
   terminated as a process group with a bounded wait, preventing worker timeouts
   from leaving scans stuck in `running`. Worker logs now include repository

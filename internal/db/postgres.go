@@ -2897,8 +2897,8 @@ func (p *PostgresStore) RequeueRepoScan(ctx context.Context, repoScanID string) 
 	return nil
 }
 
-// RequeueStaleRepoScansAnyScope moves stale running repository scans back to queued across all scopes.
-func (p *PostgresStore) RequeueStaleRepoScansAnyScope(ctx context.Context, staleBefore time.Time, limit int) (int, error) {
+// FailStaleRepoScansAnyScope marks stale running repository scans failed across all scopes.
+func (p *PostgresStore) FailStaleRepoScansAnyScope(ctx context.Context, staleBefore time.Time, limit int, errorMessage string) (int, error) {
 	if limit <= 0 {
 		return 0, nil
 	}
@@ -2914,21 +2914,21 @@ func (p *PostgresStore) RequeueStaleRepoScansAnyScope(ctx context.Context, stale
 			LIMIT $2
 		)
 		UPDATE repo_scans AS r
-		SET status = 'queued',
-		    started_at = NOW(),
-		    finished_at = NULL,
-		    error_message = NULL
+		SET status = 'failed',
+		    finished_at = NOW(),
+		    error_message = NULLIF($3, '')
 		FROM stale_repo_scans
 		WHERE r.id = stale_repo_scans.id`,
 		staleBefore.UTC(),
 		limit,
+		strings.TrimSpace(errorMessage),
 	)
 	if err != nil {
-		return 0, fmt.Errorf("requeue stale repo scans: %w", err)
+		return 0, fmt.Errorf("fail stale repo scans: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("requeue stale repo scans rows affected: %w", err)
+		return 0, fmt.Errorf("fail stale repo scans rows affected: %w", err)
 	}
 	return int(affected), nil
 }

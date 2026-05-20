@@ -48,9 +48,11 @@ type fakeRepoExecutor struct {
 	err    error
 	target string
 	runCtx context.Context
+	calls  int
 }
 
 func (f *fakeRepoExecutor) ScanRepository(ctx context.Context, target string) (repoexposure.ScanResult, error) {
+	f.calls++
 	f.target = target
 	f.runCtx = ctx
 	if f.err != nil {
@@ -3361,14 +3363,20 @@ func TestServiceEnqueueRepoScanAndProcessQueue(t *testing.T) {
 	if stored.Status != "succeeded" || stored.CommitsScanned != 25 {
 		t.Fatalf("unexpected processed repo scan record: %+v", stored)
 	}
-	if len(events) != 2 {
-		t.Fatalf("expected claimed and succeeded queue events, got %+v", events)
+	if len(events) != 4 {
+		t.Fatalf("expected claim attempt, claimed, scan started, and succeeded queue events, got %+v", events)
 	}
-	if events[0].Kind != "claimed" || events[0].RepoScanID != record.ID || events[0].Repository != "owner/repo" || events[0].Status != "running" {
-		t.Fatalf("unexpected claimed queue event: %+v", events[0])
+	if events[0].Kind != "claim_attempt" || events[0].Status != "pending" || events[0].Count != 1 {
+		t.Fatalf("unexpected claim attempt queue event: %+v", events[0])
 	}
-	if events[1].Kind != "succeeded" || events[1].RepoScanID != record.ID || events[1].Repository != "owner/repo" || events[1].Status != "succeeded" {
-		t.Fatalf("unexpected succeeded queue event: %+v", events[1])
+	if events[1].Kind != "claimed" || events[1].RepoScanID != record.ID || events[1].Repository != "owner/repo" || events[1].Status != "running" {
+		t.Fatalf("unexpected claimed queue event: %+v", events[1])
+	}
+	if events[2].Kind != "scan_started" || events[2].RepoScanID != record.ID || events[2].Repository != "owner/repo" || events[2].Status != "running" {
+		t.Fatalf("unexpected scan started queue event: %+v", events[2])
+	}
+	if events[3].Kind != "succeeded" || events[3].RepoScanID != record.ID || events[3].Repository != "owner/repo" || events[3].Status != "succeeded" {
+		t.Fatalf("unexpected succeeded queue event: %+v", events[3])
 	}
 }
 
@@ -3655,19 +3663,20 @@ func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
 	}
 }
 
-func TestServiceProcessNextQueuedRepoScanRecoversStaleRunningScan(t *testing.T) {
+func TestServiceProcessNextQueuedRepoScanFailsStaleRunningScan(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 18, 23, 45, 0, 0, time.UTC)
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
+	executor := &fakeRepoExecutor{
+		result: repoexposure.ScanResult{
+			Repository:     "owner/repo",
+			CommitsScanned: 10,
+			FilesScanned:   2,
+		},
+	}
 	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
-		return &fakeRepoExecutor{
-			result: repoexposure.ScanResult{
-				Repository:     "owner/repo",
-				CommitsScanned: historyLimit,
-				FilesScanned:   2,
-			},
-		}
+		return executor
 	}
 	staleRunning, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now.Add(-40*time.Minute))
 	if err != nil {
@@ -3679,14 +3688,23 @@ func TestServiceProcessNextQueuedRepoScanRecoversStaleRunningScan(t *testing.T) 
 		t.Fatalf("process stale running repo scan: %v", err)
 	}
 	if !processed {
-		t.Fatal("expected stale running repo scan to be recovered and processed")
+		t.Fatal("expected stale running repo scan to be handled")
 	}
 	stored, err := svc.GetRepoScan(defaultScopeContext(), staleRunning.ID)
 	if err != nil {
-		t.Fatalf("get recovered repo scan: %v", err)
+		t.Fatalf("get failed stale repo scan: %v", err)
 	}
-	if stored.Status != "succeeded" || stored.FilesScanned != 2 {
-		t.Fatalf("expected stale running repo scan to complete, got %+v", stored)
+	if stored.Status != "failed" {
+		t.Fatalf("expected stale running repo scan to fail, got %+v", stored)
+	}
+	if stored.FinishedAt == nil {
+		t.Fatalf("expected stale running repo scan to have finished_at set, got %+v", stored)
+	}
+	if stored.ErrorMessage != staleRepoScanFailureMessage {
+		t.Fatalf("expected stale running repo scan error %q, got %q", staleRepoScanFailureMessage, stored.ErrorMessage)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("expected stale running repo scan not to run scanner, got %d calls", executor.calls)
 	}
 }
 

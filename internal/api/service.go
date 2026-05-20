@@ -38,7 +38,8 @@ const (
 	defaultScanRetryMaxDelay         = 15 * time.Minute
 	defaultRepoQueueMaxPending       = 100
 	defaultRepoScanRunningStaleAfter = 35 * time.Minute
-	defaultRepoScanStaleRequeueLimit = 100
+	defaultRepoScanStaleFailureLimit = 100
+	staleRepoScanFailureMessage      = "repository scan exceeded worker timeout before reporting a terminal result"
 	defaultGitHubWebhookReplayWindow = 24 * time.Hour
 	defaultGitHubWebhookBurstWindow  = 30 * time.Second
 	maxSourceErrorsInEvent           = 25
@@ -1074,21 +1075,29 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 // ProcessNextQueuedRepoScan claims and executes one queued repository scan. It returns false when no job is available.
 func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	ctx = s.scopeContext(ctx)
-	requeuedStale, err := s.Store.RequeueStaleRepoScansAnyScope(
+	failedStale, err := s.Store.FailStaleRepoScansAnyScope(
 		ctx,
 		s.Now().UTC().Add(-defaultRepoScanRunningStaleAfter),
-		defaultRepoScanStaleRequeueLimit,
+		defaultRepoScanStaleFailureLimit,
+		staleRepoScanFailureMessage,
 	)
 	if err != nil {
 		s.recordWorkerJob("repo_scan", "failure")
-		return false, fmt.Errorf("requeue stale repo scans: %w", err)
+		return false, fmt.Errorf("fail stale repo scans: %w", err)
 	}
-	if requeuedStale > 0 {
-		for i := 0; i < requeuedStale; i++ {
-			s.recordWorkerRequeue("repo_scan")
+	if failedStale > 0 {
+		for i := 0; i < failedStale; i++ {
+			s.recordWorkerJob("repo_scan", "failure")
+			s.recordWorkerDeadLetter("repo_scan")
 		}
-		s.recordAutomationRun("api_queue", "repo_scan", "requeued")
-		s.emitRepoScanQueueEvent(RepoScanQueueEvent{Kind: "stale_requeued", Status: "queued", Reason: "stale_running", Count: requeuedStale})
+		s.recordAutomationRun("api_queue", "repo_scan", "failed")
+		s.emitRepoScanQueueEvent(RepoScanQueueEvent{Kind: "stale_failed", Status: "failed", Reason: "stale_running", Count: failedStale})
+		return true, nil
+	}
+	queuedCount := s.countQueuedRepoScansForDepth(ctx)
+	s.recordQueueDepth("repo_scan", queuedCount)
+	if queuedCount > 0 {
+		s.emitRepoScanQueueEvent(RepoScanQueueEvent{Kind: "claim_attempt", Status: "pending", Count: queuedCount})
 	}
 	record, err := s.Store.ClaimNextQueuedRepoScanAnyScope(ctx)
 	if err != nil {
@@ -1139,6 +1148,12 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		// Returning true lets the worker keep draining other queued targets in the same tick.
 		return true, nil
 	}
+	s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+		Kind:       "scan_started",
+		RepoScanID: record.ID,
+		Repository: record.Repository,
+		Status:     "running",
+	})
 	_, runErr := s.runRepoScanWithRecord(recordScopeCtx, record, record.HistoryLimit, record.MaxFindings)
 	if runErr != nil {
 		s.recordAutomationRun("api_queue", "repo_scan", "failed")

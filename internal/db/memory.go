@@ -2054,8 +2054,8 @@ func (m *MemoryStore) RequeueRepoScan(ctx context.Context, repoScanID string) er
 	return nil
 }
 
-// RequeueStaleRepoScansAnyScope moves stale running repository scans back to queued state across all scopes.
-func (m *MemoryStore) RequeueStaleRepoScansAnyScope(_ context.Context, staleBefore time.Time, limit int) (int, error) {
+// FailStaleRepoScansAnyScope marks stale running repository scans failed across all scopes.
+func (m *MemoryStore) FailStaleRepoScansAnyScope(_ context.Context, staleBefore time.Time, limit int, errorMessage string) (int, error) {
 	if limit <= 0 {
 		return 0, nil
 	}
@@ -2077,12 +2077,11 @@ func (m *MemoryStore) RequeueStaleRepoScansAnyScope(_ context.Context, staleBefo
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
 	}
-	now := time.Now().UTC()
+	finishedAt := time.Now().UTC()
 	for _, record := range candidates {
-		record.Status = "queued"
-		record.StartedAt = now
-		record.FinishedAt = nil
-		record.ErrorMessage = ""
+		record.Status = "failed"
+		record.FinishedAt = &finishedAt
+		record.ErrorMessage = strings.TrimSpace(errorMessage)
 		m.repoScans[record.ID] = record
 	}
 	return len(candidates), nil

@@ -1264,7 +1264,7 @@ func TestMemoryStoreClaimNextQueuedRepoScanAnyScope(t *testing.T) {
 	}
 }
 
-func TestMemoryStoreRequeueStaleRepoScansAnyScope(t *testing.T) {
+func TestMemoryStoreFailStaleRepoScansAnyScope(t *testing.T) {
 	store := NewMemoryStore()
 	staleAt := time.Date(2026, 5, 18, 20, 0, 0, 0, time.UTC)
 	cutoff := staleAt.Add(35 * time.Minute)
@@ -1283,19 +1283,19 @@ func TestMemoryStoreRequeueStaleRepoScansAnyScope(t *testing.T) {
 		t.Fatalf("create fresh repo scan: %v", err)
 	}
 
-	requeued, err := store.RequeueStaleRepoScansAnyScope(context.Background(), cutoff, 1)
+	failed, err := store.FailStaleRepoScansAnyScope(context.Background(), cutoff, 1, " worker timed out ")
 	if err != nil {
-		t.Fatalf("requeue stale repo scans: %v", err)
+		t.Fatalf("fail stale repo scans: %v", err)
 	}
-	if requeued != 1 {
-		t.Fatalf("expected one stale repo scan requeued, got %d", requeued)
+	if failed != 1 {
+		t.Fatalf("expected one stale repo scan failed, got %d", failed)
 	}
 	firstStored, err := store.GetRepoScan(defaultScopeContext(), firstStale.ID)
 	if err != nil {
 		t.Fatalf("get first stale repo scan: %v", err)
 	}
-	if firstStored.Status != "queued" {
-		t.Fatalf("expected first stale scan to be queued, got %q", firstStored.Status)
+	if firstStored.Status != "failed" || firstStored.FinishedAt == nil || firstStored.ErrorMessage != "worker timed out" {
+		t.Fatalf("expected first stale scan to be failed with terminal details, got %+v", firstStored)
 	}
 	secondStored, err := store.GetRepoScan(otherScope, secondStale.ID)
 	if err != nil {
@@ -1305,19 +1305,19 @@ func TestMemoryStoreRequeueStaleRepoScansAnyScope(t *testing.T) {
 		t.Fatalf("expected second stale scan to remain running after limited recovery, got %q", secondStored.Status)
 	}
 
-	requeued, err = store.RequeueStaleRepoScansAnyScope(context.Background(), cutoff, 10)
+	failed, err = store.FailStaleRepoScansAnyScope(context.Background(), cutoff, 10, "worker timed out")
 	if err != nil {
-		t.Fatalf("requeue remaining stale repo scans: %v", err)
+		t.Fatalf("fail remaining stale repo scans: %v", err)
 	}
-	if requeued != 1 {
-		t.Fatalf("expected one remaining stale repo scan requeued, got %d", requeued)
+	if failed != 1 {
+		t.Fatalf("expected one remaining stale repo scan failed, got %d", failed)
 	}
 	secondStored, err = store.GetRepoScan(otherScope, secondStale.ID)
 	if err != nil {
-		t.Fatalf("get requeued second stale repo scan: %v", err)
+		t.Fatalf("get failed second stale repo scan: %v", err)
 	}
-	if secondStored.Status != "queued" {
-		t.Fatalf("expected second stale scan to be queued, got %q", secondStored.Status)
+	if secondStored.Status != "failed" || secondStored.FinishedAt == nil || secondStored.ErrorMessage != "worker timed out" {
+		t.Fatalf("expected second stale scan to be failed with terminal details, got %+v", secondStored)
 	}
 	freshStored, err := store.GetRepoScan(defaultScopeContext(), fresh.ID)
 	if err != nil {
