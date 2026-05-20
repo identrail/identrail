@@ -940,6 +940,72 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 	}
 }
 
+func TestRouterRepoFindingRemediationPreview(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:           "repo-remediation-route",
+		Type:         domain.FindingRepoMisconfig,
+		Severity:     domain.SeverityHigh,
+		Title:        "workflow write all",
+		HumanSummary: "Workflow uses write-all.",
+		Repository:   "owner/repo",
+		Commit:       "abc123",
+		FilePath:     ".github/workflows/ci.yml",
+		LineNumber:   2,
+		Detector:     "workflow_write_all_permissions",
+		LineSnippet:  "permissions: write-all",
+		CreatedAt:    now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+	payload := []byte(`{"source_content":"name: ci\npermissions: write-all\n","base_branch":"dev"}`)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/repo-findings/repo-remediation-route/remediation/preview?repo_scan_id="+repoScan.ID,
+		bytes.NewReader(payload),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected remediation preview 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body RepoFindingRemediationPreview
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode remediation preview: %v", err)
+	}
+	if body.Remediation.Detector != "workflow_write_all_permissions" || body.FixPRPlan == nil {
+		t.Fatalf("expected detector preview and fix plan, got %+v", body)
+	}
+	if len(body.FixPRPlan.Files) != 1 || body.FixPRPlan.Files[0].Path != ".github/workflows/ci.yml" {
+		t.Fatalf("expected affected file only, got %+v", body.FixPRPlan.Files)
+	}
+}
+
+func TestRouterRepoFindingRemediationPreviewRejectsInvalidRepoScanID(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	svc := NewService(db.NewMemoryStore(), routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/finding-1/remediation/preview?repo_scan_id=not-a-uuid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid repo_scan_id 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestRouterRepoFindingsSeveritySortUsesFullResultSet(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

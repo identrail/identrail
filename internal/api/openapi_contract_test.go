@@ -212,6 +212,26 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDocumentsRepoExposurePatchStrategies(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	blockPattern := regexp.MustCompile(`(?s)\n    RepoExposurePatchTemplate:.*?\n    RepoExposureRemediationScope:`)
+	block := blockPattern.FindString(spec)
+	if block == "" {
+		t.Fatalf("openapi schema %q not found", "RepoExposurePatchTemplate")
+	}
+
+	for _, strategy := range []string{
+		"line_literal",
+		"line_regex",
+		"workflow_permissions_read_default",
+		"workflow_pull_request_trigger",
+	} {
+		if !strings.Contains(block, strategy) {
+			t.Fatalf("openapi schema %q missing patch strategy %q", "RepoExposurePatchTemplate", strategy)
+		}
+	}
+}
+
 func TestOpenAPIV1SpecCoversRegisteredV1RouteMethods(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	router := readRouterSource(t)
