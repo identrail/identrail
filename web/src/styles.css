@@ -11843,6 +11843,69 @@ html[data-theme='light'] .idt-nav a.is-active,
   text-decoration: none;
 }
 
+.idt-header-auth-chip {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.68rem;
+  border: 1px solid rgba(5, 5, 5, 0.22);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #050505;
+  padding: 0.2rem 0.45rem 0.2rem 1.08rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  line-height: 1;
+}
+
+.idt-header-auth-chip.is-primary {
+  border-color: #050505;
+  background: #050505;
+  color: #ffffff;
+}
+
+.idt-header-auth-chip::after {
+  display: none;
+}
+
+.idt-header-auth-chip:hover,
+.idt-header-auth-chip:focus-visible {
+  border-color: #050505;
+  background: #f7f7f7;
+  color: #050505;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
+  transform: translateY(-1px);
+}
+
+.idt-header-auth-chip.is-primary:hover,
+.idt-header-auth-chip.is-primary:focus-visible {
+  background: #171717;
+  color: #ffffff;
+}
+
+.idt-header-keycap {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid rgba(5, 5, 5, 0.18);
+  border-radius: 0.42rem;
+  background: #ededed;
+  color: #050505;
+  font-family: var(--idt-nav-font);
+  font-size: 0.86rem;
+  font-weight: 820;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(15, 23, 42, 0.16);
+}
+
+.idt-header-auth-chip.is-primary .idt-header-keycap {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: #f6f6f6;
+  color: #050505;
+}
+
 .idt-header-demo {
   min-height: 44px;
   display: inline-flex;
@@ -20363,5 +20426,88 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
   .idt-project-card-title {
     display: grid;
     justify-content: stretch;
+  }
+}
+
+/* Header auth shortcut polish. */
+.idt-header-utility.idt-header-auth-chip,
+html[data-theme='light'] .idt-header-utility.idt-header-auth-chip {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.68rem;
+  border: 1px solid rgba(5, 5, 5, 0.22);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #050505;
+  padding: 0.2rem 0.45rem 0.2rem 1.08rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  line-height: 1;
+}
+
+.idt-header-utility.idt-header-auth-chip.is-primary,
+html[data-theme='light'] .idt-header-utility.idt-header-auth-chip.is-primary {
+  border-color: #050505;
+  background: #050505;
+  color: #ffffff;
+}
+
+.idt-header-utility.idt-header-auth-chip::after,
+html[data-theme='light'] .idt-header-utility.idt-header-auth-chip::after {
+  display: none;
+}
+
+.idt-header-utility.idt-header-auth-chip:hover,
+.idt-header-utility.idt-header-auth-chip:focus-visible,
+html[data-theme='light'] .idt-header-utility.idt-header-auth-chip:hover,
+html[data-theme='light'] .idt-header-utility.idt-header-auth-chip:focus-visible {
+  border-color: #050505;
+  background: #f7f7f7;
+  color: #050505;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
+  transform: translateY(-1px);
+}
+
+.idt-header-utility.idt-header-auth-chip.is-primary:hover,
+.idt-header-utility.idt-header-auth-chip.is-primary:focus-visible,
+html[data-theme='light'] .idt-header-utility.idt-header-auth-chip.is-primary:hover,
+html[data-theme='light'] .idt-header-utility.idt-header-auth-chip.is-primary:focus-visible {
+  border-color: #050505;
+  background: #171717;
+  color: #ffffff;
+}
+
+.idt-header-keycap,
+html[data-theme='light'] .idt-header-keycap {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid rgba(5, 5, 5, 0.18);
+  border-radius: 0.42rem;
+  background: #ededed;
+  color: #050505;
+  font-family: var(--idt-nav-font);
+  font-size: 0.86rem;
+  font-weight: 820;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(15, 23, 42, 0.16);
+}
+
+.idt-header-auth-chip.is-primary .idt-header-keycap,
+html[data-theme='light'] .idt-header-auth-chip.is-primary .idt-header-keycap {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: #f6f6f6;
+  color: #050505;
+}
+
+@media (max-width: 880px) {
+  .idt-header-utility.idt-header-auth-chip,
+  html[data-theme='light'] .idt-header-utility.idt-header-auth-chip {
+    width: 100%;
+    justify-content: center;
+    padding-left: 1rem;
   }
 }
