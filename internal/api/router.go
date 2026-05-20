@@ -502,6 +502,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.POST("/repo-scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
 		})
+		v1.POST("/repo-scans/:repo_scan_id/cancel", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
+		})
 		return r
 	}
 

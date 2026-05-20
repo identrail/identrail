@@ -257,6 +257,13 @@ func TestRequireCentralPolicyMiddlewareRepoScanRoleMatrix(t *testing.T) {
 			if runW.Code != tc.runStatus {
 				t.Fatalf("expected repo scan run status %d for role %q, got %d", tc.runStatus, tc.role, runW.Code)
 			}
+
+			cancelReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans/11111111-1111-1111-1111-111111111111/cancel", nil)
+			cancelW := httptest.NewRecorder()
+			r.ServeHTTP(cancelW, cancelReq)
+			if cancelW.Code != tc.runStatus {
+				t.Fatalf("expected repo scan cancel status %d for role %q, got %d", tc.runStatus, tc.role, cancelW.Code)
+			}
 		})
 	}
 }
@@ -1084,6 +1091,9 @@ func newPolicyTenancyRoleRouter(role string) *gin.Engine {
 		c.Status(http.StatusNoContent)
 	})
 	r.POST("/v1/repo-scans", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	r.POST("/v1/repo-scans/:repo_scan_id/cancel", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
 	return r

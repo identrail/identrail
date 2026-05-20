@@ -99,6 +99,26 @@ func TestDefaultRoutePolicyBundleUsesRepoScansReadForRepoFindingsTrends(t *testi
 	}
 }
 
+func TestDefaultRoutePolicyBundleUsesRepoScansRunForCancel(t *testing.T) {
+	compiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
+	if err != nil {
+		t.Fatalf("compile built-in policy bundle: %v", err)
+	}
+	policy, exists := compiled.RouteRegistry.lookup("POST", "/v1/repo-scans/:repo_scan_id/cancel")
+	if !exists {
+		t.Fatal("expected built-in authz policy for POST /v1/repo-scans/:repo_scan_id/cancel")
+	}
+	if policy.Action != policyActionRepoScansRun {
+		t.Fatalf("expected action %q, got %q", policyActionRepoScansRun, policy.Action)
+	}
+	if policy.ResourceType != "repo_scan" {
+		t.Fatalf("expected resource type %q, got %q", "repo_scan", policy.ResourceType)
+	}
+	if policy.ResourceIDParam != "repo_scan_id" {
+		t.Fatalf("expected resource id param %q, got %q", "repo_scan_id", policy.ResourceIDParam)
+	}
+}
+
 func TestCentralPolicyRuntimeResolverFallsBackWhenNoActiveRollout(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := testAuthzPolicyScopeContext()
