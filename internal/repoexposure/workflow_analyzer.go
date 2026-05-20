@@ -36,6 +36,8 @@ type workflowPermissions struct {
 type githubWorkflowJob struct {
 	ID          string
 	Line        int
+	Uses        string
+	UsesLine    int
 	Env         map[string]string
 	Secrets     map[string]string
 	SecretsRaw  string
@@ -93,6 +95,18 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 					"permission_scope":   "job",
 					"permission_summary": job.Permissions.summary(),
 					"write_scopes":       job.Permissions.writeScopeEvidence(),
+				}))
+		}
+
+		if action := normalizeWorkflowUses(job.Uses); mutableThirdPartyAction(action) {
+			appendWorkflowFinding(&findings, seen, repo, commit, path, job.UsesLine, "workflow_unpinned_third_party_action", domain.SeverityMedium,
+				"Workflow uses an unpinned third-party action",
+				"A third-party reusable workflow is referenced by a mutable tag or branch, so upstream changes can alter workflow behavior without a repository change.",
+				"Pin third-party reusable workflows to full commit SHAs and review updates through dependency-management pull requests.",
+				job.Uses, detectedAt, workflowEvidence(eventNames, job.ID, 0, action, map[string]any{
+					"action_ref":               workflowActionRef(action),
+					"reusable_workflow_call":   true,
+					"reusable_workflow_source": job.Uses,
 				}))
 		}
 
@@ -235,6 +249,10 @@ func parseWorkflowJobs(node *yaml.Node) []githubWorkflowJob {
 		}
 		if secretsNode, ok := yamlMappingValue(value, "secrets"); ok {
 			job.Secrets, job.SecretsRaw = parseWorkflowSecrets(secretsNode)
+		}
+		if usesNode, ok := yamlMappingValue(value, "uses"); ok {
+			job.Uses = yamlScalarValue(usesNode)
+			job.UsesLine = workflowLine(usesNode)
 		}
 		if permissionsNode, ok := yamlMappingValue(value, "permissions"); ok {
 			job.Permissions = parseWorkflowPermissions(permissionsNode)
@@ -493,7 +511,9 @@ func (step githubWorkflowStep) untrustedExpressionTokens(untrustedEvent bool) []
 
 func (step githubWorkflowStep) usesPoisonableCache(untrustedEvent bool) bool {
 	action := normalizeWorkflowUses(step.Uses)
-	if !workflowActionMatches(action, "actions/cache") && !workflowActionMatches(action, "actions/cache/restore") {
+	if !workflowActionMatches(action, "actions/cache") &&
+		!workflowActionMatches(action, "actions/cache/restore") &&
+		!workflowActionMatches(action, "actions/cache/save") {
 		return false
 	}
 	key := step.With["key"]

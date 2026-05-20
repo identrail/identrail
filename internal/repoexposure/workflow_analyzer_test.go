@@ -107,7 +107,34 @@ jobs:
 	assertWorkflowDetectors(t, findings, []string{
 		"workflow_pull_request_target",
 		"workflow_pull_request_target_privileged_context",
+		"workflow_unpinned_third_party_action",
 	})
+}
+
+func TestGitHubWorkflowAnalyzerDetectsReusableWorkflowAttackSurface(t *testing.T) {
+	content := []byte(`name: release-reusable
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+jobs:
+  release:
+    permissions:
+      contents: write
+    uses: evilcorp/reusable/.github/workflows/release.yml@main
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/release-reusable.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_broad_token_permissions",
+		"workflow_run_privilege_chain",
+		"workflow_unpinned_third_party_action",
+	})
+
+	reusable := firstDetectorFinding(t, findings, "workflow_unpinned_third_party_action")
+	if got, _ := reusable.Evidence["reusable_workflow_call"].(bool); !got {
+		t.Fatalf("expected reusable workflow evidence, got %+v", reusable.Evidence)
+	}
 }
 
 func TestGitHubWorkflowAnalyzerDetectsCompactSecretExpression(t *testing.T) {
@@ -250,6 +277,27 @@ jobs:
 	if containsDetector(findings, "workflow_shell_injection_user_context") {
 		t.Fatalf("expected trusted push event not to emit shell injection finding, got %+v", findings)
 	}
+}
+
+func TestGitHubWorkflowAnalyzerDetectsCacheSavePoisoning(t *testing.T) {
+	content := []byte(`name: save-cache
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: deps-${{ github.head_ref }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/save-cache.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_cache_poisoning",
+	})
 }
 
 func TestGitHubWorkflowAnalyzerTreatsIssuesEventBodyAsUntrusted(t *testing.T) {
