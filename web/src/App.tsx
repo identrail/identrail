@@ -4612,7 +4612,7 @@ export function RoutedSite() {
 
   return (
     <div className={`idt-site ${isAuthChoiceRoute ? 'idt-site-auth' : ''}`}>
-      <RouteScrollReset />
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? <RouteScrollReset /> : null}
       <a className="idt-skip" href="#main-content">
         Skip to content
       </a>

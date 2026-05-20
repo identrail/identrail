@@ -181,6 +181,21 @@ describe('App', () => {
     await waitFor(() => expect(cancelAnimationFrame).toHaveBeenCalledWith(42));
   });
 
+  it('does not apply marketing scroll reset inside app routes', async () => {
+    setCurrentPath('/app/login');
+    render(<App />);
+    document.documentElement.scrollTop = 640;
+    document.body.scrollTop = 640;
+
+    act(() => {
+      window.history.pushState({}, '', '/app/login?return_to=/app/default/default');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    await waitFor(() => expect(document.documentElement.scrollTop).toBe(640));
+    expect(document.body.scrollTop).toBe(640);
+  });
+
   it('renders pricing page routes and key elements', () => {
     setCurrentPath('/pricing');
     render(<App />);
