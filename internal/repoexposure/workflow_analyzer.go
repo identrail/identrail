@@ -15,6 +15,7 @@ import (
 const workflowAnalyzerVersion = "2026.05"
 
 var gitHubActionCommitRefPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
+var workflowSecretsExpressionPattern = regexp.MustCompile(`\$\{\{\s*secrets\.`)
 
 type githubWorkflowModel struct {
 	Events      map[string]*yaml.Node
@@ -155,7 +156,7 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 					}))
 			}
 
-			if tokens := step.untrustedExpressionTokens(); len(tokens) > 0 {
+			if tokens := step.untrustedExpressionTokens(untrustedEvent || workflowRun); len(tokens) > 0 {
 				appendWorkflowFinding(&findings, seen, repo, commit, path, step.RunLine, "workflow_shell_injection_user_context", domain.SeverityHigh,
 					"Workflow interpolates untrusted PR context into shell",
 					"A run step directly interpolates pull request or issue-controlled GitHub context, which can become shell injection when the workflow executes.",
@@ -479,8 +480,8 @@ func (step githubWorkflowStep) checkoutUsesUntrustedHead() bool {
 	return false
 }
 
-func (step githubWorkflowStep) untrustedExpressionTokens() []string {
-	if strings.TrimSpace(step.Run) == "" {
+func (step githubWorkflowStep) untrustedExpressionTokens(untrustedEvent bool) []string {
+	if !untrustedEvent || strings.TrimSpace(step.Run) == "" {
 		return nil
 	}
 	return workflowUserControlledTokens(step.Run)
@@ -712,7 +713,7 @@ func workflowActionRef(action string) string {
 }
 
 func workflowStringReferencesSecrets(value string) bool {
-	return strings.Contains(strings.ToLower(value), "${{ secrets.")
+	return workflowSecretsExpressionPattern.MatchString(strings.ToLower(value))
 }
 
 func workflowStringMapReferencesSecrets(values map[string]string) bool {

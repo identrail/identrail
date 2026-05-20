@@ -110,6 +110,27 @@ jobs:
 	})
 }
 
+func TestGitHubWorkflowAnalyzerDetectsCompactSecretExpression(t *testing.T) {
+	content := []byte(`name: compact-secret-pr-target
+on: pull_request_target
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./scripts/publish.sh
+        env:
+          TOKEN: ${{secrets.RELEASE_TOKEN}}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/compact-secret.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_pull_request_target",
+		"workflow_pull_request_target_privileged_context",
+	})
+}
+
 func TestGitHubWorkflowAnalyzerKeepsHardenedPullRequestTargetShallow(t *testing.T) {
 	content := []byte(`name: safe-labeler
 on:
@@ -163,6 +184,24 @@ jobs:
 	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/pr-info.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
 	if containsDetector(findings, "workflow_shell_injection_user_context") {
 		t.Fatalf("expected PR head SHA not to be treated as shell injection evidence, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagTrustedEventShellContext(t *testing.T) {
+	content := []byte(`name: trusted-push
+on: push
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.pull_request.title }}"
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/push.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_shell_injection_user_context") {
+		t.Fatalf("expected trusted push event not to emit shell injection finding, got %+v", findings)
 	}
 }
 
