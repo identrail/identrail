@@ -252,6 +252,24 @@ func TestBuildRepoExposureFixPRPlanPatchesPullRequestTargetSyntaxes(t *testing.T
 			source:     "name: ci\non:\n  - push\n  - pull_request_target\n",
 			want:       "name: ci\non:\n  - push\n  - pull_request\n",
 		},
+		{
+			name:       "block_mapping_from_parent_line_skips_comment_and_filter_value",
+			lineNumber: 2,
+			source:     "name: ci\non:\n  # pull_request_target legacy path\n  pull_request:\n    branches: [pull_request_target]\n  pull_request_target:\n    branches: [main]\n",
+			want:       "name: ci\non:\n  # pull_request_target legacy path\n  pull_request:\n    branches: [pull_request_target]\n  pull_request:\n    branches: [main]\n",
+		},
+		{
+			name:       "block_sequence_from_parent_line_skips_comment",
+			lineNumber: 2,
+			source:     "name: ci\non:\n  # pull_request_target legacy path\n  - pull_request_target\n",
+			want:       "name: ci\non:\n  # pull_request_target legacy path\n  - pull_request\n",
+		},
+		{
+			name:       "flow_mapping_only_patches_top_level_trigger_key",
+			lineNumber: 2,
+			source:     "name: ci\non: { pull_request: { branches: [pull_request_target] }, pull_request_target: { branches: [main] } }\n",
+			want:       "name: ci\non: { pull_request: { branches: [pull_request_target] }, pull_request: { branches: [main] } }\n",
+		},
 	}
 
 	for _, tc := range cases {

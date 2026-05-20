@@ -21,6 +21,11 @@ var (
 	workflowPermissionValueWriteAllPattern   = regexp.MustCompile(`^(\s*[^:#]+:\s*)write-all(\s*(?:#.*)?)$`)
 	workflowPermissionFlowWriteAllPattern    = regexp.MustCompile(`(:\s*)write-all(\s*(?:[,}#]|$))`)
 	workflowPullRequestTargetTokenPattern    = regexp.MustCompile(`\bpull_request_target\b`)
+	workflowPullRequestTargetMappingPattern  = regexp.MustCompile(`^(\s*)pull_request_target(\s*:.*)$`)
+	workflowPullRequestTargetSequencePattern = regexp.MustCompile(`^(\s*-\s*)pull_request_target(\s*)$`)
+	workflowPullRequestTargetScalarPattern   = regexp.MustCompile(`^(\s*on\s*:\s*)pull_request_target(\s*)$`)
+	workflowOnFlowSequencePattern            = regexp.MustCompile(`^\s*on\s*:\s*\[`)
+	workflowOnFlowMappingPattern             = regexp.MustCompile(`^\s*on\s*:\s*\{`)
 	workflowOnKeyPattern                     = regexp.MustCompile(`^\s*on\s*:\s*(?:#.*)?$`)
 	workflowPermissionsKeyPattern            = regexp.MustCompile(`^\s*permissions\s*:\s*(?:#.*)?$`)
 )
@@ -229,19 +234,140 @@ func replaceWorkflowPermissionWriteAllValue(line string) (string, bool) {
 }
 
 func applyWorkflowPullRequestTriggerPatch(lines []string, trailingNewline bool, lineIndex int, patch standards.RepoExposurePatchTemplate) (string, error) {
-	targetIndex := lineIndex
-	if !workflowPullRequestTargetTokenPattern.MatchString(lines[targetIndex]) {
-		var ok bool
-		targetIndex, ok = workflowPullRequestTargetLineInLocalBlock(lines, lineIndex)
-		if !ok {
-			return "", fmt.Errorf("%w: finding line %d is not in a pull_request_target trigger block", ErrRepoExposurePatchApplyFailed, lineIndex+1)
-		}
+	if patched, ok := patchWorkflowPullRequestTargetTriggerLine(lines[lineIndex], patch.Replacement); ok {
+		return replaceLineWithContent(lines, trailingNewline, lineIndex, patched), nil
 	}
-	patched := workflowPullRequestTargetTokenPattern.ReplaceAllString(lines[targetIndex], patch.Replacement)
-	if patched == lines[targetIndex] {
+
+	targetIndex, ok := workflowPullRequestTargetLineInLocalBlock(lines, lineIndex)
+	if !ok {
+		return "", fmt.Errorf("%w: finding line %d is not in a pull_request_target trigger block", ErrRepoExposurePatchApplyFailed, lineIndex+1)
+	}
+
+	patched, ok := patchWorkflowPullRequestTargetTriggerLine(lines[targetIndex], patch.Replacement)
+	if !ok {
 		return "", fmt.Errorf("%w: pull_request_target trigger line did not change", ErrRepoExposurePatchApplyFailed)
 	}
+
 	return replaceLineWithContent(lines, trailingNewline, targetIndex, patched), nil
+}
+
+func patchWorkflowPullRequestTargetTriggerLine(line string, replacement string) (string, bool) {
+	content, comment, hasComment := splitInlineHashComment(line)
+	if !hasComment {
+		content = line
+	}
+
+	if workflowPullRequestTargetMappingPattern.MatchString(content) {
+		patched := workflowPullRequestTargetMappingPattern.ReplaceAllString(content, "${1}"+replacement+"${2}")
+		return patched + comment, true
+	}
+	if workflowPullRequestTargetSequencePattern.MatchString(content) {
+		patched := workflowPullRequestTargetSequencePattern.ReplaceAllString(content, "${1}"+replacement+"${2}")
+		return patched + comment, true
+	}
+	if workflowPullRequestTargetScalarPattern.MatchString(content) {
+		patched := workflowPullRequestTargetScalarPattern.ReplaceAllString(content, "${1}"+replacement+"${2}")
+		return patched + comment, true
+	}
+	if workflowOnFlowSequencePattern.MatchString(content) && workflowPullRequestTargetTokenPattern.MatchString(content) {
+		patched := workflowPullRequestTargetTokenPattern.ReplaceAllString(content, replacement)
+		return patched + comment, patched != content
+	}
+	if workflowOnFlowMappingPattern.MatchString(content) {
+		if patched, ok := replaceTopLevelWorkflowTriggerKey(content, "pull_request_target", replacement); ok {
+			return patched + comment, true
+		}
+	}
+	return "", false
+}
+
+func replaceTopLevelWorkflowTriggerKey(line string, key string, replacement string) (string, bool) {
+	open := strings.Index(line, "{")
+	if open < 0 {
+		return "", false
+	}
+
+	braceDepth := 0
+	bracketDepth := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+	escaped := false
+	afterDelimiter := false
+
+	for i := open; i < len(line); i++ {
+		ch := line[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inDoubleQuote && ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDoubleQuote {
+			inSingleQuote = !inSingleQuote
+			continue
+		}
+		if ch == '"' && !inSingleQuote {
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+		if inSingleQuote || inDoubleQuote {
+			continue
+		}
+
+		switch ch {
+		case '{':
+			braceDepth++
+			if braceDepth == 1 {
+				afterDelimiter = true
+			}
+			continue
+		case '}':
+			if braceDepth == 1 {
+				afterDelimiter = false
+			}
+			if braceDepth > 0 {
+				braceDepth--
+			}
+			continue
+		case '[':
+			if braceDepth > 0 {
+				bracketDepth++
+			}
+			continue
+		case ']':
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+			continue
+		case ',':
+			if braceDepth == 1 && bracketDepth == 0 {
+				afterDelimiter = true
+			}
+			continue
+		}
+
+		if !afterDelimiter || braceDepth != 1 || bracketDepth != 0 {
+			continue
+		}
+		if ch == ' ' || ch == '\t' {
+			continue
+		}
+		if strings.HasPrefix(line[i:], key) {
+			valueStart := i + len(key)
+			valueEnd := valueStart
+			for valueEnd < len(line) && (line[valueEnd] == ' ' || line[valueEnd] == '\t') {
+				valueEnd++
+			}
+			if valueEnd < len(line) && line[valueEnd] == ':' {
+				return line[:i] + replacement + line[valueStart:], true
+			}
+		}
+		afterDelimiter = false
+	}
+
+	return "", false
 }
 
 func workflowPullRequestTargetLineInLocalBlock(lines []string, lineIndex int) (int, bool) {
@@ -261,7 +387,7 @@ func workflowPullRequestTargetLineInLocalBlock(lines []string, lineIndex int) (i
 		if indentationWidth(lines[i]) <= parentIndent {
 			break
 		}
-		if workflowPullRequestTargetTokenPattern.MatchString(lines[i]) {
+		if _, ok := patchWorkflowPullRequestTargetTriggerLine(lines[i], "pull_request"); ok {
 			return i, true
 		}
 	}
