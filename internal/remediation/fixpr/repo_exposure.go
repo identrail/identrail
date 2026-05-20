@@ -133,7 +133,14 @@ func repoExposureLineMatches(line string, patch standards.RepoExposurePatchTempl
 		return err == nil && re.MatchString(line)
 	case standards.RepoPatchStrategyLineLiteral, "":
 		match := strings.TrimSpace(patch.Match)
-		return match != "" && strings.TrimSpace(line) == match
+		if match == "" {
+			return false
+		}
+		if strings.TrimSpace(line) == match {
+			return true
+		}
+		lineWithoutComment, _, ok := splitInlineHashComment(line)
+		return ok && strings.TrimSpace(lineWithoutComment) == match
 	default:
 		return false
 	}
@@ -142,6 +149,11 @@ func repoExposureLineMatches(line string, patch standards.RepoExposurePatchTempl
 func replaceLine(lines []string, trailingNewline bool, index int, patch standards.RepoExposurePatchTemplate) string {
 	indent := leadingWhitespace(lines[index])
 	replacementLines := strings.Split(patch.Replacement, "\n")
+	if len(replacementLines) == 1 {
+		if _, comment, ok := splitInlineHashComment(lines[index]); ok && !hasInlineHashComment(replacementLines[0]) {
+			replacementLines[0] += comment
+		}
+	}
 	for i, line := range replacementLines {
 		if strings.TrimSpace(line) == "" {
 			replacementLines[i] = ""
@@ -301,6 +313,47 @@ func splitLines(source string) ([]string, bool) {
 		lines = lines[:len(lines)-1]
 	}
 	return lines, trailingNewline
+}
+
+func splitInlineHashComment(line string) (string, string, bool) {
+	inSingleQuote := false
+	inDoubleQuote := false
+	escaped := false
+	for i, r := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inDoubleQuote && r == '\\' {
+			escaped = true
+			continue
+		}
+		switch r {
+		case '\'':
+			if !inDoubleQuote {
+				inSingleQuote = !inSingleQuote
+			}
+		case '"':
+			if !inSingleQuote {
+				inDoubleQuote = !inDoubleQuote
+			}
+		case '#':
+			if inSingleQuote || inDoubleQuote {
+				continue
+			}
+			commentStart := i
+			for commentStart > 0 && (line[commentStart-1] == ' ' || line[commentStart-1] == '\t') {
+				commentStart--
+			}
+			return strings.TrimRight(line[:commentStart], " \t"), line[commentStart:], true
+		}
+	}
+	return line, "", false
+}
+
+func hasInlineHashComment(line string) bool {
+	_, _, ok := splitInlineHashComment(line)
+	return ok
 }
 
 func leadingWhitespace(line string) string {

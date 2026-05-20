@@ -452,7 +452,7 @@ func terraformPublicACLRemediation(finding domain.Finding, detector string) Repo
 		&RepoExposurePatchTemplate{
 			Strategy:              RepoPatchStrategyLineRegex,
 			Description:           "Replace public-read/public-read-write ACL values with private.",
-			MatchPattern:          `(?i)^\s*acl\s*=\s*"public-(?:read|read-write)"\s*$`,
+			MatchPattern:          `(?i)^\s*acl\s*=\s*"public-(?:read|read-write)"\s*(?:#.*)?$`,
 			Replacement:           `acl = "private"`,
 			RequiresSourceContent: true,
 		})

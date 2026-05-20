@@ -89,6 +89,42 @@ func TestBuildRepoExposureFixPRPlanAppliesRegexPatch(t *testing.T) {
 	}
 }
 
+func TestBuildRepoExposureFixPRPlanAppliesRegexPatchWithInlineComment(t *testing.T) {
+	finding := repoMisconfigFinding("terraform_public_s3_acl")
+	finding.FilePath = "terraform/main.tf"
+	finding.LineNumber = 2
+	source := "resource \"aws_s3_bucket\" \"public\" {\n  acl = \"public-read\" # temporary exception\n}\n"
+
+	plan, _, err := BuildRepoExposureFixPRPlan(finding, source, PlanOptions{})
+	if err != nil {
+		t.Fatalf("BuildRepoExposureFixPRPlan returned error: %v", err)
+	}
+	if !strings.Contains(plan.Files[0].Content, "  acl = \"private\" # temporary exception") {
+		t.Fatalf("expected ACL replacement to preserve inline comment, got:\n%s", plan.Files[0].Content)
+	}
+	if strings.Contains(plan.Files[0].Content, "public-read") {
+		t.Fatalf("public ACL still present:\n%s", plan.Files[0].Content)
+	}
+}
+
+func TestBuildRepoExposureFixPRPlanAppliesLiteralPatchWithInlineComment(t *testing.T) {
+	finding := repoMisconfigFinding("k8s_privileged_true")
+	finding.FilePath = "deploy/app.yaml"
+	finding.LineNumber = 2
+	source := "securityContext:\n  privileged: true # legacy exception\n"
+
+	plan, _, err := BuildRepoExposureFixPRPlan(finding, source, PlanOptions{})
+	if err != nil {
+		t.Fatalf("BuildRepoExposureFixPRPlan returned error: %v", err)
+	}
+	if !strings.Contains(plan.Files[0].Content, "  privileged: false # legacy exception") {
+		t.Fatalf("expected literal replacement to preserve inline comment, got:\n%s", plan.Files[0].Content)
+	}
+	if strings.Contains(plan.Files[0].Content, "privileged: true") {
+		t.Fatalf("privileged container flag still present:\n%s", plan.Files[0].Content)
+	}
+}
+
 func TestBuildRepoExposureFixPRPlanPatchesOnlyFindingLineWhenRepeated(t *testing.T) {
 	finding := repoMisconfigFinding("workflow_write_all_permissions")
 	finding.LineNumber = 3
