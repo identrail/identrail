@@ -283,6 +283,12 @@ func TestBuildRepoExposureFixPRPlanPatchesPullRequestTargetSyntaxes(t *testing.T
 			want:       "name: ci\non:\n  # pull_request_target legacy path\n  pull_request:\n    branches: [pull_request_target]\n  pull_request:\n    branches: [main]\n",
 		},
 		{
+			name:       "block_mapping_from_parent_line_skips_nested_input_key",
+			lineNumber: 2,
+			source:     "name: ci\non:\n  workflow_dispatch:\n    inputs:\n      pull_request_target:\n        description: target branch\n  pull_request_target:\n    branches: [main]\n",
+			want:       "name: ci\non:\n  workflow_dispatch:\n    inputs:\n      pull_request_target:\n        description: target branch\n  pull_request:\n    branches: [main]\n",
+		},
+		{
 			name:       "block_sequence_from_parent_line_skips_comment",
 			lineNumber: 2,
 			source:     "name: ci\non:\n  # pull_request_target legacy path\n  - pull_request_target\n",
@@ -321,6 +327,17 @@ func TestBuildRepoExposureFixPRPlanPatchesPullRequestTargetSyntaxes(t *testing.T
 				t.Fatalf("unexpected patched content:\nwant:\n%s\ngot:\n%s", tc.want, plan.Files[0].Content)
 			}
 		})
+	}
+}
+
+func TestBuildRepoExposureFixPRPlanRejectsNestedPullRequestTargetFallback(t *testing.T) {
+	finding := repoMisconfigFinding("workflow_pull_request_target")
+	finding.LineNumber = 2
+	source := "name: ci\non:\n  workflow_dispatch:\n    inputs:\n      pull_request_target:\n        description: target branch\n"
+
+	_, _, err := BuildRepoExposureFixPRPlan(finding, source, PlanOptions{})
+	if !errors.Is(err, ErrRepoExposurePatchApplyFailed) {
+		t.Fatalf("expected nested trigger fallback to fail, got %v", err)
 	}
 }
 

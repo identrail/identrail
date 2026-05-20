@@ -402,18 +402,43 @@ func workflowPullRequestTargetLineInLocalBlock(lines []string, lineIndex int) (i
 		}
 	}
 	parentIndent := indentationWidth(lines[blockStart])
+	childIndent := -1
 	for i := blockStart + 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "" {
+		if strings.TrimSpace(lines[i]) == "" || isCommentOnlyLine(lines[i]) {
 			continue
 		}
-		if indentationWidth(lines[i]) <= parentIndent {
+		indent := indentationWidth(lines[i])
+		if indent <= parentIndent {
 			break
+		}
+		if childIndent == -1 || indent < childIndent {
+			childIndent = indent
+		}
+	}
+	if childIndent == -1 {
+		return -1, false
+	}
+
+	for i := blockStart + 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "" || isCommentOnlyLine(lines[i]) {
+			continue
+		}
+		indent := indentationWidth(lines[i])
+		if indent <= parentIndent {
+			break
+		}
+		if indent != childIndent {
+			continue
 		}
 		if _, ok := patchWorkflowPullRequestTargetTriggerLine(lines[i], "pull_request"); ok {
 			return i, true
 		}
 	}
 	return -1, false
+}
+
+func isCommentOnlyLine(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "#")
 }
 
 func workflowParentKeyLine(lines []string, lineIndex int, key string) (int, bool) {
