@@ -1778,10 +1778,28 @@ function DeploymentPathBanner() {
   return (
     <section className="idt-section idt-deployment-bridge" aria-label="Adoption paths">
       <div className="idt-deployment-panel">
-        <p className="idt-eyebrow">Adoption Paths</p>
-        <h2>Choose the deployment model that fits your operating constraints.</h2>
+        <div className="idt-deployment-head">
+          <div className="idt-deployment-copy">
+            <p className="idt-eyebrow">Adoption Paths</p>
+            <h2>Choose the deployment model that fits your operating constraints.</h2>
+            <p>
+              Start with the control posture you need today, then move into the path that gets your first trust graph
+              reviewed without forcing a platform rewrite.
+            </p>
+          </div>
+          <aside className="idt-deployment-summary" aria-label="Recommended deployment path">
+            <span>Recommended default</span>
+            <strong>Hosted SaaS gets most teams from zero to first risk path fastest.</strong>
+            <p>Open source stays ideal for internal control. Enterprise is built for private tenancy and procurement.</p>
+          </aside>
+        </div>
+
         <div className="idt-adoption-grid">
           <article className="idt-adoption-card">
+            <div className="idt-adoption-card-topline">
+              <span className="idt-adoption-index">01</span>
+              <span className="idt-adoption-tag">Maximum control</span>
+            </div>
             <h3>Open Source</h3>
             <p className="idt-muted-strong">Best for: self-hosted evaluation and internal control.</p>
             <dl>
@@ -1803,6 +1821,10 @@ function DeploymentPathBanner() {
             </SafeLink>
           </article>
           <article className="idt-adoption-card is-featured">
+            <div className="idt-adoption-card-topline">
+              <span className="idt-adoption-index">02</span>
+              <span className="idt-adoption-tag">Fastest path</span>
+            </div>
             <h3>Hosted SaaS</h3>
             <p className="idt-muted-strong">Best for: fastest onboarding and operational simplicity.</p>
             <dl>
@@ -1820,8 +1842,15 @@ function DeploymentPathBanner() {
               </div>
             </dl>
             <p className="idt-adoption-note">Recommended for teams that need the fastest first scan.</p>
+            <Link to="/signup" className="idt-inline-link">
+              Start hosted evaluation →
+            </Link>
           </article>
           <article className="idt-adoption-card">
+            <div className="idt-adoption-card-topline">
+              <span className="idt-adoption-index">03</span>
+              <span className="idt-adoption-tag">Private control</span>
+            </div>
             <h3>Enterprise</h3>
             <p className="idt-muted-strong">Best for: private tenancy, procurement, and compliance control.</p>
             <dl>
@@ -1844,8 +1873,11 @@ function DeploymentPathBanner() {
           </article>
         </div>
         <div className="idt-inline-actions idt-adoption-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-ghost">
+          <Link to="/pricing" className="idt-btn idt-btn-dark">
             Compare plan details
+          </Link>
+          <Link to="/enterprise" className="idt-btn idt-btn-ghost">
+            Talk through procurement
           </Link>
         </div>
       </div>
