@@ -3,6 +3,7 @@ package repoexposure
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -82,6 +83,73 @@ func TestScanRepositoryDetectsSecretInCommitHistory(t *testing.T) {
 	}
 	if got := evidence["detector_provider"]; got != "AWS" {
 		t.Fatalf("expected detector provider in finding evidence, got %v", got)
+	}
+}
+
+func TestScanRepositorySkipsShallowBoundaryPatchFindings(t *testing.T) {
+	source := t.TempDir()
+	runGit(t, source, "init", "-q")
+	if err := os.WriteFile(filepath.Join(source, "credentials.txt"), []byte(`aws_secret_access_key = "`+testSecretValue+`"`+"\n"), 0o600); err != nil {
+		t.Fatalf("write credential fixture: %v", err)
+	}
+	runGit(t, source, "add", "credentials.txt")
+	runGit(t, source, "commit", "-q", "-m", "add old credential")
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("current change\n"), 0o600); err != nil {
+		t.Fatalf("write readme fixture: %v", err)
+	}
+	runGit(t, source, "add", "README.md")
+	runGit(t, source, "commit", "-q", "-m", "current change")
+
+	shallow := filepath.Join(t.TempDir(), "repo")
+	runGitCommand(t, "git", "clone", "--quiet", "--depth", "1", "file://"+source, shallow)
+
+	scanner := NewScanner(nil, WithHistoryLimit(10), WithMaxFindings(20))
+	result, err := scanner.ScanRepository(context.Background(), shallow)
+	if err != nil {
+		t.Fatalf("scan shallow repository failed: %v", err)
+	}
+	for _, finding := range result.Findings {
+		if finding.Type == domain.FindingSecretExposure {
+			t.Fatalf("expected shallow boundary commit to be skipped, got %+v", finding)
+		}
+	}
+	if result.CommitsScanned != 0 {
+		t.Fatalf("expected only shallow boundary commits to be excluded from history scan, got %d", result.CommitsScanned)
+	}
+}
+
+func TestScanRepositoryKeepsNonBoundaryShallowPatchFindings(t *testing.T) {
+	source := t.TempDir()
+	runGit(t, source, "init", "-q")
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("safe root\n"), 0o600); err != nil {
+		t.Fatalf("write readme fixture: %v", err)
+	}
+	runGit(t, source, "add", "README.md")
+	runGit(t, source, "commit", "-q", "-m", "safe root")
+	if err := os.WriteFile(filepath.Join(source, "credentials.txt"), []byte(`aws_secret_access_key = "`+testSecretValue+`"`+"\n"), 0o600); err != nil {
+		t.Fatalf("write credential fixture: %v", err)
+	}
+	runGit(t, source, "add", "credentials.txt")
+	runGit(t, source, "commit", "-q", "-m", "add current credential")
+	secretCommit := strings.TrimSpace(runGit(t, source, "rev-parse", "HEAD"))
+
+	shallow := filepath.Join(t.TempDir(), "repo")
+	runGitCommand(t, "git", "clone", "--quiet", "--depth", "2", "file://"+source, shallow)
+
+	scanner := NewScanner(nil, WithHistoryLimit(10), WithMaxFindings(20))
+	result, err := scanner.ScanRepository(context.Background(), shallow)
+	if err != nil {
+		t.Fatalf("scan shallow repository failed: %v", err)
+	}
+	found := false
+	for _, finding := range result.Findings {
+		if finding.Type == domain.FindingSecretExposure && finding.Commit == secretCommit {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected non-boundary shallow commit finding, got %+v", result.Findings)
 	}
 }
 
@@ -668,10 +736,210 @@ func TestPrepareRepositoryRejectsInsecureHTTPRepositoryURL(t *testing.T) {
 	}
 }
 
-func TestCloneMirrorUsesAskPassCredentialWithoutCommandArgLeak(t *testing.T) {
+func TestCloneRemoteRepositoryUsesBoundedFetchPlan(t *testing.T) {
+	var gotCommands [][]string
+	scanner := NewScanner(
+		func(_ context.Context, name string, args ...string) ([]byte, error) {
+			command := append([]string{name}, args...)
+			gotCommands = append(gotCommands, command)
+			if reflect.DeepEqual(command, []string{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"}) {
+				return []byte(strings.Join([]string{
+					"ref: refs/heads/main\tHEAD",
+					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tHEAD",
+					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/heads/main",
+					"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/release-keep",
+					"cccccccccccccccccccccccccccccccccccccccc\trefs/identrail/archive",
+				}, "\n")), nil
+			}
+			return []byte("ok"), nil
+		},
+		WithHistoryLimit(37),
+	)
+	repoPath := filepath.Join(t.TempDir(), "repo.git")
+
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", repoPath)
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+
+	expected := [][]string{
+		{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"},
+		{"git", "init", "--bare", "--quiet", repoPath},
+		{"git", "--git-dir", repoPath, "remote", "add", "origin", "https://github.com/owner/repo.git"},
+		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/tags/release-keep:refs/tags/release-keep", "+refs/identrail/archive:refs/identrail/archive"},
+		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "33", "origin", "+refs/heads/main:refs/heads/main"},
+		{"git", "--git-dir", repoPath, "symbolic-ref", "HEAD", "refs/heads/main"},
+	}
+	if !reflect.DeepEqual(gotCommands, expected) {
+		t.Fatalf("unexpected clone commands\ngot:  %+v\nwant: %+v", gotCommands, expected)
+	}
+	for _, command := range gotCommands {
+		if hasArg(command, "clone") || hasArg(command, "--no-single-branch") {
+			t.Fatalf("expected bounded fetch plan instead of broad clone command: %+v", gotCommands)
+		}
+	}
+}
+
+func TestCloneRemoteRepositoryPreservesNonBranchRefs(t *testing.T) {
+	source := t.TempDir()
+	runGit(t, source, "init", "-q")
+
+	if err := os.WriteFile(filepath.Join(source, "root.txt"), []byte("root\n"), 0o600); err != nil {
+		t.Fatalf("write root fixture: %v", err)
+	}
+	runGit(t, source, "add", "root.txt")
+	runGit(t, source, "commit", "-q", "-m", "root")
+	rootCommit := strings.TrimSpace(runGit(t, source, "rev-parse", "HEAD"))
+
+	if err := os.WriteFile(filepath.Join(source, "head.txt"), []byte("head\n"), 0o600); err != nil {
+		t.Fatalf("write head fixture: %v", err)
+	}
+	runGit(t, source, "add", "head.txt")
+	runGit(t, source, "commit", "-q", "-m", "head")
+	headCommit := strings.TrimSpace(runGit(t, source, "rev-parse", "HEAD"))
+
+	runGit(t, source, "tag", "-a", "release-keep", "-m", "release keep", headCommit)
+	runGit(t, source, "update-ref", "refs/identrail/archive", rootCommit)
+
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	runGitCommand(t, "git", "clone", "--quiet", "--mirror", source, remotePath)
+
+	clonedPath := filepath.Join(t.TempDir(), "repo.git")
+	scanner := NewScanner(nil, WithHistoryLimit(6))
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "file://"+remotePath, clonedPath)
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+
+	refsOutput := runGitCommand(t, "git", "--git-dir", clonedPath, "for-each-ref", "--format=%(refname)")
+	if !strings.Contains(refsOutput, "refs/tags/release-keep") {
+		t.Fatalf("expected bounded remote clone to preserve tags, got refs:\n%s", refsOutput)
+	}
+	if !strings.Contains(refsOutput, "refs/identrail/archive") {
+		t.Fatalf("expected bounded remote clone to preserve custom refs, got refs:\n%s", refsOutput)
+	}
+}
+
+func TestCloneRemoteRepositoryExtraRefsDoNotTruncateDefaultHistory(t *testing.T) {
+	source := t.TempDir()
+	runGit(t, source, "init", "-q", "-b", "main")
+
+	for i := 1; i <= 10; i++ {
+		if err := os.WriteFile(filepath.Join(source, "history.txt"), []byte(fmt.Sprintf("%d\n", i)), 0o600); err != nil {
+			t.Fatalf("write history fixture: %v", err)
+		}
+		runGit(t, source, "add", "history.txt")
+		runGit(t, source, "commit", "-q", "-m", fmt.Sprintf("main %d", i))
+	}
+	runGit(t, source, "branch", "feature", "HEAD~4")
+
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	runGitCommand(t, "git", "clone", "--quiet", "--mirror", source, remotePath)
+
+	clonedPath := filepath.Join(t.TempDir(), "repo.git")
+	scanner := NewScanner(nil, WithHistoryLimit(10))
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "file://"+remotePath, clonedPath)
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+
+	mainCount := strings.TrimSpace(runGitCommand(t, "git", "--git-dir", clonedPath, "rev-list", "refs/heads/main", "--count"))
+	if mainCount != "8" {
+		t.Fatalf("expected default history to keep reserved depth after extra fetch, got %s commits", mainCount)
+	}
+	featureCount := strings.TrimSpace(runGitCommand(t, "git", "--git-dir", clonedPath, "rev-list", "refs/heads/feature", "--count"))
+	if featureCount == "0" {
+		t.Fatalf("expected extra ref to remain fetchable")
+	}
+}
+
+func TestCloneRemoteRepositoryHandlesAnnotatedTagDefaultRef(t *testing.T) {
+	source := t.TempDir()
+	runGit(t, source, "init", "-q")
+
+	if err := os.WriteFile(filepath.Join(source, "root.txt"), []byte("root\n"), 0o600); err != nil {
+		t.Fatalf("write root fixture: %v", err)
+	}
+	runGit(t, source, "add", "root.txt")
+	runGit(t, source, "commit", "-q", "-m", "root")
+	commit := strings.TrimSpace(runGit(t, source, "rev-parse", "HEAD"))
+	runGit(t, source, "tag", "-a", "release-default", "-m", "release default", commit)
+
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	runGitCommand(t, "git", "clone", "--quiet", "--mirror", source, remotePath)
+	runGitCommand(t, "git", "--git-dir", remotePath, "symbolic-ref", "HEAD", "refs/tags/release-default")
+
+	clonedPath := filepath.Join(t.TempDir(), "repo.git")
+	scanner := NewScanner(nil, WithHistoryLimit(2))
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "file://"+remotePath, clonedPath)
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+
+	gotCommit := strings.TrimSpace(runGitCommand(t, "git", "--git-dir", clonedPath, "rev-parse", "HEAD^{commit}"))
+	if gotCommit != commit {
+		t.Fatalf("expected HEAD to peel annotated tag to %s, got %s", commit, gotCommit)
+	}
+	gotContent := runGitCommand(t, "git", "--git-dir", clonedPath, "show", "HEAD:root.txt")
+	if gotContent != "root\n" {
+		t.Fatalf("expected HEAD to expose tagged tree, got %q", gotContent)
+	}
+}
+
+func TestBuildRemoteRepositoryClonePlanCapsExtraRefs(t *testing.T) {
+	refs := []remoteRepositoryRef{
+		{Name: "refs/heads/main", SHA: strings.Repeat("a", 40)},
+		{Name: "refs/heads/feature-a", SHA: strings.Repeat("b", 40)},
+		{Name: "refs/heads/feature-b", SHA: strings.Repeat("c", 40)},
+		{Name: "refs/tags/release-keep", SHA: strings.Repeat("d", 40)},
+		{Name: "refs/identrail/archive", SHA: strings.Repeat("e", 40)},
+	}
+
+	plan, err := buildRemoteRepositoryClonePlan(refs, "refs/heads/main", 6)
+	if err != nil {
+		t.Fatalf("build clone plan: %v", err)
+	}
+	if plan.DefaultRef.Name != "refs/heads/main" || plan.DefaultDepth != 2 {
+		t.Fatalf("expected default ref to keep non-boundary depth, got %+v", plan)
+	}
+	if plan.ExtraDepth != 2 {
+		t.Fatalf("expected extra refs to keep non-boundary depth, got %+v", plan)
+	}
+	gotExtras := make([]string, 0, len(plan.ExtraRefs))
+	for _, ref := range plan.ExtraRefs {
+		gotExtras = append(gotExtras, ref.Name)
+	}
+	expectedExtras := []string{"refs/tags/release-keep", "refs/identrail/archive"}
+	if !reflect.DeepEqual(gotExtras, expectedExtras) {
+		t.Fatalf("expected non-branch refs to be prioritized within ref budget, got %+v", gotExtras)
+	}
+}
+
+func TestBuildRemoteRepositoryClonePlanKeepsDefaultTipScannable(t *testing.T) {
+	refs := []remoteRepositoryRef{
+		{Name: "refs/heads/main", SHA: strings.Repeat("a", 40)},
+		{Name: "refs/heads/feature-a", SHA: strings.Repeat("b", 40)},
+		{Name: "refs/heads/feature-b", SHA: strings.Repeat("c", 40)},
+		{Name: "refs/tags/release-keep", SHA: strings.Repeat("d", 40)},
+		{Name: "refs/identrail/archive", SHA: strings.Repeat("e", 40)},
+	}
+
+	plan, err := buildRemoteRepositoryClonePlan(refs, "refs/heads/main", 3)
+	if err != nil {
+		t.Fatalf("build clone plan: %v", err)
+	}
+	if plan.DefaultDepth < 2 {
+		t.Fatalf("expected default ref to remain visible after shallow-boundary exclusion, got %+v", plan)
+	}
+	if len(plan.ExtraRefs) != 0 {
+		t.Fatalf("expected low history budget to reserve depth for the default ref, got %+v", plan)
+	}
+}
+
+func TestCloneRemoteRepositoryUsesAskPassCredentialWithoutCommandArgLeak(t *testing.T) {
 	const secret = "ghs_secret_token"
 	var gotEnv []string
-	var gotArgs []string
+	var gotCommands [][]string
 	scanner := NewScanner(
 		func(context.Context, string, ...string) ([]byte, error) {
 			t.Fatal("expected authenticated clone to use env command runner")
@@ -684,7 +952,8 @@ func TestCloneMirrorUsesAskPassCredentialWithoutCommandArgLeak(t *testing.T) {
 		}),
 		WithEnvCommandRunner(func(_ context.Context, env []string, name string, args ...string) ([]byte, error) {
 			gotEnv = append([]string(nil), env...)
-			gotArgs = append([]string{name}, args...)
+			command := append([]string{name}, args...)
+			gotCommands = append(gotCommands, command)
 			askPass := envValue(env, "GIT_ASKPASS")
 			if askPass == "" {
 				t.Fatal("expected GIT_ASKPASS to be configured")
@@ -692,16 +961,25 @@ func TestCloneMirrorUsesAskPassCredentialWithoutCommandArgLeak(t *testing.T) {
 			if _, err := os.Stat(askPass); err != nil {
 				t.Fatalf("expected askpass helper to exist during clone: %v", err)
 			}
+			if reflect.DeepEqual(command, []string{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"}) {
+				return []byte(strings.Join([]string{
+					"ref: refs/heads/main\tHEAD",
+					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tHEAD",
+					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/heads/main",
+				}, "\n")), nil
+			}
 			return []byte("ok"), nil
 		}),
 	)
 
-	err := scanner.cloneMirror(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
 	if err != nil {
-		t.Fatalf("clone mirror: %v", err)
+		t.Fatalf("clone remote repository: %v", err)
 	}
-	if strings.Contains(strings.Join(gotArgs, " "), secret) {
-		t.Fatalf("clone command arguments leaked token: %+v", gotArgs)
+	for _, command := range gotCommands {
+		if strings.Contains(strings.Join(command, " "), secret) {
+			t.Fatalf("clone command arguments leaked token: %+v", gotCommands)
+		}
 	}
 	if envValue(gotEnv, "IDENTRAIL_GIT_USERNAME") != "x-access-token" || envValue(gotEnv, "IDENTRAIL_GIT_PASSWORD") != secret {
 		t.Fatalf("expected clone credential in environment, got %+v", gotEnv)
@@ -711,7 +989,7 @@ func TestCloneMirrorUsesAskPassCredentialWithoutCommandArgLeak(t *testing.T) {
 	}
 }
 
-func TestCloneMirrorRedactsCredentialFromErrors(t *testing.T) {
+func TestCloneRemoteRepositoryRedactsCredentialFromErrors(t *testing.T) {
 	const secret = "ghs_secret_token"
 	scanner := NewScanner(nil,
 		WithHTTPSCloneCredential(HTTPSCloneCredential{
@@ -724,7 +1002,7 @@ func TestCloneMirrorRedactsCredentialFromErrors(t *testing.T) {
 		}),
 	)
 
-	err := scanner.cloneMirror(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
 	if err == nil {
 		t.Fatal("expected clone error")
 	}
@@ -733,7 +1011,7 @@ func TestCloneMirrorRedactsCredentialFromErrors(t *testing.T) {
 	}
 }
 
-func TestCloneMirrorRejectsCredentialHostMismatch(t *testing.T) {
+func TestCloneRemoteRepositoryRejectsCredentialHostMismatch(t *testing.T) {
 	called := false
 	scanner := NewScanner(nil,
 		WithHTTPSCloneCredential(HTTPSCloneCredential{
@@ -747,7 +1025,7 @@ func TestCloneMirrorRejectsCredentialHostMismatch(t *testing.T) {
 		}),
 	)
 
-	err := scanner.cloneMirror(context.Background(), t.TempDir(), "https://gitlab.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://gitlab.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
 	if err == nil {
 		t.Fatal("expected credential host mismatch to fail")
 	}
@@ -843,6 +1121,15 @@ func TestGitInvocationModes(t *testing.T) {
 	if !reflect.DeepEqual(got[1], expectedSecond) {
 		t.Fatalf("unexpected bare invocation %+v", got[1])
 	}
+}
+
+func hasArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func envValue(env []string, key string) string {

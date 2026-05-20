@@ -172,7 +172,12 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 	}
 	defer cleanup()
 
-	commits, err := s.listCommits(ctx, location)
+	shallowExclusionArgs, err := s.shallowBoundaryExclusionArgs(ctx, location)
+	if err != nil {
+		return ScanResult{}, err
+	}
+
+	commits, err := s.listCommits(ctx, location, shallowExclusionArgs)
 	if err != nil {
 		return ScanResult{}, err
 	}
@@ -183,7 +188,9 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 	secretPolicy := s.loadSecretFindingPolicy(ctx, location)
 	secretOptions := []secretFindingOption{withSecretFindingPolicy(secretPolicy)}
 
-	logArgs := []string{"log", "--all", "--max-count", strconv.Itoa(s.historyLimit), "--no-color", "--unified=0", "--format=commit:%H", "-p"}
+	logArgs := []string{"log", "--all"}
+	logArgs = append(logArgs, shallowExclusionArgs...)
+	logArgs = append(logArgs, "--max-count", strconv.Itoa(s.historyLimit), "--no-color", "--unified=0", "--format=commit:%H", "-p")
 	historyReader, waitLog, logErr := s.gitStream(ctx, location, logArgs...)
 	if logErr != nil {
 		return ScanResult{}, fmt.Errorf("scan commit history: %w", logErr)
@@ -308,6 +315,18 @@ type repositoryLocation struct {
 	Display string
 }
 
+type remoteRepositoryRef struct {
+	Name string
+	SHA  string
+}
+
+type remoteRepositoryClonePlan struct {
+	DefaultRef   remoteRepositoryRef
+	DefaultDepth int
+	ExtraRefs    []remoteRepositoryRef
+	ExtraDepth   int
+}
+
 func (s *Scanner) prepareRepository(ctx context.Context, target string) (repositoryLocation, func(), error) {
 	if local, ok := localRepository(target); ok {
 		return local, func() {}, nil
@@ -322,32 +341,117 @@ func (s *Scanner) prepareRepository(ctx context.Context, target string) (reposit
 		return repositoryLocation{}, nil, fmt.Errorf("create temp repository directory: %w", err)
 	}
 	cleanup := func() { _ = os.RemoveAll(workdir) }
-	mirrorPath := filepath.Join(workdir, "repo.git")
-	if runErr := s.cloneMirror(ctx, workdir, cloneURL, mirrorPath); runErr != nil {
+	repoPath := filepath.Join(workdir, "repo.git")
+	if runErr := s.cloneRemoteRepository(ctx, workdir, cloneURL, repoPath); runErr != nil {
 		cleanup()
 		return repositoryLocation{}, nil, fmt.Errorf("clone repository: %w", runErr)
 	}
-	return repositoryLocation{Path: mirrorPath, Bare: true, Display: target}, cleanup, nil
+	return repositoryLocation{Path: repoPath, Bare: true, Display: target}, cleanup, nil
 }
 
-func (s *Scanner) cloneMirror(ctx context.Context, workdir string, cloneURL string, mirrorPath string) error {
-	args := []string{"clone", "--mirror", "--quiet", cloneURL, mirrorPath}
-	credential, useCredential, err := s.credentialForCloneURL(cloneURL)
+func (s *Scanner) cloneRemoteRepository(ctx context.Context, workdir string, cloneURL string, repoPath string) error {
+	runner, cleanup, err := s.cloneCommandRunner(workdir, cloneURL)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
+
+	refsOutput, err := runner(ctx, "git", "ls-remote", "--symref", cloneURL)
+	if err != nil {
+		return fmt.Errorf("list remote refs: %w", err)
+	}
+	refs, defaultRefName := parseRemoteRepositoryRefs(refsOutput)
+	plan, err := buildRemoteRepositoryClonePlan(refs, defaultRefName, s.historyLimit)
+	if err != nil {
+		return err
+	}
+
+	if _, err := runner(ctx, "git", "init", "--bare", "--quiet", repoPath); err != nil {
+		return fmt.Errorf("initialize bounded repository clone: %w", err)
+	}
+	if _, err := runner(ctx, "git", "--git-dir", repoPath, "remote", "add", "origin", cloneURL); err != nil {
+		return fmt.Errorf("configure repository remote: %w", err)
+	}
+	if err := fetchRemoteRepositoryRefs(ctx, runner, repoPath, plan.ExtraRefs, plan.ExtraDepth); err != nil {
+		return err
+	}
+	if err := fetchRemoteRepositoryRefs(ctx, runner, repoPath, []remoteRepositoryRef{plan.DefaultRef}, plan.DefaultDepth); err != nil {
+		return err
+	}
+	if err := pointRemoteRepositoryHead(ctx, runner, repoPath, plan.DefaultRef); err != nil {
+		return err
+	}
+	return nil
+}
+
+func pointRemoteRepositoryHead(ctx context.Context, runner CommandRunner, repoPath string, ref remoteRepositoryRef) error {
+	if strings.HasPrefix(ref.Name, "refs/heads/") {
+		if _, err := runner(ctx, "git", "--git-dir", repoPath, "symbolic-ref", "HEAD", ref.Name); err != nil {
+			return fmt.Errorf("point bounded repository clone HEAD at %s: %w", ref.Name, err)
+		}
+		return nil
+	}
+	commitOutput, err := runner(ctx, "git", "--git-dir", repoPath, "rev-parse", ref.Name+"^{commit}")
+	if err != nil {
+		return fmt.Errorf("resolve bounded repository HEAD commit for %s: %w", ref.Name, err)
+	}
+	commit := strings.TrimSpace(string(commitOutput))
+	if commit == "" {
+		return fmt.Errorf("resolve bounded repository HEAD commit for %s: empty commit", ref.Name)
+	}
+	if _, err := runner(ctx, "git", "--git-dir", repoPath, "update-ref", "--no-deref", "HEAD", commit); err != nil {
+		return fmt.Errorf("point bounded repository clone HEAD at %s: %w", ref.Name, err)
+	}
+	return nil
+}
+
+func fetchRemoteRepositoryRefs(ctx context.Context, runner CommandRunner, repoPath string, refs []remoteRepositoryRef, depth int) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	if depth < 1 {
+		depth = 1
+	}
+	args := []string{
+		"--git-dir", repoPath,
+		"fetch",
+		"--quiet",
+		"--no-tags",
+	}
+	args = appendBoundedFetchDepthArgs(args, depth)
+	args = append(args, "origin")
+	for _, ref := range refs {
+		args = append(args, "+"+ref.Name+":"+ref.Name)
+	}
+	_, err := runner(ctx, "git", args...)
+	if err != nil {
+		return fmt.Errorf("fetch bounded repository refs: %w", err)
+	}
+	return nil
+}
+
+func appendBoundedFetchDepthArgs(args []string, depth int) []string {
+	// ScanRepository excludes shallow boundary commits before running
+	// patch-based secret detection, so bounded fetch roots do not produce
+	// synthetic "added" lines against an empty tree.
+	return append(args, "--depth", strconv.Itoa(depth))
+}
+
+func (s *Scanner) cloneCommandRunner(workdir string, cloneURL string) (CommandRunner, func(), error) {
+	credential, useCredential, err := s.credentialForCloneURL(cloneURL)
+	if err != nil {
+		return nil, nil, err
+	}
 	if !useCredential {
-		_, runErr := s.run(ctx, "git", args...)
-		return runErr
+		return s.run, func() {}, nil
 	}
 	if s.runEnv == nil {
 		s.runEnv = defaultEnvCommandRunner
 	}
 	askpassPath, cleanup, err := writeGitAskPassScript(workdir)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	defer cleanup()
 
 	env := []string{
 		"GIT_TERMINAL_PROMPT=0",
@@ -355,14 +459,143 @@ func (s *Scanner) cloneMirror(ctx context.Context, workdir string, cloneURL stri
 		"IDENTRAIL_GIT_USERNAME=" + credential.Username,
 		"IDENTRAIL_GIT_PASSWORD=" + credential.Password,
 	}
-	_, runErr := s.runEnv(ctx, env, "git", args...)
-	if runErr != nil {
-		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
-			return runErr
+	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		output, runErr := s.runEnv(ctx, env, name, args...)
+		if runErr != nil {
+			if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+				return output, runErr
+			}
+			return output, sanitizeError(runErr, credential.Password)
 		}
-		return sanitizeError(runErr, credential.Password)
+		return output, nil
+	}, cleanup, nil
+}
+
+func parseRemoteRepositoryRefs(output []byte) ([]remoteRepositoryRef, string) {
+	defaultRef := ""
+	headSHA := ""
+	refsByName := map[string]remoteRepositoryRef{}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "ref: ") && strings.HasSuffix(line, "\tHEAD") {
+			defaultRef = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "ref: "), "\tHEAD"))
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) != 2 {
+			continue
+		}
+		sha := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[1])
+		if name == "HEAD" {
+			headSHA = sha
+			continue
+		}
+		if name == "" || strings.HasSuffix(name, "^{}") {
+			continue
+		}
+		refsByName[name] = remoteRepositoryRef{Name: name, SHA: sha}
 	}
-	return nil
+
+	refs := make([]remoteRepositoryRef, 0, len(refsByName))
+	for _, ref := range refsByName {
+		refs = append(refs, ref)
+	}
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i].Name < refs[j].Name
+	})
+	if defaultRef == "" && headSHA != "" {
+		for _, ref := range refs {
+			if strings.HasPrefix(ref.Name, "refs/heads/") && ref.SHA == headSHA {
+				defaultRef = ref.Name
+				break
+			}
+		}
+	}
+	if defaultRef == "" {
+		for _, ref := range refs {
+			if strings.HasPrefix(ref.Name, "refs/heads/") {
+				defaultRef = ref.Name
+				break
+			}
+		}
+	}
+	return refs, defaultRef
+}
+
+func buildRemoteRepositoryClonePlan(refs []remoteRepositoryRef, defaultRefName string, historyLimit int) (remoteRepositoryClonePlan, error) {
+	if historyLimit < 1 {
+		historyLimit = defaultHistoryLimit
+	}
+	if len(refs) == 0 {
+		return remoteRepositoryClonePlan{}, fmt.Errorf("remote repository has no advertised refs")
+	}
+
+	defaultRef := refs[0]
+	if defaultRefName != "" {
+		for _, ref := range refs {
+			if ref.Name == defaultRefName {
+				defaultRef = ref
+				break
+			}
+		}
+	}
+
+	extras := make([]remoteRepositoryRef, 0, len(refs)-1)
+	for _, ref := range refs {
+		if ref.Name == defaultRef.Name {
+			continue
+		}
+		extras = append(extras, ref)
+	}
+	sort.SliceStable(extras, func(i, j int) bool {
+		left := remoteRepositoryRefPriority(extras[i].Name)
+		right := remoteRepositoryRefPriority(extras[j].Name)
+		if left == right {
+			return extras[i].Name < extras[j].Name
+		}
+		return left < right
+	})
+
+	const minFetchDepthForPatchScan = 2
+	// Shallow boundary commits are excluded from patch scanning, so each
+	// selected ref needs at least one parent available to keep its tip visible.
+	extraDepth := minFetchDepthForPatchScan
+	fetchDepthBudget := historyLimit
+	if fetchDepthBudget < minFetchDepthForPatchScan {
+		fetchDepthBudget = minFetchDepthForPatchScan
+	}
+	extraBudget := (fetchDepthBudget - minFetchDepthForPatchScan) / extraDepth
+	if extraBudget < 0 {
+		extraBudget = 0
+	}
+	if len(extras) > extraBudget {
+		extras = extras[:extraBudget]
+	}
+	defaultDepth := fetchDepthBudget - (len(extras) * extraDepth)
+	if defaultDepth < minFetchDepthForPatchScan {
+		defaultDepth = minFetchDepthForPatchScan
+	}
+	return remoteRepositoryClonePlan{
+		DefaultRef:   defaultRef,
+		DefaultDepth: defaultDepth,
+		ExtraRefs:    extras,
+		ExtraDepth:   extraDepth,
+	}, nil
+}
+
+func remoteRepositoryRefPriority(ref string) int {
+	switch {
+	case strings.HasPrefix(ref, "refs/tags/"):
+		return 0
+	case !strings.HasPrefix(ref, "refs/heads/"):
+		return 1
+	default:
+		return 2
+	}
 }
 
 func (s *Scanner) credentialForCloneURL(cloneURL string) (HTTPSCloneCredential, bool, error) {
@@ -414,8 +647,41 @@ esac
 	return path, func() { _ = os.Remove(path) }, nil
 }
 
-func (s *Scanner) listCommits(ctx context.Context, repo repositoryLocation) ([]string, error) {
-	args := []string{"rev-list", "--all", "--max-count", strconv.Itoa(s.historyLimit)}
+func (s *Scanner) shallowBoundaryExclusionArgs(ctx context.Context, repo repositoryLocation) ([]string, error) {
+	output, err := s.git(ctx, repo, "rev-parse", "--git-path", "shallow")
+	if err != nil {
+		return nil, fmt.Errorf("resolve shallow boundary path: %w", err)
+	}
+	shallowPath := strings.TrimSpace(string(output))
+	if shallowPath == "" {
+		return nil, nil
+	}
+	if !filepath.IsAbs(shallowPath) {
+		shallowPath = filepath.Join(repo.Path, shallowPath)
+	}
+	data, err := os.ReadFile(shallowPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read shallow boundary commits: %w", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	args := make([]string, 0, len(lines))
+	for _, line := range lines {
+		sha := strings.TrimSpace(line)
+		if sha == "" {
+			continue
+		}
+		args = append(args, "^"+sha)
+	}
+	return args, nil
+}
+
+func (s *Scanner) listCommits(ctx context.Context, repo repositoryLocation, exclusionArgs []string) ([]string, error) {
+	args := []string{"rev-list", "--all"}
+	args = append(args, exclusionArgs...)
+	args = append(args, "--max-count", strconv.Itoa(s.historyLimit))
 	output, err := s.git(ctx, repo, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list commits: %w", err)

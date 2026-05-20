@@ -15,6 +15,11 @@
   severity mapping, secret-like evidence redaction, stable dedupe against
   native findings, and no external scanner execution unless explicitly wired by
   the caller.
+- Bounded hosted repository clone size for GitHub App scans. Remote repository
+  scans now build a shallow bare repository through a batched, ref-budgeted
+  fetch plan, exclude shallow boundary commits from patch-derived findings,
+  and preserve selected tags and custom refs without spending the whole worker
+  timeout on an unbounded clone before analysis can start.
 - Added context-aware GitHub Actions workflow attack analysis to repository
   exposure scans. Workflow findings now distinguish shallow
   `pull_request_target` / `write-all` signals from dangerous combinations such
