@@ -25,6 +25,7 @@ type githubWorkflowModel struct {
 }
 
 type workflowPermissions struct {
+	Configured  bool
 	Line        int
 	Raw         string
 	WriteAll    bool
@@ -327,7 +328,7 @@ func parseWorkflowSecrets(node *yaml.Node) (map[string]string, string) {
 }
 
 func parseWorkflowPermissions(node *yaml.Node) workflowPermissions {
-	permissions := workflowPermissions{Line: workflowLine(node), Scopes: map[string]string{}}
+	permissions := workflowPermissions{Configured: node != nil, Line: workflowLine(node), Scopes: map[string]string{}}
 	if node == nil {
 		return permissions
 	}
@@ -370,7 +371,7 @@ func (workflow githubWorkflowModel) effectivePermissions(job githubWorkflowJob) 
 }
 
 func (permissions workflowPermissions) configured() bool {
-	return permissions.Raw != "" || permissions.WriteAll || len(permissions.Scopes) > 0
+	return permissions.Configured
 }
 
 func (permissions workflowPermissions) hasBroadGitHubTokenWrite() bool {
@@ -387,6 +388,9 @@ func (permissions workflowPermissions) hasBroadGitHubTokenWrite() bool {
 }
 
 func (permissions workflowPermissions) idTokenWrite() bool {
+	if permissions.WriteAll {
+		return true
+	}
 	return strings.EqualFold(strings.TrimSpace(permissions.Scopes["id-token"]), "write")
 }
 

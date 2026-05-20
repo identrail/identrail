@@ -190,6 +190,32 @@ jobs:
 	}
 }
 
+func TestGitHubWorkflowAnalyzerHonorsEmptyJobPermissionsOverride(t *testing.T) {
+	content := []byte(`name: empty-job-permissions
+on: pull_request_target
+permissions: write-all
+jobs:
+  analyze:
+    permissions: {}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@f00dbabe1234567890abcdef1234567890abcdef
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/empty-job-permissions.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	if !containsDetector(findings, "workflow_broad_token_permissions") {
+		t.Fatalf("expected workflow-level broad token compatibility finding, got %+v", findings)
+	}
+	for _, detector := range []string{
+		"workflow_pull_request_target_privileged_context",
+		"workflow_oidc_broad_trust",
+	} {
+		if containsDetector(findings, detector) {
+			t.Fatalf("expected empty job permissions override not to emit %s, got %+v", detector, findings)
+		}
+	}
+}
+
 func TestGitHubWorkflowAnalyzerDoesNotTreatHeadSHAAsShellInjection(t *testing.T) {
 	content := []byte(`name: pr-info
 on: pull_request
@@ -333,6 +359,24 @@ jobs:
 	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/broad-deploy.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
 	assertWorkflowDetectors(t, findings, []string{
 		"workflow_unpinned_third_party_action",
+		"workflow_oidc_broad_trust",
+	})
+}
+
+func TestGitHubWorkflowAnalyzerTreatsWriteAllAsOIDCWrite(t *testing.T) {
+	content := []byte(`name: write-all-oidc
+on: pull_request
+permissions: write-all
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/write-all-oidc.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_broad_token_permissions",
 		"workflow_oidc_broad_trust",
 	})
 }
