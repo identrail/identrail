@@ -148,6 +148,23 @@ describe('App', () => {
     expect(document.body.scrollTop).toBe(0);
   });
 
+  it('cancels scheduled hash scrolling when navigation changes first', async () => {
+    const requestAnimationFrame = vi.fn(() => 42);
+    const cancelAnimationFrame = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', requestAnimationFrame);
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrame);
+    setCurrentPath('/pricing#missing-anchor');
+    render(<App />);
+    expect(requestAnimationFrame).toHaveBeenCalled();
+
+    act(() => {
+      window.history.pushState({}, '', '/product');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    await waitFor(() => expect(cancelAnimationFrame).toHaveBeenCalledWith(42));
+  });
+
   it('renders pricing page routes and key elements', () => {
     setCurrentPath('/pricing');
     render(<App />);

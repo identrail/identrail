@@ -748,11 +748,11 @@ function RouteScrollReset() {
         resetScrollTop();
       };
       if (typeof window.requestAnimationFrame === 'function') {
-        window.requestAnimationFrame(scrollToHashTarget);
-      } else {
-        window.setTimeout(scrollToHashTarget, 0);
+        const frameID = window.requestAnimationFrame(scrollToHashTarget);
+        return () => window.cancelAnimationFrame(frameID);
       }
-      return;
+      const timeoutID = window.setTimeout(scrollToHashTarget, 0);
+      return () => window.clearTimeout(timeoutID);
     }
 
     resetScrollTop();
