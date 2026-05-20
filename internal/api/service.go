@@ -1732,7 +1732,7 @@ func (s *Service) GetRepoRiskGraph(ctx context.Context, filter RepoRiskGraphFilt
 	return domain.BuildRepoRiskGraph(enrichFindingsWithRepoContext(findings), domain.RepoRiskGraphOptions{
 		Repository:    repository,
 		DefaultBranch: strings.TrimSpace(filter.DefaultBranch),
-		Now:           time.Now().UTC(),
+		Now:           s.Now().UTC(),
 	}), nil
 }
 

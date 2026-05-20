@@ -6013,6 +6013,7 @@ components:
       type: object
       properties:
         finding_id: { type: string }
+        finding_node_id: { type: string }
         score:
           type: integer
           minimum: 0

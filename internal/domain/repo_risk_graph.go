@@ -111,12 +111,13 @@ type RepoRiskGraphEdge struct {
 
 // RepoRiskGraphFindingScore records the graph-aware risk score for one finding.
 type RepoRiskGraphFindingScore struct {
-	FindingID  string                    `json:"finding_id"`
-	Score      int                       `json:"score"`
-	Severity   FindingSeverity           `json:"severity"`
-	Confidence float64                   `json:"confidence"`
-	Factors    RepoRiskGraphScoreFactors `json:"factors"`
-	Unknowns   []string                  `json:"unknowns,omitempty"`
+	FindingID     string                    `json:"finding_id"`
+	FindingNodeID string                    `json:"finding_node_id"`
+	Score         int                       `json:"score"`
+	Severity      FindingSeverity           `json:"severity"`
+	Confidence    float64                   `json:"confidence"`
+	Factors       RepoRiskGraphScoreFactors `json:"factors"`
+	Unknowns      []string                  `json:"unknowns,omitempty"`
 }
 
 // RepoRiskGraphScoreFactors makes graph score inputs inspectable.
@@ -143,7 +144,12 @@ type repoRiskGraphBuilder struct {
 // are represented as unknown nodes and edges.
 func BuildRepoRiskGraph(findings []Finding, options RepoRiskGraphOptions) RepoRiskGraph {
 	if len(findings) == 0 {
-		return RepoRiskGraph{Repository: strings.TrimSpace(options.Repository)}
+		return RepoRiskGraph{
+			Repository: strings.TrimSpace(options.Repository),
+			Nodes:      []RepoRiskGraphNode{},
+			Edges:      []RepoRiskGraphEdge{},
+			Scores:     []RepoRiskGraphFindingScore{},
+		}
 	}
 	now := options.Now
 	if now.IsZero() {
@@ -193,30 +199,31 @@ func BuildRepoRiskGraph(findings []Finding, options RepoRiskGraphOptions) RepoRi
 			repositoryNodeIDs[findingRepository] = repositoryNodeID
 		}
 
-		findingID := builder.findingNodeID(finding)
-		findingNodeID := builder.upsertNode(RepoRiskNodeFinding, findingID, findingLabel(finding), findingRepository, RepoRiskEvidenceKnown, findingNodeEvidence(finding))
+		findingKey := repoRiskFindingKey(finding)
+		findingPublicID := repoRiskFindingPublicID(finding, findingKey)
+		findingNodeID := builder.upsertNode(RepoRiskNodeFinding, findingKey, findingLabel(finding), findingRepository, RepoRiskEvidenceKnown, findingNodeEvidence(finding, findingPublicID))
 		if repositoryNodeID != "" {
 			builder.upsertEdge(RepoRiskEdgeFindingInRepository, findingNodeID, repositoryNodeID, RepoRiskEvidenceKnown, map[string]any{
-				"finding_id": finding.ID,
+				"finding_id": findingPublicID,
 			})
 		} else {
 			unknownRepoID := builder.upsertUnknownNode(RepoRiskNodeRepository, "unknown repository", findingRepository, map[string]any{
-				"finding_id": finding.ID,
+				"finding_id": findingPublicID,
 				"reason":     "repository_missing",
 			})
 			builder.upsertEdge(RepoRiskEdgeFindingInRepository, findingNodeID, unknownRepoID, RepoRiskEvidenceUnknown, map[string]any{
-				"finding_id": finding.ID,
+				"finding_id": findingPublicID,
 				"reason":     "repository_missing",
 			})
 		}
 
-		workflowID, jobID := builder.addWorkflowReachability(finding, findingNodeID, repositoryNodeID, findingRepository)
-		builder.addEnvironmentReachability(finding, findingNodeID, repositoryNodeID, findingRepository)
-		builder.addSecretAndTokenReachability(finding, findingNodeID, jobID, findingRepository)
-		builder.addOIDCReachability(finding, findingNodeID, workflowID, jobID, findingRepository)
-		builder.addIdentityReachability(finding, findingNodeID, findingRepository)
+		workflowID, jobID := builder.addWorkflowReachability(finding, findingPublicID, findingNodeID, repositoryNodeID, findingRepository)
+		builder.addEnvironmentReachability(finding, findingPublicID, findingNodeID, repositoryNodeID, findingRepository)
+		builder.addSecretAndTokenReachability(finding, findingPublicID, findingNodeID, jobID, findingRepository)
+		builder.addOIDCReachability(finding, findingPublicID, findingNodeID, workflowID, jobID, findingRepository)
+		builder.addIdentityReachability(finding, findingPublicID, findingNodeID, findingRepository)
 
-		score := scoreRepoRiskFinding(finding, builder.now)
+		score := scoreRepoRiskFinding(finding, builder.now, findingPublicID, findingNodeID)
 		builder.graph.Scores = append(builder.graph.Scores, score)
 	}
 
@@ -244,21 +251,26 @@ func commonRepository(findings []Finding) string {
 	return repository
 }
 
-func (builder *repoRiskGraphBuilder) findingNodeID(finding Finding) string {
-	if id := strings.TrimSpace(finding.ID); id != "" {
-		return id
-	}
-	key := strings.Join([]string{
+func repoRiskFindingKey(finding Finding) string {
+	return strings.Join([]string{
+		strings.TrimSpace(finding.ScanID),
 		strings.TrimSpace(finding.Repository),
+		strings.TrimSpace(finding.ID),
 		string(finding.Type),
 		strings.TrimSpace(finding.Detector),
 		strings.TrimSpace(finding.FilePath),
 		strconv.Itoa(finding.LineNumber),
 	}, "\x1f")
+}
+
+func repoRiskFindingPublicID(finding Finding, key string) string {
+	if id := strings.TrimSpace(finding.ID); id != "" {
+		return id
+	}
 	return "finding:" + repoRiskDigest(key)
 }
 
-func (builder *repoRiskGraphBuilder) addWorkflowReachability(finding Finding, findingNodeID string, repositoryNodeID string, repository string) (string, string) {
+func (builder *repoRiskGraphBuilder) addWorkflowReachability(finding Finding, findingPublicID string, findingNodeID string, repositoryNodeID string, repository string) (string, string) {
 	workflowPath := workflowPathForFinding(finding)
 	if workflowPath == "" {
 		return "", ""
@@ -274,7 +286,7 @@ func (builder *repoRiskGraphBuilder) addWorkflowReachability(finding Finding, fi
 		})
 	}
 	builder.upsertEdge(RepoRiskEdgeFindingAffectsWorkflow, findingNodeID, workflowID, RepoRiskEvidenceKnown, map[string]any{
-		"finding_id": finding.ID,
+		"finding_id": findingPublicID,
 		"file_path":  workflowPath,
 	})
 
@@ -292,7 +304,7 @@ func (builder *repoRiskGraphBuilder) addWorkflowReachability(finding Finding, fi
 	return workflowID, jobID
 }
 
-func (builder *repoRiskGraphBuilder) addEnvironmentReachability(finding Finding, findingNodeID string, repositoryNodeID string, repository string) {
+func (builder *repoRiskGraphBuilder) addEnvironmentReachability(finding Finding, findingPublicID string, findingNodeID string, repositoryNodeID string, repository string) {
 	environment := firstEvidenceString(finding.Evidence, "environment", "deployment_environment", "github_environment", "repo_environment")
 	if environment == "" {
 		return
@@ -307,12 +319,12 @@ func (builder *repoRiskGraphBuilder) addEnvironmentReachability(finding Finding,
 		})
 	}
 	builder.upsertEdge(RepoRiskEdgeFindingReferencesID, findingNodeID, environmentID, RepoRiskEvidenceKnown, map[string]any{
-		"finding_id": finding.ID,
+		"finding_id": findingPublicID,
 		"evidence":   "environment",
 	})
 }
 
-func (builder *repoRiskGraphBuilder) addSecretAndTokenReachability(finding Finding, findingNodeID string, jobID string, repository string) {
+func (builder *repoRiskGraphBuilder) addSecretAndTokenReachability(finding Finding, findingPublicID string, findingNodeID string, jobID string, repository string) {
 	secretLabel := secretLabelForFinding(finding)
 	if secretLabel == "" && !findingReferencesSecrets(finding) {
 		return
@@ -330,24 +342,24 @@ func (builder *repoRiskGraphBuilder) addSecretAndTokenReachability(finding Findi
 	})
 	if finding.Type == FindingSecretExposure {
 		builder.upsertEdge(RepoRiskEdgeFindingExposesToken, findingNodeID, secretID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id":        finding.ID,
+			"finding_id":        findingPublicID,
 			"raw_secret_stored": false,
 		})
 		return
 	}
 	if jobID != "" {
 		builder.upsertEdge(RepoRiskEdgeJobUsesSecret, jobID, secretID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id": finding.ID,
+			"finding_id": findingPublicID,
 		})
 	} else {
 		builder.upsertEdge(RepoRiskEdgeFindingReferencesID, findingNodeID, secretID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id": finding.ID,
+			"finding_id": findingPublicID,
 			"evidence":   "references_secrets",
 		})
 	}
 }
 
-func (builder *repoRiskGraphBuilder) addOIDCReachability(finding Finding, findingNodeID string, workflowID string, jobID string, repository string) {
+func (builder *repoRiskGraphBuilder) addOIDCReachability(finding Finding, findingPublicID string, findingNodeID string, workflowID string, jobID string, repository string) {
 	if !findingReferencesOIDC(finding) {
 		return
 	}
@@ -366,7 +378,7 @@ func (builder *repoRiskGraphBuilder) addOIDCReachability(finding Finding, findin
 		fromNodeID = findingNodeID
 	}
 	builder.upsertEdge(RepoRiskEdgeWorkflowCanMintToken, fromNodeID, subjectID, RepoRiskEvidenceKnown, map[string]any{
-		"finding_id":         finding.ID,
+		"finding_id":         findingPublicID,
 		"permission_summary": strings.TrimSpace(stringFromAny(finding.Evidence["permission_summary"])),
 		"oidc_risk_context":  strings.TrimSpace(stringFromAny(finding.Evidence["oidc_risk_context"])),
 	})
@@ -376,28 +388,28 @@ func (builder *repoRiskGraphBuilder) addOIDCReachability(finding Finding, findin
 			"role": role,
 		})
 		builder.upsertEdge(RepoRiskEdgeOIDCCanAssumeRole, subjectID, roleID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id": finding.ID,
+			"finding_id": findingPublicID,
 		})
 		return
 	}
 
 	unknownRoleID := builder.upsertUnknownNode(RepoRiskNodeCloudRole, "unknown cloud role", repository, map[string]any{
-		"finding_id": finding.ID,
+		"finding_id": findingPublicID,
 		"reason":     "oidc_target_role_missing",
 	})
 	builder.upsertEdge(RepoRiskEdgeReachabilityUnknown, subjectID, unknownRoleID, RepoRiskEvidenceUnknown, map[string]any{
-		"finding_id": finding.ID,
+		"finding_id": findingPublicID,
 		"reason":     "oidc_target_role_missing",
 	})
 }
 
-func (builder *repoRiskGraphBuilder) addIdentityReachability(finding Finding, findingNodeID string, repository string) {
+func (builder *repoRiskGraphBuilder) addIdentityReachability(finding Finding, findingPublicID string, findingNodeID string, repository string) {
 	if role := cloudRoleForFinding(finding); role != "" {
 		roleID := builder.upsertNode(RepoRiskNodeCloudRole, repository+":"+role, role, repository, RepoRiskEvidenceKnown, map[string]any{
 			"role": role,
 		})
 		builder.upsertEdge(RepoRiskEdgeFindingReferencesID, findingNodeID, roleID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id": finding.ID,
+			"finding_id": findingPublicID,
 			"evidence":   "cloud_role",
 		})
 	}
@@ -412,7 +424,7 @@ func (builder *repoRiskGraphBuilder) addIdentityReachability(finding Finding, fi
 			"service_account": serviceAccount,
 		})
 		builder.upsertEdge(RepoRiskEdgeFindingReferencesID, findingNodeID, serviceAccountID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id": finding.ID,
+			"finding_id": findingPublicID,
 			"evidence":   "service_account",
 		})
 	}
@@ -421,7 +433,7 @@ func (builder *repoRiskGraphBuilder) addIdentityReachability(finding Finding, fi
 			"github_app": app,
 		})
 		builder.upsertEdge(RepoRiskEdgeFindingReferencesID, findingNodeID, appID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id": finding.ID,
+			"finding_id": findingPublicID,
 			"evidence":   "github_app",
 		})
 	}
@@ -430,7 +442,7 @@ func (builder *repoRiskGraphBuilder) addIdentityReachability(finding Finding, fi
 			"deploy_key": key,
 		})
 		builder.upsertEdge(RepoRiskEdgeFindingReferencesID, findingNodeID, keyID, RepoRiskEvidenceKnown, map[string]any{
-			"finding_id": finding.ID,
+			"finding_id": findingPublicID,
 			"evidence":   "deploy_key",
 		})
 	}
@@ -560,7 +572,7 @@ func (builder *repoRiskGraphBuilder) finish() {
 	builder.graph.Summary.EdgeCount = len(builder.graph.Edges)
 }
 
-func scoreRepoRiskFinding(finding Finding, now time.Time) RepoRiskGraphFindingScore {
+func scoreRepoRiskFinding(finding Finding, now time.Time, findingID string, findingNodeID string) RepoRiskGraphFindingScore {
 	factors := RepoRiskGraphScoreFactors{
 		Severity:               repoRiskSeverityFactor(finding.Severity),
 		Confidence:             repoRiskConfidenceFactor(finding),
@@ -580,12 +592,13 @@ func scoreRepoRiskFinding(finding Finding, now time.Time) RepoRiskGraphFindingSc
 	score := int(math.Round(weighted))
 	score = clampInt(score, 0, 100)
 	return RepoRiskGraphFindingScore{
-		FindingID:  strings.TrimSpace(finding.ID),
-		Score:      score,
-		Severity:   finding.Severity,
-		Confidence: confidenceForFinding(finding),
-		Factors:    factors,
-		Unknowns:   repoRiskUnknowns(finding),
+		FindingID:     findingID,
+		FindingNodeID: findingNodeID,
+		Score:         score,
+		Severity:      finding.Severity,
+		Confidence:    confidenceForFinding(finding),
+		Factors:       factors,
+		Unknowns:      repoRiskUnknowns(finding),
 	}
 }
 
@@ -651,7 +664,7 @@ func repoRiskPrivilegeFactor(finding Finding) int {
 	if permissionSummary == "write-all" || strings.Contains(permissionSummary, ":write") {
 		score += 30
 	}
-	if evidenceStringSlice(finding.Evidence["write_scopes"]) != nil {
+	if len(evidenceStringSlice(finding.Evidence["write_scopes"])) > 0 {
 		score += 20
 	}
 	if findingReferencesSecrets(finding) {
@@ -774,9 +787,9 @@ func findingLabel(finding Finding) string {
 	}
 }
 
-func findingNodeEvidence(finding Finding) map[string]any {
+func findingNodeEvidence(finding Finding, findingPublicID string) map[string]any {
 	evidence := map[string]any{
-		"finding_id": finding.ID,
+		"finding_id": findingPublicID,
 		"type":       string(finding.Type),
 		"severity":   string(finding.Severity),
 	}

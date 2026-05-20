@@ -2205,6 +2205,37 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	}
 }
 
+func TestServiceGetRepoRiskGraphUsesServiceClock(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2030, 1, 2, 12, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{{
+		ID:        "fresh-finding",
+		Type:      domain.FindingRepoMisconfig,
+		Severity:  domain.SeverityMedium,
+		CreatedAt: now.Add(-2 * time.Hour),
+	}}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	graph, err := svc.GetRepoRiskGraph(defaultScopeContext(), RepoRiskGraphFilter{RepoScanID: repoScan.ID})
+	if err != nil {
+		t.Fatalf("get repo risk graph: %v", err)
+	}
+	if len(graph.Scores) != 1 {
+		t.Fatalf("expected one graph score, got %+v", graph)
+	}
+	if graph.Scores[0].Factors.Freshness != 100 {
+		t.Fatalf("expected service clock to drive freshness score, got %+v", graph.Scores[0])
+	}
+}
+
 func TestServiceListRepoFindingClusters(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
