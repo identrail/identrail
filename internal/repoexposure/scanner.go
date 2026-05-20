@@ -74,6 +74,7 @@ type Scanner struct {
 	historyLimit    int
 	maxFindings     int
 	cloneCredential HTTPSCloneCredential
+	adapters        []ExternalFindingAdapter
 }
 
 // ScanResult summarizes one repository exposure scan.
@@ -214,6 +215,7 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 	}
 
 	filesScanned := 0
+	headCommit := ""
 	if !truncated {
 		headCommit, headCommitErr := s.resolveHeadCommit(ctx, location)
 		if headCommitErr != nil {
@@ -250,6 +252,30 @@ func (s *Scanner) ScanRepository(ctx context.Context, target string) (ScanResult
 				}
 			}
 			if truncated {
+				break
+			}
+		}
+	}
+	if !truncated && len(s.adapters) > 0 {
+		for _, adapter := range s.adapters {
+			if err := ctx.Err(); err != nil {
+				return ScanResult{}, err
+			}
+			if adapter == nil {
+				continue
+			}
+			adapterFindings, adapterErr := adapter.Findings(ctx, ExternalAdapterInput{
+				Repository: location.Display,
+				Commit:     headCommit,
+				DetectedAt: started,
+			})
+			if adapterErr != nil {
+				return ScanResult{}, fmt.Errorf("run external repo finding adapter %s: %w", adapter.Name(), adapterErr)
+			}
+			var adapterTruncated bool
+			findings, adapterTruncated = appendExternalFindings(findings, adapterFindings, seen, s.maxFindings)
+			if adapterTruncated {
+				truncated = true
 				break
 			}
 		}

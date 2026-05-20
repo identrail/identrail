@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added opt-in external repository finding adapters. SARIF 2.1.0 output and
+  GitHub code-scanning alerts can now be normalized into Identrail repo
+  findings with adapter name/version/rule/location/confidence evidence,
+  severity mapping, secret-like evidence redaction, stable dedupe against
+  native findings, and no external scanner execution unless explicitly wired by
+  the caller.
 - Added context-aware GitHub Actions workflow attack analysis to repository
   exposure scans. Workflow findings now distinguish shallow
   `pull_request_target` / `write-all` signals from dangerous combinations such

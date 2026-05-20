@@ -77,6 +77,24 @@ func (f *fakeGitHubInstallationTokenMinter) Mint(ctx context.Context, installati
 	return f.token, nil
 }
 
+type fakeGitHubCodeScanningAlertCollector struct {
+	alerts         []githubconnector.CodeScanningAlert
+	err            error
+	installationID int64
+	repository     string
+	calls          int
+}
+
+func (f *fakeGitHubCodeScanningAlertCollector) ListCodeScanningAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.CodeScanningAlert, error) {
+	f.calls++
+	f.installationID = installationID
+	f.repository = repository
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.alerts, nil
+}
+
 type traceCapturingScanner struct {
 	result app.ScanResult
 	err    error
@@ -3492,6 +3510,83 @@ func TestServiceProcessQueuedGitHubAppRepoScanUsesInstallationToken(t *testing.T
 	}
 	if gotCredential.Host != "github.com" || gotCredential.Username != "x-access-token" || gotCredential.Password != "ghs_installation_token" {
 		t.Fatalf("unexpected clone credential %+v", gotCredential)
+	}
+}
+
+func TestServiceProcessQueuedGitHubAppRepoScanImportsCodeScanningAlerts(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+	svc.GitHubCodeScanningAlertCollector = &fakeGitHubCodeScanningAlertCollector{
+		alerts: []githubconnector.CodeScanningAlert{
+			{
+				Number: 12,
+				State:  "open",
+				Rule: githubconnector.CodeScanningRule{
+					ID:                    "js/sql-injection",
+					Name:                  "SQL query built from user-controlled sources",
+					Severity:              "warning",
+					SecuritySeverityLevel: "high",
+					Tags:                  []string{"security"},
+				},
+				Tool: githubconnector.CodeScanningTool{Name: "CodeQL", Version: "2.17.0"},
+				MostRecentInstance: githubconnector.CodeScanningAlertInstance{
+					State:     "open",
+					CommitSHA: "def456",
+					Message:   githubconnector.CodeScanningMessage{Text: "Query string includes user input."},
+					Location:  githubconnector.CodeScanningLocation{Path: "src/db.ts", StartLine: 88, StartColumn: 11},
+				},
+				HTMLURL: "https://github.com/owner/private/security/code-scanning/12",
+			},
+		},
+	}
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/private",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+			},
+		}
+	}
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/private",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+	if err != nil {
+		t.Fatalf("process connector-backed repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued connector-backed repo scan to be processed")
+	}
+	collector := svc.GitHubCodeScanningAlertCollector.(*fakeGitHubCodeScanningAlertCollector)
+	if collector.calls != 1 || collector.installationID != 101 || collector.repository != "owner/private" {
+		t.Fatalf("unexpected code scanning collector call: calls=%d installation=%d repository=%q", collector.calls, collector.installationID, collector.repository)
+	}
+	stored, err := svc.GetRepoScan(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if stored.FindingCount != 1 {
+		t.Fatalf("expected one imported code-scanning finding, got %+v", stored)
+	}
+	findings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{RepoScanID: record.ID})
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(findings) != 1 || findings[0].Detector != "github_code_scanning:codeql:js_sql-injection" || findings[0].SourceURL == "" {
+		t.Fatalf("unexpected imported finding: %+v", findings)
 	}
 }
 

@@ -170,6 +170,49 @@ write permissions is emitted as a critical workflow attack path.
 
 To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
 
+## External Scanner Adapters
+
+The scanner can import findings from explicit, caller-provided adapters. No
+external scanner binaries are executed by default. This keeps hosted scans
+read-only and deterministic unless a future caller deliberately wires a scanner
+runner with its own allowlist, timeout, filesystem, and network controls.
+
+Supported ingestion surfaces:
+
+- SARIF 2.1.0 results, including tools such as Semgrep, Gitleaks, CodeQL, and
+  other scanners that emit SARIF.
+- GitHub code-scanning alerts fetched through the GitHub App connector's
+  `security_events: read` permission.
+
+Connector-backed GitHub App repository scans collect open code-scanning alerts
+for selected repositories when the installation permission allows it. If the
+installation cannot read code-scanning alerts, the native Identrail scan still
+completes and adapter findings are simply absent for that run.
+
+Adapter findings are normalized into the same `domain.Finding` shape as native
+repository findings:
+
+- `adapter_name`
+- `adapter_version`
+- `adapter_source_type`
+- `adapter_rule_id`
+- `adapter_rule_name`
+- `adapter_confidence`
+- `adapter_severity_source`
+- `adapter_location_path`
+- `adapter_location_line`
+- `adapter_location_column`
+
+Secret-like adapter findings are treated as secret exposure findings and do not
+store raw messages or snippets. Identrail stores a redacted snippet marker,
+sets `line_snippet_redacted: true`, and records `raw_secret_stored: false`,
+`secret_value_masked: true`, and `raw_adapter_result_stored: false` evidence.
+
+External findings are deduplicated by stable IDs, adapter dedupe keys, detector
+location, and same-line snippet fingerprints. This prevents a native detector
+and an external scanner from flooding the same path/line with repeated copies
+of the same underlying issue.
+
 ## Secret Confidence Classification
 
 Secret findings are not silently dropped when they look like examples or test
@@ -214,6 +257,11 @@ workflow layer.
   - redacted line snippets
 - Findings are deterministic and deduplicated by stable IDs/fingerprints.
 - Output is capped by `--max-findings` to prevent runaway payloads.
+- External adapters are opt-in. Identrail imports already-produced SARIF or
+  GitHub alert data; it does not execute Gitleaks, Semgrep, CodeQL, or other
+  third-party scanner binaries by default.
+- External adapter evidence stores normalized metadata only and explicitly
+  records `raw_adapter_result_stored: false`.
 - Repo scan metadata/findings are persisted in dedicated storage (`repo_scans`, `repo_findings`) to avoid changing existing cloud scan APIs.
 - GitHub App private-repo scans persist only non-secret connector context
   (`source_provider`, project id, connector id, installation id). The worker
@@ -266,3 +314,6 @@ workflow layer.
   or worker scans can authenticate to them.
 - CLI scans support public remotes and local repository paths, but do not use
   saved Identrail connector credentials.
+- External scanner execution is intentionally not enabled as a runtime feature
+  in this release. Add execution only behind explicit operator-controlled
+  allowlists, resource limits, and sandboxing.

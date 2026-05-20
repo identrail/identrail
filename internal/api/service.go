@@ -94,6 +94,11 @@ type GitHubInstallationTokenMinter interface {
 	Mint(ctx context.Context, installationID int64) (githubconnector.InstallationToken, error)
 }
 
+// GitHubCodeScanningAlertCollector lists code-scanning alerts visible to one GitHub App installation.
+type GitHubCodeScanningAlertCollector interface {
+	ListCodeScanningAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.CodeScanningAlert, error)
+}
+
 // AWSScannerFactory creates a scanner bound to one persisted AWS connector.
 type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
 
@@ -145,6 +150,7 @@ type Service struct {
 	GitHubRepositoryLister           GitHubRepositoryLister
 	GitHubRepositoryPostureCollector GitHubRepositoryPostureCollector
 	GitHubInstallationTokenMinter    GitHubInstallationTokenMinter
+	GitHubCodeScanningAlertCollector GitHubCodeScanningAlertCollector
 	GitHubWebhookReplayWindow        time.Duration
 	GitHubWebhookBurstWindow         time.Duration
 	githubConnectMu                  sync.RWMutex
@@ -1374,6 +1380,20 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, safeErr.Error())
 		return RunRepoScanResult{}, safeErr
 	}
+	if !result.Truncated {
+		externalFindings, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
+		if externalErr != nil {
+			if errors.Is(externalErr, context.Canceled) || errors.Is(externalErr, context.DeadlineExceeded) {
+				s.recordRepoScanExecutionFailure()
+				_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, len(result.Findings), result.Truncated, externalErr.Error())
+				return RunRepoScanResult{}, externalErr
+			}
+		} else if len(externalFindings) > 0 {
+			var externalTruncated bool
+			result.Findings, externalTruncated = repoexposure.MergeExternalFindings(result.Findings, externalFindings, normalizedMaxFindings)
+			result.Truncated = result.Truncated || externalTruncated
+		}
+	}
 	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
 		s.recordRepoScanExecutionFailure()
@@ -1434,6 +1454,64 @@ func (s *Service) repoScanExecutorForRecord(ctx context.Context, record db.RepoS
 	default:
 		return nil, nil, ErrInvalidRepoScanRequest
 	}
+}
+
+func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoScanRecord, detectedAt time.Time) ([]domain.Finding, error) {
+	source := record.Source.Normalize()
+	if source.Provider != "github_app" || source.InstallationID <= 0 || s.GitHubCodeScanningAlertCollector == nil {
+		return nil, nil
+	}
+	alerts, err := s.GitHubCodeScanningAlertCollector.ListCodeScanningAlerts(ctx, source.InstallationID, record.Repository)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		// Code-scanning alerts are an enrichment source. Permission-limited
+		// installations should still complete the native repo scan.
+		return nil, nil
+	}
+	return repoexposure.NormalizeGitHubCodeScanningAlerts(ctx, record.Repository, "", githubCodeScanningAlertsToRepoExposure(alerts), detectedAt)
+}
+
+func githubCodeScanningAlertsToRepoExposure(alerts []githubconnector.CodeScanningAlert) []repoexposure.GitHubCodeScanningAlert {
+	converted := make([]repoexposure.GitHubCodeScanningAlert, 0, len(alerts))
+	for _, alert := range alerts {
+		converted = append(converted, repoexposure.GitHubCodeScanningAlert{
+			Number: alert.Number,
+			State:  alert.State,
+			Rule: repoexposure.GitHubCodeScanningRule{
+				ID:                    alert.Rule.ID,
+				Name:                  alert.Rule.Name,
+				Severity:              alert.Rule.Severity,
+				Description:           alert.Rule.Description,
+				SecuritySeverityLevel: alert.Rule.SecuritySeverityLevel,
+				Tags:                  append([]string(nil), alert.Rule.Tags...),
+			},
+			Tool: repoexposure.GitHubCodeScanningTool{
+				Name:    alert.Tool.Name,
+				Version: alert.Tool.Version,
+			},
+			MostRecentInstance: repoexposure.GitHubCodeScanningAlertInstance{
+				Ref:         alert.MostRecentInstance.Ref,
+				AnalysisKey: alert.MostRecentInstance.AnalysisKey,
+				Category:    alert.MostRecentInstance.Category,
+				State:       alert.MostRecentInstance.State,
+				CommitSHA:   alert.MostRecentInstance.CommitSHA,
+				Message: repoexposure.GitHubCodeScanningMessage{
+					Text: alert.MostRecentInstance.Message.Text,
+				},
+				Location: repoexposure.GitHubCodeScanningLocation{
+					Path:        alert.MostRecentInstance.Location.Path,
+					StartLine:   alert.MostRecentInstance.Location.StartLine,
+					EndLine:     alert.MostRecentInstance.Location.EndLine,
+					StartColumn: alert.MostRecentInstance.Location.StartColumn,
+					EndColumn:   alert.MostRecentInstance.Location.EndColumn,
+				},
+			},
+			HTMLURL: alert.HTMLURL,
+		})
+	}
+	return converted
 }
 
 func (s *Service) githubAppRepoScanCredential(ctx context.Context, record db.RepoScanRecord) (repoexposure.HTTPSCloneCredential, error) {
