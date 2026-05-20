@@ -16418,6 +16418,16 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
     grid-template-columns: 1fr;
   }
 
+  .idt-home-after-stack .idt-deployment-head {
+    grid-template-columns: 1fr;
+    gap: 1.6rem;
+  }
+
+  .idt-home-after-stack .idt-deployment-summary,
+  html[data-theme='light'] .idt-home-after-stack .idt-deployment-summary {
+    min-height: 0;
+  }
+
   .idt-home-after-stack .idt-command-copy {
     position: static;
   }
