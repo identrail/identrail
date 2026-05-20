@@ -1108,6 +1108,75 @@ func TestRouterRepoScanQueueBackpressureAndDuplicateGuard(t *testing.T) {
 	}
 }
 
+func TestRouterCancelRepoScan(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.RepoQueueMaxPending = 1
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstW := httptest.NewRecorder()
+	r.ServeHTTP(firstW, firstReq)
+	if firstW.Code != http.StatusAccepted {
+		t.Fatalf("expected first repo enqueue 202, got %d", firstW.Code)
+	}
+	var firstResponse struct {
+		RepoScan db.RepoScanRecord `json:"repo_scan"`
+	}
+	if err := json.Unmarshal(firstW.Body.Bytes(), &firstResponse); err != nil {
+		t.Fatalf("decode repo scan response: %v", err)
+	}
+
+	cancelReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans/"+firstResponse.RepoScan.ID+"/cancel", nil)
+	cancelW := httptest.NewRecorder()
+	r.ServeHTTP(cancelW, cancelReq)
+	if cancelW.Code != http.StatusOK {
+		t.Fatalf("expected cancel 200, got %d body=%s", cancelW.Code, cancelW.Body.String())
+	}
+	var cancelResponse struct {
+		RepoScan db.RepoScanRecord `json:"repo_scan"`
+	}
+	if err := json.Unmarshal(cancelW.Body.Bytes(), &cancelResponse); err != nil {
+		t.Fatalf("decode cancel response: %v", err)
+	}
+	if cancelResponse.RepoScan.Status != "failed" || cancelResponse.RepoScan.ErrorMessage != userCanceledRepoScanMessage {
+		t.Fatalf("unexpected cancel response: %+v", cancelResponse.RepoScan)
+	}
+
+	retryReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	retryReq.Header.Set("Content-Type", "application/json")
+	retryW := httptest.NewRecorder()
+	r.ServeHTTP(retryW, retryReq)
+	if retryW.Code != http.StatusAccepted {
+		t.Fatalf("expected retry enqueue after cancel 202, got %d", retryW.Code)
+	}
+
+	secondCancelReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans/"+firstResponse.RepoScan.ID+"/cancel", nil)
+	secondCancelW := httptest.NewRecorder()
+	r.ServeHTTP(secondCancelW, secondCancelReq)
+	if secondCancelW.Code != http.StatusConflict {
+		t.Fatalf("expected terminal cancel conflict 409, got %d", secondCancelW.Code)
+	}
+
+	invalidReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans/not-a-uuid/cancel", nil)
+	invalidW := httptest.NewRecorder()
+	r.ServeHTTP(invalidW, invalidReq)
+	if invalidW.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid scan id 400, got %d", invalidW.Code)
+	}
+
+	missingReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans/11111111-1111-1111-1111-111111111111/cancel", nil)
+	missingW := httptest.NewRecorder()
+	r.ServeHTTP(missingW, missingReq)
+	if missingW.Code != http.StatusNotFound {
+		t.Fatalf("expected missing scan 404, got %d", missingW.Code)
+	}
+}
+
 func TestRouterSupportsFindingsSortParameters(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

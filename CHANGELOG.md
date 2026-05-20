@@ -5,6 +5,10 @@
   later delta scans for the same head revision, and truncated scans no longer
   advance `cursor_after` or the per-repository cursor before all findings have
   been evaluated.
+- Added a scoped repository scan cancellation path. Active queued or running
+  repository scans can now be marked terminal from the API and project UI with
+  a clear `repository scan canceled by user` activity message, freeing the
+  repository target for an immediate retry without operator database edits.
 - Added incremental repository scan execution. Repo scans now track scan mode,
   base/head revisions, cursor before/after values, and changed paths; GitHub
   push and pull-request webhooks enqueue delta scans when revision metadata is

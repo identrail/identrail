@@ -1126,6 +1126,31 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 	})
 
+	v1.POST("/repo-scans/:repo_scan_id/cancel", func(c *gin.Context) {
+		repoScanID, ok := requiredUUIDParam(c, c.Param("repo_scan_id"), "repo_scan_id")
+		if !ok {
+			return
+		}
+
+		record, err := svc.CancelRepoScan(c.Request.Context(), repoScanID)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "repo scan not found"})
+			case errors.Is(err, ErrRepoScanCancelUnavailable):
+				c.JSON(http.StatusConflict, gin.H{"error": "repo scan cannot be canceled"})
+			default:
+				logger.Error("cancel repo scan", requestErrorLogFields(c, opts.AuditFingerprinter, "cancel_repo_scan", telemetry.ZapError(err))...)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel repo scan"})
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"repo_scan": record,
+		})
+	})
+
 	return r
 }
 

@@ -1242,6 +1242,48 @@ func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCancelRepoScanReleasesPendingTarget(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	queued, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, 50, 80, now)
+	if err != nil {
+		t.Fatalf("create queued repo scan: %v", err)
+	}
+
+	canceled, err := store.CancelRepoScan(defaultScopeContext(), queued.ID, now.Add(time.Minute), "repository scan canceled by user")
+	if err != nil {
+		t.Fatalf("cancel repo scan: %v", err)
+	}
+	if canceled.Status != "failed" || canceled.FinishedAt == nil || canceled.ErrorMessage != "repository scan canceled by user" {
+		t.Fatalf("unexpected canceled scan: %+v", canceled)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), queued.ID, "completed", now.Add(2*time.Minute), 4, 2, 1, false, RepoScanContext{}, ""); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected canceled scan completion conflict, got %v", err)
+	}
+	afterCompletion, err := store.GetRepoScan(defaultScopeContext(), queued.ID)
+	if err != nil {
+		t.Fatalf("get canceled repo scan: %v", err)
+	}
+	if afterCompletion.Status != "failed" || afterCompletion.ErrorMessage != "repository scan canceled by user" {
+		t.Fatalf("expected canceled scan to stay terminal, got %+v", afterCompletion)
+	}
+
+	pendingCount, err := store.CountPendingRepoScansByRepository(defaultScopeContext(), "owner/repo")
+	if err != nil {
+		t.Fatalf("count pending repo scans: %v", err)
+	}
+	if pendingCount != 0 {
+		t.Fatalf("expected canceled scan to release pending target, got %d", pendingCount)
+	}
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, 50, 80, now.Add(2*time.Minute), 1); err != nil {
+		t.Fatalf("create fresh queued repo scan after cancel: %v", err)
+	}
+	if _, err := store.CancelRepoScan(defaultScopeContext(), queued.ID, now.Add(3*time.Minute), "again"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected terminal cancel conflict, got %v", err)
+	}
+}
+
 func TestMemoryStoreCountQueuedRepoScansAnyScope(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 5, 0, 0, time.UTC)

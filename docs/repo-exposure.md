@@ -63,6 +63,9 @@ Read APIs:
 
 - `GET /v1/repo-scans`
 - `GET /v1/repo-scans/:repo_scan_id`
+- `POST /v1/repo-scans/:repo_scan_id/cancel` marks a queued or running scan
+  terminal with `repository scan canceled by user`, freeing the repository for
+  a fresh scan.
 - `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
 - `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
 - `GET /v1/repo-risk-graph?repo_scan_id=&repository=&default_branch=&severity=&type=`

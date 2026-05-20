@@ -4042,6 +4042,42 @@ func TestServiceEnqueueRepoScanGuards(t *testing.T) {
 	}
 }
 
+func TestServiceCancelRepoScanReleasesTarget(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.RepoQueueMaxPending = 1
+	svc.Now = func() time.Time { return time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC) }
+
+	queued, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo"})
+	if err != nil {
+		t.Fatalf("enqueue repo scan: %v", err)
+	}
+	canceled, err := svc.CancelRepoScan(defaultScopeContext(), queued.ID)
+	if err != nil {
+		t.Fatalf("cancel repo scan: %v", err)
+	}
+	if canceled.Status != "failed" || canceled.ErrorMessage != userCanceledRepoScanMessage {
+		t.Fatalf("unexpected canceled repo scan: %+v", canceled)
+	}
+	if err := svc.completeRepoScanTerminal(defaultScopeContext(), queued.ID, "completed", svc.Now().Add(time.Minute), 3, 2, 1, false, db.RepoScanContext{}, ""); err != nil {
+		t.Fatalf("stale terminal completion after cancel should be ignored: %v", err)
+	}
+	afterCompletion, err := store.GetRepoScan(defaultScopeContext(), queued.ID)
+	if err != nil {
+		t.Fatalf("get canceled repo scan: %v", err)
+	}
+	if afterCompletion.Status != "failed" || afterCompletion.ErrorMessage != userCanceledRepoScanMessage {
+		t.Fatalf("expected stale completion not to overwrite cancel, got %+v", afterCompletion)
+	}
+	if _, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo"}); err != nil {
+		t.Fatalf("enqueue repo scan after cancel: %v", err)
+	}
+	if _, err := svc.CancelRepoScan(defaultScopeContext(), queued.ID); !errors.Is(err, ErrRepoScanCancelUnavailable) {
+		t.Fatalf("expected cancel unavailable for terminal scan, got %v", err)
+	}
+}
+
 func TestServiceProcessQueuedRepoScanAcrossScopes(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

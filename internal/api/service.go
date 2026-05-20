@@ -40,6 +40,7 @@ const (
 	defaultRepoScanRunningStaleAfter = 35 * time.Minute
 	defaultRepoScanStaleFailureLimit = 100
 	staleRepoScanFailureMessage      = "repository scan exceeded worker timeout before reporting a terminal result"
+	userCanceledRepoScanMessage      = "repository scan canceled by user"
 	defaultGitHubWebhookReplayWindow = 24 * time.Hour
 	defaultGitHubWebhookBurstWindow  = 30 * time.Second
 	maxSourceErrorsInEvent           = 25
@@ -379,6 +380,9 @@ var ErrRepoScanAlreadyCurrent = errors.New("repo scan already current")
 
 // ErrRepoScanInProgress is returned when the same repository scan target is already running.
 var ErrRepoScanInProgress = errors.New("repo scan already in progress")
+
+// ErrRepoScanCancelUnavailable is returned when a repository scan is already terminal.
+var ErrRepoScanCancelUnavailable = errors.New("repo scan cancel is unavailable")
 
 // ErrInvalidFindingTriageRequest indicates invalid triage payload or state transition.
 var ErrInvalidFindingTriageRequest = errors.New("invalid finding triage request")
@@ -1155,6 +1159,27 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	}
 	queuedCount := s.countQueuedRepoScansForDepth(ctx)
 	s.recordQueueDepth("repo_scan", queuedCount)
+	return record, nil
+}
+
+// CancelRepoScan marks an active repository scan terminal so the target can be retried.
+func (s *Service) CancelRepoScan(ctx context.Context, repoScanID string) (db.RepoScanRecord, error) {
+	ctx = s.scopeContext(ctx)
+	record, err := s.Store.CancelRepoScan(ctx, repoScanID, s.Now().UTC(), userCanceledRepoScanMessage)
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			return db.RepoScanRecord{}, ErrRepoScanCancelUnavailable
+		}
+		return db.RepoScanRecord{}, err
+	}
+	s.recordAutomationRun("api_queue", "repo_scan", "canceled")
+	s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+		Kind:       "canceled",
+		RepoScanID: record.ID,
+		Repository: record.Repository,
+		Status:     "failed",
+		Reason:     "user_canceled",
+	})
 	return record, nil
 }
 
@@ -3465,10 +3490,13 @@ func (s *Service) completeRepoScanTerminal(
 		scanContext,
 		errorMessage,
 	)
+	if errors.Is(err, db.ErrConflict) {
+		return nil
+	}
 	if !shouldRetryTerminalWrite(err) {
 		return err
 	}
-	return s.Store.CompleteRepoScan(
+	err = s.Store.CompleteRepoScan(
 		s.terminalWriteContext(ctx),
 		repoScanID,
 		status,
@@ -3480,6 +3508,10 @@ func (s *Service) completeRepoScanTerminal(
 		scanContext,
 		errorMessage,
 	)
+	if errors.Is(err, db.ErrConflict) {
+		return nil
+	}
+	return err
 }
 
 func shouldRetryTerminalWrite(err error) bool {

@@ -94,6 +94,13 @@ const queuedRepoScan: RepoScanRecord = {
   truncated: false
 };
 
+const canceledRepoScan: RepoScanRecord = {
+  ...queuedRepoScan,
+  status: 'failed',
+  finished_at: '2026-05-17T11:01:00Z',
+  error_message: 'repository scan canceled by user'
+};
+
 const connectedGitHubPAT: GitHubConnectionStatus = {
   ...connectedGitHub,
   provider: 'github_pat',
@@ -164,6 +171,7 @@ async function renderProjectDetail(
   } else {
     runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
   }
+  const cancelRepoScan = vi.spyOn(api.apiClient, 'cancelRepoScan').mockResolvedValue({ repo_scan: canceledRepoScan });
 
   const { ProductProjectDetailPage } = await import('./productShell');
   function ProjectDetailHarness() {
@@ -188,7 +196,7 @@ async function renderProjectDetail(
     </MemoryRouter>
   );
 
-  return { getGitHubConnectorStatus, listRepoScans, runRepoScan };
+  return { getGitHubConnectorStatus, listRepoScans, runRepoScan, cancelRepoScan };
 }
 
 describe('ProductAppIndexRedirect', () => {
@@ -344,7 +352,13 @@ describe('ProductProjectDetailPage', () => {
   });
 
   it('queues the first repository scan from the selected GitHub repository', async () => {
-    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, { repoScans: [queuedRepoScan] });
+    let listCalls = 0;
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
+      listRepoScans: () => {
+        listCalls += 1;
+        return Promise.resolve({ items: listCalls === 1 ? [] : [queuedRepoScan] });
+      }
+    });
 
     const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
     await waitFor(() => expect(queueButton).not.toBeDisabled());
@@ -366,7 +380,13 @@ describe('ProductProjectDetailPage', () => {
   });
 
   it('preserves the generic scan payload for GitHub PAT connections', async () => {
-    const { runRepoScan } = await renderProjectDetail(true, connectedGitHubPAT, { repoScans: [queuedRepoScan] });
+    let listCalls = 0;
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHubPAT, {
+      listRepoScans: () => {
+        listCalls += 1;
+        return Promise.resolve({ items: listCalls === 1 ? [] : [queuedRepoScan] });
+      }
+    });
 
     const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
     await waitFor(() => expect(queueButton).not.toBeDisabled());
@@ -379,6 +399,29 @@ describe('ProductProjectDetailPage', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+  });
+
+  it('cancels an active repository scan before retrying', async () => {
+    let listCalls = 0;
+    const { cancelRepoScan } = await renderProjectDetail(true, connectedGitHub, {
+      listRepoScans: () => {
+        listCalls += 1;
+        return Promise.resolve({ items: listCalls === 1 ? [queuedRepoScan] : [canceledRepoScan] });
+      }
+    });
+
+    expect(await screen.findByRole('button', { name: /Scan already active/i })).toBeDisabled();
+    const cancelButton = screen.getByRole('button', { name: /Cancel scan/i });
+    fireEvent.click(cancelButton);
+
+    await waitFor(() =>
+      expect(cancelRepoScan).toHaveBeenCalledWith(
+        queuedRepoScan.id,
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText(/Repository scan canceled for identrail\/identrail/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('repository scan canceled by user');
   });
 
   it('keeps stale repo scan refresh responses from overwriting refreshed activity', async () => {

@@ -162,6 +162,36 @@ describe('apiClient', () => {
     expect(headers.get('X-Identrail-Workspace-ID')).toBe('workspace-a');
   });
 
+  it('cancels repository scans with the scoped auth headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        repo_scan: {
+          id: 'repo-scan-1',
+          repository: 'identrail/identrail',
+          status: 'failed',
+          started_at: '2026-05-17T10:00:00Z',
+          finished_at: '2026-05-17T10:01:00Z',
+          commits_scanned: 0,
+          files_scanned: 0,
+          finding_count: 0,
+          truncated: false,
+          error_message: 'repository scan canceled by user'
+        }
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.cancelRepoScan('repo/scan with space', { tenantID: 'tenant-a', workspaceID: 'workspace-a' });
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/repo-scans/repo%2Fscan%20with%20space/cancel');
+    expect(options.method).toBe('POST');
+    const headers = options.headers as Headers;
+    expect(headers.get('X-Identrail-Tenant-ID')).toBe('tenant-a');
+    expect(headers.get('X-Identrail-Workspace-ID')).toBe('workspace-a');
+  });
+
   it('encodes scan id for diff URL', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
