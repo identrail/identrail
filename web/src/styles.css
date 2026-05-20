@@ -20430,8 +20430,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
 }
 
 /* Header auth shortcut polish. */
-.idt-header-utility.idt-header-auth-chip,
-html[data-theme='light'] .idt-header-utility.idt-header-auth-chip {
+.idt-header-utility.idt-header-auth-chip {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -20445,22 +20444,18 @@ html[data-theme='light'] .idt-header-utility.idt-header-auth-chip {
   line-height: 1;
 }
 
-.idt-header-utility.idt-header-auth-chip.is-primary,
-html[data-theme='light'] .idt-header-utility.idt-header-auth-chip.is-primary {
+.idt-header-utility.idt-header-auth-chip.is-primary {
   border-color: #050505;
   background: #050505;
   color: #ffffff;
 }
 
-.idt-header-utility.idt-header-auth-chip::after,
-html[data-theme='light'] .idt-header-utility.idt-header-auth-chip::after {
+.idt-header-utility.idt-header-auth-chip::after {
   display: none;
 }
 
 .idt-header-utility.idt-header-auth-chip:hover,
-.idt-header-utility.idt-header-auth-chip:focus-visible,
-html[data-theme='light'] .idt-header-utility.idt-header-auth-chip:hover,
-html[data-theme='light'] .idt-header-utility.idt-header-auth-chip:focus-visible {
+.idt-header-utility.idt-header-auth-chip:focus-visible {
   border-color: #050505;
   background: #f7f7f7;
   color: #050505;
@@ -20469,16 +20464,13 @@ html[data-theme='light'] .idt-header-utility.idt-header-auth-chip:focus-visible 
 }
 
 .idt-header-utility.idt-header-auth-chip.is-primary:hover,
-.idt-header-utility.idt-header-auth-chip.is-primary:focus-visible,
-html[data-theme='light'] .idt-header-utility.idt-header-auth-chip.is-primary:hover,
-html[data-theme='light'] .idt-header-utility.idt-header-auth-chip.is-primary:focus-visible {
+.idt-header-utility.idt-header-auth-chip.is-primary:focus-visible {
   border-color: #050505;
   background: #171717;
   color: #ffffff;
 }
 
-.idt-header-keycap,
-html[data-theme='light'] .idt-header-keycap {
+.idt-header-keycap {
   display: inline-grid;
   place-items: center;
   width: 1.7rem;
@@ -20496,16 +20488,14 @@ html[data-theme='light'] .idt-header-keycap {
     0 1px 2px rgba(15, 23, 42, 0.16);
 }
 
-.idt-header-auth-chip.is-primary .idt-header-keycap,
-html[data-theme='light'] .idt-header-auth-chip.is-primary .idt-header-keycap {
+.idt-header-auth-chip.is-primary .idt-header-keycap {
   border-color: rgba(255, 255, 255, 0.28);
   background: #f6f6f6;
   color: #050505;
 }
 
 @media (max-width: 880px) {
-  .idt-header-utility.idt-header-auth-chip,
-  html[data-theme='light'] .idt-header-utility.idt-header-auth-chip {
+  .idt-header-utility.idt-header-auth-chip {
     width: 100%;
     justify-content: center;
     padding-left: 1rem;
