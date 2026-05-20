@@ -384,6 +384,8 @@ var ErrRepoScanInProgress = errors.New("repo scan already in progress")
 // ErrRepoScanCancelUnavailable is returned when a repository scan is already terminal.
 var ErrRepoScanCancelUnavailable = errors.New("repo scan cancel is unavailable")
 
+var errRepoScanTerminalStateChanged = errors.New("repo scan terminal state changed")
+
 // ErrInvalidFindingTriageRequest indicates invalid triage payload or state transition.
 var ErrInvalidFindingTriageRequest = errors.New("invalid finding triage request")
 
@@ -1267,6 +1269,9 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	})
 	_, runErr := s.runRepoScanWithRecord(recordScopeCtx, record, record.HistoryLimit, record.MaxFindings)
 	if runErr != nil {
+		if errors.Is(runErr, errRepoScanTerminalStateChanged) {
+			return true, nil
+		}
 		s.recordAutomationRun("api_queue", "repo_scan", "failed")
 		s.recordWorkerJob("repo_scan", "failure")
 		s.recordWorkerDeadLetter("repo_scan")
@@ -1561,6 +1566,9 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		completionContext,
 		"",
 	); err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			return RunRepoScanResult{}, fmt.Errorf("%w: %w", errRepoScanTerminalStateChanged, err)
+		}
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
 		return RunRepoScanResult{}, fmt.Errorf("complete repo scan: %w", err)
@@ -3491,7 +3499,7 @@ func (s *Service) completeRepoScanTerminal(
 		errorMessage,
 	)
 	if errors.Is(err, db.ErrConflict) {
-		return nil
+		return err
 	}
 	if !shouldRetryTerminalWrite(err) {
 		return err
@@ -3509,7 +3517,7 @@ func (s *Service) completeRepoScanTerminal(
 		errorMessage,
 	)
 	if errors.Is(err, db.ErrConflict) {
-		return nil
+		return err
 	}
 	return err
 }
