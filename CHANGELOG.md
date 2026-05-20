@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Fixed repository scan cursor safety so quick-scan cursors no longer suppress
+  later delta scans for the same head revision, and truncated scans no longer
+  advance `cursor_after` or the per-repository cursor before all findings have
+  been evaluated.
 - Added incremental repository scan execution. Repo scans now track scan mode,
   base/head revisions, cursor before/after values, and changed paths; GitHub
   push and pull-request webhooks enqueue delta scans when revision metadata is

@@ -1134,7 +1134,7 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	if hasCursor && scanContext.CursorBefore == "" {
 		scanContext.CursorBefore = cursor.LastScannedRevision
 	}
-	if scanContext.ScanMode == db.RepoScanModeDelta && scanContext.HeadRevision != "" && hasCursor && strings.EqualFold(cursor.LastScannedRevision, scanContext.HeadRevision) {
+	if repoScanCursorAlreadyCoversRequest(scanContext, cursor, hasCursor) {
 		s.recordRepoScanSkipped(scanContext.ScanMode, "cursor_current")
 		return db.RepoScanRecord{}, ErrRepoScanAlreadyCurrent
 	}
@@ -1284,7 +1284,7 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 	if hasCursor && scanContext.CursorBefore == "" {
 		scanContext.CursorBefore = cursor.LastScannedRevision
 	}
-	if scanContext.ScanMode == db.RepoScanModeDelta && scanContext.HeadRevision != "" && hasCursor && strings.EqualFold(cursor.LastScannedRevision, scanContext.HeadRevision) {
+	if repoScanCursorAlreadyCoversRequest(scanContext, cursor, hasCursor) {
 		s.recordRepoScanSkipped(scanContext.ScanMode, "cursor_current")
 		return RunRepoScanResult{}, ErrRepoScanAlreadyCurrent
 	}
@@ -1515,6 +1515,15 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		return RunRepoScanResult{}, fmt.Errorf("persist repo findings: %w", err)
 	}
 	cursorAfter := firstNonEmptyString(result.HeadRevision, record.HeadRevision)
+	completionContext := db.RepoScanContext{
+		ScanMode:     result.ScanMode,
+		BaseRevision: result.BaseRevision,
+		HeadRevision: result.HeadRevision,
+		ChangedPaths: append([]string(nil), result.ChangedPaths...),
+	}
+	if !result.Truncated {
+		completionContext.CursorAfter = cursorAfter
+	}
 	if err := s.completeRepoScanTerminal(
 		ctx,
 		record.ID,
@@ -1524,20 +1533,14 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		result.FilesScanned,
 		len(result.Findings),
 		result.Truncated,
-		db.RepoScanContext{
-			ScanMode:     result.ScanMode,
-			BaseRevision: result.BaseRevision,
-			HeadRevision: result.HeadRevision,
-			CursorAfter:  cursorAfter,
-			ChangedPaths: append([]string(nil), result.ChangedPaths...),
-		},
+		completionContext,
 		"",
 	); err != nil {
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
 		return RunRepoScanResult{}, fmt.Errorf("complete repo scan: %w", err)
 	}
-	if cursorAfter != "" {
+	if cursorAfter != "" && !result.Truncated {
 		completedAt := s.Now().UTC()
 		record.CursorAfter = cursorAfter
 		record.HeadRevision = firstNonEmptyString(record.HeadRevision, result.HeadRevision)
@@ -1575,6 +1578,23 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		}
 	}
 	return RunRepoScanResult{RepoScan: record, Result: result}, nil
+}
+
+func repoScanCursorAlreadyCoversRequest(scanContext db.RepoScanContext, cursor db.RepoScanCursor, hasCursor bool) bool {
+	return scanContext.ScanMode == db.RepoScanModeDelta &&
+		scanContext.HeadRevision != "" &&
+		hasCursor &&
+		strings.EqualFold(cursor.LastScannedRevision, scanContext.HeadRevision) &&
+		repoScanCursorCoversDeltaHistory(cursor)
+}
+
+func repoScanCursorCoversDeltaHistory(cursor db.RepoScanCursor) bool {
+	switch strings.ToLower(strings.TrimSpace(cursor.LastScanMode)) {
+	case "", db.RepoScanModeDeep, db.RepoScanModeDelta:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) repoScanExecutorForRecord(ctx context.Context, record db.RepoScanRecord, historyLimit int, maxFindings int) (RepoScanExecutor, []string, error) {

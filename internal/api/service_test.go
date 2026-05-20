@@ -2316,6 +2316,160 @@ func TestServiceRunRepoScanPersistedUpdatesCursorAndSkipsCurrentDelta(t *testing
 	}
 }
 
+func TestServiceEnqueueRepoScanDoesNotSkipDeltaAfterQuickCursor(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	now := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	head := "2222222222222222222222222222222222222222"
+	if err := store.UpsertRepoScanCursor(defaultScopeContext(), db.RepoScanCursor{
+		Repository:          "owner/repo",
+		LastScannedRevision: head,
+		LastScanMode:        db.RepoScanModeQuick,
+		LastScanCompletedAt: now.Add(-time.Minute),
+		UpdatedAt:           now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("seed quick cursor: %v", err)
+	}
+
+	record, err := svc.EnqueueRepoScan(defaultScopeContext(), RepoScanRequest{
+		Repository:   "owner/repo",
+		ScanMode:     db.RepoScanModeDelta,
+		BaseRevision: "1111111111111111111111111111111111111111",
+		HeadRevision: head,
+		ChangedPaths: []string{"app.env"},
+	})
+	if err != nil {
+		t.Fatalf("expected delta enqueue after quick cursor, got %v", err)
+	}
+	if record.ScanMode != db.RepoScanModeDelta || record.HeadRevision != head || record.CursorBefore != head {
+		t.Fatalf("expected queued delta to keep quick cursor as cursor_before without skipping, got %+v", record)
+	}
+}
+
+func TestServiceRunRepoScanPersistedDoesNotSkipDeltaAfterQuickCursor(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	now := time.Date(2026, 5, 20, 10, 30, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	head := "2222222222222222222222222222222222222222"
+	if err := store.UpsertRepoScanCursor(defaultScopeContext(), db.RepoScanCursor{
+		Repository:          "owner/repo",
+		LastScannedRevision: head,
+		LastScanMode:        db.RepoScanModeQuick,
+		LastScanCompletedAt: now.Add(-time.Minute),
+		UpdatedAt:           now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("seed quick cursor: %v", err)
+	}
+	executor := &fakeRepoExecutor{
+		result: repoexposure.ScanResult{
+			Repository:     "owner/repo",
+			CommitsScanned: 2,
+			FilesScanned:   1,
+			ScanMode:       db.RepoScanModeDelta,
+			HeadRevision:   head,
+		},
+	}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return executor
+	}
+
+	run, err := svc.RunRepoScanPersisted(defaultScopeContext(), RepoScanRequest{
+		Repository:   "owner/repo",
+		ScanMode:     db.RepoScanModeDelta,
+		BaseRevision: "1111111111111111111111111111111111111111",
+		HeadRevision: head,
+		ChangedPaths: []string{"app.env"},
+	})
+	if err != nil {
+		t.Fatalf("expected delta run after quick cursor, got %v", err)
+	}
+	if executor.calls != 1 {
+		t.Fatalf("expected delta executor to run after quick cursor, got %d calls", executor.calls)
+	}
+	if run.RepoScan.CursorBefore != head || run.RepoScan.CursorAfter != head {
+		t.Fatalf("expected run to carry quick cursor before and completed delta cursor after, got %+v", run.RepoScan)
+	}
+	cursor, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/repo", db.RepoScanSource{})
+	if err != nil {
+		t.Fatalf("get repo scan cursor: %v", err)
+	}
+	if cursor.LastScannedRevision != head || cursor.LastScanMode != db.RepoScanModeDelta || cursor.LastScanID != run.RepoScan.ID {
+		t.Fatalf("expected delta run to replace quick cursor, got %+v", cursor)
+	}
+}
+
+func TestServiceRunRepoScanPersistedDoesNotAdvanceCursorAfterTruncatedScan(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	now := time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	oldHead := "1111111111111111111111111111111111111111"
+	newHead := "2222222222222222222222222222222222222222"
+	if err := store.UpsertRepoScanCursor(defaultScopeContext(), db.RepoScanCursor{
+		Repository:          "owner/repo",
+		LastScannedRevision: oldHead,
+		LastScanID:          "old-scan-id",
+		LastScanMode:        db.RepoScanModeDelta,
+		LastScanCompletedAt: now.Add(-time.Hour),
+		UpdatedAt:           now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed existing cursor: %v", err)
+	}
+	executor := &fakeRepoExecutor{
+		result: repoexposure.ScanResult{
+			Repository:     "owner/repo",
+			CommitsScanned: 5,
+			FilesScanned:   3,
+			ScanMode:       db.RepoScanModeDelta,
+			BaseRevision:   oldHead,
+			HeadRevision:   newHead,
+			Truncated:      true,
+		},
+	}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return executor
+	}
+
+	run, err := svc.RunRepoScanPersisted(defaultScopeContext(), RepoScanRequest{
+		Repository:   "owner/repo",
+		ScanMode:     db.RepoScanModeDelta,
+		BaseRevision: oldHead,
+		HeadRevision: newHead,
+		ChangedPaths: []string{"app.env"},
+	})
+	if err != nil {
+		t.Fatalf("run truncated delta repo scan: %v", err)
+	}
+	if !run.RepoScan.Truncated || run.RepoScan.HeadRevision != newHead {
+		t.Fatalf("expected truncated run to persist head metadata, got %+v", run.RepoScan)
+	}
+	if run.RepoScan.CursorAfter != "" {
+		t.Fatalf("truncated run must not advance cursor_after, got %+v", run.RepoScan)
+	}
+	stored, err := svc.GetRepoScan(defaultScopeContext(), run.RepoScan.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if stored.CursorAfter != "" || !stored.Truncated || stored.HeadRevision != newHead {
+		t.Fatalf("stored truncated scan should retain audit metadata without cursor_after, got %+v", stored)
+	}
+	cursor, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/repo", db.RepoScanSource{})
+	if err != nil {
+		t.Fatalf("get repo scan cursor: %v", err)
+	}
+	if cursor.LastScannedRevision != oldHead || cursor.LastScanID != "old-scan-id" || cursor.LastScanMode != db.RepoScanModeDelta {
+		t.Fatalf("truncated scan must not overwrite existing cursor, got %+v", cursor)
+	}
+}
+
 func TestServiceRunRepoScanPersistedDoesNotFailAfterSuccessfulCursorUpdateMiss(t *testing.T) {
 	store := &failingRepoScanCursorStore{MemoryStore: db.NewMemoryStore()}
 	svc := NewService(store, fakeScanner{}, "aws")
