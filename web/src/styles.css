@@ -16001,8 +16001,9 @@ html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active {
 
 .idt-home-after-stack .idt-tour-step.is-active,
 html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active {
-  background: #ffffff;
-  color: #000000;
+  background: #090909;
+  color: #ffffff;
+  box-shadow: inset 4px 0 0 #ffffff;
 }
 
 .idt-home-after-stack .idt-tour-step-index,
@@ -16015,8 +16016,8 @@ html[data-theme='light'] .idt-home-after-stack .idt-tour-step > span {
 
 .idt-home-after-stack .idt-tour-step.is-active .idt-tour-step-index,
 html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active .idt-tour-step-index {
-  background: #000000;
-  color: #ffffff;
+  background: #ffffff;
+  color: #000000;
 }
 
 .idt-home-after-stack .idt-tour-step h3,
@@ -16026,7 +16027,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-tour-step h3 {
 
 .idt-home-after-stack .idt-tour-step.is-active h3,
 html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active h3 {
-  color: #000000;
+  color: #ffffff;
 }
 
 .idt-home-after-stack .idt-tour-step small,
@@ -16038,7 +16039,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-tour-step p {
 .idt-home-after-stack .idt-tour-step.is-active small,
 .idt-home-after-stack .idt-tour-step.is-active p,
 html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active p {
-  color: #52525b;
+  color: #a1a1aa;
 }
 
 .idt-home-after-stack .idt-tour-screen,
@@ -20580,27 +20581,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
   text-transform: uppercase;
 }
 
-.idt-brand span::before,
-.idt-brand span::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
-  pointer-events: none;
-}
-
-.idt-brand span::before {
-  top: -0.2rem;
-  width: 68%;
-}
-
-.idt-brand span::after {
-  right: 18%;
-  bottom: -0.18rem;
-}
-
 .idt-header-actions {
   flex-wrap: nowrap;
 }
@@ -20625,6 +20605,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
 
 .idt-header-keycap {
   flex: 0 0 auto;
+  pointer-events: none;
 }
 
 @media (max-width: 880px) {
@@ -20905,8 +20886,8 @@ html[data-theme='light'] .idt-demo-choice-band {
 
 .idt-modal.idt-book-demo-modal,
 html[data-theme='light'] .idt-modal.idt-book-demo-modal {
-  width: min(96vw, 1120px);
-  max-height: min(90vh, 860px);
+  width: min(96vw, 1340px);
+  max-height: min(92vh, 900px);
   overflow: hidden;
   border-color: #2d2d30;
   border-radius: 8px;
@@ -20918,26 +20899,33 @@ html[data-theme='light'] .idt-modal.idt-book-demo-modal {
 
 .idt-book-demo-modal-shell {
   display: grid;
-  grid-template-columns: minmax(280px, 0.86fr) minmax(360px, 1fr);
-  max-height: min(90vh, 860px);
+  grid-template-columns: minmax(420px, 0.95fr) minmax(500px, 1.05fr);
+  height: min(82vh, 760px);
+  min-height: 0;
+  max-height: min(92vh, 900px);
 }
 
 .idt-book-demo-modal-visual,
 html[data-theme='light'] .idt-book-demo-modal-visual {
   min-width: 0;
-  overflow: auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  align-content: start;
+  gap: clamp(1.1rem, 2.2vw, 1.8rem);
+  overflow: hidden;
   border-right: 1px solid #242427;
   background: #070707;
-  padding: clamp(1.1rem, 2.2vw, 1.5rem);
+  padding: clamp(1.5rem, 3vw, 2.5rem);
 }
 
 .idt-book-demo-modal-visual h2,
 html[data-theme='light'] .idt-book-demo-modal-visual h2 {
-  max-width: 11ch;
+  max-width: 13ch;
   margin: 0;
   color: #ffffff;
   font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
-  font-size: clamp(2.4rem, 5.2vw, 4.8rem);
+  font-size: clamp(2.7rem, 4.5vw, 4.9rem);
   line-height: 0.92;
   text-transform: uppercase;
 }
@@ -20951,37 +20939,139 @@ html[data-theme='light'] .idt-book-demo-modal-visual > p:not(.idt-eyebrow) {
   line-height: 1.55;
 }
 
-.idt-book-demo-modal .idt-demo-booking-visual {
-  min-height: 360px;
-  margin-top: 1rem;
-  box-shadow: none;
+.idt-book-demo-modal-preview,
+html[data-theme='light'] .idt-book-demo-modal-preview {
+  display: grid;
+  align-self: end;
+  gap: 1rem;
+  min-height: 330px;
+  border: 1px solid #262626;
+  border-radius: 8px;
+  background:
+    linear-gradient(#151515 1px, transparent 1px),
+    linear-gradient(90deg, #151515 1px, transparent 1px),
+    radial-gradient(circle at 62% 42%, rgba(255, 255, 255, 0.1), transparent 34%),
+    #070707;
+  background-size:
+    64px 64px,
+    64px 64px,
+    auto,
+    auto;
+  padding: clamp(1rem, 2vw, 1.35rem);
 }
 
-.idt-book-demo-modal .idt-demo-booking-orbit {
-  inset: 1.1rem;
+.idt-book-demo-preview-head,
+html[data-theme='light'] .idt-book-demo-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #ffffff;
 }
 
-.idt-book-demo-modal .idt-demo-booking-card {
-  width: min(300px, calc(100% - 2rem));
+.idt-book-demo-preview-head span,
+html[data-theme='light'] .idt-book-demo-preview-head span {
+  color: #a1a1aa;
+  font-size: 0.76rem;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 }
 
-.idt-book-demo-modal .idt-demo-booking-card strong {
-  font-size: clamp(1.8rem, 3vw, 2.8rem);
+.idt-book-demo-preview-head strong,
+html[data-theme='light'] .idt-book-demo-preview-head strong {
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: clamp(1.9rem, 4vw, 3rem);
+  line-height: 0.95;
+  text-transform: uppercase;
 }
 
-.idt-book-demo-modal .idt-demo-booking-agenda {
-  width: min(250px, calc(100% - 2rem));
+.idt-book-demo-preview-list,
+html[data-theme='light'] .idt-book-demo-preview-list {
+  display: grid;
+  gap: 0.72rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.idt-book-demo-preview-list li,
+html[data-theme='light'] .idt-book-demo-preview-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.82rem;
+  align-items: start;
+  border: 1px solid #242424;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.88rem;
+}
+
+.idt-book-demo-preview-list li > span,
+html[data-theme='light'] .idt-book-demo-preview-list li > span {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.idt-book-demo-preview-list strong,
+html[data-theme='light'] .idt-book-demo-preview-list strong {
+  display: block;
+  color: #ffffff;
+  font-weight: 850;
+}
+
+.idt-book-demo-preview-list small,
+html[data-theme='light'] .idt-book-demo-preview-list small {
+  display: block;
+  margin-top: 0.18rem;
+  color: #a1a1aa;
+  line-height: 1.45;
+}
+
+.idt-book-demo-preview-path,
+html[data-theme='light'] .idt-book-demo-preview-path {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.idt-book-demo-preview-path span,
+html[data-theme='light'] .idt-book-demo-preview-path span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 3.4rem;
+  min-height: 3.4rem;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.idt-book-demo-preview-path i,
+html[data-theme='light'] .idt-book-demo-preview-path i {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), #ffffff);
 }
 
 .idt-book-demo-modal-body,
 html[data-theme='light'] .idt-book-demo-modal-body {
   min-width: 0;
+  min-height: 0;
   display: grid;
-  align-content: start;
-  gap: 1rem;
+  align-content: center;
+  gap: 1.1rem;
   overflow: auto;
   background: #050505;
-  padding: clamp(1.1rem, 2.2vw, 1.5rem);
+  padding: clamp(1.5rem, 3vw, 2.5rem);
 }
 
 .idt-book-demo-modal-body .idt-lead-form,
@@ -21022,6 +21112,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
   .idt-book-demo-modal-shell {
     grid-template-columns: 1fr;
+    min-height: 0;
     max-height: none;
   }
 
@@ -21055,7 +21146,14 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
     grid-template-columns: 1fr;
   }
 
-  .idt-book-demo-modal .idt-demo-booking-visual {
+  .idt-book-demo-preview-path,
+  html[data-theme='light'] .idt-book-demo-preview-path {
+    grid-template-columns: repeat(3, auto);
+    justify-content: start;
+  }
+
+  .idt-book-demo-preview-path i,
+  html[data-theme='light'] .idt-book-demo-preview-path i {
     display: none;
   }
 }

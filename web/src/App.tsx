@@ -1441,7 +1441,42 @@ function BookDemoModal({ onClose }: { onClose: () => void }) {
           <p className="idt-eyebrow">Book Demo</p>
           <h2 id="book-demo-modal-title">Walk through a live trust path</h2>
           <p>Choose a guided walkthrough or send enough context for a prepared review.</p>
-          <DemoBookingVisual />
+          <div className="idt-book-demo-modal-preview" aria-label="Demo walkthrough preview">
+            <div className="idt-book-demo-preview-head">
+              <span>Live agenda</span>
+              <strong>15 minutes</strong>
+            </div>
+            <ol className="idt-book-demo-preview-list">
+              <li>
+                <span>01</span>
+                <div>
+                  <strong>Scope the environment</strong>
+                  <small>AWS account, cluster, or repository</small>
+                </div>
+              </li>
+              <li>
+                <span>02</span>
+                <div>
+                  <strong>Map one reachable path</strong>
+                  <small>Source identity to sensitive target</small>
+                </div>
+              </li>
+              <li>
+                <span>03</span>
+                <div>
+                  <strong>Package the first fix</strong>
+                  <small>Evidence, blast radius, owner handoff</small>
+                </div>
+              </li>
+            </ol>
+            <div className="idt-book-demo-preview-path" aria-hidden="true">
+              <span>OIDC</span>
+              <i />
+              <span>AWS</span>
+              <i />
+              <span>RDS</span>
+            </div>
+          </div>
         </aside>
         <div className="idt-book-demo-modal-body">
           <LeadCaptureForm
@@ -2176,7 +2211,7 @@ function FaqPage() {
   );
 }
 
-function HomePage() {
+function HomePage({ onRequestDemo }: { onRequestDemo?: () => void }) {
   const seo: SeoConfig = {
     title: 'Machine Identity Trust Graph | AWS IAM, Kubernetes, OIDC | Identrail',
     description:
@@ -2278,9 +2313,15 @@ function HomePage() {
             body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
           />
           <div className="idt-inline-actions">
-            <Link to="/enterprise" className="idt-btn idt-btn-primary">
-              Need enterprise procurement? Contact Sales
-            </Link>
+            {onRequestDemo ? (
+              <button type="button" className="idt-btn idt-btn-primary idt-home-demo-cta" onClick={onRequestDemo}>
+                Book Demo
+              </button>
+            ) : (
+              <Link to="/demo" className="idt-btn idt-btn-primary idt-home-demo-cta">
+                Book Demo
+              </Link>
+            )}
           </div>
         </section>
       </div>
@@ -4618,11 +4659,7 @@ export function RoutedSite() {
       </a>
 
       {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? (
-        <Header
-          navLinks={NAV_LINKS}
-          githubRepo={GITHUB_REPO}
-          onRequestDemo={openBookDemoModal}
-        />
+        <Header navLinks={NAV_LINKS} githubRepo={GITHUB_REPO} />
       ) : null}
 
       <main id="main-content">
@@ -4732,7 +4769,7 @@ export function RoutedSite() {
             <Route path="findings" element={<ProductFindingsPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
           </Route>
-          <Route path="/" element={<HomePage />} />
+          <Route path="/" element={<HomePage onRequestDemo={openBookDemoModal} />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
           <Route path="/integrations" element={<IntegrationsPage />} />

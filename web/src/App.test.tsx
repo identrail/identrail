@@ -110,19 +110,19 @@ describe('App', () => {
     expect(scanButtons.length).toBeGreaterThan(0);
     fireEvent.click(scanButtons[0]);
     expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Book Demo/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Need enterprise procurement/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
     expect(
       screen.getByRole('heading', { level: 2, name: /From connector setup to evidence-ready remediation/i })
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Need enterprise procurement/i })).toHaveAttribute('href', '/enterprise');
+    expect(screen.getByRole('button', { name: /Book Demo/i })).toBeInTheDocument();
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
     expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();
   });
 
-  it('opens book demo in a dimmed modal from the header', () => {
+  it('opens book demo in a dimmed modal from the homepage CTA', () => {
     setCurrentPath('/');
     render(<App />);
 
