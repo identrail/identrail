@@ -711,14 +711,17 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		     finding_count = $6,
 		     truncated = $7,
 		     cursor_after = NULLIF($8, ''),
-		     error_message = $9
+		     base_revision = COALESCE(NULLIF($9, ''), base_revision),
+		     head_revision = COALESCE(NULLIF($10, ''), head_revision),
+		     changed_paths = CASE WHEN $11::jsonb <> '[]'::jsonb THEN $11::jsonb ELSE changed_paths END,
+		     error_message = $12
 		 WHERE id = $1
-		   AND tenant_id = $10
-		   AND workspace_id = $11`)).
-		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", nil, "default", "default").
+		   AND tenant_id = $13
+		   AND workspace_id = $14`)).
+		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", "", "", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	if err := store.CompleteRepoScan(defaultScopeContext(), record.ID, "completed", now, 12, 8, 1, false, "", ""); err != nil {
+	if err := store.CompleteRepoScan(defaultScopeContext(), record.ID, "completed", now, 12, 8, 1, false, RepoScanContext{}, ""); err != nil {
 		t.Fatalf("complete repo scan failed: %v", err)
 	}
 

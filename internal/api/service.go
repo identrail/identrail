@@ -1460,21 +1460,21 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	if err != nil {
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
-		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, "", ErrInvalidRepoScanRequest.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, db.RepoScanContext{}, ErrInvalidRepoScanRequest.Error())
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
 	normalizedMaxFindings, err := sanitizeRepoScanLimit(maxFindings, s.RepoScanDefaultMaxFindings, s.RepoScanMaxFindingsLimit)
 	if err != nil {
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
-		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, "", ErrInvalidRepoScanRequest.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, db.RepoScanContext{}, ErrInvalidRepoScanRequest.Error())
 		return RunRepoScanResult{}, ErrInvalidRepoScanRequest
 	}
 	executor, scanSecrets, err := s.repoScanExecutorForRecord(ctx, record, normalizedHistory, normalizedMaxFindings)
 	if err != nil {
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
-		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, "", err.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, db.RepoScanContext{}, err.Error())
 		return RunRepoScanResult{}, err
 	}
 	scanContext := db.NormalizeRepoScanContext(db.RepoScanContext{
@@ -1488,7 +1488,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		safeErr := sanitizeRepoScanError(err, scanSecrets...)
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
-		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, "", safeErr.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, db.RepoScanContext{}, safeErr.Error())
 		return RunRepoScanResult{}, safeErr
 	}
 	result = applyRepoScanContextToResult(result, target, scanContext)
@@ -1498,7 +1498,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 			if errors.Is(externalErr, context.Canceled) || errors.Is(externalErr, context.DeadlineExceeded) {
 				s.recordRepoScanExecutionFailure()
 				s.recordRepoScanModeRun(record.ScanMode, "failure")
-				_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, len(result.Findings), result.Truncated, "", externalErr.Error())
+				_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, len(result.Findings), result.Truncated, db.RepoScanContext{}, externalErr.Error())
 				return RunRepoScanResult{}, externalErr
 			}
 		} else if len(externalFindings) > 0 {
@@ -1511,7 +1511,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
-		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, "", err.Error())
+		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, db.RepoScanContext{}, err.Error())
 		return RunRepoScanResult{}, fmt.Errorf("persist repo findings: %w", err)
 	}
 	cursorAfter := firstNonEmptyString(result.HeadRevision, record.HeadRevision)
@@ -1524,7 +1524,13 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		result.FilesScanned,
 		len(result.Findings),
 		result.Truncated,
-		cursorAfter,
+		db.RepoScanContext{
+			ScanMode:     result.ScanMode,
+			BaseRevision: result.BaseRevision,
+			HeadRevision: result.HeadRevision,
+			CursorAfter:  cursorAfter,
+			ChangedPaths: append([]string(nil), result.ChangedPaths...),
+		},
 		"",
 	); err != nil {
 		s.recordRepoScanExecutionFailure()
@@ -1535,7 +1541,8 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		completedAt := s.Now().UTC()
 		record.CursorAfter = cursorAfter
 		record.HeadRevision = firstNonEmptyString(record.HeadRevision, result.HeadRevision)
-		if err := s.Store.UpsertRepoScanCursor(ctx, db.RepoScanCursor{
+		// The scan row is already terminal-success; cursor persistence must not turn it into a failed worker run.
+		_ = s.Store.UpsertRepoScanCursor(ctx, db.RepoScanCursor{
 			Repository:          record.Repository,
 			Source:              record.Source,
 			LastScannedRevision: cursorAfter,
@@ -1544,11 +1551,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 			LastScanMode:        record.ScanMode,
 			LastScanCompletedAt: completedAt,
 			UpdatedAt:           completedAt,
-		}); err != nil {
-			s.recordRepoScanExecutionFailure()
-			s.recordRepoScanModeRun(record.ScanMode, "failure")
-			return RunRepoScanResult{}, fmt.Errorf("update repo scan cursor: %w", err)
-		}
+		})
 	}
 	s.recordRepoScanModeRun(record.ScanMode, "succeeded")
 	record.Status = "succeeded"
@@ -3423,7 +3426,7 @@ func (s *Service) completeRepoScanTerminal(
 	filesScanned int,
 	findingCount int,
 	truncated bool,
-	cursorAfter string,
+	scanContext db.RepoScanContext,
 	errorMessage string,
 ) error {
 	writeCtx := ctx
@@ -3439,7 +3442,7 @@ func (s *Service) completeRepoScanTerminal(
 		filesScanned,
 		findingCount,
 		truncated,
-		cursorAfter,
+		scanContext,
 		errorMessage,
 	)
 	if !shouldRetryTerminalWrite(err) {
@@ -3454,7 +3457,7 @@ func (s *Service) completeRepoScanTerminal(
 		filesScanned,
 		findingCount,
 		truncated,
-		cursorAfter,
+		scanContext,
 		errorMessage,
 	)
 }

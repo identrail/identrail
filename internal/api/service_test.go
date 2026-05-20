@@ -137,6 +137,14 @@ func (s *failingCompleteScanStore) CompleteScan(
 	return errors.New("finalize failed")
 }
 
+type failingRepoScanCursorStore struct {
+	*db.MemoryStore
+}
+
+func (s *failingRepoScanCursorStore) UpsertRepoScanCursor(context.Context, db.RepoScanCursor) error {
+	return errors.New("cursor update failed")
+}
+
 type failingAnyScopeDepthStore struct {
 	*db.MemoryStore
 }
@@ -181,7 +189,7 @@ func (s *completionContextStore) CompleteRepoScan(
 	filesScanned int,
 	findingCount int,
 	truncated bool,
-	cursorAfter string,
+	scanContext db.RepoScanContext,
 	errorMessage string,
 ) error {
 	s.lastRepoScanCompletionCtxErr = ctx.Err()
@@ -194,7 +202,7 @@ func (s *completionContextStore) CompleteRepoScan(
 		filesScanned,
 		findingCount,
 		truncated,
-		cursorAfter,
+		scanContext,
 		errorMessage,
 	)
 }
@@ -2154,6 +2162,7 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 				Repository:     "owner/repo",
 				CommitsScanned: historyLimit,
 				FilesScanned:   5,
+				HeadRevision:   "3333333333333333333333333333333333333333",
 				Findings: []domain.Finding{
 					{
 						ID:                  "rf-1",
@@ -2191,6 +2200,9 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	if stored.ID != run.RepoScan.ID || stored.CommitsScanned != 10 {
 		t.Fatalf("unexpected persisted repo scan: %+v", stored)
 	}
+	if stored.HeadRevision != "3333333333333333333333333333333333333333" {
+		t.Fatalf("expected completed scan head revision to be persisted, got %+v", stored)
+	}
 
 	findings, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{RepoScanID: run.RepoScan.ID})
 	if err != nil {
@@ -2210,6 +2222,43 @@ func TestServiceRunRepoScanPersistedStoresRecords(t *testing.T) {
 	}
 	if findings[0].SourceURL != "https://github.com/owner/repo/blob/abc123/config/app.env#L7" {
 		t.Fatalf("expected GitHub source URL, got %+v", findings[0].SourceURL)
+	}
+}
+
+func TestServiceRunRepoScanPersistedPersistsComputedDeltaMetadata(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	request := RepoScanRequest{
+		Repository:   "owner/repo",
+		ScanMode:     db.RepoScanModeDelta,
+		BaseRevision: "1111111111111111111111111111111111111111",
+		HeadRevision: "2222222222222222222222222222222222222222",
+	}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+				ScanMode:       db.RepoScanModeDelta,
+				BaseRevision:   request.BaseRevision,
+				HeadRevision:   request.HeadRevision,
+				ChangedPaths:   []string{"app.env", ".github/workflows/build.yml"},
+			},
+		}
+	}
+
+	run, err := svc.RunRepoScanPersisted(defaultScopeContext(), request)
+	if err != nil {
+		t.Fatalf("run delta repo scan persisted: %v", err)
+	}
+	stored, err := svc.GetRepoScan(defaultScopeContext(), run.RepoScan.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if stored.HeadRevision != request.HeadRevision || len(stored.ChangedPaths) != 2 {
+		t.Fatalf("expected completed delta metadata to be persisted, got %+v", stored)
 	}
 }
 
@@ -2264,6 +2313,37 @@ func TestServiceRunRepoScanPersistedUpdatesCursorAndSkipsCurrentDelta(t *testing
 	}
 	if executor.calls != 1 {
 		t.Fatalf("expected current delta skip to avoid executor, got %d calls", executor.calls)
+	}
+}
+
+func TestServiceRunRepoScanPersistedDoesNotFailAfterSuccessfulCursorUpdateMiss(t *testing.T) {
+	store := &failingRepoScanCursorStore{MemoryStore: db.NewMemoryStore()}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+				HeadRevision:   "2222222222222222222222222222222222222222",
+			},
+		}
+	}
+
+	run, err := svc.RunRepoScanPersisted(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo"})
+	if err != nil {
+		t.Fatalf("expected successful repo scan despite cursor update failure, got %v", err)
+	}
+	if run.RepoScan.Status != "succeeded" {
+		t.Fatalf("expected successful repo scan result, got %+v", run.RepoScan)
+	}
+	stored, err := svc.GetRepoScan(defaultScopeContext(), run.RepoScan.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if stored.Status != "succeeded" {
+		t.Fatalf("expected persisted success despite cursor update failure, got %+v", stored)
 	}
 }
 

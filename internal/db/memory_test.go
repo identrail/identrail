@@ -634,7 +634,7 @@ func TestMemoryStoreRepoScanLifecycle(t *testing.T) {
 	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, findings); err != nil {
 		t.Fatalf("upsert repo findings: %v", err)
 	}
-	if err := store.CompleteRepoScan(defaultScopeContext(), repoScan.ID, "completed", now.Add(2*time.Minute), 10, 6, 2, false, "", ""); err != nil {
+	if err := store.CompleteRepoScan(defaultScopeContext(), repoScan.ID, "completed", now.Add(2*time.Minute), 10, 6, 2, false, RepoScanContext{}, ""); err != nil {
 		t.Fatalf("complete repo scan: %v", err)
 	}
 
@@ -676,6 +676,38 @@ func TestMemoryStoreRepoScanLifecycle(t *testing.T) {
 	}
 	if len(repoScans) != 1 || repoScans[0].ID != repoScan.ID {
 		t.Fatalf("unexpected repo scans: %+v", repoScans)
+	}
+}
+
+func TestMemoryStoreGetRepoScanCursorCopiesPointerFields(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	deepScannedAt := now.Add(-1 * time.Hour)
+
+	if err := store.UpsertRepoScanCursor(defaultScopeContext(), RepoScanCursor{
+		Repository:          "owner/repo",
+		LastScannedRevision: "1111111111111111111111111111111111111111",
+		LastDeepScannedAt:   &deepScannedAt,
+		LastScanID:          "scan-1",
+		LastScanMode:        RepoScanModeDeep,
+		LastScanCompletedAt: now,
+		UpdatedAt:           now,
+	}); err != nil {
+		t.Fatalf("upsert repo scan cursor: %v", err)
+	}
+
+	cursor, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/repo", RepoScanSource{})
+	if err != nil {
+		t.Fatalf("get repo scan cursor: %v", err)
+	}
+	*cursor.LastDeepScannedAt = cursor.LastDeepScannedAt.Add(24 * time.Hour)
+
+	stored, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/repo", RepoScanSource{})
+	if err != nil {
+		t.Fatalf("get repo scan cursor again: %v", err)
+	}
+	if !stored.LastDeepScannedAt.Equal(deepScannedAt.UTC()) {
+		t.Fatalf("expected stored cursor timestamp to be isolated, got %v", stored.LastDeepScannedAt)
 	}
 }
 
@@ -799,7 +831,7 @@ func TestMemoryStoreRepoScanErrors(t *testing.T) {
 	if err := store.UpsertRepoFindings(defaultScopeContext(), "missing", []domain.Finding{{ID: "x"}}); err == nil {
 		t.Fatal("expected missing repo scan error for findings upsert")
 	}
-	if err := store.CompleteRepoScan(defaultScopeContext(), "missing", "failed", time.Now(), 0, 0, 0, false, "", "boom"); err == nil {
+	if err := store.CompleteRepoScan(defaultScopeContext(), "missing", "failed", time.Now(), 0, 0, 0, false, RepoScanContext{}, "boom"); err == nil {
 		t.Fatal("expected missing repo scan error for completion")
 	}
 	if _, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: "missing"}, 10); err == nil {

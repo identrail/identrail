@@ -2412,7 +2412,7 @@ type Store interface {
 	RequeueRepoScan(ctx context.Context, repoScanID string) error
 	FailStaleRepoScansAnyScope(ctx context.Context, staleBefore time.Time, limit int, errorMessage string) (int, error)
 	GetRepoScan(ctx context.Context, repoScanID string) (RepoScanRecord, error)
-	CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, cursorAfter string, errorMessage string) error
+	CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, scanContext RepoScanContext, errorMessage string) error
 	GetRepoScanCursor(ctx context.Context, repository string, source RepoScanSource) (RepoScanCursor, error)
 	UpsertRepoScanCursor(ctx context.Context, cursor RepoScanCursor) error
 	UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error

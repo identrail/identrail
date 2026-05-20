@@ -423,7 +423,7 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	if len(claimed.ChangedPaths) != 2 {
 		t.Fatalf("expected push webhook changed paths, got %+v", claimed.ChangedPaths)
 	}
-	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, "", ""); err != nil {
+	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, db.RepoScanContext{}, ""); err != nil {
 		t.Fatalf("complete claimed repo scan: %v", err)
 	}
 
@@ -855,7 +855,7 @@ func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim queued repo scan: %v", err)
 	}
-	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, "", ""); err != nil {
+	if err := store.CompleteRepoScan(ctx, claimed.ID, "succeeded", now, 1, 1, 0, false, db.RepoScanContext{}, ""); err != nil {
 		t.Fatalf("complete claimed repo scan: %v", err)
 	}
 

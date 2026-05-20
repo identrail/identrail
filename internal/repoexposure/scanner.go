@@ -554,13 +554,10 @@ func (s *Scanner) changedPathsForOptions(ctx context.Context, repo repositoryLoc
 	if strings.TrimSpace(options.HeadRevision) == "" {
 		return nil, nil
 	}
-	var output []byte
-	var err error
-	if options.BaseRevision != "" && !isZeroRevision(options.BaseRevision) {
-		output, err = s.git(ctx, repo, "diff", "--name-only", options.BaseRevision, options.HeadRevision)
-	} else {
-		output, err = s.git(ctx, repo, "diff-tree", "--no-commit-id", "--name-only", "-r", options.HeadRevision)
+	if options.BaseRevision == "" || isZeroRevision(options.BaseRevision) {
+		return nil, nil
 	}
+	output, err := s.git(ctx, repo, "diff", "--name-only", options.BaseRevision, options.HeadRevision)
 	if err != nil {
 		return nil, fmt.Errorf("list delta changed files: %w", err)
 	}
@@ -569,9 +566,17 @@ func (s *Scanner) changedPathsForOptions(ctx context.Context, repo repositoryLoc
 
 func (s *Scanner) filesForHeadInspection(ctx context.Context, repo repositoryLocation, options ScanOptions) ([]string, error) {
 	if options.Mode == ScanModeDelta && len(options.ChangedPaths) > 0 {
+		headFiles, err := s.listFilesAtRevision(ctx, repo, options.HeadRevision)
+		if err != nil {
+			return nil, err
+		}
+		headSet := make(map[string]struct{}, len(headFiles))
+		for _, file := range headFiles {
+			headSet[file] = struct{}{}
+		}
 		existing := make([]string, 0, len(options.ChangedPaths))
 		for _, path := range options.ChangedPaths {
-			if _, err := s.git(ctx, repo, "cat-file", "-e", options.HeadRevision+":"+path); err == nil {
+			if _, ok := headSet[path]; ok {
 				existing = append(existing, path)
 			}
 		}

@@ -2131,7 +2131,7 @@ func (m *MemoryStore) GetRepoScan(ctx context.Context, repoScanID string) (RepoS
 }
 
 // CompleteRepoScan finalizes repo scan metadata.
-func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, cursorAfter string, errorMessage string) error {
+func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, scanContext RepoScanContext, errorMessage string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -2143,6 +2143,7 @@ func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, s
 	if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 		return ErrNotFound
 	}
+	normalizedContext := NormalizeRepoScanContext(scanContext)
 	finished := finishedAt.UTC()
 	record.Status = strings.TrimSpace(status)
 	record.FinishedAt = &finished
@@ -2150,7 +2151,16 @@ func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, s
 	record.FilesScanned = filesScanned
 	record.FindingCount = findingCount
 	record.Truncated = truncated
-	record.CursorAfter = strings.TrimSpace(cursorAfter)
+	record.CursorAfter = normalizedContext.CursorAfter
+	if normalizedContext.BaseRevision != "" {
+		record.BaseRevision = normalizedContext.BaseRevision
+	}
+	if normalizedContext.HeadRevision != "" {
+		record.HeadRevision = normalizedContext.HeadRevision
+	}
+	if len(normalizedContext.ChangedPaths) > 0 {
+		record.ChangedPaths = append([]string(nil), normalizedContext.ChangedPaths...)
+	}
 	record.ErrorMessage = strings.TrimSpace(errorMessage)
 	m.repoScans[repoScanID] = record
 	return nil
@@ -2168,6 +2178,10 @@ func (m *MemoryStore) GetRepoScanCursor(ctx context.Context, repository string, 
 	cursor, exists := m.repoCursors[repoScanCursorKey(scope, repository, source)]
 	if !exists {
 		return RepoScanCursor{}, ErrNotFound
+	}
+	if cursor.LastDeepScannedAt != nil {
+		copied := cursor.LastDeepScannedAt.UTC()
+		cursor.LastDeepScannedAt = &copied
 	}
 	return cursor, nil
 }

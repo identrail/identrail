@@ -3047,10 +3047,19 @@ func (p *PostgresStore) GetRepoScan(ctx context.Context, repoScanID string) (Rep
 }
 
 // CompleteRepoScan updates repository scan completion metadata.
-func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, cursorAfter string, errorMessage string) error {
+func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, scanContext RepoScanContext, errorMessage string) error {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return err
+	}
+	normalizedContext := NormalizeRepoScanContext(scanContext)
+	changedPaths := normalizedContext.ChangedPaths
+	if len(changedPaths) == 0 {
+		changedPaths = []string{}
+	}
+	changedPathsJSON, err := json.Marshal(changedPaths)
+	if err != nil {
+		return fmt.Errorf("marshal repo scan completion changed paths: %w", err)
 	}
 	result, err := p.execContext(
 		ctx,
@@ -3062,10 +3071,13 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		     finding_count = $6,
 		     truncated = $7,
 		     cursor_after = NULLIF($8, ''),
-		     error_message = $9
+		     base_revision = COALESCE(NULLIF($9, ''), base_revision),
+		     head_revision = COALESCE(NULLIF($10, ''), head_revision),
+		     changed_paths = CASE WHEN $11::jsonb <> '[]'::jsonb THEN $11::jsonb ELSE changed_paths END,
+		     error_message = $12
 		 WHERE id = $1
-		   AND tenant_id = $10
-		   AND workspace_id = $11`,
+		   AND tenant_id = $13
+		   AND workspace_id = $14`,
 		repoScanID,
 		strings.TrimSpace(status),
 		finishedAt.UTC(),
@@ -3073,7 +3085,10 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		filesScanned,
 		findingCount,
 		truncated,
-		strings.TrimSpace(cursorAfter),
+		normalizedContext.CursorAfter,
+		normalizedContext.BaseRevision,
+		normalizedContext.HeadRevision,
+		string(changedPathsJSON),
 		nullableString(errorMessage),
 		scope.TenantID,
 		scope.WorkspaceID,

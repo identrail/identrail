@@ -237,6 +237,56 @@ jobs:
 	}
 }
 
+func TestScanRepositoryWithOptionsDeltaWithoutBaseScansAllRecentPaths(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-q")
+
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# demo\n"), 0o600); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-q", "-m", "initial commit")
+
+	if err := os.WriteFile(filepath.Join(repo, "old.env"), []byte("AWS_SECRET_ACCESS_KEY="+testSecretValue+"\n"), 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+	runGit(t, repo, "add", "old.env")
+	runGit(t, repo, "commit", "-q", "-m", "add older secret")
+	secretCommit := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# demo\n\nfinal docs\n"), 0o600); err != nil {
+		t.Fatalf("update readme: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-q", "-m", "final docs")
+	head := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	scanner := NewScanner(nil,
+		WithHistoryLimit(100),
+		WithMaxFindings(50),
+		WithNow(func() time.Time { return time.Date(2026, 5, 20, 11, 0, 0, 0, time.UTC) }),
+	)
+	result, err := scanner.ScanRepositoryWithOptions(context.Background(), repo, ScanOptions{
+		Mode:         ScanModeDelta,
+		HeadRevision: head,
+	})
+	if err != nil {
+		t.Fatalf("scan repository delta failed: %v", err)
+	}
+	if len(result.ChangedPaths) != 0 {
+		t.Fatalf("expected no path restriction without a base revision, got %+v", result.ChangedPaths)
+	}
+	if result.CommitsScanned < 2 {
+		t.Fatalf("expected delta fallback to scan recent history, got %d commit(s)", result.CommitsScanned)
+	}
+	for _, finding := range result.Findings {
+		if finding.Type == domain.FindingSecretExposure && finding.Commit == secretCommit && finding.FilePath == "old.env" {
+			return
+		}
+	}
+	t.Fatalf("expected older changed path to be scanned without base revision, got %+v", result.Findings)
+}
+
 func TestDetectMisconfigFindingsParsesWorkflowSignals(t *testing.T) {
 	content := []byte(`name: ci
 on:
