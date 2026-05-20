@@ -69,6 +69,40 @@ func TestGitHubWebhookTriggersScan(t *testing.T) {
 	}
 }
 
+func TestGitHubWebhookRepoScanContextPullRequestSameRepoDelta(t *testing.T) {
+	var envelope githubWebhookEnvelope
+	envelope.Repository.FullName = "owner/repo"
+	envelope.PullRequest.Base.SHA = "1111111111111111111111111111111111111111"
+	envelope.PullRequest.Base.Repo.FullName = "owner/repo"
+	envelope.PullRequest.Head.SHA = "2222222222222222222222222222222222222222"
+	envelope.PullRequest.Head.Repo.FullName = "owner/repo"
+
+	scanContext, ok := githubWebhookRepoScanContext("pull_request", envelope)
+	if !ok {
+		t.Fatal("expected same-repo pull_request webhook to queue a scan")
+	}
+	if scanContext.ScanMode != db.RepoScanModeDelta || scanContext.BaseRevision != envelope.PullRequest.Base.SHA || scanContext.HeadRevision != envelope.PullRequest.Head.SHA {
+		t.Fatalf("expected same-repo pull_request to queue delta scan, got %+v", scanContext)
+	}
+}
+
+func TestGitHubWebhookRepoScanContextPullRequestForkFallsBackToQuick(t *testing.T) {
+	var envelope githubWebhookEnvelope
+	envelope.Repository.FullName = "owner/repo"
+	envelope.PullRequest.Base.SHA = "1111111111111111111111111111111111111111"
+	envelope.PullRequest.Base.Repo.FullName = "owner/repo"
+	envelope.PullRequest.Head.SHA = "2222222222222222222222222222222222222222"
+	envelope.PullRequest.Head.Repo.FullName = "contributor/repo"
+
+	scanContext, ok := githubWebhookRepoScanContext("pull_request", envelope)
+	if !ok {
+		t.Fatal("expected fork pull_request webhook to queue fallback scan")
+	}
+	if scanContext.ScanMode != db.RepoScanModeQuick || scanContext.HeadRevision != "" || scanContext.BaseRevision != "" {
+		t.Fatalf("expected fork pull_request to fall back to quick scan, got %+v", scanContext)
+	}
+}
+
 func TestValidateGitHubWebhookSignature(t *testing.T) {
 	payload := []byte(`{"test":true}`)
 

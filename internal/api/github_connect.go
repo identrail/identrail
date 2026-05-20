@@ -270,10 +270,16 @@ type githubWebhookEnvelope struct {
 	} `json:"commits"`
 	PullRequest struct {
 		Base struct {
-			SHA string `json:"sha"`
+			SHA  string `json:"sha"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"base"`
 		Head struct {
-			SHA string `json:"sha"`
+			SHA  string `json:"sha"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"head"`
 	} `json:"pull_request"`
 	Repository struct {
@@ -2050,6 +2056,9 @@ func githubWebhookRepoScanContext(eventType string, envelope githubWebhookEnvelo
 			ChangedPaths: githubWebhookChangedPaths(envelope),
 		}), true
 	case "pull_request":
+		if !githubPullRequestHeadAvailableInBaseRepo(envelope) {
+			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), true
+		}
 		headRevision := strings.TrimSpace(envelope.PullRequest.Head.SHA)
 		if headRevision == "" || webhookZeroRevision(headRevision) {
 			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDelta}), false
@@ -2069,6 +2078,23 @@ func githubWebhookRepoScanContext(eventType string, envelope githubWebhookEnvelo
 	default:
 		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDeep}), false
 	}
+}
+
+func githubPullRequestHeadAvailableInBaseRepo(envelope githubWebhookEnvelope) bool {
+	baseRepo := strings.TrimSpace(envelope.PullRequest.Base.Repo.FullName)
+	if baseRepo == "" {
+		baseRepo = strings.TrimSpace(envelope.Repository.FullName)
+	}
+	headRepo := strings.TrimSpace(envelope.PullRequest.Head.Repo.FullName)
+	if baseRepo == "" || headRepo == "" {
+		return true
+	}
+	normalizedBase := normalizeGitHubRepositoryPath(baseRepo)
+	normalizedHead := normalizeGitHubRepositoryPath(headRepo)
+	if normalizedBase == "" || normalizedHead == "" {
+		return strings.EqualFold(baseRepo, headRepo)
+	}
+	return strings.EqualFold(normalizedBase, normalizedHead)
 }
 
 func githubWebhookChangedPaths(envelope githubWebhookEnvelope) []string {
