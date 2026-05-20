@@ -20511,3 +20511,301 @@ html[data-theme='light'] .idt-header-auth-chip.is-primary .idt-header-keycap {
     padding-left: 1rem;
   }
 }
+
+/* Dedicated demo booking page. */
+.idt-demo-page > .idt-page-hero-rich,
+html[data-theme='light'] .idt-demo-page > .idt-page-hero-rich {
+  min-height: calc(100vh - 76px);
+  align-items: center;
+  background:
+    radial-gradient(circle at 74% 32%, rgba(255, 255, 255, 0.1), transparent 30%),
+    linear-gradient(180deg, #030303 0%, #000000 100%);
+}
+
+.idt-demo-page .idt-page-hero-rich h1,
+html[data-theme='light'] .idt-demo-page .idt-page-hero-rich h1 {
+  max-width: 12ch;
+}
+
+.idt-demo-page .idt-page-hero-copy > p,
+html[data-theme='light'] .idt-demo-page .idt-page-hero-copy > p {
+  max-width: 58ch;
+  color: #d6d6dd;
+}
+
+.idt-demo-booking-visual {
+  position: relative;
+  min-height: 520px;
+  border: 1px solid #242424;
+  border-radius: 8px;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    radial-gradient(circle at 52% 47%, rgba(255, 255, 255, 0.12), transparent 32%),
+    #050505;
+  background-size:
+    54px 54px,
+    54px 54px,
+    auto,
+    auto;
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.38);
+}
+
+.idt-demo-booking-orbit {
+  position: absolute;
+  inset: 2rem;
+}
+
+.idt-demo-booking-orbit svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.idt-demo-booking-orbit path {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.68);
+  stroke-width: 2.2;
+  stroke-dasharray: 8 10;
+}
+
+.idt-demo-booking-orbit span {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.4rem;
+  height: 4.4rem;
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #050505;
+  font-family: var(--idt-nav-font);
+  font-size: 0.9rem;
+  font-weight: 900;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+}
+
+.idt-demo-booking-orbit .is-source {
+  top: 8%;
+  left: 8%;
+}
+
+.idt-demo-booking-orbit .is-workload {
+  top: 44%;
+  right: 10%;
+}
+
+.idt-demo-booking-orbit .is-target {
+  left: 24%;
+  bottom: 8%;
+}
+
+.idt-demo-booking-card,
+.idt-demo-booking-agenda,
+html[data-theme='light'] .idt-demo-booking-card,
+html[data-theme='light'] .idt-demo-booking-agenda {
+  position: absolute;
+  border: 1px solid #2f2f2f;
+  border-radius: 8px;
+  background: rgba(8, 8, 8, 0.92);
+  color: #ffffff;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.44);
+}
+
+.idt-demo-booking-card {
+  right: 1.4rem;
+  bottom: 1.4rem;
+  width: min(360px, calc(100% - 2.8rem));
+  padding: 1.25rem;
+}
+
+.idt-demo-booking-card span,
+.idt-demo-booking-agenda span {
+  display: block;
+  margin-bottom: 0.7rem;
+  color: #a1a1aa;
+  font-family: var(--idt-nav-font);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.idt-demo-booking-card strong {
+  display: block;
+  max-width: 11ch;
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: clamp(2.2rem, 4vw, 3.6rem);
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+.idt-demo-booking-card p,
+html[data-theme='light'] .idt-demo-booking-card p {
+  margin: 1rem 0 0;
+  color: #d4d4d8;
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+
+.idt-demo-booking-agenda {
+  top: 1.4rem;
+  left: 1.4rem;
+  width: min(300px, calc(100% - 2.8rem));
+  padding: 1rem;
+}
+
+.idt-demo-booking-agenda ol {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.idt-demo-booking-agenda li {
+  color: #f4f4f5;
+  font-size: 0.95rem;
+  font-weight: 750;
+}
+
+.idt-demo-booking-section,
+html[data-theme='light'] .idt-demo-booking-section {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.82fr) minmax(420px, 1fr);
+  gap: 1px;
+  align-items: stretch;
+  background: #242424;
+}
+
+.idt-demo-booking-section > .idt-lead-form,
+.idt-demo-agenda-panel,
+html[data-theme='light'] .idt-demo-booking-section > .idt-lead-form,
+html[data-theme='light'] .idt-demo-agenda-panel {
+  border: 0;
+  border-radius: 0;
+  background: #080808;
+}
+
+.idt-demo-agenda-panel {
+  padding: clamp(1.25rem, 3vw, 2rem);
+}
+
+.idt-demo-agenda-panel h2,
+html[data-theme='light'] .idt-demo-agenda-panel h2 {
+  max-width: 13ch;
+  margin: 0;
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: clamp(2.8rem, 6.8vw, 6.2rem);
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+.idt-demo-agenda-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: clamp(1.4rem, 3vw, 2rem) 0;
+  background: #242424;
+}
+
+.idt-demo-agenda-list article,
+html[data-theme='light'] .idt-demo-agenda-list article {
+  min-height: 220px;
+  display: grid;
+  align-content: space-between;
+  background: #0d0d0e;
+  padding: 1rem;
+}
+
+.idt-demo-agenda-list span {
+  width: 2.2rem;
+  height: 2.2rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #050505;
+  font-weight: 900;
+}
+
+.idt-demo-agenda-list strong {
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: 1.6rem;
+  text-transform: uppercase;
+}
+
+.idt-demo-agenda-list p,
+html[data-theme='light'] .idt-demo-agenda-list p {
+  margin: 0;
+  color: #b7b7c0;
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+
+.idt-demo-graph-preview .idt-section-title,
+html[data-theme='light'] .idt-demo-graph-preview .idt-section-title {
+  max-width: min(980px, 100%);
+}
+
+.idt-demo-graph-preview .idt-section-title h2,
+html[data-theme='light'] .idt-demo-graph-preview .idt-section-title h2,
+.idt-demo-choice-band h2,
+html[data-theme='light'] .idt-demo-choice-band h2 {
+  color: #ffffff;
+}
+
+.idt-demo-choice-band,
+html[data-theme='light'] .idt-demo-choice-band {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) auto;
+  gap: 1.5rem;
+  align-items: end;
+  border: 1px solid #242424;
+  border-radius: 8px;
+  background: #080808;
+  padding: clamp(1.25rem, 3vw, 2rem);
+}
+
+.idt-demo-choice-band h2 {
+  max-width: 14ch;
+  margin: 0;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: clamp(2.6rem, 5.2vw, 5.5rem);
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+@media (max-width: 1080px) {
+  .idt-demo-booking-section,
+  html[data-theme='light'] .idt-demo-booking-section,
+  .idt-demo-choice-band,
+  html[data-theme='light'] .idt-demo-choice-band {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-demo-agenda-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .idt-demo-booking-visual {
+    min-height: 500px;
+  }
+
+  .idt-demo-booking-orbit {
+    inset: 1rem;
+  }
+
+  .idt-demo-booking-orbit span {
+    width: 3.6rem;
+    height: 3.6rem;
+  }
+}
