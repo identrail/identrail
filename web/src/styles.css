@@ -11907,6 +11907,7 @@ html[data-theme='light'] .idt-nav a.is-active,
 }
 
 .idt-header-demo {
+  appearance: none;
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -11922,6 +11923,7 @@ html[data-theme='light'] .idt-nav a.is-active,
   padding: 0 1.35rem;
   text-decoration: none;
   white-space: nowrap;
+  cursor: pointer;
   transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
 }
 
@@ -17443,6 +17445,21 @@ html[data-theme='light'] .idt-pricing-page .idt-pricing-note {
   color: #a1a1aa;
 }
 
+.idt-pricing-page .idt-section-title .idt-eyebrow,
+html[data-theme='light'] .idt-pricing-page .idt-section-title .idt-eyebrow {
+  color: #f4f4f5;
+}
+
+.idt-pricing-page .idt-section-title h2,
+html[data-theme='light'] .idt-pricing-page .idt-section-title h2 {
+  color: #ffffff;
+}
+
+.idt-pricing-page .idt-section-title > p:not(.idt-eyebrow),
+html[data-theme='light'] .idt-pricing-page .idt-section-title > p:not(.idt-eyebrow) {
+  color: #d4d4d8;
+}
+
 .idt-pricing-page .idt-pricing-card.is-featured,
 html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured {
   background: #ffffff;
@@ -20772,6 +20789,111 @@ html[data-theme='light'] .idt-demo-choice-band {
   text-transform: uppercase;
 }
 
+.idt-modal.idt-book-demo-modal,
+html[data-theme='light'] .idt-modal.idt-book-demo-modal {
+  width: min(96vw, 1120px);
+  max-height: min(90vh, 860px);
+  overflow: hidden;
+  border-color: #2d2d30;
+  border-radius: 8px;
+  background: #050505;
+  color: #ffffff;
+  padding: 0;
+  box-shadow: 0 38px 100px rgba(0, 0, 0, 0.58);
+}
+
+.idt-book-demo-modal-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.86fr) minmax(360px, 1fr);
+  max-height: min(90vh, 860px);
+}
+
+.idt-book-demo-modal-visual,
+html[data-theme='light'] .idt-book-demo-modal-visual {
+  min-width: 0;
+  overflow: auto;
+  border-right: 1px solid #242427;
+  background: #070707;
+  padding: clamp(1.1rem, 2.2vw, 1.5rem);
+}
+
+.idt-book-demo-modal-visual h2,
+html[data-theme='light'] .idt-book-demo-modal-visual h2 {
+  max-width: 11ch;
+  margin: 0;
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: clamp(2.4rem, 5.2vw, 4.8rem);
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+.idt-book-demo-modal-visual > p:not(.idt-eyebrow),
+html[data-theme='light'] .idt-book-demo-modal-visual > p:not(.idt-eyebrow) {
+  max-width: 42ch;
+  margin: 0.9rem 0 0;
+  color: #d4d4d8;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.idt-book-demo-modal .idt-demo-booking-visual {
+  min-height: 360px;
+  margin-top: 1rem;
+  box-shadow: none;
+}
+
+.idt-book-demo-modal .idt-demo-booking-orbit {
+  inset: 1.1rem;
+}
+
+.idt-book-demo-modal .idt-demo-booking-card {
+  width: min(300px, calc(100% - 2rem));
+}
+
+.idt-book-demo-modal .idt-demo-booking-card strong {
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
+.idt-book-demo-modal .idt-demo-booking-agenda {
+  width: min(250px, calc(100% - 2rem));
+}
+
+.idt-book-demo-modal-body,
+html[data-theme='light'] .idt-book-demo-modal-body {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  overflow: auto;
+  background: #050505;
+  padding: clamp(1.1rem, 2.2vw, 1.5rem);
+}
+
+.idt-book-demo-modal-body .idt-lead-form,
+html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.idt-book-demo-modal-body .idt-lead-form h3,
+html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form h3 {
+  color: #ffffff;
+}
+
+.idt-book-demo-modal-body .idt-lead-form p,
+html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
+  color: #d4d4d8;
+}
+
+.idt-book-demo-modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
 @media (max-width: 1080px) {
   .idt-demo-booking-section,
   html[data-theme='light'] .idt-demo-booking-section,
@@ -20782,6 +20904,22 @@ html[data-theme='light'] .idt-demo-choice-band {
 
   .idt-demo-agenda-list {
     grid-template-columns: 1fr;
+  }
+
+  .idt-book-demo-modal-shell {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  .idt-modal.idt-book-demo-modal,
+  html[data-theme='light'] .idt-modal.idt-book-demo-modal {
+    overflow: auto;
+  }
+
+  .idt-book-demo-modal-visual,
+  html[data-theme='light'] .idt-book-demo-modal-visual {
+    border-right: 0;
+    border-bottom: 1px solid #242427;
   }
 }
 
@@ -20797,5 +20935,13 @@ html[data-theme='light'] .idt-demo-choice-band {
   .idt-demo-booking-orbit span {
     width: 3.6rem;
     height: 3.6rem;
+  }
+
+  .idt-book-demo-modal-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-book-demo-modal .idt-demo-booking-visual {
+    display: none;
   }
 }

@@ -726,12 +726,26 @@ function RouteScrollReset() {
   const location = useLocation();
 
   useEffect(() => {
+    const resetScrollTop = () => {
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (window.scrollX > 0 || window.scrollY > 0) {
+        try {
+          window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        } catch {
+          // Some non-browser renderers do not implement scrollTo.
+        }
+      }
+    };
+
     if (location.hash) {
       const scrollToHashTarget = () => {
         const target = document.getElementById(location.hash.slice(1));
         if (typeof target?.scrollIntoView === 'function') {
           target.scrollIntoView({ block: 'start' });
+          return;
         }
+        resetScrollTop();
       };
       if (typeof window.requestAnimationFrame === 'function') {
         window.requestAnimationFrame(scrollToHashTarget);
@@ -741,15 +755,7 @@ function RouteScrollReset() {
       return;
     }
 
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-    if (window.scrollX > 0 || window.scrollY > 0) {
-      try {
-        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-      } catch {
-        // Some non-browser renderers do not implement scrollTo.
-      }
-    }
+    resetScrollTop();
   }, [location.pathname, location.search, location.hash]);
 
   return null;
@@ -1421,6 +1427,41 @@ function CalendlyEmbed() {
         </aside>
       </div>
     </section>
+  );
+}
+
+function BookDemoModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ModalShell titleId="book-demo-modal-title" onClose={onClose} className="idt-book-demo-modal">
+      <button type="button" className="idt-modal-close" onClick={onClose} aria-label="Close dialog">
+        x
+      </button>
+      <div className="idt-book-demo-modal-shell">
+        <aside className="idt-book-demo-modal-visual" aria-label="Demo preview">
+          <p className="idt-eyebrow">Book Demo</p>
+          <h2 id="book-demo-modal-title">Walk through a live trust path</h2>
+          <p>Choose a guided walkthrough or send enough context for a prepared review.</p>
+          <DemoBookingVisual />
+        </aside>
+        <div className="idt-book-demo-modal-body">
+          <LeadCaptureForm
+            compact
+            title="Book a guided walkthrough"
+            caption="Share the environment you want to review and we will route the demo around the trust paths that matter."
+            ctaLabel="Request demo time"
+            variant="short"
+          />
+          <div className="idt-book-demo-modal-actions">
+            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
+              Open Booking Calendar
+            </SafeLink>
+            <Link to="/demo" className="idt-btn idt-btn-dark" onClick={onClose}>
+              Open Full Demo Page
+            </Link>
+          </div>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -4548,10 +4589,13 @@ function NotFoundPage() {
 export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
+  const [bookDemoModalOpen, setBookDemoModalOpen] = useState(false);
   const isProductShellRoute = location.pathname.startsWith('/app') || location.pathname.startsWith('/reports');
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
+  const openBookDemoModal = useCallback(() => setBookDemoModalOpen(true), []);
+  const closeBookDemoModal = useCallback(() => setBookDemoModalOpen(false), []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'light';
@@ -4573,6 +4617,7 @@ export function RoutedSite() {
         <Header
           navLinks={NAV_LINKS}
           githubRepo={GITHUB_REPO}
+          onRequestDemo={openBookDemoModal}
         />
       ) : null}
 
@@ -4719,6 +4764,7 @@ export function RoutedSite() {
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
         </>
       ) : null}
+      {bookDemoModalOpen ? <BookDemoModal onClose={closeBookDemoModal} /> : null}
     </div>
   );
 }

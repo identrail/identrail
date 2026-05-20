@@ -8,10 +8,12 @@ type NavLinkItem = {
 };
 
 export function Header({
-  navLinks
+  navLinks,
+  onRequestDemo
 }: {
   navLinks: readonly NavLinkItem[];
   githubRepo: string;
+  onRequestDemo?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
@@ -81,9 +83,22 @@ export function Header({
               S
             </span>
           </Link>
-          <Link to={siteLinks.requestDemo} className="idt-header-demo">
-            Book Demo
-          </Link>
+          {onRequestDemo ? (
+            <button
+              type="button"
+              className="idt-header-demo"
+              onClick={() => {
+                setMenuOpen(false);
+                onRequestDemo();
+              }}
+            >
+              Book Demo
+            </button>
+          ) : (
+            <Link to={siteLinks.requestDemo} className="idt-header-demo">
+              Book Demo
+            </Link>
+          )}
         </div>
       </div>
     </header>
