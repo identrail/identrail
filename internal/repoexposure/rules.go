@@ -1178,6 +1178,7 @@ func detectYAMLMisconfigFindings(
 			}
 		}
 
+		findings = append(findings, analyzeGitHubWorkflowFindings(repo, commit, path, ast, seen, detectedAt)...)
 		findings = append(findings, findYAMLPrivilegedFindings(repo, commit, path, ast, seen, detectedAt)...)
 	}
 

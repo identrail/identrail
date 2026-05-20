@@ -1,0 +1,230 @@
+package repoexposure
+
+import (
+	"testing"
+	"time"
+
+	"github.com/identrail/identrail/internal/domain"
+)
+
+func TestGitHubWorkflowAnalyzerDetectsContextualAttackPaths(t *testing.T) {
+	content := []byte(`name: dangerous-pr-target
+on:
+  pull_request_target:
+    branches: [main]
+jobs:
+  publish:
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: evilcorp/build-action@v1
+      - run: echo "${{ github.event.pull_request.title }}"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/deploy
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: deps-${{ github.head_ref }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: deps-${{ github.head_ref }}-
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: dist/
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/pr-target.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_pull_request_target",
+		"workflow_broad_token_permissions",
+		"workflow_pull_request_target_privileged_context",
+		"workflow_pull_request_target_untrusted_checkout",
+		"workflow_unpinned_third_party_action",
+		"workflow_shell_injection_user_context",
+		"workflow_oidc_broad_trust",
+		"workflow_cache_poisoning",
+		"workflow_artifact_poisoning",
+	})
+
+	checkout := firstDetectorFinding(t, findings, "workflow_pull_request_target_untrusted_checkout")
+	if checkout.Severity != domain.SeverityCritical {
+		t.Fatalf("expected untrusted checkout to be critical, got %+v", checkout)
+	}
+	if got := checkout.Evidence["workflow_job"]; got != "publish" {
+		t.Fatalf("expected workflow job evidence, got %+v", checkout.Evidence)
+	}
+	if events, _ := checkout.Evidence["workflow_events"].([]string); len(events) != 1 || events[0] != "pull_request_target" {
+		t.Fatalf("expected event evidence, got %+v", checkout.Evidence)
+	}
+
+	injection := firstDetectorFinding(t, findings, "workflow_shell_injection_user_context")
+	if tokens, _ := injection.Evidence["untrusted_context"].([]string); len(tokens) == 0 || tokens[0] != "github.event.pull_request.title" {
+		t.Fatalf("expected untrusted context evidence, got %+v", injection.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDetectsWorkflowRunPrivilegeChain(t *testing.T) {
+	content := []byte(`name: release-after-build
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release upload "$TAG" dist/app.tar.gz
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/release.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_broad_token_permissions",
+		"workflow_run_privilege_chain",
+		"workflow_artifact_poisoning",
+	})
+}
+
+func TestGitHubWorkflowAnalyzerDetectsPullRequestTargetSecretInheritance(t *testing.T) {
+	content := []byte(`name: inherited-secret-pr-target
+on: pull_request_target
+permissions:
+  contents: read
+jobs:
+  reusable:
+    uses: octo-org/reusable/.github/workflows/build.yml@main
+    secrets: inherit
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/reusable.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_pull_request_target",
+		"workflow_pull_request_target_privileged_context",
+	})
+}
+
+func TestGitHubWorkflowAnalyzerKeepsHardenedPullRequestTargetShallow(t *testing.T) {
+	content := []byte(`name: safe-labeler
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        with:
+          script: core.info("metadata only")
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/labeler.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	if !containsDetector(findings, "workflow_pull_request_target") {
+		t.Fatalf("expected compatibility pull_request_target finding, got %+v", findings)
+	}
+	for _, detector := range []string{
+		"workflow_broad_token_permissions",
+		"workflow_pull_request_target_privileged_context",
+		"workflow_pull_request_target_untrusted_checkout",
+		"workflow_unpinned_third_party_action",
+		"workflow_shell_injection_user_context",
+		"workflow_oidc_broad_trust",
+		"workflow_cache_poisoning",
+		"workflow_artifact_poisoning",
+	} {
+		if containsDetector(findings, detector) {
+			t.Fatalf("expected hardened workflow not to emit %s, got %+v", detector, findings)
+		}
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotTreatHeadSHAAsShellInjection(t *testing.T) {
+	content := []byte(`name: pr-info
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.pull_request.head.sha }}"
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/pr-info.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_shell_injection_user_context") {
+		t.Fatalf("expected PR head SHA not to be treated as shell injection evidence, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagBranchScopedOIDCDeploy(t *testing.T) {
+	content := []byte(`name: deploy
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@f00dbabe1234567890abcdef1234567890abcdef
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/deploy
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/deploy.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_oidc_broad_trust") {
+		t.Fatalf("expected branch-scoped deploy OIDC not to be flagged as broad trust, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerFlagsBroadPushOIDCDeploy(t *testing.T) {
+	content := []byte(`name: broad-deploy
+on: push
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/broad-deploy.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_unpinned_third_party_action",
+		"workflow_oidc_broad_trust",
+	})
+}
+
+func assertWorkflowDetectors(t *testing.T, findings []domain.Finding, detectors []string) {
+	t.Helper()
+	for _, detector := range detectors {
+		if !containsDetector(findings, detector) {
+			t.Fatalf("expected detector %s, got %+v", detector, findings)
+		}
+	}
+}
+
+func firstDetectorFinding(t *testing.T, findings []domain.Finding, detector string) domain.Finding {
+	t.Helper()
+	for _, finding := range findings {
+		if finding.Detector == detector {
+			return finding
+		}
+	}
+	t.Fatalf("expected detector %s, got %+v", detector, findings)
+	return domain.Finding{}
+}

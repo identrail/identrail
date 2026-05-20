@@ -103,6 +103,16 @@ The scanner uses a versioned secret detector registry for commit-history secret 
 - Misconfiguration detectors (HEAD):
   - GitHub Actions `permissions: write-all`
   - GitHub Actions `pull_request_target` trigger
+  - GitHub Actions workflow attack paths:
+    - `pull_request_target` checking out untrusted PR head code
+    - privileged `pull_request_target` jobs with write-token scopes or secrets
+    - workflow/job-level broad token write scopes
+    - unpinned third-party actions that use mutable refs
+    - shell interpolation of PR or issue-controlled GitHub context
+    - unsafe `workflow_run` privilege chains
+    - broad OIDC credential-minting context
+    - cache keys or restore paths influenced by untrusted PR context
+    - artifact or release publishing reachable from untrusted inputs
   - Kubernetes `privileged: true`
   - Terraform public S3 ACL
   - Terraform SSH/RDP open to world (`0.0.0.0/0`)
@@ -126,6 +136,37 @@ The scanner uses a versioned secret detector registry for commit-history secret 
   - `confidence_score`
   - `confidence_state`
   - `confidence_reasons`
+
+GitHub Actions workflow findings also include contextual evidence such as:
+
+- `workflow_events`
+- `workflow_job`
+- `workflow_step_index`
+- `workflow_action`
+- `permission_summary`
+- `write_scopes`
+- detector-specific evidence such as `checkout_ref`, `untrusted_context`,
+  `cache_key`, `cache_restore_keys`, or `publishes_release`
+
+This lets Identrail report the dangerous combination instead of only reporting
+that a keyword exists. For example, a hardened `pull_request_target` metadata
+workflow can remain a lower-context signal, while a `pull_request_target`
+workflow that checks out `${{ github.event.pull_request.head.sha }}` and grants
+write permissions is emitted as a critical workflow attack path.
+
+### GitHub Actions Workflow Detectors
+
+| Detector | Signal | Typical severity | Recommended remediation |
+| --- | --- | --- | --- |
+| `workflow_broad_token_permissions` | Workflow or job `GITHUB_TOKEN` permissions grant write-capable scopes beyond `id-token: write`. | High | Default to read-only workflow permissions and move write scopes to the smallest job that needs them. |
+| `workflow_pull_request_target_privileged_context` | `pull_request_target` runs with write-token permissions or secret access. | Critical | Keep `pull_request_target` metadata-only, remove secrets, and move untrusted code execution to `pull_request`. |
+| `workflow_pull_request_target_untrusted_checkout` | `pull_request_target` checks out PR head ref, SHA, or fork repository. | Critical | Checkout only trusted base code in privileged workflows, or split the untrusted build into an unprivileged workflow. |
+| `workflow_unpinned_third_party_action` | A non-local action outside `actions/*` uses a mutable tag or branch instead of a full commit SHA. | Medium | Pin third-party actions to audited commit SHAs and update them through reviewed dependency changes. |
+| `workflow_shell_injection_user_context` | A shell step interpolates PR title/body/branch, issue text, or comment body directly. | High | Pass user-controlled context through quoted environment variables or avoid shell interpolation entirely. |
+| `workflow_run_privilege_chain` | `workflow_run` reaches write permissions, secrets, cloud login, or release behavior. | High | Treat upstream artifacts as untrusted, validate them before privileged use, and gate deploy jobs with environments. |
+| `workflow_oidc_broad_trust` | `id-token: write` is available from untrusted events, `workflow_run`, or broad all-branch push deploys. | High | Restrict cloud trust policies to protected branches and environments, and avoid OIDC on untrusted workflow paths. |
+| `workflow_cache_poisoning` | Cache keys or restore paths are influenced by PR-controlled context, or broad restore keys are used on untrusted events. | Medium | Separate untrusted PR caches from trusted build caches and avoid broad restore keys in privileged jobs. |
+| `workflow_artifact_poisoning` | PR or `workflow_run` context can upload artifacts or release assets consumed later. | Medium to high | Keep untrusted artifacts isolated, verify provenance before reuse, and publish releases only from protected contexts. |
 
 To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
 

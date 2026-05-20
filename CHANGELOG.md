@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Added context-aware GitHub Actions workflow attack analysis to repository
+  exposure scans. Workflow findings now distinguish shallow
+  `pull_request_target` / `write-all` signals from dangerous combinations such
+  as untrusted PR-head checkout, privileged `pull_request_target` jobs,
+  unpinned third-party actions, shell interpolation of PR metadata,
+  workflow_run privilege chains, broad OIDC trust, cache poisoning, and
+  artifact or release publishing reachable from untrusted inputs.
 - Added GitHub App repository posture collection. The connector can now collect
   normalized posture checks for selected repositories, including repository
   metadata, default branch protection, branch rulesets, Actions permissions,
