@@ -5976,6 +5976,13 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   grid-column: 1 / -1;
 }
 
+.idt-repo-scan-activity .idt-repo-scan-cancel {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: 0.25rem;
+  min-width: 7.5rem;
+}
+
 @media (max-width: 980px) {
   .idt-passwordless-grid {
     grid-template-columns: 1fr;

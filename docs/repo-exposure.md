@@ -117,6 +117,11 @@ Guidance-only templates cover workflow attack-path findings that need owner
 review, Docker `latest` image pinning where the correct version/digest must be
 chosen, and open SSH/RDP Terraform ingress where approved administrative CIDRs
 are environment-specific.
+Management APIs:
+
+- `POST /v1/repo-scans/:repo_scan_id/cancel` marks a queued or running scan
+  terminal with `repository scan canceled by user`, freeing the repository for
+  a fresh scan.
 
 ## What It Scans
 

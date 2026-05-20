@@ -111,6 +111,11 @@ x-identrail-route-authorizations:
     action: repo_scans.read
     resource_type: repo_scan
     resource_id_param: repo_scan_id
+  - method: POST
+    path: /v1/repo-scans/{repo_scan_id}/cancel
+    action: repo_scans.run
+    resource_type: repo_scan
+    resource_id_param: repo_scan_id
   - method: GET
     path: /v1/repo-findings
     action: repo_scans.read
@@ -3819,6 +3824,43 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/repo-scans/{repo_scan_id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [RepositoryExposure]
+      summary: Cancel an active repository exposure scan
+      operationId: cancelRepoScan
+      parameters:
+        - in: path
+          name: repo_scan_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Repository scan canceled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  repo_scan:
+                    $ref: "#/components/schemas/RepoScanRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":

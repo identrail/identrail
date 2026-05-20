@@ -1214,6 +1214,11 @@ export const apiClient = {
       body: JSON.stringify(payload)
     });
   },
+  cancelRepoScan(repoScanID: string, auth?: RequestAuthContext) {
+    return request<{ repo_scan: RepoScanRecord }>(`/v1/repo-scans/${encodeURIComponent(repoScanID)}/cancel`, auth, {
+      method: 'POST'
+    });
+  },
   listFindings(
     filters: {
       limit?: number;

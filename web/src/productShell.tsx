@@ -582,6 +582,18 @@ function formatRepoScanSubmitError(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to queue repository scan.';
 }
 
+function formatRepoScanCancelError(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 404) {
+      return 'That repository scan no longer exists. Refresh recent activity before retrying.';
+    }
+    if (error.status === 409) {
+      return 'That repository scan already reached a terminal state. Refresh recent activity before retrying.';
+    }
+  }
+  return error instanceof Error ? error.message : 'Unable to cancel repository scan.';
+}
+
 function formatConnectionTime(value?: string): string {
   if (!value) {
     return 'Never';
@@ -2896,6 +2908,7 @@ export function ProductProjectDetailPage() {
   });
   const [recentRepoScans, setRecentRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoScanSubmitting, setRepoScanSubmitting] = useState(false);
+  const [repoScanCancelingID, setRepoScanCancelingID] = useState('');
   const [repoScanError, setRepoScanError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
@@ -2948,9 +2961,17 @@ export function ProductProjectDetailPage() {
       githubSelectedRepositoryKeys.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())
     );
   }, [githubSelectedRepositoryKeys, recentRepoScans]);
-  const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
   const repoScanRepository = normalizeValue(repoScanForm.repository);
   const effectiveRepoScanRepository = repoScanRepository || githubSelectedRepositories[0] || '';
+  const effectiveRepoScanRepositoryKey = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository).toLowerCase();
+  const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
+  const githubHasActiveSelectedRepoScan =
+    effectiveRepoScanRepositoryKey !== '' &&
+    githubRecentRepoScans.some(
+      (scan) =>
+        isActiveScanStatus(scan.status) &&
+        canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() === effectiveRepoScanRepositoryKey
+    );
   const repoScanFindingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
   const enabledSourceLabel = formatSourceNameList(sourceOrder);
 
@@ -3131,6 +3152,7 @@ export function ProductProjectDetailPage() {
     setRecentRepoScans([]);
     repoScanSubmitSequenceRef.current += 1;
     setRepoScanSubmitting(false);
+    setRepoScanCancelingID('');
     setRepoScanError('');
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
@@ -3569,6 +3591,38 @@ export function ProductProjectDetailPage() {
     }
   };
 
+  const handleRepoScanCancel = async (scan: RepoScanRecord) => {
+    if (!scope) {
+      setRepoScanError('Workspace route context is missing.');
+      return;
+    }
+    if (!isActiveScanStatus(scan.status)) {
+      setRepoScanError('Only queued or running repository scans can be canceled.');
+      return;
+    }
+    setRepoScanCancelingID(scan.id);
+    setRepoScanError('');
+    setSuccessMessage('');
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.cancelRepoScan(scan.id, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRecentRepoScans((current) => current.map((item) => (item.id === response.repo_scan.id ? response.repo_scan : item)));
+      setSuccessMessage(`Repository scan canceled for ${canonicalGitHubRepositoryDisplay(response.repo_scan.repository)}.`);
+      void refreshRecentRepoScans(scope, 'interactive');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRepoScanError(formatRepoScanCancelError(error));
+    } finally {
+      setRepoScanCancelingID((current) => (current === scan.id ? '' : current));
+    }
+  };
+
   const handleScanPolicySubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPolicySaving(true);
@@ -3966,9 +4020,11 @@ export function ProductProjectDetailPage() {
                   <button
                     className="idt-btn idt-btn-primary"
                     type="submit"
-                    disabled={repoScanSubmitting || submitting !== '' || !effectiveRepoScanRepository}
+                    disabled={
+                      repoScanSubmitting || submitting !== '' || !effectiveRepoScanRepository || githubHasActiveSelectedRepoScan
+                    }
                   >
-                    {repoScanSubmitting ? 'Queueing...' : 'Queue first scan'}
+                    {repoScanSubmitting ? 'Queueing...' : githubHasActiveSelectedRepoScan ? 'Scan already active' : 'Queue first scan'}
                   </button>
 
                   <div className="idt-source-diagnostics idt-repo-scan-activity" aria-label="recent repository scan activity">
@@ -3984,6 +4040,16 @@ export function ProductProjectDetailPage() {
                             {scan.finding_count} findings · {scan.files_scanned} files · {formatDateLabel(scan.started_at)}
                           </p>
                           {scan.error_message ? <small>{scan.error_message}</small> : null}
+                          {isActiveScanStatus(scan.status) ? (
+                            <button
+                              className="idt-btn idt-btn-ghost idt-repo-scan-cancel"
+                              type="button"
+                              disabled={repoScanCancelingID === scan.id || submitting !== ''}
+                              onClick={() => void handleRepoScanCancel(scan)}
+                            >
+                              {repoScanCancelingID === scan.id ? 'Canceling...' : 'Cancel scan'}
+                            </button>
+                          ) : null}
                         </article>
                       ))
                     ) : (

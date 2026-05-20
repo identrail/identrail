@@ -679,6 +679,34 @@ func TestMemoryStoreRepoScanLifecycle(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreDeleteRepoFindings(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{{
+		ID:        "rf-1",
+		Type:      domain.FindingSecretExposure,
+		Severity:  domain.SeverityHigh,
+		CreatedAt: now,
+	}}); err != nil {
+		t.Fatalf("upsert repo finding: %v", err)
+	}
+	if err := store.DeleteRepoFindings(defaultScopeContext(), repoScan.ID); err != nil {
+		t.Fatalf("delete repo findings: %v", err)
+	}
+	findings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: repoScan.ID}, 10)
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected repo findings to be deleted, got %+v", findings)
+	}
+}
+
 func TestMemoryStoreGetRepoScanCursorCopiesPointerFields(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
@@ -1239,6 +1267,56 @@ func TestMemoryStoreRepoQueueLifecycle(t *testing.T) {
 	}
 	if !requeued.StartedAt.After(claimed.StartedAt) {
 		t.Fatal("expected requeued repo scan to receive a fresh queue timestamp")
+	}
+}
+
+func TestMemoryStoreCancelRepoScanReleasesPendingTarget(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	queued, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, 50, 80, now)
+	if err != nil {
+		t.Fatalf("create queued repo scan: %v", err)
+	}
+
+	canceled, err := store.CancelRepoScan(defaultScopeContext(), queued.ID, now.Add(time.Minute), "repository scan canceled by user")
+	if err != nil {
+		t.Fatalf("cancel repo scan: %v", err)
+	}
+	if canceled.Status != "failed" || canceled.FinishedAt == nil || canceled.ErrorMessage != "repository scan canceled by user" {
+		t.Fatalf("unexpected canceled scan: %+v", canceled)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), queued.ID, "completed", now.Add(2*time.Minute), 4, 2, 1, false, RepoScanContext{}, ""); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected canceled scan completion conflict, got %v", err)
+	}
+	afterCompletion, err := store.GetRepoScan(defaultScopeContext(), queued.ID)
+	if err != nil {
+		t.Fatalf("get canceled repo scan: %v", err)
+	}
+	if afterCompletion.Status != "failed" || afterCompletion.ErrorMessage != "repository scan canceled by user" {
+		t.Fatalf("expected canceled scan to stay terminal, got %+v", afterCompletion)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), queued.ID, []domain.Finding{{
+		ID:        "rf-canceled",
+		Type:      domain.FindingSecretExposure,
+		Severity:  domain.SeverityHigh,
+		CreatedAt: now,
+	}}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected canceled scan finding upsert conflict, got %v", err)
+	}
+
+	pendingCount, err := store.CountPendingRepoScansByRepository(defaultScopeContext(), "owner/repo")
+	if err != nil {
+		t.Fatalf("count pending repo scans: %v", err)
+	}
+	if pendingCount != 0 {
+		t.Fatalf("expected canceled scan to release pending target, got %d", pendingCount)
+	}
+	if _, err := store.CreateQueuedRepoScanWithinLimit(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, 50, 80, now.Add(2*time.Minute), 1); err != nil {
+		t.Fatalf("create fresh queued repo scan after cancel: %v", err)
+	}
+	if _, err := store.CancelRepoScan(defaultScopeContext(), queued.ID, now.Add(3*time.Minute), "again"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected terminal cancel conflict, got %v", err)
 	}
 }
 

@@ -2130,6 +2130,30 @@ func (m *MemoryStore) GetRepoScan(ctx context.Context, repoScanID string) (RepoS
 	return record, nil
 }
 
+// CancelRepoScan marks a queued or running repository scan as terminal failed.
+func (m *MemoryStore) CancelRepoScan(ctx context.Context, repoScanID string, finishedAt time.Time, errorMessage string) (RepoScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanRecord{}, err
+	}
+	record, exists := m.repoScans[repoScanID]
+	if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		return RepoScanRecord{}, ErrNotFound
+	}
+	if record.Status != "queued" && record.Status != "running" {
+		return RepoScanRecord{}, ErrConflict
+	}
+	finished := finishedAt.UTC()
+	record.Status = "failed"
+	record.FinishedAt = &finished
+	record.ErrorMessage = strings.TrimSpace(errorMessage)
+	m.repoScans[repoScanID] = record
+	return record, nil
+}
+
 // CompleteRepoScan finalizes repo scan metadata.
 func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, scanContext RepoScanContext, errorMessage string) error {
 	m.mu.Lock()
@@ -2142,6 +2166,9 @@ func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, s
 	record, exists := m.repoScans[repoScanID]
 	if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 		return ErrNotFound
+	}
+	if record.Status != "queued" && record.Status != "running" {
+		return ErrConflict
 	}
 	normalizedContext := NormalizeRepoScanContext(scanContext)
 	finished := finishedAt.UTC()
@@ -2233,6 +2260,9 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 	if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
 		return ErrNotFound
 	}
+	if repoScan.Status != "queued" && repoScan.Status != "running" {
+		return ErrConflict
+	}
 	for _, finding := range findings {
 		finding.ScanID = repoScanID
 		domain.NormalizeRepoFindingMetadata(&finding)
@@ -2240,6 +2270,26 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 		m.repoFindings[key] = finding
 		m.repoFindingIDs[repoScanID] = appendUniqueID(m.repoFindingIDs[repoScanID], key)
 	}
+	return nil
+}
+
+// DeleteRepoFindings removes all persisted repository findings for one scan.
+func (m *MemoryStore) DeleteRepoFindings(ctx context.Context, repoScanID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	repoScan, exists := m.repoScans[repoScanID]
+	if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
+		return ErrNotFound
+	}
+	for _, key := range m.repoFindingIDs[repoScanID] {
+		delete(m.repoFindings, key)
+	}
+	delete(m.repoFindingIDs, repoScanID)
 	return nil
 }
 

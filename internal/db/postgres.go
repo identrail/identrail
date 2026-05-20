@@ -3046,6 +3046,45 @@ func (p *PostgresStore) GetRepoScan(ctx context.Context, repoScanID string) (Rep
 	return record, nil
 }
 
+// CancelRepoScan atomically marks a queued or running repository scan as terminal failed.
+func (p *PostgresStore) CancelRepoScan(ctx context.Context, repoScanID string, finishedAt time.Time, errorMessage string) (RepoScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return RepoScanRecord{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`UPDATE repo_scans
+		 SET status = 'failed',
+		     finished_at = $2,
+		     error_message = NULLIF($3, '')
+		 WHERE id = $1
+		   AND tenant_id = $4
+		   AND workspace_id = $5
+		   AND status IN ('queued', 'running')
+		 RETURNING id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)`,
+		repoScanID,
+		finishedAt.UTC(),
+		strings.TrimSpace(errorMessage),
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	record, err := scanRepoScanRecord(row)
+	if err == nil {
+		return record, nil
+	}
+	if !errorsIsNoRows(err) {
+		return RepoScanRecord{}, fmt.Errorf("cancel repo scan: %w", err)
+	}
+	_, getErr := p.GetRepoScan(ctx, repoScanID)
+	if getErr == nil {
+		return RepoScanRecord{}, ErrConflict
+	} else if errors.Is(getErr, ErrNotFound) {
+		return RepoScanRecord{}, ErrNotFound
+	}
+	return RepoScanRecord{}, fmt.Errorf("cancel repo scan lookup: %w", getErr)
+}
+
 // CompleteRepoScan updates repository scan completion metadata.
 func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string, status string, finishedAt time.Time, commitsScanned int, filesScanned int, findingCount int, truncated bool, scanContext RepoScanContext, errorMessage string) error {
 	scope, err := RequireScope(ctx)
@@ -3077,7 +3116,8 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		     error_message = $12
 		 WHERE id = $1
 		   AND tenant_id = $13
-		   AND workspace_id = $14`,
+		   AND workspace_id = $14
+		   AND status IN ('queued', 'running')`,
 		repoScanID,
 		strings.TrimSpace(status),
 		finishedAt.UTC(),
@@ -3097,6 +3137,15 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		return fmt.Errorf("complete repo scan: %w", err)
 	}
 	if err := ensureRowsAffected(result); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			_, getErr := p.GetRepoScan(ctx, repoScanID)
+			if getErr == nil {
+				return ErrConflict
+			} else if errors.Is(getErr, ErrNotFound) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("complete repo scan lookup: %w", getErr)
+		}
 		return err
 	}
 	return nil
@@ -3198,7 +3247,7 @@ func (p *PostgresStore) UpsertRepoScanCursor(ctx context.Context, cursor RepoSca
 
 // UpsertRepoFindings inserts repository findings idempotently.
 func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error {
-	if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
+	if err := p.ensureActiveRepoScanInScope(ctx, repoScanID); err != nil {
 		return err
 	}
 	tx, err := p.beginTx(ctx)
@@ -3260,6 +3309,33 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit repo findings transaction: %w", err)
+	}
+	return nil
+}
+
+// DeleteRepoFindings removes repository findings for one scan.
+func (p *PostgresStore) DeleteRepoFindings(ctx context.Context, repoScanID string) error {
+	if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
+		return err
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = p.execContext(
+		ctx,
+		`DELETE FROM repo_findings rf
+		 USING repo_scans rs
+		 WHERE rf.repo_scan_id = rs.id
+		   AND rf.repo_scan_id = $1
+		   AND rs.tenant_id = $2
+		   AND rs.workspace_id = $3`,
+		repoScanID,
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete repo findings: %w", err)
 	}
 	return nil
 }
@@ -4736,6 +4812,35 @@ func (p *PostgresStore) ensureRepoScanInScope(ctx context.Context, repoScanID st
 	}
 	if !exists {
 		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *PostgresStore) ensureActiveRepoScanInScope(ctx context.Context, repoScanID string) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	var status string
+	err = p.queryRowContext(
+		ctx,
+		`SELECT status
+		 FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`,
+		repoScanID,
+		scope.TenantID,
+		scope.WorkspaceID,
+	).Scan(&status)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("verify active repo scan scope: %w", err)
+	}
+	if status != "queued" && status != "running" {
+		return ErrConflict
 	}
 	return nil
 }

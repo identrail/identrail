@@ -674,15 +674,13 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("create repo scan failed: %v", err)
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
-			SELECT 1
-			FROM repo_scans
-			WHERE id = $1
-			  AND tenant_id = $2
-			  AND workspace_id = $3
-		)`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status
+		 FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`)).
 		WithArgs(record.ID, "default", "default").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("running"))
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO repo_findings").
 		WithArgs(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", sqlmock.AnyArg(), sqlmock.AnyArg(), "fix", sqlmock.AnyArg()).
@@ -717,7 +715,8 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		     error_message = $12
 		 WHERE id = $1
 		   AND tenant_id = $13
-		   AND workspace_id = $14`)).
+		   AND workspace_id = $14
+		   AND status IN ('queued', 'running')`)).
 		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", "", "", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -793,6 +792,73 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("unexpected repo scan: %+v", gotRepoScan)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreUpsertRepoFindingsRejectsTerminalScan(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status
+		 FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("failed"))
+
+	err = store.UpsertRepoFindings(defaultScopeContext(), scanID, []domain.Finding{{
+		ID:       "rf-canceled",
+		Type:     domain.FindingSecretExposure,
+		Severity: domain.SeverityHigh,
+	}})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected terminal scan conflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreDeleteRepoFindings(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM repo_scans
+			WHERE id = $1
+			  AND tenant_id = $2
+			  AND workspace_id = $3
+		)`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM repo_findings rf
+		 USING repo_scans rs
+		 WHERE rf.repo_scan_id = rs.id
+		   AND rf.repo_scan_id = $1
+		   AND rs.tenant_id = $2
+		   AND rs.workspace_id = $3`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	if err := store.DeleteRepoFindings(defaultScopeContext(), scanID); err != nil {
+		t.Fatalf("delete repo findings: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
@@ -1612,6 +1678,143 @@ func TestPostgresStoreRepoScanCursorLifecycle(t *testing.T) {
 	}
 	if cursor.LastDeepScannedAt != nil {
 		t.Fatalf("delta cursor should not overwrite deep scan timestamp, got %+v", cursor.LastDeepScannedAt)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE repo_scans
+		 SET status = $2,
+		     finished_at = $3,
+		     commits_scanned = $4,
+		     files_scanned = $5,
+		     finding_count = $6,
+		     truncated = $7,
+		     cursor_after = NULLIF($8, ''),
+		     base_revision = COALESCE(NULLIF($9, ''), base_revision),
+		     head_revision = COALESCE(NULLIF($10, ''), head_revision),
+		     changed_paths = CASE WHEN $11::jsonb <> '[]'::jsonb THEN $11::jsonb ELSE changed_paths END,
+		     error_message = $12
+		 WHERE id = $1
+		   AND tenant_id = $13
+		   AND workspace_id = $14
+		   AND status IN ('queued', 'running')`)).
+		WithArgs(scanID, "completed", now, 4, 2, 1, false, "", "", "", "[]", nil, "default", "default").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	rows := sqlmock.NewRows([]string{
+		"id",
+		"tenant_id",
+		"workspace_id",
+		"repository",
+		"status",
+		"started_at",
+		"finished_at",
+		"commits_scanned",
+		"files_scanned",
+		"finding_count",
+		"truncated",
+		"scan_mode",
+		"base_revision",
+		"head_revision",
+		"cursor_before",
+		"cursor_after",
+		"changed_paths",
+		"error_message",
+		"history_limit",
+		"max_findings_limit",
+		"source_provider",
+		"source_project_id",
+		"source_connector_id",
+		"source_installation_id",
+	}).AddRow(scanID, "default", "default", "owner/repo", "failed", now, now.Add(time.Minute), 0, 0, 0, false, "deep", "", "", "", "", []byte("[]"), "repository scan canceled by user", 50, 80, "github_app", "project-1", "github", int64(77))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
+		 FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(rows)
+
+	err = store.CompleteRepoScan(defaultScopeContext(), scanID, "completed", now, 4, 2, 1, false, RepoScanContext{}, "")
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected terminal repo scan conflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCancelRepoScan(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+	startedAt := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(5 * time.Minute)
+	cancelMessage := "repository scan canceled by user"
+	cancelRows := sqlmock.NewRows([]string{
+		"id",
+		"tenant_id",
+		"workspace_id",
+		"repository",
+		"status",
+		"started_at",
+		"finished_at",
+		"commits_scanned",
+		"files_scanned",
+		"finding_count",
+		"truncated",
+		"scan_mode",
+		"base_revision",
+		"head_revision",
+		"cursor_before",
+		"cursor_after",
+		"changed_paths",
+		"error_message",
+		"history_limit",
+		"max_findings_limit",
+		"source_provider",
+		"source_project_id",
+		"source_connector_id",
+		"source_installation_id",
+	}).AddRow(scanID, "default", "default", "owner/repo", "failed", startedAt, finishedAt, 0, 0, 0, false, "deep", "", "", "", "", []byte("[]"), cancelMessage, 50, 80, "github_app", "project-1", "github", int64(77))
+
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE repo_scans
+		 SET status = 'failed',
+		     finished_at = $2,
+		     error_message = NULLIF($3, '')
+		 WHERE id = $1
+		   AND tenant_id = $4
+		   AND workspace_id = $5
+		   AND status IN ('queued', 'running')
+		 RETURNING id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)`)).
+		WithArgs(scanID, finishedAt, cancelMessage, "default", "default").
+		WillReturnRows(cancelRows)
+
+	canceled, err := store.CancelRepoScan(defaultScopeContext(), scanID, finishedAt, " "+cancelMessage+" ")
+	if err != nil {
+		t.Fatalf("cancel repo scan: %v", err)
+	}
+	if canceled.Status != "failed" || canceled.ErrorMessage != cancelMessage || canceled.FinishedAt == nil {
+		t.Fatalf("unexpected canceled repo scan: %+v", canceled)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -42,6 +42,7 @@ const (
 	defaultRepoScanRunningStaleAfter = 35 * time.Minute
 	defaultRepoScanStaleFailureLimit = 100
 	staleRepoScanFailureMessage      = "repository scan exceeded worker timeout before reporting a terminal result"
+	userCanceledRepoScanMessage      = "repository scan canceled by user"
 	defaultGitHubWebhookReplayWindow = 24 * time.Hour
 	defaultGitHubWebhookBurstWindow  = 30 * time.Second
 	maxSourceErrorsInEvent           = 25
@@ -402,6 +403,11 @@ var ErrRepoScanAlreadyCurrent = errors.New("repo scan already current")
 
 // ErrRepoScanInProgress is returned when the same repository scan target is already running.
 var ErrRepoScanInProgress = errors.New("repo scan already in progress")
+
+// ErrRepoScanCancelUnavailable is returned when a repository scan is already terminal.
+var ErrRepoScanCancelUnavailable = errors.New("repo scan cancel is unavailable")
+
+var errRepoScanTerminalStateChanged = errors.New("repo scan terminal state changed")
 
 // ErrInvalidFindingTriageRequest indicates invalid triage payload or state transition.
 var ErrInvalidFindingTriageRequest = errors.New("invalid finding triage request")
@@ -1187,6 +1193,27 @@ func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) 
 	return record, nil
 }
 
+// CancelRepoScan marks an active repository scan terminal so the target can be retried.
+func (s *Service) CancelRepoScan(ctx context.Context, repoScanID string) (db.RepoScanRecord, error) {
+	ctx = s.scopeContext(ctx)
+	record, err := s.Store.CancelRepoScan(ctx, repoScanID, s.Now().UTC(), userCanceledRepoScanMessage)
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			return db.RepoScanRecord{}, ErrRepoScanCancelUnavailable
+		}
+		return db.RepoScanRecord{}, err
+	}
+	s.recordAutomationRun("api_queue", "repo_scan", "canceled")
+	s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+		Kind:       "canceled",
+		RepoScanID: record.ID,
+		Repository: record.Repository,
+		Status:     "failed",
+		Reason:     "user_canceled",
+	})
+	return record, nil
+}
+
 // ProcessNextQueuedRepoScan claims and executes one queued repository scan. It returns false when no job is available.
 func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	ctx = s.scopeContext(ctx)
@@ -1271,6 +1298,9 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	})
 	_, runErr := s.runRepoScanWithRecord(recordScopeCtx, record, record.HistoryLimit, record.MaxFindings)
 	if runErr != nil {
+		if errors.Is(runErr, errRepoScanTerminalStateChanged) {
+			return true, nil
+		}
 		s.recordAutomationRun("api_queue", "repo_scan", "failed")
 		s.recordWorkerJob("repo_scan", "failure")
 		s.recordWorkerDeadLetter("repo_scan")
@@ -1538,6 +1568,12 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			if cleanupErr := s.clearRepoScanFindingsAfterTerminalChange(ctx, record.ID); cleanupErr != nil {
+				return RunRepoScanResult{}, cleanupErr
+			}
+			return RunRepoScanResult{}, fmt.Errorf("%w: %w", errRepoScanTerminalStateChanged, err)
+		}
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, db.RepoScanContext{}, err.Error())
@@ -1565,6 +1601,12 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		completionContext,
 		"",
 	); err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			if cleanupErr := s.clearRepoScanFindingsAfterTerminalChange(ctx, record.ID); cleanupErr != nil {
+				return RunRepoScanResult{}, cleanupErr
+			}
+			return RunRepoScanResult{}, fmt.Errorf("%w: %w", errRepoScanTerminalStateChanged, err)
+		}
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
 		return RunRepoScanResult{}, fmt.Errorf("complete repo scan: %w", err)
@@ -1607,6 +1649,13 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		}
 	}
 	return RunRepoScanResult{RepoScan: record, Result: result}, nil
+}
+
+func (s *Service) clearRepoScanFindingsAfterTerminalChange(ctx context.Context, repoScanID string) error {
+	if err := s.Store.DeleteRepoFindings(ctx, repoScanID); err != nil && !errors.Is(err, db.ErrNotFound) {
+		return fmt.Errorf("clear terminal repo scan findings: %w", err)
+	}
+	return nil
 }
 
 func repoScanCursorAlreadyCoversRequest(scanContext db.RepoScanContext, cursor db.RepoScanCursor, hasCursor bool) bool {
@@ -3572,10 +3621,13 @@ func (s *Service) completeRepoScanTerminal(
 		scanContext,
 		errorMessage,
 	)
+	if errors.Is(err, db.ErrConflict) {
+		return err
+	}
 	if !shouldRetryTerminalWrite(err) {
 		return err
 	}
-	return s.Store.CompleteRepoScan(
+	err = s.Store.CompleteRepoScan(
 		s.terminalWriteContext(ctx),
 		repoScanID,
 		status,
@@ -3587,6 +3639,10 @@ func (s *Service) completeRepoScanTerminal(
 		scanContext,
 		errorMessage,
 	)
+	if errors.Is(err, db.ErrConflict) {
+		return err
+	}
+	return err
 }
 
 func shouldRetryTerminalWrite(err error) bool {
