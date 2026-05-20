@@ -229,9 +229,27 @@ func TestBuildRepoExposureFixPRPlanPatchesPullRequestTargetSyntaxes(t *testing.T
 			want:       "name: ci\non:\n  pull_request:\n    branches: [main]\n",
 		},
 		{
+			name:       "double_quoted_mapping_key",
+			lineNumber: 3,
+			source:     "name: ci\non:\n  \"pull_request_target\":\n    branches: [main]\n",
+			want:       "name: ci\non:\n  pull_request:\n    branches: [main]\n",
+		},
+		{
+			name:       "single_quoted_mapping_key",
+			lineNumber: 3,
+			source:     "name: ci\non:\n  'pull_request_target':\n    branches: [main]\n",
+			want:       "name: ci\non:\n  pull_request:\n    branches: [main]\n",
+		},
+		{
 			name:       "scalar",
 			lineNumber: 2,
 			source:     "name: ci\non: pull_request_target\n",
+			want:       "name: ci\non: pull_request\n",
+		},
+		{
+			name:       "quoted_scalar",
+			lineNumber: 2,
+			source:     "name: ci\non: \"pull_request_target\"\n",
 			want:       "name: ci\non: pull_request\n",
 		},
 		{
@@ -244,6 +262,12 @@ func TestBuildRepoExposureFixPRPlanPatchesPullRequestTargetSyntaxes(t *testing.T
 			name:       "block_sequence_from_parent_line",
 			lineNumber: 2,
 			source:     "name: ci\non:\n  - push\n  - pull_request_target\n",
+			want:       "name: ci\non:\n  - push\n  - pull_request\n",
+		},
+		{
+			name:       "quoted_block_sequence_from_parent_line",
+			lineNumber: 2,
+			source:     "name: ci\non:\n  - push\n  - \"pull_request_target\"\n",
 			want:       "name: ci\non:\n  - push\n  - pull_request\n",
 		},
 		{
@@ -268,6 +292,18 @@ func TestBuildRepoExposureFixPRPlanPatchesPullRequestTargetSyntaxes(t *testing.T
 			name:       "flow_mapping_only_patches_top_level_trigger_key",
 			lineNumber: 2,
 			source:     "name: ci\non: { pull_request: { branches: [pull_request_target] }, pull_request_target: { branches: [main] } }\n",
+			want:       "name: ci\non: { pull_request: { branches: [pull_request_target] }, pull_request: { branches: [main] } }\n",
+		},
+		{
+			name:       "flow_mapping_patches_double_quoted_top_level_trigger_key",
+			lineNumber: 2,
+			source:     "name: ci\non: { pull_request: { branches: [pull_request_target] }, \"pull_request_target\": { branches: [main] } }\n",
+			want:       "name: ci\non: { pull_request: { branches: [pull_request_target] }, pull_request: { branches: [main] } }\n",
+		},
+		{
+			name:       "flow_mapping_patches_single_quoted_top_level_trigger_key",
+			lineNumber: 2,
+			source:     "name: ci\non: { pull_request: { branches: [pull_request_target] }, 'pull_request_target': { branches: [main] } }\n",
 			want:       "name: ci\non: { pull_request: { branches: [pull_request_target] }, pull_request: { branches: [main] } }\n",
 		},
 	}
@@ -338,9 +374,12 @@ func TestBuildRepoExposureFixPRPlanRejectsUnsafeTargetPath(t *testing.T) {
 		"deploy/..",
 		"/etc/app.yaml",
 		"/deploy/app.yaml",
+		"C:/tmp/app.yaml",
+		"c:/tmp/app.yaml",
 		`..\outside.yaml`,
 		`deploy\..\outside.yaml`,
 		`deploy\..`,
+		`C:\tmp\app.yaml`,
 		`\absolute.yaml`,
 	} {
 		t.Run(filePath, func(t *testing.T) {

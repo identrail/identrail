@@ -21,13 +21,14 @@ var (
 	workflowPermissionValueWriteAllPattern   = regexp.MustCompile(`^(\s*[^:#]+:\s*)write-all(\s*(?:#.*)?)$`)
 	workflowPermissionFlowWriteAllPattern    = regexp.MustCompile(`(:\s*)write-all(\s*(?:[,}#]|$))`)
 	workflowPullRequestTargetTokenPattern    = regexp.MustCompile(`\bpull_request_target\b`)
-	workflowPullRequestTargetMappingPattern  = regexp.MustCompile(`^(\s*)pull_request_target(\s*:.*)$`)
-	workflowPullRequestTargetSequencePattern = regexp.MustCompile(`^(\s*-\s*)pull_request_target(\s*)$`)
-	workflowPullRequestTargetScalarPattern   = regexp.MustCompile(`^(\s*on\s*:\s*)pull_request_target(\s*)$`)
+	workflowPullRequestTargetMappingPattern  = regexp.MustCompile(`^(\s*)(?:"pull_request_target"|'pull_request_target'|pull_request_target)(\s*:.*)$`)
+	workflowPullRequestTargetSequencePattern = regexp.MustCompile(`^(\s*-\s*)(?:"pull_request_target"|'pull_request_target'|pull_request_target)(\s*)$`)
+	workflowPullRequestTargetScalarPattern   = regexp.MustCompile(`^(\s*on\s*:\s*)(?:"pull_request_target"|'pull_request_target'|pull_request_target)(\s*)$`)
 	workflowOnFlowSequencePattern            = regexp.MustCompile(`^\s*on\s*:\s*\[`)
 	workflowOnFlowMappingPattern             = regexp.MustCompile(`^\s*on\s*:\s*\{`)
 	workflowOnKeyPattern                     = regexp.MustCompile(`^\s*on\s*:\s*(?:#.*)?$`)
 	workflowPermissionsKeyPattern            = regexp.MustCompile(`^\s*permissions\s*:\s*(?:#.*)?$`)
+	windowsDriveAbsolutePathPattern          = regexp.MustCompile(`^[A-Za-z]:[/\\]`)
 )
 
 // RepoExposureFixPRPlan composes a FixPRPlan for one repo exposure finding and
@@ -88,18 +89,19 @@ func repoExposureTargetPath(finding domain.Finding) (string, error) {
 	if rawTarget == "" && len(finding.Path) == 1 {
 		rawTarget = strings.TrimSpace(finding.Path[0])
 	}
-	if path.IsAbs(rawTarget) {
+	if path.IsAbs(rawTarget) || windowsDriveAbsolutePathPattern.MatchString(rawTarget) {
 		return "", fmt.Errorf("%w: invalid repo file path", ErrRepoExposurePatchApplyFailed)
 	}
 	target := strings.Trim(rawTarget, "/")
 	if target == "." || target == ".." || strings.Contains(target, `\`) || path.IsAbs(target) ||
+		windowsDriveAbsolutePathPattern.MatchString(target) ||
 		strings.HasPrefix(target, "../") ||
 		strings.Contains(target, "/../") ||
 		strings.HasSuffix(target, "/..") {
 		return "", fmt.Errorf("%w: invalid repo file path", ErrRepoExposurePatchApplyFailed)
 	}
 	clean := path.Clean(target)
-	if clean == "." || clean == "" || clean == ".." || path.IsAbs(clean) || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+	if clean == "." || clean == "" || clean == ".." || path.IsAbs(clean) || windowsDriveAbsolutePathPattern.MatchString(clean) || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
 		return "", fmt.Errorf("%w: invalid repo file path", ErrRepoExposurePatchApplyFailed)
 	}
 	return clean, nil
@@ -304,6 +306,15 @@ func replaceTopLevelWorkflowTriggerKey(line string, key string, replacement stri
 			escaped = true
 			continue
 		}
+		if !inSingleQuote && !inDoubleQuote && afterDelimiter && braceDepth == 1 && bracketDepth == 0 {
+			if ch == ' ' || ch == '\t' {
+				continue
+			}
+			if keyLength, ok := workflowTriggerKeyLength(line[i:], key); ok {
+				return line[:i] + replacement + line[i+keyLength:], true
+			}
+			afterDelimiter = false
+		}
 		if ch == '\'' && !inDoubleQuote {
 			inSingleQuote = !inSingleQuote
 			continue
@@ -348,26 +359,37 @@ func replaceTopLevelWorkflowTriggerKey(line string, key string, replacement stri
 			continue
 		}
 
-		if !afterDelimiter || braceDepth != 1 || bracketDepth != 0 {
-			continue
-		}
-		if ch == ' ' || ch == '\t' {
-			continue
-		}
-		if strings.HasPrefix(line[i:], key) {
-			valueStart := i + len(key)
-			valueEnd := valueStart
-			for valueEnd < len(line) && (line[valueEnd] == ' ' || line[valueEnd] == '\t') {
-				valueEnd++
-			}
-			if valueEnd < len(line) && line[valueEnd] == ':' {
-				return line[:i] + replacement + line[valueStart:], true
-			}
-		}
-		afterDelimiter = false
 	}
 
 	return "", false
+}
+
+func workflowTriggerKeyLength(value string, key string) (int, bool) {
+	if strings.HasPrefix(value, key) && workflowTriggerKeyHasColon(value, len(key)) {
+		return len(key), true
+	}
+	if len(value) < len(key)+2 {
+		return 0, false
+	}
+	quote := value[0]
+	if quote != '\'' && quote != '"' {
+		return 0, false
+	}
+	keyEnd := 1 + len(key)
+	if !strings.HasPrefix(value[1:], key) || value[keyEnd] != quote {
+		return 0, false
+	}
+	if !workflowTriggerKeyHasColon(value, keyEnd+1) {
+		return 0, false
+	}
+	return keyEnd + 1, true
+}
+
+func workflowTriggerKeyHasColon(value string, index int) bool {
+	for index < len(value) && (value[index] == ' ' || value[index] == '\t') {
+		index++
+	}
+	return index < len(value) && value[index] == ':'
 }
 
 func workflowPullRequestTargetLineInLocalBlock(lines []string, lineIndex int) (int, bool) {
