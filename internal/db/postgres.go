@@ -3247,7 +3247,7 @@ func (p *PostgresStore) UpsertRepoScanCursor(ctx context.Context, cursor RepoSca
 
 // UpsertRepoFindings inserts repository findings idempotently.
 func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error {
-	if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
+	if err := p.ensureActiveRepoScanInScope(ctx, repoScanID); err != nil {
 		return err
 	}
 	tx, err := p.beginTx(ctx)
@@ -3309,6 +3309,33 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit repo findings transaction: %w", err)
+	}
+	return nil
+}
+
+// DeleteRepoFindings removes repository findings for one scan.
+func (p *PostgresStore) DeleteRepoFindings(ctx context.Context, repoScanID string) error {
+	if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
+		return err
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = p.execContext(
+		ctx,
+		`DELETE FROM repo_findings rf
+		 USING repo_scans rs
+		 WHERE rf.repo_scan_id = rs.id
+		   AND rf.repo_scan_id = $1
+		   AND rs.tenant_id = $2
+		   AND rs.workspace_id = $3`,
+		repoScanID,
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete repo findings: %w", err)
 	}
 	return nil
 }
@@ -4785,6 +4812,35 @@ func (p *PostgresStore) ensureRepoScanInScope(ctx context.Context, repoScanID st
 	}
 	if !exists {
 		return ErrNotFound
+	}
+	return nil
+}
+
+func (p *PostgresStore) ensureActiveRepoScanInScope(ctx context.Context, repoScanID string) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	var status string
+	err = p.queryRowContext(
+		ctx,
+		`SELECT status
+		 FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`,
+		repoScanID,
+		scope.TenantID,
+		scope.WorkspaceID,
+	).Scan(&status)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("verify active repo scan scope: %w", err)
+	}
+	if status != "queued" && status != "running" {
+		return ErrConflict
 	}
 	return nil
 }

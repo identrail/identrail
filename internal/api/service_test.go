@@ -125,6 +125,11 @@ type completionContextStore struct {
 	lastRepoScanCompletionCtxErr error
 }
 
+type cancelOnCompleteRepoScanStore struct {
+	*db.MemoryStore
+	now time.Time
+}
+
 type failingCompleteScanStore struct {
 	*db.MemoryStore
 }
@@ -197,6 +202,37 @@ func (s *completionContextStore) CompleteRepoScan(
 	errorMessage string,
 ) error {
 	s.lastRepoScanCompletionCtxErr = ctx.Err()
+	return s.MemoryStore.CompleteRepoScan(
+		ctx,
+		repoScanID,
+		status,
+		finishedAt,
+		commitsScanned,
+		filesScanned,
+		findingCount,
+		truncated,
+		scanContext,
+		errorMessage,
+	)
+}
+
+func (s *cancelOnCompleteRepoScanStore) CompleteRepoScan(
+	ctx context.Context,
+	repoScanID string,
+	status string,
+	finishedAt time.Time,
+	commitsScanned int,
+	filesScanned int,
+	findingCount int,
+	truncated bool,
+	scanContext db.RepoScanContext,
+	errorMessage string,
+) error {
+	cancelAt := s.now
+	if cancelAt.IsZero() {
+		cancelAt = finishedAt
+	}
+	_, _ = s.MemoryStore.CancelRepoScan(ctx, repoScanID, cancelAt, userCanceledRepoScanMessage)
 	return s.MemoryStore.CompleteRepoScan(
 		ctx,
 		repoScanID,
@@ -4106,8 +4142,14 @@ func TestServiceProcessQueuedRepoScanDoesNotAdvanceCursorAfterCancelDuringRun(t 
 				Repository:     "owner/repo",
 				CommitsScanned: 1,
 				FilesScanned:   1,
-				ScanMode:       db.RepoScanModeDelta,
-				HeadRevision:   head,
+				Findings: []domain.Finding{{
+					ID:        "rf-canceled-before-upsert",
+					Type:      domain.FindingSecretExposure,
+					Severity:  domain.SeverityHigh,
+					CreatedAt: now,
+				}},
+				ScanMode:     db.RepoScanModeDelta,
+				HeadRevision: head,
 			},
 		}
 	}
@@ -4139,10 +4181,71 @@ func TestServiceProcessQueuedRepoScanDoesNotAdvanceCursorAfterCancelDuringRun(t 
 	if _, err := store.GetRepoScanCursor(scopeCtx, "owner/repo", db.RepoScanSource{}); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("expected canceled scan not to advance cursor, got %v", err)
 	}
+	findings, err := svc.ListRepoFindings(scopeCtx, 10, db.RepoFindingFilter{RepoScanID: queued.ID})
+	if err != nil {
+		t.Fatalf("list canceled scan findings: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected canceled scan not to persist findings, got %+v", findings)
+	}
 	for _, event := range events {
 		if event.Kind == "succeeded" {
 			t.Fatalf("canceled scan must not emit success event, got events %+v", events)
 		}
+	}
+}
+
+func TestServiceProcessQueuedRepoScanClearsFindingsWhenCancelWinsCompletion(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 45, 0, 0, time.UTC)
+	store := &cancelOnCompleteRepoScanStore{
+		MemoryStore: db.NewMemoryStore(),
+		now:         now.Add(2 * time.Minute),
+	}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.Now = func() time.Time { return now }
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+				Findings: []domain.Finding{{
+					ID:        "rf-canceled-after-upsert",
+					Type:      domain.FindingSecretExposure,
+					Severity:  domain.SeverityHigh,
+					CreatedAt: now,
+				}},
+			},
+		}
+	}
+
+	queued, err := svc.EnqueueRepoScan(scopeCtx, RepoScanRequest{Repository: "owner/repo"})
+	if err != nil {
+		t.Fatalf("enqueue repo scan: %v", err)
+	}
+
+	processed, err := svc.ProcessNextQueuedRepoScan(defaultScopeContext())
+	if err != nil {
+		t.Fatalf("process canceled repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected canceled repo scan to count as processed")
+	}
+	stored, err := store.GetRepoScan(scopeCtx, queued.ID)
+	if err != nil {
+		t.Fatalf("get canceled repo scan: %v", err)
+	}
+	if stored.Status != "failed" || stored.ErrorMessage != userCanceledRepoScanMessage {
+		t.Fatalf("expected canceled scan to stay failed, got %+v", stored)
+	}
+	findings, err := svc.ListRepoFindings(scopeCtx, 10, db.RepoFindingFilter{RepoScanID: queued.ID})
+	if err != nil {
+		t.Fatalf("list canceled scan findings: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected terminal conflict cleanup to remove repo findings, got %+v", findings)
 	}
 }
 

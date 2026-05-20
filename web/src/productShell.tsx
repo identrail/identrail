@@ -3619,9 +3619,7 @@ export function ProductProjectDetailPage() {
       }
       setRepoScanError(formatRepoScanCancelError(error));
     } finally {
-      if (!isStaleRequestSequence(requestSequence)) {
-        setRepoScanCancelingID('');
-      }
+      setRepoScanCancelingID((current) => (current === scan.id ? '' : current));
     }
   };
 

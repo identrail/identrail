@@ -674,15 +674,13 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("create repo scan failed: %v", err)
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
-			SELECT 1
-			FROM repo_scans
-			WHERE id = $1
-			  AND tenant_id = $2
-			  AND workspace_id = $3
-		)`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status
+		 FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`)).
 		WithArgs(record.ID, "default", "default").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("running"))
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO repo_findings").
 		WithArgs(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", sqlmock.AnyArg(), sqlmock.AnyArg(), "fix", sqlmock.AnyArg()).
@@ -794,6 +792,73 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("unexpected repo scan: %+v", gotRepoScan)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreUpsertRepoFindingsRejectsTerminalScan(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status
+		 FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("failed"))
+
+	err = store.UpsertRepoFindings(defaultScopeContext(), scanID, []domain.Finding{{
+		ID:       "rf-canceled",
+		Type:     domain.FindingSecretExposure,
+		Severity: domain.SeverityHigh,
+	}})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected terminal scan conflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreDeleteRepoFindings(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM repo_scans
+			WHERE id = $1
+			  AND tenant_id = $2
+			  AND workspace_id = $3
+		)`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM repo_findings rf
+		 USING repo_scans rs
+		 WHERE rf.repo_scan_id = rs.id
+		   AND rf.repo_scan_id = $1
+		   AND rs.tenant_id = $2
+		   AND rs.workspace_id = $3`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	if err := store.DeleteRepoFindings(defaultScopeContext(), scanID); err != nil {
+		t.Fatalf("delete repo findings: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}

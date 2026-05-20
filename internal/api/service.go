@@ -1539,6 +1539,12 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			if cleanupErr := s.clearRepoScanFindingsAfterTerminalChange(ctx, record.ID); cleanupErr != nil {
+				return RunRepoScanResult{}, cleanupErr
+			}
+			return RunRepoScanResult{}, fmt.Errorf("%w: %w", errRepoScanTerminalStateChanged, err)
+		}
 		s.recordRepoScanExecutionFailure()
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
 		_ = s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, db.RepoScanContext{}, err.Error())
@@ -1567,6 +1573,9 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		"",
 	); err != nil {
 		if errors.Is(err, db.ErrConflict) {
+			if cleanupErr := s.clearRepoScanFindingsAfterTerminalChange(ctx, record.ID); cleanupErr != nil {
+				return RunRepoScanResult{}, cleanupErr
+			}
 			return RunRepoScanResult{}, fmt.Errorf("%w: %w", errRepoScanTerminalStateChanged, err)
 		}
 		s.recordRepoScanExecutionFailure()
@@ -1611,6 +1620,13 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		}
 	}
 	return RunRepoScanResult{RepoScan: record, Result: result}, nil
+}
+
+func (s *Service) clearRepoScanFindingsAfterTerminalChange(ctx context.Context, repoScanID string) error {
+	if err := s.Store.DeleteRepoFindings(ctx, repoScanID); err != nil && !errors.Is(err, db.ErrNotFound) {
+		return fmt.Errorf("clear terminal repo scan findings: %w", err)
+	}
+	return nil
 }
 
 func repoScanCursorAlreadyCoversRequest(scanContext db.RepoScanContext, cursor db.RepoScanCursor, hasCursor bool) bool {

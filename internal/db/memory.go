@@ -2260,6 +2260,9 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 	if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
 		return ErrNotFound
 	}
+	if repoScan.Status != "queued" && repoScan.Status != "running" {
+		return ErrConflict
+	}
 	for _, finding := range findings {
 		finding.ScanID = repoScanID
 		domain.NormalizeRepoFindingMetadata(&finding)
@@ -2267,6 +2270,26 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 		m.repoFindings[key] = finding
 		m.repoFindingIDs[repoScanID] = appendUniqueID(m.repoFindingIDs[repoScanID], key)
 	}
+	return nil
+}
+
+// DeleteRepoFindings removes all persisted repository findings for one scan.
+func (m *MemoryStore) DeleteRepoFindings(ctx context.Context, repoScanID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	repoScan, exists := m.repoScans[repoScanID]
+	if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
+		return ErrNotFound
+	}
+	for _, key := range m.repoFindingIDs[repoScanID] {
+		delete(m.repoFindings, key)
+	}
+	delete(m.repoFindingIDs, repoScanID)
 	return nil
 }
 

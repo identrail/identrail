@@ -424,6 +424,29 @@ describe('ProductProjectDetailPage', () => {
     expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('repository scan canceled by user');
   });
 
+  it('clears canceling state when the cancel response is stale after refresh', async () => {
+    const pendingCancel = deferred<{ repo_scan: RepoScanRecord }>();
+    const { cancelRepoScan, listRepoScans } = await renderProjectDetail(true, connectedGitHub, {
+      listRepoScans: () => Promise.resolve({ items: [queuedRepoScan] })
+    });
+    cancelRepoScan.mockReturnValueOnce(pendingCancel.promise);
+
+    const cancelButton = await screen.findByRole('button', { name: /Cancel scan/i });
+    fireEvent.click(cancelButton);
+
+    expect(await screen.findByRole('button', { name: /Canceling/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Refresh status/i }));
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      pendingCancel.resolve({ repo_scan: canceledRepoScan });
+      await pendingCancel.promise;
+    });
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Canceling/i })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /Cancel scan/i })).not.toBeDisabled();
+  });
+
   it('allows queueing another selected repository while a different repository is active', async () => {
     const multiRepoConnection: GitHubConnectionStatus = {
       ...connectedGitHub,

@@ -679,6 +679,34 @@ func TestMemoryStoreRepoScanLifecycle(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreDeleteRepoFindings(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{{
+		ID:        "rf-1",
+		Type:      domain.FindingSecretExposure,
+		Severity:  domain.SeverityHigh,
+		CreatedAt: now,
+	}}); err != nil {
+		t.Fatalf("upsert repo finding: %v", err)
+	}
+	if err := store.DeleteRepoFindings(defaultScopeContext(), repoScan.ID); err != nil {
+		t.Fatalf("delete repo findings: %v", err)
+	}
+	findings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: repoScan.ID}, 10)
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("expected repo findings to be deleted, got %+v", findings)
+	}
+}
+
 func TestMemoryStoreGetRepoScanCursorCopiesPointerFields(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
@@ -1267,6 +1295,14 @@ func TestMemoryStoreCancelRepoScanReleasesPendingTarget(t *testing.T) {
 	}
 	if afterCompletion.Status != "failed" || afterCompletion.ErrorMessage != "repository scan canceled by user" {
 		t.Fatalf("expected canceled scan to stay terminal, got %+v", afterCompletion)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), queued.ID, []domain.Finding{{
+		ID:        "rf-canceled",
+		Type:      domain.FindingSecretExposure,
+		Severity:  domain.SeverityHigh,
+		CreatedAt: now,
+	}}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected canceled scan finding upsert conflict, got %v", err)
 	}
 
 	pendingCount, err := store.CountPendingRepoScansByRepository(defaultScopeContext(), "owner/repo")
