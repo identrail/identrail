@@ -15,7 +15,7 @@ import (
 const workflowAnalyzerVersion = "2026.05"
 
 var gitHubActionCommitRefPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
-var workflowSecretsExpressionPattern = regexp.MustCompile(`\$\{\{\s*secrets\.`)
+var workflowSecretsExpressionPattern = regexp.MustCompile(`\$\{\{\s*secrets\s*(?:\.|\[)`)
 
 type githubWorkflowModel struct {
 	Events      map[string]*yaml.Node
@@ -611,7 +611,7 @@ func workflowHasEvent(workflow githubWorkflowModel, event string) bool {
 }
 
 func workflowHasUntrustedEvent(workflow githubWorkflowModel) bool {
-	for _, event := range []string{"pull_request", "pull_request_target", "issue_comment", "workflow_run"} {
+	for _, event := range []string{"pull_request", "pull_request_target", "issues", "issue_comment", "workflow_run"} {
 		if workflowHasEvent(workflow, event) {
 			return true
 		}
@@ -743,6 +743,7 @@ func workflowUntrustedPRCodeTokens(value string) []string {
 		"github.event.pull_request.head.repo.full_name",
 		"github.head_ref",
 		"github.event.issue.title",
+		"github.event.issue.body",
 		"github.event.comment.body",
 	} {
 		if strings.Contains(lower, token) {
@@ -763,6 +764,7 @@ func workflowUserControlledTokens(value string) []string {
 		"github.event.pull_request.head.repo.full_name",
 		"github.head_ref",
 		"github.event.issue.title",
+		"github.event.issue.body",
 		"github.event.comment.body",
 	} {
 		if strings.Contains(lower, token) {

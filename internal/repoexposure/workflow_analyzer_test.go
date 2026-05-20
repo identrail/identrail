@@ -131,6 +131,27 @@ jobs:
 	})
 }
 
+func TestGitHubWorkflowAnalyzerDetectsBracketSecretExpression(t *testing.T) {
+	content := []byte(`name: bracket-secret-pr-target
+on: pull_request_target
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./scripts/publish.sh
+        env:
+          TOKEN: ${{ secrets['release-token'] }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/bracket-secret.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_pull_request_target",
+		"workflow_pull_request_target_privileged_context",
+	})
+}
+
 func TestGitHubWorkflowAnalyzerKeepsHardenedPullRequestTargetShallow(t *testing.T) {
 	content := []byte(`name: safe-labeler
 on:
@@ -202,6 +223,29 @@ jobs:
 	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/push.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
 	if containsDetector(findings, "workflow_shell_injection_user_context") {
 		t.Fatalf("expected trusted push event not to emit shell injection finding, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerTreatsIssuesEventBodyAsUntrusted(t *testing.T) {
+	content := []byte(`name: issue-triage
+on: issues
+permissions:
+  contents: read
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.issue.body }}"
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/issues.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_shell_injection_user_context",
+	})
+
+	injection := firstDetectorFinding(t, findings, "workflow_shell_injection_user_context")
+	if tokens, _ := injection.Evidence["untrusted_context"].([]string); len(tokens) == 0 || tokens[0] != "github.event.issue.body" {
+		t.Fatalf("expected issue body evidence, got %+v", injection.Evidence)
 	}
 }
 
