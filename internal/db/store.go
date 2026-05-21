@@ -2255,6 +2255,45 @@ func NormalizeFindingTriage(triage domain.FindingTriage, now time.Time) domain.F
 	return normalized
 }
 
+func applyRepoFindingLifecycleSnapshot(finding *domain.Finding, snapshot domain.Finding, observedAt time.Time) domain.RepoFindingLifecycleStatus {
+	if finding == nil {
+		return domain.RepoFindingLifecycleOpen
+	}
+	switch snapshot.LifecycleStatus {
+	case domain.RepoFindingLifecycleFixed:
+		reopenedAt := observedAt.UTC()
+		finding.ReopenedAt = &reopenedAt
+		return domain.RepoFindingLifecycleReopened
+	case domain.RepoFindingLifecycleSuppressed, domain.RepoFindingLifecycleRiskAccepted, domain.RepoFindingLifecycleFalsePositive:
+		if repoFindingDismissalExpired(snapshot, observedAt) {
+			reopenedAt := observedAt.UTC()
+			finding.ReopenedAt = &reopenedAt
+			finding.DismissedAt = nil
+			finding.SuppressionExpiresAt = nil
+			return domain.RepoFindingLifecycleReopened
+		}
+		finding.DismissedAt = cloneTimePointer(snapshot.DismissedAt)
+		finding.SuppressionExpiresAt = cloneTimePointer(snapshot.SuppressionExpiresAt)
+		return snapshot.LifecycleStatus
+	case domain.RepoFindingLifecycleReopened:
+		finding.ReopenedAt = cloneTimePointer(snapshot.ReopenedAt)
+		return domain.RepoFindingLifecycleReopened
+	default:
+		return domain.RepoFindingLifecycleOpen
+	}
+}
+
+func repoFindingDismissalExpired(snapshot domain.Finding, observedAt time.Time) bool {
+	if snapshot.SuppressionExpiresAt == nil || snapshot.SuppressionExpiresAt.IsZero() {
+		return false
+	}
+	evaluationTime := observedAt.UTC()
+	if evaluationTime.IsZero() {
+		evaluationTime = time.Now().UTC()
+	}
+	return !snapshot.SuppressionExpiresAt.After(evaluationTime)
+}
+
 // FindingMeta is the lightweight shape used for trend/diff set operations.
 type FindingMeta struct {
 	ID        string

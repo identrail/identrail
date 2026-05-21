@@ -549,6 +549,84 @@ func TestMemoryStoreListRepoFindingTrendCounts(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreUpsertRepoFindingsReopensExpiredSuppressionSnapshot(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	firstSeen := now.Add(-48 * time.Hour)
+	dismissedAt := now.Add(-36 * time.Hour)
+	expiredAt := now.Add(-24 * time.Hour)
+	lifecycleKey := "repo_finding\x1fowner/repo\x1fsecret_exposure\x1fgithub_token\x1fconfig/app.env\x1f7\x1fgithub token exposed"
+
+	previousScan, err := store.CreateRepoScan(ctx, "owner/repo", RepoScanSource{}, RepoScanContext{ScanMode: "deep"}, firstSeen)
+	if err != nil {
+		t.Fatalf("create previous repo scan: %v", err)
+	}
+	previousKey := previousScan.ID + "|rf-old"
+	store.mu.Lock()
+	store.repoFindings[previousKey] = domain.Finding{
+		ScanID:               previousScan.ID,
+		ID:                   "rf-old",
+		Type:                 domain.FindingSecretExposure,
+		Severity:             domain.SeverityHigh,
+		Title:                "GitHub token exposed",
+		HumanSummary:         "A token-like value was committed.",
+		Repository:           "owner/repo",
+		FilePath:             "config/app.env",
+		LineNumber:           7,
+		Detector:             "github_token",
+		LifecycleKey:         lifecycleKey,
+		LifecycleStatus:      domain.RepoFindingLifecycleSuppressed,
+		Owner:                "secops",
+		FirstSeenAt:          &firstSeen,
+		LastSeenAt:           &firstSeen,
+		DismissedAt:          &dismissedAt,
+		SuppressionExpiresAt: &expiredAt,
+		CreatedAt:            firstSeen,
+	}
+	store.repoFindingIDs[previousScan.ID] = []string{previousKey}
+	store.mu.Unlock()
+
+	nextScan, err := store.CreateRepoScan(ctx, "owner/repo", RepoScanSource{}, RepoScanContext{ScanMode: "deep"}, now)
+	if err != nil {
+		t.Fatalf("create next repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(ctx, nextScan.ID, []domain.Finding{{
+		ID:           "rf-new",
+		Type:         domain.FindingSecretExposure,
+		Severity:     domain.SeverityHigh,
+		Title:        "GitHub token exposed",
+		HumanSummary: "A token-like value was committed.",
+		Repository:   "owner/repo",
+		FilePath:     "config/app.env",
+		LineNumber:   7,
+		Detector:     "github_token",
+		CreatedAt:    now,
+	}}); err != nil {
+		t.Fatalf("upsert resurfaced repo finding: %v", err)
+	}
+
+	findings, err := store.ListRepoFindings(ctx, RepoFindingFilter{RepoScanID: nextScan.ID}, 10)
+	if err != nil {
+		t.Fatalf("list resurfaced repo finding: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected one resurfaced finding, got %+v", findings)
+	}
+	if findings[0].LifecycleStatus != domain.RepoFindingLifecycleReopened {
+		t.Fatalf("expected expired suppression to reopen, got %+v", findings[0])
+	}
+	if findings[0].ReopenedAt == nil || !findings[0].ReopenedAt.Equal(now) {
+		t.Fatalf("expected reopened_at to use current observation time, got %+v", findings[0].ReopenedAt)
+	}
+	if findings[0].SuppressionExpiresAt != nil || findings[0].DismissedAt != nil {
+		t.Fatalf("expected expired dismissal metadata to be cleared, got dismissed_at=%v suppression_expires_at=%v", findings[0].DismissedAt, findings[0].SuppressionExpiresAt)
+	}
+	if findings[0].FirstSeenAt == nil || !findings[0].FirstSeenAt.Equal(firstSeen) || findings[0].Owner != "secops" {
+		t.Fatalf("expected lifecycle history and owner to carry forward, got %+v", findings[0])
+	}
+}
+
 func TestMemoryStoreIdentityAndRelationshipFilters(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

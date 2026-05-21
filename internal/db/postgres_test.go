@@ -841,6 +841,81 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreUpsertRepoFindingsReopensExpiredSuppressionSnapshot(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	firstSeen := now.Add(-48 * time.Hour)
+	dismissedAt := now.Add(-36 * time.Hour)
+	expiredAt := now.Add(-24 * time.Hour)
+	scanID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(repoScanRows(scanID, "running", now, nil))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COALESCE\\(rf.first_seen_at").
+		WithArgs("default", "default", "owner/repo", sqlmock.AnyArg(), scanID).
+		WillReturnRows(sqlmock.NewRows([]string{"first_seen_at", "lifecycle_status", "fixed_at", "reopened_at", "dismissed_at", "suppression_expires_at", "owner"}).
+			AddRow(firstSeen, string(domain.RepoFindingLifecycleSuppressed), nil, nil, dismissedAt, expiredAt, "secops"))
+	mock.ExpectExec("INSERT INTO repo_findings").
+		WithArgs(
+			scanID,
+			"rf-new",
+			sqlmock.AnyArg(),
+			string(domain.FindingSecretExposure),
+			string(domain.SeverityHigh),
+			"GitHub token exposed",
+			"A token-like value was committed.",
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			"Rotate the token.",
+			now,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			nil,
+			sqlmock.AnyArg(),
+			nil,
+			nil,
+			string(domain.RepoFindingLifecycleReopened),
+			"secops",
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			"deep",
+			nil,
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	if err := store.UpsertRepoFindings(defaultScopeContext(), scanID, []domain.Finding{{
+		ID:           "rf-new",
+		Type:         domain.FindingSecretExposure,
+		Severity:     domain.SeverityHigh,
+		Title:        "GitHub token exposed",
+		HumanSummary: "A token-like value was committed.",
+		Repository:   "owner/repo",
+		FilePath:     "config/app.env",
+		LineNumber:   7,
+		Detector:     "github_token",
+		Remediation:  "Rotate the token.",
+		CreatedAt:    now,
+	}}); err != nil {
+		t.Fatalf("upsert resurfaced repo finding: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreUpsertRepoFindingsRejectsTerminalScan(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

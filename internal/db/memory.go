@@ -2461,21 +2461,7 @@ func (m *MemoryStore) applyRepoFindingLifecycleLocked(scope Scope, repoScan Repo
 		} else if !previous.CreatedAt.IsZero() {
 			firstSeen = previous.CreatedAt.UTC()
 		}
-		switch previous.LifecycleStatus {
-		case domain.RepoFindingLifecycleFixed:
-			status = domain.RepoFindingLifecycleReopened
-			reopenedAt := observedAt.UTC()
-			finding.ReopenedAt = &reopenedAt
-		case domain.RepoFindingLifecycleSuppressed, domain.RepoFindingLifecycleRiskAccepted, domain.RepoFindingLifecycleFalsePositive:
-			status = previous.LifecycleStatus
-			finding.DismissedAt = cloneTimePointer(previous.DismissedAt)
-			finding.SuppressionExpiresAt = cloneTimePointer(previous.SuppressionExpiresAt)
-		case domain.RepoFindingLifecycleReopened:
-			status = domain.RepoFindingLifecycleReopened
-			finding.ReopenedAt = cloneTimePointer(previous.ReopenedAt)
-		default:
-			status = domain.RepoFindingLifecycleOpen
-		}
+		status = applyRepoFindingLifecycleSnapshot(finding, previous, observedAt)
 		if finding.Owner == "" {
 			finding.Owner = previous.Owner
 		}

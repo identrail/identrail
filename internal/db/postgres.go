@@ -3362,21 +3362,7 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 			if snapshot.FirstSeenAt != nil && !snapshot.FirstSeenAt.IsZero() {
 				firstSeenAt = snapshot.FirstSeenAt.UTC()
 			}
-			switch snapshot.LifecycleStatus {
-			case domain.RepoFindingLifecycleFixed:
-				status = domain.RepoFindingLifecycleReopened
-				reopenedAt := createdAt.UTC()
-				finding.ReopenedAt = &reopenedAt
-			case domain.RepoFindingLifecycleSuppressed, domain.RepoFindingLifecycleRiskAccepted, domain.RepoFindingLifecycleFalsePositive:
-				status = snapshot.LifecycleStatus
-				finding.DismissedAt = cloneTimePointer(snapshot.DismissedAt)
-				finding.SuppressionExpiresAt = cloneTimePointer(snapshot.SuppressionExpiresAt)
-			case domain.RepoFindingLifecycleReopened:
-				status = domain.RepoFindingLifecycleReopened
-				finding.ReopenedAt = cloneTimePointer(snapshot.ReopenedAt)
-			default:
-				status = domain.RepoFindingLifecycleOpen
-			}
+			status = applyRepoFindingLifecycleSnapshot(&finding, snapshot, createdAt)
 			if finding.Owner == "" {
 				finding.Owner = snapshot.Owner
 			}
