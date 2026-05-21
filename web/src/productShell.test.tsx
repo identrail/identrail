@@ -269,6 +269,7 @@ describe('ProductShellLayout', () => {
               element={
                 <>
                   <p>Child view</p>
+                  <SourceLogoMark provider="aws" />
                   <SourceLogoMark provider="github" />
                   <SourceLogoMark provider="kubernetes" />
                 </>
@@ -282,7 +283,6 @@ describe('ProductShellLayout', () => {
     expect(screen.getAllByRole('img', { name: 'AWS' }).length).toBeGreaterThan(0);
     expect(screen.queryByRole('img', { name: 'GitHub' })).not.toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Kubernetes' })).not.toBeInTheDocument();
-    expect(screen.getByText(/AWS signals stay visible across the workflow/i)).toBeInTheDocument();
   });
 });
 

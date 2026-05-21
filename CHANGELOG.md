@@ -6,6 +6,9 @@
   state, owner and detector metadata, list filters for lifecycle, ownership,
   confidence, and age, plus dashboard summary metrics for open, fixed,
   reopened, SLA-aged, and MTTR-ready repository risk.
+- Replaced public demo calendar placeholders with the first-party demo booking
+  form, including preferred day/time capture in lead delivery emails and
+  clearer dark-page contrast for the demo booking and evidence panels.
 - Added repository finding remediation previews. Repo misconfiguration findings
   now map to detector-specific remediation guidance and safe fix-PR plans for
   deterministic patches, while secret findings return rotation guidance only so

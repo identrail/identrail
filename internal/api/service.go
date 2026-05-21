@@ -2660,7 +2660,9 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 		changed = true
 	}
 	comment := strings.TrimSpace(request.Comment)
-	if nextState.Status == domain.FindingLifecycleSuppressed && comment == "" {
+	suppressionRequested := request.Status != nil && nextState.Status == domain.FindingLifecycleSuppressed
+	enteringSuppression := currentState.Status != domain.FindingLifecycleSuppressed && nextState.Status == domain.FindingLifecycleSuppressed
+	if (suppressionRequested || enteringSuppression) && comment == "" {
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}
 	if nextState.Status == domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt != nil && !nextState.SuppressionExpiresAt.After(now) {

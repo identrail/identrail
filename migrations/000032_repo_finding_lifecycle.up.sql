@@ -57,7 +57,7 @@ SET
     first_seen_at = COALESCE(rf.first_seen_at, rf.created_at),
     last_seen_at = COALESCE(rf.last_seen_at, rf.created_at),
     lifecycle_status = bf.lifecycle_status_key,
-    owner = COALESCE(NULLIF(rf.owner, ''), NULLIF(rf.evidence->>'owner', ''), NULLIF(rf.evidence->>'owner_hint', ''), NULLIF(rf.evidence->>'owner_team', ''), NULLIF(rf.evidence->>'assignee', '')),
+    owner = COALESCE(NULLIF(rf.owner, ''), NULLIF(rf.evidence->>'owner', ''), NULLIF(rf.evidence->>'owner_hint', ''), NULLIF(rf.evidence->>'owner_team', ''), NULLIF(rf.evidence->>'codeowners', ''), NULLIF(rf.evidence->>'assignee', '')),
     rule_version = COALESCE(NULLIF(rf.rule_version, ''), NULLIF(rf.evidence->>'rule_version', '')),
     detector_version = COALESCE(NULLIF(rf.detector_version, ''), NULLIF(rf.evidence->>'detector_version', '')),
     adapter_source = COALESCE(NULLIF(rf.adapter_source, ''), NULLIF(rf.evidence->>'adapter_source', '')),

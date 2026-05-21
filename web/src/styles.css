@@ -937,7 +937,7 @@ h3 {
 .idt-lead-form,
 .idt-demo-sidebar,
 .idt-demo-graph,
-.idt-calendly,
+.idt-booking-prompt,
 .idt-roi {
   border: 1px solid var(--idt-line);
   border-radius: var(--idt-radius);
@@ -1589,11 +1589,11 @@ h3 {
   font-size: 0.82rem;
 }
 
-.idt-calendly {
+.idt-booking-prompt {
   padding: 1rem;
 }
 
-.idt-calendly iframe {
+.idt-booking-prompt iframe {
   width: 100%;
   min-height: 680px;
   border-radius: 12px;
@@ -3505,7 +3505,7 @@ html[data-theme='light'] .idt-footer-trust-links a {
     text-align: left;
   }
 
-  .idt-calendly iframe {
+  .idt-booking-prompt iframe {
     min-height: 520px;
   }
 }
@@ -3958,31 +3958,31 @@ html[data-theme='light'] .idt-hero-layer-dots button.is-active {
 }
 
 /* PR: light-mode legibility + link clarity + resilient booking panel */
-.idt-calendly {
+.idt-booking-prompt {
   display: grid;
   gap: 0.95rem;
 }
 
-.idt-calendly-shell {
+.idt-booking-prompt-shell {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   gap: 0.95rem;
 }
 
-.idt-calendly-card,
-.idt-calendly-preview {
+.idt-booking-prompt-card,
+.idt-booking-prompt-preview {
   border: 1px solid rgba(164, 183, 218, 0.24);
   border-radius: 14px;
   background: linear-gradient(160deg, rgba(9, 14, 22, 0.9), rgba(7, 11, 18, 0.93));
   padding: 1rem;
 }
 
-.idt-calendly-note {
+.idt-booking-prompt-note {
   margin: 0;
   color: #c7d5eb;
 }
 
-.idt-calendly-checklist {
+.idt-booking-prompt-checklist {
   margin: 0.8rem 0 0;
   padding-left: 1.05rem;
   display: grid;
@@ -3990,11 +3990,11 @@ html[data-theme='light'] .idt-hero-layer-dots button.is-active {
   color: #d9e5f8;
 }
 
-.idt-calendly-preview .idt-eyebrow {
+.idt-booking-prompt-preview .idt-eyebrow {
   margin-bottom: 0.7rem;
 }
 
-.idt-calendly-preview ol {
+.idt-booking-prompt-preview ol {
   margin: 0;
   padding-left: 1.05rem;
   display: grid;
@@ -4002,14 +4002,14 @@ html[data-theme='light'] .idt-hero-layer-dots button.is-active {
   color: #d1def4;
 }
 
-.idt-calendly-slot-row {
+.idt-booking-prompt-slot-row {
   margin-top: 0.8rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
 }
 
-.idt-calendly-slot-row span {
+.idt-booking-prompt-slot-row span {
   border: 1px solid rgba(161, 181, 217, 0.36);
   border-radius: 999px;
   background: rgba(16, 25, 41, 0.64);
@@ -4129,38 +4129,38 @@ html[data-theme='light'] .idt-demo-edge-tracer {
   filter: none;
 }
 
-html[data-theme='light'] .idt-calendly-card,
-html[data-theme='light'] .idt-calendly-preview {
+html[data-theme='light'] .idt-booking-prompt-card,
+html[data-theme='light'] .idt-booking-prompt-preview {
   background: linear-gradient(160deg, rgba(252, 254, 255, 0.98), rgba(243, 249, 255, 0.96));
   border-color: rgba(20, 40, 72, 0.16);
   box-shadow: 0 12px 26px rgba(32, 54, 93, 0.1);
 }
 
-html[data-theme='light'] .idt-calendly {
+html[data-theme='light'] .idt-booking-prompt {
   background: linear-gradient(156deg, rgba(248, 252, 255, 0.98), rgba(237, 245, 255, 0.96));
   border-color: rgba(22, 40, 71, 0.16);
   box-shadow: 0 14px 28px rgba(30, 52, 91, 0.12);
 }
 
-html[data-theme='light'] .idt-calendly .idt-section-title .idt-eyebrow {
+html[data-theme='light'] .idt-booking-prompt .idt-section-title .idt-eyebrow {
   color: #5d79a4;
 }
 
-html[data-theme='light'] .idt-calendly .idt-section-title h2 {
+html[data-theme='light'] .idt-booking-prompt .idt-section-title h2 {
   color: #183056;
 }
 
-html[data-theme='light'] .idt-calendly .idt-section-title p {
+html[data-theme='light'] .idt-booking-prompt .idt-section-title p {
   color: #2f486f;
 }
 
-html[data-theme='light'] .idt-calendly-note,
-html[data-theme='light'] .idt-calendly-checklist,
-html[data-theme='light'] .idt-calendly-preview ol {
+html[data-theme='light'] .idt-booking-prompt-note,
+html[data-theme='light'] .idt-booking-prompt-checklist,
+html[data-theme='light'] .idt-booking-prompt-preview ol {
   color: #2f486f;
 }
 
-html[data-theme='light'] .idt-calendly-slot-row span {
+html[data-theme='light'] .idt-booking-prompt-slot-row span {
   border-color: rgba(30, 56, 102, 0.25);
   background: rgba(234, 243, 255, 0.92);
   color: #233d66;
@@ -4174,7 +4174,7 @@ html[data-theme='light'] .idt-header-utility {
 }
 
 @media (max-width: 1080px) {
-  .idt-calendly-shell {
+  .idt-booking-prompt-shell {
     grid-template-columns: 1fr;
   }
 }
@@ -17921,7 +17921,7 @@ html[data-theme='light'] .idt-docs-preview-shell code {
   color: #fbbf24;
 }
 
-.idt-calendly-card .idt-inline-actions {
+.idt-booking-prompt-card .idt-inline-actions {
   margin-top: clamp(2rem, 4vw, 3.2rem);
 }
 
@@ -18608,9 +18608,18 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 1rem;
   padding: 1rem;
-  overflow-y: auto;
+  /* Sidebar must allow overflow so flyout menus (workspace switcher / account
+   * menu) can render outside the rail in collapsed mode without being clipped
+   * by an overflow:auto scroll container. The inner nav handles its own
+   * vertical scroll when there are more nav items than fit. */
+  overflow: visible;
   border-right: 1px solid var(--app-border);
   background: #050506;
+}
+
+.idt-app-console-layout .idt-app-shell-nav {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .idt-app-sidebar-brand {
@@ -20812,6 +20821,7 @@ html[data-theme='light'] .idt-demo-booking-section {
   gap: 1px;
   align-items: stretch;
   background: #242424;
+  scroll-margin-top: 7.5rem;
 }
 
 .idt-demo-booking-section > .idt-lead-form,
@@ -20821,6 +20831,34 @@ html[data-theme='light'] .idt-demo-agenda-panel {
   border: 0;
   border-radius: 0;
   background: #080808;
+}
+
+#book-demo {
+  scroll-margin-top: 7.5rem;
+}
+
+.idt-demo-page .idt-demo-booking-section > .idt-lead-form h3,
+html[data-theme='light'] .idt-demo-page .idt-demo-booking-section > .idt-lead-form h3 {
+  color: #ffffff;
+}
+
+.idt-demo-page .idt-demo-booking-section > .idt-lead-form p,
+.idt-demo-page .idt-demo-booking-section > .idt-lead-form .idt-form-note,
+.idt-demo-page .idt-demo-booking-section > .idt-lead-form .idt-form-trust-note,
+html[data-theme='light'] .idt-demo-page .idt-demo-booking-section > .idt-lead-form p,
+html[data-theme='light'] .idt-demo-page .idt-demo-booking-section > .idt-lead-form .idt-form-note,
+html[data-theme='light'] .idt-demo-page .idt-demo-booking-section > .idt-lead-form .idt-form-trust-note {
+  color: #c7c7cf;
+}
+
+.idt-demo-page .idt-demo-booking-section > .idt-lead-form .idt-form-grid label,
+html[data-theme='light'] .idt-demo-page .idt-demo-booking-section > .idt-lead-form .idt-form-grid label {
+  color: #d9d9df;
+}
+
+.idt-demo-page .idt-demo-booking-section > .idt-lead-form input::placeholder,
+html[data-theme='light'] .idt-demo-page .idt-demo-booking-section > .idt-lead-form input::placeholder {
+  color: #9f9fa8;
 }
 
 .idt-demo-agenda-panel {
@@ -20891,6 +20929,23 @@ html[data-theme='light'] .idt-demo-graph-preview .idt-section-title h2,
 .idt-demo-choice-band h2,
 html[data-theme='light'] .idt-demo-choice-band h2 {
   color: #ffffff;
+}
+
+.idt-demo-page .idt-demo-evidence,
+html[data-theme='light'] .idt-demo-page .idt-demo-evidence {
+  border-color: #303030;
+  background: #111111;
+  color: #f4f4f5;
+}
+
+.idt-demo-page .idt-demo-evidence strong,
+html[data-theme='light'] .idt-demo-page .idt-demo-evidence strong {
+  color: #ffffff;
+}
+
+.idt-demo-page .idt-demo-evidence p,
+html[data-theme='light'] .idt-demo-page .idt-demo-evidence p {
+  color: #d4d4d8;
 }
 
 .idt-demo-choice-band,
@@ -21206,4 +21261,1073 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   html[data-theme='light'] .idt-book-demo-preview-path i {
     display: none;
   }
+}
+/* === Workspace shell redesign === */
+
+.idt-app-console-layout {
+  grid-template-columns: 15.5rem minmax(0, 1fr);
+  transition: grid-template-columns 0.2s ease;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed {
+  grid-template-columns: 3.75rem minmax(0, 1fr);
+}
+
+.idt-app-console-layout .idt-app-sidebar {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  padding: 0.85rem 0.65rem 0.85rem 0.65rem;
+}
+
+.idt-app-console-layout .idt-app-sidebar-brand {
+  padding: 0.25rem 0.35rem;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-app-sidebar-brand-copy {
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-app-sidebar-brand-copy strong {
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+
+.idt-app-console-layout .idt-app-sidebar-brand-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9b9ba6;
+  font-size: 0.78rem;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-brand-copy,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find-label,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find-key,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-label,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account-name,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account-caret {
+  display: none;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find {
+  justify-content: center;
+  padding: 0.55rem 0;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a {
+  justify-content: center;
+  padding: 0.55rem 0;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account-trigger {
+  justify-content: center;
+  padding: 0.4rem 0;
+}
+
+.idt-app-console-layout .idt-app-quick-find {
+  border-radius: 7px;
+  padding: 0.48rem 0.6rem;
+  gap: 0.55rem;
+  font-weight: 600;
+  background: transparent;
+  border-color: var(--app-border-soft);
+  color: #d4d4dc;
+}
+
+.idt-app-console-layout .idt-app-quick-find-icon {
+  display: inline-flex;
+  color: #85858f;
+}
+
+.idt-app-console-layout .idt-app-quick-find-label {
+  flex: 1 1 auto;
+  font-size: 0.86rem;
+  color: #d4d4dc;
+}
+
+.idt-app-console-layout .idt-app-quick-find-key {
+  min-width: auto;
+  padding: 0.08rem 0.3rem;
+  background: transparent;
+  border-color: var(--app-border-soft);
+  color: #85858f;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.idt-app-console-layout .idt-app-quick-find:hover,
+.idt-app-console-layout .idt-app-quick-find:focus-visible {
+  border-color: var(--app-border);
+  background: #0d0d10;
+}
+
+.idt-app-console-layout .idt-app-shell-nav {
+  gap: 0.1rem;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.15rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 7px;
+  border-color: transparent;
+  background: transparent;
+  color: #a3a3ac;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a:hover,
+.idt-app-console-layout .idt-app-shell-nav a:focus-visible {
+  background: #131318;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a.active {
+  background: #1c1c22;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.idt-app-console-layout .idt-app-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  color: #85858f;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon,
+.idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon,
+.idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idt-app-console-layout .idt-app-sidebar-footer {
+  align-self: end;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-top: 1px solid var(--app-border-soft);
+  padding-top: 0.6rem;
+}
+
+.idt-app-sidebar-account {
+  position: relative;
+}
+
+.idt-app-console-layout .idt-app-sidebar-account-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-app-sidebar-account-trigger:hover,
+.idt-app-console-layout .idt-app-sidebar-account-trigger:focus-visible,
+.idt-app-console-layout .idt-app-sidebar-account-trigger[aria-expanded='true'] {
+  background: #131318;
+  border-color: var(--app-border-soft);
+  outline: none;
+}
+
+.idt-app-console-layout .idt-app-sidebar-account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: #1f1f26;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.idt-app-console-layout .idt-app-sidebar-account-name {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.idt-app-console-layout .idt-app-sidebar-account-name strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.idt-app-console-layout .idt-app-sidebar-account-name span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #85858f;
+  font-size: 0.74rem;
+}
+
+.idt-app-console-layout .idt-app-sidebar-account-caret {
+  color: #85858f;
+  flex: 0 0 auto;
+}
+
+.idt-app-sidebar-account-menu {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.4rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #0d0d10;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account-menu {
+  left: calc(100% + 0.4rem);
+  right: auto;
+  bottom: 0;
+  width: 12rem;
+}
+
+.idt-app-sidebar-account-meta {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.45rem 0.5rem 0.55rem;
+  border-bottom: 1px solid var(--app-border-soft);
+  margin-bottom: 0.25rem;
+}
+
+.idt-app-sidebar-account-meta strong {
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.idt-app-sidebar-account-meta span {
+  color: #85858f;
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idt-app-sidebar-account-menu a,
+.idt-app-sidebar-account-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.42rem 0.55rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #d4d4dc;
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.idt-app-sidebar-account-menu a:hover,
+.idt-app-sidebar-account-menu a:focus-visible,
+.idt-app-sidebar-account-menu button:hover,
+.idt-app-sidebar-account-menu button:focus-visible {
+  background: #1c1c22;
+  color: #ffffff;
+  outline: none;
+}
+
+.idt-app-console-layout .idt-app-sidebar-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #85858f;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-collapse {
+  margin-left: 0;
+  align-self: center;
+  justify-self: center;
+}
+
+.idt-app-console-layout .idt-app-sidebar-collapse:hover,
+.idt-app-console-layout .idt-app-sidebar-collapse:focus-visible {
+  background: #131318;
+  color: #ffffff;
+  border-color: var(--app-border-soft);
+  outline: none;
+}
+
+/* Console main area */
+
+.idt-app-console-layout .idt-app-console {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.idt-app-console-layout .idt-app-shell-main {
+  padding: 1.75rem clamp(1.25rem, 4vw, 2.75rem) 3.5rem;
+}
+
+/* Overview panel polish */
+
+.idt-app-console-layout .idt-overview-page {
+  background: transparent;
+  border: none;
+  padding: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.idt-app-console-layout .idt-overview-header {
+  align-items: center;
+  padding: 0 0 0.25rem;
+}
+
+.idt-app-console-layout .idt-overview-header h2 {
+  margin: 0;
+  font-family: var(--idt-display);
+  font-size: clamp(1.55rem, 2vw, 1.95rem);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: #ffffff;
+  line-height: 1.1;
+}
+
+.idt-app-console-layout .idt-overview-header p {
+  margin: 0.35rem 0 0;
+  color: var(--app-muted);
+  font-size: 0.92rem;
+}
+
+.idt-app-console-layout .idt-overview-checklist {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.05rem 1.1rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #0c0c0f 0%, #08080a 100%);
+}
+
+.idt-app-console-layout .idt-overview-checklist header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.idt-app-console-layout .idt-overview-checklist header h3 {
+  margin: 0;
+  font-family: var(--idt-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.005em;
+}
+
+.idt-app-console-layout .idt-overview-checklist header p {
+  margin: 0;
+  color: var(--app-dim);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.idt-app-console-layout .idt-overview-checklist ol {
+  display: grid;
+  gap: 0.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.idt-app-console-layout .idt-overview-checklist li {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.55rem 0.4rem;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-overview-checklist li:hover {
+  background: #0e0e11;
+  border-color: var(--app-border-soft);
+}
+
+.idt-overview-checklist-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  color: transparent;
+}
+
+.idt-app-console-layout .idt-overview-checklist li[data-complete='true'] .idt-overview-checklist-mark {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #000000;
+}
+
+.idt-overview-checklist-body {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.idt-overview-checklist-body strong {
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.idt-overview-checklist-body span {
+  color: var(--app-dim);
+  font-size: 0.82rem;
+}
+
+.idt-app-console-layout .idt-overview-checklist li[data-complete='true'] .idt-overview-checklist-body strong {
+  color: var(--app-muted);
+  text-decoration: line-through;
+  text-decoration-color: #4a4a52;
+}
+
+.idt-app-console-layout .idt-overview-checklist-action {
+  padding: 0.32rem 0.65rem;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: #0d0d10;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-overview-checklist-action:hover,
+.idt-app-console-layout .idt-overview-checklist-action:focus-visible {
+  background: #ffffff;
+  color: #000000;
+  border-color: #ffffff;
+}
+
+/* Metric cards */
+
+.idt-app-console-layout .idt-overview-metrics {
+  gap: 0.6rem;
+}
+
+.idt-app-console-layout .idt-overview-metrics article {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 10px;
+  background: #0a0a0c;
+}
+
+.idt-app-console-layout .idt-overview-metrics article.is-attention {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: linear-gradient(180deg, rgba(255, 107, 107, 0.05) 0%, #0a0a0c 100%);
+}
+
+.idt-app-console-layout .idt-overview-metric-label {
+  display: block;
+  margin: 0;
+  color: var(--app-dim);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idt-app-console-layout .idt-overview-metrics strong {
+  font-family: var(--idt-display);
+  font-size: 1.85rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1;
+}
+
+.idt-app-console-layout .idt-overview-metrics p {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.7rem;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span::before {
+  content: '';
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span.is-success {
+  color: #6ed29c;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span.is-error {
+  color: #ff8585;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span.is-warning {
+  color: #f0c66b;
+}
+
+/* Cards */
+
+.idt-app-console-layout .idt-overview-card {
+  border: 1px solid var(--app-border-soft);
+  background: #0a0a0c;
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  gap: 0.75rem;
+}
+
+.idt-app-console-layout .idt-overview-card-header {
+  align-items: baseline;
+}
+
+.idt-app-console-layout .idt-overview-card-header h3 {
+  margin: 0;
+  font-family: var(--idt-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-overview-card-header a {
+  color: var(--app-muted);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+.idt-app-console-layout .idt-overview-card-header a:hover,
+.idt-app-console-layout .idt-overview-card-header a:focus-visible {
+  color: #ffffff;
+  text-decoration: none;
+}
+
+/* Scan rows */
+
+.idt-app-console-layout .idt-overview-scan-row,
+.idt-app-console-layout .idt-overview-risk-row {
+  position: relative;
+  padding: 0.7rem 0.8rem 0.7rem 0.95rem;
+  background: transparent;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Status is communicated via the badge alone; the colored left stripe has been
+ * removed to avoid triple-encoding the same signal (badge + KPI dot + stripe). */
+
+.idt-app-console-layout .idt-overview-scan-row strong,
+.idt-app-console-layout .idt-overview-risk-row strong {
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.idt-app-console-layout .idt-overview-scan-row p,
+.idt-app-console-layout .idt-overview-risk-row p {
+  color: var(--app-muted);
+  font-size: 0.83rem;
+  margin-top: 0.15rem;
+}
+
+.idt-overview-scan-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idt-overview-scan-badge.is-error {
+  background: rgba(255, 107, 107, 0.12);
+  color: #ff8c8c;
+}
+
+.idt-overview-scan-badge.is-warning {
+  background: rgba(240, 198, 107, 0.12);
+  color: #f0c66b;
+}
+
+.idt-overview-scan-badge.is-success {
+  background: rgba(110, 210, 156, 0.12);
+  color: #6ed29c;
+}
+
+/* Projects */
+
+.idt-app-console-layout .idt-overview-projects a {
+  border-color: var(--app-border-soft);
+  background: #0a0a0c;
+  padding: 0.85rem 1rem;
+}
+
+.idt-app-console-layout .idt-overview-projects a:hover,
+.idt-app-console-layout .idt-overview-projects a:focus-visible {
+  border-color: var(--app-border);
+  background: #0d0d10;
+  transform: none;
+}
+
+.idt-app-console-layout .idt-overview-projects strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.idt-app-console-layout .idt-overview-projects span {
+  color: var(--app-muted);
+  font-size: 0.85rem;
+}
+
+.idt-app-console-layout .idt-overview-projects small {
+  color: var(--app-dim);
+  font-size: 0.78rem;
+}
+
+/* Hide legacy header that no longer renders */
+.idt-app-console-layout .idt-app-shell-header {
+  display: none;
+}
+
+/* Collapsed sidebar tweaks */
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar {
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-footer {
+  justify-items: center;
+}
+
+@media (max-width: 960px) {
+  .idt-app-console-layout {
+    grid-template-columns: 1fr;
+  }
+  .idt-app-console-layout .idt-app-sidebar {
+    position: relative;
+    height: auto;
+  }
+  .idt-app-console-layout.is-sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+  /* Section labels add no value in the horizontal mobile nav. */
+  .idt-app-console-layout .idt-app-nav-group-label {
+    display: none;
+  }
+  /* Collapsed mode is forced off on narrow viewports by JS (the rail becomes a
+   * top bar, where "collapsed" has no useful meaning). The toggle button is
+   * still rendered so a user who resizes back to desktop has an obvious path
+   * out of any previously-persisted collapsed preference. */
+}
+
+/* === Workspace overview polish (preview-driven) === */
+
+.idt-app-console-layout .idt-overview-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.idt-app-console-layout .idt-overview-checklist li[data-complete='true'] .idt-overview-checklist-body span {
+  color: #5a5a62;
+}
+
+/* Quieter empty-state inside cards */
+.idt-app-console-layout .idt-overview-card .idt-app-empty-state {
+  padding: 0.85rem 0;
+  gap: 0.35rem;
+}
+
+.idt-app-console-layout .idt-overview-card .idt-app-empty-state h3,
+.idt-app-console-layout .idt-overview-card .idt-app-empty-state h2 {
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.idt-app-console-layout .idt-overview-card .idt-app-empty-state p {
+  font-size: 0.85rem;
+}
+
+/* Slightly larger nav + quick-find icons */
+.idt-app-console-layout .idt-app-nav-icon svg,
+.idt-app-console-layout .idt-app-quick-find-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.idt-app-console-layout .idt-app-nav-icon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+/* Larger Overview heading */
+.idt-app-console-layout .idt-overview-header h2 {
+  font-size: clamp(1.85rem, 2.4vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Collapsed quick-find: visually match nav icons */
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find {
+  width: 2.15rem;
+  height: 2.15rem;
+  margin: 0 auto;
+  border-radius: 7px;
+  padding: 0;
+}
+
+/* === Workspace switcher, nav groups, a11y label rescue === */
+
+.idt-app-sidebar-workspace {
+  position: relative;
+}
+
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.4rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger:hover,
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger:focus-visible,
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger[aria-expanded='true'] {
+  background: #131318;
+  border-color: var(--app-border-soft);
+  outline: none;
+}
+
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark {
+  width: 1.7rem;
+  height: 1.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #ffffff;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.idt-app-sidebar-workspace-copy {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.idt-app-sidebar-workspace-copy strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.idt-app-sidebar-workspace-copy span {
+  display: block;
+  color: #85858f;
+  font-size: 0.74rem;
+}
+
+.idt-app-sidebar-workspace-caret {
+  color: #85858f;
+  flex: 0 0 auto;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-workspace-copy,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-workspace-caret {
+  display: none;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-workspace-trigger {
+  justify-content: center;
+  padding: 0.35rem 0;
+}
+
+.idt-app-sidebar-workspace-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.4rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #0d0d10;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-workspace-menu {
+  left: calc(100% + 0.4rem);
+  right: auto;
+  top: 0;
+  width: 13rem;
+}
+
+.idt-app-sidebar-workspace-meta {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.45rem 0.5rem 0.55rem;
+  border-bottom: 1px solid var(--app-border-soft);
+  margin-bottom: 0.25rem;
+}
+
+.idt-app-sidebar-workspace-meta-eyebrow {
+  color: #85858f;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idt-app-sidebar-workspace-meta strong {
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.idt-app-sidebar-workspace-menu a,
+.idt-app-sidebar-workspace-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.42rem 0.55rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #d4d4dc;
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.idt-app-sidebar-workspace-menu a:hover,
+.idt-app-sidebar-workspace-menu a:focus-visible,
+.idt-app-sidebar-workspace-menu button:hover,
+.idt-app-sidebar-workspace-menu button:focus-visible {
+  background: #1c1c22;
+  color: #ffffff;
+  outline: none;
+}
+
+/* Nav section labels */
+.idt-app-nav-group-label {
+  padding: 0.65rem 0.6rem 0.25rem;
+  color: #5a5a62;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-group-label {
+  display: none;
+}
+
+/* a11y: keep nav labels available to AT in collapsed mode */
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+  display: block;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find-label,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find-key,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account-name,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account-caret {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Overview header subtitle: small, muted */
+.idt-app-console-layout .idt-overview-header-sub {
+  margin: 0.4rem 0 0;
+  color: var(--app-dim);
+  font-size: 0.82rem;
+  letter-spacing: 0;
+}
+
+/* Checklist actions row */
+.idt-overview-checklist-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.idt-app-console-layout .idt-overview-checklist-skip {
+  padding: 0.32rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-dim);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.idt-app-console-layout .idt-overview-checklist-skip:hover,
+.idt-app-console-layout .idt-overview-checklist-skip:focus-visible {
+  background: #131318;
+  color: #ffffff;
+  outline: none;
+}
+
+/* Empty-state action button */
+.idt-app-console-layout .idt-app-empty-state {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.idt-app-console-layout .idt-app-empty-state-action {
+  margin-top: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.42rem 0.85rem;
+  border: 1px solid var(--app-border);
+  border-radius: 7px;
+  background: #0d0d10;
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-app-empty-state-action:hover,
+.idt-app-console-layout .idt-app-empty-state-action:focus-visible {
+  background: #ffffff;
+  color: #000000;
+  border-color: #ffffff;
+  outline: none;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span.is-muted {
+  color: var(--app-dim);
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span.is-muted::before {
+  background: transparent;
+  border: 1px solid currentColor;
+  width: 0.4rem;
+  height: 0.4rem;
 }

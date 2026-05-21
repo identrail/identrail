@@ -515,6 +515,8 @@ export type LeadCapturePayload = {
   company?: string;
   company_domain?: string;
   challenge?: string;
+  preferred_day?: string;
+  preferred_time?: string;
   identity_provider?: string;
   infrastructure_scope?: string;
   repository_url?: string;

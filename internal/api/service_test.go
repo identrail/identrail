@@ -1559,6 +1559,35 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 	if suppressedFinding.Triage.Status != domain.FindingLifecycleSuppressed || suppressedFinding.Triage.SuppressionExpiresAt != nil {
 		t.Fatalf("expected suppressed finding without expiry, got %+v", suppressedFinding.Triage)
 	}
+
+	nextAssignee := "platform"
+	updatedSuppressed, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{
+			Assignee: &nextAssignee,
+		},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("expected suppressed finding assignee update without new comment to pass: %v", err)
+	}
+	if updatedSuppressed.Triage.Status != domain.FindingLifecycleSuppressed || updatedSuppressed.Triage.Assignee != nextAssignee {
+		t.Fatalf("expected suppressed finding assignee update, got %+v", updatedSuppressed.Triage)
+	}
+
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{
+			Status: &suppressed,
+		},
+		"subject:user-1",
+	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
+		t.Fatalf("expected explicit suppression request without reason to fail, got %v", err)
+	}
 }
 
 func TestServiceExportAndImportFindingBaseline(t *testing.T) {
