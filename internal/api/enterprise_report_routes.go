@@ -202,7 +202,7 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 				return
 			}
 			repoFindings = enrichFindingsWithRepoContext(repoFindings)
-			repoFindings, err = svc.applyFindingTriageStates(wsCtx, repoFindings)
+			repoFindings, err = svc.applyRepoFindingTriageStates(wsCtx, repoFindings)
 			if err != nil {
 				if logger != nil {
 					logger.Error("hydrate repo finding triage for executive report", telemetry.ZapError(err))

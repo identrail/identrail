@@ -1075,6 +1075,12 @@ func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list second repo findings: %v", err)
 	}
+	if len(firstFindings) != 1 {
+		t.Fatalf("expected one row for first scan filter, got %+v", firstFindings)
+	}
+	if len(secondFindings) != 1 {
+		t.Fatalf("expected one row for second scan filter, got %+v", secondFindings)
+	}
 	findings := append(firstFindings, secondFindings...)
 
 	triageByScan := map[string]domain.FindingTriage{}
@@ -1101,6 +1107,36 @@ func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 	}
 	if len(filtered) != 1 || filtered[0].ScanID != firstScan.ID {
 		t.Fatalf("expected ack filter to return only first scan row, got %+v", filtered)
+	}
+
+	fixedByRepoStatus, err := svc.ListRepoFindings(
+		defaultScopeContext(),
+		10,
+		db.RepoFindingFilter{
+			RepoScanID: secondScan.ID,
+			Status:     string(domain.RepoFindingLifecycleFixed),
+		},
+	)
+	if err != nil {
+		t.Fatalf("list repo findings by repo lifecycle status: %v", err)
+	}
+	if len(fixedByRepoStatus) != 1 || fixedByRepoStatus[0].ScanID != secondScan.ID || fixedByRepoStatus[0].LifecycleStatus != domain.RepoFindingLifecycleFixed {
+		t.Fatalf("expected resolved triage to satisfy fixed repo lifecycle filter, got %+v", fixedByRepoStatus)
+	}
+
+	staleOpenByRepoStatus, err := svc.ListRepoFindings(
+		defaultScopeContext(),
+		10,
+		db.RepoFindingFilter{
+			RepoScanID: secondScan.ID,
+			Status:     string(domain.RepoFindingLifecycleOpen),
+		},
+	)
+	if err != nil {
+		t.Fatalf("list open repo findings by repo lifecycle status: %v", err)
+	}
+	if len(staleOpenByRepoStatus) != 0 {
+		t.Fatalf("expected resolved triage to be excluded from open repo lifecycle filter, got %+v", staleOpenByRepoStatus)
 	}
 
 	history, err := svc.ListFindingTriageHistory(defaultScopeContext(), "shared-id", secondScan.ID, 10)

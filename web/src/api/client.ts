@@ -1280,7 +1280,7 @@ export const apiClient = {
       repository?: string;
       severity?: string;
       type?: string;
-      status?: RepoFindingLifecycleStatus;
+      repo_lifecycle_status?: RepoFindingLifecycleStatus;
       detector?: string;
       owner?: string;
       confidence?: number;

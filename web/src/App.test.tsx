@@ -84,6 +84,7 @@ function leadCaptureCalls(fetchMock: ReturnType<typeof vi.fn>) {
 
 describe('App', () => {
   beforeEach(() => {
+    cleanup();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

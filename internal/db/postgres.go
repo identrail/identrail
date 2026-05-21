@@ -3100,7 +3100,13 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 	if err != nil {
 		return fmt.Errorf("marshal repo scan completion changed paths: %w", err)
 	}
-	result, err := p.execContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin complete repo scan transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE repo_scans
 		 SET status = $2,
@@ -3138,6 +3144,7 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 	}
 	if err := ensureRowsAffected(result); err != nil {
 		if errors.Is(err, ErrNotFound) {
+			_ = tx.Rollback()
 			_, getErr := p.GetRepoScan(ctx, repoScanID)
 			if getErr == nil {
 				return ErrConflict
@@ -3149,35 +3156,37 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		return err
 	}
 	if shouldCloseMissingRepoFindings(strings.TrimSpace(status), truncated, normalizedContext) {
-		record, getErr := p.GetRepoScan(ctx, repoScanID)
-		if getErr != nil {
-			return fmt.Errorf("load completed repo scan for lifecycle closure: %w", getErr)
-		}
-		if err := p.markMissingRepoFindingsFixed(ctx, scope, record, finishedAt.UTC()); err != nil {
+		if err := p.markMissingRepoFindingsFixed(ctx, tx, scope, repoScanID, finishedAt.UTC()); err != nil {
 			return err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit complete repo scan transaction: %w", err)
 	}
 	return nil
 }
 
-func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, scope Scope, repoScan RepoScanRecord, fixedAt time.Time) error {
-	_, err := p.execContext(
+func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, executor sqlExecutor, scope Scope, repoScanID string, fixedAt time.Time) error {
+	_, err := executor.ExecContext(
 		ctx,
 		`UPDATE repo_findings rf
 		 SET lifecycle_status = 'fixed',
 		     fixed_at = $1
-		 FROM repo_scans rs
+		 FROM repo_scans rs, repo_scans current_rs
 		 WHERE rf.repo_scan_id = rs.id
+		   AND current_rs.id = $4::uuid
+		   AND current_rs.tenant_id = $2
+		   AND current_rs.workspace_id = $3
 		   AND rs.tenant_id = $2
 		   AND rs.workspace_id = $3
-		   AND LOWER(rs.repository) = LOWER($4)
-		   AND rf.repo_scan_id <> $5::uuid
+		   AND LOWER(rs.repository) = LOWER(current_rs.repository)
+		   AND rf.repo_scan_id <> $4::uuid
 		   AND COALESCE(rf.lifecycle_key, '') <> ''
 		   AND COALESCE(rf.lifecycle_status, 'open') IN ('open', 'reopened')
 		   AND NOT EXISTS (
 		       SELECT 1
 		       FROM repo_findings current_rf
-		       WHERE current_rf.repo_scan_id = $5::uuid
+		       WHERE current_rf.repo_scan_id = $4::uuid
 		         AND COALESCE(current_rf.lifecycle_key, '') = COALESCE(rf.lifecycle_key, '')
 		   )
 		   AND NOT EXISTS (
@@ -3193,8 +3202,7 @@ func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, scope 
 		fixedAt.UTC(),
 		scope.TenantID,
 		scope.WorkspaceID,
-		strings.TrimSpace(repoScan.Repository),
-		repoScan.ID,
+		repoScanID,
 	)
 	if err != nil {
 		return fmt.Errorf("mark missing repo findings fixed: %w", err)
@@ -3652,9 +3660,6 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 		conditions = append(conditions, fmt.Sprintf("LOWER(%s) = LOWER(%s)", repositoryExpr, addArg(normalized.Repository)))
 	}
 	outerConditions := []string{"f.lifecycle_rank = 1"}
-	if normalized.Status != "" {
-		outerConditions = append(outerConditions, fmt.Sprintf("LOWER(f.lifecycle_status) = %s", addArg(normalized.Status)))
-	}
 	if normalized.Detector != "" {
 		outerConditions = append(outerConditions, fmt.Sprintf("LOWER(f.detector) = %s", addArg(normalized.Detector)))
 	}

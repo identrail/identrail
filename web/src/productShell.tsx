@@ -4623,9 +4623,8 @@ export function ProductFindingsPage() {
   const reopenedFindingCount =
     repoFindingSummary?.reopened_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'reopened').length;
   const slaAgedFindingCount = repoFindingSummary?.sla_aged_count ?? 0;
-  const mttrLabel = repoFindingSummary?.mean_time_to_resolve_seconds
-    ? formatExecutiveDuration(repoFindingSummary.mean_time_to_resolve_seconds)
-    : 'N/A';
+  const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
+  const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
 
   const averageConfidence = useMemo(() => {
     const findingsWithConfidence = filteredFindings.filter((finding) => Number.isFinite(finding.confidence_score ?? NaN));

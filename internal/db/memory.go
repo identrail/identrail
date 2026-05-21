@@ -2514,7 +2514,7 @@ func (m *MemoryStore) latestRepoFindingLifecycleLocked(scope Scope, repository s
 		if strings.TrimSpace(candidate.LifecycleKey) != lifecycleKey {
 			continue
 		}
-		if !found || repoFindingObservedAt(candidate).After(repoFindingObservedAt(latest)) {
+		if !found || repoFindingNewer(candidate, latest) {
 			latest = candidate
 			found = true
 		}
@@ -2571,9 +2571,6 @@ func (m *MemoryStore) markMissingRepoFindingsFixedLocked(scope Scope, repoScan R
 }
 
 func repoFindingMatchesFilter(finding domain.Finding, filter RepoFindingFilter) bool {
-	if filter.Status != "" && strings.ToLower(string(finding.LifecycleStatus)) != filter.Status {
-		return false
-	}
 	if filter.Detector != "" && strings.ToLower(strings.TrimSpace(finding.Detector)) != filter.Detector {
 		return false
 	}
@@ -2609,7 +2606,7 @@ func latestRepoFindingLifecycleRows(findings []domain.Finding) []domain.Finding 
 			latest[key] = finding
 			continue
 		}
-		if repoFindingObservedAt(finding).After(repoFindingObservedAt(existing)) {
+		if repoFindingNewer(finding, existing) {
 			latest[key] = finding
 		}
 	}
@@ -2624,6 +2621,20 @@ func latestRepoFindingLifecycleRows(findings []domain.Finding) []domain.Finding 
 
 func repoFindingObservedAt(finding domain.Finding) time.Time {
 	return timeValue(finding.LastSeenAt, finding.CreatedAt)
+}
+
+func repoFindingNewer(left domain.Finding, right domain.Finding) bool {
+	leftObserved := repoFindingObservedAt(left)
+	rightObserved := repoFindingObservedAt(right)
+	if !leftObserved.Equal(rightObserved) {
+		return leftObserved.After(rightObserved)
+	}
+	leftCreated := left.CreatedAt.UTC()
+	rightCreated := right.CreatedAt.UTC()
+	if !leftCreated.Equal(rightCreated) {
+		return leftCreated.After(rightCreated)
+	}
+	return compareMemoryString(left.ScanID+"|"+left.ID, right.ScanID+"|"+right.ID) > 0
 }
 
 func timeValue(value *time.Time, fallback time.Time) time.Time {

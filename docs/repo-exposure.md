@@ -96,7 +96,7 @@ they did not inspect the whole repository.
 
 Operational guidance:
 
-- Use `status=open&age_days=7&severity=high` to find high-risk findings that are aging beyond the default SLA window.
+- Use `repo_lifecycle_status=open&age_days=7&severity=high` to find high-risk findings that are aging beyond the default SLA window.
 - Use `owner=` and `detector=` filters to route queues to repository owners or detector specialists.
 - Treat `mean_time_to_resolve_seconds` as MTTR-ready only for findings with both `first_seen_at` and `fixed_at`.
 - Prefer suppression comments that explain the business reason; leave `suppression_expires_at` empty only for durable, reviewed exceptions.

@@ -900,7 +900,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 
 	filteredReq := httptest.NewRequest(
 		http.MethodGet,
-		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&status=open&detector=workflow_pull_request_target&owner=platform&confidence=0.9&age_days=7&lifecycle_status=ack&assignee=platform&limit=50",
+		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&repo_lifecycle_status=open&detector=workflow_pull_request_target&owner=platform&confidence=0.9&age_days=7&lifecycle_status=ack&assignee=platform&limit=50",
 		nil,
 	)
 	filteredW := httptest.NewRecorder()

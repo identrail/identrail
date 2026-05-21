@@ -719,6 +719,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("upsert repo findings failed: %v", err)
 	}
 
+	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE repo_scans
 		 SET status = $2,
 		     finished_at = $3,
@@ -737,12 +738,10 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		   AND status IN ('queued', 'running')`)).
 		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", "", "", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").
-		WithArgs(record.ID, "default", "default").
-		WillReturnRows(repoScanRows(record.ID, "completed", now, now))
 	mock.ExpectExec("UPDATE repo_findings rf").
-		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", record.ID).
+		WithArgs(sqlmock.AnyArg(), "default", "default", record.ID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
 
 	if err := store.CompleteRepoScan(defaultScopeContext(), record.ID, "completed", now, 12, 8, 1, false, RepoScanContext{}, ""); err != nil {
 		t.Fatalf("complete repo scan failed: %v", err)
@@ -1708,6 +1707,7 @@ func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.
 	scanID := "11111111-1111-1111-1111-111111111111"
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 
+	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE repo_scans
 		 SET status = $2,
 		     finished_at = $3,
@@ -1726,6 +1726,7 @@ func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.
 		   AND status IN ('queued', 'running')`)).
 		WithArgs(scanID, "completed", now, 4, 2, 1, false, "", "", "", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
 
 	rows := sqlmock.NewRows([]string{
 		"id",

@@ -1912,37 +1912,32 @@ func (s *Service) GetRepoScan(ctx context.Context, repoScanID string) (db.RepoSc
 func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.RepoFindingFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
 	normalized := db.NormalizeRepoFindingFilter(filter)
-	hasTriageFilter := normalized.LifecycleStatus != "" || normalized.Assignee != ""
+	storeFilter := normalized
+	storeFilter.Status = ""
+	hasPostTriageFilter := normalized.Status != "" || normalized.LifecycleStatus != "" || normalized.Assignee != ""
 	requestLimit := limit
 	if requestLimit <= 0 {
 		requestLimit = defaultFindingsLimit
 	}
 	repoLimit := requestLimit
-	if hasTriageFilter && repoLimit < repoFindingsTriageFilterStep {
+	if hasPostTriageFilter && repoLimit < repoFindingsTriageFilterStep {
 		repoLimit = repoFindingsTriageFilterStep
 	}
 
-	if hasTriageFilter {
-		return s.listRepoFindingsWithTriageFilter(ctx, repoLimit, requestLimit, normalized)
+	if hasPostTriageFilter {
+		return s.listRepoFindingsWithPostTriageFilter(ctx, repoLimit, requestLimit, storeFilter, normalized)
 	}
 
-	findings, err := s.Store.ListRepoFindings(ctx, normalized, repoLimit)
+	findings, err := s.Store.ListRepoFindings(ctx, storeFilter, repoLimit)
 	if err != nil {
 		return nil, err
 	}
 	findings = enrichFindingsWithRepoContext(findings)
-	withTriage, err := s.applyFindingTriageStates(ctx, findings)
+	withTriage, err := s.applyRepoFindingTriageStates(ctx, findings)
 	if err != nil {
 		return nil, err
 	}
-	if normalized.LifecycleStatus == "" && normalized.Assignee == "" {
-		return withTriage, nil
-	}
-	filtered := filterRepoFindingsByTriage(withTriage, normalized.LifecycleStatus, normalized.Assignee)
-	if len(filtered) > requestLimit {
-		filtered = filtered[:requestLimit]
-	}
-	return filtered, nil
+	return withTriage, nil
 }
 
 // GetRepoFindingsSummary returns lifecycle and ownership rollups for the
@@ -1950,39 +1945,42 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 func (s *Service) GetRepoFindingsSummary(ctx context.Context, filter db.RepoFindingFilter) (RepoFindingsSummary, error) {
 	ctx = s.scopeContext(ctx)
 	normalized := db.NormalizeRepoFindingFilter(filter)
-	findings, err := s.Store.ListRepoFindings(ctx, normalized, 0)
+	storeFilter := normalized
+	storeFilter.Status = ""
+	findings, err := s.Store.ListRepoFindings(ctx, storeFilter, 0)
 	if err != nil {
 		return RepoFindingsSummary{}, err
 	}
 	findings = enrichFindingsWithRepoContext(findings)
-	withTriage, err := s.applyFindingTriageStates(ctx, findings)
+	withTriage, err := s.applyRepoFindingTriageStates(ctx, findings)
 	if err != nil {
 		return RepoFindingsSummary{}, err
 	}
-	if normalized.LifecycleStatus != "" || normalized.Assignee != "" {
-		withTriage = filterRepoFindingsByTriage(withTriage, normalized.LifecycleStatus, normalized.Assignee)
+	if normalized.Status != "" || normalized.LifecycleStatus != "" || normalized.Assignee != "" {
+		withTriage = filterRepoFindingsByLifecycleAndTriage(withTriage, normalized.Status, normalized.LifecycleStatus, normalized.Assignee)
 	}
 	return summarizeRepoFindings(withTriage, s.Now().UTC()), nil
 }
 
-func (s *Service) listRepoFindingsWithTriageFilter(
+func (s *Service) listRepoFindingsWithPostTriageFilter(
 	ctx context.Context,
 	repoLimit int,
 	requestLimit int,
-	filter db.RepoFindingFilter,
+	storeFilter db.RepoFindingFilter,
+	postFilter db.RepoFindingFilter,
 ) ([]domain.Finding, error) {
 	for {
-		findings, err := s.Store.ListRepoFindings(ctx, filter, repoLimit)
+		findings, err := s.Store.ListRepoFindings(ctx, storeFilter, repoLimit)
 		if err != nil {
 			return nil, err
 		}
 
 		findings = enrichFindingsWithRepoContext(findings)
-		withTriage, err := s.applyFindingTriageStates(ctx, findings)
+		withTriage, err := s.applyRepoFindingTriageStates(ctx, findings)
 		if err != nil {
 			return nil, err
 		}
-		filtered := filterRepoFindingsByTriage(withTriage, filter.LifecycleStatus, filter.Assignee)
+		filtered := filterRepoFindingsByLifecycleAndTriage(withTriage, postFilter.Status, postFilter.LifecycleStatus, postFilter.Assignee)
 		if len(filtered) > requestLimit {
 			filtered = filtered[:requestLimit]
 		}
@@ -2492,27 +2490,39 @@ func (s *Service) GetFinding(ctx context.Context, findingID string, scanID strin
 	return withTriage[0], nil
 }
 
-func filterRepoFindingsByTriage(
+func filterRepoFindingsByLifecycleAndTriage(
 	findings []domain.Finding,
-	rawStatus string,
+	rawRepoStatus string,
+	rawTriageStatus string,
 	rawAssignee string,
 ) []domain.Finding {
-	statusFilter := domain.FindingLifecycleStatus(strings.ToLower(strings.TrimSpace(rawStatus)))
+	repoStatusFilter := domain.NormalizeRepoFindingLifecycleStatus(rawRepoStatus)
+	triageStatusFilter := domain.FindingLifecycleStatus(strings.ToLower(strings.TrimSpace(rawTriageStatus)))
 	assigneeFilter := strings.ToLower(strings.TrimSpace(rawAssignee))
-	if statusFilter == "" && assigneeFilter == "" {
+	if repoStatusFilter == "" && triageStatusFilter == "" && assigneeFilter == "" {
 		return findings
 	}
-	if statusFilter != "" && !isValidFindingLifecycleStatus(statusFilter) {
+	if strings.TrimSpace(rawRepoStatus) != "" && repoStatusFilter == "" {
+		return nil
+	}
+	if triageStatusFilter != "" && !isValidFindingLifecycleStatus(triageStatusFilter) {
 		return nil
 	}
 	filtered := make([]domain.Finding, 0, len(findings))
 	for _, finding := range findings {
+		repoStatus := finding.LifecycleStatus
+		if repoStatus == "" {
+			repoStatus = domain.RepoFindingLifecycleOpen
+		}
+		if repoStatusFilter != "" && repoStatus != repoStatusFilter {
+			continue
+		}
 		triage := finding.Triage
 		status := triage.Status
 		if !isValidFindingLifecycleStatus(status) {
 			status = domain.FindingLifecycleOpen
 		}
-		if statusFilter != "" && status != statusFilter {
+		if triageStatusFilter != "" && status != triageStatusFilter {
 			continue
 		}
 		if assigneeFilter != "" && strings.ToLower(strings.TrimSpace(triage.Assignee)) != assigneeFilter {
@@ -3315,10 +3325,20 @@ func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domai
 			}
 		}
 		finding.Triage = triage
-		domain.ApplyRepoFindingTriageToLifecycle(&finding)
 		result = append(result, finding)
 	}
 	return result, nil
+}
+
+func (s *Service) applyRepoFindingTriageStates(ctx context.Context, findings []domain.Finding) ([]domain.Finding, error) {
+	withTriage, err := s.applyFindingTriageStates(ctx, findings)
+	if err != nil {
+		return nil, err
+	}
+	for i := range withTriage {
+		domain.ApplyRepoFindingTriageToLifecycle(&withTriage[i])
+	}
+	return withTriage, nil
 }
 
 const repoFindingTriageStatePrefix = "repo-finding-triage"

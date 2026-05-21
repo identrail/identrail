@@ -3885,9 +3885,10 @@ paths:
           name: repository
           schema: { type: string }
         - in: query
-          name: status
+          name: repo_lifecycle_status
           schema:
             $ref: "#/components/schemas/RepoFindingLifecycleStatus"
+          description: Scanner-observed repository finding lifecycle status.
         - in: query
           name: severity
           schema:
@@ -3921,6 +3922,7 @@ paths:
           schema:
             type: string
             enum: [open, ack, suppressed, resolved]
+          description: Operator triage workflow status.
         - in: query
           name: assignee
           schema:
