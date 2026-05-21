@@ -1975,7 +1975,7 @@ export function ProductOverviewPage() {
         <header className="idt-overview-header">
           <div>
             <h2>Overview</h2>
-            <p className="idt-overview-header-sub">Last 7 days</p>
+            <p className="idt-overview-header-sub">Latest activity</p>
           </div>
         </header>
 
@@ -2037,7 +2037,7 @@ export function ProductOverviewPage() {
             <p>{urgentFindingCount > 0 ? `${urgentFindingCount} critical or high` : 'No critical or high open'}</p>
           </article>
           <article className={`idt-overview-metric-card${failedScanCount > 0 && succeededScanCount === 0 && repoScans.length > 0 ? ' is-attention' : ''}`}>
-            <span className="idt-overview-metric-label">Scans (7d)</span>
+            <span className="idt-overview-metric-label">Recent scans</span>
             <strong>{repoScans.length}</strong>
             <p className="idt-overview-metric-breakdown">
               {repoScans.length === 0 ? (
@@ -2047,6 +2047,9 @@ export function ProductOverviewPage() {
                   {succeededScanCount > 0 ? <span className="is-success">{succeededScanCount} succeeded</span> : null}
                   {failedScanCount > 0 ? <span className="is-error">{failedScanCount} failed</span> : null}
                   {activeScanCount > 0 ? <span className="is-warning">{activeScanCount} running</span> : null}
+                  {repoScans.length === OVERVIEW_SCAN_LIMIT ? (
+                    <span className="is-muted">last {OVERVIEW_SCAN_LIMIT}</span>
+                  ) : null}
                 </>
               )}
             </p>

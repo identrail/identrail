@@ -18608,9 +18608,18 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 1rem;
   padding: 1rem;
-  overflow-y: auto;
+  /* Sidebar must allow overflow so flyout menus (workspace switcher / account
+   * menu) can render outside the rail in collapsed mode without being clipped
+   * by an overflow:auto scroll container. The inner nav handles its own
+   * vertical scroll when there are more nav items than fit. */
+  overflow: visible;
   border-right: 1px solid var(--app-border);
   background: #050506;
+}
+
+.idt-app-console-layout .idt-app-shell-nav {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .idt-app-sidebar-brand {
@@ -22264,4 +22273,15 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   color: #000000;
   border-color: #ffffff;
   outline: none;
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span.is-muted {
+  color: var(--app-dim);
+}
+
+.idt-app-console-layout .idt-overview-metric-breakdown span.is-muted::before {
+  background: transparent;
+  border: 1px solid currentColor;
+  width: 0.4rem;
+  height: 0.4rem;
 }
