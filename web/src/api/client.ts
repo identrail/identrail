@@ -165,6 +165,62 @@ export type RepoFindingRemediationPreview = {
   fix_pr_plan?: FixPRPlan;
 };
 
+export type RepoRiskGraphNode = {
+  id: string;
+  kind: string;
+  label: string;
+  repository?: string;
+  evidence_state: 'known' | 'unknown';
+  evidence?: Record<string, unknown>;
+};
+
+export type RepoRiskGraphEdge = {
+  id: string;
+  kind: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_state: 'known' | 'unknown';
+  evidence?: Record<string, unknown>;
+};
+
+export type RepoRiskGraphScoreFactors = {
+  severity: number;
+  confidence: number;
+  exploitability: number;
+  privilege: number;
+  exposure: number;
+  environment_criticality: number;
+  freshness: number;
+};
+
+export type RepoRiskGraphFindingScore = {
+  finding_id: string;
+  finding_node_id: string;
+  score: number;
+  severity: string;
+  confidence: number;
+  factors: RepoRiskGraphScoreFactors;
+  unknowns: string[];
+};
+
+export type RepoRiskGraphSummary = {
+  finding_count: number;
+  node_count: number;
+  edge_count: number;
+  unknown_node_count: number;
+  unknown_edge_count: number;
+  high_risk_findings: number;
+  critical_findings: number;
+};
+
+export type RepoRiskGraph = {
+  repository: string;
+  nodes: RepoRiskGraphNode[];
+  edges: RepoRiskGraphEdge[];
+  scores: RepoRiskGraphFindingScore[];
+  summary: RepoRiskGraphSummary;
+};
+
 export type ScanRecord = {
   id: string;
   provider: string;
@@ -785,6 +841,37 @@ export type GitHubRepositoryListResponse = {
   repositories: GitHubRepositoryStatus[];
 };
 
+export type GitHubRepositoryPostureState = 'secure' | 'insecure' | 'unavailable' | 'permission_limited';
+
+export type GitHubRepositoryPostureCheck = {
+  id: string;
+  category: string;
+  state: GitHubRepositoryPostureState;
+  reason?: string;
+  summary: string;
+  evidence?: Record<string, unknown>;
+};
+
+export type GitHubRateLimitState = {
+  limit?: number;
+  remaining?: number;
+  reset_at?: string;
+};
+
+export type GitHubRepositoryPosture = {
+  repository: string;
+  installation_id?: number;
+  collected_at: string;
+  checks: GitHubRepositoryPostureCheck[];
+  rate_limit?: GitHubRateLimitState;
+};
+
+export type GitHubRepositoryPostureResponse = {
+  connector_id: string;
+  provider: string;
+  posture: GitHubRepositoryPosture;
+};
+
 export type GitHubConnectionCompleteRequest = {
   state: string;
   installation_id: number;
@@ -1301,6 +1388,18 @@ export const apiClient = {
       auth
     );
   },
+  getRepoRiskGraph(
+    filters: {
+      repo_scan_id?: string;
+      repository?: string;
+      default_branch?: string;
+      severity?: string;
+      type?: string;
+    } = {},
+    auth?: RequestAuthContext
+  ) {
+    return request<RepoRiskGraph>(`/v1/repo-risk-graph${buildQuery(filters)}`, auth);
+  },
   previewRepoFindingRemediation(
     findingID: string,
     payload: RepoFindingRemediationPreviewRequest = {},
@@ -1430,6 +1529,22 @@ export const apiClient = {
   listGitHubConnectorRepositories(connectorID: string, workspaceID: string, projectID: string, auth?: RequestAuthContext) {
     return request<GitHubRepositoryListResponse>(
       `/v1/connectors/github/${encodeURIComponent(connectorID)}/repos${buildQuery({ workspace_id: workspaceID, project_id: projectID })}`,
+      auth
+    );
+  },
+  getGitHubConnectorRepositoryPosture(
+    connectorID: string,
+    workspaceID: string,
+    projectID: string,
+    repository: string,
+    auth?: RequestAuthContext
+  ) {
+    return request<GitHubRepositoryPostureResponse>(
+      `/v1/connectors/github/${encodeURIComponent(connectorID)}/posture${buildQuery({
+        workspace_id: workspaceID,
+        project_id: projectID,
+        repository
+      })}`,
       auth
     );
   },
