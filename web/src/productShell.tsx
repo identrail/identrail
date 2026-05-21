@@ -1368,6 +1368,7 @@ export function ProductShellLayout() {
               className="idt-app-sidebar-workspace-trigger"
               aria-haspopup="menu"
               aria-expanded={workspaceMenuOpen}
+              aria-label={`Workspace: ${workspaceDisplayName}. Open switcher.`}
               onClick={() => setWorkspaceMenuOpen((value) => !value)}
               title={sidebarCollapsed ? workspaceDisplayName : undefined}
             >
@@ -1501,6 +1502,7 @@ export function ProductShellLayout() {
                 className="idt-app-sidebar-account-trigger"
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
+                aria-label={`Account menu for ${userDisplayName}`}
                 onClick={() => setAccountMenuOpen((current) => !current)}
                 title={sidebarCollapsed ? userDisplayName : undefined}
               >
@@ -1664,13 +1666,22 @@ function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
 }
 
 const INVITE_SKIPPED_STORAGE_KEY = 'idt:overview:invite-skipped';
+// Previous key that shipped briefly between the first two PR revisions. Kept so
+// any user who already clicked Invite (and persisted the old flag) does not see
+// the checklist regress.
+const INVITE_LEGACY_STORAGE_KEY = 'idt:overview:invite-dismissed';
 
 function readInviteSkipped(workspaceID: string | undefined): boolean {
   if (typeof window === 'undefined' || !workspaceID) {
     return false;
   }
   try {
-    return window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`) === '1';
+    const fresh = window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`);
+    if (fresh === '1') {
+      return true;
+    }
+    const legacy = window.localStorage.getItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
+    return legacy === '1';
   } catch {
     return false;
   }
@@ -1682,6 +1693,8 @@ function persistInviteSkipped(workspaceID: string | undefined): void {
   }
   try {
     window.localStorage.setItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`, '1');
+    // Migrate forward: drop the legacy flag so we don't leave stale state behind.
+    window.localStorage.removeItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
   } catch {
     // Storage failures are non-fatal.
   }
@@ -1818,10 +1831,11 @@ export function ProductOverviewPage() {
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const connectSourcesPath = scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath;
   const hasAnySuccessfulScan = succeededScanCount > 0;
-  const hasConnectedSource = activeProjects.some((project) => {
-    const desc = (project.description ?? '').toLowerCase();
-    return desc.includes('connector') || desc.includes('source') || desc.includes('github') || desc.includes('aws');
-  });
+  // A scan can only be queued or run if a connector is wired to the project, so
+  // "any scan attempt at all" is a sound proxy for "a source has been connected"
+  // without inferring from free-form project descriptions (which produced false
+  // positives when a project description simply mentioned a vendor name).
+  const hasConnectedSource = repoScans.length > 0;
   const onboardingChecklist: Array<{
     id: string;
     label: string;
@@ -1843,8 +1857,8 @@ export function ProductOverviewPage() {
       id: 'source',
       label: 'Connect a source',
       description: 'Attach GitHub, AWS, or Kubernetes telemetry to a project.',
-      complete: hasConnectedSource || repoScans.length > 0,
-      actionLabel: hasConnectedSource || repoScans.length > 0 ? undefined : 'Connect',
+      complete: hasConnectedSource,
+      actionLabel: hasConnectedSource ? undefined : 'Connect',
       to: connectSourcesPath
     },
     {
