@@ -1293,7 +1293,11 @@ export function ProductShellLayout() {
     return <AppShellLoading message="Resolving workspace scope" />;
   }
 
-  const workspaceDisplayName = formatScopeDisplay(scope.workspaceID) || 'Workspace';
+  const rawWorkspaceLabel = formatScopeDisplay(scope.workspaceID);
+  const looksLikeSlug = /^[a-z0-9][a-z0-9._-]*$/i.test(rawWorkspaceLabel);
+  const workspaceDisplayName = looksLikeSlug
+    ? rawWorkspaceLabel.replace(/[-_]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+    : rawWorkspaceLabel || 'Workspace';
   const userDisplayName = 'Account';
   const userEmail = '';
   const userInitial = (workspaceDisplayName.charAt(0) || 'A').toUpperCase();
@@ -1325,8 +1329,8 @@ export function ProductShellLayout() {
               <img src="/identrail-logo.png" alt="" aria-hidden="true" />
             </Link>
             <div className="idt-app-sidebar-brand-copy">
-              <strong>Identrail</strong>
-              <span title={scope.workspaceID}>{workspaceDisplayName}</span>
+              <strong>{workspaceDisplayName}</strong>
+              <span>Identrail</span>
             </div>
           </div>
 
@@ -1566,6 +1570,30 @@ function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
   return groups;
 }
 
+const INVITE_DISMISSED_STORAGE_KEY = 'idt:overview:invite-dismissed';
+
+function readInviteDismissed(workspaceID: string | undefined): boolean {
+  if (typeof window === 'undefined' || !workspaceID) {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(`${INVITE_DISMISSED_STORAGE_KEY}:${workspaceID}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function persistInviteDismissed(workspaceID: string | undefined): void {
+  if (typeof window === 'undefined' || !workspaceID) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(`${INVITE_DISMISSED_STORAGE_KEY}:${workspaceID}`, '1');
+  } catch {
+    // Storage failures are non-fatal.
+  }
+}
+
 export function ProductOverviewPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
@@ -1736,8 +1764,8 @@ export function ProductOverviewPage() {
       id: 'invite',
       label: 'Invite a teammate',
       description: 'Give analysts and admins access to this workspace.',
-      complete: false,
-      actionLabel: 'Invite',
+      complete: readInviteDismissed(scope?.workspaceID),
+      actionLabel: readInviteDismissed(scope?.workspaceID) ? undefined : 'Invite',
       to: workspacesPath
     }
   ];
@@ -1807,7 +1835,15 @@ export function ProductOverviewPage() {
                     <span>{item.description}</span>
                   </div>
                   {item.actionLabel && item.to ? (
-                    <Link className="idt-overview-checklist-action" to={item.to}>
+                    <Link
+                      className="idt-overview-checklist-action"
+                      to={item.to}
+                      onClick={() => {
+                        if (item.id === 'invite') {
+                          persistInviteDismissed(scope?.workspaceID);
+                        }
+                      }}
+                    >
                       {item.actionLabel}
                     </Link>
                   ) : null}
@@ -1943,7 +1979,7 @@ export function ProductOverviewPage() {
           </section>
         </div>
 
-        <div className="idt-overview-grid">
+        <div className="idt-overview-grid idt-overview-grid-single">
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
               <h3>Project coverage</h3>
