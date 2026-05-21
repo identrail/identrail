@@ -64,6 +64,7 @@ Read APIs:
 - `GET /v1/repo-scans`
 - `GET /v1/repo-scans/:repo_scan_id`
 - `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
+- `POST /v1/repo-findings/:finding_id/remediation/preview?repo_scan_id=`
 - `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
 - `GET /v1/repo-risk-graph?repo_scan_id=&repository=&default_branch=&severity=&type=`
 - list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
@@ -71,6 +72,51 @@ Read APIs:
 - `source_url` is a direct GitHub blob link pinned to the detected commit when Identrail can derive one
 - grouped cluster responses roll duplicate repo findings into cluster counts with `first_seen_at`, `last_seen_at`, `spread`, and a per-occurrence `members` list
 
+## Safe Remediation Previews
+
+Repository findings can be converted into rule-specific remediation previews
+without publishing a branch:
+
+```bash
+curl -X POST http://localhost:8080/v1/repo-findings/:finding_id/remediation/preview \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <read-enabled-key>" \
+  -d '{
+    "repo_scan_id": "<repo-scan-id>",
+    "base_branch": "main",
+    "source_content": "name: ci\npermissions: write-all\n"
+  }'
+```
+
+Preview mode returns:
+
+- detector-specific risk summary, remediation steps, safety notes, and validation notes
+- non-secret traceability fields such as finding ID, scan ID, repository, commit, path, and line
+- an optional `fix_pr_plan` only when the detector has a deterministic patch and the caller supplies current affected-file content
+
+Generated fix-PR plans are intentionally constrained:
+
+- they modify only the affected repository file, never a default branch directly
+- they include finding ID, scan ID, detector, risk summary, validation notes, and safety notes in the PR body
+- they are preview-only until an operator explicitly approves publication and supplies write-capable GitHub credentials
+- read-only scanner installations can request previews but cannot publish PRs by default
+
+Secret findings are handled differently. Identrail returns rotation and
+revocation guidance, but does not generate source patches or PR plans for
+secret exposure findings. This prevents raw secret values from being copied
+into generated branches, commits, PR descriptions, logs, or review comments.
+
+Deterministic publishable templates currently cover:
+
+- GitHub Actions `permissions: write-all`
+- GitHub Actions `pull_request_target` trigger replacement when the workflow owner approves moving to `pull_request`
+- Kubernetes `privileged: true`
+- Terraform S3 `public-read` / `public-read-write` ACLs
+
+Guidance-only templates cover workflow attack-path findings that need owner
+review, Docker `latest` image pinning where the correct version/digest must be
+chosen, and open SSH/RDP Terraform ingress where approved administrative CIDRs
+are environment-specific.
 Management APIs:
 
 - `POST /v1/repo-scans/:repo_scan_id/cancel` marks a queued or running scan

@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added repository finding remediation previews. Repo misconfiguration findings
+  now map to detector-specific remediation guidance and safe fix-PR plans for
+  deterministic patches, while secret findings return rotation guidance only so
+  raw secret material is never copied into generated branches or PRs.
 - Fixed repository scan cursor safety so quick-scan cursors no longer suppress
   later delta scans for the same head revision, and truncated scans no longer
   advance `cursor_after` or the per-repository cursor before all findings have

@@ -97,6 +97,16 @@ func TestDefaultRoutePolicyBundleUsesRepoScansReadForRepoFindingsTrends(t *testi
 	if policy.Action != policyActionRepoScansRead {
 		t.Fatalf("expected action %q, got %q", policyActionRepoScansRead, policy.Action)
 	}
+	policy, exists = compiled.RouteRegistry.lookup("POST", "/v1/repo-findings/:finding_id/remediation/preview")
+	if !exists {
+		t.Fatal("expected built-in authz policy for POST /v1/repo-findings/:finding_id/remediation/preview")
+	}
+	if policy.Action != policyActionRepoScansRead {
+		t.Fatalf("expected action %q, got %q", policyActionRepoScansRead, policy.Action)
+	}
+	if policy.ResourceIDParam != "finding_id" {
+		t.Fatalf("expected finding_id resource param, got %q", policy.ResourceIDParam)
+	}
 }
 
 func TestDefaultRoutePolicyBundleUsesRepoScansRunForCancel(t *testing.T) {
