@@ -695,11 +695,24 @@ function AppRouteLoadingState({ title, body }: { title: string; body: string }) 
   );
 }
 
-function AppShellEmptyState({ title, body }: { title: string; body: string }) {
+function AppShellEmptyState({
+  title,
+  body,
+  action
+}: {
+  title: string;
+  body: string;
+  action?: { label: string; to: string };
+}) {
   return (
     <article className="idt-app-empty-state">
       <h2>{title}</h2>
       <p>{body}</p>
+      {action ? (
+        <Link className="idt-app-empty-state-action" to={action.to}>
+          {action.label}
+        </Link>
+      ) : null}
     </article>
   );
 }
@@ -1141,8 +1154,10 @@ export function ProductShellLayout() {
   const scope = resolveScopeFromParams(params);
   const [commandOpen, setCommandOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => readSidebarCollapsed());
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
   const basePath = scope ? buildScopedPath(scope) : '/app';
   const commandItems = useMemo<CommandPaletteItem[]>(() => {
     if (!scope) {
@@ -1289,6 +1304,29 @@ export function ProductShellLayout() {
     };
   }, [accountMenuOpen]);
 
+  useEffect(() => {
+    if (!workspaceMenuOpen) {
+      return;
+    }
+    const handleClick = (event: MouseEvent) => {
+      if (!workspaceMenuRef.current || workspaceMenuRef.current.contains(event.target as Node)) {
+        return;
+      }
+      setWorkspaceMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setWorkspaceMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClick);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [workspaceMenuOpen]);
+
   if (!scope) {
     return <AppShellLoading message="Resolving workspace scope" />;
   }
@@ -1324,14 +1362,57 @@ export function ProductShellLayout() {
           aria-label="Workspace navigation"
           data-collapsed={sidebarCollapsed ? 'true' : 'false'}
         >
-          <div className="idt-app-sidebar-brand">
-            <Link className="idt-app-sidebar-mark" to={basePath} aria-label="Identrail app home">
-              <img src="/identrail-logo.png" alt="" aria-hidden="true" />
-            </Link>
-            <div className="idt-app-sidebar-brand-copy">
-              <strong>{workspaceDisplayName}</strong>
-              <span>Identrail</span>
-            </div>
+          <div className="idt-app-sidebar-workspace" ref={workspaceMenuRef}>
+            <button
+              type="button"
+              className="idt-app-sidebar-workspace-trigger"
+              aria-haspopup="menu"
+              aria-expanded={workspaceMenuOpen}
+              onClick={() => setWorkspaceMenuOpen((value) => !value)}
+              title={sidebarCollapsed ? workspaceDisplayName : undefined}
+            >
+              <span className="idt-app-sidebar-mark" aria-hidden="true">
+                <img src="/identrail-logo.png" alt="" aria-hidden="true" />
+              </span>
+              <span className="idt-app-sidebar-workspace-copy">
+                <strong>{workspaceDisplayName}</strong>
+                <span>Identrail</span>
+              </span>
+              <span className="idt-app-sidebar-workspace-caret" aria-hidden="true">
+                <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m3 4.5 3 3 3-3" />
+                </svg>
+              </span>
+            </button>
+            {workspaceMenuOpen ? (
+              <div className="idt-app-sidebar-workspace-menu" role="menu">
+                <div className="idt-app-sidebar-workspace-meta">
+                  <span className="idt-app-sidebar-workspace-meta-eyebrow">Current workspace</span>
+                  <strong>{workspaceDisplayName}</strong>
+                </div>
+                <Link
+                  role="menuitem"
+                  to={`${basePath}/workspaces`}
+                  onClick={() => setWorkspaceMenuOpen(false)}
+                >
+                  Switch workspace
+                </Link>
+                <Link
+                  role="menuitem"
+                  to={`${basePath}/settings`}
+                  onClick={() => setWorkspaceMenuOpen(false)}
+                >
+                  Workspace settings
+                </Link>
+                <Link
+                  role="menuitem"
+                  to="/onboarding/org"
+                  onClick={() => setWorkspaceMenuOpen(false)}
+                >
+                  Create a workspace
+                </Link>
+              </div>
+            ) : null}
           </div>
 
           <button
@@ -1352,7 +1433,8 @@ export function ProductShellLayout() {
           </button>
 
           <nav className="idt-app-shell-nav" aria-label="App sections">
-            <NavLink to={basePath} end title={sidebarCollapsed ? 'Overview' : undefined}>
+            <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Workspace</div>
+            <NavLink to={basePath} end aria-label="Overview" title={sidebarCollapsed ? 'Overview' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M2 8 8 2.5 14 8" />
@@ -1361,7 +1443,36 @@ export function ProductShellLayout() {
               </span>
               <span className="idt-app-nav-label">Overview</span>
             </NavLink>
-            <NavLink to={`${basePath}/workspaces`} title={sidebarCollapsed ? 'Workspaces' : undefined}>
+            <NavLink to={`${basePath}/projects`} aria-label="Projects" title={sidebarCollapsed ? 'Projects' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 5.5 7 3l5 2.5L7 8Z" />
+                  <path d="M2 5.5v5L7 13l5-2.5v-5" />
+                  <path d="M7 8v5" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Projects</span>
+            </NavLink>
+            <NavLink to={`${basePath}/findings`} aria-label="Findings" title={sidebarCollapsed ? 'Findings' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 1.5 2 4v3.5c0 4 3 6.4 6 7 3-.6 6-3 6-7V4Z" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Findings</span>
+            </NavLink>
+            <NavLink to="/reports/executive" aria-label="Executive report" title={sidebarCollapsed ? 'Executive report' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                  <path d="M5 11V8M8 11V6M11 11V9" />
+                </svg>
+              </span>
+              <span className="idt-app-nav-label">Executive report</span>
+            </NavLink>
+
+            <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Organization</div>
+            <NavLink to={`${basePath}/workspaces`} aria-label="Workspaces" title={sidebarCollapsed ? 'Workspaces' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="5.5" cy="6" r="2" />
@@ -1372,34 +1483,7 @@ export function ProductShellLayout() {
               </span>
               <span className="idt-app-nav-label">Workspaces</span>
             </NavLink>
-            <NavLink to={`${basePath}/projects`} title={sidebarCollapsed ? 'Projects' : undefined}>
-              <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 5.5 7 3l5 2.5L7 8Z" />
-                  <path d="M2 5.5v5L7 13l5-2.5v-5" />
-                  <path d="M7 8v5" />
-                </svg>
-              </span>
-              <span className="idt-app-nav-label">Projects</span>
-            </NavLink>
-            <NavLink to={`${basePath}/findings`} title={sidebarCollapsed ? 'Findings' : undefined}>
-              <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 1.5 2 4v3.5c0 4 3 6.4 6 7 3-.6 6-3 6-7V4Z" />
-                </svg>
-              </span>
-              <span className="idt-app-nav-label">Findings</span>
-            </NavLink>
-            <NavLink to="/reports/executive" title={sidebarCollapsed ? 'Executive report' : undefined}>
-              <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                  <path d="M5 11V8M8 11V6M11 11V9" />
-                </svg>
-              </span>
-              <span className="idt-app-nav-label">Executive report</span>
-            </NavLink>
-            <NavLink to={`${basePath}/settings`} title={sidebarCollapsed ? 'Settings' : undefined}>
+            <NavLink to={`${basePath}/settings`} aria-label="Settings" title={sidebarCollapsed ? 'Settings' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="8" cy="8" r="2" />
@@ -1446,6 +1530,15 @@ export function ProductShellLayout() {
                   >
                     Workspace settings
                   </Link>
+                  <a
+                    role="menuitem"
+                    href="https://docs.identrail.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setAccountMenuOpen(false)}
+                  >
+                    Help &amp; docs
+                  </a>
                   <Link role="menuitem" to="/" onClick={() => setAccountMenuOpen(false)}>
                     Marketing site
                   </Link>
@@ -1570,25 +1663,25 @@ function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
   return groups;
 }
 
-const INVITE_DISMISSED_STORAGE_KEY = 'idt:overview:invite-dismissed';
+const INVITE_SKIPPED_STORAGE_KEY = 'idt:overview:invite-skipped';
 
-function readInviteDismissed(workspaceID: string | undefined): boolean {
+function readInviteSkipped(workspaceID: string | undefined): boolean {
   if (typeof window === 'undefined' || !workspaceID) {
     return false;
   }
   try {
-    return window.localStorage.getItem(`${INVITE_DISMISSED_STORAGE_KEY}:${workspaceID}`) === '1';
+    return window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`) === '1';
   } catch {
     return false;
   }
 }
 
-function persistInviteDismissed(workspaceID: string | undefined): void {
+function persistInviteSkipped(workspaceID: string | undefined): void {
   if (typeof window === 'undefined' || !workspaceID) {
     return;
   }
   try {
-    window.localStorage.setItem(`${INVITE_DISMISSED_STORAGE_KEY}:${workspaceID}`, '1');
+    window.localStorage.setItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`, '1');
   } catch {
     // Storage failures are non-fatal.
   }
@@ -1605,6 +1698,7 @@ export function ProductOverviewPage() {
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
+  const [, setInviteSkipTick] = useState(0);
 
   useEffect(() => {
     if (!FEATURE_ONBOARDING_WIZARD) {
@@ -1735,6 +1829,7 @@ export function ProductOverviewPage() {
     complete: boolean;
     actionLabel?: string;
     to?: string;
+    skippable?: boolean;
   }> = [
     {
       id: 'project',
@@ -1764,9 +1859,10 @@ export function ProductOverviewPage() {
       id: 'invite',
       label: 'Invite a teammate',
       description: 'Give analysts and admins access to this workspace.',
-      complete: readInviteDismissed(scope?.workspaceID),
-      actionLabel: readInviteDismissed(scope?.workspaceID) ? undefined : 'Invite',
-      to: workspacesPath
+      complete: readInviteSkipped(scope?.workspaceID),
+      actionLabel: readInviteSkipped(scope?.workspaceID) ? undefined : 'Invite',
+      to: workspacesPath,
+      skippable: !readInviteSkipped(scope?.workspaceID)
     }
   ];
   const onboardingComplete = onboardingChecklist.every((item) => item.complete);
@@ -1802,15 +1898,7 @@ export function ProductOverviewPage() {
         <header className="idt-overview-header">
           <div>
             <h2>Overview</h2>
-            <p>Last 7 days of project coverage, scans, and open findings.</p>
-          </div>
-          <div className="idt-inline-actions">
-            <Link className="idt-btn idt-btn-primary" to={findingsPath}>
-              Review findings
-            </Link>
-            <Link className="idt-btn idt-btn-ghost" to={projectsPath}>
-              Manage projects
-            </Link>
+            <p className="idt-overview-header-sub">Last 7 days</p>
           </div>
         </header>
 
@@ -1834,19 +1922,26 @@ export function ProductOverviewPage() {
                     <strong>{item.label}</strong>
                     <span>{item.description}</span>
                   </div>
-                  {item.actionLabel && item.to ? (
-                    <Link
-                      className="idt-overview-checklist-action"
-                      to={item.to}
-                      onClick={() => {
-                        if (item.id === 'invite') {
-                          persistInviteDismissed(scope?.workspaceID);
-                        }
-                      }}
-                    >
-                      {item.actionLabel}
-                    </Link>
-                  ) : null}
+                  <div className="idt-overview-checklist-actions">
+                    {item.skippable && !item.complete ? (
+                      <button
+                        type="button"
+                        className="idt-overview-checklist-skip"
+                        onClick={() => {
+                          persistInviteSkipped(scope?.workspaceID);
+                          setInviteSkipTick((value) => value + 1);
+                        }}
+                        aria-label={`Skip: ${item.label}`}
+                      >
+                        Skip
+                      </button>
+                    ) : null}
+                    {item.actionLabel && item.to ? (
+                      <Link className="idt-overview-checklist-action" to={item.to}>
+                        {item.actionLabel}
+                      </Link>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ol>
@@ -1879,25 +1974,25 @@ export function ProductOverviewPage() {
               )}
             </p>
           </article>
-          <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Trend</span>
-            <strong>
-              {trendDelta === null
-                ? '—'
-                : trendDelta > 0
-                  ? `+${trendDelta}`
-                  : trendDelta === 0
-                    ? '0'
-                    : trendDelta}
-            </strong>
-            <p>
-              {latestTrend
-                ? previousTrend
+          {latestTrend ? (
+            <article className="idt-overview-metric-card">
+              <span className="idt-overview-metric-label">Trend</span>
+              <strong>
+                {trendDelta === null
+                  ? '—'
+                  : trendDelta > 0
+                    ? `+${trendDelta}`
+                    : trendDelta === 0
+                      ? '0'
+                      : trendDelta}
+              </strong>
+              <p>
+                {previousTrend
                   ? `vs. previous scan (${latestTrend.total} total)`
-                  : `${latestTrend.total} findings · awaiting another scan`
-                : 'No data yet'}
-            </p>
-          </article>
+                  : `${latestTrend.total} findings · awaiting another scan`}
+              </p>
+            </article>
+          ) : null}
         </div>
 
         <div className="idt-overview-grid">
@@ -1930,6 +2025,7 @@ export function ProductOverviewPage() {
               <AppShellEmptyState
                 title="No open findings"
                 body="Findings will appear here with severity, repository, and line context."
+                action={hasAnySuccessfulScan ? undefined : { label: 'Run a scan', to: connectSourcesPath }}
               />
             )}
           </section>
@@ -1974,6 +2070,7 @@ export function ProductOverviewPage() {
               <AppShellEmptyState
                 title="No scans yet"
                 body="Connect a project source and run the first scan to populate activity."
+                action={{ label: 'Connect a source', to: connectSourcesPath }}
               />
             )}
           </section>
@@ -2002,6 +2099,7 @@ export function ProductOverviewPage() {
               <AppShellEmptyState
                 title="No active projects"
                 body="Create the first project to connect source telemetry and scan policies."
+                action={{ label: 'Create project', to: projectsPath }}
               />
             )}
           </section>
