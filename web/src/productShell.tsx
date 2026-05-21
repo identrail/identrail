@@ -1,6 +1,25 @@
 import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+  FolderKanban,
+  HelpCircle,
+  LayoutDashboard,
+  LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  Settings as SettingsIcon,
+  Shield,
+  Users
+} from 'lucide-react';
 import {
   ApiError,
   apiClient,
@@ -1145,6 +1164,12 @@ function resolveScopeFromParams(params: ScopeRouteParams): ProductSession | null
 }
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'idt:sidebar:collapsed';
+const SIDEBAR_WIDTH_STORAGE_KEY = 'idt:sidebar:width';
+const SIDEBAR_DEFAULT_WIDTH = 248; // matches the prior 15.5rem
+const SIDEBAR_MIN_EXPANDED_WIDTH = 196;
+const SIDEBAR_MAX_WIDTH = 360;
+const SIDEBAR_COLLAPSE_THRESHOLD = 140; // dragging below this snaps to collapsed
+const SIDEBAR_COLLAPSED_WIDTH = 60;
 
 function readSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') {
@@ -1154,6 +1179,25 @@ function readSidebarCollapsed(): boolean {
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1';
   } catch {
     return false;
+  }
+}
+
+function readSidebarWidth(): number {
+  if (typeof window === 'undefined') {
+    return SIDEBAR_DEFAULT_WIDTH;
+  }
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (!raw) {
+      return SIDEBAR_DEFAULT_WIDTH;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) {
+      return SIDEBAR_DEFAULT_WIDTH;
+    }
+    return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_EXPANDED_WIDTH, parsed));
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH;
   }
 }
 
@@ -1172,6 +1216,8 @@ export function ProductShellLayout() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [sidebarCollapsedPref, setSidebarCollapsedPref] = useState<boolean>(() => readSidebarCollapsed());
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth());
+  const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return false;
@@ -1183,8 +1229,14 @@ export function ProductShellLayout() {
   // for a horizontal nav, and persisting a collapsed preference into mobile
   // would otherwise leave users without a way to expand it.
   const sidebarCollapsed = sidebarCollapsedPref && !isNarrowViewport;
+  const renderedSidebarWidth = isNarrowViewport
+    ? undefined
+    : sidebarCollapsed
+      ? SIDEBAR_COLLAPSED_WIDTH
+      : sidebarWidth;
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
   const basePath = scope ? buildScopedPath(scope) : '/app';
   const commandItems = useMemo<CommandPaletteItem[]>(() => {
     if (!scope) {
@@ -1309,6 +1361,92 @@ export function ProductShellLayout() {
   }, [sidebarCollapsedPref]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    } catch {
+      // Storage failure should not break the layout.
+    }
+  }, [sidebarWidth]);
+
+  const handleSidebarResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isNarrowViewport) {
+      return;
+    }
+    event.preventDefault();
+    const handleEl = event.currentTarget;
+    const pointerId = event.pointerId;
+    // Capture the pointer so every subsequent move / up / cancel for this
+    // gesture is delivered to the handle even if the user releases outside the
+    // viewport, the OS steals focus, or the browser fires `pointercancel`.
+    // Without this, releasing off-window left `isDraggingSidebar` stuck true
+    // and the body `cursor: col-resize` / `user-select: none` overrides
+    // applied to the entire page.
+    try {
+      handleEl.setPointerCapture(pointerId);
+    } catch {
+      // Some test environments (jsdom) don't implement setPointerCapture.
+      // Falling through is safe — the cleanup is still wired up below.
+    }
+    setIsDraggingSidebar(true);
+    const sidebarEl = sidebarRef.current;
+    const startLeft = sidebarEl ? sidebarEl.getBoundingClientRect().left : 0;
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) {
+        return;
+      }
+      const proposed = moveEvent.clientX - startLeft;
+      if (proposed < SIDEBAR_COLLAPSE_THRESHOLD) {
+        setSidebarCollapsedPref(true);
+        return;
+      }
+      const clamped = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_EXPANDED_WIDTH, proposed));
+      setSidebarCollapsedPref(false);
+      setSidebarWidth(clamped);
+    };
+    const cleanup = (cleanupEvent?: PointerEvent) => {
+      if (cleanupEvent && cleanupEvent.pointerId !== pointerId) {
+        return;
+      }
+      setIsDraggingSidebar(false);
+      handleEl.removeEventListener('pointermove', handlePointerMove);
+      handleEl.removeEventListener('pointerup', cleanup);
+      handleEl.removeEventListener('pointercancel', cleanup);
+      handleEl.removeEventListener('lostpointercapture', cleanup);
+    };
+    handleEl.addEventListener('pointermove', handlePointerMove);
+    handleEl.addEventListener('pointerup', cleanup);
+    handleEl.addEventListener('pointercancel', cleanup);
+    // `lostpointercapture` fires whenever capture ends for any reason —
+    // including the OS canceling the gesture or the element being unmounted
+    // by React. It is the most reliable final cleanup signal.
+    handleEl.addEventListener('lostpointercapture', cleanup);
+  };
+
+  // Safety net: any time we leave the dragging state, ensure the body style
+  // overrides we applied are released. Also handles the unmount-mid-drag
+  // case (effect cleanup runs once on unmount) without leaving the document
+  // stuck in `cursor: col-resize` / `user-select: none`.
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    if (isDraggingSidebar) {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      return () => {
+        document.body.style.removeProperty('cursor');
+        document.body.style.removeProperty('user-select');
+      };
+    }
+    document.body.style.removeProperty('cursor');
+    document.body.style.removeProperty('user-select');
+    return undefined;
+  }, [isDraggingSidebar]);
+
+  useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return;
     }
@@ -1396,15 +1534,32 @@ export function ProductShellLayout() {
   return (
     <ProductErrorBoundary>
       <div
-        className={`idt-app-shell idt-app-console-layout${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+        className={`idt-app-shell idt-app-console-layout${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}${isDraggingSidebar ? ' is-sidebar-dragging' : ''}`}
         data-tenant={scope.tenantID}
         data-workspace={scope.workspaceID}
+        style={
+          renderedSidebarWidth !== undefined
+            ? ({ ['--idt-sidebar-width' as string]: `${renderedSidebarWidth}px` } as CSSProperties)
+            : undefined
+        }
       >
         <aside
+          ref={sidebarRef}
           className="idt-app-sidebar"
           aria-label="Workspace navigation"
           data-collapsed={sidebarCollapsed ? 'true' : 'false'}
         >
+          <div
+            className={`idt-app-sidebar-resize-handle${isDraggingSidebar ? ' is-dragging' : ''}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar (drag, or use ⌘B to collapse)"
+            onPointerDown={handleSidebarResizeStart}
+            onDoubleClick={() => {
+              setSidebarCollapsedPref(false);
+              setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+            }}
+          />
           <div className="idt-app-sidebar-workspace" ref={workspaceMenuRef}>
             <button
               type="button"
@@ -1423,9 +1578,7 @@ export function ProductShellLayout() {
                 <span>Identrail</span>
               </span>
               <span className="idt-app-sidebar-workspace-caret" aria-hidden="true">
-                <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m3 4.5 3 3 3-3" />
-                </svg>
+                <ChevronDown size={12} strokeWidth={2} />
               </span>
             </button>
             {workspaceMenuOpen ? (
@@ -1467,10 +1620,7 @@ export function ProductShellLayout() {
             title={sidebarCollapsed ? 'Find (⌘K)' : undefined}
           >
             <span className="idt-app-quick-find-icon" aria-hidden="true">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="7" cy="7" r="4.5" />
-                <path d="m13.5 13.5-3-3" />
-              </svg>
+              <Search size={14} strokeWidth={2} />
             </span>
             <span className="idt-app-quick-find-label">Find</span>
             <kbd className="idt-app-quick-find-key">⌘K</kbd>
@@ -1480,37 +1630,25 @@ export function ProductShellLayout() {
             <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Workspace</div>
             <NavLink to={basePath} end aria-label="Overview" title={sidebarCollapsed ? 'Overview' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 8 8 2.5 14 8" />
-                  <path d="M3.5 7v6.5h9V7" />
-                </svg>
+                <LayoutDashboard size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Overview</span>
             </NavLink>
             <NavLink to={`${basePath}/projects`} aria-label="Projects" title={sidebarCollapsed ? 'Projects' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 5.5 7 3l5 2.5L7 8Z" />
-                  <path d="M2 5.5v5L7 13l5-2.5v-5" />
-                  <path d="M7 8v5" />
-                </svg>
+                <FolderKanban size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Projects</span>
             </NavLink>
             <NavLink to={`${basePath}/findings`} aria-label="Findings" title={sidebarCollapsed ? 'Findings' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 1.5 2 4v3.5c0 4 3 6.4 6 7 3-.6 6-3 6-7V4Z" />
-                </svg>
+                <Shield size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Findings</span>
             </NavLink>
             <NavLink to="/reports/executive" aria-label="Executive report" title={sidebarCollapsed ? 'Executive report' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                  <path d="M5 11V8M8 11V6M11 11V9" />
-                </svg>
+                <BarChart3 size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Executive report</span>
             </NavLink>
@@ -1518,21 +1656,13 @@ export function ProductShellLayout() {
             <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Organization</div>
             <NavLink to={`${basePath}/workspaces`} aria-label="Workspaces" title={sidebarCollapsed ? 'Workspaces' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="5.5" cy="6" r="2" />
-                  <circle cx="11" cy="6.5" r="1.6" />
-                  <path d="M2 13c.6-2 2-3 3.5-3S8.4 11 9 13" />
-                  <path d="M9.5 13c.4-1.6 1.5-2.4 2.5-2.4s2.1.8 2.5 2.4" />
-                </svg>
+                <Users size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Workspaces</span>
             </NavLink>
             <NavLink to={`${basePath}/settings`} aria-label="Settings" title={sidebarCollapsed ? 'Settings' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="8" cy="8" r="2" />
-                  <path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M3.8 3.8l1 1M11.2 11.2l1 1M3.8 12.2l1-1M11.2 4.8l1-1" />
-                </svg>
+                <SettingsIcon size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Settings</span>
             </NavLink>
@@ -1557,9 +1687,7 @@ export function ProductShellLayout() {
                   {userEmail && userEmail !== userDisplayName ? <span>{userEmail}</span> : null}
                 </span>
                 <span className="idt-app-sidebar-account-caret" aria-hidden="true">
-                  <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 7.5 6 4.5l3 3" />
-                  </svg>
+                  <ChevronUp size={12} strokeWidth={2} />
                 </span>
               </button>
               {accountMenuOpen ? (
@@ -1573,16 +1701,18 @@ export function ProductShellLayout() {
                     to={`${basePath}/settings`}
                     onClick={() => setAccountMenuOpen(false)}
                   >
+                    <SettingsIcon size={14} strokeWidth={1.75} aria-hidden="true" />
                     Workspace settings
                   </Link>
                   <a
                     role="menuitem"
-                    href="https://docs.identrail.com"
+                    href="https://github.com/identrail/identrail/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setAccountMenuOpen(false)}
                   >
-                    Help &amp; docs
+                    <HelpCircle size={14} strokeWidth={1.75} aria-hidden="true" />
+                    Help &amp; feedback
                   </a>
                   <Link role="menuitem" to="/" onClick={() => setAccountMenuOpen(false)}>
                     Marketing site
@@ -1595,6 +1725,7 @@ export function ProductShellLayout() {
                       navigate('/app/logout', { replace: true });
                     }}
                   >
+                    <LogOut size={14} strokeWidth={1.75} aria-hidden="true" />
                     Sign out
                   </button>
                 </div>
@@ -1608,11 +1739,11 @@ export function ProductShellLayout() {
               title={collapseHint}
               onClick={() => setSidebarCollapsedPref((current) => !current)}
             >
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
-                <path d="M6.5 3v10" />
-                {sidebarCollapsed ? <path d="m9 6 2 2-2 2" /> : <path d="m11 6-2 2 2 2" />}
-              </svg>
+              {sidebarCollapsed ? (
+                <PanelLeftOpen size={16} strokeWidth={1.75} aria-hidden="true" />
+              ) : (
+                <PanelLeftClose size={16} strokeWidth={1.75} aria-hidden="true" />
+              )}
             </button>
           </div>
         </aside>

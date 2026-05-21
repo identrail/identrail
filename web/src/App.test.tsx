@@ -250,7 +250,9 @@ describe('App', () => {
     ).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: /Annual/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Contact Sales' })).toBeInTheDocument();
+    expect(screen.getByText(/Choose deployment model/i)).toBeInTheDocument();
+    expect(screen.getByText(/Procurement ready/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Talk to Enterprise/i })).toBeInTheDocument();
   });
 
   it('renders the full-bleed product page story', () => {
@@ -270,6 +272,8 @@ describe('App', () => {
     expect(screen.getAllByRole('button', { name: /Request Trust Path Review/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('main main')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-product-hero-visual')).toHaveAttribute('aria-hidden', 'true');
+    expect(document.querySelector('.idt-product-trust-svg')).toBeInTheDocument();
+    expect(document.querySelectorAll('.idt-product-path-edge.is-active')).toHaveLength(3);
   });
 
   it('renders read-only scan intake flow route', () => {
