@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -873,6 +873,98 @@ describe('App', () => {
     expect(openInGitHub).toHaveAttribute('href', 'https://github.com/owner/repo/blob/abc123/config/app.env#L7');
     expect((await screen.findAllByText('config/app.env:7')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('owner/repo')).length).toBeGreaterThan(0);
+  });
+
+  it('allows suppressed repository finding assignee edits without a new suppression reason', async () => {
+    const suppressionExpiresAt = '2027-01-01T00:00:00Z';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/findings/repo-f1/triage')) {
+        return okJSON({
+          finding: {
+            id: 'repo-f1',
+            scan_id: 'repo-scan-1',
+            type: 'secret_exposure',
+            severity: 'high',
+            title: 'Potential AWS access key exposed in commit history',
+            human_summary: 'A line added in commit history appears to contain an AWS access key identifier.',
+            repository: 'owner/repo',
+            file_path: 'config/app.env',
+            line_number: 7,
+            remediation: 'Rotate the key and move the credential to a secret manager.',
+            triage: { status: 'suppressed', assignee: 'platform', suppression_expires_at: suppressionExpiresAt },
+            created_at: '2026-01-01T00:00:00Z'
+          }
+        });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-scan-1',
+              repository: 'owner/repo',
+              status: 'succeeded',
+              started_at: '2026-01-01T00:00:00Z',
+              finished_at: '2026-01-01T00:05:00Z',
+              commits_scanned: 12,
+              files_scanned: 4,
+              finding_count: 1,
+              truncated: false
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-f1',
+              scan_id: 'repo-scan-1',
+              type: 'secret_exposure',
+              severity: 'high',
+              title: 'Potential AWS access key exposed in commit history',
+              human_summary: 'A line added in commit history appears to contain an AWS access key identifier.',
+              repository: 'owner/repo',
+              file_path: 'config/app.env',
+              line_number: 7,
+              remediation: 'Rotate the key and move the credential to a secret manager.',
+              triage: { status: 'suppressed', assignee: 'secops', suppression_expires_at: suppressionExpiresAt },
+              created_at: '2026-01-01T00:00:00Z'
+            }
+          ]
+        });
+      }
+      throw new Error(`Unexpected URL ${url} ${init?.method ?? 'GET'}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    render(<App />);
+
+    const workflowControls = (await screen.findByText(/Workflow controls/i)).closest('.idt-repo-finding-triage-form');
+    expect(workflowControls).toBeInTheDocument();
+
+    fireEvent.change(within(workflowControls as HTMLElement).getByLabelText(/Assignee/i), { target: { value: 'platform' } });
+    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply workflow/i }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url]) => typeof url === 'string' && url.includes('/v1/findings/repo-f1/triage'))
+      ).toBe(true);
+    });
+
+    const triageCall = fetchMock.mock.calls.find(([url]) => typeof url === 'string' && url.includes('/v1/findings/repo-f1/triage'));
+    const payload = JSON.parse(String((triageCall?.[1] as RequestInit | undefined)?.body));
+    expect(payload.assignee).toBe('platform');
+    expect(payload.comment).toBeUndefined();
+    expect(payload.status).toBeUndefined();
+    expect(screen.queryByText(/Suppression requires a reason/i)).not.toBeInTheDocument();
   });
 
   it('renders real workspace settings from account, member, and auth config APIs', async () => {

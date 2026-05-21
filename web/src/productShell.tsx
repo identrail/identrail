@@ -5215,6 +5215,7 @@ export function ProductFindingsPage() {
     const currentStatus = normalizeFindingStatus(selectedFinding.triage?.status);
     const currentAssignee = normalizeValue(selectedFinding.triage?.assignee ?? '');
     const trackingSuppression = nextStatus === 'suppressed';
+    const enteringSuppression = currentStatus !== 'suppressed' && trackingSuppression;
     const currentSuppression = normalizeValue(toLocalDateTimeInputValue(selectedFinding.triage?.suppression_expires_at ?? ''));
     const nextSuppression = normalizeValue(workflowSuppressionExpiresAt);
     const hasChanges =
@@ -5240,7 +5241,7 @@ export function ProductFindingsPage() {
         comment?: string;
       } = {};
       const trimmedComment = normalizeValue(workflowComment);
-      if (trackingSuppression && !trimmedComment) {
+      if (enteringSuppression && !trimmedComment) {
         setWorkflowError('Suppression requires a reason.');
         setWorkflowLoading(false);
         return;
