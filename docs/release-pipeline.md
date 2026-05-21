@@ -37,11 +37,13 @@ their first organization, workspace, and GitHub connector after login.
    - `ghcr.io/<owner>/identrail-worker:<tag>`
    - `ghcr.io/<owner>/identrail-web:<tag>`
    - `ghcr.io/<owner>/identrail-agent:<tag>`
+   - `ghcr.io/<owner>/identrail-cli:<tag>`
    - `docker.io/identrail/identrail:<tag>`
    - `docker.io/identrail/identrail-api:<tag>`
    - `docker.io/identrail/identrail-worker:<tag>`
    - `docker.io/identrail/identrail-web:<tag>`
    - `docker.io/identrail/identrail-agent:<tag>`
+   - `docker.io/identrail/identrail-cli:<tag>`
 4. Image digests and web build input metadata.
 5. Auto-generated GitHub Release notes.
 
@@ -55,11 +57,13 @@ every merge to `dev`:
 - `ghcr.io/identrail/identrail-worker:dev`
 - `ghcr.io/identrail/identrail-web:dev`
 - `ghcr.io/identrail/identrail-agent:dev`
+- `ghcr.io/identrail/identrail-cli:dev`
 - `docker.io/identrail/identrail:dev`
 - `docker.io/identrail/identrail-api:dev`
 - `docker.io/identrail/identrail-worker:dev`
 - `docker.io/identrail/identrail-web:dev`
 - `docker.io/identrail/identrail-agent:dev`
+- `docker.io/identrail/identrail-cli:dev`
 
 Each run also publishes immutable SHA tags such as `sha-<12-char-sha>`. Use the
 `dev` tags for quick evaluation and SHA or release tags for repeatable

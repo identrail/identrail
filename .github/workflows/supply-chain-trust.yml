@@ -101,7 +101,7 @@ jobs:
           owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           tag="${{ needs.prepare.outputs.tag }}"
 
-          for name in api worker web; do
+          for name in api worker cli web; do
             ref="ghcr.io/${owner}/identrail-${name}:${tag}"
             if docker buildx imagetools inspect "${ref}" >/dev/null 2>&1; then
               syft "${ref}" -o cyclonedx-json="dist/identrail-${name}-${tag}.image.sbom.cdx.json"
@@ -132,7 +132,7 @@ jobs:
           owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           tag="${{ needs.prepare.outputs.tag }}"
 
-          for name in api worker web; do
+          for name in api worker cli web; do
             ref="ghcr.io/${owner}/identrail-${name}:${tag}"
             if docker buildx imagetools inspect "${ref}" >/dev/null 2>&1; then
               cosign sign --yes "${ref}"

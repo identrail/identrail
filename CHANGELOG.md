@@ -5,6 +5,12 @@
   onboarding now surfaces selected-repository posture checks, and repository
   findings now show risk-graph summaries, top finding scores, and on-demand
   remediation previews.
+- Added first-time CLI install and repository scan ergonomics. `identrail scan
+  <owner/repo>` now runs the repository exposure scanner while `identrail scan`
+  without arguments keeps the existing provider scan behavior, `repo-scan`
+  accepts positional targets and the `repo` alias, and release workflows now
+  publish a dedicated CLI container image with release documentation for
+  binaries, Docker, and Homebrew tap readiness.
 - Added repository finding lifecycle intelligence. Repo findings now carry
   stable lifecycle keys, first/last seen timestamps, fixed/reopened/suppressed
   state, owner and detector metadata, list filters for lifecycle, ownership,

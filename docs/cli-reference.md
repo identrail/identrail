@@ -9,13 +9,28 @@ Global flag:
 
 ## `identrail scan`
 
-Runs provider scan pipeline and prints findings.
+Runs provider scan pipeline and prints findings when no repository argument is
+provided.
 
 Key flags:
 - `--fixture` (repeatable)
 - `--output table|json`
 - `--stale-after-days` (default `90`)
 - `--no-save`
+
+## `identrail scan <repository>`
+
+Runs repository exposure scanner using the short command form.
+
+Examples:
+- `identrail scan identrail/identrail`
+- `identrail scan owner/repo --history-limit 50 --max-findings 20`
+- `identrail scan https://github.com/owner/repo.git --output json`
+
+Key flags:
+- `--history-limit` (default `500`)
+- `--max-findings` (default `200`)
+- `--output table|json`
 
 ## `identrail findings`
 
@@ -26,10 +41,14 @@ Key flags:
 
 ## `identrail repo-scan`
 
-Runs repository exposure scanner.
+Runs repository exposure scanner. This is the backward-compatible long form of
+`identrail scan <repository>`.
+
+Aliases:
+- `identrail repo`
 
 Key flags:
-- `--repo` (required)
+- positional repository target or `--repo`
 - `--history-limit` (default `500`)
 - `--max-findings` (default `200`)
 - `--output table|json`

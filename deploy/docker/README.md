@@ -133,15 +133,24 @@ docker pull docker.io/identrail/identrail-worker:dev
 docker pull docker.io/identrail/identrail-web:dev
 docker pull docker.io/identrail/identrail-api:dev
 docker pull docker.io/identrail/identrail-agent:dev
+docker pull docker.io/identrail/identrail-cli:dev
 # GHCR mirrors:
 docker pull ghcr.io/identrail/identrail-worker:dev
 docker pull ghcr.io/identrail/identrail-web:dev
 docker pull ghcr.io/identrail/identrail-api:dev
 docker pull ghcr.io/identrail/identrail-agent:dev
+docker pull ghcr.io/identrail/identrail-cli:dev
+```
+
+Run a one-off repository exposure scan without installing Go:
+
+```bash
+docker run --rm ghcr.io/identrail/identrail-cli:dev scan identrail/identrail
 ```
 
 Each `dev` publish also creates immutable `sha-<12-char-sha>` tags. Release
-images use SemVer tags such as `ghcr.io/identrail/identrail:v1.0.0` and
+images use SemVer tags such as `ghcr.io/identrail/identrail:v1.0.0`,
+`ghcr.io/identrail/identrail-cli:v1.0.0`, and
 `docker.io/identrail/identrail:v1.0.0`.
 
 After the first publish, a repository maintainer may need to make the GHCR

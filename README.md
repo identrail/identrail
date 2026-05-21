@@ -38,9 +38,28 @@ Use it when you run AWS and/or Kubernetes workloads and want identity risk visib
 
 ## 5-Minute Quickstart
 
-Prerequisites: Docker, Docker Compose, `curl`, `jq`.
+### Scan a GitHub repository
 
-Use the published Docker Hub images without building from source:
+Install Identrail from a release binary or Docker image, or build it from
+source, then run your first repository scan:
+
+```bash
+identrail scan owner/repo
+```
+
+See [Install Identrail](./docs/install.md) for each install path.
+
+Docker users can run the CLI without installing Go:
+
+```bash
+docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
+```
+
+### Run the local dashboard
+
+Prerequisites: Docker, Docker Compose, and `curl`.
+
+Start the published local stack:
 
 ```bash
 mkdir identrail-docker && cd identrail-docker
@@ -51,30 +70,11 @@ curl http://localhost:8080/healthz
 
 Open `http://localhost:8081` for the web UI.
 
-To inspect the main API image directly:
-
-```bash
-docker pull docker.io/identrail/identrail:dev
-```
-
-`docker pull` by itself only downloads images into Docker; it does not create a
-project directory or the Compose file needed to start the full stack.
-
-The no-clone public quickstart keeps the API on `http://localhost:8080` and
-publishes only the web UI plus API onto your machine. Postgres stays inside the
-Docker network so an existing local database does not break the first run.
-
-For local development from a cloned repository:
+For source development from a cloned repository:
 
 ```bash
 make quickstart
 ```
-
-What this does:
-
-- Boots API, worker, web, and Postgres with local-safe defaults.
-- Triggers an initial scan.
-- Prints follow-up commands to inspect findings.
 
 Stop the stack:
 
@@ -87,10 +87,9 @@ For enterprise auth scope, tenant/workspace context, and decision audit verifica
 ## What Identrail Does
 
 - Discovers machine identities and trust relationships across AWS and Kubernetes.
-- Persists raw and normalized scan artifacts for explainability and auditability.
-- Produces deterministic findings with risk evidence and remediation context.
-- Provides API and web workflows for trends and diff analysis, plus CLI workflows for scans, findings, repo exposure scans, and authz rollback.
-- Supports optional repository exposure scanning (secrets and CI/IaC risk) in an isolated pipeline.
+- Scans repositories for secret exposure, GitHub Actions, and CI risk.
+- Produces explainable findings with evidence, severity, and remediation context.
+- Provides CLI, API, worker, and web workflows for local scans, hosted scans, trends, and review.
 
 ## What Identrail Does Not Do
 
@@ -106,11 +105,8 @@ V1 is intentionally focused on machine identity security workflows for AWS and K
 Collector -> Raw Assets -> Normalizer -> Graph -> Risk Rules -> Findings Store -> API/CLI/Web
 ```
 
-Operational model:
-
-- API can enqueue scans (`POST /v1/scans`, `POST /v1/repo-scans`).
-- Worker drains queue and runs scheduled jobs.
-- Results are queryable via API and CLI with scan-aware filtering and history.
+The CLI runs local scans directly. The API enqueues hosted scans, the worker
+processes them, and results are available through the API, CLI, and web UI.
 
 ## Deployment Options
 
@@ -127,7 +123,7 @@ See [Deployment Anywhere](./docs/deployment-anywhere.md) for exact commands.
 ## Comparison (Where Identrail Fits)
 
 - Versus broad CSPM tools: Identrail is narrower and deeper on machine identity trust and authorization workflows.
-- Versus secret scanners alone: Identrail includes optional repo exposure scanning, but also links findings into identity risk context.
+- Versus secret scanners alone: Identrail links repository findings into identity risk context.
 - Versus policy engines alone: Identrail adds discovery + risk evidence, not only policy evaluation.
 
 <details>

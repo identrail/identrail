@@ -11,7 +11,8 @@ Supply-chain trust automation is defined in:
 ## Artifacts Produced
 
 - Binary SBOM (`CycloneDX JSON`)
-- Image SBOMs (`CycloneDX JSON`) when release images exist in GHCR
+- Image SBOMs (`CycloneDX JSON`) when API, worker, CLI, and web release images
+  exist in GHCR
 - Signed checksum manifest:
   - `checksums.txt`
   - `checksums.txt.sig`

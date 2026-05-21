@@ -72,14 +72,31 @@ func buildScanCmd(cfg config.Config, out io.Writer, stateFile *string) *cobra.Co
 	var outputFormat string
 	var staleAfterDays int
 	var skipSave bool
+	var repoHistoryLimit int
+	var repoMaxFindings int
 
 	defaultFixtures := defaultFixturesForProvider(cfg)
 
 	cmd := &cobra.Command{
-		Use:   "scan",
+		Use:   "scan [repository]",
 		Short: "Run a read-only scan",
-		Long:  "Runs the provider scan pipeline (collector -> normalizer -> graph -> risk rules).",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		Long:  "Runs the provider scan pipeline with no arguments, or scans repository exposure when a repository target is provided.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				if cmd.Flags().Changed("fixture") || cmd.Flags().Changed("stale-after-days") || cmd.Flags().Changed("no-save") {
+					return fmt.Errorf("provider scan flags cannot be used with a repository target")
+				}
+				return runRepoScan(out, repoScanCLIOptions{
+					Repository:   args[0],
+					OutputFormat: outputFormat,
+					HistoryLimit: repoHistoryLimit,
+					MaxFindings:  repoMaxFindings,
+				})
+			}
+			if cmd.Flags().Changed("history-limit") || cmd.Flags().Changed("max-findings") {
+				return fmt.Errorf("--history-limit and --max-findings require a repository target")
+			}
 			if staleAfterDays < 1 {
 				return fmt.Errorf("--stale-after-days must be at least 1")
 			}
@@ -128,6 +145,8 @@ func buildScanCmd(cfg config.Config, out io.Writer, stateFile *string) *cobra.Co
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
 	cmd.Flags().IntVar(&staleAfterDays, "stale-after-days", 90, "Staleness threshold in days")
 	cmd.Flags().BoolVar(&skipSave, "no-save", false, "Skip writing local findings state")
+	cmd.Flags().IntVar(&repoHistoryLimit, "history-limit", 500, "Maximum number of repository commits to inspect when a repository target is supplied")
+	cmd.Flags().IntVar(&repoMaxFindings, "max-findings", 200, "Maximum repository findings to emit when a repository target is supplied")
 
 	return cmd
 }
@@ -242,67 +261,100 @@ func buildScanReplayCmd(cfg config.Config, out io.Writer) *cobra.Command {
 }
 
 func buildRepoScanCmd(out io.Writer) *cobra.Command {
-	var (
-		repository   string
-		outputFormat string
-		historyLimit int
-		maxFindings  int
-	)
+	options := repoScanCLIOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "repo-scan",
-		Short: "Scan repository history for secret exposures and misconfigurations",
-		Long:  "Scans all reachable commits for added secret material and scans HEAD configuration files for high-signal misconfigurations.",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if strings.TrimSpace(repository) == "" {
-				return fmt.Errorf("--repo is required")
-			}
-			if historyLimit < 1 {
-				return fmt.Errorf("--history-limit must be at least 1")
-			}
-			if maxFindings < 1 {
-				return fmt.Errorf("--max-findings must be at least 1")
-			}
-			formatter, err := parseOutputFormat(outputFormat)
+		Use:     "repo-scan [repository]",
+		Aliases: []string{"repo"},
+		Short:   "Scan repository history for secret exposures and misconfigurations",
+		Long:    "Scans all reachable commits for added secret material and scans HEAD configuration files for high-signal misconfigurations.",
+		Args:    cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			repository, err := resolveRepoScanTarget(options.Repository, args)
 			if err != nil {
 				return err
 			}
-
-			scanner := repoexposure.NewScanner(
-				nil,
-				repoexposure.WithHistoryLimit(historyLimit),
-				repoexposure.WithMaxFindings(maxFindings),
-			)
-			result, err := scanner.ScanRepository(context.Background(), repository)
-			if err != nil {
-				return fmt.Errorf("repo scan failed: %w", err)
-			}
-
-			switch formatter {
-			case outputJSON:
-				return writeJSON(out, result)
-			default:
-				if _, err := fmt.Fprintf(
-					out,
-					"Repo scan completed: repo=%s commits=%d files=%d findings=%d truncated=%t\n",
-					result.Repository,
-					result.CommitsScanned,
-					result.FilesScanned,
-					len(result.Findings),
-					result.Truncated,
-				); err != nil {
-					return err
-				}
-				return renderFindingsTable(out, result.Findings)
-			}
+			options.Repository = repository
+			return runRepoScan(out, options)
 		},
 	}
 
-	cmd.Flags().StringVar(&repository, "repo", "", "Repository target (owner/repo, URL, or local git path)")
-	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
-	cmd.Flags().IntVar(&historyLimit, "history-limit", 500, "Maximum number of commits to inspect for history secret exposure")
-	cmd.Flags().IntVar(&maxFindings, "max-findings", 200, "Maximum findings to emit before truncating scan output")
+	cmd.Flags().StringVar(&options.Repository, "repo", "", "Repository target (owner/repo, URL, or local git path)")
+	cmd.Flags().StringVar(&options.OutputFormat, "output", formatTable, "Output format: table|json")
+	cmd.Flags().IntVar(&options.HistoryLimit, "history-limit", 500, "Maximum number of commits to inspect for history secret exposure")
+	cmd.Flags().IntVar(&options.MaxFindings, "max-findings", 200, "Maximum findings to emit before truncating scan output")
 	return cmd
+}
+
+type repoScanCLIOptions struct {
+	Repository   string
+	OutputFormat string
+	HistoryLimit int
+	MaxFindings  int
+}
+
+func resolveRepoScanTarget(flagValue string, args []string) (string, error) {
+	flagTarget := strings.TrimSpace(flagValue)
+	argTarget := ""
+	if len(args) > 0 {
+		argTarget = strings.TrimSpace(args[0])
+	}
+	if flagTarget != "" && argTarget != "" && flagTarget != argTarget {
+		return "", fmt.Errorf("repository argument %q does not match --repo %q", argTarget, flagTarget)
+	}
+	switch {
+	case argTarget != "":
+		return argTarget, nil
+	case flagTarget != "":
+		return flagTarget, nil
+	default:
+		return "", fmt.Errorf("repository argument or --repo is required")
+	}
+}
+
+func runRepoScan(out io.Writer, options repoScanCLIOptions) error {
+	repository := strings.TrimSpace(options.Repository)
+	if repository == "" {
+		return fmt.Errorf("repository argument or --repo is required")
+	}
+	if options.HistoryLimit < 1 {
+		return fmt.Errorf("--history-limit must be at least 1")
+	}
+	if options.MaxFindings < 1 {
+		return fmt.Errorf("--max-findings must be at least 1")
+	}
+	formatter, err := parseOutputFormat(options.OutputFormat)
+	if err != nil {
+		return err
+	}
+
+	scanner := repoexposure.NewScanner(
+		nil,
+		repoexposure.WithHistoryLimit(options.HistoryLimit),
+		repoexposure.WithMaxFindings(options.MaxFindings),
+	)
+	result, err := scanner.ScanRepository(context.Background(), repository)
+	if err != nil {
+		return fmt.Errorf("repo scan failed: %w", err)
+	}
+
+	switch formatter {
+	case outputJSON:
+		return writeJSON(out, result)
+	default:
+		if _, err := fmt.Fprintf(
+			out,
+			"Repo scan completed: repo=%s commits=%d files=%d findings=%d truncated=%t\n",
+			result.Repository,
+			result.CommitsScanned,
+			result.FilesScanned,
+			len(result.Findings),
+			result.Truncated,
+		); err != nil {
+			return err
+		}
+		return renderFindingsTable(out, result.Findings)
+	}
 }
 
 func buildAuthzCmd(cfg config.Config, out io.Writer) *cobra.Command {

@@ -388,6 +388,7 @@ jobs:
           build_server
           build_and_push "worker" "Identrail Worker" "${backend_platforms}" -f deploy/docker/Dockerfile.backend --build-arg TARGET=worker .
           build_and_push "agent" "Identrail Agent" "${backend_platforms}" -f deploy/docker/Dockerfile.backend --build-arg TARGET=identrail-agent .
+          build_and_push "cli" "Identrail CLI" "${backend_platforms}" -f deploy/docker/Dockerfile.backend --build-arg TARGET=cli .
           build_and_push "web" "Identrail Web" "linux/amd64,linux/arm64" \
             -f deploy/docker/Dockerfile.web \
             --build-arg "VITE_IDENTRAIL_API_URL=${web_api_url}" \
