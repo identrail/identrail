@@ -63,14 +63,43 @@ Read APIs:
 
 - `GET /v1/repo-scans`
 - `GET /v1/repo-scans/:repo_scan_id`
-- `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
+- `GET /v1/repo-findings?repo_scan_id=&repository=&status=&severity=&type=&detector=&owner=&confidence=&age_days=`
 - `POST /v1/repo-findings/:finding_id/remediation/preview?repo_scan_id=`
 - `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
 - `GET /v1/repo-risk-graph?repo_scan_id=&repository=&default_branch=&severity=&type=`
 - list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
-- repo finding responses expose stable repository and location fields when available: `repository`, `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, `line_snippet_redacted`, and `source_url`
+- repo finding responses expose stable repository, lifecycle, and location fields when available: `repository`, `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, `line_snippet_redacted`, `source_url`, `lifecycle_key`, `lifecycle_status`, `owner`, `first_seen_at`, `last_seen_at`, `fixed_at`, `reopened_at`, `dismissed_at`, and `suppression_expires_at`
 - `source_url` is a direct GitHub blob link pinned to the detected commit when Identrail can derive one
+- repo finding pages include a `summary` object with open, fixed, reopened, suppressed, SLA-aged, and MTTR-ready counts plus owner, detector, and severity rollups
 - grouped cluster responses roll duplicate repo findings into cluster counts with `first_seen_at`, `last_seen_at`, `spread`, and a per-occurrence `members` list
+
+## Finding Lifecycle
+
+Repository finding lifecycle is computed from a stable `lifecycle_key`, not only
+from the per-scan row id. This lets Identrail connect the same secret,
+misconfiguration, or external scanner alert across repeated scans even when a
+commit-scoped finding id changes.
+
+Lifecycle semantics:
+
+- `open`: first observed in the current repository state or still present after a later scan
+- `fixed`: previously open/reopened finding was absent from a completed, non-truncated deep scan
+- `reopened`: previously fixed finding appeared again in a later scan
+- `suppressed`: operator suppression is active; a suppression reason is required and expiry is optional
+- `risk_accepted` / `false_positive`: reserved lifecycle states for ownership workflows that need durable dismissal semantics
+
+Identrail preserves `first_seen_at` when a finding persists, updates
+`last_seen_at` when it is observed again, sets `fixed_at` when a full deep scan
+no longer sees it, and sets `reopened_at` when a fixed finding returns. Delta,
+quick, changed-path, and truncated scans do not close missing findings because
+they did not inspect the whole repository.
+
+Operational guidance:
+
+- Use `status=open&age_days=7&severity=high` to find high-risk findings that are aging beyond the default SLA window.
+- Use `owner=` and `detector=` filters to route queues to repository owners or detector specialists.
+- Treat `mean_time_to_resolve_seconds` as MTTR-ready only for findings with both `first_seen_at` and `fixed_at`.
+- Prefer suppression comments that explain the business reason; leave `suppression_expires_at` empty only for durable, reviewed exceptions.
 
 ## Safe Remediation Previews
 

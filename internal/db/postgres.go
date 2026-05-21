@@ -3148,6 +3148,57 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		}
 		return err
 	}
+	if shouldCloseMissingRepoFindings(strings.TrimSpace(status), truncated, normalizedContext) {
+		record, getErr := p.GetRepoScan(ctx, repoScanID)
+		if getErr != nil {
+			return fmt.Errorf("load completed repo scan for lifecycle closure: %w", getErr)
+		}
+		if err := p.markMissingRepoFindingsFixed(ctx, scope, record, finishedAt.UTC()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, scope Scope, repoScan RepoScanRecord, fixedAt time.Time) error {
+	_, err := p.execContext(
+		ctx,
+		`UPDATE repo_findings rf
+		 SET lifecycle_status = 'fixed',
+		     fixed_at = $1
+		 FROM repo_scans rs
+		 WHERE rf.repo_scan_id = rs.id
+		   AND rs.tenant_id = $2
+		   AND rs.workspace_id = $3
+		   AND LOWER(rs.repository) = LOWER($4)
+		   AND rf.repo_scan_id <> $5::uuid
+		   AND COALESCE(rf.lifecycle_key, '') <> ''
+		   AND COALESCE(rf.lifecycle_status, 'open') IN ('open', 'reopened')
+		   AND NOT EXISTS (
+		       SELECT 1
+		       FROM repo_findings current_rf
+		       WHERE current_rf.repo_scan_id = $5::uuid
+		         AND COALESCE(current_rf.lifecycle_key, '') = COALESCE(rf.lifecycle_key, '')
+		   )
+		   AND NOT EXISTS (
+		       SELECT 1
+		       FROM repo_findings newer_rf
+		       JOIN repo_scans newer_rs ON newer_rs.id = newer_rf.repo_scan_id
+		       WHERE newer_rs.tenant_id = rs.tenant_id
+		         AND newer_rs.workspace_id = rs.workspace_id
+		         AND LOWER(newer_rs.repository) = LOWER(rs.repository)
+		         AND COALESCE(newer_rf.lifecycle_key, '') = COALESCE(rf.lifecycle_key, '')
+		         AND COALESCE(newer_rf.last_seen_at, newer_rf.created_at) > COALESCE(rf.last_seen_at, rf.created_at)
+		   )`,
+		fixedAt.UTC(),
+		scope.TenantID,
+		scope.WorkspaceID,
+		strings.TrimSpace(repoScan.Repository),
+		repoScan.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("mark missing repo findings fixed: %w", err)
+	}
 	return nil
 }
 
@@ -3247,7 +3298,15 @@ func (p *PostgresStore) UpsertRepoScanCursor(ctx context.Context, cursor RepoSca
 
 // UpsertRepoFindings inserts repository findings idempotently.
 func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error {
-	if err := p.ensureActiveRepoScanInScope(ctx, repoScanID); err != nil {
+	repoScan, err := p.GetRepoScan(ctx, repoScanID)
+	if err != nil {
+		return err
+	}
+	if repoScan.Status != "queued" && repoScan.Status != "running" {
+		return ErrConflict
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
 		return err
 	}
 	tx, err := p.beginTx(ctx)
@@ -3263,6 +3322,12 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 			continue
 		}
 		seenRepoFindings[finding.ID] = struct{}{}
+		if finding.Repository == "" {
+			finding.Repository = strings.TrimSpace(repoScan.Repository)
+		}
+		if finding.ScanMode == "" {
+			finding.ScanMode = strings.TrimSpace(repoScan.ScanMode)
+		}
 		domain.NormalizeRepoFindingMetadata(&finding)
 		pathJSON, pathErr := json.Marshal(finding.Path)
 		if pathErr != nil {
@@ -3274,11 +3339,59 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 		}
 		createdAt := finding.CreatedAt
 		if createdAt.IsZero() {
+			createdAt = repoScan.StartedAt.UTC()
+		}
+		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
+		}
+		snapshot, hasSnapshot, snapshotErr := p.latestRepoFindingLifecycleTx(ctx, tx, scope, repoScan.Repository, finding.LifecycleKey, repoScanID)
+		if snapshotErr != nil {
+			return snapshotErr
+		}
+		firstSeenAt := createdAt.UTC()
+		status := domain.RepoFindingLifecycleOpen
+		if hasSnapshot {
+			if snapshot.FirstSeenAt != nil && !snapshot.FirstSeenAt.IsZero() {
+				firstSeenAt = snapshot.FirstSeenAt.UTC()
+			}
+			switch snapshot.LifecycleStatus {
+			case domain.RepoFindingLifecycleFixed:
+				status = domain.RepoFindingLifecycleReopened
+				reopenedAt := createdAt.UTC()
+				finding.ReopenedAt = &reopenedAt
+			case domain.RepoFindingLifecycleSuppressed, domain.RepoFindingLifecycleRiskAccepted, domain.RepoFindingLifecycleFalsePositive:
+				status = snapshot.LifecycleStatus
+				finding.DismissedAt = cloneTimePointer(snapshot.DismissedAt)
+				finding.SuppressionExpiresAt = cloneTimePointer(snapshot.SuppressionExpiresAt)
+			case domain.RepoFindingLifecycleReopened:
+				status = domain.RepoFindingLifecycleReopened
+				finding.ReopenedAt = cloneTimePointer(snapshot.ReopenedAt)
+			default:
+				status = domain.RepoFindingLifecycleOpen
+			}
+			if finding.Owner == "" {
+				finding.Owner = snapshot.Owner
+			}
+		}
+		firstSeenCopy := firstSeenAt.UTC()
+		lastSeenCopy := createdAt.UTC()
+		finding.FirstSeenAt = &firstSeenCopy
+		finding.LastSeenAt = &lastSeenCopy
+		finding.FixedAt = nil
+		finding.LifecycleStatus = status
+		domain.NormalizeRepoFindingMetadata(&finding)
+		pathJSON, pathErr = json.Marshal(finding.Path)
+		if pathErr != nil {
+			return fmt.Errorf("marshal repo finding path: %w", pathErr)
+		}
+		evidenceJSON, evidenceErr = json.Marshal(finding.Evidence)
+		if evidenceErr != nil {
+			return fmt.Errorf("marshal repo finding evidence: %w", evidenceErr)
 		}
 		rows = append(rows, []any{
 			repoScanID,
 			finding.ID,
+			finding.LifecycleKey,
 			string(finding.Type),
 			string(finding.Severity),
 			finding.Title,
@@ -3287,14 +3400,30 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 			evidenceJSON,
 			finding.Remediation,
 			createdAt.UTC(),
+			nullableTimePointer(finding.FirstSeenAt),
+			nullableTimePointer(finding.LastSeenAt),
+			nullableTimePointer(finding.FixedAt),
+			nullableTimePointer(finding.ReopenedAt),
+			nullableTimePointer(finding.DismissedAt),
+			nullableTimePointer(finding.SuppressionExpiresAt),
+			string(finding.LifecycleStatus),
+			nullableString(finding.Owner),
+			nullableString(finding.RuleVersion),
+			nullableString(finding.DetectorVersion),
+			nullableString(finding.AdapterSource),
+			nullableString(finding.ConfidenceState),
+			nullableString(finding.VerificationStatus),
+			nullableString(finding.ScanMode),
+			nullableString(finding.EvidenceVersion),
 		})
 	}
 	if err := executeBulkInsert(
 		ctx,
 		tx,
-		`INSERT INTO repo_findings (repo_scan_id, finding_id, type, severity, title, human_summary, path, evidence, remediation, created_at) VALUES `,
+		`INSERT INTO repo_findings (repo_scan_id, finding_id, lifecycle_key, type, severity, title, human_summary, path, evidence, remediation, created_at, first_seen_at, last_seen_at, fixed_at, reopened_at, dismissed_at, suppression_expires_at, lifecycle_status, owner, rule_version, detector_version, adapter_source, confidence_state, verification_status, scan_mode, evidence_version) VALUES `,
 		` ON CONFLICT (repo_scan_id, finding_id)
 		  DO UPDATE SET
+		    lifecycle_key = EXCLUDED.lifecycle_key,
 		    type = EXCLUDED.type,
 		    severity = EXCLUDED.severity,
 		    title = EXCLUDED.title,
@@ -3302,7 +3431,22 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 		    path = EXCLUDED.path,
 		    evidence = EXCLUDED.evidence,
 		    remediation = EXCLUDED.remediation,
-		    created_at = EXCLUDED.created_at`,
+		    created_at = EXCLUDED.created_at,
+		    first_seen_at = EXCLUDED.first_seen_at,
+		    last_seen_at = EXCLUDED.last_seen_at,
+		    fixed_at = EXCLUDED.fixed_at,
+		    reopened_at = EXCLUDED.reopened_at,
+		    dismissed_at = EXCLUDED.dismissed_at,
+		    suppression_expires_at = EXCLUDED.suppression_expires_at,
+		    lifecycle_status = EXCLUDED.lifecycle_status,
+		    owner = EXCLUDED.owner,
+		    rule_version = EXCLUDED.rule_version,
+		    detector_version = EXCLUDED.detector_version,
+		    adapter_source = EXCLUDED.adapter_source,
+		    confidence_state = EXCLUDED.confidence_state,
+		    verification_status = EXCLUDED.verification_status,
+		    scan_mode = EXCLUDED.scan_mode,
+		    evidence_version = EXCLUDED.evidence_version`,
 		rows,
 	); err != nil {
 		return fmt.Errorf("upsert repo findings: %w", err)
@@ -3311,6 +3455,81 @@ func (p *PostgresStore) UpsertRepoFindings(ctx context.Context, repoScanID strin
 		return fmt.Errorf("commit repo findings transaction: %w", err)
 	}
 	return nil
+}
+
+func (p *PostgresStore) latestRepoFindingLifecycleTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	scope Scope,
+	repository string,
+	lifecycleKey string,
+	excludeRepoScanID string,
+) (domain.Finding, bool, error) {
+	lifecycleKey = strings.TrimSpace(lifecycleKey)
+	if lifecycleKey == "" {
+		return domain.Finding{}, false, nil
+	}
+	row := tx.QueryRowContext(
+		ctx,
+		`SELECT
+		     COALESCE(rf.first_seen_at, rf.created_at),
+		     COALESCE(rf.lifecycle_status, 'open'),
+		     rf.fixed_at,
+		     rf.reopened_at,
+		     rf.dismissed_at,
+		     rf.suppression_expires_at,
+		     COALESCE(rf.owner, '')
+		 FROM repo_findings rf
+		 JOIN repo_scans rs ON rs.id = rf.repo_scan_id
+		 WHERE rs.tenant_id = $1
+		   AND rs.workspace_id = $2
+		   AND LOWER(rs.repository) = LOWER($3)
+		   AND COALESCE(rf.lifecycle_key, '') = $4
+		   AND rf.repo_scan_id <> $5::uuid
+		 ORDER BY COALESCE(rf.last_seen_at, rf.created_at) DESC, rf.created_at DESC
+		 LIMIT 1`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		strings.TrimSpace(repository),
+		lifecycleKey,
+		excludeRepoScanID,
+	)
+	var firstSeenAt time.Time
+	var status string
+	var fixedAt sql.NullTime
+	var reopenedAt sql.NullTime
+	var dismissedAt sql.NullTime
+	var suppressionExpiresAt sql.NullTime
+	var owner string
+	if err := row.Scan(&firstSeenAt, &status, &fixedAt, &reopenedAt, &dismissedAt, &suppressionExpiresAt, &owner); err != nil {
+		if errorsIsNoRows(err) {
+			return domain.Finding{}, false, nil
+		}
+		return domain.Finding{}, false, fmt.Errorf("query repo finding lifecycle snapshot: %w", err)
+	}
+	firstSeen := firstSeenAt.UTC()
+	snapshot := domain.Finding{
+		FirstSeenAt:     &firstSeen,
+		LifecycleStatus: domain.NormalizeRepoFindingLifecycleStatus(status),
+		Owner:           owner,
+	}
+	if fixedAt.Valid {
+		value := fixedAt.Time.UTC()
+		snapshot.FixedAt = &value
+	}
+	if reopenedAt.Valid {
+		value := reopenedAt.Time.UTC()
+		snapshot.ReopenedAt = &value
+	}
+	if dismissedAt.Valid {
+		value := dismissedAt.Time.UTC()
+		snapshot.DismissedAt = &value
+	}
+	if suppressionExpiresAt.Valid {
+		value := suppressionExpiresAt.Time.UTC()
+		snapshot.SuppressionExpiresAt = &value
+	}
+	return snapshot, true, nil
 }
 
 // DeleteRepoFindings removes repository findings for one scan.
@@ -3392,29 +3611,147 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT rf.repo_scan_id, rf.finding_id, rf.type, rf.severity, rf.title, rf.human_summary, rf.path, rf.evidence, COALESCE(rf.remediation, ''), rf.created_at, rs.repository
-		 FROM repo_findings rf
-		 JOIN repo_scans rs ON rs.id = rf.repo_scan_id
-		 WHERE ($1 = '' OR rf.repo_scan_id = $1::uuid)
-		   AND ($2 = '' OR rf.finding_id = $2)
-		   AND ($3 = '' OR rf.severity = $3)
-		   AND ($4 = '' OR rf.type = $4)
-		   AND ($5 = '' OR lower(rs.repository) = lower($5))
-		   AND rs.tenant_id = $6
-		   AND rs.workspace_id = $7
-		 ORDER BY ` + repoFindingOrderClause(normalized.SortBy, normalized.SortDesc)
-	args := []any{
-		repoScanID,
-		normalized.FindingID,
-		normalized.Severity,
-		normalized.Type,
-		normalized.Repository,
-		scope.TenantID,
-		scope.WorkspaceID,
+	repositoryExpr := `COALESCE(NULLIF(rf.evidence->>'repository', ''), rs.repository)`
+	detectorExpr := `COALESCE(NULLIF(rf.evidence->>'detector', ''), '')`
+	ownerExpr := `COALESCE(NULLIF(rf.owner, ''), NULLIF(rf.evidence->>'owner', ''), NULLIF(rf.evidence->>'owner_hint', ''), NULLIF(rf.evidence->>'owner_team', ''), NULLIF(rf.evidence->>'assignee', ''), '')`
+	statusExpr := `COALESCE(NULLIF(rf.lifecycle_status, ''), 'open')`
+	confidenceExpr := `CASE
+		WHEN COALESCE(rf.evidence->>'confidence_score', '') ~ '^[0-9]+(\.[0-9]+)?$' THEN (rf.evidence->>'confidence_score')::double precision
+		ELSE 0
+	END`
+	lifecycleKeyExpr := fmt.Sprintf(
+		`COALESCE(NULLIF(rf.lifecycle_key, ''), CONCAT_WS(E'\x1f', 'repo_finding', LOWER(%s), rf.type, LOWER(%s), LOWER(COALESCE(NULLIF(rf.evidence->>'file_path', ''), '')), COALESCE(NULLIF(rf.evidence->>'line_number', ''), ''), rf.finding_id))`,
+		repositoryExpr,
+		detectorExpr,
+	)
+	partitionExpr := lifecycleKeyExpr
+	if repoScanID != "" || normalized.IncludeHistorical {
+		partitionExpr = `rf.repo_scan_id::text || E'\x1f' || rf.finding_id`
 	}
+	conditions := []string{}
+	args := []any{}
+	addArg := func(value any) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	conditions = append(conditions, fmt.Sprintf("rs.tenant_id = %s", addArg(scope.TenantID)))
+	conditions = append(conditions, fmt.Sprintf("rs.workspace_id = %s", addArg(scope.WorkspaceID)))
+	if repoScanID != "" {
+		conditions = append(conditions, fmt.Sprintf("rf.repo_scan_id = %s::uuid", addArg(repoScanID)))
+	}
+	if normalized.FindingID != "" {
+		conditions = append(conditions, fmt.Sprintf("rf.finding_id = %s", addArg(normalized.FindingID)))
+	}
+	if normalized.Severity != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(rf.severity) = %s", addArg(normalized.Severity)))
+	}
+	if normalized.Type != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(rf.type) = %s", addArg(normalized.Type)))
+	}
+	if normalized.Repository != "" {
+		conditions = append(conditions, fmt.Sprintf("LOWER(%s) = LOWER(%s)", repositoryExpr, addArg(normalized.Repository)))
+	}
+	outerConditions := []string{"f.lifecycle_rank = 1"}
+	if normalized.Status != "" {
+		outerConditions = append(outerConditions, fmt.Sprintf("LOWER(f.lifecycle_status) = %s", addArg(normalized.Status)))
+	}
+	if normalized.Detector != "" {
+		outerConditions = append(outerConditions, fmt.Sprintf("LOWER(f.detector) = %s", addArg(normalized.Detector)))
+	}
+	if normalized.Owner != "" {
+		outerConditions = append(outerConditions, fmt.Sprintf("LOWER(f.owner) = %s", addArg(normalized.Owner)))
+	}
+	if normalized.MinConfidence > 0 {
+		outerConditions = append(outerConditions, fmt.Sprintf("f.confidence_score >= %s", addArg(normalized.MinConfidence)))
+	}
+	if normalized.MinAgeDays > 0 {
+		cutoff := normalized.Now.Add(-time.Duration(normalized.MinAgeDays) * 24 * time.Hour)
+		outerConditions = append(outerConditions, fmt.Sprintf("COALESCE(f.first_seen_at, f.created_at) <= %s", addArg(cutoff.UTC())))
+	}
+	query := fmt.Sprintf(
+		`WITH filtered AS (
+	SELECT
+		rf.repo_scan_id,
+		rf.finding_id,
+		rf.type,
+		rf.severity,
+		rf.title,
+		rf.human_summary,
+		rf.path,
+		rf.evidence,
+		COALESCE(rf.remediation, '') AS remediation,
+		rf.created_at,
+		%s AS repository,
+		%s AS lifecycle_key,
+		%s AS lifecycle_status,
+		%s AS detector,
+		%s AS confidence_score,
+		rf.first_seen_at,
+		rf.last_seen_at,
+		rf.fixed_at,
+		rf.reopened_at,
+		rf.dismissed_at,
+		rf.suppression_expires_at,
+		%s AS owner,
+		COALESCE(rf.rule_version, '') AS rule_version,
+		COALESCE(rf.detector_version, '') AS detector_version,
+		COALESCE(rf.adapter_source, '') AS adapter_source,
+		COALESCE(rf.confidence_state, '') AS confidence_state,
+		COALESCE(rf.verification_status, '') AS verification_status,
+		COALESCE(rf.scan_mode, '') AS scan_mode,
+		COALESCE(rf.evidence_version, '') AS evidence_version,
+		ROW_NUMBER() OVER (
+			PARTITION BY %s
+			ORDER BY COALESCE(rf.last_seen_at, rf.created_at) DESC, rf.created_at DESC, rf.repo_scan_id DESC, rf.finding_id ASC
+		) AS lifecycle_rank
+	FROM repo_findings rf
+	JOIN repo_scans rs ON rs.id = rf.repo_scan_id
+	WHERE %s
+)
+SELECT
+	f.repo_scan_id,
+	f.finding_id,
+	f.type,
+	f.severity,
+	f.title,
+	f.human_summary,
+	f.path,
+	f.evidence,
+	f.remediation,
+	f.created_at,
+	f.repository,
+	f.lifecycle_key,
+	f.lifecycle_status,
+	f.first_seen_at,
+	f.last_seen_at,
+	f.fixed_at,
+	f.reopened_at,
+	f.dismissed_at,
+	f.suppression_expires_at,
+	f.owner,
+	f.rule_version,
+	f.detector_version,
+	f.adapter_source,
+	f.confidence_state,
+	f.verification_status,
+	f.scan_mode,
+	f.evidence_version
+FROM filtered f
+WHERE %s
+ORDER BY %s`,
+		repositoryExpr,
+		lifecycleKeyExpr,
+		statusExpr,
+		detectorExpr,
+		confidenceExpr,
+		ownerExpr,
+		partitionExpr,
+		strings.Join(conditions, " AND "),
+		strings.Join(outerConditions, " AND "),
+		repoFindingOrderClause(normalized.SortBy, normalized.SortDesc),
+	)
 	if limit > 0 {
-		query += "\n\t\t LIMIT $8"
-		args = append(args, limit)
+		query += "\n\t\t LIMIT " + addArg(limit)
 	}
 	rows, err := p.queryContext(
 		ctx,
@@ -3428,17 +3765,33 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	result := []domain.Finding{}
 	for rows.Next() {
 		var row struct {
-			RepoScanID   string
-			FindingID    string
-			Type         string
-			Severity     string
-			Title        string
-			HumanSummary string
-			Path         []byte
-			Evidence     []byte
-			Remediation  string
-			CreatedAt    time.Time
-			Repository   string
+			RepoScanID           string
+			FindingID            string
+			Type                 string
+			Severity             string
+			Title                string
+			HumanSummary         string
+			Path                 []byte
+			Evidence             []byte
+			Remediation          string
+			CreatedAt            time.Time
+			Repository           string
+			LifecycleKey         string
+			LifecycleStatus      string
+			FirstSeenAt          sql.NullTime
+			LastSeenAt           sql.NullTime
+			FixedAt              sql.NullTime
+			ReopenedAt           sql.NullTime
+			DismissedAt          sql.NullTime
+			SuppressionExpiresAt sql.NullTime
+			Owner                string
+			RuleVersion          string
+			DetectorVersion      string
+			AdapterSource        string
+			ConfidenceState      string
+			VerificationStatus   string
+			ScanMode             string
+			EvidenceVersion      string
 		}
 		if err := rows.Scan(
 			&row.RepoScanID,
@@ -3452,21 +3805,69 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 			&row.Remediation,
 			&row.CreatedAt,
 			&row.Repository,
+			&row.LifecycleKey,
+			&row.LifecycleStatus,
+			&row.FirstSeenAt,
+			&row.LastSeenAt,
+			&row.FixedAt,
+			&row.ReopenedAt,
+			&row.DismissedAt,
+			&row.SuppressionExpiresAt,
+			&row.Owner,
+			&row.RuleVersion,
+			&row.DetectorVersion,
+			&row.AdapterSource,
+			&row.ConfidenceState,
+			&row.VerificationStatus,
+			&row.ScanMode,
+			&row.EvidenceVersion,
 		); err != nil {
 			return nil, fmt.Errorf("repo finding row: %w", err)
 		}
 		finding := domain.Finding{
-			ScanID:       row.RepoScanID,
-			ID:           row.FindingID,
-			Type:         domain.FindingType(row.Type),
-			Severity:     domain.FindingSeverity(row.Severity),
-			Title:        row.Title,
-			HumanSummary: row.HumanSummary,
-			Remediation:  row.Remediation,
-			CreatedAt:    row.CreatedAt,
+			ScanID:             row.RepoScanID,
+			ID:                 row.FindingID,
+			Type:               domain.FindingType(row.Type),
+			Severity:           domain.FindingSeverity(row.Severity),
+			Title:              row.Title,
+			HumanSummary:       row.HumanSummary,
+			Remediation:        row.Remediation,
+			CreatedAt:          row.CreatedAt,
+			Repository:         strings.TrimSpace(row.Repository),
+			LifecycleKey:       row.LifecycleKey,
+			LifecycleStatus:    domain.NormalizeRepoFindingLifecycleStatus(row.LifecycleStatus),
+			Owner:              row.Owner,
+			RuleVersion:        row.RuleVersion,
+			DetectorVersion:    row.DetectorVersion,
+			AdapterSource:      row.AdapterSource,
+			ConfidenceState:    row.ConfidenceState,
+			VerificationStatus: row.VerificationStatus,
+			ScanMode:           row.ScanMode,
+			EvidenceVersion:    row.EvidenceVersion,
 		}
-		if finding.Repository == "" {
-			finding.Repository = strings.TrimSpace(row.Repository)
+		if row.FirstSeenAt.Valid {
+			value := row.FirstSeenAt.Time.UTC()
+			finding.FirstSeenAt = &value
+		}
+		if row.LastSeenAt.Valid {
+			value := row.LastSeenAt.Time.UTC()
+			finding.LastSeenAt = &value
+		}
+		if row.FixedAt.Valid {
+			value := row.FixedAt.Time.UTC()
+			finding.FixedAt = &value
+		}
+		if row.ReopenedAt.Valid {
+			value := row.ReopenedAt.Time.UTC()
+			finding.ReopenedAt = &value
+		}
+		if row.DismissedAt.Valid {
+			value := row.DismissedAt.Time.UTC()
+			finding.DismissedAt = &value
+		}
+		if row.SuppressionExpiresAt.Valid {
+			value := row.SuppressionExpiresAt.Time.UTC()
+			finding.SuppressionExpiresAt = &value
 		}
 		if len(row.Path) > 0 {
 			if err := json.Unmarshal(row.Path, &finding.Path); err != nil {
@@ -3898,6 +4299,21 @@ func nullableTime(value time.Time) any {
 		return nil
 	}
 	return value.UTC()
+}
+
+func nullableTimePointer(value *time.Time) any {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	return value.UTC()
+}
+
+func cloneTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	normalized := value.UTC()
+	return &normalized
 }
 
 const bulkInsertChunkSize = 100
@@ -4729,20 +5145,28 @@ func repoFindingOrderClause(sortBy string, desc bool) string {
 	}
 	switch sortBy {
 	case "severity":
-		return fmt.Sprintf(`CASE LOWER(rf.severity)
+		return fmt.Sprintf(`CASE LOWER(f.severity)
 			WHEN 'critical' THEN 5
 			WHEN 'high' THEN 4
 			WHEN 'medium' THEN 3
 			WHEN 'low' THEN 2
 			WHEN 'info' THEN 1
 			ELSE 0
-		END %s, rf.repo_scan_id %s, rf.finding_id %s`, direction, direction, direction)
+		END %s, f.repo_scan_id %s, f.finding_id %s`, direction, direction, direction)
 	case "type":
-		return fmt.Sprintf("LOWER(rf.type) %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
+		return fmt.Sprintf("LOWER(f.type) %s, f.repo_scan_id %s, f.finding_id %s", direction, direction, direction)
 	case "title":
-		return fmt.Sprintf("LOWER(rf.title) %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
+		return fmt.Sprintf("LOWER(f.title) %s, f.repo_scan_id %s, f.finding_id %s", direction, direction, direction)
+	case "first_seen_at":
+		return fmt.Sprintf("COALESCE(f.first_seen_at, f.created_at) %s, f.repo_scan_id %s, f.finding_id %s", direction, direction, direction)
+	case "last_seen_at":
+		return fmt.Sprintf("COALESCE(f.last_seen_at, f.created_at) %s, f.repo_scan_id %s, f.finding_id %s", direction, direction, direction)
+	case "status":
+		return fmt.Sprintf("LOWER(f.lifecycle_status) %s, f.repo_scan_id %s, f.finding_id %s", direction, direction, direction)
+	case "owner":
+		return fmt.Sprintf("LOWER(f.owner) %s, f.repo_scan_id %s, f.finding_id %s", direction, direction, direction)
 	default:
-		return fmt.Sprintf("rf.created_at %s, rf.repo_scan_id %s, rf.finding_id %s", direction, direction, direction)
+		return fmt.Sprintf("f.created_at %s, f.repo_scan_id %s, f.finding_id %s", direction, direction, direction)
 	}
 }
 

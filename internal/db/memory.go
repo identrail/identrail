@@ -135,6 +135,14 @@ func sortFindingsForQuery(items []domain.Finding, sortBy string, desc bool) {
 			cmp = compareMemoryString(string(left.Type), string(right.Type))
 		case "title":
 			cmp = compareMemoryString(left.Title, right.Title)
+		case "first_seen_at":
+			cmp = compareMemoryTime(timeValue(left.FirstSeenAt, left.CreatedAt), timeValue(right.FirstSeenAt, right.CreatedAt))
+		case "last_seen_at":
+			cmp = compareMemoryTime(timeValue(left.LastSeenAt, left.CreatedAt), timeValue(right.LastSeenAt, right.CreatedAt))
+		case "status":
+			cmp = compareMemoryString(string(left.LifecycleStatus), string(right.LifecycleStatus))
+		case "owner":
+			cmp = compareMemoryString(left.Owner, right.Owner)
 		default:
 			cmp = compareMemoryTime(left.CreatedAt, right.CreatedAt)
 		}
@@ -2190,6 +2198,9 @@ func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, s
 	}
 	record.ErrorMessage = strings.TrimSpace(errorMessage)
 	m.repoScans[repoScanID] = record
+	if shouldCloseMissingRepoFindings(record.Status, record.Truncated, normalizedContext) {
+		m.markMissingRepoFindingsFixedLocked(scope, record, finished)
+	}
 	return nil
 }
 
@@ -2265,7 +2276,22 @@ func (m *MemoryStore) UpsertRepoFindings(ctx context.Context, repoScanID string,
 	}
 	for _, finding := range findings {
 		finding.ScanID = repoScanID
+		if finding.Repository == "" {
+			finding.Repository = strings.TrimSpace(repoScan.Repository)
+		}
+		if finding.ScanMode == "" {
+			finding.ScanMode = strings.TrimSpace(repoScan.ScanMode)
+		}
+		observedAt := finding.CreatedAt.UTC()
+		if observedAt.IsZero() {
+			observedAt = repoScan.StartedAt.UTC()
+		}
+		if observedAt.IsZero() {
+			observedAt = time.Now().UTC()
+		}
+		finding.CreatedAt = observedAt
 		domain.NormalizeRepoFindingMetadata(&finding)
+		m.applyRepoFindingLifecycleLocked(scope, repoScan, &finding, observedAt)
 		key := repoScanID + "|" + finding.ID
 		m.repoFindings[key] = finding
 		m.repoFindingIDs[repoScanID] = appendUniqueID(m.repoFindingIDs[repoScanID], key)
@@ -2364,6 +2390,9 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			if !repoFindingMatchesRepository(finding, repositoryFilter) {
 				continue
 			}
+			if !repoFindingMatchesFilter(finding, normalized) {
+				continue
+			}
 			result = append(result, finding)
 		}
 	} else {
@@ -2390,6 +2419,16 @@ func (m *MemoryStore) ListRepoFindings(ctx context.Context, filter RepoFindingFi
 			}
 			result = append(result, finding)
 		}
+		if !normalized.IncludeHistorical {
+			result = latestRepoFindingLifecycleRows(result)
+		}
+		filtered := result[:0]
+		for _, finding := range result {
+			if repoFindingMatchesFilter(finding, normalized) {
+				filtered = append(filtered, finding)
+			}
+		}
+		result = filtered
 	}
 	sortFindingsForQuery(result, normalized.SortBy, normalized.SortDesc)
 	if limit > 0 && len(result) > limit {
@@ -2406,12 +2445,201 @@ func repoFindingMatchesRepository(finding domain.Finding, repository string) boo
 	return strings.EqualFold(strings.TrimSpace(finding.Repository), repository)
 }
 
+func (m *MemoryStore) applyRepoFindingLifecycleLocked(scope Scope, repoScan RepoScanRecord, finding *domain.Finding, observedAt time.Time) {
+	if finding == nil {
+		return
+	}
+	if finding.LifecycleKey == "" {
+		finding.LifecycleKey = domain.RepoFindingLifecycleKey(*finding)
+	}
+	firstSeen := observedAt.UTC()
+	status := domain.RepoFindingLifecycleOpen
+	previous, exists := m.latestRepoFindingLifecycleLocked(scope, strings.TrimSpace(repoScan.Repository), finding.LifecycleKey, repoScan.ID)
+	if exists {
+		if previous.FirstSeenAt != nil && !previous.FirstSeenAt.IsZero() {
+			firstSeen = previous.FirstSeenAt.UTC()
+		} else if !previous.CreatedAt.IsZero() {
+			firstSeen = previous.CreatedAt.UTC()
+		}
+		switch previous.LifecycleStatus {
+		case domain.RepoFindingLifecycleFixed:
+			status = domain.RepoFindingLifecycleReopened
+			reopenedAt := observedAt.UTC()
+			finding.ReopenedAt = &reopenedAt
+		case domain.RepoFindingLifecycleSuppressed, domain.RepoFindingLifecycleRiskAccepted, domain.RepoFindingLifecycleFalsePositive:
+			status = previous.LifecycleStatus
+			finding.DismissedAt = cloneTimePointer(previous.DismissedAt)
+			finding.SuppressionExpiresAt = cloneTimePointer(previous.SuppressionExpiresAt)
+		case domain.RepoFindingLifecycleReopened:
+			status = domain.RepoFindingLifecycleReopened
+			finding.ReopenedAt = cloneTimePointer(previous.ReopenedAt)
+		default:
+			status = domain.RepoFindingLifecycleOpen
+		}
+		if finding.Owner == "" {
+			finding.Owner = previous.Owner
+		}
+	}
+	firstSeenCopy := firstSeen.UTC()
+	lastSeenCopy := observedAt.UTC()
+	finding.FirstSeenAt = &firstSeenCopy
+	finding.LastSeenAt = &lastSeenCopy
+	finding.FixedAt = nil
+	finding.LifecycleStatus = status
+	domain.NormalizeRepoFindingMetadata(finding)
+}
+
+func (m *MemoryStore) latestRepoFindingLifecycleLocked(scope Scope, repository string, lifecycleKey string, excludeRepoScanID string) (domain.Finding, bool) {
+	lifecycleKey = strings.TrimSpace(lifecycleKey)
+	if lifecycleKey == "" {
+		return domain.Finding{}, false
+	}
+	var latest domain.Finding
+	found := false
+	for _, candidate := range m.repoFindings {
+		if strings.TrimSpace(candidate.ScanID) == strings.TrimSpace(excludeRepoScanID) {
+			continue
+		}
+		record, exists := m.repoScans[candidate.ScanID]
+		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(record.Repository), strings.TrimSpace(repository)) {
+			continue
+		}
+		if candidate.Repository == "" {
+			candidate.Repository = record.Repository
+		}
+		domain.NormalizeRepoFindingMetadata(&candidate)
+		if strings.TrimSpace(candidate.LifecycleKey) != lifecycleKey {
+			continue
+		}
+		if !found || repoFindingObservedAt(candidate).After(repoFindingObservedAt(latest)) {
+			latest = candidate
+			found = true
+		}
+	}
+	return latest, found
+}
+
+func (m *MemoryStore) markMissingRepoFindingsFixedLocked(scope Scope, repoScan RepoScanRecord, fixedAt time.Time) {
+	currentKeys := map[string]struct{}{}
+	for _, key := range m.repoFindingIDs[repoScan.ID] {
+		finding, exists := m.repoFindings[key]
+		if !exists {
+			continue
+		}
+		domain.NormalizeRepoFindingMetadata(&finding)
+		if finding.LifecycleKey != "" {
+			currentKeys[finding.LifecycleKey] = struct{}{}
+		}
+	}
+	for key, finding := range m.repoFindings {
+		if strings.TrimSpace(finding.ScanID) == strings.TrimSpace(repoScan.ID) {
+			continue
+		}
+		record, exists := m.repoScans[finding.ScanID]
+		if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(record.Repository), strings.TrimSpace(repoScan.Repository)) {
+			continue
+		}
+		if finding.Repository == "" {
+			finding.Repository = record.Repository
+		}
+		domain.NormalizeRepoFindingMetadata(&finding)
+		if finding.LifecycleKey == "" {
+			continue
+		}
+		if _, stillObserved := currentKeys[finding.LifecycleKey]; stillObserved {
+			continue
+		}
+		if finding.LifecycleStatus != domain.RepoFindingLifecycleOpen && finding.LifecycleStatus != domain.RepoFindingLifecycleReopened {
+			continue
+		}
+		latest, exists := m.latestRepoFindingLifecycleLocked(scope, repoScan.Repository, finding.LifecycleKey, repoScan.ID)
+		if !exists || latest.ScanID != finding.ScanID || latest.ID != finding.ID {
+			continue
+		}
+		fixed := fixedAt.UTC()
+		finding.FixedAt = &fixed
+		finding.LifecycleStatus = domain.RepoFindingLifecycleFixed
+		domain.NormalizeRepoFindingMetadata(&finding)
+		m.repoFindings[key] = finding
+	}
+}
+
+func repoFindingMatchesFilter(finding domain.Finding, filter RepoFindingFilter) bool {
+	if filter.Status != "" && strings.ToLower(string(finding.LifecycleStatus)) != filter.Status {
+		return false
+	}
+	if filter.Detector != "" && strings.ToLower(strings.TrimSpace(finding.Detector)) != filter.Detector {
+		return false
+	}
+	if filter.Owner != "" && strings.ToLower(strings.TrimSpace(finding.Owner)) != filter.Owner {
+		return false
+	}
+	if filter.MinConfidence > 0 && finding.ConfidenceScore < filter.MinConfidence {
+		return false
+	}
+	if filter.MinAgeDays > 0 {
+		cutoff := filter.Now.Add(-time.Duration(filter.MinAgeDays) * 24 * time.Hour)
+		if timeValue(finding.FirstSeenAt, finding.CreatedAt).After(cutoff) {
+			return false
+		}
+	}
+	return true
+}
+
+func latestRepoFindingLifecycleRows(findings []domain.Finding) []domain.Finding {
+	if len(findings) <= 1 {
+		return findings
+	}
+	latest := map[string]domain.Finding{}
+	order := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		key := strings.TrimSpace(finding.LifecycleKey)
+		if key == "" {
+			key = finding.ScanID + "|" + finding.ID
+		}
+		existing, exists := latest[key]
+		if !exists {
+			order = append(order, key)
+			latest[key] = finding
+			continue
+		}
+		if repoFindingObservedAt(finding).After(repoFindingObservedAt(existing)) {
+			latest[key] = finding
+		}
+	}
+	result := make([]domain.Finding, 0, len(latest))
+	for _, key := range order {
+		if finding, exists := latest[key]; exists {
+			result = append(result, finding)
+		}
+	}
+	return result
+}
+
+func repoFindingObservedAt(finding domain.Finding) time.Time {
+	return timeValue(finding.LastSeenAt, finding.CreatedAt)
+}
+
+func timeValue(value *time.Time, fallback time.Time) time.Time {
+	if value != nil && !value.IsZero() {
+		return value.UTC()
+	}
+	return fallback.UTC()
+}
+
 // ListRepoFindingClusters returns repository finding clusters using store-backed pagination semantics.
 func (m *MemoryStore) ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error) {
 	findings, err := m.ListRepoFindings(ctx, RepoFindingFilter{
-		RepoScanID: filter.RepoScanID,
-		Severity:   filter.Severity,
-		Type:       filter.Type,
+		RepoScanID:        filter.RepoScanID,
+		Severity:          filter.Severity,
+		Type:              filter.Type,
+		IncludeHistorical: true,
 	}, 0)
 	if err != nil {
 		return nil, err

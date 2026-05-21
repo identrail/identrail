@@ -21,10 +21,48 @@ export type Finding = {
   line_snippet?: string;
   line_snippet_redacted?: boolean;
   source_url?: string;
+  lifecycle_key?: string;
+  lifecycle_status?: RepoFindingLifecycleStatus;
+  owner?: string;
+  first_seen_at?: string;
+  last_seen_at?: string;
+  fixed_at?: string;
+  reopened_at?: string;
+  dismissed_at?: string;
+  suppression_expires_at?: string;
+  rule_version?: string;
+  detector_version?: string;
+  adapter_source?: string;
+  confidence_state?: string;
+  verification_status?: string;
+  scan_mode?: string;
+  evidence_version?: string;
   evidence?: Record<string, unknown>;
   remediation: string;
   created_at: string;
   triage?: FindingTriage;
+};
+
+export type RepoFindingLifecycleStatus =
+  | 'open'
+  | 'fixed'
+  | 'reopened'
+  | 'suppressed'
+  | 'risk_accepted'
+  | 'false_positive';
+
+export type RepoFindingsSummary = {
+  total_open: number;
+  fixed_count: number;
+  reopened_count: number;
+  suppressed_count: number;
+  sla_aged_count: number;
+  mttr_ready_resolved_count: number;
+  mean_time_to_resolve_seconds?: number;
+  oldest_open_first_seen_at?: string;
+  by_owner: Record<string, number>;
+  by_detector: Record<string, number>;
+  by_severity: Record<string, number>;
 };
 
 export type RepoScanRecord = {
@@ -1239,8 +1277,16 @@ export const apiClient = {
       limit?: number;
       cursor?: string;
       repo_scan_id?: string;
+      repository?: string;
       severity?: string;
       type?: string;
+      status?: RepoFindingLifecycleStatus;
+      detector?: string;
+      owner?: string;
+      confidence?: number;
+      min_confidence?: number;
+      age_days?: number;
+      min_age_days?: number;
       lifecycle_status?: FindingLifecycleStatus;
       assignee?: string;
       sort_by?: string;
@@ -1248,7 +1294,7 @@ export const apiClient = {
     } = {},
     auth?: RequestAuthContext
   ) {
-    return request<{ items: Finding[] }>(
+    return request<{ items: Finding[]; summary?: RepoFindingsSummary }>(
       `/v1/repo-findings${buildQuery({ sort_by: 'created_at', sort_order: 'desc', ...filters })}`,
       auth
     );

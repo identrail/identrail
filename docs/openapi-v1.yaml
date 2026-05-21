@@ -3882,6 +3882,13 @@ paths:
           name: repo_scan_id
           schema: { type: string }
         - in: query
+          name: repository
+          schema: { type: string }
+        - in: query
+          name: status
+          schema:
+            $ref: "#/components/schemas/RepoFindingLifecycleStatus"
+        - in: query
           name: severity
           schema:
             $ref: "#/components/schemas/FindingSeverity"
@@ -3889,6 +3896,26 @@ paths:
           name: type
           schema:
             $ref: "#/components/schemas/FindingType"
+        - in: query
+          name: detector
+          schema: { type: string }
+        - in: query
+          name: owner
+          schema: { type: string }
+        - in: query
+          name: confidence
+          schema:
+            type: number
+            format: double
+            minimum: 0
+            maximum: 1
+          description: Minimum confidence score to include.
+        - in: query
+          name: age_days
+          schema:
+            type: integer
+            minimum: 0
+          description: Minimum age in days, measured from `first_seen_at`.
         - in: query
           name: lifecycle_status
           schema:
@@ -3904,7 +3931,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FindingPage"
+                $ref: "#/components/schemas/RepoFindingPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -5801,6 +5828,9 @@ components:
     FindingLifecycleStatus:
       type: string
       enum: [open, ack, suppressed, resolved]
+    RepoFindingLifecycleStatus:
+      type: string
+      enum: [open, fixed, reopened, suppressed, risk_accepted, false_positive]
     FindingTriage:
       type: object
       properties:
@@ -5836,7 +5866,7 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: Required and must be in the future when `status` is `suppressed`.
+          description: "Optional expiry for suppressed findings. When supplied for `status: suppressed`, it must be in the future; a suppression comment is required as the reason."
         comment:
           type: string
     FindingTriageEvent:
@@ -5901,6 +5931,50 @@ components:
           type: string
           format: uri
           description: Direct GitHub blob URL for the repository file and line when Identrail can derive one.
+        lifecycle_key:
+          type: string
+          description: Stable scanner identity used to connect the finding across repeated repository scans.
+        lifecycle_status:
+          $ref: "#/components/schemas/RepoFindingLifecycleStatus"
+        owner:
+          type: string
+          description: Owner or team routed from finding evidence, triage assignment, or ownership metadata.
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        fixed_at:
+          type: string
+          format: date-time
+          nullable: true
+        reopened_at:
+          type: string
+          format: date-time
+          nullable: true
+        dismissed_at:
+          type: string
+          format: date-time
+          nullable: true
+        suppression_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        rule_version:
+          type: string
+        detector_version:
+          type: string
+        adapter_source:
+          type: string
+        confidence_state:
+          type: string
+        verification_status:
+          type: string
+        scan_mode:
+          type: string
+        evidence_version:
+          type: string
         evidence:
           type: object
           additionalProperties: true
@@ -5910,6 +5984,43 @@ components:
           format: date-time
         triage:
           $ref: "#/components/schemas/FindingTriage"
+    RepoFindingsSummary:
+      type: object
+      properties:
+        total_open: { type: integer }
+        fixed_count: { type: integer }
+        reopened_count: { type: integer }
+        suppressed_count: { type: integer }
+        sla_aged_count: { type: integer }
+        mttr_ready_resolved_count: { type: integer }
+        mean_time_to_resolve_seconds:
+          type: number
+          format: double
+          nullable: true
+        oldest_open_first_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        by_owner:
+          type: object
+          additionalProperties: { type: integer }
+        by_detector:
+          type: object
+          additionalProperties: { type: integer }
+        by_severity:
+          type: object
+          additionalProperties: { type: integer }
+    RepoFindingPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Finding"
+        next_cursor:
+          type: string
+        summary:
+          $ref: "#/components/schemas/RepoFindingsSummary"
     RepoFindingRemediationPreviewRequest:
       type: object
       properties:

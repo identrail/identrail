@@ -930,18 +930,43 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
 			return
 		}
+		minConfidence, ok, err := parseOptionalFloat(c.Query("confidence"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid confidence"})
+			return
+		}
+		if !ok {
+			minConfidence, _, err = parseOptionalFloat(c.Query("min_confidence"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid min_confidence"})
+				return
+			}
+		}
+		minAgeDays, err := parseOptionalNonNegativeInt(firstNonEmpty(c.Query("age_days"), c.Query("min_age_days")))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid age_days"})
+			return
+		}
+		filter := db.RepoFindingFilter{
+			RepoScanID:      repoScanID,
+			Repository:      strings.TrimSpace(c.Query("repository")),
+			Severity:        strings.TrimSpace(c.Query("severity")),
+			Type:            strings.TrimSpace(c.Query("type")),
+			Status:          strings.TrimSpace(c.Query("status")),
+			Detector:        strings.TrimSpace(c.Query("detector")),
+			Owner:           strings.TrimSpace(c.Query("owner")),
+			MinConfidence:   minConfidence,
+			MinAgeDays:      minAgeDays,
+			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
+			Assignee:        strings.TrimSpace(c.Query("assignee")),
+			SortBy:          sortBy,
+			SortDesc:        sortDesc,
+			Now:             time.Now().UTC(),
+		}
 		items, err := svc.ListRepoFindings(
 			c.Request.Context(),
 			pageFetchLimit(offset, limit),
-			db.RepoFindingFilter{
-				RepoScanID:      repoScanID,
-				Severity:        strings.TrimSpace(c.Query("severity")),
-				Type:            strings.TrimSpace(c.Query("type")),
-				LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
-				Assignee:        strings.TrimSpace(c.Query("assignee")),
-				SortBy:          sortBy,
-				SortDesc:        sortDesc,
-			},
+			filter,
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -952,7 +977,15 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list repo findings"})
 			return
 		}
-		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
+		summary, err := svc.GetRepoFindingsSummary(c.Request.Context(), filter)
+		if err != nil {
+			logger.Error("summarize repo findings", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to summarize repo findings"})
+			return
+		}
+		response := paginatedItemsResponse(items, offset, limit)
+		response["summary"] = summary
+		c.JSON(http.StatusOK, response)
 	})
 
 	v1.POST("/repo-findings/:finding_id/remediation/preview", func(c *gin.Context) {
@@ -2367,6 +2400,36 @@ func parseLimit(raw string, fallback int, max int) int {
 		return max
 	}
 	return parsed
+}
+
+func parseOptionalFloat(raw string) (float64, bool, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false, nil
+	}
+	parsed, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, false, err
+	}
+	if parsed < 0 || parsed > 1 {
+		return 0, false, errors.New("float outside range")
+	}
+	return parsed, true, nil
+}
+
+func parseOptionalNonNegativeInt(raw string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return 0, err
+	}
+	if parsed < 0 {
+		return 0, errors.New("negative integer")
+	}
+	return parsed, nil
 }
 
 func parseCursor(raw string) int {

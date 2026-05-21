@@ -48,6 +48,7 @@ const (
 	maxSourceErrorsInEvent           = 25
 	repoFindingsTriageFilterStep     = maxCursorFetchLimit
 	repoFindingsTriageFilterCap      = maxCursorFetchLimit * 4
+	repoFindingSLAHighCritical       = 7 * 24 * time.Hour
 )
 
 const (
@@ -344,6 +345,21 @@ type FindingsSummary struct {
 	Total      int            `json:"total"`
 	BySeverity map[string]int `json:"by_severity"`
 	ByType     map[string]int `json:"by_type"`
+}
+
+// RepoFindingsSummary exposes lifecycle intelligence for repository findings.
+type RepoFindingsSummary struct {
+	TotalOpen                int            `json:"total_open"`
+	FixedCount               int            `json:"fixed_count"`
+	ReopenedCount            int            `json:"reopened_count"`
+	SuppressedCount          int            `json:"suppressed_count"`
+	SLAAgedCount             int            `json:"sla_aged_count"`
+	MTTRReadyResolvedCount   int            `json:"mttr_ready_resolved_count"`
+	MeanTimeToResolveSeconds *float64       `json:"mean_time_to_resolve_seconds,omitempty"`
+	OldestOpenFirstSeenAt    *time.Time     `json:"oldest_open_first_seen_at,omitempty"`
+	ByOwner                  map[string]int `json:"by_owner"`
+	ByDetector               map[string]int `json:"by_detector"`
+	BySeverity               map[string]int `json:"by_severity"`
 }
 
 // ScanDiff captures delta between one scan and its previous scan for same provider.
@@ -1929,6 +1945,26 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 	return filtered, nil
 }
 
+// GetRepoFindingsSummary returns lifecycle and ownership rollups for the
+// repository finding list using the same filters as the list endpoint.
+func (s *Service) GetRepoFindingsSummary(ctx context.Context, filter db.RepoFindingFilter) (RepoFindingsSummary, error) {
+	ctx = s.scopeContext(ctx)
+	normalized := db.NormalizeRepoFindingFilter(filter)
+	findings, err := s.Store.ListRepoFindings(ctx, normalized, 0)
+	if err != nil {
+		return RepoFindingsSummary{}, err
+	}
+	findings = enrichFindingsWithRepoContext(findings)
+	withTriage, err := s.applyFindingTriageStates(ctx, findings)
+	if err != nil {
+		return RepoFindingsSummary{}, err
+	}
+	if normalized.LifecycleStatus != "" || normalized.Assignee != "" {
+		withTriage = filterRepoFindingsByTriage(withTriage, normalized.LifecycleStatus, normalized.Assignee)
+	}
+	return summarizeRepoFindings(withTriage, s.Now().UTC()), nil
+}
+
 func (s *Service) listRepoFindingsWithTriageFilter(
 	ctx context.Context,
 	repoLimit int,
@@ -2487,6 +2523,71 @@ func filterRepoFindingsByTriage(
 	return filtered
 }
 
+func summarizeRepoFindings(findings []domain.Finding, now time.Time) RepoFindingsSummary {
+	summary := RepoFindingsSummary{
+		ByOwner:    map[string]int{},
+		ByDetector: map[string]int{},
+		BySeverity: map[string]int{},
+	}
+	var totalResolveSeconds float64
+	for _, finding := range findings {
+		status := finding.LifecycleStatus
+		if status == "" {
+			status = domain.RepoFindingLifecycleOpen
+		}
+		switch status {
+		case domain.RepoFindingLifecycleFixed:
+			summary.FixedCount++
+			if finding.FirstSeenAt != nil && finding.FixedAt != nil && finding.FixedAt.After(*finding.FirstSeenAt) {
+				totalResolveSeconds += finding.FixedAt.Sub(*finding.FirstSeenAt).Seconds()
+				summary.MTTRReadyResolvedCount++
+			}
+		case domain.RepoFindingLifecycleReopened:
+			summary.ReopenedCount++
+			summary.TotalOpen++
+		case domain.RepoFindingLifecycleSuppressed, domain.RepoFindingLifecycleRiskAccepted, domain.RepoFindingLifecycleFalsePositive:
+			summary.SuppressedCount++
+		default:
+			summary.TotalOpen++
+		}
+		if status == domain.RepoFindingLifecycleOpen || status == domain.RepoFindingLifecycleReopened {
+			firstSeen := finding.CreatedAt
+			if finding.FirstSeenAt != nil {
+				firstSeen = finding.FirstSeenAt.UTC()
+			}
+			if summary.OldestOpenFirstSeenAt == nil || firstSeen.Before(*summary.OldestOpenFirstSeenAt) {
+				value := firstSeen.UTC()
+				summary.OldestOpenFirstSeenAt = &value
+			}
+			if (finding.Severity == domain.SeverityHigh || finding.Severity == domain.SeverityCritical) &&
+				!firstSeen.IsZero() &&
+				now.Sub(firstSeen) >= repoFindingSLAHighCritical {
+				summary.SLAAgedCount++
+			}
+		}
+		owner := strings.TrimSpace(finding.Owner)
+		if owner == "" {
+			owner = "unassigned"
+		}
+		summary.ByOwner[owner]++
+		detector := strings.TrimSpace(finding.Detector)
+		if detector == "" {
+			detector = "unknown"
+		}
+		summary.ByDetector[detector]++
+		severity := strings.TrimSpace(string(finding.Severity))
+		if severity == "" {
+			severity = "unknown"
+		}
+		summary.BySeverity[severity]++
+	}
+	if summary.MTTRReadyResolvedCount > 0 {
+		mean := totalResolveSeconds / float64(summary.MTTRReadyResolvedCount)
+		summary.MeanTimeToResolveSeconds = &mean
+	}
+	return summary
+}
+
 // TriageFinding applies one workflow mutation and records audit history.
 func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID string, request FindingTriageRequest, actor string) (domain.Finding, error) {
 	id := strings.TrimSpace(findingID)
@@ -2548,13 +2649,13 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 		nextState.SuppressionExpiresAt = nil
 		changed = true
 	}
-	if nextState.Status == domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt == nil {
+	comment := strings.TrimSpace(request.Comment)
+	if nextState.Status == domain.FindingLifecycleSuppressed && comment == "" {
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}
 	if nextState.Status == domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt != nil && !nextState.SuppressionExpiresAt.After(now) {
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}
-	comment := strings.TrimSpace(request.Comment)
 	if !changed && comment == "" {
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}
@@ -3214,6 +3315,7 @@ func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domai
 			}
 		}
 		finding.Triage = triage
+		domain.ApplyRepoFindingTriageToLifecycle(&finding)
 		result = append(result, finding)
 	}
 	return result, nil

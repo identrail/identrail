@@ -1067,13 +1067,15 @@ func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 		t.Fatalf("triage second repo finding: %v", err)
 	}
 
-	findings, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{})
+	firstFindings, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{RepoScanID: firstScan.ID})
 	if err != nil {
-		t.Fatalf("list repo findings: %v", err)
+		t.Fatalf("list first repo findings: %v", err)
 	}
-	if len(findings) != 2 {
-		t.Fatalf("expected two repo findings, got %+v", findings)
+	secondFindings, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{RepoScanID: secondScan.ID})
+	if err != nil {
+		t.Fatalf("list second repo findings: %v", err)
 	}
+	findings := append(firstFindings, secondFindings...)
 
 	triageByScan := map[string]domain.FindingTriage{}
 	for _, finding := range findings {
@@ -1090,6 +1092,7 @@ func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 		defaultScopeContext(),
 		10,
 		db.RepoFindingFilter{
+			RepoScanID:      firstScan.ID,
 			LifecycleStatus: string(domain.FindingLifecycleAck),
 		},
 	)
@@ -1106,6 +1109,122 @@ func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 	}
 	if len(history) != 1 || history[0].ToStatus != domain.FindingLifecycleResolved || history[0].Assignee != secondAssignee {
 		t.Fatalf("expected second scan history to stay isolated, got %+v", history)
+	}
+}
+
+func TestServiceRepoFindingLifecycleTracksFixedAndReopenedAcrossScans(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+
+	firstScan, err := store.CreateRepoScan(ctx, "owner/repo", db.RepoScanSource{}, db.RepoScanContext{ScanMode: "deep"}, now)
+	if err != nil {
+		t.Fatalf("create first repo scan: %v", err)
+	}
+	firstFinding := domain.Finding{
+		ID:              "finding:first-commit",
+		Type:            domain.FindingSecretExposure,
+		Severity:        domain.SeverityHigh,
+		ConfidenceScore: 0.92,
+		Title:           "GitHub token exposed",
+		HumanSummary:    "A token-like value was committed.",
+		Repository:      "owner/repo",
+		Commit:          "abc123",
+		FilePath:        "config/app.env",
+		LineNumber:      7,
+		Detector:        "github_token",
+		Owner:           "platform",
+		Evidence: map[string]any{
+			"repository":         "owner/repo",
+			"detector":           "github_token",
+			"file_path":          "config/app.env",
+			"line_number":        7,
+			"secret_fingerprint": "fp-token",
+			"confidence_score":   0.92,
+			"owner":              "platform",
+		},
+		CreatedAt: now,
+	}
+	if err := store.UpsertRepoFindings(ctx, firstScan.ID, []domain.Finding{firstFinding}); err != nil {
+		t.Fatalf("upsert first repo finding: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, firstScan.ID, "succeeded", now.Add(time.Minute), 10, 8, 1, false, db.RepoScanContext{ScanMode: "deep"}, ""); err != nil {
+		t.Fatalf("complete first repo scan: %v", err)
+	}
+
+	secondScan, err := store.CreateRepoScan(ctx, "owner/repo", db.RepoScanSource{}, db.RepoScanContext{ScanMode: "deep"}, now.Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("create second repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, secondScan.ID, "succeeded", now.Add(24*time.Hour+time.Minute), 10, 8, 0, false, db.RepoScanContext{ScanMode: "deep"}, ""); err != nil {
+		t.Fatalf("complete second repo scan: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now.Add(48 * time.Hour) }
+	fixed, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{Status: string(domain.RepoFindingLifecycleFixed)})
+	if err != nil {
+		t.Fatalf("list fixed repo findings: %v", err)
+	}
+	if len(fixed) != 1 || fixed[0].LifecycleStatus != domain.RepoFindingLifecycleFixed || fixed[0].FixedAt == nil {
+		t.Fatalf("expected one fixed lifecycle row, got %+v", fixed)
+	}
+	openAfterFixed, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{Status: string(domain.RepoFindingLifecycleOpen)})
+	if err != nil {
+		t.Fatalf("list open repo findings after fixed lifecycle: %v", err)
+	}
+	if len(openAfterFixed) != 0 {
+		t.Fatalf("expected stale open lifecycle rows to be hidden, got %+v", openAfterFixed)
+	}
+
+	thirdScan, err := store.CreateRepoScan(ctx, "owner/repo", db.RepoScanSource{}, db.RepoScanContext{ScanMode: "deep"}, now.Add(48*time.Hour))
+	if err != nil {
+		t.Fatalf("create third repo scan: %v", err)
+	}
+	reopenedFinding := firstFinding
+	reopenedFinding.ID = "finding:second-commit"
+	reopenedFinding.Commit = "def456"
+	reopenedFinding.CreatedAt = now.Add(48 * time.Hour)
+	reopenedFinding.Evidence["commit"] = "def456"
+	if err := store.UpsertRepoFindings(ctx, thirdScan.ID, []domain.Finding{reopenedFinding}); err != nil {
+		t.Fatalf("upsert reopened repo finding: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, thirdScan.ID, "succeeded", now.Add(48*time.Hour+time.Minute), 10, 8, 1, false, db.RepoScanContext{ScanMode: "deep"}, ""); err != nil {
+		t.Fatalf("complete third repo scan: %v", err)
+	}
+
+	reopened, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Status:        string(domain.RepoFindingLifecycleReopened),
+		Repository:    "owner/repo",
+		Detector:      "github_token",
+		Owner:         "platform",
+		MinConfidence: 0.9,
+		MinAgeDays:    1,
+		Now:           now.Add(49 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("list reopened repo findings: %v", err)
+	}
+	if len(reopened) != 1 || reopened[0].ID != "finding:second-commit" {
+		t.Fatalf("expected latest reopened finding only, got %+v", reopened)
+	}
+	if reopened[0].FirstSeenAt == nil || !reopened[0].FirstSeenAt.Equal(now) {
+		t.Fatalf("expected first_seen_at to be preserved from first scan, got %+v", reopened[0].FirstSeenAt)
+	}
+	if reopened[0].LastSeenAt == nil || !reopened[0].LastSeenAt.Equal(now.Add(48*time.Hour)) {
+		t.Fatalf("expected last_seen_at from reopened scan, got %+v", reopened[0].LastSeenAt)
+	}
+	if reopened[0].ReopenedAt == nil {
+		t.Fatalf("expected reopened_at to be populated, got %+v", reopened[0])
+	}
+
+	svc.Now = func() time.Time { return now.Add(10 * 24 * time.Hour) }
+	summary, err := svc.GetRepoFindingsSummary(ctx, db.RepoFindingFilter{Repository: "owner/repo"})
+	if err != nil {
+		t.Fatalf("summarize repo findings: %v", err)
+	}
+	if summary.TotalOpen != 1 || summary.ReopenedCount != 1 || summary.FixedCount != 0 || summary.SLAAgedCount != 1 {
+		t.Fatalf("unexpected repo finding summary: %+v", summary)
 	}
 }
 
@@ -1369,7 +1488,7 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 		},
 		"subject:user-1",
 	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
-		t.Fatalf("expected invalid triage request error for missing suppression expiry, got %v", err)
+		t.Fatalf("expected invalid triage request error for missing suppression reason, got %v", err)
 	}
 
 	pastExpiry := now.Add(-1 * time.Hour).Format(time.RFC3339)
@@ -1380,10 +1499,29 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 		FindingTriageRequest{
 			Status:               &suppressed,
 			SuppressionExpiresAt: &pastExpiry,
+			Comment:              "past exception window",
 		},
 		"subject:user-1",
 	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
 		t.Fatalf("expected invalid triage request error for past suppression expiry, got %v", err)
+	}
+
+	reason := "accepted test fixture"
+	suppressedFinding, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{
+			Status:  &suppressed,
+			Comment: reason,
+		},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("expected suppression with reason and no expiry to pass: %v", err)
+	}
+	if suppressedFinding.Triage.Status != domain.FindingLifecycleSuppressed || suppressedFinding.Triage.SuppressionExpiresAt != nil {
+		t.Fatalf("expected suppressed finding without expiry, got %+v", suppressedFinding.Triage)
 	}
 }
 
@@ -1511,6 +1649,7 @@ func TestServiceImportFindingBaselineSkipsChangedVariants(t *testing.T) {
 	if _, err := svc.TriageFinding(defaultScopeContext(), sourceFinding.ID, sourceScan.ID, FindingTriageRequest{
 		Status:               &suppressed,
 		SuppressionExpiresAt: &expiry,
+		Comment:              "known false positive",
 	}, "subject:owner"); err != nil {
 		t.Fatalf("triage source finding: %v", err)
 	}

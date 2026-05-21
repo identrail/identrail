@@ -67,6 +67,19 @@ const (
 	FindingLifecycleResolved   FindingLifecycleStatus = "resolved"
 )
 
+// RepoFindingLifecycleStatus tracks scanner-observed state for a repository
+// finding across repeated scans.
+type RepoFindingLifecycleStatus string
+
+const (
+	RepoFindingLifecycleOpen          RepoFindingLifecycleStatus = "open"
+	RepoFindingLifecycleFixed         RepoFindingLifecycleStatus = "fixed"
+	RepoFindingLifecycleReopened      RepoFindingLifecycleStatus = "reopened"
+	RepoFindingLifecycleSuppressed    RepoFindingLifecycleStatus = "suppressed"
+	RepoFindingLifecycleRiskAccepted  RepoFindingLifecycleStatus = "risk_accepted"
+	RepoFindingLifecycleFalsePositive RepoFindingLifecycleStatus = "false_positive"
+)
+
 // FindingTriage stores mutable workflow metadata for one finding id.
 type FindingTriage struct {
 	Status               FindingLifecycleStatus `json:"status"`
@@ -132,26 +145,42 @@ type Relationship struct {
 
 // Finding is a typed risk detected by the analysis engine.
 type Finding struct {
-	ID                  string          `json:"id"`
-	ScanID              string          `json:"scan_id"`
-	Type                FindingType     `json:"type"`
-	Severity            FindingSeverity `json:"severity"`
-	ConfidenceScore     float64         `json:"confidence_score,omitempty"`
-	Title               string          `json:"title"`
-	HumanSummary        string          `json:"human_summary"`
-	Path                []string        `json:"path,omitempty"`
-	Repository          string          `json:"repository,omitempty"`
-	Commit              string          `json:"commit,omitempty"`
-	FilePath            string          `json:"file_path,omitempty"`
-	LineNumber          int             `json:"line_number,omitempty"`
-	Detector            string          `json:"detector,omitempty"`
-	LineSnippet         string          `json:"line_snippet,omitempty"`
-	LineSnippetRedacted *bool           `json:"line_snippet_redacted,omitempty"`
-	SourceURL           string          `json:"source_url,omitempty"`
-	Evidence            map[string]any  `json:"evidence,omitempty"`
-	Remediation         string          `json:"remediation"`
-	CreatedAt           time.Time       `json:"created_at"`
-	Triage              FindingTriage   `json:"triage,omitzero"`
+	ID                   string                     `json:"id"`
+	ScanID               string                     `json:"scan_id"`
+	Type                 FindingType                `json:"type"`
+	Severity             FindingSeverity            `json:"severity"`
+	ConfidenceScore      float64                    `json:"confidence_score,omitempty"`
+	Title                string                     `json:"title"`
+	HumanSummary         string                     `json:"human_summary"`
+	Path                 []string                   `json:"path,omitempty"`
+	Repository           string                     `json:"repository,omitempty"`
+	Commit               string                     `json:"commit,omitempty"`
+	FilePath             string                     `json:"file_path,omitempty"`
+	LineNumber           int                        `json:"line_number,omitempty"`
+	Detector             string                     `json:"detector,omitempty"`
+	LineSnippet          string                     `json:"line_snippet,omitempty"`
+	LineSnippetRedacted  *bool                      `json:"line_snippet_redacted,omitempty"`
+	SourceURL            string                     `json:"source_url,omitempty"`
+	LifecycleKey         string                     `json:"lifecycle_key,omitempty"`
+	LifecycleStatus      RepoFindingLifecycleStatus `json:"lifecycle_status,omitempty"`
+	Owner                string                     `json:"owner,omitempty"`
+	FirstSeenAt          *time.Time                 `json:"first_seen_at,omitempty"`
+	LastSeenAt           *time.Time                 `json:"last_seen_at,omitempty"`
+	FixedAt              *time.Time                 `json:"fixed_at,omitempty"`
+	ReopenedAt           *time.Time                 `json:"reopened_at,omitempty"`
+	DismissedAt          *time.Time                 `json:"dismissed_at,omitempty"`
+	SuppressionExpiresAt *time.Time                 `json:"suppression_expires_at,omitempty"`
+	RuleVersion          string                     `json:"rule_version,omitempty"`
+	DetectorVersion      string                     `json:"detector_version,omitempty"`
+	AdapterSource        string                     `json:"adapter_source,omitempty"`
+	ConfidenceState      string                     `json:"confidence_state,omitempty"`
+	VerificationStatus   string                     `json:"verification_status,omitempty"`
+	ScanMode             string                     `json:"scan_mode,omitempty"`
+	EvidenceVersion      string                     `json:"evidence_version,omitempty"`
+	Evidence             map[string]any             `json:"evidence,omitempty"`
+	Remediation          string                     `json:"remediation"`
+	CreatedAt            time.Time                  `json:"created_at"`
+	Triage               FindingTriage              `json:"triage,omitzero"`
 }
 
 // OwnershipSignal tracks ownership hints and confidence.

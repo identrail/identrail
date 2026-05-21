@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added repository finding lifecycle intelligence. Repo findings now carry
+  stable lifecycle keys, first/last seen timestamps, fixed/reopened/suppressed
+  state, owner and detector metadata, list filters for lifecycle, ownership,
+  confidence, and age, plus dashboard summary metrics for open, fixed,
+  reopened, SLA-aged, and MTTR-ready repository risk.
 - Added repository finding remediation previews. Repo misconfiguration findings
   now map to detector-specific remediation guidance and safe fix-PR plans for
   deterministic patches, while secret findings return rotation guidance only so

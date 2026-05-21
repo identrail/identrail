@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+	"time"
+)
 
 func TestNormalizeRepoFindingMetadataBackfillsFieldsFromEvidence(t *testing.T) {
 	finding := Finding{
@@ -96,5 +100,102 @@ func TestNormalizeRepoFindingMetadataClonesEvidenceBeforeCanonicalization(t *tes
 	}
 	if finding.Evidence["line_snippet"] != "GITHUB_TOKEN=ghp_****" {
 		t.Fatalf("expected normalized evidence to contain canonical line_snippet, got %+v", finding.Evidence)
+	}
+}
+
+func TestNormalizeRepoFindingLifecycleMetadataAndTriageOverlay(t *testing.T) {
+	firstSeen := time.Date(2026, 5, 20, 9, 0, 0, 123, time.UTC)
+	lastSeen := firstSeen.Add(2 * time.Hour)
+	finding := Finding{
+		ID:        "repo-finding-1",
+		Type:      FindingSecretExposure,
+		CreatedAt: firstSeen.Add(-time.Hour),
+		Evidence: map[string]any{
+			"repository":         "Owner/Repo",
+			"detector":           "github-token",
+			"file_path":          "config/app.env",
+			"line_number":        json.Number("9"),
+			"secret_fingerprint": "fp-token",
+			"confidence_score":   json.Number("0.73"),
+			"lifecycle_status":   "REOPENED",
+			"owner_hint":         "platform",
+			"first_seen_at":      firstSeen.Format(time.RFC3339Nano),
+			"last_seen_at":       lastSeen,
+			"scan_mode":          "deep",
+			"evidence_version":   "v2",
+		},
+	}
+
+	NormalizeRepoFindingMetadata(&finding)
+
+	if finding.LifecycleStatus != RepoFindingLifecycleReopened {
+		t.Fatalf("expected reopened lifecycle status, got %q", finding.LifecycleStatus)
+	}
+	if finding.Owner != "platform" || finding.LineNumber != 9 || finding.ConfidenceScore != 0.73 {
+		t.Fatalf("expected owner, line, and confidence from evidence, got %+v", finding)
+	}
+	if finding.FirstSeenAt == nil || !finding.FirstSeenAt.Equal(firstSeen) {
+		t.Fatalf("expected first_seen_at from evidence, got %+v", finding.FirstSeenAt)
+	}
+	if finding.LastSeenAt == nil || !finding.LastSeenAt.Equal(lastSeen) {
+		t.Fatalf("expected last_seen_at from evidence, got %+v", finding.LastSeenAt)
+	}
+	if finding.ScanMode != "deep" || finding.EvidenceVersion != "v2" {
+		t.Fatalf("expected lifecycle version metadata, got scan_mode=%q evidence_version=%q", finding.ScanMode, finding.EvidenceVersion)
+	}
+	if finding.LifecycleKey == "" || finding.Evidence["lifecycle_key"] != finding.LifecycleKey {
+		t.Fatalf("expected stable lifecycle key to be mirrored into evidence, got key=%q evidence=%+v", finding.LifecycleKey, finding.Evidence)
+	}
+
+	for raw, want := range map[string]RepoFindingLifecycleStatus{
+		"open":           RepoFindingLifecycleOpen,
+		"fixed":          RepoFindingLifecycleFixed,
+		"reopened":       RepoFindingLifecycleReopened,
+		"suppressed":     RepoFindingLifecycleSuppressed,
+		"risk_accepted":  RepoFindingLifecycleRiskAccepted,
+		"false_positive": RepoFindingLifecycleFalsePositive,
+		"unknown":        "",
+	} {
+		if got := NormalizeRepoFindingLifecycleStatus(raw); got != want {
+			t.Fatalf("NormalizeRepoFindingLifecycleStatus(%q) = %q, want %q", raw, got, want)
+		}
+	}
+
+	suppressionExpiry := firstSeen.Add(7 * 24 * time.Hour)
+	triageUpdated := firstSeen.Add(30 * time.Minute)
+	suppressed := Finding{
+		LifecycleStatus: RepoFindingLifecycleOpen,
+		Triage: FindingTriage{
+			Status:               FindingLifecycleSuppressed,
+			Assignee:             "appsec",
+			UpdatedAt:            &triageUpdated,
+			SuppressionExpiresAt: &suppressionExpiry,
+		},
+	}
+	ApplyRepoFindingTriageToLifecycle(&suppressed)
+	if suppressed.LifecycleStatus != RepoFindingLifecycleSuppressed || suppressed.Owner != "appsec" {
+		t.Fatalf("expected suppression overlay to set lifecycle and owner, got %+v", suppressed)
+	}
+	if suppressed.DismissedAt == nil || !suppressed.DismissedAt.Equal(triageUpdated) {
+		t.Fatalf("expected dismissed_at from triage update time, got %+v", suppressed.DismissedAt)
+	}
+	if suppressed.SuppressionExpiresAt == nil || !suppressed.SuppressionExpiresAt.Equal(suppressionExpiry) {
+		t.Fatalf("expected suppression expiry overlay, got %+v", suppressed.SuppressionExpiresAt)
+	}
+
+	resolvedAt := firstSeen.Add(48 * time.Hour)
+	resolved := Finding{
+		LifecycleStatus: RepoFindingLifecycleReopened,
+		Triage: FindingTriage{
+			Status:     FindingLifecycleResolved,
+			ResolvedAt: &resolvedAt,
+		},
+	}
+	ApplyRepoFindingTriageToLifecycle(&resolved)
+	if resolved.LifecycleStatus != RepoFindingLifecycleFixed {
+		t.Fatalf("expected resolved triage to mark reopened repo finding fixed, got %q", resolved.LifecycleStatus)
+	}
+	if resolved.FixedAt == nil || !resolved.FixedAt.Equal(resolvedAt) {
+		t.Fatalf("expected fixed_at from triage resolved time, got %+v", resolved.FixedAt)
 	}
 }

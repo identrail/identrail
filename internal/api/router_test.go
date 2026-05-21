@@ -867,12 +867,15 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 			CreatedAt:    now,
 		},
 		{
-			ID:           "repo-ack",
-			Type:         domain.FindingRepoMisconfig,
-			Severity:     domain.SeverityHigh,
-			Title:        "ack finding",
-			HumanSummary: "ack finding",
-			CreatedAt:    now.Add(5 * time.Minute),
+			ID:              "repo-ack",
+			Type:            domain.FindingRepoMisconfig,
+			Severity:        domain.SeverityHigh,
+			ConfidenceScore: 0.91,
+			Title:           "ack finding",
+			HumanSummary:    "ack finding",
+			Detector:        "workflow_pull_request_target",
+			Owner:           "platform",
+			CreatedAt:       now.Add(-10 * 24 * time.Hour),
 		},
 	}); err != nil {
 		t.Fatalf("upsert repo findings: %v", err)
@@ -897,7 +900,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 
 	filteredReq := httptest.NewRequest(
 		http.MethodGet,
-		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&lifecycle_status=ack&assignee=platform&limit=50",
+		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&status=open&detector=workflow_pull_request_target&owner=platform&confidence=0.9&age_days=7&lifecycle_status=ack&assignee=platform&limit=50",
 		nil,
 	)
 	filteredW := httptest.NewRecorder()
@@ -907,7 +910,8 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 	}
 
 	var filteredBody struct {
-		Items []domain.Finding `json:"items"`
+		Items   []domain.Finding    `json:"items"`
+		Summary RepoFindingsSummary `json:"summary"`
 	}
 	if err := json.Unmarshal(filteredW.Body.Bytes(), &filteredBody); err != nil {
 		t.Fatalf("decode filtered repo findings: %v", err)
@@ -920,6 +924,9 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 	}
 	if filteredBody.Items[0].Triage.Status != domain.FindingLifecycleAck {
 		t.Fatalf("expected triage status ack, got %q", filteredBody.Items[0].Triage.Status)
+	}
+	if filteredBody.Summary.TotalOpen != 1 || filteredBody.Summary.SLAAgedCount != 1 || filteredBody.Summary.ByOwner["platform"] != 1 {
+		t.Fatalf("expected lifecycle summary to follow repo filters, got %+v", filteredBody.Summary)
 	}
 
 	detailReq := httptest.NewRequest(http.MethodGet, "/v1/findings/repo-ack?scan_id="+repoScan.ID, nil)

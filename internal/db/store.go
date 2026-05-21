@@ -2067,15 +2067,22 @@ type RelationshipFilter struct {
 
 // RepoFindingFilter controls repository finding list queries.
 type RepoFindingFilter struct {
-	RepoScanID      string
-	FindingID       string
-	Repository      string
-	Severity        string
-	Type            string
-	LifecycleStatus string
-	Assignee        string
-	SortBy          string
-	SortDesc        bool
+	RepoScanID        string
+	FindingID         string
+	Repository        string
+	Severity          string
+	Type              string
+	Status            string
+	Detector          string
+	Owner             string
+	MinConfidence     float64
+	MinAgeDays        int
+	LifecycleStatus   string
+	Assignee          string
+	SortBy            string
+	SortDesc          bool
+	Now               time.Time
+	IncludeHistorical bool
 }
 
 // RepoFindingClusterListFilter controls repository finding cluster list queries.
@@ -2167,26 +2174,59 @@ func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
 	sortBy := rawSortBy
 	sortDesc := filter.SortDesc
 	switch sortBy {
-	case "severity", "type", "title", "created_at":
+	case "severity", "type", "title", "created_at", "first_seen_at", "last_seen_at", "status", "owner":
 	default:
 		sortBy = "created_at"
 		if rawSortBy == "" {
 			sortDesc = true
 		}
 	}
+	now := filter.Now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	minConfidence := filter.MinConfidence
+	if minConfidence < 0 {
+		minConfidence = 0
+	}
+	if minConfidence > 1 {
+		minConfidence = 1
+	}
 
 	normalized := RepoFindingFilter{
-		RepoScanID:      strings.TrimSpace(filter.RepoScanID),
-		FindingID:       strings.TrimSpace(filter.FindingID),
-		Repository:      strings.TrimSpace(filter.Repository),
-		Severity:        strings.ToLower(strings.TrimSpace(filter.Severity)),
-		Type:            strings.ToLower(strings.TrimSpace(filter.Type)),
-		LifecycleStatus: strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),
-		Assignee:        strings.ToLower(strings.TrimSpace(filter.Assignee)),
-		SortBy:          sortBy,
-		SortDesc:        sortDesc,
+		RepoScanID:        strings.TrimSpace(filter.RepoScanID),
+		FindingID:         strings.TrimSpace(filter.FindingID),
+		Repository:        strings.TrimSpace(filter.Repository),
+		Severity:          strings.ToLower(strings.TrimSpace(filter.Severity)),
+		Type:              strings.ToLower(strings.TrimSpace(filter.Type)),
+		Status:            strings.ToLower(strings.TrimSpace(filter.Status)),
+		Detector:          strings.ToLower(strings.TrimSpace(filter.Detector)),
+		Owner:             strings.ToLower(strings.TrimSpace(filter.Owner)),
+		MinConfidence:     minConfidence,
+		MinAgeDays:        filter.MinAgeDays,
+		LifecycleStatus:   strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),
+		Assignee:          strings.ToLower(strings.TrimSpace(filter.Assignee)),
+		SortBy:            sortBy,
+		SortDesc:          sortDesc,
+		Now:               now,
+		IncludeHistorical: filter.IncludeHistorical,
+	}
+	if normalized.MinAgeDays < 0 {
+		normalized.MinAgeDays = 0
 	}
 	return normalized
+}
+
+func shouldCloseMissingRepoFindings(status string, truncated bool, scanContext RepoScanContext) bool {
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if normalizedStatus != "succeeded" && normalizedStatus != "completed" {
+		return false
+	}
+	if truncated {
+		return false
+	}
+	normalizedContext := NormalizeRepoScanContext(scanContext)
+	return normalizedContext.ScanMode == "deep" && len(normalizedContext.ChangedPaths) == 0
 }
 
 // NormalizeFindingTriage returns a stable, API-shaped finding triage state.
