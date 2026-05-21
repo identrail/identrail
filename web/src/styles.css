@@ -22447,3 +22447,395 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 .idt-app-console-layout .idt-app-quick-find-icon > svg {
   display: block;
 }
+
+/* Pricing and product graph polish. */
+.idt-product-page .idt-product-hero-window,
+html[data-theme='light'] .idt-product-page .idt-product-hero-window {
+  height: auto;
+  border-color: #242424;
+  background: #050505;
+  box-shadow: none;
+}
+
+.idt-product-page .idt-product-hero-visual,
+html[data-theme='light'] .idt-product-page .idt-product-hero-visual {
+  align-self: start;
+  margin-top: clamp(1rem, 3vw, 2.5rem);
+  min-height: 0;
+}
+
+.idt-product-page .idt-product-hero-body,
+html[data-theme='light'] .idt-product-page .idt-product-hero-body {
+  min-height: 0;
+  height: auto;
+  aspect-ratio: 920 / 520;
+}
+
+.idt-product-page .idt-product-hero-graph,
+html[data-theme='light'] .idt-product-page .idt-product-hero-graph {
+  min-height: 0;
+  height: 100%;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    #050505;
+  background-size: 72px 72px, 72px 72px, auto;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-trust-svg {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.idt-product-trust-svg .idt-product-graph-title {
+  position: static;
+  display: block;
+  max-width: none;
+}
+
+.idt-product-focus-halo {
+  fill: rgba(255, 255, 255, 0.09);
+  filter: blur(28px);
+}
+
+.idt-product-path-edge {
+  fill: none;
+  marker-end: url(#idt-product-trust-arrow);
+  stroke: #f5f5f5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.idt-product-trust-arrow-head {
+  fill: none;
+  stroke: #f5f5f5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.7;
+}
+
+.idt-product-path-tag rect {
+  fill: #0b0b0b;
+  stroke: #303030;
+  stroke-width: 1;
+}
+
+.idt-product-path-tag text {
+  fill: #d4d4d8;
+  font-family: var(--idt-nav-font);
+  font-size: 12px;
+  font-weight: 800;
+  text-anchor: middle;
+}
+
+.idt-product-svg-title {
+  fill: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.idt-product-path-node rect {
+  fill: #0d0d0d;
+  stroke: #303030;
+  stroke-width: 1.2;
+}
+
+.idt-product-path-node.is-workload rect {
+  fill: #101010;
+  stroke: #3f3f46;
+}
+
+.idt-product-node-kicker,
+.idt-product-card-kicker {
+  fill: #a1a1aa;
+  font-family: var(--idt-nav-font);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.idt-product-node-title {
+  fill: #ffffff;
+  font-family: var(--idt-nav-font);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.idt-product-node-status {
+  font-family: var(--idt-nav-font);
+  font-size: 13px;
+  font-weight: 850;
+  filter: none;
+  stroke: none;
+}
+
+.idt-product-node-status.is-good {
+  fill: #11c784;
+}
+
+.idt-product-node-status.is-risk {
+  fill: #ff5252;
+}
+
+.idt-product-svg-card rect {
+  fill: #ffffff;
+  stroke: #d4d4d8;
+  stroke-width: 1;
+}
+
+.idt-product-card-title,
+.idt-product-card-metric {
+  fill: #050505;
+  font-family: var(--idt-nav-font);
+  font-size: 16px;
+  font-weight: 850;
+}
+
+.idt-product-card-metric {
+  font-size: 21px;
+}
+
+.idt-product-card-note {
+  fill: #52525b;
+  font-family: var(--idt-nav-font);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.idt-pricing-page > .idt-page-hero-rich,
+html[data-theme='light'] .idt-pricing-page > .idt-page-hero-rich {
+  grid-template-columns: minmax(360px, 0.68fr) minmax(720px, 1.32fr);
+}
+
+.idt-pricing-decision-console,
+html[data-theme='light'] .idt-pricing-decision-console {
+  align-content: stretch;
+  min-height: 520px;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid #242424;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 76% 10%, rgba(255, 255, 255, 0.08), transparent 14rem),
+    #050505;
+  box-shadow: none;
+}
+
+.idt-pricing-console-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+}
+
+.idt-pricing-console-top > div:first-child {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.idt-pricing-console-eyebrow {
+  color: #a1a1aa;
+  font-family: var(--idt-nav-font);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.idt-pricing-console-top > div:first-child > strong {
+  color: #ffffff;
+  font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-weight: 800;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.idt-pricing-console-top p {
+  max-width: 34ch;
+  margin: 0;
+  color: #a1a1aa;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-toggle,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle {
+  border-color: #303030;
+  background: #0a0a0a;
+  box-shadow: none;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-toggle span,
+.idt-pricing-decision-console .idt-pricing-hero-toggle strong,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle span,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle strong {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: #a1a1aa;
+  font-size: 0.78rem;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-toggle .is-active,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle .is-active {
+  background: #ffffff;
+  color: #000000;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-plans,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-plans div,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans div {
+  min-height: 154px;
+  display: grid;
+  align-content: start;
+  gap: 0.48rem;
+  padding: 1rem;
+  border-color: #242424;
+  background: #090909;
+  box-shadow: none;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured {
+  background: #ffffff;
+  color: #000000;
+  transform: none;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-plans span,
+.idt-pricing-decision-console .idt-pricing-hero-plans p,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans span,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans p {
+  color: #a1a1aa;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-plans strong,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans strong {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(2rem, 3.4vw, 3rem);
+  line-height: 0.94;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-plans small {
+  margin-left: 0.2rem;
+  font-size: 0.82rem;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured span,
+.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured p,
+.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured strong,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured span,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured p,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured strong {
+  color: #000000;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-matrix,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix {
+  min-height: 176px;
+  grid-template-columns: minmax(180px, 1.25fr) repeat(3, minmax(116px, 0.75fr));
+  border-color: #242424;
+  background: #242424;
+  box-shadow: none;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-matrix > *,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix > * {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  border-right: 1px solid #242424;
+  border-bottom: 1px solid #242424;
+  background: #090909;
+  color: #d4d4d8;
+  font-size: 0.9rem;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-matrix span,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix span {
+  background: #111111;
+  color: #ffffff;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-matrix b,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix b {
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-procurement,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procurement {
+  border-color: #242424;
+  background: #090909;
+  box-shadow: none;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-procurement strong,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procurement strong {
+  color: #ffffff;
+  font-size: 0.92rem;
+}
+
+.idt-pricing-decision-console .idt-pricing-hero-procurement span,
+html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procurement span {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: #000000;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 1180px) {
+  .idt-pricing-page > .idt-page-hero-rich,
+  html[data-theme='light'] .idt-pricing-page > .idt-page-hero-rich {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-pricing-decision-console,
+  html[data-theme='light'] .idt-pricing-decision-console {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .idt-product-page .idt-product-hero-graph,
+  html[data-theme='light'] .idt-product-page .idt-product-hero-graph {
+    min-height: 430px;
+  }
+
+  .idt-product-page .idt-product-trust-svg {
+    min-width: 760px;
+    transform: translateX(-3rem);
+  }
+
+  .idt-pricing-console-top,
+  .idt-pricing-decision-console .idt-pricing-hero-plans,
+  html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-pricing-decision-console .idt-pricing-hero-matrix,
+  html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix {
+    overflow-x: auto;
+  }
+}

@@ -6,6 +6,9 @@
   state, owner and detector metadata, list filters for lifecycle, ownership,
   confidence, and age, plus dashboard summary metrics for open, fixed,
   reopened, SLA-aged, and MTTR-ready repository risk.
+- Redesigned the marketing pricing hero decision console and product trust
+  graph visual with larger plan guidance, precise SVG path arrows, and clearer
+  trust-path labels.
 - Replaced public demo calendar placeholders with the first-party demo booking
   form, including preferred day/time capture in lead delivery emails and
   clearer dark-page contrast for the demo booking and evidence panels.
