@@ -5125,6 +5125,38 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   gap: 0.35rem;
 }
 
+.idt-repo-remediation-preview {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.35rem;
+}
+
+.idt-repo-remediation-preview h5 {
+  margin: 0;
+  color: #f4f8ff;
+  font-size: 0.98rem;
+}
+
+.idt-repo-remediation-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-repo-remediation-preview strong {
+  color: #dce9ff;
+}
+
+.idt-repo-remediation-preview ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.05rem;
+}
+
+.idt-repo-remediation-preview li {
+  color: #ccdaef;
+  margin-bottom: 0.22rem;
+}
+
 @media (max-width: 960px) {
   .idt-repo-findings-header,
   .idt-repo-finding-row-top {
@@ -5134,7 +5166,8 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   .idt-repo-finding-stats,
   .idt-repo-finding-filters,
   .idt-repo-finding-layout,
-  .idt-repo-finding-facts {
+  .idt-repo-finding-facts,
+  .idt-repo-remediation-preview-grid {
     grid-template-columns: 1fr;
   }
 

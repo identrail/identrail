@@ -172,6 +172,34 @@ async function renderProjectDetail(
     runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
   }
   const cancelRepoScan = vi.spyOn(api.apiClient, 'cancelRepoScan').mockResolvedValue({ repo_scan: canceledRepoScan });
+  const getGitHubConnectorRepositoryPosture = vi
+    .spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture')
+    .mockResolvedValue({
+      connector_id: 'github-app',
+      provider: 'github_app',
+      posture: {
+        repository: 'identrail/identrail',
+        installation_id: 12345,
+        collected_at: '2026-05-17T10:02:00Z',
+        checks: [
+          {
+            id: 'default_branch_protection',
+            category: 'branch_protection',
+            state: 'secure',
+            reason: 'protection_enforced',
+            summary: 'Default branch requires pull request reviews.'
+          },
+          {
+            id: 'actions_permissions',
+            category: 'actions',
+            state: 'insecure',
+            reason: 'write_workflow_token',
+            summary: 'Actions token can write by default.'
+          }
+        ],
+        rate_limit: { limit: 5000, remaining: 4990 }
+      }
+    });
 
   const { ProductProjectDetailPage } = await import('./productShell');
   function ProjectDetailHarness() {
@@ -196,7 +224,7 @@ async function renderProjectDetail(
     </MemoryRouter>
   );
 
-  return { getGitHubConnectorStatus, listRepoScans, runRepoScan, cancelRepoScan };
+  return { getGitHubConnectorStatus, getGitHubConnectorRepositoryPosture, listRepoScans, runRepoScan, cancelRepoScan };
 }
 
 describe('ProductAppIndexRedirect', () => {
@@ -347,6 +375,20 @@ describe('ProductProjectDetailPage', () => {
     expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
       'workspace-a',
       'project-1',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+  });
+
+  it('loads GitHub repository posture for the selected app repository', async () => {
+    const { getGitHubConnectorRepositoryPosture } = await renderProjectDetail(true);
+
+    expect(await screen.findByText('Repository posture')).toBeInTheDocument();
+    expect(await screen.findByText(/Actions token can write by default/i)).toBeInTheDocument();
+    expect(getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
+      'github-app',
+      'workspace-a',
+      'project-1',
+      'identrail/identrail',
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
   });

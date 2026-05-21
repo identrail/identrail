@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Wired GitHub repository intelligence into the product app. Project source
+  onboarding now surfaces selected-repository posture checks, and repository
+  findings now show risk-graph summaries, top finding scores, and on-demand
+  remediation previews.
 - Added repository finding lifecycle intelligence. Repo findings now carry
   stable lifecycle keys, first/last seen timestamps, fixed/reopened/suppressed
   state, owner and detector metadata, list filters for lifecycle, ownership,

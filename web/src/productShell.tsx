@@ -14,11 +14,16 @@ import {
   type FindingLifecycleStatus,
   type GitHubConnectorStartResponse,
   type GitHubConnectionStatus,
+  type GitHubRepositoryPosture,
+  type GitHubRepositoryPostureCheck,
   type KubernetesConnectorStartResponse,
   type KubernetesConnectionStatus,
   type ProjectRecord,
+  type RepoFindingRemediationPreview,
   type RepoFindingsSummary,
   type RepoFindingLifecycleStatus,
+  type RepoRiskGraph,
+  type RepoRiskGraphFindingScore,
   type RepoScanRequest,
   type RepoScanRecord,
   type TrendPoint,
@@ -481,6 +486,35 @@ function repoScanStatusTone(status: string): 'success' | 'warning' | 'error' | '
     return 'warning';
   }
   return 'neutral';
+}
+
+function githubPostureStateTone(state: GitHubRepositoryPostureCheck['state']): 'success' | 'warning' | 'error' | 'neutral' {
+  if (state === 'secure') {
+    return 'success';
+  }
+  if (state === 'insecure') {
+    return 'error';
+  }
+  if (state === 'permission_limited') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function countGitHubPostureChecks(
+  posture: GitHubRepositoryPosture | null,
+  state: GitHubRepositoryPostureCheck['state']
+): number {
+  return posture?.checks.filter((check) => check.state === state).length ?? 0;
+}
+
+function sortRepoRiskGraphScores(scores: RepoRiskGraphFindingScore[]): RepoRiskGraphFindingScore[] {
+  return [...scores].sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return severityRank(right.severity) - severityRank(left.severity);
+  });
 }
 
 function uniqueGitHubRepositories(repositories: string[]): string[] {
@@ -3357,6 +3391,7 @@ export function ProductProjectDetailPage() {
   const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures();
   const refreshSequenceRef = useRef(0);
   const repoScanSubmitSequenceRef = useRef(0);
+  const githubPostureRequestRef = useRef(0);
   const sourceAvailability = useMemo<Record<SourceProvider, SourceAvailability>>(
     () => ({
       github: {
@@ -3413,6 +3448,9 @@ export function ProductProjectDetailPage() {
   const [repoScanSubmitting, setRepoScanSubmitting] = useState(false);
   const [repoScanCancelingID, setRepoScanCancelingID] = useState('');
   const [repoScanError, setRepoScanError] = useState('');
+  const [githubPosture, setGitHubPosture] = useState<GitHubRepositoryPosture | null>(null);
+  const [githubPostureLoading, setGitHubPostureLoading] = useState(false);
+  const [githubPostureError, setGitHubPostureError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -3467,6 +3505,10 @@ export function ProductProjectDetailPage() {
   const repoScanRepository = normalizeValue(repoScanForm.repository);
   const effectiveRepoScanRepository = repoScanRepository || githubSelectedRepositories[0] || '';
   const effectiveRepoScanRepositoryKey = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository).toLowerCase();
+  const githubPostureSecureCount = countGitHubPostureChecks(githubPosture, 'secure');
+  const githubPostureAttentionCount = countGitHubPostureChecks(githubPosture, 'insecure');
+  const githubPostureLimitedCount = countGitHubPostureChecks(githubPosture, 'permission_limited');
+  const githubPostureUnavailableCount = countGitHubPostureChecks(githubPosture, 'unavailable');
   const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
   const githubHasActiveSelectedRepoScan =
     effectiveRepoScanRepositoryKey !== '' &&
@@ -3654,9 +3696,13 @@ export function ProductProjectDetailPage() {
     setRepoScanForm({ repository: '', historyLimit: '', maxFindings: '' });
     setRecentRepoScans([]);
     repoScanSubmitSequenceRef.current += 1;
+    githubPostureRequestRef.current += 1;
     setRepoScanSubmitting(false);
     setRepoScanCancelingID('');
     setRepoScanError('');
+    setGitHubPosture(null);
+    setGitHubPostureLoading(false);
+    setGitHubPostureError('');
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
     setAWSPreviewOpen(false);
@@ -3702,6 +3748,73 @@ export function ProductProjectDetailPage() {
       return { ...current, repository: githubSelectedRepositories[0] ?? current.repository };
     });
   }, [connections.github?.connected, githubSelectedRepositories, githubSelectedRepositoriesKey]);
+
+  useEffect(() => {
+    const connection = connections.github;
+    const repository = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository);
+    const requestID = githubPostureRequestRef.current + 1;
+    githubPostureRequestRef.current = requestID;
+
+    if (
+      !scope ||
+      !projectID ||
+      selectedSource !== 'github' ||
+      !connection?.connected ||
+      connection.provider !== 'github_app' ||
+      !connection.connector_id ||
+      !repository
+    ) {
+      setGitHubPosture(null);
+      setGitHubPostureLoading(false);
+      setGitHubPostureError('');
+      return undefined;
+    }
+
+    setGitHubPostureLoading(true);
+    setGitHubPostureError('');
+    setGitHubPosture(null);
+    void apiClient
+      .getGitHubConnectorRepositoryPosture(
+        connection.connector_id,
+        scope.workspaceID,
+        projectID,
+        repository,
+        buildProductAuthContext(scope)
+      )
+      .then((response) => {
+        if (githubPostureRequestRef.current !== requestID) {
+          return;
+        }
+        setGitHubPosture(response.posture);
+      })
+      .catch((error) => {
+        if (githubPostureRequestRef.current !== requestID) {
+          return;
+        }
+        setGitHubPosture(null);
+        setGitHubPostureError(error instanceof Error ? error.message : 'Unable to load GitHub repository posture.');
+      })
+      .finally(() => {
+        if (githubPostureRequestRef.current === requestID) {
+          setGitHubPostureLoading(false);
+        }
+      });
+
+    return () => {
+      if (githubPostureRequestRef.current === requestID) {
+        githubPostureRequestRef.current += 1;
+      }
+    };
+  }, [
+    connections.github?.connected,
+    connections.github?.connector_id,
+    connections.github?.provider,
+    effectiveRepoScanRepository,
+    projectID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedSource
+  ]);
 
   useEffect(() => {
     if (!scope || !githubHasActiveRepoScan) {
@@ -4824,6 +4937,46 @@ export function ProductProjectDetailPage() {
                   <span>Selected</span>
                 </article>
               ))}
+              {githubPostureLoading ? (
+                <article>
+                  <strong>{effectiveRepoScanRepository || 'Selected repository'}</strong>
+                  <span>Loading posture</span>
+                  <p>Collecting GitHub repository posture signals.</p>
+                </article>
+              ) : null}
+              {githubPostureError ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-error">
+                  {githubPostureError}
+                </p>
+              ) : null}
+              {githubPosture ? (
+                <>
+                  <article>
+                    <strong>Repository posture</strong>
+                    <span>{formatConnectionTime(githubPosture.collected_at)}</span>
+                    <p>
+                      {githubPostureSecureCount} secure · {githubPostureAttentionCount} attention ·{' '}
+                      {githubPostureLimitedCount} permission limited · {githubPostureUnavailableCount} unavailable
+                    </p>
+                    {githubPosture.rate_limit?.remaining !== undefined ? (
+                      <small>
+                        GitHub API remaining {githubPosture.rate_limit.remaining}
+                        {githubPosture.rate_limit.limit ? ` of ${githubPosture.rate_limit.limit}` : ''}
+                      </small>
+                    ) : null}
+                  </article>
+                  {githubPosture.checks.slice(0, 6).map((check) => (
+                    <article key={check.id}>
+                      <strong>{formatTokenLabel(check.category || check.id)}</strong>
+                      <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
+                        {formatTokenLabel(check.state)}
+                      </span>
+                      <p>{check.summary}</p>
+                      {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
+                    </article>
+                  ))}
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -5024,6 +5177,8 @@ export function ProductFindingsPage() {
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
   const [repoFindingSummary, setRepoFindingSummary] = useState<RepoFindingsSummary | null>(null);
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
+  const [repoRiskGraph, setRepoRiskGraph] = useState<RepoRiskGraph | null>(null);
+  const [riskGraphError, setRiskGraphError] = useState('');
   const [repoScanFilter, setRepoScanFilter] = useState('');
   const [severityFilter, setSeverityFilter] = useState<(typeof REPO_FINDING_SEVERITY_FILTERS)[number]>('all');
   const [typeFilter, setTypeFilter] = useState<(typeof REPO_FINDING_TYPE_FILTERS)[number]>('all');
@@ -5039,9 +5194,14 @@ export function ProductFindingsPage() {
   const [workflowLoading, setWorkflowLoading] = useState(false);
   const [workflowSuccess, setWorkflowSuccess] = useState('');
   const [workflowError, setWorkflowError] = useState('');
+  const [remediationPreview, setRemediationPreview] = useState<RepoFindingRemediationPreview | null>(null);
+  const [remediationPreviewFindingKey, setRemediationPreviewFindingKey] = useState('');
+  const [remediationPreviewLoading, setRemediationPreviewLoading] = useState(false);
+  const [remediationPreviewError, setRemediationPreviewError] = useState('');
 
   const requestRef = useRef(0);
   const signalRequestRef = useRef(0);
+  const remediationPreviewRequestRef = useRef(0);
 
   const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
 
@@ -5079,6 +5239,19 @@ export function ProductFindingsPage() {
   const selectedFinding = useMemo(
     () => findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey) ?? filteredFindings[0] ?? null,
     [filteredFindings, selectedFindingKey]
+  );
+
+  const topRiskGraphScores = useMemo(
+    () => {
+      if (filteredFindings.length === 0) {
+        return [];
+      }
+      const visibleFindingIDs = new Set(filteredFindings.map((finding) => finding.id));
+      return sortRepoRiskGraphScores(repoRiskGraph?.scores ?? [])
+        .filter((score) => visibleFindingIDs.has(score.finding_id))
+        .slice(0, 3);
+    },
+    [filteredFindings, repoRiskGraph]
   );
 
   const linkedFindingCount = useMemo(
@@ -5177,26 +5350,51 @@ export function ProductFindingsPage() {
     }
     setSignalError('');
     setTrendError('');
+    setRiskGraphError('');
     try {
       const auth = buildProductAuthContext(targetScope);
-      const trendResponse = await apiClient.getRepoFindingsTrends(
-        {
-          points: TREND_POINTS,
-          severity: severityFilter !== 'all' ? severityFilter : undefined,
-          type: typeFilter !== 'all' ? typeFilter : undefined
-        },
-        auth
-      );
+      const severity = severityFilter !== 'all' ? severityFilter : undefined;
+      const type = typeFilter !== 'all' ? typeFilter : undefined;
+      const repoScanID = normalizeValue(repoScanFilter) || undefined;
+      const [trendResult, riskGraphResult] = await Promise.allSettled([
+        apiClient.getRepoFindingsTrends(
+          {
+            points: TREND_POINTS,
+            severity,
+            type
+          },
+          auth
+        ),
+        apiClient.getRepoRiskGraph(
+          {
+            repo_scan_id: repoScanID,
+            severity,
+            type
+          },
+          auth
+        )
+      ]);
       if (requestID !== signalRequestRef.current) {
         return;
       }
-      setTrendPoints(trendResponse.items);
-    } catch (requestError) {
-      if (requestID !== signalRequestRef.current) {
-        return;
+      if (trendResult.status === 'fulfilled') {
+        setTrendPoints(trendResult.value.items);
+      } else {
+        setTrendPoints([]);
+        setTrendError(
+          trendResult.reason instanceof Error ? trendResult.reason.message : 'Failed to load finding trend metrics.'
+        );
       }
-      const message = requestError instanceof Error ? requestError.message : 'Failed to load finding trend metrics.';
-      setTrendError(message);
+      if (riskGraphResult.status === 'fulfilled') {
+        setRepoRiskGraph(riskGraphResult.value);
+      } else {
+        setRepoRiskGraph(null);
+        setRiskGraphError(
+          riskGraphResult.reason instanceof Error
+            ? riskGraphResult.reason.message
+            : 'Failed to load repository risk graph.'
+        );
+      }
     } finally {
       if (requestID === signalRequestRef.current) {
         setSignalsLoading(false);
@@ -5282,6 +5480,42 @@ export function ProductFindingsPage() {
     }
   };
 
+  const handleLoadRemediationPreview = async () => {
+    if (!scope || !selectedFinding || remediationPreviewLoading) {
+      return;
+    }
+
+    const selectionKey = buildRepoFindingSelectionKey(selectedFinding);
+    const requestID = ++remediationPreviewRequestRef.current;
+    setRemediationPreviewLoading(true);
+    setRemediationPreviewError('');
+    setRemediationPreview(null);
+    setRemediationPreviewFindingKey(selectionKey);
+    try {
+      const preview = await apiClient.previewRepoFindingRemediation(
+        selectedFinding.id,
+        { repo_scan_id: selectedFinding.scan_id },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== remediationPreviewRequestRef.current) {
+        return;
+      }
+      setRemediationPreview(preview);
+    } catch (requestError) {
+      if (requestID !== remediationPreviewRequestRef.current) {
+        return;
+      }
+      setRemediationPreview(null);
+      setRemediationPreviewError(
+        requestError instanceof Error ? requestError.message : 'Failed to load remediation preview.'
+      );
+    } finally {
+      if (requestID === remediationPreviewRequestRef.current) {
+        setRemediationPreviewLoading(false);
+      }
+    }
+  };
+
   useEffect(() => {
     if (!scope) {
       setLoading(false);
@@ -5312,6 +5546,11 @@ export function ProductFindingsPage() {
       setWorkflowAssignee('');
       setWorkflowComment('');
       setWorkflowSuppressionExpiresAt('');
+      remediationPreviewRequestRef.current += 1;
+      setRemediationPreview(null);
+      setRemediationPreviewFindingKey('');
+      setRemediationPreviewLoading(false);
+      setRemediationPreviewError('');
       return;
     }
 
@@ -5321,6 +5560,11 @@ export function ProductFindingsPage() {
     setWorkflowSuppressionExpiresAt(
       selectedFinding.triage?.suppression_expires_at ? toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at) : ''
     );
+    remediationPreviewRequestRef.current += 1;
+    setRemediationPreview(null);
+    setRemediationPreviewFindingKey('');
+    setRemediationPreviewLoading(false);
+    setRemediationPreviewError('');
   }, [
     selectedFinding?.id,
     selectedFinding?.scan_id,
@@ -5385,6 +5629,12 @@ export function ProductFindingsPage() {
   });
 
   const trendDisplayLoading = signalsLoading;
+  const riskGraphSummary = repoRiskGraph?.summary;
+  const riskGraphUnknownEvidenceCount =
+    (riskGraphSummary?.unknown_node_count ?? 0) + (riskGraphSummary?.unknown_edge_count ?? 0);
+  const selectedFindingPreviewKey = selectedFinding ? buildRepoFindingSelectionKey(selectedFinding) : '';
+  const activeRemediationPreview =
+    remediationPreview && remediationPreviewFindingKey === selectedFindingPreviewKey ? remediationPreview : null;
 
   return (
     <section className="idt-app-panel idt-repo-findings-page">
@@ -5422,6 +5672,7 @@ export function ProductFindingsPage() {
       {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
       {signalError ? <div className="idt-app-alert idt-app-alert-error">{signalError}</div> : null}
       {trendError ? <div className="idt-app-alert idt-app-alert-error">{trendError}</div> : null}
+      {riskGraphError ? <div className="idt-app-alert idt-app-alert-error">{riskGraphError}</div> : null}
 
       <div className="idt-repo-finding-stats" aria-label="Repository finding summary">
         <article className="idt-repo-finding-stat">
@@ -5476,6 +5727,60 @@ export function ProductFindingsPage() {
           <span>Completed repo scans</span>
           <strong>{activeScanCount}</strong>
         </article>
+      </div>
+
+      <div className="idt-repo-finding-trend" aria-label="Repository risk graph summary">
+        <div className="idt-repo-finding-trend-head">
+          <h3>Risk graph</h3>
+          {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading graph</span> : null}
+          <span className="idt-repo-finding-trend-subtitle">
+            {repoRiskGraph
+              ? `${repoRiskGraph.nodes.length} nodes · ${repoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(repoRiskGraph.repository) || repoRiskGraph.repository || 'repository scope'}`
+              : 'No graph loaded yet'}
+          </span>
+        </div>
+        {riskGraphSummary ? (
+          <div className="idt-repo-finding-trend-rows">
+            <article className="idt-repo-finding-trend-row">
+              <div className="idt-repo-finding-trend-meta">
+                <span>High-risk findings</span>
+                <strong>{riskGraphSummary.high_risk_findings}</strong>
+              </div>
+              <p>
+                {riskGraphSummary.critical_findings} critical · {riskGraphUnknownEvidenceCount} unknown evidence gaps
+              </p>
+            </article>
+            {topRiskGraphScores.length > 0 ? (
+              topRiskGraphScores.map((score) => (
+                <article key={score.finding_id} className="idt-repo-finding-trend-row">
+                  <div className="idt-repo-finding-trend-meta">
+                    <span>{score.finding_id}</span>
+                    <strong>{Math.round(score.score)}</strong>
+                  </div>
+                  <p>
+                    {formatTokenLabel(score.severity)} · confidence {formatConfidenceScore(score.confidence)}
+                    {(score.unknowns ?? []).length > 0
+                      ? ` · unknown ${(score.unknowns ?? []).map(formatTokenLabel).join(', ')}`
+                      : ''}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <article className="idt-repo-finding-trend-row">
+                <div className="idt-repo-finding-trend-meta">
+                  <span>No scored findings</span>
+                  <strong>{riskGraphSummary.finding_count}</strong>
+                </div>
+                <p>Risk scores will appear after graph evidence is available for repository findings.</p>
+              </article>
+            )}
+          </div>
+        ) : (
+          <AppShellEmptyState
+            title="Risk graph unavailable"
+            body="Run a repository exposure scan so machine-identity paths and finding risk scores can appear here."
+          />
+        )}
       </div>
 
       <div className="idt-repo-finding-trend">
@@ -5746,6 +6051,56 @@ export function ProductFindingsPage() {
               <div className="idt-repo-finding-remediation">
                 <h4>Remediation</h4>
                 <p>{selectedFinding.remediation}</p>
+                <button
+                  className="idt-btn idt-btn-ghost"
+                  type="button"
+                  onClick={() => void handleLoadRemediationPreview()}
+                  disabled={remediationPreviewLoading}
+                >
+                  {remediationPreviewLoading ? 'Loading remediation...' : 'Preview remediation plan'}
+                </button>
+                {remediationPreviewError ? (
+                  <div className="idt-app-alert idt-app-alert-error">{remediationPreviewError}</div>
+                ) : null}
+                {activeRemediationPreview ? (
+                  <div className="idt-repo-remediation-preview">
+                    <h5>{activeRemediationPreview.remediation.summary}</h5>
+                    <p>{activeRemediationPreview.remediation.risk_summary}</p>
+                    <div className="idt-repo-remediation-preview-grid">
+                      <div>
+                        <strong>Steps</strong>
+                        <ul>
+                          {(activeRemediationPreview.remediation.steps ?? []).map((step) => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <strong>Validation</strong>
+                        <ul>
+                          {(activeRemediationPreview.remediation.validation ?? []).map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    {(activeRemediationPreview.remediation.safety_notes ?? []).length > 0 ? (
+                      <div>
+                        <strong>Safety notes</strong>
+                        <ul>
+                          {(activeRemediationPreview.remediation.safety_notes ?? []).map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    <p>
+                      {activeRemediationPreview.remediation.publishable
+                        ? 'A deterministic fix branch can be prepared for this finding.'
+                        : activeRemediationPreview.remediation.publish_blocked_reason || 'Manual remediation is required.'}
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               <div className="idt-repo-finding-triage-form">

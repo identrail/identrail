@@ -30,6 +30,85 @@ function authConfig(manualMode = false, workOSLoginEnabled = true) {
   });
 }
 
+function repoRiskGraphPayload() {
+  return {
+    repository: 'owner/repo',
+    nodes: [
+      { id: 'repo:owner/repo', kind: 'repository', label: 'owner/repo', repository: 'owner/repo', evidence_state: 'known' },
+      { id: 'finding:repo-f1', kind: 'finding', label: 'Potential AWS access key exposed', repository: 'owner/repo', evidence_state: 'known' },
+      { id: 'token:aws_access_key', kind: 'token', label: 'AWS access key', repository: 'owner/repo', evidence_state: 'known' },
+      { id: 'role:unknown', kind: 'cloud_role', label: 'Unknown cloud role', repository: 'owner/repo', evidence_state: 'unknown' }
+    ],
+    edges: [
+      { id: 'repo-f1-exposes-token', kind: 'finding_exposes_token', from_node_id: 'finding:repo-f1', to_node_id: 'token:aws_access_key', evidence_state: 'known' },
+      { id: 'token-reaches-role', kind: 'token_reaches_role', from_node_id: 'token:aws_access_key', to_node_id: 'role:unknown', evidence_state: 'unknown' },
+      { id: 'repo-contains-finding', kind: 'repository_contains_finding', from_node_id: 'repo:owner/repo', to_node_id: 'finding:repo-f1', evidence_state: 'known' }
+    ],
+    scores: [
+      {
+        finding_id: 'repo-f1',
+        finding_node_id: 'finding:repo-f1',
+        score: 91,
+        severity: 'high',
+        confidence: 0.98,
+        factors: {
+          severity: 80,
+          confidence: 98,
+          exploitability: 90,
+          privilege: 70,
+          exposure: 95,
+          environment_criticality: 80,
+          freshness: 88
+        },
+        unknowns: ['cloud_role']
+      }
+    ],
+    summary: {
+      finding_count: 1,
+      node_count: 4,
+      edge_count: 3,
+      unknown_node_count: 1,
+      unknown_edge_count: 1,
+      high_risk_findings: 1,
+      critical_findings: 0
+    }
+  };
+}
+
+function repoRemediationPreviewPayload() {
+  return {
+    finding: {
+      id: 'repo-f1',
+      scan_id: 'repo-scan-1',
+      type: 'secret_exposure',
+      severity: 'high',
+      title: 'Potential AWS access key exposed in commit history',
+      human_summary: 'A line added in commit history appears to contain an AWS access key identifier.',
+      repository: 'owner/repo',
+      file_path: 'config/app.env',
+      line_number: 7,
+      remediation: 'Rotate the key and move the credential to a secret manager.',
+      created_at: '2026-01-01T00:00:00Z'
+    },
+    remediation: {
+      detector: 'aws_access_key_id',
+      summary: 'Rotate exposed AWS credential',
+      risk_summary: 'The credential may still authorize access outside the repository.',
+      steps: ['Revoke the leaked access key', 'Move workload auth to short-lived credentials'],
+      safety_notes: ['Do not copy secret material into the fix branch.'],
+      validation: ['Confirm the key is disabled in IAM', 'Rescan the repository after rotation'],
+      secret_rotation: true,
+      publishable: false,
+      publish_blocked_reason: 'Secret rotation required',
+      evidence: {
+        finding_id: 'repo-f1',
+        scan_id: 'repo-scan-1',
+        repository: 'owner/repo'
+      }
+    }
+  };
+}
+
 function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 'owner') {
   return {
     me: {
@@ -832,6 +911,12 @@ describe('App', () => {
           ]
         });
       }
+      if (url.includes('/v1/repo-risk-graph')) {
+        return okJSON(repoRiskGraphPayload());
+      }
+      if (url.includes('/v1/repo-findings/repo-f1/remediation/preview')) {
+        return okJSON(repoRemediationPreviewPayload());
+      }
       if (url.includes('/v1/repo-findings')) {
         return okJSON({
           items: [
@@ -865,14 +950,22 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Findings/i })).toBeInTheDocument();
     expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Risk graph/i)).toBeInTheDocument();
+    expect(await screen.findByText(/High-risk findings/i)).toBeInTheDocument();
+    expect(await screen.findByText('91')).toBeInTheDocument();
     expect(await screen.findByText(/Finding trend/i)).toBeInTheDocument();
     expect(await screen.findByText(/Critical 0 \/ High 1 \/ Medium 0 \/ Low 0 \/ Info 0/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Risk/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Risk \(high/i)).toBeInTheDocument();
 
     const openInGitHub = await screen.findByRole('link', { name: /Open in GitHub/i });
     expect(openInGitHub).toHaveAttribute('href', 'https://github.com/owner/repo/blob/abc123/config/app.env#L7');
     expect((await screen.findAllByText('config/app.env:7')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('owner/repo')).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /Preview remediation plan/i }));
+    expect(await screen.findByText(/Rotate exposed AWS credential/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Revoke the leaked access key/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Secret rotation required/i)).toBeInTheDocument();
   });
 
   it('allows suppressed repository finding assignee edits without a new suppression reason', async () => {
@@ -919,6 +1012,9 @@ describe('App', () => {
       }
       if (url.includes('/v1/repo-findings/trends')) {
         return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-risk-graph')) {
+        return okJSON(repoRiskGraphPayload());
       }
       if (url.includes('/v1/repo-findings')) {
         return okJSON({
