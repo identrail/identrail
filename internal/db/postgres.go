@@ -3621,7 +3621,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	}
 	repositoryExpr := `COALESCE(NULLIF(rf.evidence->>'repository', ''), rs.repository)`
 	detectorExpr := `COALESCE(NULLIF(rf.evidence->>'detector', ''), '')`
-	ownerExpr := `COALESCE(NULLIF(rf.owner, ''), NULLIF(rf.evidence->>'owner', ''), NULLIF(rf.evidence->>'owner_hint', ''), NULLIF(rf.evidence->>'owner_team', ''), NULLIF(rf.evidence->>'assignee', ''), '')`
+	ownerExpr := `COALESCE(NULLIF(rf.owner, ''), NULLIF(rf.evidence->>'owner', ''), NULLIF(rf.evidence->>'owner_hint', ''), NULLIF(rf.evidence->>'owner_team', ''), NULLIF(rf.evidence->>'codeowners', ''), NULLIF(rf.evidence->>'assignee', ''), '')`
 	statusExpr := `COALESCE(NULLIF(rf.lifecycle_status, ''), 'open')`
 	confidenceExpr := `CASE
 		WHEN COALESCE(rf.evidence->>'confidence_score', '') ~ '^[0-9]+(\.[0-9]+)?$' THEN (rf.evidence->>'confidence_score')::double precision

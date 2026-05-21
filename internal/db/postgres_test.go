@@ -674,6 +674,35 @@ func repoFindingLifecycleRows(recordID string, now time.Time) *sqlmock.Rows {
 			"platform", "", "", "", "", "", "deep", "")
 }
 
+func TestPostgresStoreListRepoFindingsOwnerFilterIncludesCodeowners(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+
+	mock.ExpectQuery(regexp.QuoteMeta("NULLIF(rf.evidence->>'codeowners', '')")).
+		WithArgs("default", "default", "secops", 100).
+		WillReturnRows(sqlmock.NewRows(repoFindingLifecycleColumns()).
+			AddRow("repo-scan-1", "rf-codeowners", "repo_misconfig", "medium", "workflow", "summary", []byte(`[".github/workflows/build.yml"]`), []byte(`{"codeowners":"secops"}`), "fix", now, "owner/repo",
+				"repo_finding\x1fowner/repo\x1frepo_misconfig\x1fworkflow\x1f.github/workflows/build.yml\x1f\x1frf-codeowners", "open", now, now, nil, nil, nil, nil,
+				"secops", "", "", "", "", "", "deep", ""))
+
+	findings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{Owner: " SECOPS "}, 100)
+	if err != nil {
+		t.Fatalf("list repo findings by codeowners owner: %v", err)
+	}
+	if len(findings) != 1 || findings[0].ID != "rf-codeowners" || findings[0].Owner != "secops" {
+		t.Fatalf("expected codeowners-backed owner result, got %+v", findings)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
