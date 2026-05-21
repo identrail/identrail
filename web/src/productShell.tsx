@@ -1734,24 +1734,15 @@ function readInviteSkipped(tenantID: string | undefined, workspaceID: string | u
     return false;
   }
   try {
-    const fresh = window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${scope}`);
-    if (fresh === '1') {
+    if (window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${scope}`) === '1') {
       return true;
     }
-    // Back-compat: earlier builds keyed by workspaceID alone. Honor that flag so
-    // upgraded users don't see the checklist regress, but only when no later
-    // tenant-scoped flag has been written.
-    const legacyTenantScoped = window.localStorage.getItem(`${INVITE_LEGACY_STORAGE_KEY}:${scope}`);
-    if (legacyTenantScoped === '1') {
-      return true;
-    }
-    if (workspaceID) {
-      const legacyWorkspaceOnly =
-        window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`) ||
-        window.localStorage.getItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
-      return legacyWorkspaceOnly === '1';
-    }
-    return false;
+    // The earlier `idt:overview:invite-dismissed` key was also tenant-scoped in
+    // the previous revision, so honoring it here is safe — it never crossed
+    // tenants. The workspace-only legacy keys are intentionally NOT consulted
+    // so a Skip in tenant A no longer leaks into tenant B that happens to
+    // reuse the same workspace slug in the same browser profile.
+    return window.localStorage.getItem(`${INVITE_LEGACY_STORAGE_KEY}:${scope}`) === '1';
   } catch {
     return false;
   }
@@ -1767,13 +1758,9 @@ function persistInviteSkipped(tenantID: string | undefined, workspaceID: string 
   }
   try {
     window.localStorage.setItem(`${INVITE_SKIPPED_STORAGE_KEY}:${scope}`, '1');
-    // Migrate forward: drop the old workspace-only and dismissed flags so we
-    // don't leave stale state behind for the same workspace.
+    // Drop the matching tenant-scoped legacy key on the same scope, but do NOT
+    // touch the unscoped workspace-only keys that may belong to other tenants.
     window.localStorage.removeItem(`${INVITE_LEGACY_STORAGE_KEY}:${scope}`);
-    if (workspaceID) {
-      window.localStorage.removeItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`);
-      window.localStorage.removeItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
-    }
   } catch {
     // Storage failures are non-fatal.
   }
@@ -1791,22 +1778,48 @@ export function ProductOverviewPage() {
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
   const [, setInviteSkipTick] = useState(0);
+  const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
 
   useEffect(() => {
-    if (!FEATURE_ONBOARDING_WIZARD) {
+    const tenantID = scope?.tenantID;
+    const workspaceID = scope?.workspaceID;
+    if (!FEATURE_ONBOARDING_WIZARD || !tenantID || !workspaceID) {
+      setShowTour(false);
+      setConnectorConfiguredFromOnboarding(false);
       return;
     }
     let mounted = true;
+    // Reset immediately when scope changes so stale onboarding data cannot
+    // bleed connector-complete state into another workspace.
+    setConnectorConfiguredFromOnboarding(false);
     const run = async () => {
       try {
-        const response = await apiClient.getOnboardingState();
+        const response = await apiClient.getOnboardingState({ tenantID, workspaceID });
         if (!mounted) {
           return;
         }
-        setShowTour(response.state.current_step === 'complete' && !response.state.dashboard_tour_dismissed_at);
+        const state = response.state;
+        const onboardingMatchesScope =
+          normalizeValue(state.org_id ?? '') === tenantID &&
+          normalizeValue(state.workspace_id ?? '') === workspaceID;
+        setShowTour(
+          onboardingMatchesScope && state.current_step === 'complete' && !state.dashboard_tour_dismissed_at
+        );
+        // Source-checklist signal: the user finished the connect step if either
+        // a connector_id was persisted or onboarding progressed past 'connect'
+        // without an explicit skip. This avoids the false negative where a
+        // connector exists but no scan has run yet (which would otherwise leave
+        // the checklist forever stuck at "Connect a source").
+        const stepsPastConnect: ReadonlyArray<typeof state.current_step> = ['scan', 'invite', 'complete'];
+        const reachedConnect =
+          onboardingMatchesScope &&
+          (Boolean(state.connector_id) ||
+            (!state.connector_skipped && stepsPastConnect.includes(state.current_step)));
+        setConnectorConfiguredFromOnboarding(reachedConnect);
       } catch {
         if (mounted) {
           setShowTour(false);
+          setConnectorConfiguredFromOnboarding(false);
         }
       }
     };
@@ -1814,7 +1827,7 @@ export function ProductOverviewPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [scope?.tenantID, scope?.workspaceID]);
 
   useEffect(() => {
     if (!scope) {
@@ -1910,11 +1923,12 @@ export function ProductOverviewPage() {
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const connectSourcesPath = scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath;
   const hasAnySuccessfulScan = succeededScanCount > 0;
-  // A scan can only be queued or run if a connector is wired to the project, so
-  // "any scan attempt at all" is a sound proxy for "a source has been connected"
-  // without inferring from free-form project descriptions (which produced false
-  // positives when a project description simply mentioned a vendor name).
-  const hasConnectedSource = repoScans.length > 0;
+  // A source counts as connected when either (a) onboarding records a connector
+  // configuration on the workspace, or (b) any scan has run (you can't scan
+  // without a connector). The previous "scans-only" signal incorrectly left the
+  // checklist stuck at "Connect a source" for users who had a healthy connector
+  // but hadn't kicked off their first scan yet.
+  const hasConnectedSource = connectorConfiguredFromOnboarding || repoScans.length > 0;
   const onboardingChecklist: Array<{
     id: string;
     label: string;

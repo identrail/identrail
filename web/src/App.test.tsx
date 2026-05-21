@@ -709,6 +709,59 @@ describe('App', () => {
     expect(screen.queryByText('+12')).not.toBeInTheDocument();
   });
 
+  it('does not mark source onboarding complete when onboarding state belongs to another workspace', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/v1/me')) {
+        return okJSON(currentMePayload('tenant-b', 'workspace-b'));
+      }
+      if (url.includes('/v1/onboarding/state')) {
+        return okJSON({
+          state: {
+            user_id: 'user-1',
+            current_step: 'invite',
+            org_id: 'tenant-a',
+            workspace_id: 'workspace-a',
+            project_id: 'project-a',
+            connector_id: 'github-app',
+            connector_type: 'github',
+            connector_skipped: false,
+            scan_skipped: false,
+            started_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z'
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-b/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-b/workspace-b');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i }, { timeout: 5000 })).toBeInTheDocument();
+    const checklistRegion = await screen.findByRole('region', { name: /Get started/i }, { timeout: 5000 });
+    const sourceChecklistItem = within(checklistRegion).getByText('Connect a source').closest('li');
+    expect(sourceChecklistItem).not.toBeNull();
+    if (!sourceChecklistItem) {
+      throw new Error('missing source checklist item');
+    }
+    expect(sourceChecklistItem).toHaveAttribute('data-complete', 'false');
+    expect(within(sourceChecklistItem).getByRole('link', { name: 'Connect' })).toBeInTheDocument();
+  });
+
   it('hides manual workspace entry when auth config disables manual mode', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
 
