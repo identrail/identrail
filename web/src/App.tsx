@@ -842,63 +842,177 @@ function ProductHeroVisual() {
         </div>
         <div className="idt-product-hero-body">
           <div className="idt-product-hero-graph">
-            <div className="idt-product-graph-title">
-              <span>Live path</span>
-              <strong>CI/CD identity to billing data</strong>
-            </div>
-            <svg viewBox="0 0 720 420" aria-hidden="true" focusable="false">
+            <svg className="idt-product-trust-svg" viewBox="0 0 920 520" aria-hidden="true" focusable="false">
               <defs>
-                <marker id="idt-product-hero-arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto">
-                  <path d="M 1 1 L 11 6 L 1 11 L 3.4 6 Z" />
-                </marker>
-                <marker id="idt-product-hero-arrow-muted" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
-                  <path d="M 1 1 L 11 6 L 1 11 L 3.4 6 Z" />
+                <marker
+                  id="idt-product-trust-arrow"
+                  viewBox="0 0 18 18"
+                  refX="15"
+                  refY="9"
+                  markerWidth="18"
+                  markerHeight="18"
+                  orient="auto"
+                  markerUnits="userSpaceOnUse"
+                >
+                  <path className="idt-product-trust-arrow-head" d="M3 3 L15 9 L3 15" />
                 </marker>
               </defs>
-              <path className="idt-product-graph-edge is-muted" d="M150 152 C230 166 284 209 338 248" />
-              <path className="idt-product-graph-edge is-proof" d="M162 334 C226 320 282 288 336 266" />
-              <path className="idt-product-graph-edge is-safe" d="M426 250 C500 220 545 164 606 128" />
-              <path className="idt-product-graph-edge is-risk" d="M428 278 C472 318 515 333 560 344" />
+              <circle className="idt-product-focus-halo" cx="475" cy="276" r="150" />
+
+              <g className="idt-product-graph-title" transform="translate(34 34)">
+                <text className="idt-product-node-kicker" x="0" y="12">
+                  Live path
+                </text>
+                <text className="idt-product-svg-title" x="0" y="48">
+                  CI/CD identity to billing
+                </text>
+                <text className="idt-product-svg-title" x="0" y="76">
+                  data
+                </text>
+              </g>
+
+              <path className="idt-product-path-edge is-active" d="M250 168 C318 172 326 266 370 266" />
+              <path className="idt-product-path-edge is-active" d="M570 260 C626 236 636 174 668 174" />
+              <path className="idt-product-path-edge is-active" d="M570 302 C598 318 604 365 626 374" />
+
+              <g className="idt-product-path-tag" transform="translate(284 178)">
+                <rect width="92" height="30" rx="15" />
+                <text x="46" y="20">
+                  federates
+                </text>
+              </g>
+              <g className="idt-product-path-tag" transform="translate(586 214)">
+                <rect width="108" height="30" rx="15" />
+                <text x="54" y="20">
+                  assumes role
+                </text>
+              </g>
+              <g className="idt-product-path-tag" transform="translate(580 338)">
+                <rect width="100" height="30" rx="15" />
+                <text x="50" y="20">
+                  reaches data
+                </text>
+              </g>
+
+              <g className="idt-product-path-node is-source" transform="translate(70 128)">
+                <rect width="180" height="80" rx="10" />
+                <text className="idt-product-node-kicker" x="18" y="26">
+                  Source identity
+                </text>
+                <text className="idt-product-node-title" x="18" y="50">
+                  GitHub OIDC
+                </text>
+                <text className="idt-product-node-status is-good" x="18" y="68">
+                  Verified
+                </text>
+              </g>
+              <g className="idt-product-path-node is-workload" transform="translate(370 230)">
+                <rect width="200" height="86" rx="10" />
+                <text className="idt-product-node-kicker" x="18" y="28">
+                  Workload
+                </text>
+                <text className="idt-product-node-title" x="18" y="52">
+                  K8s service account
+                </text>
+                <text className="idt-product-node-status is-good" x="18" y="72">
+                  Namespace bridge
+                </text>
+              </g>
+              <g className="idt-product-path-node is-privilege" transform="translate(668 136)">
+                <rect width="186" height="80" rx="10" />
+                <text className="idt-product-node-kicker" x="18" y="26">
+                  Privilege
+                </text>
+                <text className="idt-product-node-title" x="18" y="50">
+                  AWS Role
+                </text>
+                <text className="idt-product-node-status is-risk" x="18" y="68">
+                  High risk
+                </text>
+              </g>
+              <g className="idt-product-path-node is-resource" transform="translate(626 340)">
+                <rect width="204" height="82" rx="10" />
+                <text className="idt-product-node-kicker" x="18" y="27">
+                  Resource
+                </text>
+                <text className="idt-product-node-title" x="18" y="51">
+                  Billing datastore
+                </text>
+                <text className="idt-product-node-status is-risk" x="18" y="70">
+                  Critical target
+                </text>
+              </g>
+
+              <g className="idt-product-svg-card is-evidence" transform="translate(70 350)">
+                <rect width="274" height="96" rx="10" />
+                <text className="idt-product-card-kicker" x="18" y="28">
+                  Evidence packet
+                </text>
+                <text className="idt-product-card-title" x="18" y="56">
+                  OIDC wildcard can reach
+                </text>
+                <text className="idt-product-card-title" x="18" y="76">
+                  production data
+                </text>
+                <text className="idt-product-card-note" x="18" y="91">
+                  JWT claims, trust policy, API call proof
+                </text>
+              </g>
+              <g className="idt-product-svg-card is-queue" transform="translate(698 432)">
+                <rect width="156" height="72" rx="10" />
+                <text className="idt-product-card-kicker" x="18" y="25">
+                  Live queue
+                </text>
+                <text className="idt-product-card-metric" x="18" y="52">
+                  37 risky paths
+                </text>
+              </g>
             </svg>
-            <div className="idt-graph-pill is-github">
-              <strong>GitHub OIDC</strong>
-              <span>Verified</span>
-            </div>
-            <div className="idt-graph-pill is-aws">
-              <strong>AWS Role</strong>
-              <span>High risk</span>
-            </div>
-            <div className="idt-graph-pill is-k8s">
-              <strong>K8s service account</strong>
-              <span>Namespace bridge</span>
-            </div>
-            <div className="idt-graph-pill is-data">
-              <strong>Billing datastore</strong>
-              <span>Critical target</span>
-            </div>
-            <aside className="idt-product-evidence-card">
-              <span>Evidence packet</span>
-              <strong>OIDC wildcard can reach production data</strong>
-              <p>JWT claims, trust policy, API call proof</p>
-            </aside>
           </div>
         </div>
-      </div>
-      <div className="idt-product-hero-queue">
-        <span>Live queue</span>
-        <strong>37 risky paths</strong>
-        <p>12 have owner-ready fixes</p>
       </div>
     </div>
   );
 }
 
-function PricingHeroVisual() {
+type PricingHeroVisualProps = {
+  annual: boolean;
+  proPrice: number;
+};
+
+function PricingHeroVisual({ annual, proPrice }: PricingHeroVisualProps) {
   return (
-    <div className="idt-pricing-hero-visual">
-      <div className="idt-pricing-hero-toggle">
-        <span>Monthly</span>
-        <strong>Annual - save 25%</strong>
+    <div className="idt-pricing-hero-visual idt-pricing-decision-console">
+      <div className="idt-pricing-console-top">
+        <div>
+          <span className="idt-pricing-console-eyebrow">Pricing console</span>
+          <strong>Choose deployment model</strong>
+          <p>Compare the adoption path without hunting through a tiny matrix.</p>
+        </div>
+        <div className="idt-pricing-hero-toggle" role="presentation">
+          <span className={!annual ? 'is-active' : undefined}>Monthly</span>
+          <strong className={annual ? 'is-active' : undefined}>Annual - save 25%</strong>
+        </div>
+      </div>
+      <div className="idt-pricing-hero-plans">
+        <div>
+          <span>Open Source</span>
+          <strong>$0</strong>
+          <p>Self-hosted core</p>
+        </div>
+        <div className="is-featured">
+          <span>Pro</span>
+          <strong>
+            ${proPrice}
+            <small>/user/mo</small>
+          </strong>
+          <p>Hosted graph + SSO</p>
+        </div>
+        <div>
+          <span>Enterprise</span>
+          <strong>Custom</strong>
+          <p>Private tenancy</p>
+        </div>
       </div>
       <div className="idt-pricing-hero-matrix">
         <span>Capability</span>
@@ -3310,7 +3424,7 @@ function PricingPage() {
         title="Pricing aligned to how teams adopt machine identity security"
         body="Start with open source, move to hosted Pro for speed, then scale to enterprise controls when needed."
         variant="pricing"
-        visual={<PricingHeroVisual />}
+        visual={<PricingHeroVisual annual={annual} proPrice={proPrice} />}
         actions={
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
