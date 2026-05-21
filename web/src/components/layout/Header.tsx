@@ -1,11 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { siteLinks } from '../../siteConfig';
 
 type NavLinkItem = {
   to: string;
   label: string;
 };
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.closest('input, textarea, select')) {
+    return true;
+  }
+
+  const editableHost = target.closest('[contenteditable]');
+  if (editableHost instanceof HTMLElement && editableHost.contentEditable !== 'false') {
+    return true;
+  }
+
+  return Boolean(target.closest('[role="textbox"], [role="searchbox"], [role="combobox"], [role="spinbutton"]'));
+}
 
 export function Header({
   navLinks
@@ -15,6 +32,7 @@ export function Header({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setMenuOpen(false);
@@ -34,6 +52,31 @@ export function Header({
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [menuOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.repeat) {
+        return;
+      }
+
+      const target = event.target;
+      if (isEditableShortcutTarget(target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key !== 'l' && key !== 's') {
+        return;
+      }
+
+      event.preventDefault();
+      setMenuOpen(false);
+      navigate(key === 'l' ? siteLinks.signIn : '/signup');
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [navigate]);
 
   return (
     <header className="idt-header">

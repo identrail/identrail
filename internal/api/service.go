@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"path"
 	"sort"
@@ -19,6 +20,7 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/findings/standards"
 	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/remediation/fixpr"
 	"github.com/identrail/identrail/internal/repoallowlist"
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
@@ -302,6 +304,27 @@ type RepoRiskGraphFilter struct {
 	DefaultBranch string
 }
 
+// RepoFindingRemediationPreviewRequest captures a request to preview safe
+// remediation for one repository finding. SourceContent is optional; when
+// present and the detector has a deterministic patch, the response also
+// includes the exact fix-PR plan.
+type RepoFindingRemediationPreviewRequest struct {
+	RepoScanID     string `json:"repo_scan_id,omitempty"`
+	SourceContent  string `json:"source_content,omitempty"`
+	BaseBranch     string `json:"base_branch,omitempty"`
+	BranchPrefix   string `json:"branch_prefix,omitempty"`
+	FindingURL     string `json:"finding_url,omitempty"`
+	RequireFixPlan bool   `json:"require_fix_plan,omitempty"`
+}
+
+// RepoFindingRemediationPreview is the API-facing preview for one repo finding
+// remediation workflow.
+type RepoFindingRemediationPreview struct {
+	Finding     domain.Finding                    `json:"finding"`
+	Remediation standards.RepoExposureRemediation `json:"remediation"`
+	FixPRPlan   *fixpr.FixPRPlan                  `json:"fix_pr_plan,omitempty"`
+}
+
 // FindingsPage captures one paginated findings response.
 type FindingsPage struct {
 	Items      []domain.Finding
@@ -388,6 +411,12 @@ var errRepoScanTerminalStateChanged = errors.New("repo scan terminal state chang
 
 // ErrInvalidFindingTriageRequest indicates invalid triage payload or state transition.
 var ErrInvalidFindingTriageRequest = errors.New("invalid finding triage request")
+
+// ErrUnsupportedRepoRemediation indicates no safe remediation workflow is registered.
+var ErrUnsupportedRepoRemediation = errors.New("unsupported repo remediation")
+
+// ErrInvalidRepoRemediationRequest indicates stale source content or invalid preview inputs.
+var ErrInvalidRepoRemediationRequest = errors.New("invalid repo remediation request")
 
 // ErrRepoScanQueueFull is returned when queued repo scan requests exceed configured capacity.
 var ErrRepoScanQueueFull = errors.New("repo scan queue is full")
@@ -1990,6 +2019,84 @@ func (s *Service) GetRepoRiskGraph(ctx context.Context, filter RepoRiskGraphFilt
 		DefaultBranch: strings.TrimSpace(filter.DefaultBranch),
 		Now:           s.Now().UTC(),
 	}), nil
+}
+
+// PreviewRepoFindingRemediation returns rule-specific remediation guidance for
+// one repository finding. When source content is provided for a deterministic
+// patchable detector, the response includes the exact fix-PR plan without
+// publishing anything.
+func (s *Service) PreviewRepoFindingRemediation(ctx context.Context, findingID string, request RepoFindingRemediationPreviewRequest) (RepoFindingRemediationPreview, error) {
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return RepoFindingRemediationPreview{}, db.ErrNotFound
+	}
+	request.RepoScanID = strings.TrimSpace(request.RepoScanID)
+	finding, err := s.getRepoFindingForRemediation(ctx, id, request.RepoScanID)
+	if err != nil {
+		return RepoFindingRemediationPreview{}, err
+	}
+	domain.NormalizeRepoFindingMetadata(&finding)
+	remediation, ok := standards.SuggestRepoExposureRemediation(finding)
+	if !ok {
+		return RepoFindingRemediationPreview{}, ErrUnsupportedRepoRemediation
+	}
+
+	responseFinding := finding
+	if responseFinding.Type == domain.FindingSecretExposure {
+		responseFinding.LineSnippet = ""
+		redacted := true
+		responseFinding.LineSnippetRedacted = &redacted
+		if len(responseFinding.Evidence) > 0 {
+			evidence := maps.Clone(responseFinding.Evidence)
+			delete(evidence, "line_snippet")
+			delete(evidence, "redacted_line_snip")
+			delete(evidence, "match_snippet")
+			evidence["line_snippet_redacted"] = true
+			responseFinding.Evidence = evidence
+		}
+	}
+	response := RepoFindingRemediationPreview{
+		Finding:     responseFinding,
+		Remediation: remediation,
+	}
+
+	sourceContentProvided := request.SourceContent != ""
+	if !sourceContentProvided {
+		if request.RequireFixPlan {
+			return RepoFindingRemediationPreview{}, ErrInvalidRepoRemediationRequest
+		}
+		return response, nil
+	}
+	plan, _, err := fixpr.BuildRepoExposureFixPRPlan(finding, request.SourceContent, fixpr.PlanOptions{
+		BaseBranch:   request.BaseBranch,
+		BranchPrefix: request.BranchPrefix,
+		FindingURL:   request.FindingURL,
+	})
+	if err != nil {
+		if errors.Is(err, fixpr.ErrRepoExposureRemediationUnsupported) {
+			return RepoFindingRemediationPreview{}, ErrUnsupportedRepoRemediation
+		}
+		if errors.Is(err, fixpr.ErrRepoExposureRemediationUnsafe) && !request.RequireFixPlan {
+			return response, nil
+		}
+		return RepoFindingRemediationPreview{}, ErrInvalidRepoRemediationRequest
+	}
+	response.FixPRPlan = &plan
+	return response, nil
+}
+
+func (s *Service) getRepoFindingForRemediation(ctx context.Context, findingID string, repoScanID string) (domain.Finding, error) {
+	findings, err := s.ListRepoFindings(ctx, 1, db.RepoFindingFilter{
+		FindingID:  strings.TrimSpace(findingID),
+		RepoScanID: strings.TrimSpace(repoScanID),
+	})
+	if err != nil {
+		return domain.Finding{}, err
+	}
+	if len(findings) == 0 {
+		return domain.Finding{}, db.ErrNotFound
+	}
+	return findings[0], nil
 }
 
 // GetOrganization returns the current scoped organization record.

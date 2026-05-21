@@ -58,6 +58,75 @@ export type RepoScanRequest = {
   max_findings?: number;
 };
 
+export type RepoExposurePatchTemplate = {
+  strategy:
+    | 'line_literal'
+    | 'line_regex'
+    | 'workflow_permissions_read_default'
+    | 'workflow_pull_request_trigger';
+  description: string;
+  match?: string;
+  match_pattern?: string;
+  replacement: string;
+  requires_source_content: boolean;
+  placeholder: boolean;
+};
+
+export type RepoExposureRemediationScope = {
+  finding_id: string;
+  scan_id?: string;
+  repository?: string;
+  commit?: string;
+  file_path?: string;
+  line_number?: number;
+  line_snippet?: string;
+};
+
+export type RepoExposureRemediation = {
+  detector: string;
+  summary: string;
+  risk_summary: string;
+  steps: string[];
+  safety_notes: string[];
+  validation: string[];
+  patch?: RepoExposurePatchTemplate;
+  secret_rotation: boolean;
+  publishable: boolean;
+  publish_blocked_reason?: string;
+  evidence: RepoExposureRemediationScope;
+};
+
+export type FixPRPlanFile = {
+  path: string;
+  content: string;
+};
+
+export type FixPRPlan = {
+  base_branch: string;
+  branch_name: string;
+  commit_message: string;
+  pr_title: string;
+  pr_body: string;
+  files: FixPRPlanFile[];
+  finding_id: string;
+  finding_type: string;
+};
+
+export type RepoFindingRemediationPreviewRequest = {
+  repo_scan_id?: string;
+  source_content?: string;
+  base_branch?: string;
+  branch_prefix?: string;
+  finding_url?: string;
+  require_fix_plan?: boolean;
+};
+
+export type RepoFindingRemediationPreview = {
+  finding: Finding;
+  remediation: RepoExposureRemediation;
+  fix_pr_plan?: FixPRPlan;
+};
+
 export type ScanRecord = {
   id: string;
   provider: string;
@@ -1182,6 +1251,21 @@ export const apiClient = {
     return request<{ items: Finding[] }>(
       `/v1/repo-findings${buildQuery({ sort_by: 'created_at', sort_order: 'desc', ...filters })}`,
       auth
+    );
+  },
+  previewRepoFindingRemediation(
+    findingID: string,
+    payload: RepoFindingRemediationPreviewRequest = {},
+    auth?: RequestAuthContext
+  ) {
+    const query = buildQuery({ repo_scan_id: payload.repo_scan_id });
+    return request<RepoFindingRemediationPreview>(
+      `/v1/repo-findings/${encodeURIComponent(findingID)}/remediation/preview${query}`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
     );
   },
   getFinding(findingID: string, scanID?: string, auth?: RequestAuthContext) {

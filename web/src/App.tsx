@@ -1156,20 +1156,6 @@ function EnterpriseHeroVisual() {
 function DemoBookingVisual() {
   return (
     <div className="idt-demo-booking-visual" aria-hidden="true">
-      <div className="idt-demo-booking-orbit">
-        <span className="is-source">OIDC</span>
-        <span className="is-workload">K8s</span>
-        <span className="is-target">RDS</span>
-        <svg viewBox="0 0 420 260" focusable="false">
-          <path d="M86 64 C158 42 230 61 305 116" />
-          <path d="M122 206 C177 178 237 157 316 136" />
-        </svg>
-      </div>
-      <div className="idt-demo-booking-card">
-        <span>Guided walkthrough</span>
-        <strong>15 minute trust path review</strong>
-        <p>Bring one AWS account, namespace, or repository. Leave with the first path, blast radius, and owner-ready next step.</p>
-      </div>
       <div className="idt-demo-booking-agenda">
         <span>Live agenda</span>
         <ol>
@@ -1177,6 +1163,25 @@ function DemoBookingVisual() {
           <li>Map a reachable high-risk path</li>
           <li>Package the safest first fix</li>
         </ol>
+      </div>
+      <div className="idt-demo-booking-orbit" aria-label="Trust path preview">
+        <svg viewBox="0 0 420 260" focusable="false">
+          <defs>
+            <marker id="idt-demo-booking-arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
+              <path d="M1 1 L11 6 L1 11 Z" />
+            </marker>
+          </defs>
+          <path d="M78 74 C145 54 202 74 252 120" />
+          <path d="M252 120 C300 164 316 199 356 211" />
+        </svg>
+        <span className="is-source">OIDC</span>
+        <span className="is-workload">K8s</span>
+        <span className="is-target">RDS</span>
+      </div>
+      <div className="idt-demo-booking-card">
+        <span>Guided walkthrough</span>
+        <strong>15 minute trust path review</strong>
+        <p>Bring one AWS account, namespace, or repository. Leave with the first path, blast radius, and owner-ready next step.</p>
       </div>
     </div>
   );

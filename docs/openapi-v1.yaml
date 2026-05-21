@@ -120,6 +120,11 @@ x-identrail-route-authorizations:
     path: /v1/repo-findings
     action: repo_scans.read
     resource_type: repo_finding
+  - method: POST
+    path: /v1/repo-findings/{finding_id}/remediation/preview
+    action: repo_scans.read
+    resource_type: repo_finding
+    resource_id_param: finding_id
   - method: GET
     path: /v1/repo-finding-clusters
     action: repo_scans.read
@@ -3908,6 +3913,45 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/repo-findings/{finding_id}/remediation/preview:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [RepositoryExposure]
+      summary: Preview repository finding remediation
+      operationId: previewRepoFindingRemediation
+      parameters:
+        - in: path
+          name: finding_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: repo_scan_id
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoFindingRemediationPreviewRequest"
+      responses:
+        "200":
+          description: Repository finding remediation preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoFindingRemediationPreview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/repo-finding-clusters:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -4098,6 +4142,12 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     NotFound:
       description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UnprocessableEntity:
+      description: Unprocessable entity
       content:
         application/json:
           schema:
@@ -5860,6 +5910,106 @@ components:
           format: date-time
         triage:
           $ref: "#/components/schemas/FindingTriage"
+    RepoFindingRemediationPreviewRequest:
+      type: object
+      properties:
+        repo_scan_id:
+          type: string
+          description: Optional repo scan scope when the finding id exists in more than one scan.
+        source_content:
+          type: string
+          description: Current affected file content. When supplied for deterministic patchable detectors, the response includes an exact fix PR plan.
+        base_branch:
+          type: string
+          description: Base branch for an optional generated fix PR plan.
+        branch_prefix:
+          type: string
+          description: Branch prefix for an optional generated fix PR plan.
+        finding_url:
+          type: string
+          format: uri
+          description: Optional app URL included in generated PR traceability.
+        require_fix_plan:
+          type: boolean
+          description: Return 400 when a deterministic fix PR plan cannot be produced.
+    RepoExposurePatchTemplate:
+      type: object
+      properties:
+        strategy:
+          type: string
+          enum: [line_literal, line_regex, workflow_permissions_read_default, workflow_pull_request_trigger]
+        description: { type: string }
+        match: { type: string }
+        match_pattern: { type: string }
+        replacement: { type: string }
+        requires_source_content: { type: boolean }
+        placeholder:
+          type: boolean
+          description: True when the replacement contains operator-supplied values and must not be published automatically.
+    RepoExposureRemediationScope:
+      type: object
+      properties:
+        finding_id: { type: string }
+        scan_id: { type: string }
+        repository: { type: string }
+        commit: { type: string }
+        file_path: { type: string }
+        line_number:
+          type: integer
+          minimum: 1
+        line_snippet: { type: string }
+    RepoExposureRemediation:
+      type: object
+      properties:
+        detector: { type: string }
+        summary: { type: string }
+        risk_summary: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        safety_notes:
+          type: array
+          items: { type: string }
+        validation:
+          type: array
+          items: { type: string }
+        patch:
+          $ref: "#/components/schemas/RepoExposurePatchTemplate"
+        secret_rotation: { type: boolean }
+        publishable:
+          type: boolean
+          description: True only for deterministic patches that can be published after explicit operator approval and write-capable credentials.
+        publish_blocked_reason: { type: string }
+        evidence:
+          $ref: "#/components/schemas/RepoExposureRemediationScope"
+    FixPRPlanFile:
+      type: object
+      properties:
+        path: { type: string }
+        content: { type: string }
+    FixPRPlan:
+      type: object
+      properties:
+        base_branch: { type: string }
+        branch_name: { type: string }
+        commit_message: { type: string }
+        pr_title: { type: string }
+        pr_body: { type: string }
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/FixPRPlanFile"
+        finding_id: { type: string }
+        finding_type: { type: string }
+    RepoFindingRemediationPreview:
+      type: object
+      properties:
+        finding:
+          $ref: "#/components/schemas/Finding"
+        remediation:
+          $ref: "#/components/schemas/RepoExposureRemediation"
+        fix_pr_plan:
+          $ref: "#/components/schemas/FixPRPlan"
     FindingBaseline:
       type: object
       properties:

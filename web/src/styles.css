@@ -16003,7 +16003,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active {
 html[data-theme='light'] .idt-home-after-stack .idt-tour-step.is-active {
   background: #090909;
   color: #ffffff;
-  box-shadow: inset 4px 0 0 #ffffff;
+  box-shadow: inset 0 0 0 1px #1f1f1f;
 }
 
 .idt-home-after-stack .idt-tour-step-index,
@@ -20637,40 +20637,56 @@ html[data-theme='light'] .idt-demo-page .idt-page-hero-copy > p {
 
 .idt-demo-booking-visual {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.45fr);
+  grid-template-rows: auto minmax(300px, 1fr);
+  gap: 1px;
   min-height: 520px;
   border: 1px solid #242424;
   border-radius: 8px;
   overflow: hidden;
+  background: #242424;
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.38);
+}
+
+.idt-demo-booking-orbit {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 2;
+  overflow: hidden;
   background:
     linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    radial-gradient(circle at 52% 47%, rgba(255, 255, 255, 0.12), transparent 32%),
+    radial-gradient(circle at 50% 52%, rgba(255, 255, 255, 0.14), transparent 32%),
     #050505;
   background-size:
     54px 54px,
     54px 54px,
     auto,
     auto;
-  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.38);
-}
-
-.idt-demo-booking-orbit {
-  position: absolute;
-  inset: 2rem;
 }
 
 .idt-demo-booking-orbit svg {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  inset: 5%;
+  width: auto;
+  height: auto;
 }
 
 .idt-demo-booking-orbit path {
   fill: none;
   stroke: rgba(255, 255, 255, 0.68);
-  stroke-width: 2.2;
-  stroke-dasharray: 8 10;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 9 11;
+  marker-end: url(#idt-demo-booking-arrow);
+}
+
+.idt-demo-booking-orbit marker path {
+  fill: #ffffff;
+  stroke: none;
 }
 
 .idt-demo-booking-orbit span {
@@ -20692,25 +20708,25 @@ html[data-theme='light'] .idt-demo-page .idt-page-hero-copy > p {
 }
 
 .idt-demo-booking-orbit .is-source {
-  top: 8%;
-  left: 8%;
+  top: 18%;
+  left: 13%;
 }
 
 .idt-demo-booking-orbit .is-workload {
-  top: 44%;
-  right: 10%;
+  top: 43%;
+  left: 55%;
 }
 
 .idt-demo-booking-orbit .is-target {
-  left: 24%;
-  bottom: 8%;
+  right: 8%;
+  bottom: 11%;
 }
 
 .idt-demo-booking-card,
 .idt-demo-booking-agenda,
 html[data-theme='light'] .idt-demo-booking-card,
 html[data-theme='light'] .idt-demo-booking-agenda {
-  position: absolute;
+  position: relative;
   border: 1px solid #2f2f2f;
   border-radius: 8px;
   background: rgba(8, 8, 8, 0.92);
@@ -20719,10 +20735,14 @@ html[data-theme='light'] .idt-demo-booking-agenda {
 }
 
 .idt-demo-booking-card {
-  right: 1.4rem;
-  bottom: 1.4rem;
-  width: min(360px, calc(100% - 2.8rem));
-  padding: 1.25rem;
+  position: relative;
+  grid-column: 2;
+  grid-row: 2;
+  width: auto;
+  padding: clamp(1.1rem, 2vw, 1.45rem);
+  border: 0;
+  border-radius: 0;
+  background: #080808;
 }
 
 .idt-demo-booking-card span,
@@ -20739,10 +20759,10 @@ html[data-theme='light'] .idt-demo-booking-agenda {
 
 .idt-demo-booking-card strong {
   display: block;
-  max-width: 11ch;
+  max-width: 10ch;
   color: #ffffff;
   font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
-  font-size: clamp(2.2rem, 4vw, 3.6rem);
+  font-size: clamp(2rem, 3vw, 3.15rem);
   line-height: 0.92;
   text-transform: uppercase;
 }
@@ -20756,23 +20776,33 @@ html[data-theme='light'] .idt-demo-booking-card p {
 }
 
 .idt-demo-booking-agenda {
-  top: 1.4rem;
-  left: 1.4rem;
-  width: min(300px, calc(100% - 2.8rem));
-  padding: 1rem;
+  position: relative;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: auto;
+  padding: 1rem 1.15rem;
+  border: 0;
+  border-radius: 0;
+  background: #080808;
 }
 
 .idt-demo-booking-agenda ol {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.55rem;
   margin: 0;
-  padding-left: 1.1rem;
+  padding: 0;
+  list-style: none;
 }
 
 .idt-demo-booking-agenda li {
+  border: 1px solid #242424;
+  border-radius: 8px;
   color: #f4f4f5;
-  font-size: 0.95rem;
+  font-size: 0.86rem;
   font-weight: 750;
+  line-height: 1.35;
+  padding: 0.72rem 0.8rem;
 }
 
 .idt-demo-booking-section,
@@ -21130,11 +21160,31 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 @media (max-width: 720px) {
   .idt-demo-booking-visual {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(260px, 1fr) auto;
     min-height: 500px;
   }
 
+  .idt-demo-booking-orbit,
+  .idt-demo-booking-card,
+  .idt-demo-booking-agenda {
+    grid-column: 1;
+  }
+
   .idt-demo-booking-orbit {
-    inset: 1rem;
+    grid-row: 2;
+  }
+
+  .idt-demo-booking-card {
+    grid-row: 3;
+  }
+
+  .idt-demo-booking-agenda {
+    grid-row: 1;
+  }
+
+  .idt-demo-booking-agenda ol {
+    grid-template-columns: 1fr;
   }
 
   .idt-demo-booking-orbit span {

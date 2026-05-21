@@ -484,6 +484,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/repo-findings", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.POST("/repo-findings/:finding_id/remediation/preview", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
+		})
 		v1.GET("/repo-finding-clusters", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
@@ -950,6 +953,47 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
+	})
+
+	v1.POST("/repo-findings/:finding_id/remediation/preview", func(c *gin.Context) {
+		var request RepoFindingRemediationPreviewRequest
+		if c.Request.Body != nil && c.Request.Body != http.NoBody && c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+		}
+		if repoScanID := strings.TrimSpace(c.Query("repo_scan_id")); repoScanID != "" {
+			if !isValidUUID(repoScanID) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
+				return
+			}
+			request.RepoScanID = repoScanID
+		}
+		if request.RepoScanID != "" && !isValidUUID(request.RepoScanID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
+			return
+		}
+		preview, err := svc.PreviewRepoFindingRemediation(
+			c.Request.Context(),
+			strings.TrimSpace(c.Param("finding_id")),
+			request,
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "repo finding not found"})
+			case errors.Is(err, ErrUnsupportedRepoRemediation):
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "unsupported repo remediation"})
+			case errors.Is(err, ErrInvalidRepoRemediationRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo remediation request"})
+			default:
+				logger.Error("preview repo finding remediation", telemetry.ZapError(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to preview repo finding remediation"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, preview)
 	})
 
 	v1.GET("/repo-finding-clusters", func(c *gin.Context) {

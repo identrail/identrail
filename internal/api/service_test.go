@@ -2572,6 +2572,201 @@ func TestServiceGetRepoRiskGraphUsesServiceClock(t *testing.T) {
 	}
 }
 
+func TestServicePreviewRepoFindingRemediationReturnsGuidanceAndFixPlan(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:           "repo-finding-remediate",
+		ScanID:       repoScan.ID,
+		Type:         domain.FindingRepoMisconfig,
+		Severity:     domain.SeverityHigh,
+		Title:        "Workflow grants broad token permissions",
+		HumanSummary: "Workflow permissions are set to write-all.",
+		Repository:   "owner/repo",
+		Commit:       "abc123",
+		FilePath:     ".github/workflows/ci.yml",
+		LineNumber:   2,
+		Detector:     "workflow_write_all_permissions",
+		LineSnippet:  "permissions: write-all",
+		Remediation:  "Restrict workflow permissions.",
+		CreatedAt:    now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	preview, err := svc.PreviewRepoFindingRemediation(defaultScopeContext(), finding.ID, RepoFindingRemediationPreviewRequest{
+		RepoScanID:    repoScan.ID,
+		SourceContent: "name: ci\npermissions: write-all\n",
+		BaseBranch:    "dev",
+		FindingURL:    "https://app.example.com/findings/repo-finding-remediate",
+	})
+	if err != nil {
+		t.Fatalf("preview remediation: %v", err)
+	}
+	if preview.Remediation.Detector != "workflow_write_all_permissions" || !preview.Remediation.Publishable {
+		t.Fatalf("unexpected remediation preview: %+v", preview.Remediation)
+	}
+	if preview.FixPRPlan == nil {
+		t.Fatal("expected fix PR plan when source content is supplied")
+	}
+	if len(preview.FixPRPlan.Files) != 1 || preview.FixPRPlan.Files[0].Path != ".github/workflows/ci.yml" {
+		t.Fatalf("expected affected workflow-only plan, got %+v", preview.FixPRPlan.Files)
+	}
+	if !strings.Contains(preview.FixPRPlan.Files[0].Content, "permissions:\n  contents: read\n") {
+		t.Fatalf("expected patched permissions, got:\n%s", preview.FixPRPlan.Files[0].Content)
+	}
+}
+
+func TestServicePreviewRepoFindingRemediationUsesRepoFindingOnly(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	regularScan, err := store.CreateScan(defaultScopeContext(), "aws", now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("create regular scan: %v", err)
+	}
+	if err := store.UpsertFindings(defaultScopeContext(), regularScan.ID, []domain.Finding{{
+		ID:           "shared-finding-id",
+		ScanID:       regularScan.ID,
+		Type:         domain.FindingOverPrivileged,
+		Severity:     domain.SeverityHigh,
+		Title:        "Cloud finding with same id",
+		HumanSummary: "This non-repo finding must not be used by repo remediation previews.",
+		CreatedAt:    now.Add(5 * time.Minute),
+	}}); err != nil {
+		t.Fatalf("upsert regular finding: %v", err)
+	}
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	repoFinding := domain.Finding{
+		ID:           "shared-finding-id",
+		ScanID:       repoScan.ID,
+		Type:         domain.FindingRepoMisconfig,
+		Severity:     domain.SeverityHigh,
+		Title:        "Repository misconfiguration",
+		HumanSummary: "Workflow permissions are set to write-all.",
+		Repository:   "owner/repo",
+		FilePath:     ".github/workflows/ci.yml",
+		LineNumber:   1,
+		Detector:     "workflow_write_all_permissions",
+		LineSnippet:  "permissions: write-all",
+		CreatedAt:    now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{repoFinding}); err != nil {
+		t.Fatalf("upsert repo finding: %v", err)
+	}
+
+	preview, err := svc.PreviewRepoFindingRemediation(defaultScopeContext(), repoFinding.ID, RepoFindingRemediationPreviewRequest{
+		SourceContent: "permissions: write-all\n",
+	})
+	if err != nil {
+		t.Fatalf("preview remediation: %v", err)
+	}
+	if preview.Finding.Type != domain.FindingRepoMisconfig || preview.Finding.ScanID != repoScan.ID {
+		t.Fatalf("expected repo finding preview, got %+v", preview.Finding)
+	}
+	if preview.Remediation.Detector != "workflow_write_all_permissions" {
+		t.Fatalf("expected repo remediation detector, got %+v", preview.Remediation)
+	}
+}
+
+func TestServicePreviewRepoFindingRemediationKeepsSecretRotationOnly(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	secretRedacted := false
+	finding := domain.Finding{
+		ID:                  "repo-secret-remediate",
+		ScanID:              repoScan.ID,
+		Type:                domain.FindingSecretExposure,
+		Severity:            domain.SeverityCritical,
+		Title:               "Repository contains a secret",
+		HumanSummary:        "A credential-like value was committed.",
+		Repository:          "owner/repo",
+		Commit:              "abc123",
+		FilePath:            "app.env",
+		LineNumber:          1,
+		Detector:            "github_token",
+		LineSnippet:         "GITHUB_TOKEN=ghp_exampleSecretValue",
+		LineSnippetRedacted: &secretRedacted,
+		Remediation:         "Rotate the token.",
+		CreatedAt:           now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	preview, err := svc.PreviewRepoFindingRemediation(defaultScopeContext(), finding.ID, RepoFindingRemediationPreviewRequest{
+		RepoScanID:    repoScan.ID,
+		SourceContent: "GITHUB_TOKEN=ghp_exampleSecretValue\n",
+	})
+	if err != nil {
+		t.Fatalf("preview remediation: %v", err)
+	}
+	if !preview.Remediation.SecretRotation || preview.Remediation.Patch != nil || preview.Remediation.Publishable {
+		t.Fatalf("expected rotation-only secret remediation, got %+v", preview.Remediation)
+	}
+	if preview.FixPRPlan != nil {
+		t.Fatalf("secret remediation must not include fix PR plan, got %+v", preview.FixPRPlan)
+	}
+	if preview.Finding.LineSnippet != "" || preview.Remediation.Evidence.LineSnippet != "" {
+		t.Fatalf("secret preview must not echo raw snippet, got finding=%q evidence=%q", preview.Finding.LineSnippet, preview.Remediation.Evidence.LineSnippet)
+	}
+	for _, key := range []string{"line_snippet", "redacted_line_snip", "match_snippet"} {
+		if value, exists := preview.Finding.Evidence[key]; exists {
+			t.Fatalf("secret preview must not echo evidence key %s=%v", key, value)
+		}
+	}
+	if preview.Finding.Evidence["line_snippet_redacted"] != true {
+		t.Fatalf("expected secret preview evidence to remain explicitly redacted, got %+v", preview.Finding.Evidence)
+	}
+}
+
+func TestServicePreviewRepoFindingRemediationRequireFixPlanRejectsGuidanceOnly(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:         "repo-finding-guidance",
+		ScanID:     repoScan.ID,
+		Type:       domain.FindingRepoMisconfig,
+		Severity:   domain.SeverityMedium,
+		Repository: "owner/repo",
+		FilePath:   "Dockerfile",
+		LineNumber: 1,
+		Detector:   "docker_latest_tag",
+		CreatedAt:  now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	_, err = svc.PreviewRepoFindingRemediation(defaultScopeContext(), finding.ID, RepoFindingRemediationPreviewRequest{
+		RepoScanID:     repoScan.ID,
+		SourceContent:  "FROM golang:latest\n",
+		RequireFixPlan: true,
+	})
+	if !errors.Is(err, ErrInvalidRepoRemediationRequest) {
+		t.Fatalf("expected invalid request for required placeholder fix plan, got %v", err)
+	}
+}
+
 func TestServiceListRepoFindingClusters(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

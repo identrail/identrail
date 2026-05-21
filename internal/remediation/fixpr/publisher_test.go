@@ -3,6 +3,7 @@ package fixpr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -183,6 +184,112 @@ func TestGitHubPublisher_Publish_HappyPath(t *testing.T) {
 	}
 	if base, _ := prReq.Body["base"].(string); base != plan.BaseBranch {
 		t.Errorf("PR base: want %s, got %s", plan.BaseBranch, base)
+	}
+}
+
+func TestGitHubPublisher_PublishRepoExposureRemediationRequiresApprovalAndCredentials(t *testing.T) {
+	publisher := GitHubPublisher{APIBaseURL: "http://example.invalid"}
+	finding := repoMisconfigFinding("workflow_write_all_permissions")
+	source := "name: ci\npermissions: write-all\n"
+
+	_, _, err := publisher.PublishRepoExposureRemediation(context.Background(), finding, RepoExposurePublishOptions{
+		Owner:                      "acme",
+		Repo:                       "repo",
+		Token:                      "tok",
+		SourceContent:              source,
+		OperatorApproved:           false,
+		WritePermissionsConfigured: true,
+	})
+	if !errors.Is(err, ErrRepoExposurePublishApprovalRequired) {
+		t.Fatalf("expected approval error, got %v", err)
+	}
+
+	_, _, err = publisher.PublishRepoExposureRemediation(context.Background(), finding, RepoExposurePublishOptions{
+		Owner:                      "acme",
+		Repo:                       "repo",
+		Token:                      "tok",
+		SourceContent:              source,
+		OperatorApproved:           true,
+		WritePermissionsConfigured: false,
+	})
+	if !errors.Is(err, ErrRepoExposurePublishCredentialsMissing) {
+		t.Fatalf("expected credentials error when write permissions are not configured, got %v", err)
+	}
+
+	_, _, err = publisher.PublishRepoExposureRemediation(context.Background(), finding, RepoExposurePublishOptions{
+		Owner:                      "acme",
+		Repo:                       "repo",
+		SourceContent:              source,
+		OperatorApproved:           true,
+		WritePermissionsConfigured: true,
+	})
+	if !errors.Is(err, ErrRepoExposurePublishCredentialsMissing) {
+		t.Fatalf("expected credentials error when token is missing, got %v", err)
+	}
+}
+
+func TestGitHubPublisher_PublishRepoExposureRemediationHappyPath(t *testing.T) {
+	srv, recorded, mu := newFakeGitHubServer(t)
+	publisher := GitHubPublisher{APIBaseURL: srv.URL}
+	finding := repoMisconfigFinding("workflow_write_all_permissions")
+	finding.LineNumber = 2
+	source := "name: ci\npermissions: write-all\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+
+	result, remediation, err := publisher.PublishRepoExposureRemediation(context.Background(), finding, RepoExposurePublishOptions{
+		Owner:                      "acme",
+		Repo:                       "repo",
+		Token:                      " tok-repo-write \n",
+		SourceContent:              source,
+		OperatorApproved:           true,
+		WritePermissionsConfigured: true,
+		PlanOptions: PlanOptions{
+			BaseBranch:   "dev",
+			BranchPrefix: "identrail/remediate",
+			FindingURL:   "https://app.example.com/findings/repo-finding-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishRepoExposureRemediation returned error: %v", err)
+	}
+	if !remediation.Publishable {
+		t.Fatalf("expected publishable remediation, got %+v", remediation)
+	}
+	if result.PRNumber != 42 || result.BranchName != "identrail/remediate/repo-finding-1" {
+		t.Fatalf("unexpected publish result: %+v", result)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(*recorded) != 7 {
+		t.Fatalf("expected 7 GitHub API requests for one-file repo remediation, got %d: %+v", len(*recorded), *recorded)
+	}
+	for i, req := range *recorded {
+		if req.Auth != "Bearer tok-repo-write" {
+			t.Fatalf("request %d used untrimmed or missing token: %q", i, req.Auth)
+		}
+	}
+	treeReq := (*recorded)[3]
+	entries, ok := treeReq.Body["tree"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("expected one tree entry for the affected file only, got %+v", treeReq.Body)
+	}
+	entry, ok := entries[0].(map[string]any)
+	if !ok || entry["path"] != ".github/workflows/ci.yml" {
+		t.Fatalf("expected workflow file tree entry, got %+v", entries[0])
+	}
+	prReq := (*recorded)[6]
+	body, _ := prReq.Body["body"].(string)
+	for _, required := range []string{
+		"Finding ID: `repo-finding-1`",
+		"Scan ID: `repo-scan-1`",
+		"Detector: `workflow_write_all_permissions`",
+		"Risk summary",
+		"Validation notes",
+		"Safety notes",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("repo exposure PR body missing %q:\n%s", required, body)
+		}
 	}
 }
 

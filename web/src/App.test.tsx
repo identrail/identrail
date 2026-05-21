@@ -133,6 +133,35 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: /Open Full Demo Page/i })).toHaveAttribute('href', '/demo');
   });
 
+  it.each([
+    ['l', '/signin'],
+    ['S', '/signup']
+  ])('routes the %s header keyboard shortcut to %s', async (key, expectedPath) => {
+    setCurrentPath('/');
+    render(<App />);
+
+    fireEvent.keyDown(document, { key });
+
+    await waitFor(() => expect(window.location.pathname).toBe(expectedPath));
+  });
+
+  it.each([
+    ['nested textbox role', <span role="textbox"><span data-testid="editable-shortcut-target">sale note</span></span>],
+    ['plaintext contenteditable', <span contentEditable="plaintext-only"><span data-testid="editable-shortcut-target">login note</span></span>]
+  ])('keeps header shortcuts inactive inside %s editors', async (_name, editor) => {
+    setCurrentPath('/');
+    render(
+      <>
+        <App />
+        {editor}
+      </>
+    );
+
+    fireEvent.keyDown(screen.getByTestId('editable-shortcut-target'), { key: 's' });
+
+    expect(window.location.pathname).toBe('/');
+  });
+
   it('closes the book demo modal when the route changes', async () => {
     setCurrentPath('/');
     render(<App />);
