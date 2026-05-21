@@ -130,7 +130,18 @@ describe('App', () => {
 
     expect(screen.getByRole('dialog', { name: /Walk through a live trust path/i })).toBeInTheDocument();
     expect(document.querySelector('.idt-modal-backdrop')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Choose Demo Time/i })).toHaveAttribute('href', '/demo#book-demo');
     expect(screen.getByRole('link', { name: /Open Full Demo Page/i })).toHaveAttribute('href', '/demo');
+  });
+
+  it('uses first-party demo booking fields instead of an external calendar placeholder', () => {
+    setCurrentPath('/demo');
+    render(<App />);
+
+    expect(screen.getByLabelText(/Preferred day/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Preferred time/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Choose a preferred time/i })).toHaveAttribute('href', '/demo#book-demo');
+    expect(document.querySelector('a[href*="calendly"]')).not.toBeInTheDocument();
   });
 
   it.each([

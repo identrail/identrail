@@ -63,7 +63,7 @@ const DOCS_REPO = 'https://github.com/identrail/identrail/tree/dev/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
-const CALENDLY_URL = 'https://calendly.com/identrail/15min';
+const DEMO_BOOKING_PATH = '/demo#book-demo';
 const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
@@ -745,6 +745,17 @@ function RouteScrollReset() {
           target.scrollIntoView({ block: 'start' });
           return;
         }
+        if (target) {
+          const scrollMarginTop = Number.parseFloat(window.getComputedStyle(target).scrollMarginTop || '0') || 0;
+          const targetTop = target.getBoundingClientRect().top + window.scrollY - scrollMarginTop;
+          try {
+            window.scrollTo({ top: Math.max(0, targetTop), left: 0, behavior: 'auto' });
+          } catch {
+            document.documentElement.scrollTop = Math.max(0, targetTop);
+            document.body.scrollTop = Math.max(0, targetTop);
+          }
+          return;
+        }
         resetScrollTop();
       };
       if (typeof window.requestAnimationFrame === 'function') {
@@ -1193,7 +1204,8 @@ function LeadCaptureForm({
   caption,
   ctaLabel,
   compact = false,
-  variant = 'full'
+  variant = 'full',
+  includeScheduleFields = false
 }: {
   id?: string;
   title: string;
@@ -1201,6 +1213,7 @@ function LeadCaptureForm({
   ctaLabel: string;
   compact?: boolean;
   variant?: 'full' | 'short';
+  includeScheduleFields?: boolean;
 }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -1214,6 +1227,8 @@ function LeadCaptureForm({
     const environment = String(formData.get('environment') ?? '').trim();
     const company = String(formData.get('company') ?? '').trim();
     const challenge = String(formData.get('challenge') ?? '').trim();
+    const preferredDay = String(formData.get('preferred_day') ?? '').trim();
+    const preferredTime = String(formData.get('preferred_time') ?? '').trim();
     const website = String(formData.get('website') ?? '').trim();
 
     setError(null);
@@ -1230,6 +1245,8 @@ function LeadCaptureForm({
         environment,
         company: company || undefined,
         challenge: challenge || undefined,
+        preferred_day: preferredDay || undefined,
+        preferred_time: preferredTime || undefined,
         website: website || undefined,
         source: title,
         page_path: window.location.pathname
@@ -1287,6 +1304,29 @@ function LeadCaptureForm({
                   <option>Overprivileged service accounts</option>
                   <option>Credential leak response</option>
                   <option>Authorization rollout safety</option>
+                </select>
+              </label>
+            </>
+          ) : null}
+          {includeScheduleFields ? (
+            <>
+              <label>
+                Preferred day
+                <select name="preferred_day" defaultValue="Any weekday">
+                  <option>Any weekday</option>
+                  <option>Today</option>
+                  <option>Tomorrow</option>
+                  <option>This week</option>
+                  <option>Next week</option>
+                </select>
+              </label>
+              <label>
+                Preferred time
+                <select name="preferred_time" defaultValue="Any time">
+                  <option>Any time</option>
+                  <option>Morning</option>
+                  <option>Afternoon</option>
+                  <option>Evening</option>
                 </select>
               </label>
             </>
@@ -1390,44 +1430,44 @@ function ModalShell({
   );
 }
 
-function CalendlyEmbed() {
+function BookingPrompt() {
   return (
-    <section className="idt-calendly">
+    <section className="idt-booking-prompt">
       <SectionTitle
         eyebrow="Book Demo"
         title="Walk through your trust graph in 15 minutes"
         body="Bring one AWS account or Kubernetes namespace, and we will map live trust paths and top risk chains."
       />
-      <div className="idt-calendly-shell">
-        <article className="idt-calendly-card">
-          <p className="idt-calendly-note">
+      <div className="idt-booking-prompt-shell">
+        <article className="idt-booking-prompt-card">
+          <p className="idt-booking-prompt-note">
             Choose a slot and we will review trust-path evidence, blast radius, and rollout-safe remediation priorities.
           </p>
-          <ul className="idt-calendly-checklist">
+          <ul className="idt-booking-prompt-checklist">
             <li>Read-only onboarding review</li>
             <li>Live trust graph walkthrough</li>
             <li>First remediation sequence</li>
           </ul>
           <div className="idt-inline-actions">
-            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
-              Open Booking Calendar
-            </SafeLink>
+            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary">
+              Choose Demo Time
+            </Link>
             <Link to="/enterprise" className="idt-btn idt-btn-dark">
               Talk to Sales
             </Link>
           </div>
         </article>
-        <aside className="idt-calendly-preview" aria-label="Demo agenda preview">
+        <aside className="idt-booking-prompt-preview" aria-label="Demo agenda preview">
           <p className="idt-eyebrow">Sample agenda</p>
           <ol>
             <li>Scope environment and trust boundaries</li>
             <li>Inspect one high-risk path with evidence</li>
             <li>Review safe remediation plan and rollout options</li>
           </ol>
-          <div className="idt-calendly-slot-row" aria-hidden="true">
-            <span>Tue · 10:00</span>
-            <span>Wed · 14:30</span>
-            <span>Fri · 09:00</span>
+          <div className="idt-booking-prompt-slot-row" aria-hidden="true">
+            <span>All-day availability</span>
+            <span>15-minute review</span>
+            <span>Email confirmation</span>
           </div>
         </aside>
       </div>
@@ -1490,11 +1530,12 @@ function BookDemoModal({ onClose }: { onClose: () => void }) {
             caption="Share the environment you want to review and we will route the demo around the trust paths that matter."
             ctaLabel="Request demo time"
             variant="short"
+            includeScheduleFields
           />
           <div className="idt-book-demo-modal-actions">
-            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
-              Open Booking Calendar
-            </SafeLink>
+            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary" onClick={onClose}>
+              Choose Demo Time
+            </Link>
             <Link to="/demo" className="idt-btn idt-btn-dark" onClick={onClose}>
               Open Full Demo Page
             </Link>
@@ -3178,7 +3219,7 @@ function SolutionsPage() {
         </div>
       </section>
       <section className="idt-section idt-shell">
-        <CalendlyEmbed />
+        <BookingPrompt />
       </section>
     </div>
   );
@@ -3660,9 +3701,9 @@ function DemoPage() {
         visual={<DemoBookingVisual />}
         actions={
           <>
-            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
-              Open Booking Calendar
-            </SafeLink>
+            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary">
+              Choose Demo Time
+            </Link>
             <ScanIntakeCTA className="idt-btn idt-btn-dark">Request Trust Path Review</ScanIntakeCTA>
           </>
         }
@@ -3670,10 +3711,12 @@ function DemoPage() {
 
       <section className="idt-section idt-shell idt-demo-booking-section">
         <LeadCaptureForm
+          id="book-demo"
           title="Book a guided walkthrough"
           caption="Share the environment you want to review and we will route the demo around the trust paths that matter to your team."
           ctaLabel="Request demo time"
           variant="full"
+          includeScheduleFields
         />
         <aside className="idt-demo-agenda-panel" aria-label="Demo agenda">
           <p className="idt-eyebrow">What we will cover</p>
@@ -3695,9 +3738,9 @@ function DemoPage() {
               <p>Turn the path into owner-ready remediation and rollout notes.</p>
             </article>
           </div>
-          <SafeLink href={CALENDLY_URL} className="idt-inline-link">
-            Choose a time on the calendar →
-          </SafeLink>
+          <Link to={DEMO_BOOKING_PATH} className="idt-inline-link">
+            Choose a preferred time →
+          </Link>
         </aside>
       </section>
 
@@ -3717,9 +3760,9 @@ function DemoPage() {
             <h2>Book the walkthrough, or send context for a trust path review.</h2>
           </div>
           <div className="idt-inline-actions">
-            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
-              Book calendar slot
-            </SafeLink>
+            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary">
+              Choose Demo Time
+            </Link>
             <ScanIntakeCTA className="idt-btn idt-btn-dark">Request Trust Path Review</ScanIntakeCTA>
           </div>
         </div>
@@ -3816,7 +3859,7 @@ function DocsPage() {
       </section>
 
       <section className="idt-section idt-shell">
-        <CalendlyEmbed />
+        <BookingPrompt />
       </section>
     </div>
   );
@@ -4211,12 +4254,13 @@ function EnterprisePage() {
             title="Talk to Enterprise Sales"
             caption="Share environment scope and business goals to get a deployment blueprint and pricing proposal."
             ctaLabel="Book Demo"
+            includeScheduleFields
           />
         </div>
       </section>
 
       <section className="idt-section idt-shell">
-        <CalendlyEmbed />
+        <BookingPrompt />
       </section>
     </div>
   );
