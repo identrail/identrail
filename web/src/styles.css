@@ -22342,11 +22342,12 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   height: 0.4rem;
 }
 
-/* === Sidebar polish: drag handle, active accent, active-fill, refined hover === */
-
-.idt-app-sidebar {
-  position: relative;
-}
+/* === Sidebar polish: drag handle, active accent, active-fill, refined hover ===
+ * Note: the base shell already sets `.idt-app-sidebar { position: sticky }`,
+ * which is a positioning context for absolutely-positioned descendants. We
+ * intentionally do NOT override `position` here so the rail keeps tracking
+ * with page scroll. The resize handle's `position: absolute` resolves against
+ * the sticky sidebar without further changes. */
 
 .idt-app-sidebar-resize-handle {
   position: absolute;

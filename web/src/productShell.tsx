@@ -1376,10 +1376,27 @@ export function ProductShellLayout() {
       return;
     }
     event.preventDefault();
+    const handleEl = event.currentTarget;
+    const pointerId = event.pointerId;
+    // Capture the pointer so every subsequent move / up / cancel for this
+    // gesture is delivered to the handle even if the user releases outside the
+    // viewport, the OS steals focus, or the browser fires `pointercancel`.
+    // Without this, releasing off-window left `isDraggingSidebar` stuck true
+    // and the body `cursor: col-resize` / `user-select: none` overrides
+    // applied to the entire page.
+    try {
+      handleEl.setPointerCapture(pointerId);
+    } catch {
+      // Some test environments (jsdom) don't implement setPointerCapture.
+      // Falling through is safe — the cleanup is still wired up below.
+    }
     setIsDraggingSidebar(true);
     const sidebarEl = sidebarRef.current;
     const startLeft = sidebarEl ? sidebarEl.getBoundingClientRect().left : 0;
     const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) {
+        return;
+      }
       const proposed = moveEvent.clientX - startLeft;
       if (proposed < SIDEBAR_COLLAPSE_THRESHOLD) {
         setSidebarCollapsedPref(true);
@@ -1389,18 +1406,45 @@ export function ProductShellLayout() {
       setSidebarCollapsedPref(false);
       setSidebarWidth(clamped);
     };
-    const handlePointerUp = () => {
+    const cleanup = (cleanupEvent?: PointerEvent) => {
+      if (cleanupEvent && cleanupEvent.pointerId !== pointerId) {
+        return;
+      }
       setIsDraggingSidebar(false);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      document.body.style.removeProperty('cursor');
-      document.body.style.removeProperty('user-select');
+      handleEl.removeEventListener('pointermove', handlePointerMove);
+      handleEl.removeEventListener('pointerup', cleanup);
+      handleEl.removeEventListener('pointercancel', cleanup);
+      handleEl.removeEventListener('lostpointercapture', cleanup);
     };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
+    handleEl.addEventListener('pointermove', handlePointerMove);
+    handleEl.addEventListener('pointerup', cleanup);
+    handleEl.addEventListener('pointercancel', cleanup);
+    // `lostpointercapture` fires whenever capture ends for any reason —
+    // including the OS canceling the gesture or the element being unmounted
+    // by React. It is the most reliable final cleanup signal.
+    handleEl.addEventListener('lostpointercapture', cleanup);
   };
+
+  // Safety net: any time we leave the dragging state, ensure the body style
+  // overrides we applied are released. Also handles the unmount-mid-drag
+  // case (effect cleanup runs once on unmount) without leaving the document
+  // stuck in `cursor: col-resize` / `user-select: none`.
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    if (isDraggingSidebar) {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      return () => {
+        document.body.style.removeProperty('cursor');
+        document.body.style.removeProperty('user-select');
+      };
+    }
+    document.body.style.removeProperty('cursor');
+    document.body.style.removeProperty('user-select');
+    return undefined;
+  }, [isDraggingSidebar]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
