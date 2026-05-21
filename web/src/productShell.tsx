@@ -1155,7 +1155,18 @@ export function ProductShellLayout() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => readSidebarCollapsed());
+  const [sidebarCollapsedPref, setSidebarCollapsedPref] = useState<boolean>(() => readSidebarCollapsed());
+  const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false;
+    }
+    return window.matchMedia('(max-width: 960px)').matches;
+  });
+  // The collapsed state is forced off on narrow viewports because the rail
+  // becomes a horizontal top bar there — there is no useful "collapsed" mode
+  // for a horizontal nav, and persisting a collapsed preference into mobile
+  // would otherwise leave users without a way to expand it.
+  const sidebarCollapsed = sidebarCollapsedPref && !isNarrowViewport;
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
   const basePath = scope ? buildScopedPath(scope) : '/app';
@@ -1257,7 +1268,7 @@ export function ProductShellLayout() {
       }
       if ((event.metaKey || event.ctrlKey) && key === 'b') {
         event.preventDefault();
-        setSidebarCollapsed((current) => !current);
+        setSidebarCollapsedPref((current) => !current);
         return;
       }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && (key === '/' || key === 'f')) {
@@ -1275,11 +1286,27 @@ export function ProductShellLayout() {
       return;
     }
     try {
-      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? '1' : '0');
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsedPref ? '1' : '0');
     } catch {
       // Storage failure should not break the layout.
     }
-  }, [sidebarCollapsed]);
+  }, [sidebarCollapsedPref]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mql = window.matchMedia('(max-width: 960px)');
+    const update = () => setIsNarrowViewport(mql.matches);
+    update();
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', update);
+      return () => mql.removeEventListener('change', update);
+    }
+    // Safari < 14 fallback.
+    mql.addListener(update);
+    return () => mql.removeListener(update);
+  }, []);
 
   useEffect(() => {
     if (!accountMenuOpen) {
@@ -1563,7 +1590,7 @@ export function ProductShellLayout() {
               aria-label={collapseHint}
               aria-pressed={sidebarCollapsed}
               title={collapseHint}
-              onClick={() => setSidebarCollapsed((current) => !current)}
+              onClick={() => setSidebarCollapsedPref((current) => !current)}
             >
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
@@ -1645,15 +1672,19 @@ function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
   const groups: ScanGroup[] = [];
   scans.forEach((scan) => {
     const status = normalizeValue(scan.status).toLowerCase();
-    const reason =
-      status === 'failed' || status === 'canceled'
-        ? summarizeScanFailure(scan)
-        : status === 'succeeded' || status === 'completed'
-          ? `${scan.finding_count} findings · ${scan.files_scanned} files`
-          : 'In progress';
+    const isFailure = status === 'failed' || status === 'canceled';
+    const reason = isFailure
+      ? summarizeScanFailure(scan)
+      : status === 'succeeded' || status === 'completed'
+        ? `${scan.finding_count} findings · ${scan.files_scanned} files`
+        : 'In progress';
     const repo = canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository;
     const last = groups[groups.length - 1];
-    if (last && last.status === status && last.reason === reason) {
+    // Only collapse consecutive failures with the same reason. Successful and
+    // running scans are independent events even when their human-readable
+    // summary happens to match, so we render each as its own row to preserve
+    // accurate activity history.
+    if (isFailure && last && last.status === status && last.reason === reason) {
       last.count += 1;
       if (!last.repos.includes(repo)) {
         last.repos.push(repo);
@@ -1671,30 +1702,62 @@ const INVITE_SKIPPED_STORAGE_KEY = 'idt:overview:invite-skipped';
 // the checklist regress.
 const INVITE_LEGACY_STORAGE_KEY = 'idt:overview:invite-dismissed';
 
-function readInviteSkipped(workspaceID: string | undefined): boolean {
-  if (typeof window === 'undefined' || !workspaceID) {
+function inviteScopeKey(tenantID: string | undefined, workspaceID: string | undefined): string | null {
+  if (!tenantID || !workspaceID) {
+    return null;
+  }
+  return `${tenantID}:${workspaceID}`;
+}
+
+function readInviteSkipped(tenantID: string | undefined, workspaceID: string | undefined): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const scope = inviteScopeKey(tenantID, workspaceID);
+  if (!scope) {
     return false;
   }
   try {
-    const fresh = window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`);
+    const fresh = window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${scope}`);
     if (fresh === '1') {
       return true;
     }
-    const legacy = window.localStorage.getItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
-    return legacy === '1';
+    // Back-compat: earlier builds keyed by workspaceID alone. Honor that flag so
+    // upgraded users don't see the checklist regress, but only when no later
+    // tenant-scoped flag has been written.
+    const legacyTenantScoped = window.localStorage.getItem(`${INVITE_LEGACY_STORAGE_KEY}:${scope}`);
+    if (legacyTenantScoped === '1') {
+      return true;
+    }
+    if (workspaceID) {
+      const legacyWorkspaceOnly =
+        window.localStorage.getItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`) ||
+        window.localStorage.getItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
+      return legacyWorkspaceOnly === '1';
+    }
+    return false;
   } catch {
     return false;
   }
 }
 
-function persistInviteSkipped(workspaceID: string | undefined): void {
-  if (typeof window === 'undefined' || !workspaceID) {
+function persistInviteSkipped(tenantID: string | undefined, workspaceID: string | undefined): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const scope = inviteScopeKey(tenantID, workspaceID);
+  if (!scope) {
     return;
   }
   try {
-    window.localStorage.setItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`, '1');
-    // Migrate forward: drop the legacy flag so we don't leave stale state behind.
-    window.localStorage.removeItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
+    window.localStorage.setItem(`${INVITE_SKIPPED_STORAGE_KEY}:${scope}`, '1');
+    // Migrate forward: drop the old workspace-only and dismissed flags so we
+    // don't leave stale state behind for the same workspace.
+    window.localStorage.removeItem(`${INVITE_LEGACY_STORAGE_KEY}:${scope}`);
+    if (workspaceID) {
+      window.localStorage.removeItem(`${INVITE_SKIPPED_STORAGE_KEY}:${workspaceID}`);
+      window.localStorage.removeItem(`${INVITE_LEGACY_STORAGE_KEY}:${workspaceID}`);
+    }
   } catch {
     // Storage failures are non-fatal.
   }
@@ -1873,10 +1936,10 @@ export function ProductOverviewPage() {
       id: 'invite',
       label: 'Invite a teammate',
       description: 'Give analysts and admins access to this workspace.',
-      complete: readInviteSkipped(scope?.workspaceID),
-      actionLabel: readInviteSkipped(scope?.workspaceID) ? undefined : 'Invite',
+      complete: readInviteSkipped(scope?.tenantID, scope?.workspaceID),
+      actionLabel: readInviteSkipped(scope?.tenantID, scope?.workspaceID) ? undefined : 'Invite',
       to: workspacesPath,
-      skippable: !readInviteSkipped(scope?.workspaceID)
+      skippable: !readInviteSkipped(scope?.tenantID, scope?.workspaceID)
     }
   ];
   const onboardingComplete = onboardingChecklist.every((item) => item.complete);
@@ -1942,7 +2005,7 @@ export function ProductOverviewPage() {
                         type="button"
                         className="idt-overview-checklist-skip"
                         onClick={() => {
-                          persistInviteSkipped(scope?.workspaceID);
+                          persistInviteSkipped(scope?.tenantID, scope?.workspaceID);
                           setInviteSkipTick((value) => value + 1);
                         }}
                         aria-label={`Skip: ${item.label}`}

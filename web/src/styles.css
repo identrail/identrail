@@ -21941,10 +21941,10 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   .idt-app-console-layout .idt-app-nav-group-label {
     display: none;
   }
-  /* Collapse button + sidebar account caret aren't useful when the rail is a top bar. */
-  .idt-app-console-layout .idt-app-sidebar-collapse {
-    display: none;
-  }
+  /* Collapsed mode is forced off on narrow viewports by JS (the rail becomes a
+   * top bar, where "collapsed" has no useful meaning). The toggle button is
+   * still rendered so a user who resizes back to desktop has an obvious path
+   * out of any previously-persisted collapsed preference. */
 }
 
 /* === Workspace overview polish (preview-driven) === */
