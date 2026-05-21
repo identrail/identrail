@@ -280,7 +280,25 @@ func TestBuildRepoExposureFixPRPlanPatchesPullRequestTargetSyntaxes(t *testing.T
 			name:       "block_mapping_from_parent_line_skips_comment_and_filter_value",
 			lineNumber: 2,
 			source:     "name: ci\non:\n  # pull_request_target legacy path\n  pull_request:\n    branches: [pull_request_target]\n  pull_request_target:\n    branches: [main]\n",
-			want:       "name: ci\non:\n  # pull_request_target legacy path\n  pull_request:\n    branches: [pull_request_target]\n  pull_request:\n    branches: [main]\n",
+			want:       "name: ci\non:\n  # pull_request_target legacy path\n  pull_request:\n    branches: [pull_request_target]\n",
+		},
+		{
+			name:       "block_mapping_from_target_line_removes_duplicate_replacement_trigger",
+			lineNumber: 5,
+			source:     "name: ci\non:\n  pull_request:\n    branches: [main]\n  pull_request_target:\n    branches: [release]\n",
+			want:       "name: ci\non:\n  pull_request:\n    branches: [main]\n",
+		},
+		{
+			name:       "block_mapping_removes_target_when_replacement_trigger_appears_later",
+			lineNumber: 2,
+			source:     "name: ci\non:\n  pull_request_target:\n    branches: [release]\n  pull_request:\n    branches: [main]\n",
+			want:       "name: ci\non:\n  pull_request:\n    branches: [main]\n",
+		},
+		{
+			name:       "block_sequence_from_parent_line_removes_duplicate_replacement_trigger",
+			lineNumber: 2,
+			source:     "name: ci\non:\n  - pull_request\n  - pull_request_target\n",
+			want:       "name: ci\non:\n  - pull_request\n",
 		},
 		{
 			name:       "block_mapping_from_parent_line_skips_nested_input_key",

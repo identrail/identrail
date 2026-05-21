@@ -21,6 +21,8 @@ var (
 	workflowPermissionValueWriteAllPattern   = regexp.MustCompile(`^(\s*[^:#]+:\s*)write-all(\s*(?:#.*)?)$`)
 	workflowPermissionFlowWriteAllPattern    = regexp.MustCompile(`(:\s*)write-all(\s*(?:[,}#]|$))`)
 	workflowPullRequestTargetTokenPattern    = regexp.MustCompile(`\bpull_request_target\b`)
+	workflowPullRequestMappingPattern        = regexp.MustCompile(`^(\s*)(?:"pull_request"|'pull_request'|pull_request)(\s*:.*)$`)
+	workflowPullRequestSequencePattern       = regexp.MustCompile(`^(\s*-\s*)(?:"pull_request"|'pull_request'|pull_request)(\s*)$`)
 	workflowPullRequestTargetMappingPattern  = regexp.MustCompile(`^(\s*)(?:"pull_request_target"|'pull_request_target'|pull_request_target)(\s*:.*)$`)
 	workflowPullRequestTargetSequencePattern = regexp.MustCompile(`^(\s*-\s*)(?:"pull_request_target"|'pull_request_target'|pull_request_target)(\s*)$`)
 	workflowPullRequestTargetScalarPattern   = regexp.MustCompile(`^(\s*on\s*:\s*)(?:"pull_request_target"|'pull_request_target'|pull_request_target)(\s*)$`)
@@ -237,6 +239,9 @@ func replaceWorkflowPermissionWriteAllValue(line string) (string, bool) {
 
 func applyWorkflowPullRequestTriggerPatch(lines []string, trailingNewline bool, lineIndex int, patch standards.RepoExposurePatchTemplate) (string, error) {
 	if patched, ok := patchWorkflowPullRequestTargetTriggerLine(lines[lineIndex], patch.Replacement); ok {
+		if deduped, ok := removeWorkflowPullRequestTargetIfReplacementExists(lines, trailingNewline, lineIndex, patch.Replacement); ok {
+			return deduped, nil
+		}
 		return replaceLineWithContent(lines, trailingNewline, lineIndex, patched), nil
 	}
 
@@ -245,6 +250,9 @@ func applyWorkflowPullRequestTriggerPatch(lines []string, trailingNewline bool, 
 		return "", fmt.Errorf("%w: finding line %d is not in a pull_request_target trigger block", ErrRepoExposurePatchApplyFailed, lineIndex+1)
 	}
 
+	if deduped, ok := removeWorkflowPullRequestTargetIfReplacementExists(lines, trailingNewline, targetIndex, patch.Replacement); ok {
+		return deduped, nil
+	}
 	patched, ok := patchWorkflowPullRequestTargetTriggerLine(lines[targetIndex], patch.Replacement)
 	if !ok {
 		return "", fmt.Errorf("%w: pull_request_target trigger line did not change", ErrRepoExposurePatchApplyFailed)
@@ -392,15 +400,82 @@ func workflowTriggerKeyHasColon(value string, index int) bool {
 	return index < len(value) && value[index] == ':'
 }
 
-func workflowPullRequestTargetLineInLocalBlock(lines []string, lineIndex int) (int, bool) {
-	blockStart := lineIndex
-	if !workflowOnKeyPattern.MatchString(lines[blockStart]) {
-		var ok bool
-		blockStart, ok = workflowParentKeyLine(lines, lineIndex, "on")
-		if !ok {
-			return -1, false
+func removeWorkflowPullRequestTargetIfReplacementExists(lines []string, trailingNewline bool, targetIndex int, replacement string) (string, bool) {
+	blockStart, ok := workflowParentKeyLine(lines, targetIndex, "on")
+	if !ok {
+		return "", false
+	}
+	childIndent, ok := workflowDirectChildIndent(lines, blockStart)
+	if !ok || indentationWidth(lines[targetIndex]) != childIndent {
+		return "", false
+	}
+	if !workflowDirectTriggerExists(lines, blockStart, targetIndex, replacement) {
+		return "", false
+	}
+	return removeWorkflowDirectTrigger(lines, trailingNewline, targetIndex), true
+}
+
+func workflowDirectTriggerExists(lines []string, blockStart int, excludeIndex int, trigger string) bool {
+	childIndent, ok := workflowDirectChildIndent(lines, blockStart)
+	if !ok {
+		return false
+	}
+	parentIndent := indentationWidth(lines[blockStart])
+	for i := blockStart + 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "" || isCommentOnlyLine(lines[i]) {
+			continue
+		}
+		indent := indentationWidth(lines[i])
+		if indent <= parentIndent {
+			break
+		}
+		if i == excludeIndex || indent != childIndent {
+			continue
+		}
+		content, _, hasComment := splitInlineHashComment(lines[i])
+		if !hasComment {
+			content = lines[i]
+		}
+		if workflowDirectTriggerLineMatches(content, trigger) {
+			return true
 		}
 	}
+	return false
+}
+
+func workflowDirectTriggerLineMatches(line string, trigger string) bool {
+	switch trigger {
+	case "pull_request":
+		return workflowPullRequestMappingPattern.MatchString(line) || workflowPullRequestSequencePattern.MatchString(line)
+	case "pull_request_target":
+		return workflowPullRequestTargetMappingPattern.MatchString(line) || workflowPullRequestTargetSequencePattern.MatchString(line)
+	default:
+		return false
+	}
+}
+
+func removeWorkflowDirectTrigger(lines []string, trailingNewline bool, targetIndex int) string {
+	targetIndent := indentationWidth(lines[targetIndex])
+	end := targetIndex + 1
+	if workflowPullRequestTargetMappingPattern.MatchString(lines[targetIndex]) {
+		for end < len(lines) {
+			if strings.TrimSpace(lines[end]) == "" || isCommentOnlyLine(lines[end]) {
+				end++
+				continue
+			}
+			if indentationWidth(lines[end]) <= targetIndent {
+				break
+			}
+			end++
+		}
+	}
+	updated := make([]string, 0, len(lines)-(end-targetIndex))
+	updated = append(updated, lines[:targetIndex]...)
+	updated = append(updated, lines[end:]...)
+	return joinLines(updated, trailingNewline)
+}
+
+func workflowDirectChildIndent(lines []string, blockStart int) (int, bool) {
 	parentIndent := indentationWidth(lines[blockStart])
 	childIndent := -1
 	for i := blockStart + 1; i < len(lines); i++ {
@@ -416,9 +491,26 @@ func workflowPullRequestTargetLineInLocalBlock(lines []string, lineIndex int) (i
 		}
 	}
 	if childIndent == -1 {
+		return 0, false
+	}
+	return childIndent, true
+}
+
+func workflowPullRequestTargetLineInLocalBlock(lines []string, lineIndex int) (int, bool) {
+	blockStart := lineIndex
+	if !workflowOnKeyPattern.MatchString(lines[blockStart]) {
+		var ok bool
+		blockStart, ok = workflowParentKeyLine(lines, lineIndex, "on")
+		if !ok {
+			return -1, false
+		}
+	}
+	childIndent, ok := workflowDirectChildIndent(lines, blockStart)
+	if !ok {
 		return -1, false
 	}
 
+	parentIndent := indentationWidth(lines[blockStart])
 	for i := blockStart + 1; i < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) == "" || isCommentOnlyLine(lines[i]) {
 			continue
