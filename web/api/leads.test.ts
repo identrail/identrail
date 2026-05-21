@@ -572,6 +572,8 @@ describe('web/api/leads handler', () => {
           company_domain: 'company.com',
           environment: 'AWS IAM + Kubernetes',
           challenge: 'Trust path visibility',
+          preferred_day: 'Any weekday',
+          preferred_time: 'Any time',
           deployment_model: 'Hosted SaaS',
           urgency: 'This quarter',
           team_size: '6-20',
@@ -603,6 +605,8 @@ describe('web/api/leads handler', () => {
     expect(notificationBody.text).toContain('Name: Alex Morgan');
     expect(notificationBody.text).toContain('Role/title: Security Engineering Lead');
     expect(notificationBody.text).toContain('Public repository: https://gitlab.com/platform/security/identity-risk');
+    expect(notificationBody.text).toContain('Preferred day: Any weekday');
+    expect(notificationBody.text).toContain('Preferred time: Any time');
 
     const [, confirmationInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     const confirmationHeaders = (confirmationInit.headers ?? {}) as Record<string, string>;

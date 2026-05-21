@@ -10,6 +10,8 @@ type LeadCapturePayload = {
   company?: string;
   company_domain?: string;
   challenge?: string;
+  preferred_day?: string;
+  preferred_time?: string;
   identity_provider?: string;
   infrastructure_scope?: string;
   repository_url?: string;
@@ -25,6 +27,8 @@ type LeadCapturePayload = {
 const ALLOWED_DEPLOYMENT_MODELS = new Set(['Hosted SaaS', 'Self-hosted open-core', 'Enterprise private tenancy']);
 const ALLOWED_URGENCY = new Set(['This quarter', 'This month', 'Immediate']);
 const ALLOWED_TEAM_SIZE = new Set(['1-5', '6-20', '21-50', '50+']);
+const ALLOWED_PREFERRED_DAYS = new Set(['Any weekday', 'Today', 'Tomorrow', 'This week', 'Next week']);
+const ALLOWED_PREFERRED_TIMES = new Set(['Any time', 'Morning', 'Afternoon', 'Evening']);
 const DEFAULT_FORWARD_TIMEOUT_MS = 3_000;
 const MIN_FORWARD_TIMEOUT_MS = 500;
 const MAX_FORWARD_TIMEOUT_MS = 10_000;
@@ -39,6 +43,8 @@ const MAX_ENVIRONMENT_LENGTH = 180;
 const MAX_COMPANY_LENGTH = 120;
 const MAX_COMPANY_DOMAIN_LENGTH = 253;
 const MAX_CHALLENGE_LENGTH = 2_000;
+const MAX_PREFERRED_DAY_LENGTH = 32;
+const MAX_PREFERRED_TIME_LENGTH = 32;
 const MAX_IDENTITY_PROVIDER_LENGTH = 120;
 const MAX_INFRASTRUCTURE_SCOPE_LENGTH = 120;
 const MAX_REPOSITORY_URL_LENGTH = 240;
@@ -111,6 +117,8 @@ type LeadDeliveryPayload = {
   company?: string;
   company_domain?: string;
   challenge?: string;
+  preferred_day?: string;
+  preferred_time?: string;
   identity_provider?: string;
   infrastructure_scope?: string;
   repository_url?: string;
@@ -407,6 +415,8 @@ function leadRows(payload: LeadDeliveryPayload): Array<[string, string | undefin
     ['Company domain', payload.company_domain],
     ['Environment', payload.environment],
     ['Challenge', payload.challenge],
+    ['Preferred day', payload.preferred_day],
+    ['Preferred time', payload.preferred_time],
     ['Identity provider', payload.identity_provider],
     ['Infrastructure scope', payload.infrastructure_scope],
     ['Public repository', payload.repository_url],
@@ -466,6 +476,8 @@ function renderConfirmationText(payload: LeadDeliveryPayload): string {
     `Infrastructure scope: ${payload.infrastructure_scope || 'Not provided'}`,
     `Public repository: ${payload.repository_url || 'Not provided'}`,
     `Focus area: ${payload.challenge || 'Trust path visibility'}`,
+    `Preferred day: ${payload.preferred_day || 'Not provided'}`,
+    `Preferred time: ${payload.preferred_time || 'Not provided'}`,
     `Deployment preference: ${payload.deployment_model || 'Not provided'}`,
     '',
     'We never ask for production credentials in this intake flow.'
@@ -486,6 +498,8 @@ function renderConfirmationHTML(payload: LeadDeliveryPayload): string {
         <li><strong>Infrastructure scope:</strong> ${escapeHTML(payload.infrastructure_scope || 'Not provided')}</li>
         <li><strong>Public repository:</strong> ${escapeHTML(payload.repository_url || 'Not provided')}</li>
         <li><strong>Focus area:</strong> ${escapeHTML(payload.challenge || 'Trust path visibility')}</li>
+        <li><strong>Preferred day:</strong> ${escapeHTML(payload.preferred_day || 'Not provided')}</li>
+        <li><strong>Preferred time:</strong> ${escapeHTML(payload.preferred_time || 'Not provided')}</li>
         <li><strong>Deployment preference:</strong> ${escapeHTML(payload.deployment_model || 'Not provided')}</li>
       </ul>
       <p style="margin:0;color:#4b5563;">We never ask for production credentials in this intake flow.</p>
@@ -624,6 +638,8 @@ export default async function handler(
   const company = trimOptional(body.company);
   const companyDomain = normalizeCompanyDomainInput(body.company_domain);
   const challenge = trimOptional(body.challenge);
+  const preferredDay = trimOptional(body.preferred_day);
+  const preferredTime = trimOptional(body.preferred_time);
   const identityProvider = trimOptional(body.identity_provider);
   const infrastructureScope = trimOptional(body.infrastructure_scope);
   const repositoryURL = normalizePublicRepositoryURLInput(body.repository_url);
@@ -697,6 +713,12 @@ export default async function handler(
   if (challenge && !assertLength(res, challenge, MAX_CHALLENGE_LENGTH, 'Challenge value is too long.')) {
     return;
   }
+  if (preferredDay && !assertLength(res, preferredDay, MAX_PREFERRED_DAY_LENGTH, 'Preferred day value is too long.')) {
+    return;
+  }
+  if (preferredTime && !assertLength(res, preferredTime, MAX_PREFERRED_TIME_LENGTH, 'Preferred time value is too long.')) {
+    return;
+  }
   if (identityProvider && !assertLength(res, identityProvider, MAX_IDENTITY_PROVIDER_LENGTH, 'Identity provider value is too long.')) {
     return;
   }
@@ -747,6 +769,8 @@ export default async function handler(
     company,
     company_domain: companyDomain || undefined,
     challenge,
+    preferred_day: preferredDay && ALLOWED_PREFERRED_DAYS.has(preferredDay) ? preferredDay : undefined,
+    preferred_time: preferredTime && ALLOWED_PREFERRED_TIMES.has(preferredTime) ? preferredTime : undefined,
     identity_provider: identityProvider,
     infrastructure_scope: infrastructureScope,
     repository_url: repositoryURL || undefined,
