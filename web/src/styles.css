@@ -20726,7 +20726,7 @@ html[data-theme='light'] .idt-demo-page .idt-page-hero-copy > p {
 .idt-demo-booking-agenda,
 html[data-theme='light'] .idt-demo-booking-card,
 html[data-theme='light'] .idt-demo-booking-agenda {
-  position: absolute;
+  position: relative;
   border: 1px solid #2f2f2f;
   border-radius: 8px;
   background: rgba(8, 8, 8, 0.92);
