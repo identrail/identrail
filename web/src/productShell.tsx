@@ -107,11 +107,17 @@ type SourceAvailability = {
   unavailableMessage?: string;
 };
 
-function normalizeValue(value: string): string {
-  return value.trim();
+function normalizeValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  return '';
 }
 
-function formatScopeDisplay(value: string): string {
+function formatScopeDisplay(value: unknown): string {
   const normalized = normalizeValue(value);
   if (normalized.length <= 28) {
     return normalized;
@@ -919,22 +925,29 @@ function CommandPalette({
 export function RequireProductAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
   const params = useParams<ScopeRouteParams>();
-  const routeKey = `${location.pathname}?${location.search}`;
+  const routeTenantID = normalizeValue(params.tenantID);
+  const routeWorkspaceID = normalizeValue(params.workspaceID);
+  const routeScopeKey = `${routeTenantID}::${routeWorkspaceID}`;
   const [status, setStatus] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking');
-  const [validatedRouteKey, setValidatedRouteKey] = useState('');
+  const [validatedScopeKey, setValidatedScopeKey] = useState('');
+  const validatedScopeKeyRef = useRef('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
 
   useEffect(() => {
     let mounted = true;
 
     const run = async () => {
-      setStatus('checking');
+      const alreadyValidated = validatedScopeKeyRef.current === routeScopeKey;
+      setStatus((current) => (current === 'authenticated' && alreadyValidated ? current : 'checking'));
       setError('');
       try {
         const current = await apiClient.getMe({ redirectOnUnauthorized: false });
-        const routeTenantID = normalizeValue(params.tenantID ?? '');
-        const routeWorkspaceID = normalizeValue(params.workspaceID ?? '');
         const currentTenantID = normalizeValue(current.me.org_id ?? '');
         const currentWorkspaceID = normalizeValue(current.me.workspace_id ?? '');
         if (
@@ -948,7 +961,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
             if (!mounted) {
               return;
             }
-            navigate(buildTenantWorkspacePath(currentTenantID, currentWorkspaceID), { replace: true });
+            navigateRef.current(buildTenantWorkspacePath(currentTenantID, currentWorkspaceID), { replace: true });
             setStatus('authenticated');
             return;
           }
@@ -960,7 +973,8 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
         if (!mounted) {
           return;
         }
-        setValidatedRouteKey(routeKey);
+        validatedScopeKeyRef.current = routeScopeKey;
+        setValidatedScopeKey(routeScopeKey);
         setStatus('authenticated');
       } catch (requestError) {
         if (!mounted) {
@@ -971,7 +985,8 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
           return;
         }
         const message = requestError instanceof Error ? requestError.message : 'Unable to validate account session.';
-        setValidatedRouteKey('');
+        validatedScopeKeyRef.current = '';
+        setValidatedScopeKey('');
         setError(message);
         setStatus('error');
       }
@@ -982,9 +997,9 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [navigate, params.tenantID, params.workspaceID, routeKey]);
+  }, [routeTenantID, routeWorkspaceID, routeScopeKey]);
 
-  if (status === 'checking' || (status === 'authenticated' && validatedRouteKey !== routeKey)) {
+  if (status === 'checking' || (status === 'authenticated' && validatedScopeKey !== routeScopeKey)) {
     return <AppShellLoading message="Validating session" />;
   }
 

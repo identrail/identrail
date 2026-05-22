@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Fixed app workspace navigation so route changes inside an already-validated
+  workspace no longer rerun the full session gate, and hardened repository
+  finding display helpers against partially populated API records.
 - Added API-backed CLI parity for GitHub repository intelligence. Operators can
   now queue hosted repository scans, list/show/cancel repo scans, filter repo
   findings by lifecycle and confidence, fetch risk graphs, collect GitHub

@@ -53,6 +53,21 @@ describe('groupRepoFindingsForDisplay', () => {
     expect(groups[2].findings.map((item) => item.id)).toEqual(['critical-item']);
   });
 
+  it('keeps partial finding records in the unknown severity bucket', () => {
+    const partialFinding = { ...finding('missing-severity', 'high'), severity: undefined } as unknown as ApiFinding;
+
+    const groups = groupRepoFindingsForDisplay([partialFinding], 'severity');
+
+    expect(groups.map((group) => group.key)).toEqual(['unknown']);
+    expect(groups[0].findings.map((item) => item.id)).toEqual(['missing-severity']);
+  });
+
+  it('normalizes missing selection fields instead of leaking undefined text into keys', () => {
+    const partialFinding = { id: undefined, scan_id: 'repo-scan-1' } as unknown as ApiFinding;
+
+    expect(buildRepoFindingSelectionKey(partialFinding)).toBe('repo-scan-1::');
+  });
+
   it('selects findings by scan id and finding id together', () => {
     const first = finding('shared-id', 'high');
     const second = { ...finding('shared-id', 'low'), scan_id: 'scan-2', title: 'scan-2 finding' };
