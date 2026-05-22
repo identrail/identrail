@@ -10,6 +10,10 @@
 - Fixed app workspace navigation so route changes inside an already-validated
   workspace no longer rerun the full session gate, and hardened repository
   finding display helpers against partially populated API records.
+- Added a manual AWS production release workflow that runs hosted database
+  migrations before deploying the selected immutable API/worker image and then
+  performs API smoke checks, reducing the chance of code/schema drift during
+  hosted releases.
 - Fixed web UI polish issues: the workspace overview header no longer crowds the
   "Overview"/"Latest activity" text (the boxed border is removed and the title and
   subtitle get clean spacing with no divider), the sign-in/sign-up logo mark now renders a visible

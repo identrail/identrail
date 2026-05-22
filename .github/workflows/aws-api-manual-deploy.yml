@@ -44,6 +44,52 @@ on:
         required: false
         type: string
         default: identrail/dev/aws-api.tfstate
+  workflow_call:
+    inputs:
+      operation:
+        description: "Run a Terraform plan or apply for the AWS API hosting stack."
+        required: false
+        type: string
+        default: plan
+      confirm_apply:
+        description: "Required for apply: type apply-api.identrail.com"
+        required: false
+        type: string
+        default: ""
+      api_container_image:
+        description: "Immutable API image, for example ghcr.io/identrail/identrail-api:sha-<commit>."
+        required: true
+        type: string
+      api_vpc_id:
+        description: "VPC ID. Leave blank to use repository variable API_VPC_ID."
+        required: false
+        type: string
+        default: ""
+      api_public_subnet_ids_json:
+        description: "JSON array of two public subnet IDs. Leave blank to use repository variable API_PUBLIC_SUBNET_IDS_JSON."
+        required: false
+        type: string
+        default: ""
+      api_task_subnet_ids_json:
+        description: "Optional JSON array of task subnet IDs. Blank uses the public subnets for low-cost bootstrap mode."
+        required: false
+        type: string
+        default: ""
+      api_certificate_arn:
+        description: "ACM certificate ARN. Leave blank to use repository variable API_CERTIFICATE_ARN."
+        required: false
+        type: string
+        default: ""
+      terraform_state_bucket:
+        description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
+        required: false
+        type: string
+        default: ""
+      terraform_state_key:
+        description: "S3 key for Terraform state."
+        required: false
+        type: string
+        default: identrail/dev/aws-api.tfstate
 
 permissions:
   contents: read

@@ -16,6 +16,23 @@ on:
         required: true
         type: string
         default: migrations
+  workflow_call:
+    inputs:
+      confirm_migrations:
+        description: "Confirmation string for migration execution."
+        required: false
+        type: string
+        default: run-api-migrations
+      database_url_secret_arn:
+        description: "Optional Secrets Manager ARN. Blank uses repository secret API_DATABASE_URL_SECRET_ARN."
+        required: false
+        type: string
+        default: ""
+      migrations_dir:
+        description: "Migration directory to apply."
+        required: false
+        type: string
+        default: migrations
 
 permissions:
   contents: read
