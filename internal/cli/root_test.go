@@ -165,6 +165,48 @@ func TestExecuteRepoScan(t *testing.T) {
 	}
 }
 
+func TestExecuteRepoScanPositionalTarget(t *testing.T) {
+	cfg := config.Config{ServiceName: "identrail-test", Provider: "aws"}
+	repo := initCLITestRepoWithSecret(t)
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"repo-scan",
+		repo,
+		"--history-limit", "50",
+		"--max-findings", "20",
+	}, &out)
+	if err != nil {
+		t.Fatalf("repo scan failed: %v", err)
+	}
+	if !strings.Contains(out.String(), "Repo scan completed:") {
+		t.Fatalf("expected repo scan summary, got %q", out.String())
+	}
+}
+
+func TestExecuteScanRepositoryShortcut(t *testing.T) {
+	cfg := config.Config{ServiceName: "identrail-test", Provider: "aws"}
+	repo := initCLITestRepoWithSecret(t)
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"scan",
+		repo,
+		"--history-limit", "50",
+		"--max-findings", "20",
+	}, &out)
+	if err != nil {
+		t.Fatalf("repo shortcut scan failed: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "Repo scan completed:") {
+		t.Fatalf("expected repo scan summary, got %q", body)
+	}
+	if !strings.Contains(body, "secret") {
+		t.Fatalf("expected repository finding output, got %q", body)
+	}
+}
+
 func TestExecuteRepoScanValidationErrors(t *testing.T) {
 	cfg := config.Config{ServiceName: "identrail-test", Provider: "aws"}
 	var out bytes.Buffer
@@ -180,6 +222,15 @@ func TestExecuteRepoScanValidationErrors(t *testing.T) {
 	}
 	if err := Execute(cfg, []string{"repo-scan", "--repo", ".", "--output", "xml"}, &out); err == nil {
 		t.Fatal("expected output validation error")
+	}
+	if err := Execute(cfg, []string{"repo-scan", ".", "--repo", "other/repo"}, &out); err == nil {
+		t.Fatal("expected conflicting repository target validation error")
+	}
+	if err := Execute(cfg, []string{"scan", ".", "--fixture", "fixture.json"}, &out); err == nil {
+		t.Fatal("expected provider flag validation error for repository shortcut")
+	}
+	if err := Execute(cfg, []string{"scan", "--history-limit", "10"}, &out); err == nil {
+		t.Fatal("expected repository-only flag validation error")
 	}
 }
 

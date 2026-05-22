@@ -142,6 +142,20 @@ jobs:
             .
 
           docker buildx build \
+            --platform "${backend_platforms}" \
+            --push \
+            "${common_labels[@]}" \
+            --label "org.opencontainers.image.title=Identrail CLI" \
+            --label "org.opencontainers.image.description=Identrail command-line scanner for machine identity and repository exposure checks" \
+            -t "${base}-cli:${channel_tag}" \
+            -t "${base}-cli:${sha_tag}" \
+            -t "${docker_base}-cli:${channel_tag}" \
+            -t "${docker_base}-cli:${sha_tag}" \
+            -f deploy/docker/Dockerfile.backend \
+            --build-arg TARGET=cli \
+            .
+
+          docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --push \
             "${common_labels[@]}" \
