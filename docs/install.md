@@ -1,112 +1,36 @@
 # Install Identrail
 
-This page covers the end-user install paths for the Identrail command-line
-scanner. The hosted API, worker, and web stack remain documented in the
-deployment guides.
+Use Docker when you do not want to install anything locally. Use a source build
+when you want to contribute or test the latest development code.
 
-## Recommended CLI usage
+## Docker
 
-Use the short repository scan form when you want to inspect a public GitHub
-repository:
-
-```bash
-identrail scan owner/repo
-```
-
-Examples:
-
-```bash
-identrail scan identrail/identrail
-identrail scan owner/repo --history-limit 50 --max-findings 20
-identrail scan https://github.com/owner/repo.git --output json
-```
-
-For a private repository, clone it first with your normal GitHub access and
-scan the local checkout:
-
-```bash
-git clone git@github.com:owner/private-repo.git
-cd private-repo
-identrail scan .
-```
-
-With Docker:
-
-```bash
-docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/identrail/identrail-cli:dev scan .
-```
-
-Hosted private repository scans use the GitHub App connector in the Identrail
-web app.
-
-The longer command remains supported for scripts and backward compatibility:
-
-```bash
-identrail repo-scan --repo owner/repo
-identrail repo-scan owner/repo
-identrail repo owner/repo
-```
-
-Running `identrail scan` without a repository still runs the provider scan
-pipeline for AWS or Kubernetes identities.
-
-## Download a release binary
-
-Published GitHub releases include `identrail-cli` archives for macOS, Linux,
-and Windows:
-
-- macOS Intel and Apple Silicon: `darwin-amd64`, `darwin-arm64`
-- Linux Intel and ARM: `linux-amd64`, `linux-arm64`
-- Windows Intel: `windows-amd64`
-
-Download the archive that matches your machine from the GitHub release page,
-extract it, and put the `identrail-cli-*` binary on your `PATH` as
-`identrail`.
-
-## Homebrew (planned)
-
-The release assets and CLI command shape are ready for a Homebrew tap formula,
-but the `identrail/homebrew-tap` repository has not been published yet. Once
-that tap exists, the install command should be:
-
-```bash
-brew install identrail/tap/identrail
-```
-
-After Homebrew core acceptance, the shorter command can become:
-
-```bash
-brew install identrail
-```
-
-Core acceptance is a later distribution step outside this repository PR. It
-requires a public Homebrew formula review, stable releases, source-build
-support, tests, and enough user adoption for Homebrew maintainers to accept the
-formula.
-
-## Docker CLI image
-
-For machines that already use Docker, run the CLI without installing Go:
+Run Identrail without installing it on your machine:
 
 ```bash
 docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
 ```
 
-The Docker image uses the same `identrail` entrypoint as the binary, so any CLI
-arguments after the image name are passed directly to Identrail.
-
-Release tags follow the normal image scheme:
+Example:
 
 ```bash
-docker run --rm ghcr.io/identrail/identrail-cli:v1.2.3 scan owner/repo
-docker run --rm docker.io/identrail/identrail-cli:v1.2.3 scan owner/repo
+docker run --rm ghcr.io/identrail/identrail-cli:dev scan identrail/identrail
 ```
 
-Use immutable `sha-<12-char-sha>` tags when you need repeatable scans in CI.
+For a private repository, clone it first and mount the checkout:
 
-## Build from source
+```bash
+git clone git@github.com:owner/private-repo.git
+cd private-repo
+docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/identrail/identrail-cli:dev scan .
+```
 
-Contributors can still build locally from a clone:
+The Docker image uses the same command shape as the installed CLI. Put CLI
+arguments after the image name.
+
+## Source Build
+
+Use this path when you want to contribute or test the latest development code:
 
 ```bash
 git clone https://github.com/identrail/identrail.git
@@ -114,3 +38,61 @@ cd identrail
 go build -o ./bin/identrail ./cmd/cli
 ./bin/identrail scan owner/repo
 ```
+
+If you want to run `identrail` without the `./bin/` prefix, move the built
+binary into a directory on your `PATH`.
+
+## Scan Commands
+
+These commands assume `identrail` is installed or on your `PATH`. If you built
+from source and did not move the binary, replace `identrail` with
+`./bin/identrail`.
+
+Run the AWS/Kubernetes provider scan path:
+
+```bash
+identrail scan
+```
+
+Use Kubernetes fixtures/provider defaults explicitly:
+
+```bash
+IDENTRAIL_PROVIDER=kubernetes identrail scan
+```
+
+Scan a public GitHub repository:
+
+```bash
+identrail scan owner/repo
+```
+
+Scan a private repository you already cloned:
+
+```bash
+cd private-repo
+identrail scan .
+```
+
+Repository scans report secrets, GitHub Actions, and CI risk. They complement
+the AWS/Kubernetes machine identity workflow; they do not replace it. Hosted
+private repository scans use the GitHub App connector in the Identrail web app.
+
+The backward-compatible long commands still work for scripts:
+
+```bash
+identrail repo-scan --repo owner/repo
+identrail repo-scan owner/repo
+identrail repo owner/repo
+```
+
+## Homebrew Status
+
+Homebrew support is planned, but it is not available yet. The command below will
+fail until the `identrail/homebrew-tap` repository is published:
+
+```bash
+brew install identrail/tap/identrail
+```
+
+The shorter `brew install identrail` command is a later Homebrew core goal. It
+requires Homebrew to accept an Identrail formula.

@@ -38,35 +38,63 @@ Use it when you run AWS and/or Kubernetes workloads and want identity risk visib
 
 ## 5-Minute Quickstart
 
-### Scan a public GitHub repository
+Identrail is AWS/Kubernetes machine identity security first. Use the hosted app
+for the full source-onboarding workflow, and use the CLI when you want a quick
+repository-exposure scan from your terminal.
 
-You can scan a public GitHub repository without creating an Identrail account or
-connecting the hosted app. With Docker:
+### Use the hosted app
 
-```bash
-docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
-```
+Go to [identrail.com](https://www.identrail.com), sign in, create or select a
+workspace, and connect the sources your project owns: AWS, Kubernetes, and
+GitHub.
 
-Example:
+For enterprise auth scope, tenant/workspace context, live source setup, and
+decision audit verification, use the [Enterprise Quickstart](./docs/enterprise-quickstart.md).
+
+### Install or run the CLI
+
+Run the CLI without installing it locally:
 
 ```bash
 docker run --rm ghcr.io/identrail/identrail-cli:dev scan identrail/identrail
 ```
 
-If you installed the CLI from a release binary or source build, use:
+Or build from source:
+
+```bash
+git clone https://github.com/identrail/identrail.git
+cd identrail
+go build -o ./bin/identrail ./cmd/cli
+./bin/identrail scan identrail/identrail
+```
+
+Homebrew support is planned, but the Homebrew tap is not published yet.
+
+### Scan from the terminal
+
+After installing or building the CLI, run the AWS/Kubernetes provider scan path:
+
+```bash
+identrail scan
+```
+
+Use the Kubernetes provider defaults explicitly:
+
+```bash
+IDENTRAIL_PROVIDER=kubernetes identrail scan
+```
+
+Scan any public GitHub repository:
 
 ```bash
 identrail scan owner/repo
 ```
 
-The scan prints repository exposure findings for secrets, GitHub Actions risk,
-and CI configuration issues. See [Install Identrail](./docs/install.md) for
-binary, Docker, and source install paths.
+If you built from source, use `./bin/identrail` instead of `identrail` unless
+you add the binary to your `PATH`.
 
-### Scan a private repository locally
-
-Clone the private repository with your normal GitHub access, then scan the local
-checkout:
+To scan a private repository locally, clone it with your normal GitHub access
+and scan the checkout:
 
 ```bash
 git clone git@github.com:owner/private-repo.git
@@ -74,48 +102,16 @@ cd private-repo
 identrail scan .
 ```
 
-With Docker:
-
-```bash
-docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/identrail/identrail-cli:dev scan .
-```
-
+The repository scanner reports secrets, GitHub Actions, and CI risk. These
+signals complement the AWS/Kubernetes identity graph; they do not replace it.
 For hosted, project-scoped private repository scans, connect the GitHub App in
-the Identrail web app and select the repository.
-
-### Run the local dashboard
-
-Prerequisites: Docker, Docker Compose, and `curl`.
-
-Start the published local stack:
-
-```bash
-mkdir identrail-docker && cd identrail-docker
-curl -fsSLO https://raw.githubusercontent.com/identrail/identrail/dev/deploy/docker/docker-compose.public.yml
-docker compose -f docker-compose.public.yml up -d
-curl http://localhost:8080/healthz
-```
-
-Open `http://localhost:8081` for the web UI.
-
-For source development from a cloned repository:
-
-```bash
-make quickstart
-```
-
-Stop the stack:
-
-```bash
-make quickstart-down
-```
-
-For enterprise auth scope, tenant/workspace context, and decision audit verification, use the full [Enterprise Quickstart](./docs/enterprise-quickstart.md).
+the Identrail web app and select the repository. See [Install Identrail](./docs/install.md)
+for CLI install details.
 
 ## What Identrail Does
 
 - Discovers machine identities and trust relationships across AWS and Kubernetes.
-- Scans repositories for secret exposure, GitHub Actions, and CI risk.
+- Adds repository exposure signals for secrets, GitHub Actions, and CI risk.
 - Produces explainable findings with evidence, severity, and remediation context.
 - Provides CLI, API, worker, and web workflows for local scans, hosted scans, trends, and review.
 
