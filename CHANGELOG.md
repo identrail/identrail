@@ -4,6 +4,9 @@
 - Fixed app workspace navigation so route changes inside an already-validated
   workspace no longer rerun the full session gate, and hardened repository
   finding display helpers against partially populated API records.
+- Fixed hosted repository scan enqueueing after incremental scan metadata. Empty
+  revision and cursor values are now stored as non-null empty strings instead of
+  violating the `repo_scans` cursor constraints.
 - Added API-backed CLI parity for GitHub repository intelligence. Operators can
   now queue hosted repository scans, list/show/cancel repo scans, filter repo
   findings by lifecycle and confidence, fetch risk graphs, collect GitHub

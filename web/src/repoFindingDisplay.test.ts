@@ -62,10 +62,28 @@ describe('groupRepoFindingsForDisplay', () => {
     expect(groups[0].findings.map((item) => item.id)).toEqual(['missing-severity']);
   });
 
-  it('normalizes missing selection fields instead of leaking undefined text into keys', () => {
-    const partialFinding = { id: undefined, scan_id: 'repo-scan-1' } as unknown as ApiFinding;
+  it('creates stable and unique fallback keys when selection identifiers are missing', () => {
+    const firstPartialFinding = {
+      ...finding('placeholder-1', 'high'),
+      id: undefined,
+      scan_id: undefined,
+      title: 'Partial finding one',
+      created_at: '2026-01-01T00:00:00Z'
+    } as unknown as ApiFinding;
+    const secondPartialFinding = {
+      ...finding('placeholder-2', 'medium'),
+      id: undefined,
+      scan_id: undefined,
+      title: 'Partial finding two',
+      created_at: '2026-01-02T00:00:00Z'
+    } as unknown as ApiFinding;
 
-    expect(buildRepoFindingSelectionKey(partialFinding)).toBe('repo-scan-1::');
+    const firstKey = buildRepoFindingSelectionKey(firstPartialFinding);
+    const secondKey = buildRepoFindingSelectionKey(secondPartialFinding);
+
+    expect(firstKey).toBe(buildRepoFindingSelectionKey(firstPartialFinding));
+    expect(secondKey).toBe(buildRepoFindingSelectionKey(secondPartialFinding));
+    expect(firstKey).not.toBe(secondKey);
   });
 
   it('selects findings by scan id and finding id together', () => {

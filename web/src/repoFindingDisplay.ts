@@ -11,7 +11,12 @@ export type RepoFindingDisplayGroup = {
   findings: ApiFinding[];
 };
 
-export type RepoFindingSelection = Partial<Pick<ApiFinding, 'id' | 'scan_id'>>;
+export type RepoFindingSelection = Partial<
+  Pick<ApiFinding, 'id' | 'scan_id' | 'created_at' | 'repository' | 'type' | 'title' | 'source_url'>
+>;
+
+const selectionFallbackKeys = new WeakMap<RepoFindingSelection, string>();
+let selectionFallbackCounter = 0;
 
 function normalizeDisplayValue(value: unknown): string {
   if (typeof value === 'string') {
@@ -67,7 +72,30 @@ export function groupRepoFindingsForDisplay(
 }
 
 export function buildRepoFindingSelectionKey(finding: RepoFindingSelection): string {
-  return `${normalizeDisplayValue(finding.scan_id)}::${normalizeDisplayValue(finding.id)}`;
+  const scanID = normalizeDisplayValue(finding.scan_id);
+  const findingID = normalizeDisplayValue(finding.id);
+  if (scanID && findingID) {
+    return `${scanID}::${findingID}`;
+  }
+
+  const existingFallback = selectionFallbackKeys.get(finding);
+  if (existingFallback) {
+    return existingFallback;
+  }
+
+  selectionFallbackCounter += 1;
+  const fallback = [
+    scanID,
+    findingID,
+    normalizeDisplayValue(finding.repository),
+    normalizeDisplayValue(finding.type),
+    normalizeDisplayValue(finding.title),
+    normalizeDisplayValue(finding.created_at),
+    normalizeDisplayValue(finding.source_url),
+    String(selectionFallbackCounter)
+  ].join('::');
+  selectionFallbackKeys.set(finding, fallback);
+  return fallback;
 }
 
 export function findRepoFindingBySelectionKey(findings: ApiFinding[], selectionKey: string): ApiFinding | null {
