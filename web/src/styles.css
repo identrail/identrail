@@ -6502,7 +6502,8 @@ html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] {
   width: 1.75rem;
   height: 1.75rem;
   border-radius: 7px;
-  box-shadow: none;
+  background: #0e0e11;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .idt-auth-logo span {
@@ -15635,9 +15636,17 @@ html[data-theme='light'] .idt-scan-stepper li.is-active {
   padding: clamp(4.8rem, 8vw, 7.2rem) clamp(1.1rem, 5vw, 6rem);
 }
 
-.idt-home-after-stack .idt-eyebrow,
-html[data-theme='light'] .idt-home-after-stack .idt-eyebrow {
+.idt-home-after-stack .idt-eyebrow {
   color: currentColor;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+/* Light theme: use the brand accent so the eyebrow stays legible instead of
+   inheriting a washed-out body color via currentColor. */
+html[data-theme='light'] .idt-home-after-stack .idt-eyebrow {
+  color: var(--idt-z-purple-dark);
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -21956,7 +21965,18 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 .idt-app-console-layout .idt-overview-header {
   align-items: center;
-  padding: 0 0 0.25rem;
+  padding: 0 0 1.1rem;
+  border: none;
+  border-bottom: 1px solid var(--app-border-soft);
+  border-radius: 0;
+  background: transparent;
+}
+
+/* The always-on light-theme header rule otherwise re-applies a panel
+   background and a heavier border colour; keep the overview header clean. */
+html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
+  border-color: var(--app-border-soft);
+  background: transparent;
 }
 
 .idt-app-console-layout .idt-overview-header h2 {

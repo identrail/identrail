@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Fixed web UI polish issues: the workspace overview header no longer crowds the
+  "Overview"/"Latest activity" text against its divider (boxed border replaced
+  with a spaced bottom rule), the sign-in/sign-up logo mark now renders a visible
+  tile on the dark auth background instead of disappearing into it, and the
+  homepage "Adoption Paths" eyebrow uses the brand accent color in light theme so
+  it is no longer washed out.
 - Fixed hosted repository scan enqueueing after incremental scan metadata. Empty
   revision and cursor values are now stored as non-null empty strings instead of
   violating the `repo_scans` cursor constraints.
