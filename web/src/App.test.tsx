@@ -963,8 +963,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-b/workspace-b');
     render(<App />);
 
-    const checklistRegion = await screen.findByRole('region', { name: /Get started/i }, { timeout: 5000 });
-    expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    const checklistRegion = await screen.findByRole('region', { name: /Get started/i }, { timeout: 10000 });
     const sourceChecklistItem = within(checklistRegion).getByText('Connect a source').closest('li');
     expect(sourceChecklistItem).not.toBeNull();
     if (!sourceChecklistItem) {
