@@ -6502,7 +6502,8 @@ html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] {
   width: 1.75rem;
   height: 1.75rem;
   border-radius: 7px;
-  box-shadow: none;
+  background: #0e0e11;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .idt-auth-logo span {
@@ -14081,6 +14082,40 @@ html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
   background: #98a3b3;
 }
 
+/* Dark app shell: the global page scrollbar otherwise inherits the light-theme
+   colours (a near-white track), which reads as a heavy white bar on the dark
+   dashboard. Scope a slim, subtle scrollbar to pages that render the app shell. */
+html:has(.idt-app-console-layout),
+html:has(.idt-app-console-layout) body {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar-track,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.18);
+  background-clip: padding-box;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb:hover,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.32);
+  background-clip: padding-box;
+}
+
 .idt-btn,
 .idt-header-demo,
 .idt-header-utility,
@@ -15635,9 +15670,17 @@ html[data-theme='light'] .idt-scan-stepper li.is-active {
   padding: clamp(4.8rem, 8vw, 7.2rem) clamp(1.1rem, 5vw, 6rem);
 }
 
-.idt-home-after-stack .idt-eyebrow,
-html[data-theme='light'] .idt-home-after-stack .idt-eyebrow {
+.idt-home-after-stack .idt-eyebrow {
   color: currentColor;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+/* Light theme: use the brand accent so the eyebrow stays legible instead of
+   inheriting a washed-out body color via currentColor. */
+html[data-theme='light'] .idt-home-after-stack .idt-eyebrow {
+  color: var(--idt-z-purple-dark);
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -18800,6 +18843,10 @@ html[data-theme='light'] .idt-app-quick-find {
 }
 
 .idt-command-palette {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
   width: min(100%, 42rem);
   border: 1px solid var(--app-border);
   border-radius: 8px;
@@ -18859,6 +18906,10 @@ html[data-theme='light'] .idt-app-quick-find {
 .idt-command-palette-results {
   display: grid;
   gap: 0.35rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .idt-command-palette-results button {
@@ -21956,7 +22007,18 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 .idt-app-console-layout .idt-overview-header {
   align-items: center;
-  padding: 0 0 0.25rem;
+  padding: 0 0 1.1rem;
+  border: none;
+  border-bottom: 1px solid var(--app-border-soft);
+  border-radius: 0;
+  background: transparent;
+}
+
+/* The always-on light-theme header rule otherwise re-applies a panel
+   background and a heavier border colour; keep the overview header clean. */
+html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
+  border-color: var(--app-border-soft);
+  background: transparent;
 }
 
 .idt-app-console-layout .idt-overview-header h2 {
