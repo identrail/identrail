@@ -26,12 +26,132 @@ Key flags:
 
 ## `identrail repo-scan`
 
-Runs repository exposure scanner.
+Runs the local repository exposure scanner.
 
 Key flags:
 - `--repo` (required)
 - `--history-limit` (default `500`)
 - `--max-findings` (default `200`)
+- `--output table|json`
+
+## `identrail repo-scan queue`
+
+Queues an API-backed repository intelligence scan. Use this for hosted scans,
+private repositories, GitHub App installation credentials, and incremental scan
+metadata.
+
+Key flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id`
+- `--repo` (required)
+- `--project-id` (required for GitHub App private repo scans)
+- `--connector-id`
+- `--scan-mode quick|delta|deep`
+- `--base-revision`
+- `--head-revision`
+- `--changed-path` (repeatable or comma-separated)
+- `--history-limit` (default `0`, server default)
+- `--max-findings` (default `0`, server default)
+- `--timeout`
+- `--output table|json`
+
+## `identrail repo-scan list|show|cancel`
+
+Reads or cancels API-backed repository scans.
+
+Examples:
+```bash
+identrail repo-scan list --limit 20
+identrail repo-scan show <repo-scan-id>
+identrail repo-scan cancel <repo-scan-id>
+```
+
+Common flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id`
+- `--timeout`
+- `--output table|json`
+
+## `identrail repo-findings list`
+
+Lists repository findings with lifecycle, ownership, detector, confidence, and
+age filters.
+
+Key flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id`
+- `--repo-scan-id`
+- `--repo`
+- `--severity`
+- `--type`
+- `--status`
+- `--detector`
+- `--owner`
+- `--min-confidence`
+- `--min-age-days`
+- `--limit`
+- `--cursor`
+- `--sort-by`
+- `--sort-order`
+- `--timeout`
+- `--output table|json`
+
+## `identrail repo-risk-graph`
+
+Fetches the repository-to-machine-identity risk graph from the API.
+
+Key flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id`
+- `--repo-scan-id`
+- `--repo`
+- `--default-branch`
+- `--severity`
+- `--type`
+- `--timeout`
+- `--output table|json`
+
+## `identrail repo-posture`
+
+Collects GitHub repository posture through a connected GitHub App.
+
+Key flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id`
+- `--connector-id` (required)
+- `--project-id` (required)
+- `--repo` (required)
+- `--timeout`
+- `--output table|json`
+
+## `identrail repo-remediation preview`
+
+Previews detector-specific remediation for one repository finding and can return
+a safe fix-PR plan when source content is supplied.
+
+Key flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id`
+- `--repo-scan-id`
+- `--source-file`
+- `--source-content`
+- `--base-branch`
+- `--branch-prefix`
+- `--finding-url`
+- `--require-fix-plan`
+- `--timeout`
 - `--output table|json`
 
 ## `identrail authz rollback`
@@ -52,5 +172,5 @@ Key flags:
 ## Environment variables used by CLI
 
 - `IDENTRAIL_API_URL` (default API base URL)
-- `IDENTRAIL_API_KEY` (default rollback auth key)
+- `IDENTRAIL_API_KEY` (default API auth key for API-backed CLI commands)
 - `IDENTRAIL_PROVIDER` (affects default fixtures for `scan`)

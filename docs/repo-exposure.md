@@ -17,6 +17,24 @@ identrail repo-scan --repo https://github.com/owner/repo.git
 identrail repo-scan --repo /path/to/local/repo
 ```
 
+The terminal also exposes the hosted/API-backed GitHub intelligence surface:
+
+```bash
+identrail repo-scan queue \
+  --repo owner/private-repo \
+  --project-id project-1 \
+  --connector-id github-app
+
+identrail repo-scan list
+identrail repo-findings list --repo owner/private-repo --status open --min-confidence 0.8
+identrail repo-risk-graph --repo owner/private-repo
+identrail repo-posture --connector-id github-app --project-id project-1 --repo owner/private-repo
+identrail repo-remediation preview <finding-id> --repo-scan-id <repo-scan-id>
+```
+
+API-backed CLI commands use `IDENTRAIL_API_URL`, `IDENTRAIL_API_KEY`,
+`--tenant-id`, and `--workspace-id` the same way other API CLI commands do.
+
 ## API
 
 You can trigger the same scanner through API:
@@ -436,6 +454,8 @@ the scan as skipped instead of queueing duplicate work.
 - `--history-limit` (default: `500`): max commits to inspect.
 - `--max-findings` (default: `200`): hard cap on findings.
 - `--output table|json`.
+- API-backed terminal commands also accept `--api-url`, `--api-key`,
+  `--tenant-id`, `--workspace-id`, `--timeout`, and `--output table|json`.
 
 ## Runtime Configuration
 

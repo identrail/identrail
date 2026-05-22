@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added API-backed CLI parity for GitHub repository intelligence. Operators can
+  now queue hosted repository scans, list/show/cancel repo scans, filter repo
+  findings by lifecycle and confidence, fetch risk graphs, collect GitHub
+  repository posture, and preview remediation plans from the terminal.
 - Wired GitHub repository intelligence into the product app. Project source
   onboarding now surfaces selected-repository posture checks, and repository
   findings now show risk-graph summaries, top finding scores, and on-demand
