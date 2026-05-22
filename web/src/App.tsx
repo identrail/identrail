@@ -881,13 +881,13 @@ function ProductHeroVisual() {
                   federates
                 </text>
               </g>
-              <g className="idt-product-path-tag" transform="translate(586 214)">
+              <g className="idt-product-path-tag" transform="translate(584 226)">
                 <rect width="108" height="30" rx="15" />
                 <text x="54" y="20">
                   assumes role
                 </text>
               </g>
-              <g className="idt-product-path-tag" transform="translate(580 338)">
+              <g className="idt-product-path-tag" transform="translate(520 326)">
                 <rect width="100" height="30" rx="15" />
                 <text x="50" y="20">
                   reaches data
@@ -902,9 +902,12 @@ function ProductHeroVisual() {
                 <text className="idt-product-node-title" x="18" y="50">
                   GitHub OIDC
                 </text>
-                <text className="idt-product-node-status is-good" x="18" y="68">
-                  Verified
-                </text>
+                <g className="idt-product-node-badge is-verified" transform="translate(18 56)">
+                  <rect width="72" height="18" rx="9" />
+                  <text x="36" y="13">
+                    Verified
+                  </text>
+                </g>
               </g>
               <g className="idt-product-path-node is-workload" transform="translate(370 230)">
                 <rect width="200" height="86" rx="10" />
@@ -914,9 +917,12 @@ function ProductHeroVisual() {
                 <text className="idt-product-node-title" x="18" y="52">
                   K8s service account
                 </text>
-                <text className="idt-product-node-status is-good" x="18" y="72">
-                  Namespace bridge
-                </text>
+                <g className="idt-product-node-badge is-verified" transform="translate(18 59)">
+                  <rect width="128" height="18" rx="9" />
+                  <text x="64" y="13">
+                    Namespace bridge
+                  </text>
+                </g>
               </g>
               <g className="idt-product-path-node is-privilege" transform="translate(668 136)">
                 <rect width="186" height="80" rx="10" />
@@ -926,9 +932,12 @@ function ProductHeroVisual() {
                 <text className="idt-product-node-title" x="18" y="50">
                   AWS Role
                 </text>
-                <text className="idt-product-node-status is-risk" x="18" y="68">
-                  High risk
-                </text>
+                <g className="idt-product-node-badge is-danger" transform="translate(18 56)">
+                  <rect width="78" height="18" rx="9" />
+                  <text x="39" y="13">
+                    High risk
+                  </text>
+                </g>
               </g>
               <g className="idt-product-path-node is-resource" transform="translate(626 340)">
                 <rect width="204" height="82" rx="10" />
@@ -938,9 +947,12 @@ function ProductHeroVisual() {
                 <text className="idt-product-node-title" x="18" y="51">
                   Billing datastore
                 </text>
-                <text className="idt-product-node-status is-risk" x="18" y="70">
-                  Critical target
-                </text>
+                <g className="idt-product-node-badge is-danger" transform="translate(18 58)">
+                  <rect width="116" height="18" rx="9" />
+                  <text x="58" y="13">
+                    Critical target
+                  </text>
+                </g>
               </g>
 
               <g className="idt-product-svg-card is-evidence" transform="translate(70 350)">

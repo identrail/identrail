@@ -353,6 +353,31 @@ describe('App', () => {
     expect(document.querySelector('.idt-product-hero-visual')).toHaveAttribute('aria-hidden', 'true');
     expect(document.querySelector('.idt-product-trust-svg')).toBeInTheDocument();
     expect(document.querySelectorAll('.idt-product-path-edge.is-active')).toHaveLength(3);
+    expect(document.querySelectorAll('.idt-product-node-badge.is-danger')).toHaveLength(2);
+    expect(document.querySelectorAll('.idt-product-node-status.is-risk')).toHaveLength(0);
+
+    const readSvgBox = (group: Element) => {
+      const [, x = '0', y = '0'] = group.getAttribute('transform')?.match(/translate\(([-.\d]+) ([-.\d]+)\)/) ?? [];
+      const rect = group.querySelector('rect');
+      return {
+        x: Number(x),
+        y: Number(y),
+        width: Number(rect?.getAttribute('width') ?? 0),
+        height: Number(rect?.getAttribute('height') ?? 0)
+      };
+    };
+    const overlaps = (a: ReturnType<typeof readSvgBox>, b: ReturnType<typeof readSvgBox>) =>
+      a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    const labelBoxes = [...document.querySelectorAll('.idt-product-path-tag')].map(readSvgBox);
+    const nodeBoxes = [...document.querySelectorAll('.idt-product-path-node')].map(readSvgBox);
+
+    expect(labelBoxes).toHaveLength(3);
+    expect(nodeBoxes).toHaveLength(4);
+    for (const labelBox of labelBoxes) {
+      for (const nodeBox of nodeBoxes) {
+        expect(overlaps(labelBox, nodeBox)).toBe(false);
+      }
+    }
   });
 
   it('renders read-only scan intake flow route', () => {
