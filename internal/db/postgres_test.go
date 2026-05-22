@@ -714,7 +714,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	now := time.Now().UTC()
 
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), $12::jsonb, $13, $14, $15, $16, $17, $18)`)).
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18)`)).
 		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "running", sqlmock.AnyArg(), "deep", "", "", "", "", "[]", 0, 0, "", "", "", int64(0)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -1605,7 +1605,7 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 	now := time.Now().UTC()
 
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), $12::jsonb, $13, $14, $15, $16, $17, $18)`)).
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18)`)).
 		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", sqlmock.AnyArg(), "deep", "", "", "", "", "[]", 50, 80, "", "", "", int64(0)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -2039,7 +2039,7 @@ func TestPostgresStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
 		WithArgs("default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), $12::jsonb, $13, $14, $15, $16, $17, $18, NULLIF($19, ''), NULLIF($20, ''))`)).
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18, NULLIF($19, ''), NULLIF($20, ''))`)).
 		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", now, "deep", "", "", "", "", "[]", 50, 80, "", "", "", int64(0), "", "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
