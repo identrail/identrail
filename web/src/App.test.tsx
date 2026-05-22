@@ -171,6 +171,7 @@ function leadCaptureCalls(fetchMock: ReturnType<typeof vi.fn>) {
 
 describe('App', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     cleanup();
     resetBrowserState();
     vi.unstubAllEnvs();
@@ -184,6 +185,7 @@ describe('App', () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('renders homepage hero and conversion CTAs', () => {
@@ -812,7 +814,8 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    await screen.findByRole('region', { name: /Get started/i });
+    expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
     fireEvent.click(screen.getByRole('link', { name: 'Projects' }));
@@ -822,6 +825,47 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
     const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
     expect(meCallsAfterNavigation).toBe(meCallsBeforeNavigation);
+  });
+
+  it('revalidates session after same-workspace navigation from an auth error', async () => {
+    let meCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        meCalls += 1;
+        return meCalls === 1
+          ? errorJSON(503, 'temporary session outage')
+          : okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Unable to validate account session/i);
+
+    act(() => {
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(meCalls).toBe(2);
   });
 
   it('keeps the overview trend delta neutral until two trend points exist', async () => {
@@ -919,8 +963,8 @@ describe('App', () => {
     setCurrentPath('/app/tenant-b/workspace-b');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i }, { timeout: 5000 })).toBeInTheDocument();
     const checklistRegion = await screen.findByRole('region', { name: /Get started/i }, { timeout: 5000 });
+    expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     const sourceChecklistItem = within(checklistRegion).getByText('Connect a source').closest('li');
     expect(sourceChecklistItem).not.toBeNull();
     if (!sourceChecklistItem) {

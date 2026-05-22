@@ -936,9 +936,11 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   const routeTenantID = normalizeValue(params.tenantID);
   const routeWorkspaceID = normalizeValue(params.workspaceID);
   const routeScopeKey = `${routeTenantID}::${routeWorkspaceID}`;
+  const routeLocationKey = `${location.pathname}${location.search}`;
   const [status, setStatus] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking');
   const [validatedScopeKey, setValidatedScopeKey] = useState('');
   const validatedScopeKeyRef = useRef('');
+  const statusRef = useRef(status);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -946,11 +948,18 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   }, [navigate]);
 
   useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
     let mounted = true;
 
     const run = async () => {
       const alreadyValidated = validatedScopeKeyRef.current === routeScopeKey;
-      setStatus((current) => (current === 'authenticated' && alreadyValidated ? current : 'checking'));
+      if (alreadyValidated && statusRef.current === 'authenticated') {
+        return;
+      }
+      setStatus('checking');
       setError('');
       try {
         const current = await apiClient.getMe({ redirectOnUnauthorized: false });
@@ -1003,7 +1012,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [routeTenantID, routeWorkspaceID, routeScopeKey]);
+  }, [routeTenantID, routeWorkspaceID, routeScopeKey, routeLocationKey]);
 
   if (status === 'checking' || (status === 'authenticated' && validatedScopeKey !== routeScopeKey)) {
     return <AppShellLoading message="Validating session" />;

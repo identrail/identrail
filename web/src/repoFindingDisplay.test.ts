@@ -80,10 +80,31 @@ describe('groupRepoFindingsForDisplay', () => {
 
     const firstKey = buildRepoFindingSelectionKey(firstPartialFinding);
     const secondKey = buildRepoFindingSelectionKey(secondPartialFinding);
+    const refreshedFirstKey = buildRepoFindingSelectionKey({ ...firstPartialFinding });
 
     expect(firstKey).toBe(buildRepoFindingSelectionKey(firstPartialFinding));
+    expect(refreshedFirstKey).toBe(firstKey);
     expect(secondKey).toBe(buildRepoFindingSelectionKey(secondPartialFinding));
     expect(firstKey).not.toBe(secondKey);
+  });
+
+  it('finds refreshed fallback records by deterministic selection key', () => {
+    const partialFinding = {
+      ...finding('placeholder-1', 'high'),
+      id: undefined,
+      scan_id: undefined,
+      title: 'Partial finding one',
+      repository: 'owner/repo',
+      file_path: '.github/workflows/deploy.yml',
+      line_number: 42,
+      created_at: '2026-01-01T00:00:00Z'
+    } as unknown as ApiFinding;
+
+    const selectionKey = buildRepoFindingSelectionKey(partialFinding);
+    const refreshedFinding = { ...partialFinding };
+
+    expect(buildRepoFindingSelectionKey(refreshedFinding)).toBe(selectionKey);
+    expect(findRepoFindingBySelectionKey([refreshedFinding], selectionKey)?.title).toBe('Partial finding one');
   });
 
   it('selects findings by scan id and finding id together', () => {
