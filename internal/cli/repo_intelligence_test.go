@@ -59,6 +59,7 @@ func TestExecuteRepoScanQueueCallsAPI(t *testing.T) {
 		"--api-key", "admin-key",
 		"--tenant-id", "tenant-a",
 		"--workspace-id", "workspace-a",
+		"--timeout", "0",
 		"--repo", "identrail/identrail",
 		"--project-id", "project-1",
 		"--connector-id", "github-app",
@@ -73,6 +74,17 @@ func TestExecuteRepoScanQueueCallsAPI(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Repo scan queued: id=11111111-1111-1111-1111-111111111111 repo=identrail/identrail status=queued mode=delta") {
 		t.Fatalf("unexpected queue output: %q", out.String())
+	}
+}
+
+func TestNormalizeCLIAPITimeoutFallsBackForNonPositiveValues(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		if got := normalizeCLIAPITimeout(timeout); got != defaultCLIAPITimeout {
+			t.Fatalf("expected default timeout for %s, got %s", timeout, got)
+		}
+	}
+	if got := normalizeCLIAPITimeout(3 * time.Second); got != 3*time.Second {
+		t.Fatalf("expected explicit timeout, got %s", got)
 	}
 }
 

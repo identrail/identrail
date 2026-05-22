@@ -29,6 +29,8 @@ type cliAPIOptions struct {
 	Timeout     time.Duration
 }
 
+const defaultCLIAPITimeout = 10 * time.Second
+
 type cliAPIErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -54,7 +56,7 @@ func defaultCLIAPIOptions(cfg config.Config) cliAPIOptions {
 		APIKey:      strings.TrimSpace(os.Getenv("IDENTRAIL_API_KEY")),
 		TenantID:    strings.TrimSpace(cfg.DefaultTenantID),
 		WorkspaceID: strings.TrimSpace(cfg.DefaultWorkspaceID),
-		Timeout:     10 * time.Second,
+		Timeout:     defaultCLIAPITimeout,
 	}
 }
 
@@ -64,6 +66,17 @@ func bindCLIAPIFlags(cmd *cobra.Command, options *cliAPIOptions, apiKeyUse strin
 	cmd.Flags().StringVar(&options.TenantID, "tenant-id", options.TenantID, "Tenant scope header")
 	cmd.Flags().StringVar(&options.WorkspaceID, "workspace-id", options.WorkspaceID, "Workspace scope header")
 	cmd.Flags().DurationVar(&options.Timeout, "timeout", options.Timeout, "HTTP timeout")
+}
+
+func normalizeCLIAPITimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return defaultCLIAPITimeout
+	}
+	return timeout
+}
+
+func newCLIAPIRequestContext(options cliAPIOptions) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), normalizeCLIAPITimeout(options.Timeout))
 }
 
 func doCLIAPIRequest(ctx context.Context, options cliAPIOptions, method string, path string, query url.Values, payload any, response any) error {
@@ -103,11 +116,7 @@ func doCLIAPIRequest(ctx context.Context, options cliAPIOptions, method string, 
 		req.Header.Set("X-Identrail-Workspace-ID", normalizedWorkspace)
 	}
 
-	timeout := options.Timeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	resp, err := (&http.Client{Timeout: normalizeCLIAPITimeout(options.Timeout)}).Do(req)
 	if err != nil {
 		return fmt.Errorf("api request failed: %w", err)
 	}
@@ -181,7 +190,7 @@ func buildRepoScanQueueCmd(cfg config.Config, out io.Writer) *cobra.Command {
 				MaxFindings:  maxFindings,
 			}
 			var response repoScanCLIResponse
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			if err := doCLIAPIRequest(ctx, options, http.MethodPost, "/v1/repo-scans", nil, request, &response); err != nil {
 				return err
@@ -236,7 +245,7 @@ func buildRepoScanListCmd(cfg config.Config, out io.Writer) *cobra.Command {
 			addCLIQuery(query, "sort_order", sortOrder)
 
 			var response repoScanPageCLIResponse
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			if err := doCLIAPIRequest(ctx, options, http.MethodGet, "/v1/repo-scans", query, nil, &response); err != nil {
 				return err
@@ -271,7 +280,7 @@ func buildRepoScanShowCmd(cfg config.Config, out io.Writer) *cobra.Command {
 				return err
 			}
 			var response db.RepoScanRecord
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			path := "/v1/repo-scans/" + url.PathEscape(strings.TrimSpace(args[0]))
 			if err := doCLIAPIRequest(ctx, options, http.MethodGet, path, nil, nil, &response); err != nil {
@@ -303,7 +312,7 @@ func buildRepoScanCancelCmd(cfg config.Config, out io.Writer) *cobra.Command {
 				return err
 			}
 			var response repoScanCLIResponse
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			path := "/v1/repo-scans/" + url.PathEscape(strings.TrimSpace(args[0])) + "/cancel"
 			if err := doCLIAPIRequest(ctx, options, http.MethodPost, path, nil, nil, &response); err != nil {
@@ -386,7 +395,7 @@ func buildRepoFindingsListCmd(cfg config.Config, out io.Writer) *cobra.Command {
 			addCLIQuery(query, "sort_order", sortOrder)
 
 			var response repoFindingPageCLIResponse
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			if err := doCLIAPIRequest(ctx, options, http.MethodGet, "/v1/repo-findings", query, nil, &response); err != nil {
 				return err
@@ -443,7 +452,7 @@ func buildRepoRiskGraphCmd(cfg config.Config, out io.Writer) *cobra.Command {
 			addCLIQuery(query, "type", findingType)
 
 			var graph domain.RepoRiskGraph
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			if err := doCLIAPIRequest(ctx, options, http.MethodGet, "/v1/repo-risk-graph", query, nil, &graph); err != nil {
 				return err
@@ -498,7 +507,7 @@ func buildRepoPostureCmd(cfg config.Config, out io.Writer) *cobra.Command {
 			path := "/v1/connectors/github/" + url.PathEscape(strings.TrimSpace(connectorID)) + "/posture"
 
 			var response api.GitHubRepositoryPostureResponse
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			if err := doCLIAPIRequest(ctx, options, http.MethodGet, path, query, nil, &response); err != nil {
 				return err
@@ -573,7 +582,7 @@ func buildRepoRemediationPreviewCmd(cfg config.Config, out io.Writer) *cobra.Com
 			path := "/v1/repo-findings/" + url.PathEscape(strings.TrimSpace(args[0])) + "/remediation/preview"
 
 			var response api.RepoFindingRemediationPreview
-			ctx, cancel := context.WithTimeout(context.Background(), options.Timeout)
+			ctx, cancel := newCLIAPIRequestContext(options)
 			defer cancel()
 			if err := doCLIAPIRequest(ctx, options, http.MethodPost, path, query, request, &response); err != nil {
 				return err
