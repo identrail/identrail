@@ -6,7 +6,7 @@ deployment guides.
 
 ## Recommended CLI usage
 
-Use the short repository scan form when you want to inspect one GitHub
+Use the short repository scan form when you want to inspect a public GitHub
 repository:
 
 ```bash
@@ -20,6 +20,24 @@ identrail scan identrail/identrail
 identrail scan owner/repo --history-limit 50 --max-findings 20
 identrail scan https://github.com/owner/repo.git --output json
 ```
+
+For a private repository, clone it first with your normal GitHub access and
+scan the local checkout:
+
+```bash
+git clone git@github.com:owner/private-repo.git
+cd private-repo
+identrail scan .
+```
+
+With Docker:
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/identrail/identrail-cli:dev scan .
+```
+
+Hosted private repository scans use the GitHub App connector in the Identrail
+web app.
 
 The longer command remains supported for scripts and backward compatibility:
 

@@ -38,22 +38,50 @@ Use it when you run AWS and/or Kubernetes workloads and want identity risk visib
 
 ## 5-Minute Quickstart
 
-### Scan a GitHub repository
+### Scan a public GitHub repository
 
-Install Identrail from a release binary or Docker image, or build it from
-source, then run your first repository scan:
+You can scan a public GitHub repository without creating an Identrail account or
+connecting the hosted app. With Docker:
+
+```bash
+docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
+```
+
+Example:
+
+```bash
+docker run --rm ghcr.io/identrail/identrail-cli:dev scan identrail/identrail
+```
+
+If you installed the CLI from a release binary or source build, use:
 
 ```bash
 identrail scan owner/repo
 ```
 
-See [Install Identrail](./docs/install.md) for each install path.
+The scan prints repository exposure findings for secrets, GitHub Actions risk,
+and CI configuration issues. See [Install Identrail](./docs/install.md) for
+binary, Docker, and source install paths.
 
-Docker users can run the CLI without installing Go:
+### Scan a private repository locally
+
+Clone the private repository with your normal GitHub access, then scan the local
+checkout:
 
 ```bash
-docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
+git clone git@github.com:owner/private-repo.git
+cd private-repo
+identrail scan .
 ```
+
+With Docker:
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/identrail/identrail-cli:dev scan .
+```
+
+For hosted, project-scoped private repository scans, connect the GitHub App in
+the Identrail web app and select the repository.
 
 ### Run the local dashboard
 
