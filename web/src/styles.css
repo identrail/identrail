@@ -20090,6 +20090,84 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
   color: #ffffff;
 }
 
+.idt-app-console-layout input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.idt-app-console-layout textarea,
+.idt-account-security-page input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.idt-account-security-page textarea,
+.idt-executive-report-shell input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.idt-executive-report-shell textarea,
+.idt-app-shell-screen input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.idt-app-shell-screen textarea,
+html[data-theme='light'] .idt-app-console-layout input:not([type='checkbox']):not([type='radio']):not([type='range']),
+html[data-theme='light'] .idt-app-console-layout textarea,
+html[data-theme='light'] .idt-account-security-page input:not([type='checkbox']):not([type='radio']):not([type='range']),
+html[data-theme='light'] .idt-account-security-page textarea,
+html[data-theme='light'] .idt-executive-report-shell input:not([type='checkbox']):not([type='radio']):not([type='range']),
+html[data-theme='light'] .idt-executive-report-shell textarea,
+html[data-theme='light'] .idt-app-shell-screen input:not([type='checkbox']):not([type='radio']):not([type='range']),
+html[data-theme='light'] .idt-app-shell-screen textarea {
+  min-height: 2.95rem;
+  padding: 0.78rem 0.9rem;
+  border-color: var(--app-border);
+  border-radius: 8px;
+  background: #050505;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.idt-app-console-layout select,
+.idt-account-security-page select,
+.idt-executive-report-shell select,
+.idt-app-shell-screen select,
+html[data-theme='light'] .idt-app-console-layout select,
+html[data-theme='light'] .idt-account-security-page select,
+html[data-theme='light'] .idt-executive-report-shell select,
+html[data-theme='light'] .idt-app-shell-screen select {
+  appearance: none;
+  min-height: 2.95rem;
+  padding: 0.78rem 2.85rem 0.78rem 0.9rem;
+  border-color: var(--app-border);
+  border-radius: 8px;
+  background-color: #050505;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.5 7.5L10 12L14.5 7.5' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.86rem center;
+  background-size: 1.05rem 1.05rem;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.idt-app-console-layout textarea,
+.idt-account-security-page textarea,
+.idt-executive-report-shell textarea,
+.idt-app-shell-screen textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.idt-app-console-layout select:disabled,
+.idt-app-console-layout input:disabled,
+.idt-app-console-layout textarea:disabled,
+.idt-account-security-page select:disabled,
+.idt-account-security-page input:disabled,
+.idt-account-security-page textarea:disabled,
+.idt-executive-report-shell select:disabled,
+.idt-executive-report-shell input:disabled,
+.idt-executive-report-shell textarea:disabled,
+.idt-app-shell-screen select:disabled,
+.idt-app-shell-screen input:disabled,
+.idt-app-shell-screen textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 /* Product app visual richness */
 .idt-app-console-layout,
 .idt-account-security-page,
@@ -20454,6 +20532,196 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
   background: #080809;
 }
 
+.idt-source-command-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.9fr);
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.idt-source-next-action,
+.idt-source-compact-stats,
+.idt-source-recovery-card,
+.idt-source-policy-panel details,
+html[data-theme='light'] .idt-source-next-action,
+html[data-theme='light'] .idt-source-compact-stats,
+html[data-theme='light'] .idt-source-recovery-card,
+html[data-theme='light'] .idt-source-policy-panel details {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #080809;
+  color: #ffffff;
+}
+
+.idt-source-next-action {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.idt-source-next-action h3 {
+  margin: 0.12rem 0 0.35rem;
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  line-height: 1.05;
+}
+
+.idt-source-next-action p:last-child {
+  margin: 0;
+  max-width: 70ch;
+}
+
+.idt-source-compact-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  overflow: hidden;
+}
+
+.idt-source-compact-stats div {
+  min-width: 0;
+  display: grid;
+  gap: 0.45rem;
+  align-content: center;
+  border-right: 1px solid var(--app-border);
+  padding: 0.92rem;
+}
+
+.idt-source-compact-stats div:last-child {
+  border-right: 0;
+}
+
+.idt-source-compact-stats dt {
+  color: var(--app-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-source-compact-stats dd {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.idt-source-primary-action {
+  align-items: stretch;
+}
+
+.idt-source-primary-action form {
+  min-width: min(100%, 20rem);
+  flex: 0 1 22rem;
+}
+
+.idt-source-enterprise-fallback,
+.idt-source-policy-panel details {
+  padding: 0;
+  overflow: hidden;
+}
+
+.idt-source-enterprise-fallback summary,
+.idt-source-policy-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.idt-source-enterprise-fallback summary::-webkit-details-marker,
+.idt-source-policy-summary::-webkit-details-marker {
+  display: none;
+}
+
+.idt-source-enterprise-fallback summary::after,
+.idt-source-policy-summary::after {
+  content: '';
+  width: 0.8rem;
+  height: 0.8rem;
+  flex: 0 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: #ffffff;
+  transform: rotate(45deg);
+  transition: transform 0.16s ease;
+}
+
+.idt-source-enterprise-fallback[open] summary::after,
+.idt-source-policy-panel details[open] .idt-source-policy-summary::after {
+  transform: rotate(225deg);
+}
+
+.idt-source-enterprise-fallback summary span:first-child,
+.idt-source-policy-summary > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.idt-source-enterprise-fallback summary strong {
+  color: #ffffff;
+}
+
+.idt-source-enterprise-fallback summary small {
+  color: var(--app-muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.idt-source-enterprise-fallback .idt-app-form {
+  border-top: 1px solid var(--app-border);
+  padding: 1rem;
+}
+
+.idt-source-recovery-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem;
+  border-color: rgba(255, 107, 107, 0.55);
+}
+
+.idt-source-recovery-card strong {
+  color: #ffd0d0;
+}
+
+.idt-source-recovery-card p {
+  margin: 0;
+}
+
+.idt-source-recovery-card .idt-btn {
+  justify-self: start;
+}
+
+.idt-source-policy-panel {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.idt-source-policy-summary h3 {
+  margin: 0.1rem 0 0.25rem;
+}
+
+.idt-source-policy-summary p:last-child {
+  margin: 0;
+}
+
+.idt-source-policy-body {
+  display: grid;
+  gap: 1rem;
+  border-top: 1px solid var(--app-border);
+  padding: 1rem;
+}
+
 .idt-app-console-layout .idt-repo-finding-row {
   display: flex;
   text-align: left;
@@ -20494,6 +20762,27 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
   .idt-project-card-title {
     display: grid;
     justify-content: stretch;
+  }
+
+  .idt-source-command-center,
+  .idt-source-compact-stats,
+  .idt-source-primary-action {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-source-next-action,
+  .idt-source-enterprise-fallback summary,
+  .idt-source-policy-summary {
+    display: grid;
+  }
+
+  .idt-source-compact-stats div {
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .idt-source-compact-stats div:last-child {
+    border-bottom: 0;
   }
 }
 
