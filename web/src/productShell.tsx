@@ -3992,6 +3992,17 @@ export function ProductProjectDetailPage() {
   const connectedCount = sourceOrder.filter((provider) => sourceConnection(connections, provider)?.connected).length;
   const remainingCount = Math.max(actionableSourceOrder.length - connectedCount, 0);
   const activeStepIndex = selectedUnavailable ? 0 : selectedStatus?.connected ? 3 : submitting === selectedSource ? 2 : 1;
+  const selectedLifecycle = selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus);
+  const selectedNextActionTitle = selectedUnavailable
+    ? 'Choose an available source'
+    : selectedStatus?.connected
+      ? `${selectedProfile.name} is ready`
+      : `Connect ${selectedProfile.name}`;
+  const selectedNextActionDescription = selectedUnavailable
+    ? selectedAvailability.unavailableMessage ?? `${selectedProfile.name} is not available on this API server.`
+    : selectedStatus?.connected
+      ? `Review ${selectedProfile.name} health, queue validation work, or refresh status before moving to findings.`
+      : `Use the guided ${selectedProfile.name} setup to collect the exact signals this project owns.`;
 
   const handleGitHubStart = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4506,28 +4517,34 @@ export function ProductProjectDetailPage() {
         </button>
       </div>
 
-      <div className="idt-source-summary" aria-label="source connection summary">
-        <article className="is-light-surface">
-          <div className="idt-overview-metric-top">
-            <span>{connectedCount}</span>
-            <SourceLogoStack providers={actionableSourceOrder.length > 0 ? actionableSourceOrder : sourceOrder} label="Connected source count" />
+      <div className="idt-source-command-center" aria-label="source onboarding command center">
+        <article className="idt-source-next-action">
+          <div>
+            <p className="idt-app-kicker">Next action</p>
+            <h3>{selectedNextActionTitle}</h3>
+            <p>{selectedNextActionDescription}</p>
           </div>
-          <p>Active sources</p>
+          <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
+            {selectedLifecycle}
+          </span>
         </article>
-        <article>
-          <div className="idt-overview-metric-top">
-            <span>{remainingCount}</span>
-            <SourceLogoMark provider={selectedSource} />
+        <dl className="idt-source-compact-stats" aria-label="source connection summary">
+          <div>
+            <dt>Connected</dt>
+            <dd>{connectedCount}</dd>
           </div>
-          <p>Remaining</p>
-        </article>
-        <article>
-          <div className="idt-overview-metric-top">
-            <span>{selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}</span>
-            <SourceLogoMark provider={selectedSource} />
+          <div>
+            <dt>Remaining</dt>
+            <dd>{remainingCount}</dd>
           </div>
-          <p>Selected status</p>
-        </article>
+          <div>
+            <dt>Source</dt>
+            <dd>
+              <SourceLogoMark provider={selectedSource} />
+              {selectedProfile.name}
+            </dd>
+          </div>
+        </dl>
       </div>
 
       {successMessage ? (
@@ -4626,8 +4643,13 @@ export function ProductProjectDetailPage() {
 
           {selectedSource === 'github' && !selectedUnavailable ? (
             <div className="idt-source-form-stack">
-              <form className="idt-app-form" onSubmit={handleGitHubStart}>
-                <div className="idt-source-inline-fields">
+              <article className="idt-source-install-card idt-source-primary-action">
+                <div>
+                  <p className="idt-app-kicker">Recommended setup</p>
+                  <h4>Install the GitHub App</h4>
+                  <p>Start with selected repository access, webhook validation, and owner-ready scan context.</p>
+                </div>
+                <form className="idt-app-form" onSubmit={handleGitHubStart}>
                   <label>
                     Display name
                     <input
@@ -4638,11 +4660,11 @@ export function ProductProjectDetailPage() {
                       placeholder="GitHub App"
                     />
                   </label>
-                </div>
-                <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
-                  {submitting === 'github' ? 'Preparing...' : 'Generate install link'}
-                </button>
-              </form>
+                  <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                    {submitting === 'github' ? 'Preparing...' : 'Generate install link'}
+                  </button>
+                </form>
+              </article>
 
               {githubStart ? (
                 <article className="idt-source-install-card">
@@ -4656,51 +4678,59 @@ export function ProductProjectDetailPage() {
                 </article>
               ) : null}
 
-              <form className="idt-app-form" onSubmit={handleGitHubPATSubmit}>
-                <div className="idt-source-inline-fields">
+              <details className="idt-source-advanced idt-source-enterprise-fallback">
+                <summary>
+                  <span>
+                    <strong>GitHub Enterprise fallback</strong>
+                    <small>Use only for self-hosted GitHub Server or restricted app-install environments.</small>
+                  </span>
+                </summary>
+                <form className="idt-app-form" onSubmit={handleGitHubPATSubmit}>
+                  <div className="idt-source-inline-fields">
+                    <label>
+                      Enterprise base URL
+                      <input
+                        value={githubPATForm.baseURL}
+                        onChange={(event) => setGitHubPATForm((current) => ({ ...current, baseURL: event.target.value }))}
+                        placeholder="https://github.company.com"
+                      />
+                    </label>
+                    <label>
+                      Display name
+                      <input
+                        value={githubPATForm.displayName}
+                        onChange={(event) =>
+                          setGitHubPATForm((current) => ({ ...current, displayName: event.target.value }))
+                        }
+                        placeholder="GitHub Enterprise"
+                      />
+                    </label>
+                  </div>
                   <label>
-                    Enterprise base URL
+                    Personal access token
                     <input
-                      value={githubPATForm.baseURL}
-                      onChange={(event) => setGitHubPATForm((current) => ({ ...current, baseURL: event.target.value }))}
-                      placeholder="https://github.company.com"
+                      type="password"
+                      value={githubPATForm.token}
+                      onChange={(event) => setGitHubPATForm((current) => ({ ...current, token: event.target.value }))}
+                      placeholder="GitHub Enterprise fallback token"
+                      required
                     />
                   </label>
                   <label>
-                    Display name
-                    <input
-                      value={githubPATForm.displayName}
+                    Repository allowlist
+                    <textarea
+                      value={githubPATForm.repositories}
                       onChange={(event) =>
-                        setGitHubPATForm((current) => ({ ...current, displayName: event.target.value }))
+                        setGitHubPATForm((current) => ({ ...current, repositories: event.target.value }))
                       }
-                      placeholder="GitHub Enterprise"
+                      placeholder="owner/repo, owner/security-platform"
                     />
                   </label>
-                </div>
-                <label>
-                  Personal access token
-                  <input
-                    type="password"
-                    value={githubPATForm.token}
-                    onChange={(event) => setGitHubPATForm((current) => ({ ...current, token: event.target.value }))}
-                    placeholder="GitHub Enterprise fallback token"
-                    required
-                  />
-                </label>
-                <label>
-                  Repository allowlist
-                  <textarea
-                    value={githubPATForm.repositories}
-                    onChange={(event) =>
-                      setGitHubPATForm((current) => ({ ...current, repositories: event.target.value }))
-                    }
-                    placeholder="owner/repo, owner/security-platform"
-                  />
-                </label>
-                <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
-                  {submitting === 'github' ? 'Validating...' : 'Save enterprise fallback'}
-                </button>
-              </form>
+                  <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                    {submitting === 'github' ? 'Validating...' : 'Save enterprise fallback'}
+                  </button>
+                </form>
+              </details>
 
               {connections.github?.connected ? (
                 <form className="idt-app-form idt-repo-scan-launch" onSubmit={handleRepoScanSubmit}>
@@ -4715,9 +4745,13 @@ export function ProductProjectDetailPage() {
                   </article>
 
                   {repoScanError ? (
-                    <p role="alert" className="idt-app-alert idt-app-alert-error">
-                      {repoScanError}
-                    </p>
+                    <article role="alert" className="idt-source-recovery-card">
+                      <strong>Scan could not start</strong>
+                      <p>{repoScanError}</p>
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setRepoScanError('')}>
+                        Dismiss
+                      </button>
+                    </article>
                   ) : null}
 
                   <div className="idt-source-inline-fields">
@@ -5127,14 +5161,17 @@ export function ProductProjectDetailPage() {
         </div>
       </div>
 
-      <article className="idt-app-panel">
-        <div className="idt-source-onboarding-header">
-          <div>
-            <p className="idt-app-kicker">Automation policies</p>
-            <h3>Scan policy editor</h3>
-            <p>Define trigger mode, schedule cadence, and scan limits for this project.</p>
-          </div>
-        </div>
+      <article className="idt-app-panel idt-source-policy-panel">
+        <details>
+          <summary className="idt-source-policy-summary">
+            <div>
+              <p className="idt-app-kicker">Automation policies</p>
+              <h3>Scan policy editor</h3>
+              <p>Define trigger mode, schedule cadence, and scan limits for this project.</p>
+            </div>
+            <span className="idt-source-status-pill is-warning">Advanced</span>
+          </summary>
+          <div className="idt-source-policy-body">
 
         {scanPolicyError ? (
           <p role="alert" className="idt-app-alert idt-app-alert-error">
@@ -5295,6 +5332,8 @@ export function ProductProjectDetailPage() {
             {policySaving ? 'Saving policy...' : 'Save scan policy'}
           </button>
         </form>
+          </div>
+        </details>
       </article>
       <PermissionPreviewModal
         open={awsPreviewOpen}

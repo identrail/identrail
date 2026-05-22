@@ -379,6 +379,22 @@ describe('ProductProjectDetailPage', () => {
     );
   });
 
+  it('keeps advanced GitHub and scan policy controls collapsed until requested', async () => {
+    await renderProjectDetail(true);
+
+    expect(await screen.findByText('GitHub Enterprise fallback')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Personal access token/i)).not.toBeVisible();
+
+    fireEvent.click(screen.getByText('GitHub Enterprise fallback'));
+    expect(screen.getByLabelText(/Personal access token/i)).toBeVisible();
+
+    expect(screen.getByText('Scan policy editor')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Trigger mode/i)).not.toBeVisible();
+
+    fireEvent.click(screen.getByText('Scan policy editor'));
+    expect(screen.getByLabelText(/Trigger mode/i)).toBeVisible();
+  });
+
   it('loads GitHub repository posture for the selected app repository', async () => {
     const { getGitHubConnectorRepositoryPosture } = await renderProjectDetail(true);
 
