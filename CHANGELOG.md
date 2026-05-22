@@ -27,6 +27,10 @@
   accepts positional targets and the `repo` alias, and release workflows now
   publish a dedicated CLI container image with release documentation for
   binaries, Docker, and Homebrew tap readiness.
+- Added Homebrew tap release publishing. Release automation now renders
+  `Formula/identrail.rb` and can push it to `identrail/homebrew-tap`, installing
+  the CLI as `identrail` so `identrail scan owner/repo` works after the tap is
+  published.
 - Added repository finding lifecycle intelligence. Repo findings now carry
   stable lifecycle keys, first/last seen timestamps, fixed/reopened/suppressed
   state, owner and detector metadata, list filters for lifecycle, ownership,

@@ -59,6 +59,13 @@ Run the CLI without installing it locally:
 docker run --rm ghcr.io/identrail/identrail-cli:dev scan identrail/identrail
 ```
 
+After the Homebrew tap is published, install the CLI on macOS or Linux:
+
+```bash
+brew install identrail/tap/identrail
+identrail scan identrail/identrail
+```
+
 Or build from source:
 
 ```bash
@@ -68,7 +75,9 @@ go build -o ./bin/identrail ./cmd/cli
 ./bin/identrail scan identrail/identrail
 ```
 
-Homebrew support is planned, but the Homebrew tap is not published yet.
+The release workflow publishes the Homebrew formula when the
+`identrail/homebrew-tap` repository and `HOMEBREW_TAP_TOKEN` secret are in
+place.
 
 ### Scan from the terminal
 

@@ -1,7 +1,20 @@
 # Install Identrail
 
-Use Docker when you do not want to install anything locally. Use a source build
-when you want to contribute or test the latest development code.
+Use Homebrew when the tap is published, Docker when you do not want to install
+anything locally, and a source build when you want to contribute or test the
+latest development code.
+
+## Homebrew
+
+After the Homebrew tap has been published, install the CLI on macOS or Linux:
+
+```bash
+brew install identrail/tap/identrail
+identrail scan owner/repo
+```
+
+The shorter `brew install identrail` command is a later Homebrew core goal. It
+requires Homebrew to accept an Identrail formula.
 
 ## Docker
 
@@ -85,14 +98,9 @@ identrail repo-scan owner/repo
 identrail repo owner/repo
 ```
 
-## Homebrew Status
+## Homebrew Tap Maintenance
 
-Homebrew support is planned, but it is not available yet. The command below will
-fail until the `identrail/homebrew-tap` repository is published:
-
-```bash
-brew install identrail/tap/identrail
-```
-
-The shorter `brew install identrail` command is a later Homebrew core goal. It
-requires Homebrew to accept an Identrail formula.
+Release automation renders and publishes `Formula/identrail.rb` to
+`identrail/homebrew-tap` when maintainers create that repository and configure a
+`HOMEBREW_TAP_TOKEN` secret with write access. Until the tap is published, use
+Docker or a source build.
