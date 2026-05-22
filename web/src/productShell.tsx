@@ -825,7 +825,13 @@ function CommandPalette({
     }
 
     const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0);
-    return () => window.clearTimeout(focusTimer);
+    const root = document.documentElement;
+    const previousOverflow = root.style.overflow;
+    root.style.overflow = 'hidden';
+    return () => {
+      window.clearTimeout(focusTimer);
+      root.style.overflow = previousOverflow;
+    };
   }, [open]);
 
   const filteredItems = useMemo(() => {

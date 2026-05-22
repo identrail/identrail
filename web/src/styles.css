@@ -14082,6 +14082,40 @@ html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
   background: #98a3b3;
 }
 
+/* Dark app shell: the global page scrollbar otherwise inherits the light-theme
+   colours (a near-white track), which reads as a heavy white bar on the dark
+   dashboard. Scope a slim, subtle scrollbar to pages that render the app shell. */
+html:has(.idt-app-console-layout),
+html:has(.idt-app-console-layout) body {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar-track,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.18);
+  background-clip: padding-box;
+}
+
+html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb:hover,
+html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.32);
+  background-clip: padding-box;
+}
+
 .idt-btn,
 .idt-header-demo,
 .idt-header-utility,
@@ -18809,6 +18843,10 @@ html[data-theme='light'] .idt-app-quick-find {
 }
 
 .idt-command-palette {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
   width: min(100%, 42rem);
   border: 1px solid var(--app-border);
   border-radius: 8px;
@@ -18868,6 +18906,10 @@ html[data-theme='light'] .idt-app-quick-find {
 .idt-command-palette-results {
   display: grid;
   gap: 0.35rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .idt-command-palette-results button {

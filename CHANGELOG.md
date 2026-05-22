@@ -6,7 +6,10 @@
   with a spaced bottom rule), the sign-in/sign-up logo mark now renders a visible
   tile on the dark auth background instead of disappearing into it, and the
   homepage "Adoption Paths" eyebrow uses the brand accent color in light theme so
-  it is no longer washed out.
+  it is no longer washed out. The workspace finder ("Go to anything") modal now
+  scrolls its own results and locks the page behind it instead of scrolling the
+  background, and the dark app shell uses a slim, subtle scrollbar instead of
+  inheriting the heavy near-white light-theme scrollbar.
 - Fixed hosted repository scan enqueueing after incremental scan metadata. Empty
   revision and cursor values are now stored as non-null empty strings instead of
   violating the `repo_scans` cursor constraints.
