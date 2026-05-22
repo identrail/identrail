@@ -22604,20 +22604,35 @@ html[data-theme='light'] .idt-product-page .idt-product-hero-graph {
   font-weight: 850;
 }
 
-.idt-product-node-status {
-  font-family: var(--idt-nav-font);
-  font-size: 13px;
-  font-weight: 850;
-  filter: none;
+.idt-product-page .idt-product-hero-graph .idt-product-node-badge rect {
   stroke: none;
+  filter: none;
 }
 
-.idt-product-node-status.is-good {
+.idt-product-page .idt-product-hero-graph .idt-product-node-badge text {
+  font-family: var(--idt-nav-font);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-anchor: middle;
+  stroke: none;
+  filter: none;
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-node-badge.is-verified rect {
+  fill: rgba(17, 199, 132, 0.12);
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-node-badge.is-verified text {
   fill: #11c784;
 }
 
-.idt-product-node-status.is-risk {
-  fill: #ff5252;
+.idt-product-page .idt-product-hero-graph .idt-product-node-badge.is-danger rect {
+  fill: rgba(255, 82, 82, 0.12);
+}
+
+.idt-product-page .idt-product-hero-graph .idt-product-node-badge.is-danger text {
+  fill: #ff6b6b;
 }
 
 .idt-product-svg-card rect {

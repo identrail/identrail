@@ -19,6 +19,8 @@
 - Redesigned the marketing pricing hero decision console and product trust
   graph visual with larger plan guidance, precise SVG path arrows, and clearer
   trust-path labels.
+- Fixed the product trust graph hero so risk badges remain readable and path
+  labels no longer collide with destination cards.
 - Replaced public demo calendar placeholders with the first-party demo booking
   form, including preferred day/time capture in lead delivery emails and
   clearer dark-page contrast for the demo booking and evidence panels.
