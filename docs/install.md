@@ -1,8 +1,8 @@
 # Install Identrail
 
 Use Homebrew when the tap is published, Docker when you do not want to install
-anything locally, and a source build when you want to contribute or test the
-latest development code.
+anything locally, and a source build when you want to contribute or test
+development code.
 
 ## Homebrew
 
@@ -13,7 +13,7 @@ brew install identrail/tap/identrail
 identrail scan owner/repo
 ```
 
-The shorter `brew install identrail` command is a later Homebrew core goal. It
+The shorter `brew install identrail` command is a later Homebrew core goal and
 requires Homebrew to accept an Identrail formula.
 
 ## Docker
@@ -22,12 +22,6 @@ Run Identrail without installing it on your machine:
 
 ```bash
 docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
-```
-
-Example:
-
-```bash
-docker run --rm ghcr.io/identrail/identrail-cli:dev scan identrail/identrail
 ```
 
 For a private repository, clone it first and mount the checkout:
@@ -67,7 +61,7 @@ Run the AWS/Kubernetes provider scan path:
 identrail scan
 ```
 
-Use Kubernetes fixtures/provider defaults explicitly:
+Use the Kubernetes provider defaults explicitly:
 
 ```bash
 IDENTRAIL_PROVIDER=kubernetes identrail scan
@@ -90,17 +84,11 @@ Repository scans report secrets, GitHub Actions, and CI risk. They complement
 the AWS/Kubernetes machine identity workflow; they do not replace it. Hosted
 private repository scans use the GitHub App connector in the Identrail web app.
 
-The backward-compatible long commands still work for scripts:
-
-```bash
-identrail repo-scan --repo owner/repo
-identrail repo-scan owner/repo
-identrail repo owner/repo
-```
-
 ## Homebrew Tap Maintenance
 
 Release automation renders and publishes `Formula/identrail.rb` to
-`identrail/homebrew-tap` when maintainers create that repository and configure a
-`HOMEBREW_TAP_TOKEN` secret with write access. Until the tap is published, use
+`identrail/homebrew-tap` when maintainers create that repository, configure a
+`HOMEBREW_TAP_TOKEN` secret with write access, and cut a release that includes
+the Homebrew workflow. The formula is pinned to a stable uploaded release source
+archive, not GitHub's generated tag archive. Until the tap is published, use
 Docker or a source build.

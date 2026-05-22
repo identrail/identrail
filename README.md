@@ -53,69 +53,57 @@ decision audit verification, use the [Enterprise Quickstart](./docs/enterprise-q
 
 ### Install or run the CLI
 
-Run the CLI without installing it locally:
-
-```bash
-docker run --rm ghcr.io/identrail/identrail-cli:dev scan identrail/identrail
-```
-
 After the Homebrew tap is published, install the CLI on macOS or Linux:
 
 ```bash
 brew install identrail/tap/identrail
-identrail scan identrail/identrail
 ```
 
-Or build from source:
+Run the CLI without installing it locally:
+
+```bash
+docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
+```
+
+Build from source when you want to contribute or test development code:
 
 ```bash
 git clone https://github.com/identrail/identrail.git
 cd identrail
 go build -o ./bin/identrail ./cmd/cli
-./bin/identrail scan identrail/identrail
 ```
 
 The release workflow publishes the Homebrew formula when the
 `identrail/homebrew-tap` repository and `HOMEBREW_TAP_TOKEN` secret are in
-place.
+place. Until then, use Docker or a source build.
 
 ### Scan from the terminal
 
-After installing or building the CLI, run the AWS/Kubernetes provider scan path:
+After installing the CLI, run the AWS/Kubernetes provider scan path:
 
 ```bash
 identrail scan
 ```
 
-Use the Kubernetes provider defaults explicitly:
-
-```bash
-IDENTRAIL_PROVIDER=kubernetes identrail scan
-```
-
-Scan any public GitHub repository:
+Scan a public GitHub repository:
 
 ```bash
 identrail scan owner/repo
 ```
 
-If you built from source, use `./bin/identrail` instead of `identrail` unless
-you add the binary to your `PATH`.
-
-To scan a private repository locally, clone it with your normal GitHub access
-and scan the checkout:
+Scan a local checkout, including a private repository you already cloned:
 
 ```bash
-git clone git@github.com:owner/private-repo.git
-cd private-repo
 identrail scan .
 ```
 
-The repository scanner reports secrets, GitHub Actions, and CI risk. These
+Use `IDENTRAIL_PROVIDER=kubernetes identrail scan` when you want the Kubernetes
+provider defaults explicitly. If you built from source, use `./bin/identrail`
+instead of `identrail` unless you add the binary to your `PATH`. Repository
 signals complement the AWS/Kubernetes identity graph; they do not replace it.
 For hosted, project-scoped private repository scans, connect the GitHub App in
-the Identrail web app and select the repository. See [Install Identrail](./docs/install.md)
-for CLI install details.
+the Identrail web app. See [Install Identrail](./docs/install.md) for CLI
+install details.
 
 ## What Identrail Does
 
