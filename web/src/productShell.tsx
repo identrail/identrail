@@ -6379,7 +6379,7 @@ export function ProductFindingsPage() {
           )}
         </div>
 
-        {findingGroups.length > 0 ? (
+        {findingGroups.length > 0 || filtersActive ? (
         <aside className="idt-repo-finding-detail">
           {selectedFinding ? (
             <>
