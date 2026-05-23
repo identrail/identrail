@@ -1,0 +1,180 @@
+name: AWS Production Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: "Required: type release-api.identrail.com"
+        required: true
+        type: string
+      api_container_image:
+        description: "Current-commit API image, for example ghcr.io/identrail/identrail-api:sha-<current-dev-commit>."
+        required: true
+        type: string
+      api_base_url:
+        description: "Public API base URL for post-deploy smoke checks."
+        required: true
+        type: string
+        default: https://api.identrail.com
+      database_url_secret_arn:
+        description: "Optional Secrets Manager ARN. Blank uses repository secret API_DATABASE_URL_SECRET_ARN."
+        required: false
+        type: string
+      migrations_dir:
+        description: "Migration directory to apply before deploying the API and worker."
+        required: true
+        type: string
+        default: migrations
+      api_vpc_id:
+        description: "VPC ID. Leave blank to use repository variable API_VPC_ID."
+        required: false
+        type: string
+      api_public_subnet_ids_json:
+        description: "JSON array of two public subnet IDs. Leave blank to use repository variable API_PUBLIC_SUBNET_IDS_JSON."
+        required: false
+        type: string
+      api_task_subnet_ids_json:
+        description: "Optional JSON array of task subnet IDs. Blank uses the public subnets for low-cost bootstrap mode."
+        required: false
+        type: string
+      api_certificate_arn:
+        description: "ACM certificate ARN. Leave blank to use repository variable API_CERTIFICATE_ARN."
+        required: false
+        type: string
+      terraform_state_bucket:
+        description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-production-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release inputs
+    if: github.repository == 'identrail/identrail'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CONFIRM_RELEASE: ${{ inputs.confirm_release }}
+      API_CONTAINER_IMAGE: ${{ inputs.api_container_image }}
+      API_BASE_URL: ${{ inputs.api_base_url }}
+    steps:
+      - name: Validate release request
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_NAME}" != "dev" ]; then
+            echo "Run this workflow from the dev branch. The AWS OIDC role trust is intentionally scoped to refs/heads/dev."
+            exit 1
+          fi
+
+          if [ "${CONFIRM_RELEASE}" != "release-api.identrail.com" ]; then
+            echo "To release the hosted API, type release-api.identrail.com in the confirmation field."
+            exit 1
+          fi
+
+          if ! [[ "${API_CONTAINER_IMAGE}" =~ ^ghcr\.io/identrail/identrail-api:sha-([0-9a-f]{12,40})$ ]]; then
+            echo "api_container_image must be a current-commit ghcr.io/identrail/identrail-api:sha-<commit> image so migrations and deployed code come from the same source."
+            exit 1
+          fi
+
+          image_sha="${BASH_REMATCH[1]}"
+          if [[ "${GITHUB_SHA}" != "${image_sha}"* ]]; then
+            echo "api_container_image sha tag must match this workflow commit (${GITHUB_SHA}) so migrations and deployed code stay in lockstep."
+            exit 1
+          fi
+
+          api_base_url="${API_BASE_URL%/}"
+          if ! [[ "${api_base_url}" =~ ^https://[^/[:space:]]+(:[0-9]+)?$ ]]; then
+            echo "api_base_url must be a bare HTTPS origin such as https://api.identrail.com."
+            exit 1
+          fi
+
+          {
+            echo "## AWS production release"
+            echo
+            echo "- API image: \`${API_CONTAINER_IMAGE}\`"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- API base URL: \`${api_base_url}\`"
+            echo "- Next step: run database migrations before deploying API and worker."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  migrate:
+    name: Run database migrations
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/aws-api-database-migrations.yml
+    with:
+      confirm_migrations: run-api-migrations
+      database_url_secret_arn: ${{ inputs.database_url_secret_arn || '' }}
+      migrations_dir: ${{ inputs.migrations_dir }}
+    secrets: inherit
+
+  deploy:
+    name: Deploy API and worker
+    needs: migrate
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/aws-api-manual-deploy.yml
+    with:
+      operation: apply
+      confirm_apply: apply-api.identrail.com
+      api_container_image: ${{ inputs.api_container_image }}
+      api_vpc_id: ${{ inputs.api_vpc_id }}
+      api_public_subnet_ids_json: ${{ inputs.api_public_subnet_ids_json }}
+      api_task_subnet_ids_json: ${{ inputs.api_task_subnet_ids_json }}
+      api_certificate_arn: ${{ inputs.api_certificate_arn }}
+      database_url_secret_arn: ${{ inputs.database_url_secret_arn || '' }}
+      terraform_state_bucket: ${{ inputs.terraform_state_bucket || '' }}
+      terraform_state_key: ${{ vars.AWS_TERRAFORM_STATE_KEY || '' }}
+    secrets: inherit
+
+  smoke:
+    name: Verify hosted API
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      API_BASE_URL: ${{ inputs.api_base_url }}
+    steps:
+      - name: Run API smoke checks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base="${API_BASE_URL%/}"
+          last_error=""
+          curl_args=(-fsS --connect-timeout 3 --max-time 8)
+
+          for attempt in $(seq 1 30); do
+            if health="$(curl "${curl_args[@]}" "${base}/healthz" 2>&1)" &&
+               ready="$(curl "${curl_args[@]}" "${base}/readyz" 2>&1)" &&
+               auth_config="$(curl "${curl_args[@]}" "${base}/v1/auth/config" 2>&1)" &&
+               jq -e '.status == "ok"' >/dev/null <<< "${health}" &&
+               jq -e '.status == "ready"' >/dev/null <<< "${ready}" &&
+               jq -e 'has("auth") and has("features")' >/dev/null <<< "${auth_config}"; then
+              {
+                echo "## AWS production release smoke checks"
+                echo
+                echo "- \`${base}/healthz\`: ok"
+                echo "- \`${base}/readyz\`: ready"
+                echo "- \`${base}/v1/auth/config\`: returned auth and feature config"
+              } >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+
+            last_error="attempt ${attempt} failed"
+            sleep 10
+          done
+
+          echo "Hosted API smoke checks did not pass after retries: ${last_error}" >&2
+          exit 1

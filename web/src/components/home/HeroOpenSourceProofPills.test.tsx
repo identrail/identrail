@@ -43,14 +43,14 @@ describe('HeroOpenSourceProofPills', () => {
     expect(within(dockerPill as HTMLElement).queryByText('0')).not.toBeInTheDocument();
   });
 
-  it('loads pull metrics from the published Docker Hub repositories', async () => {
+  it('loads pull metrics from the primary published Docker Hub repository', async () => {
     const dockerMetricPaths: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(fetchURL(input));
       if (url.hostname === 'api.github.com') return okJSON({ stargazers_count: 3 });
       if (url.hostname === 'img.shields.io' && url.pathname.includes('/docker/pulls')) {
         dockerMetricPaths.push(url.pathname);
-        return okJSON({ message: '1' });
+        return okJSON({ message: '2.4k' });
       }
       return okJSON({});
     });
@@ -58,14 +58,8 @@ describe('HeroOpenSourceProofPills', () => {
 
     render(<HeroOpenSourceProofPills />);
 
-    await waitFor(() => expect(screen.getByText('5')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('2.4k+')).toBeInTheDocument());
 
-    expect(dockerMetricPaths).toEqual([
-      '/docker/pulls/identrail/identrail.json',
-      '/docker/pulls/identrail/identrail-api.json',
-      '/docker/pulls/identrail/identrail-worker.json',
-      '/docker/pulls/identrail/identrail-web.json',
-      '/docker/pulls/identrail/identrail-agent.json'
-    ]);
+    expect(dockerMetricPaths).toEqual(['/docker/pulls/identrail/identrail.json']);
   });
 });
