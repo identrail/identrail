@@ -161,6 +161,39 @@ func TestUpsertWorkOSUserLoginIntentRejectsUnknownIdentity(t *testing.T) {
 	}
 }
 
+func TestUpsertWorkOSUserLoginIntentPromptsSignupForDeactivatedEmail(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "revoked@example.com",
+		DisplayName:  "Old Name",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	_, err = svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:            "user_workos_new_subject",
+		Email:         "revoked@example.com",
+		EmailVerified: true,
+	}, "login")
+	if !errors.Is(err, ErrAuthReactivationRequired) {
+		t.Fatalf("expected reactivation required, got %v", err)
+	}
+	unchanged, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load retained user: %v", err)
+	}
+	if unchanged.Status != "deactivated" {
+		t.Fatalf("login prompt must not reactivate retained user, got %+v", unchanged)
+	}
+	if _, err := store.GetUserIdentity(ctx, sessionauth.WorkOSProvider, "user_workos_new_subject"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("login prompt must not create identity, got %v", err)
+	}
+}
+
 func TestUpsertWorkOSUserSignupIntentReactivatesDeactivatedEmail(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)

@@ -1002,6 +1002,19 @@ describe('App', () => {
     );
   });
 
+  it('points removed hosted accounts to sign-up reactivation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
+
+    setCurrentPath('/signin?reason=account_reactivation_required&return_to=/app/team/workspace');
+    render(<App />);
+
+    expect(await screen.findByText(/That Identrail account was previously removed/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Reactivate account/i })).toHaveAttribute(
+      'href',
+      '/signup?return_to=%2Fapp%2Fteam%2Fworkspace'
+    );
+  });
+
   it('does not show loading copy or provider actions while auth config loads', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
 

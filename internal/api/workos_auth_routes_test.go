@@ -527,6 +527,56 @@ func TestWorkOSCallbackRedirectsUnknownLoginToSignupHint(t *testing.T) {
 	}
 }
 
+func TestWorkOSCallbackRedirectsDeactivatedLoginToReactivationHint(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "revoked@example.com",
+		DisplayName:  "Revoked User",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed retained user: %v", err)
+	}
+	svc := NewService(store, fakeScanner{}, "aws")
+	workOS := &fakeWorkOSClient{authentication: sessionauth.WorkOSAuthentication{
+		User: sessionauth.WorkOSProfile{ID: "user_workos_recreated", Email: "revoked@example.com", EmailVerified: true},
+	}}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://api.identrail.test",
+		CORSAllowedOrigins:  []string{"https://app.identrail.test"},
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=https%3A%2F%2Fapp.identrail.test%2Fapp%2Fwelcome", nil))
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected reactivation redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); got != "https://app.identrail.test/signin?reason=account_reactivation_required&return_to=%2Fapp%2Fwelcome" {
+		t.Fatalf("unexpected reactivation redirect: %q", got)
+	}
+	unchanged, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load retained user: %v", err)
+	}
+	if unchanged.Status != "deactivated" {
+		t.Fatalf("login prompt must not reactivate retained user, got %+v", unchanged)
+	}
+	if _, err := store.GetUserIdentity(ctx, sessionauth.WorkOSProvider, "user_workos_recreated"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("login prompt must not create identity, got %v", err)
+	}
+}
+
 func TestWorkOSSignupUsesScreenHintAndFallsBackToOnboarding(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
