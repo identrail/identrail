@@ -3193,7 +3193,8 @@ func TestPostgresStoreClaimNextQueuedScanAnyScopeBypassesScopeInjection(t *testi
 		WithArgs("aws").
 		WillReturnRows(rows)
 
-	record, err := store.ClaimNextQueuedScanAnyScope(context.Background(), "aws")
+	scopedCtx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	record, err := store.ClaimNextQueuedScanAnyScope(scopedCtx, "aws")
 	if err != nil {
 		t.Fatalf("claim any-scope scan: %v", err)
 	}
@@ -3227,7 +3228,8 @@ func TestPostgresStoreClaimNextQueuedRepoScanAnyScopeBypassesScopeInjection(t *t
 	mock.ExpectQuery("WITH next_repo_scan AS").
 		WillReturnRows(rows)
 
-	record, err := store.ClaimNextQueuedRepoScanAnyScope(context.Background())
+	scopedCtx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	record, err := store.ClaimNextQueuedRepoScanAnyScope(scopedCtx)
 	if err != nil {
 		t.Fatalf("claim any-scope repo scan: %v", err)
 	}
