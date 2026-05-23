@@ -790,4 +790,26 @@ describe('ProductFindingsPage states', () => {
     // The dashboard chrome renders for a succeeded scan.
     expect(screen.getByText('Completed repo scans')).toBeInTheDocument();
   });
+
+  it('shows "No completed scan results" while an active scan is still running', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-in-flight',
+      status: 'failed',
+      finished_at: '2026-05-17T11:03:00Z',
+      error_message: 'Repository access revoked'
+    };
+    const queuedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-queued-in-flight',
+      status: 'queued',
+      finished_at: undefined
+    };
+
+    await renderFindings({ repoScans: [queuedScan, failedScan] });
+
+    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
+    expect(screen.queryByText('No exposure found')).not.toBeInTheDocument();
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+  });
 });

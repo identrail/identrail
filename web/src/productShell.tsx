@@ -6012,7 +6012,7 @@ export function ProductFindingsPage() {
   const latestScan = scansByRecency[0] ?? null;
   const latestFailedScan = failedScans[0] ?? null;
   const hasQueuedOrRunningScan = scansByRecency.some((scan) => isActiveScanStatus(scan.status));
-  const hasCompletedScan = scansByRecency.some((scan) => isCompletedScanStatus(scan.status));
+  const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
   const neverScanned = repoScans.length === 0;
   const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && succeededScanCount === 0 && failedScans.length > 0;
   const latestScanFailed = latestScan ? repoScanStatusTone(latestScan.status) === 'error' : false;
@@ -6402,7 +6402,7 @@ export function ProductFindingsPage() {
                 title="No findings match these filters"
                 body="Loosen the current filters to inspect GitHub-linked findings from your scans."
               />
-            ) : hasCompletedScan ? (
+            ) : latestScanSucceeded ? (
               <AppShellEmptyState
                 title="No exposure found"
                 body="Your latest repository scan completed and surfaced no findings. New findings will appear here after the next scan."
@@ -6410,7 +6410,7 @@ export function ProductFindingsPage() {
             ) : (
               <AppShellEmptyState
                 title="No completed scan results"
-                body="Your repository scan is still running; findings will appear here once a scan completes."
+                body="No completed scan has surfaced findings yet. New findings will appear here after the next successful scan."
               />
             )
           ) : (
