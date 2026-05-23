@@ -6011,8 +6011,8 @@ export function ProductFindingsPage() {
   const failedScans = scansByRecency.filter((scan) => repoScanStatusTone(scan.status) === 'error');
   const latestScan = scansByRecency[0] ?? null;
   const latestFailedScan = failedScans[0] ?? null;
-  const hasQueuedOrRunningScan = scansByRecency.some((scan) => isRepoScanQueuedOrRunning(scan.status));
-  const hasCompletedScan = scansByRecency.some((scan) => isRepoScanCompleted(scan.status));
+  const hasQueuedOrRunningScan = scansByRecency.some((scan) => isActiveScanStatus(scan.status));
+  const hasCompletedScan = scansByRecency.some((scan) => isCompletedScanStatus(scan.status));
   const neverScanned = repoScans.length === 0;
   const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && succeededScanCount === 0 && failedScans.length > 0;
   const latestScanFailed = latestScan ? repoScanStatusTone(latestScan.status) === 'error' : false;

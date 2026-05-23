@@ -747,6 +747,7 @@ async function renderFindings(options: { repoScans?: RepoScanRecord[] } = {}) {
 describe('ProductFindingsPage states', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useMe');
     vi.resetModules();
   });
 
