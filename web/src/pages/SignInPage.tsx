@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, buildAPIURL, type AuthConfigResponse } from '../api/client';
+import { getCachedAuthConfig, loadAuthConfig } from '../authConfigCache';
 
 type AuthIntent = 'login' | 'signup';
 
@@ -184,8 +185,9 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   const returnTo = normalizeReturnTo(query.get('return_to') ?? query.get('next'));
   const signedOut = query.get('signed_out') === '1';
   const reason = authReasonDetails(query.get('reason') ?? '', returnTo);
-  const [config, setConfig] = useState<AuthConfigResponse | null>(null);
-  const [loadingConfig, setLoadingConfig] = useState(true);
+  const initialConfig = getCachedAuthConfig();
+  const [config, setConfig] = useState<AuthConfigResponse | null>(initialConfig);
+  const [loadingConfig, setLoadingConfig] = useState(!initialConfig);
   const [configError, setConfigError] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualError, setManualError] = useState('');
@@ -203,10 +205,16 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   useEffect(() => {
     let mounted = true;
     const run = async () => {
-      setLoadingConfig(true);
+      const cached = getCachedAuthConfig();
+      if (cached) {
+        setConfig(cached);
+        setLoadingConfig(false);
+      } else {
+        setLoadingConfig(true);
+      }
       setConfigError('');
       try {
-        const response = await apiClient.getAuthConfig();
+        const response = await loadAuthConfig();
         if (mounted) {
           setConfig(response);
         }

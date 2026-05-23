@@ -3,6 +3,9 @@ import { renderToString } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, RoutedSite, ScanIntakeModalProvider } from './App';
+import { clearAuthConfigCacheForTests } from './authConfigCache';
+import { clearMeCacheForTests } from './hooks/useMe';
+import { clearProductAuthSessionCacheForTests } from './productShell';
 
 function resetBrowserState() {
   window.history.replaceState({}, '', '/');
@@ -174,6 +177,9 @@ describe('App', () => {
     vi.useRealTimers();
     cleanup();
     resetBrowserState();
+    clearAuthConfigCacheForTests();
+    clearMeCacheForTests();
+    clearProductAuthSessionCacheForTests();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -182,6 +188,9 @@ describe('App', () => {
   afterEach(() => {
     cleanup();
     resetBrowserState();
+    clearAuthConfigCacheForTests();
+    clearMeCacheForTests();
+    clearProductAuthSessionCacheForTests();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -241,12 +250,36 @@ describe('App', () => {
     ['l', '/signin'],
     ['S', '/signup']
   ])('routes the %s header keyboard shortcut to %s', async (key, expectedPath) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(authConfig(false, true)));
     setCurrentPath('/');
     render(<App />);
 
     fireEvent.keyDown(document, { key });
 
     await waitFor(() => expect(window.location.pathname).toBe(expectedPath));
+  });
+
+  it('reuses loaded auth options when switching between log in and sign up', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(authConfig(false, true));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/signin');
+    render(<App />);
+
+    expect(await screen.findByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
+    const authCallsBeforeNavigation = fetchMock.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.endsWith('/v1/auth/config')
+    ).length;
+
+    fireEvent.click(screen.getAllByRole('link', { name: 'Sign Up' })[0]);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/signup'));
+    expect(screen.getByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Loading authentication/i)).not.toBeInTheDocument();
+    const authCallsAfterNavigation = fetchMock.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.endsWith('/v1/auth/config')
+    ).length;
+    expect(authCallsAfterNavigation).toBe(authCallsBeforeNavigation);
   });
 
   it.each([
@@ -825,6 +858,59 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
     const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
     expect(meCallsAfterNavigation).toBe(meCallsBeforeNavigation);
+  });
+
+  it('keeps validated session state warm across guarded app routes', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({
+          items: [
+            {
+              id: 'session-1',
+              auth_method: 'manual',
+              created_at: '2026-01-01T00:00:00Z',
+              idle_expires_at: '2026-01-02T00:00:00Z',
+              last_seen_at: '2026-01-01T01:00:00Z',
+              user_agent: 'Safari',
+              ip: '127.0.0.1',
+              current: true
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, '', '/app/account/security');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading account security/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {

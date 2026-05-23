@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { preloadAuthConfig } from '../../authConfigCache';
 import { siteLinks } from '../../siteConfig';
 
 type NavLinkItem = {
@@ -71,6 +72,7 @@ export function Header({
 
       event.preventDefault();
       setMenuOpen(false);
+      preloadAuthConfig();
       navigate(key === 'l' ? siteLinks.signIn : '/signup');
     };
 
@@ -112,13 +114,26 @@ export function Header({
         </nav>
 
         <div className={`idt-header-actions ${menuOpen ? 'is-open' : ''}`}>
-          <Link to={siteLinks.signIn} className="idt-header-utility idt-header-auth-chip">
+          <Link
+            to={siteLinks.signIn}
+            className="idt-header-utility idt-header-auth-chip"
+            onFocus={preloadAuthConfig}
+            onMouseEnter={preloadAuthConfig}
+            onPointerDown={preloadAuthConfig}
+          >
             <span>Log in</span>
             <span className="idt-header-keycap" aria-hidden="true">
               L
             </span>
           </Link>
-          <Link to="/signup" className="idt-header-utility idt-header-signup idt-header-auth-chip is-primary" data-ab-slot="header_primary_cta">
+          <Link
+            to="/signup"
+            className="idt-header-utility idt-header-signup idt-header-auth-chip is-primary"
+            data-ab-slot="header_primary_cta"
+            onFocus={preloadAuthConfig}
+            onMouseEnter={preloadAuthConfig}
+            onPointerDown={preloadAuthConfig}
+          >
             <span>Sign up</span>
             <span className="idt-header-keycap" aria-hidden="true">
               S

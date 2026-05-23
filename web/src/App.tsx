@@ -12,6 +12,7 @@ import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
 import { BLOG_POSTS, DOC_ENTRIES, HOME_FAQ_ITEMS } from './content/resources';
 import { AccountSecurityPage } from './pages/AccountSecurityPage';
+import { preloadAuthConfig } from './authConfigCache';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
@@ -4825,6 +4826,14 @@ export function RoutedSite() {
       // Ignore storage write failures (blocked/disabled storage).
     }
   }, []);
+
+  useEffect(() => {
+    if (isProductShellRoute || isOnboardingRoute || isAuthChoiceRoute) {
+      return;
+    }
+    const preloadTimer = window.setTimeout(preloadAuthConfig, 50);
+    return () => window.clearTimeout(preloadTimer);
+  }, [isAuthChoiceRoute, isOnboardingRoute, isProductShellRoute]);
 
   return (
     <div className={`idt-site ${isAuthChoiceRoute ? 'idt-site-auth' : ''}`}>
