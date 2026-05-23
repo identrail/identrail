@@ -89,7 +89,7 @@ func TestBuildInstallURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build install url: %v", err)
 	}
-	if !strings.HasPrefix(got, "https://github.com/apps/identrail-app/installations/new?") ||
+	if !strings.HasPrefix(got, "https://github.com/apps/identrail-app/installations/select_target?") ||
 		!strings.Contains(got, "state=state-1") {
 		t.Fatalf("unexpected install url: %s", got)
 	}

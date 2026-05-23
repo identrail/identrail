@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { SafeLink } from '../SafeLink';
-import { siteLinks } from '../../siteConfig';
+import { siteEmails, siteLinks } from '../../siteConfig';
 
 function GitHubIcon() {
   return (
@@ -57,6 +57,7 @@ export const FOOTER_TRUST_LINKS = [
   { label: 'FAQ', to: '/faq', external: false },
   { label: 'Privacy', to: '/privacy', external: false },
   { label: 'Terms', to: '/terms', external: false },
+  { label: 'Contact', to: `mailto:${siteEmails.contact}`, external: true },
   { label: 'Responsible Disclosure', to: '/responsible-disclosure', external: false },
   { label: 'Changelog', to: siteLinks.changelog, external: true }
 ] as const;

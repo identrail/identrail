@@ -1,3 +1,11 @@
+export const siteEmails = {
+  contact: 'contact@identrail.com',
+  support: 'support@identrail.com',
+  security: 'security@identrail.com',
+  marketing: 'marketing@identrail.com',
+  founder: 'founder@identrail.com'
+} as const;
+
 export const siteLinks = {
   app: '/app',
   signIn: '/signin',
@@ -41,7 +49,7 @@ export const siteLinks = {
   legalCookies: '/privacy-choices',
   security: '/security',
   trustCenter: '/security', // TODO: add dedicated /trust-center route later.
-  contact: '/responsible-disclosure',
+  contact: `mailto:${siteEmails.contact}`,
   changelog: 'https://github.com/identrail/identrail/blob/dev/CHANGELOG.md',
   linkedin: 'https://www.linkedin.com/company/identrail',
   x: 'https://x.com/identrail'

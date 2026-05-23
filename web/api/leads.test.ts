@@ -97,8 +97,8 @@ describe('web/api/leads handler', () => {
 
   it('rejects common personal email domains before delivery', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -121,8 +121,8 @@ describe('web/api/leads handler', () => {
 
   it('rejects disposable bot email domains before delivery', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -145,8 +145,8 @@ describe('web/api/leads handler', () => {
 
   it('requires a matching company domain for read-only scan requests', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -174,8 +174,8 @@ describe('web/api/leads handler', () => {
 
   it('requires requester details for read-only scan requests', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -205,8 +205,8 @@ describe('web/api/leads handler', () => {
 
   it('rejects read-only scan company domains without public DNS records', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     mockCompanyDomainDNS(false);
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
@@ -235,8 +235,8 @@ describe('web/api/leads handler', () => {
 
   it('rejects invalid public repository URLs for read-only scan requests', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -267,8 +267,8 @@ describe('web/api/leads handler', () => {
 
   it('rejects non-string public repository URL values without throwing', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -299,8 +299,8 @@ describe('web/api/leads handler', () => {
 
   it('rejects non-web public repository URL schemes', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -331,8 +331,8 @@ describe('web/api/leads handler', () => {
 
   it('treats a stalled DNS resolver as no public records instead of hanging', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     resolve4Mock.mockReset();
     resolve6Mock.mockReset();
     resolveMxMock.mockReset();
@@ -557,8 +557,8 @@ describe('web/api/leads handler', () => {
 
   it('sends internal and confirmation emails through Resend when configured', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com, security@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com, marketing@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -597,8 +597,8 @@ describe('web/api/leads handler', () => {
     expect(notificationHeaders['Idempotency-Key']).toMatch(/lead-notification$/);
     const notificationBody = JSON.parse(String(notificationInit.body));
     expect(notificationBody).toMatchObject({
-      from: 'Identrail <scan@identrail.com>',
-      to: ['sales@identrail.com', 'security@identrail.com'],
+      from: 'Identrail <contact@identrail.com>',
+      to: ['contact@identrail.com', 'marketing@identrail.com'],
       reply_to: 'security@company.com',
       subject: '[Identrail] New risk scan request from Company Inc (security@company.com)'
     });
@@ -612,16 +612,16 @@ describe('web/api/leads handler', () => {
     const confirmationHeaders = (confirmationInit.headers ?? {}) as Record<string, string>;
     expect(confirmationHeaders['Idempotency-Key']).toMatch(/lead-confirmation$/);
     expect(JSON.parse(String(confirmationInit.body))).toMatchObject({
-      from: 'Identrail <scan@identrail.com>',
+      from: 'Identrail <contact@identrail.com>',
       to: 'security@company.com',
-      reply_to: 'sales@identrail.com',
+      reply_to: 'contact@identrail.com',
       subject: 'We received your Identrail risk scan request'
     });
   });
 
   it('requires an explicit sender address for Resend delivery', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -644,8 +644,8 @@ describe('web/api/leads handler', () => {
 
   it('can disable requester confirmation while still notifying the team', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     process.env.LEAD_CONFIRMATION_ENABLED = 'false';
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
@@ -668,8 +668,8 @@ describe('web/api/leads handler', () => {
 
   it('accepts the lead when requester confirmation fails after notifying the team', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: true })
@@ -699,8 +699,8 @@ describe('web/api/leads handler', () => {
 
   it('returns 502 when Resend email delivery fails', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     const fetchMock = vi.fn(async () => ({ ok: false }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -722,8 +722,8 @@ describe('web/api/leads handler', () => {
 
   it('still forwards to the webhook when Resend email delivery fails', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     process.env.LEAD_WEBHOOK_URL = 'https://example.test/webhook';
     const fetchMock = vi
       .fn()
@@ -763,8 +763,8 @@ describe('web/api/leads handler', () => {
 
   it('accepts the lead when Resend succeeds and optional webhook forwarding fails', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
-    process.env.LEAD_NOTIFY_TO = 'sales@identrail.com';
-    process.env.LEAD_EMAIL_FROM = 'Identrail <scan@identrail.com>';
+    process.env.LEAD_NOTIFY_TO = 'contact@identrail.com';
+    process.env.LEAD_EMAIL_FROM = 'Identrail <contact@identrail.com>';
     process.env.LEAD_CONFIRMATION_ENABLED = 'false';
     process.env.LEAD_WEBHOOK_URL = 'https://example.test/webhook';
     const fetchMock = vi

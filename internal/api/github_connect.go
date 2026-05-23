@@ -311,7 +311,7 @@ func (s *Service) StartGitHubConnection(ctx context.Context, workspaceID string,
 	if redirect := strings.TrimSpace(request.RedirectURI); redirect != "" {
 		values.Set("redirect_uri", redirect)
 	}
-	connectURL := "https://github.com/apps/" + appSlug + "/installations/new?" + values.Encode()
+	connectURL := "https://github.com/apps/" + appSlug + "/installations/select_target?" + values.Encode()
 
 	s.githubConnectMu.Lock()
 	s.ensureGitHubConnectionState()
