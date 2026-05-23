@@ -876,7 +876,7 @@ describe('ProductFindingsPage states', () => {
     });
 
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
-    expect(screen.getByText('Completed repo scans')).toBeInTheDocument();
+    expect(await screen.findByText(/Completed\s+repo\s+scans/i)).toBeInTheDocument();
     expect(screen.getByText('Legacy finding')).toBeInTheDocument();
   });
 
