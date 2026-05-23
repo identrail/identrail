@@ -53,6 +53,60 @@ describe('groupRepoFindingsForDisplay', () => {
     expect(groups[2].findings.map((item) => item.id)).toEqual(['critical-item']);
   });
 
+  it('keeps partial finding records in the unknown severity bucket', () => {
+    const partialFinding = { ...finding('missing-severity', 'high'), severity: undefined } as unknown as ApiFinding;
+
+    const groups = groupRepoFindingsForDisplay([partialFinding], 'severity');
+
+    expect(groups.map((group) => group.key)).toEqual(['unknown']);
+    expect(groups[0].findings.map((item) => item.id)).toEqual(['missing-severity']);
+  });
+
+  it('creates stable and unique fallback keys when selection identifiers are missing', () => {
+    const firstPartialFinding = {
+      ...finding('placeholder-1', 'high'),
+      id: undefined,
+      scan_id: undefined,
+      title: 'Partial finding one',
+      created_at: '2026-01-01T00:00:00Z'
+    } as unknown as ApiFinding;
+    const secondPartialFinding = {
+      ...finding('placeholder-2', 'medium'),
+      id: undefined,
+      scan_id: undefined,
+      title: 'Partial finding two',
+      created_at: '2026-01-02T00:00:00Z'
+    } as unknown as ApiFinding;
+
+    const firstKey = buildRepoFindingSelectionKey(firstPartialFinding);
+    const secondKey = buildRepoFindingSelectionKey(secondPartialFinding);
+    const refreshedFirstKey = buildRepoFindingSelectionKey({ ...firstPartialFinding });
+
+    expect(firstKey).toBe(buildRepoFindingSelectionKey(firstPartialFinding));
+    expect(refreshedFirstKey).toBe(firstKey);
+    expect(secondKey).toBe(buildRepoFindingSelectionKey(secondPartialFinding));
+    expect(firstKey).not.toBe(secondKey);
+  });
+
+  it('finds refreshed fallback records by deterministic selection key', () => {
+    const partialFinding = {
+      ...finding('placeholder-1', 'high'),
+      id: undefined,
+      scan_id: undefined,
+      title: 'Partial finding one',
+      repository: 'owner/repo',
+      file_path: '.github/workflows/deploy.yml',
+      line_number: 42,
+      created_at: '2026-01-01T00:00:00Z'
+    } as unknown as ApiFinding;
+
+    const selectionKey = buildRepoFindingSelectionKey(partialFinding);
+    const refreshedFinding = { ...partialFinding };
+
+    expect(buildRepoFindingSelectionKey(refreshedFinding)).toBe(selectionKey);
+    expect(findRepoFindingBySelectionKey([refreshedFinding], selectionKey)?.title).toBe('Partial finding one');
+  });
+
   it('selects findings by scan id and finding id together', () => {
     const first = finding('shared-id', 'high');
     const second = { ...finding('shared-id', 'low'), scan_id: 'scan-2', title: 'scan-2 finding' };

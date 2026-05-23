@@ -11,14 +11,52 @@ export type RepoFindingDisplayGroup = {
   findings: ApiFinding[];
 };
 
-export type RepoFindingSelection = Pick<ApiFinding, 'id' | 'scan_id'>;
+export type RepoFindingSelection = Partial<
+  Pick<
+    ApiFinding,
+    | 'id'
+    | 'scan_id'
+    | 'created_at'
+    | 'repository'
+    | 'type'
+    | 'title'
+    | 'source_url'
+    | 'lifecycle_key'
+    | 'file_path'
+    | 'line_number'
+    | 'detector'
+    | 'commit'
+    | 'human_summary'
+    | 'remediation'
+  >
+>;
 
-function normalizeSeverityBucket(value: string): (typeof SEVERITY_ORDER)[number] {
-  const normalized = value.trim().toLowerCase();
+function normalizeDisplayValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  return '';
+}
+
+function normalizeSeverityBucket(value: unknown): (typeof SEVERITY_ORDER)[number] {
+  const normalized = normalizeDisplayValue(value).toLowerCase();
   if (SEVERITY_ORDER.includes(normalized as (typeof SEVERITY_ORDER)[number])) {
     return normalized as (typeof SEVERITY_ORDER)[number];
   }
   return 'unknown';
+}
+
+function stableFallbackFingerprint(values: string[]): string {
+  const source = values.join('\u001f');
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function groupRepoFindingsForDisplay(
@@ -57,7 +95,29 @@ export function groupRepoFindingsForDisplay(
 }
 
 export function buildRepoFindingSelectionKey(finding: RepoFindingSelection): string {
-  return `${finding.scan_id}::${finding.id}`;
+  const scanID = normalizeDisplayValue(finding.scan_id);
+  const findingID = normalizeDisplayValue(finding.id);
+  if (scanID && findingID) {
+    return `${scanID}::${findingID}`;
+  }
+
+  const fallbackParts = [
+    scanID,
+    findingID,
+    normalizeDisplayValue(finding.lifecycle_key),
+    normalizeDisplayValue(finding.repository),
+    normalizeDisplayValue(finding.type),
+    normalizeDisplayValue(finding.title),
+    normalizeDisplayValue(finding.created_at),
+    normalizeDisplayValue(finding.source_url),
+    normalizeDisplayValue(finding.file_path),
+    normalizeDisplayValue(finding.line_number),
+    normalizeDisplayValue(finding.detector),
+    normalizeDisplayValue(finding.commit),
+    normalizeDisplayValue(finding.human_summary),
+    normalizeDisplayValue(finding.remediation)
+  ];
+  return `partial::${stableFallbackFingerprint(fallbackParts)}`;
 }
 
 export function findRepoFindingBySelectionKey(findings: ApiFinding[], selectionKey: string): ApiFinding | null {

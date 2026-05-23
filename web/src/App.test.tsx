@@ -4,6 +4,14 @@ import { StaticRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, RoutedSite, ScanIntakeModalProvider } from './App';
 
+function resetBrowserState() {
+  window.history.replaceState({}, '', '/');
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+  document.documentElement.removeAttribute('data-theme');
+  document.body.removeAttribute('style');
+}
+
 function okJSON(payload: unknown) {
   return {
     ok: true,
@@ -163,7 +171,9 @@ function leadCaptureCalls(fetchMock: ReturnType<typeof vi.fn>) {
 
 describe('App', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     cleanup();
+    resetBrowserState();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -171,9 +181,11 @@ describe('App', () => {
 
   afterEach(() => {
     cleanup();
+    resetBrowserState();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('renders homepage hero and conversion CTAs', () => {
@@ -764,6 +776,98 @@ describe('App', () => {
     );
   });
 
+  it('keeps the workspace shell mounted when switching app sections', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    await screen.findByRole('region', { name: /Get started/i });
+    expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
+
+    fireEvent.click(screen.getByRole('link', { name: 'Projects' }));
+
+    expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
+    const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
+    expect(meCallsAfterNavigation).toBe(meCallsBeforeNavigation);
+  });
+
+  it('revalidates session after same-workspace navigation from an auth error', async () => {
+    let meCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        meCalls += 1;
+        return meCalls === 1
+          ? errorJSON(503, 'temporary session outage')
+          : okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Unable to validate account session/i);
+
+    act(() => {
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(meCalls).toBe(2);
+  });
+
   it('keeps the overview trend delta neutral until two trend points exist', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -859,8 +963,8 @@ describe('App', () => {
     setCurrentPath('/app/tenant-b/workspace-b');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i }, { timeout: 5000 })).toBeInTheDocument();
     const checklistRegion = await screen.findByRole('region', { name: /Get started/i }, { timeout: 5000 });
+    expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     const sourceChecklistItem = within(checklistRegion).getByText('Connect a source').closest('li');
     expect(sourceChecklistItem).not.toBeNull();
     if (!sourceChecklistItem) {
@@ -1019,6 +1123,16 @@ describe('App', () => {
               source_url: 'https://github.com/owner/repo/blob/abc123/config/app.env#L7',
               remediation: 'Rotate the key and move the credential to a secret manager.',
               created_at: '2026-01-01T00:00:00Z'
+            },
+            {
+              id: 'repo-f2',
+              scan_id: 'repo-scan-1',
+              type: 'repo_exposure',
+              severity: undefined,
+              title: 'Finding record with a missing severity',
+              human_summary: 'Legacy API records can omit optional display fields while scans are still being normalized.',
+              repository: 'owner/repo',
+              created_at: '2026-01-01T00:01:00Z'
             }
           ]
         });
@@ -1038,6 +1152,13 @@ describe('App', () => {
     expect(await screen.findByText(/Finding trend/i)).toBeInTheDocument();
     expect(await screen.findByText(/Critical 0 \/ High 1 \/ Medium 0 \/ Low 0 \/ Info 0/i)).toBeInTheDocument();
     expect(await screen.findByText(/Risk \(high/i)).toBeInTheDocument();
+    const missingSeverityFinding = await screen.findByText(/Finding record with a missing severity/i);
+    const missingSeverityRow = missingSeverityFinding.closest('button');
+    expect(missingSeverityRow).not.toBeNull();
+    if (!missingSeverityRow) {
+      throw new Error('missing finding row');
+    }
+    expect(within(missingSeverityRow).getByText('Unknown')).toBeInTheDocument();
 
     const openInGitHub = await screen.findByRole('link', { name: /Open in GitHub/i });
     expect(openInGitHub).toHaveAttribute('href', 'https://github.com/owner/repo/blob/abc123/config/app.env#L7');
