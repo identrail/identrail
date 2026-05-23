@@ -246,6 +246,16 @@ describe('App', () => {
     expect(document.querySelector('a[href*="calendly"]')).not.toBeInTheDocument();
   });
 
+  it('routes shared sales CTAs to the marketing mailbox', () => {
+    setCurrentPath('/enterprise');
+    render(<App />);
+
+    expect(screen.getByRole('link', { name: /Talk to Sales/i })).toHaveAttribute(
+      'href',
+      'mailto:marketing@identrail.com?subject=Identrail%20demo%20and%20sales%20conversation'
+    );
+  });
+
   it.each([
     ['l', '/signin'],
     ['S', '/signup']

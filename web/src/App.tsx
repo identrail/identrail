@@ -67,7 +67,9 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const SUPPORT_EMAIL = siteEmails.support;
 const SECURITY_EMAIL = siteEmails.security;
+const MARKETING_EMAIL = siteEmails.marketing;
 const DEMO_BOOKING_PATH = '/demo#book-demo';
+const SALES_MAILTO = `mailto:${MARKETING_EMAIL}?subject=Identrail%20demo%20and%20sales%20conversation`;
 const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
@@ -1582,9 +1584,9 @@ function BookingPrompt() {
             <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary">
               Choose Demo Time
             </Link>
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+            <a href={SALES_MAILTO} className="idt-btn idt-btn-dark">
               Talk to Sales
-            </Link>
+            </a>
           </div>
         </article>
         <aside className="idt-booking-prompt-preview" aria-label="Demo agenda preview">

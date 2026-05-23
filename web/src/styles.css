@@ -17419,6 +17419,23 @@ html[data-theme='light'] .idt-modern-public-page .idt-blog-section h2 {
   color: #ffffff;
 }
 
+/* Keep the shared booking prompt legible when it sits inside modern public pages. */
+html[data-theme='light'] .idt-modern-public-page .idt-booking-prompt .idt-section-title h2 {
+  color: #183056;
+}
+
+html[data-theme='light'] .idt-modern-public-page .idt-booking-prompt .idt-section-title p,
+html[data-theme='light'] .idt-modern-public-page .idt-booking-prompt-note,
+html[data-theme='light'] .idt-modern-public-page .idt-booking-prompt-checklist,
+html[data-theme='light'] .idt-modern-public-page .idt-booking-prompt-preview ol {
+  color: #2f486f;
+}
+
+html[data-theme='light'] .idt-modern-public-page .idt-booking-prompt .idt-section-title .idt-eyebrow,
+html[data-theme='light'] .idt-modern-public-page .idt-booking-prompt-preview .idt-eyebrow {
+  color: #5d79a4;
+}
+
 .idt-modern-public-page .idt-card,
 .idt-modern-public-page .idt-lead-form,
 .idt-modern-public-page .idt-table-wrap,
