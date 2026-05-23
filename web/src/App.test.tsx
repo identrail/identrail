@@ -856,8 +856,10 @@ describe('App', () => {
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
-    const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
-    expect(meCallsAfterNavigation).toBe(meCallsBeforeNavigation);
+    await waitFor(() => {
+      const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
+      expect(meCallsAfterNavigation).toBeGreaterThan(meCallsBeforeNavigation);
+    });
   });
 
   it('keeps validated session state warm across guarded app routes', async () => {
@@ -901,7 +903,9 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    });
 
     act(() => {
       window.history.pushState({}, '', '/app/account/security');
@@ -911,6 +915,154 @@ describe('App', () => {
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Loading account security/i)).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
+  });
+
+  it('silently revalidates warm guarded routes and clears a revoked server session', async () => {
+    let meCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        meCalls += 1;
+        return meCalls === 1 ? okJSON(currentMePayload('tenant-a', 'workspace-a')) : errorJSON(401, 'session revoked');
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('link', { name: 'Projects' }));
+
+    expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/signin');
+    expect(window.location.search).toContain('return_to=%2Fapp%2Ftenant-a%2Fworkspace-a%2Fprojects');
+  });
+
+  it('keeps mismatched scoped routes loading until tenant redirects complete', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-b', 'workspace-b'));
+      }
+      if (url.includes('/v1/workspaces/workspace-b/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        throw new Error('stale workspace route rendered before tenant redirect completed');
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/app/tenant-b/workspace-b');
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) => typeof url === 'string' && url.includes('/v1/workspaces/workspace-a/projects'))
+    ).toBe(false);
+  });
+
+  it('clears stale scoped auth after a session-only validation', async () => {
+    let meCalls = 0;
+    let resolveScopedMe: (response: ReturnType<typeof okJSON>) => void = () => {};
+    const scopedMeResponse = new Promise<ReturnType<typeof okJSON>>((resolve) => {
+      resolveScopedMe = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        meCalls += 1;
+        if (meCalls === 1) {
+          return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+        }
+        if (meCalls === 2) {
+          return okJSON(currentMePayload('', ''));
+        }
+        return scopedMeResponse;
+      }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    });
+
+    act(() => {
+      window.history.pushState({}, '', '/app/account/security');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    expect(await screen.findByText(/Validating session/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: /Choose a project/i })).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveScopedMe(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+      await scopedMeResponse;
+    });
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {

@@ -211,6 +211,7 @@ const TREND_POINTS = 10;
 const PRODUCT_AUTH_SESSION_SCOPE_KEY = '__product_session__';
 let validatedProductAuthSession = false;
 let validatedProductAuthScopeKey = '';
+let productAuthSessionVersion = 0;
 
 function hasValidatedProductAuthScope(routeScopeKey: string): boolean {
   if (!validatedProductAuthSession) {
@@ -220,19 +221,24 @@ function hasValidatedProductAuthScope(routeScopeKey: string): boolean {
 }
 
 function setValidatedProductAuthScope(routeScopeKey: string) {
+  productAuthSessionVersion += 1;
   validatedProductAuthSession = true;
   if (routeScopeKey !== PRODUCT_AUTH_SESSION_SCOPE_KEY) {
     validatedProductAuthScopeKey = routeScopeKey;
+  } else {
+    validatedProductAuthScopeKey = '';
   }
 }
 
 function resetProductAuthSessionCache(options: { unauthenticated?: boolean } = {}) {
+  productAuthSessionVersion += 1;
   validatedProductAuthSession = false;
   validatedProductAuthScopeKey = '';
   clearMeCache(options);
 }
 
 export function clearProductAuthSessionCacheForTests() {
+  productAuthSessionVersion += 1;
   validatedProductAuthSession = false;
   validatedProductAuthScopeKey = '';
 }
@@ -1002,14 +1008,12 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const run = async () => {
-      const alreadyValidated = validatedScopeKeyRef.current === routeScopeKey || hasValidatedProductAuthScope(routeScopeKey);
-      if (alreadyValidated && statusRef.current === 'authenticated') {
-        validatedScopeKeyRef.current = routeScopeKey;
-        setValidatedScopeKey(routeScopeKey);
-        return;
+    const validateSession = async (options: { silent?: boolean } = {}) => {
+      const silent = options.silent === true;
+      const requestSessionVersion = productAuthSessionVersion;
+      if (!silent) {
+        setStatus('checking');
       }
-      setStatus('checking');
       setError('');
       try {
         const current = await apiClient.getMe({ redirectOnUnauthorized: false });
@@ -1018,7 +1022,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
         const currentScopeKey =
           currentTenantID && currentWorkspaceID ? `${currentTenantID}::${currentWorkspaceID}` : PRODUCT_AUTH_SESSION_SCOPE_KEY;
         let validatedRouteScopeKey = routeScopeKey;
-        if (!mounted) {
+        if (!mounted || requestSessionVersion !== productAuthSessionVersion) {
           return;
         }
         primeMeCache(current.me);
@@ -1035,8 +1039,8 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
             }
             navigateRef.current(buildTenantWorkspacePath(currentTenantID, currentWorkspaceID), { replace: true });
             setValidatedProductAuthScope(currentScopeKey);
-            validatedScopeKeyRef.current = routeScopeKey;
-            setValidatedScopeKey(routeScopeKey);
+            validatedScopeKeyRef.current = currentScopeKey;
+            setValidatedScopeKey(currentScopeKey);
             setStatus('authenticated');
             return;
           }
@@ -1053,7 +1057,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
         setValidatedScopeKey(routeScopeKey);
         setStatus('authenticated');
       } catch (requestError) {
-        if (!mounted) {
+        if (!mounted || requestSessionVersion !== productAuthSessionVersion) {
           return;
         }
         if (requestError instanceof ApiError && requestError.status === 401) {
@@ -1061,14 +1065,27 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
           setStatus('unauthenticated');
           return;
         }
+        if (silent) {
+          return;
+        }
         const message = requestError instanceof Error ? requestError.message : 'Unable to validate account session.';
-        validatedProductAuthSession = false;
-        validatedProductAuthScopeKey = '';
+        resetProductAuthSessionCache();
         validatedScopeKeyRef.current = '';
         setValidatedScopeKey('');
         setError(message);
         setStatus('error');
       }
+    };
+
+    const run = async () => {
+      const alreadyValidated = validatedScopeKeyRef.current === routeScopeKey || hasValidatedProductAuthScope(routeScopeKey);
+      if (alreadyValidated && statusRef.current === 'authenticated') {
+        validatedScopeKeyRef.current = routeScopeKey;
+        setValidatedScopeKey(routeScopeKey);
+        await validateSession({ silent: true });
+        return;
+      }
+      await validateSession();
     };
 
     void run();
