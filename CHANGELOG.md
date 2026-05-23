@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Reworked the repository Findings page information architecture. Consolidated
+  the ten summary tiles into four (open, critical, mean-time-to-fix, completed
+  scans) with supporting detail in captions, led with the findings table by
+  demoting the risk graph and finding trend below it, and gated the filter panel
+  and the finding detail pane so empty scopes no longer show redundant empty
+  placeholders.
 - Made the repository Findings page state-aware instead of rendering a
   zero-filled dashboard in every empty case. A never-scanned workspace now shows
   a first-scan onboarding prompt, an all-failed scan history surfaces the failure

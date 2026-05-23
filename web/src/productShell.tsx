@@ -6188,144 +6188,32 @@ export function ProductFindingsPage() {
 
       <div className="idt-repo-finding-stats" aria-label="Repository finding summary">
         <article className="idt-repo-finding-stat">
-          <div className="idt-overview-metric-top">
-            <span>Total repo findings</span>
-            <SourceLogoMark provider="github" />
-          </div>
-          <strong>{filteredFindings.length}</strong>
-        </article>
-        <article className="idt-repo-finding-stat">
-          <div className="idt-overview-metric-top">
-            <span>GitHub-linked findings</span>
-            <SourceLogoMark provider="github" />
-          </div>
-          <strong>{linkedFindingCount}</strong>
-        </article>
-        <article className="idt-repo-finding-stat">
-          <div className="idt-overview-metric-top">
-            <span>Open findings</span>
-            <SourceLogoStack label="Open finding source coverage" />
-          </div>
+          <span>Open findings</span>
           <strong>{openFindingCount}</strong>
+          <small className="idt-repo-finding-stat-note">
+            {filteredFindings.length} total · {fixedFindingCount} fixed · {reopenedFindingCount} reopened
+          </small>
         </article>
         <article className="idt-repo-finding-stat">
-          <span>Fixed findings</span>
-          <strong>{fixedFindingCount}</strong>
-        </article>
-        <article className="idt-repo-finding-stat">
-          <span>Reopened findings</span>
-          <strong>{reopenedFindingCount}</strong>
-        </article>
-        <article className="idt-repo-finding-stat">
-          <span>SLA-aged highs</span>
-          <strong>{slaAgedFindingCount}</strong>
+          <span>Critical findings</span>
+          <strong>{criticalFindingCount}</strong>
+          <small className="idt-repo-finding-stat-note">
+            {slaAgedFindingCount} SLA-aged high{slaAgedFindingCount === 1 ? '' : 's'}
+          </small>
         </article>
         <article className="idt-repo-finding-stat">
           <span>Mean time to fix</span>
           <strong>{mttrLabel}</strong>
+          <small className="idt-repo-finding-stat-note">avg confidence {averageConfidence}</small>
         </article>
         <article className="idt-repo-finding-stat">
-          <div className="idt-overview-metric-top">
-            <span>Critical findings</span>
-            <SourceLogoStack label="Critical finding source coverage" />
-          </div>
-          <strong>{criticalFindingCount}</strong>
-        </article>
-        <article className="idt-repo-finding-stat">
-          <span>Avg confidence</span>
-          <strong>{averageConfidence}</strong>
-        </article>
-        <article className="idt-repo-finding-stat">
-          <span>Completed repo scans</span>
+          <span>Completed scans</span>
           <strong>{activeScanCount}</strong>
+          <small className="idt-repo-finding-stat-note">{linkedFindingCount} GitHub-linked</small>
         </article>
       </div>
 
-      <div className="idt-repo-finding-trend" aria-label="Repository risk graph summary">
-        <div className="idt-repo-finding-trend-head">
-          <h3>Risk graph</h3>
-          {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading graph</span> : null}
-          <span className="idt-repo-finding-trend-subtitle">
-            {repoRiskGraph
-              ? `${repoRiskGraph.nodes.length} nodes · ${repoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(repoRiskGraph.repository) || repoRiskGraph.repository || 'repository scope'}`
-              : 'No graph loaded yet'}
-          </span>
-        </div>
-        {riskGraphSummary ? (
-          <div className="idt-repo-finding-trend-rows">
-            <article className="idt-repo-finding-trend-row">
-              <div className="idt-repo-finding-trend-meta">
-                <span>High-risk findings</span>
-                <strong>{riskGraphSummary.high_risk_findings}</strong>
-              </div>
-              <p>
-                {riskGraphSummary.critical_findings} critical · {riskGraphUnknownEvidenceCount} unknown evidence gaps
-              </p>
-            </article>
-            {topRiskGraphScores.length > 0 ? (
-              topRiskGraphScores.map((score) => (
-                <article key={score.finding_id} className="idt-repo-finding-trend-row">
-                  <div className="idt-repo-finding-trend-meta">
-                    <span>{score.finding_id}</span>
-                    <strong>{Math.round(score.score)}</strong>
-                  </div>
-                  <p>
-                    {formatTokenLabel(score.severity)} · confidence {formatConfidenceScore(score.confidence)}
-                    {(score.unknowns ?? []).length > 0
-                      ? ` · unknown ${(score.unknowns ?? []).map(formatTokenLabel).join(', ')}`
-                      : ''}
-                  </p>
-                </article>
-              ))
-            ) : (
-              <article className="idt-repo-finding-trend-row">
-                <div className="idt-repo-finding-trend-meta">
-                  <span>No scored findings</span>
-                  <strong>{riskGraphSummary.finding_count}</strong>
-                </div>
-                <p>Risk scores will appear after graph evidence is available for repository findings.</p>
-              </article>
-            )}
-          </div>
-        ) : (
-          <AppShellEmptyState
-            title="Risk graph unavailable"
-            body="Run a repository exposure scan so machine-identity paths and finding risk scores can appear here."
-          />
-        )}
-      </div>
-
-      <div className="idt-repo-finding-trend">
-        <div className="idt-repo-finding-trend-head">
-          <h3>Finding trend</h3>
-          {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading trend</span> : null}
-          <span className="idt-repo-finding-trend-subtitle">{totalTrendItems > 0 ? `${totalTrendItems} total events in window` : 'No trend items yet'}</span>
-        </div>
-        <div className="idt-repo-finding-trend-rows">
-          {totalTrendItems === 0 ? (
-            <AppShellEmptyState
-              title="No trend yet"
-              body="Trend snapshots with severity distribution will appear here once a scan produces findings."
-            />
-          ) : (
-            trendRows.map((row) => (
-              <article key={row.key} className="idt-repo-finding-trend-row">
-                <div className="idt-repo-finding-trend-meta">
-                  <span>{row.label}</span>
-                  <strong>{row.total}</strong>
-                </div>
-                <div className="idt-repo-finding-trend-bar-track" role="img" aria-label={`Trend point ${row.label}`}>
-                  <div className="idt-repo-finding-trend-bar" style={{ width: `${row.percentage}%` }} />
-                </div>
-                <p>
-                  {`Critical ${row.critical} / High ${row.high} / Medium ${row.medium} / Low ${row.low} / Info ${row.info}`}
-                </p>
-              </article>
-            ))
-          )}
-        </div>
-      </div>
-
+      {filteredFindings.length > 0 || filtersActive ? (
       <details className="idt-repo-filter-panel">
         <summary>
           <span>Filters and sorting</span>
@@ -6404,6 +6292,7 @@ export function ProductFindingsPage() {
           </label>
         </div>
       </details>
+      ) : null}
 
       <div className="idt-repo-finding-layout">
         <div className="idt-repo-finding-list">
@@ -6490,6 +6379,7 @@ export function ProductFindingsPage() {
           )}
         </div>
 
+        {findingGroups.length > 0 ? (
         <aside className="idt-repo-finding-detail">
           {selectedFinding ? (
             <>
@@ -6707,6 +6597,92 @@ export function ProductFindingsPage() {
             />
           )}
         </aside>
+        ) : null}
+      </div>
+
+      <div className="idt-repo-finding-trend" aria-label="Repository risk graph summary">
+        <div className="idt-repo-finding-trend-head">
+          <h3>Risk graph</h3>
+          {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading graph</span> : null}
+          <span className="idt-repo-finding-trend-subtitle">
+            {repoRiskGraph
+              ? `${repoRiskGraph.nodes.length} nodes · ${repoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(repoRiskGraph.repository) || repoRiskGraph.repository || 'repository scope'}`
+              : 'No graph loaded yet'}
+          </span>
+        </div>
+        {riskGraphSummary ? (
+          <div className="idt-repo-finding-trend-rows">
+            <article className="idt-repo-finding-trend-row">
+              <div className="idt-repo-finding-trend-meta">
+                <span>High-risk findings</span>
+                <strong>{riskGraphSummary.high_risk_findings}</strong>
+              </div>
+              <p>
+                {riskGraphSummary.critical_findings} critical · {riskGraphUnknownEvidenceCount} unknown evidence gaps
+              </p>
+            </article>
+            {topRiskGraphScores.length > 0 ? (
+              topRiskGraphScores.map((score) => (
+                <article key={score.finding_id} className="idt-repo-finding-trend-row">
+                  <div className="idt-repo-finding-trend-meta">
+                    <span>{score.finding_id}</span>
+                    <strong>{Math.round(score.score)}</strong>
+                  </div>
+                  <p>
+                    {formatTokenLabel(score.severity)} · confidence {formatConfidenceScore(score.confidence)}
+                    {(score.unknowns ?? []).length > 0
+                      ? ` · unknown ${(score.unknowns ?? []).map(formatTokenLabel).join(', ')}`
+                      : ''}
+                  </p>
+                </article>
+              ))
+            ) : (
+              <article className="idt-repo-finding-trend-row">
+                <div className="idt-repo-finding-trend-meta">
+                  <span>No scored findings</span>
+                  <strong>{riskGraphSummary.finding_count}</strong>
+                </div>
+                <p>Risk scores will appear after graph evidence is available for repository findings.</p>
+              </article>
+            )}
+          </div>
+        ) : (
+          <AppShellEmptyState
+            title="Risk graph unavailable"
+            body="Run a repository exposure scan so machine-identity paths and finding risk scores can appear here."
+          />
+        )}
+      </div>
+
+      <div className="idt-repo-finding-trend">
+        <div className="idt-repo-finding-trend-head">
+          <h3>Finding trend</h3>
+          {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading trend</span> : null}
+          <span className="idt-repo-finding-trend-subtitle">{totalTrendItems > 0 ? `${totalTrendItems} total events in window` : 'No trend items yet'}</span>
+        </div>
+        <div className="idt-repo-finding-trend-rows">
+          {totalTrendItems === 0 ? (
+            <AppShellEmptyState
+              title="No trend yet"
+              body="Trend snapshots with severity distribution will appear here once a scan produces findings."
+            />
+          ) : (
+            trendRows.map((row) => (
+              <article key={row.key} className="idt-repo-finding-trend-row">
+                <div className="idt-repo-finding-trend-meta">
+                  <span>{row.label}</span>
+                  <strong>{row.total}</strong>
+                </div>
+                <div className="idt-repo-finding-trend-bar-track" role="img" aria-label={`Trend point ${row.label}`}>
+                  <div className="idt-repo-finding-trend-bar" style={{ width: `${row.percentage}%` }} />
+                </div>
+                <p>
+                  {`Critical ${row.critical} / High ${row.high} / Medium ${row.medium} / Low ${row.low} / Info ${row.info}`}
+                </p>
+              </article>
+            ))
+          )}
+        </div>
       </div>
     </section>
   );
