@@ -1,7 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AWSConnectionStatus, CurrentUserContext, GitHubConnectionStatus, RepoScanRecord } from './api/client';
+import type {
+  AWSConnectionStatus,
+  CurrentUserContext,
+  GitHubConnectionStatus,
+  Finding,
+  RepoScanRecord
+} from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
 
 const loggedInWithoutWorkspace: CurrentUserContext = {
@@ -711,7 +717,7 @@ describe('ProductProjectDetailPage', () => {
   });
 });
 
-async function renderFindings(options: { repoScans?: RepoScanRecord[] } = {}) {
+async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindings?: Finding[] } = {}) {
   vi.resetModules();
   vi.doMock('./hooks/useMe', () => ({
     useMe: () => ({
@@ -729,7 +735,7 @@ async function renderFindings(options: { repoScans?: RepoScanRecord[] } = {}) {
     .mockResolvedValue({ items: options.repoScans ?? [] });
   const listRepoFindings = vi
     .spyOn(api.apiClient, 'listRepoFindings')
-    .mockResolvedValue({ items: [], summary: undefined });
+    .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
   vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
   vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
 
@@ -834,6 +840,44 @@ describe('ProductFindingsPage states', () => {
     expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
     expect(screen.queryByText('No exposure found')).not.toBeInTheDocument();
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+  });
+
+  it('keeps findings visible when failed scans still return historical findings', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-latest',
+      status: 'failed',
+      started_at: '2026-05-17T12:00:00Z',
+      finished_at: '2026-05-17T12:01:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+    const oldSucceededScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-succeeded-older',
+      status: 'succeeded',
+      started_at: '2026-05-17T11:00:00Z',
+      finished_at: '2026-05-17T11:30:00Z',
+      finding_count: 2
+    };
+    const historicFinding: Finding = {
+      id: 'finding-legacy',
+      scan_id: 'repo-scan-succeeded-older',
+      type: 'secrets',
+      severity: 'high',
+      title: 'Legacy finding',
+      human_summary: 'Legacy risky secret exposure',
+      remediation: 'Rotate and clean up repository secret.',
+      created_at: '2026-05-17T11:10:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [failedScan, oldSucceededScan],
+      repoFindings: [historicFinding]
+    });
+
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+    expect(screen.getByText('Completed repo scans')).toBeInTheDocument();
+    expect(screen.getByText('Legacy finding')).toBeInTheDocument();
   });
 
   it('does not report cancellation as a failed scan', async () => {

@@ -6029,7 +6029,8 @@ export function ProductFindingsPage() {
   const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
   const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
   const neverScanned = repoScans.length === 0;
-  const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && succeededScanCount === 0 && latestScanFailed;
+  const hasRepoFindings = repoFindings.length > 0;
+  const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && !hasRepoFindings && succeededScanCount === 0 && latestScanFailed;
   const filtersActive =
     normalizeValue(repoScanFilter) !== '' ||
     severityFilter !== 'all' ||
