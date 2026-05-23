@@ -17,6 +17,9 @@ Identrail release automation is defined in:
   `VITE_FEATURE_ONBOARDING_WIZARD` values are baked into release web images.
 - Image publishing requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository
   secrets so the workflow can mirror GHCR images to Docker Hub.
+- Homebrew tap publishing requires a public `identrail/homebrew-tap` repository
+  and a `HOMEBREW_TAP_TOKEN` repository secret with write access to that tap.
+  Without the secret, releases still succeed and skip the tap publish step.
 - For manual runs with `publish_images=false`, image configuration is not required.
 - Manual image backfills for historical tags that predate `deploy/docker/release-web.env`
   use the legacy release URL recorded by the workflow and attach that source in
@@ -30,8 +33,9 @@ their first organization, workspace, and GitHub connector after login.
 ## What the Pipeline Publishes
 
 1. Cross-platform binaries (`cli`, `server`, `worker`) as archives.
-2. SHA-256 checksum manifest (`checksums.txt`).
-3. Container images to GHCR and Docker Hub:
+2. Stable release source archive (`identrail-source-<tag>.tar.gz`).
+3. SHA-256 checksum manifest (`checksums.txt`).
+4. Container images to GHCR and Docker Hub:
    - `ghcr.io/<owner>/identrail:<tag>`
    - `ghcr.io/<owner>/identrail-api:<tag>`
    - `ghcr.io/<owner>/identrail-worker:<tag>`
@@ -44,8 +48,10 @@ their first organization, workspace, and GitHub connector after login.
    - `docker.io/identrail/identrail-web:<tag>`
    - `docker.io/identrail/identrail-agent:<tag>`
    - `docker.io/identrail/identrail-cli:<tag>`
-4. Image digests and web build input metadata.
-5. Auto-generated GitHub Release notes.
+5. Image digests and web build input metadata.
+6. Auto-generated GitHub Release notes.
+7. Homebrew formula updates to `identrail/homebrew-tap` when tap publishing is
+   configured.
 
 ## Continuous Public Images
 
