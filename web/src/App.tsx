@@ -18,6 +18,7 @@ import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
 import { WorkOSMFAPage } from './pages/WorkOSMFAPage';
 import { WhyNoPasswordsPage } from './pages/WhyNoPasswordsPage';
+import { siteEmails } from './siteConfig';
 import { ConnectPage } from './pages/onboarding/ConnectPage';
 import { InvitePage } from './pages/onboarding/InvitePage';
 import { OrgPage } from './pages/onboarding/OrgPage';
@@ -64,6 +65,8 @@ const DOCS_REPO = 'https://github.com/identrail/identrail/tree/dev/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
+const SUPPORT_EMAIL = siteEmails.support;
+const SECURITY_EMAIL = siteEmails.security;
 const DEMO_BOOKING_PATH = '/demo#book-demo';
 const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
@@ -4245,7 +4248,7 @@ function ResponsibleDisclosurePage() {
         variant="enterprise"
         actions={
           <>
-            <a className="idt-btn idt-btn-primary" href="mailto:security@identrail.com">
+            <a className="idt-btn idt-btn-primary" href={`mailto:${SECURITY_EMAIL}`}>
               Email Security
             </a>
             <Link to="/security" className="idt-btn idt-btn-dark">
@@ -4260,7 +4263,7 @@ function ResponsibleDisclosurePage() {
             <h2>How to report</h2>
             <ul>
               <li>
-                Email <a href="mailto:security@identrail.com">security@identrail.com</a> with detailed findings and
+                Email <a href={`mailto:${SECURITY_EMAIL}`}>{SECURITY_EMAIL}</a> with detailed findings and
                 proof-of-concept steps
               </li>
               <li>Include reproduction steps, affected components, and potential impact</li>
@@ -4409,7 +4412,7 @@ function LegalPage({ title, body }: { title: string; body: string }) {
         variant="docs"
         actions={
           <>
-            <a className="idt-btn idt-btn-primary" href="mailto:security@identrail.com?subject=Privacy%20Choices">
+            <a className="idt-btn idt-btn-primary" href={`mailto:${SUPPORT_EMAIL}?subject=Privacy%20Choices`}>
               Contact Privacy
             </a>
             <Link to="/privacy" className="idt-btn idt-btn-dark">
@@ -4471,7 +4474,7 @@ const PRIVACY_POLICY_SECTIONS = [
     title: 'Retention and deletion',
     body: [
       'We retain Google-derived account data while your Identrail account is active or as needed to provide the service, comply with legal obligations, resolve disputes, enforce agreements, preserve security logs, and maintain backups.',
-      'You can request deletion of your account or Google-derived user data by emailing security@identrail.com with the subject Privacy Request. After verifying the request, we delete or de-identify applicable account data unless retention is required for security, legal, or operational reasons. Backup and log copies expire under our normal retention schedules.'
+      `You can request deletion of your account or Google-derived user data by emailing ${SUPPORT_EMAIL} with the subject Privacy Request. After verifying the request, we delete or de-identify applicable account data unless retention is required for security, legal, or operational reasons. Backup and log copies expire under our normal retention schedules.`
     ]
   },
   {
@@ -4536,7 +4539,7 @@ const TERMS_OF_USE_SECTIONS = [
     title: 'Changes and contact',
     body: [
       'We may update these terms as the product, legal requirements, or operating model changes. Material changes will be reflected on this page or communicated through appropriate product or account channels.',
-      'Questions about these Terms of Use can be sent to security@identrail.com.'
+      `Questions about these Terms of Use can be sent to ${SUPPORT_EMAIL}.`
     ]
   }
 ] as const;
@@ -4691,12 +4694,12 @@ function PrivacyPage() {
       summaryItems={[
         'Google sign-in is used for identity and account access, not for Gmail, Drive, Calendar, Contacts, or Workspace content.',
         'We do not sell personal data or use Google user data for advertising, retargeting, data brokerage, or credit decisions.',
-        'Deletion and privacy requests go directly to the security team so they can be verified and handled with care.'
+        'Deletion and privacy requests go directly to support so they can be verified and handled with care.'
       ]}
       meta={[
         { label: 'Last updated', value: 'May 18, 2026' },
         { label: 'Applies to', value: 'Website, sign-in, account, and hosted product experiences' },
-        { label: 'Primary contact', value: 'security@identrail.com' }
+        { label: 'Primary contact', value: SUPPORT_EMAIL }
       ]}
       sectionsTitle="Google user data disclosure"
       sectionsIntro="This section documents how Identrail interacts with Google user data when a user signs in or signs up with Google."
@@ -4705,11 +4708,11 @@ function PrivacyPage() {
       contactBody={
         <>
           For privacy questions, account deletion requests, or requests about Google-derived user data, email{' '}
-          <a href="mailto:security@identrail.com?subject=Privacy%20Request">security@identrail.com</a> with the
+          <a href={`mailto:${SUPPORT_EMAIL}?subject=Privacy%20Request`}>{SUPPORT_EMAIL}</a> with the
           subject Privacy Request.
         </>
       }
-      contactHref="mailto:security@identrail.com?subject=Privacy%20Request"
+      contactHref={`mailto:${SUPPORT_EMAIL}?subject=Privacy%20Request`}
       contactLabel="Start privacy request"
     />
   );
@@ -4744,9 +4747,9 @@ function TermsPage() {
       sectionsIntro="This page summarizes the obligations, restrictions, and operational expectations that apply when you use Identrail."
       sections={TERMS_OF_USE_SECTIONS}
       contactTitle="Terms questions"
-      contactBody="For questions about these terms, procurement reviews, or security-testing boundaries, email the Identrail security contact."
-      contactHref="mailto:security@identrail.com?subject=Terms%20of%20Use"
-      contactLabel="Email legal contact"
+      contactBody="For questions about these terms, procurement reviews, or security-testing boundaries, email Identrail support."
+      contactHref={`mailto:${SUPPORT_EMAIL}?subject=Terms%20of%20Use`}
+      contactLabel="Email support"
     />
   );
 }
