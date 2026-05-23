@@ -1,11 +1,29 @@
-# Enterprise 5-Minute Quickstart
+# Enterprise Quickstart
 
-This quickstart gets Identrail running with enterprise-safe defaults for auth scope, tenant/workspace context, and decision audit logging.
+Use this guide when you are setting up Identrail for a team or production-like
+environment. It keeps the first run understandable while covering the enterprise
+pieces that matter: scoped API access, tenant/workspace context, source
+onboarding, SSO, SCIM, audit logging, and executive reporting.
+
+For a quick one-off scan from your terminal, start with the public
+[README](../README.md). This guide is for operators who need durable
+configuration and repeatable team access.
+
+## What You Will Set Up
+
+- A local Docker Compose stack with API, web, worker, and database services.
+- Scoped API keys bound to a tenant and workspace.
+- Audit logging for authorization decisions.
+- Optional native SAML SSO and SCIM provisioning.
+- Source onboarding links for GitHub, AWS, and Kubernetes.
+- Executive report verification for leadership-facing review.
 
 ## Prerequisites
 
 - Docker + Docker Compose
 - `curl` + `jq`
+- Admin access to the identity provider if you are configuring SSO or SCIM
+- Read-only source access for any GitHub, AWS, or Kubernetes systems you connect
 
 ## 1. Configure Environment
 
@@ -68,7 +86,19 @@ curl -sS "${IDENTRAIL_API_URL}/v1/scans?limit=5" \
   -H "X-Identrail-Workspace-ID: ${IDENTRAIL_WORKSPACE_ID}" | jq .
 ```
 
-## 5. Trigger and Verify a Scan
+## 5. Choose a Source Onboarding Path
+
+For team deployments, connect sources through project-scoped onboarding so
+findings stay tied to the tenant, workspace, and project that owns the risk.
+
+- GitHub App repository scans: [GitHub connector](./auth/github-connector.md)
+- AWS account onboarding: [AWS connector](./auth/aws-connector.md)
+- Kubernetes cluster onboarding: [Kubernetes connector](./auth/kubernetes-connector.md)
+
+Keep the first connector read-only. After it validates cleanly, trigger a scan
+and review findings in the web app or API.
+
+## 6. Trigger and Verify a Scan
 
 ```bash
 SCAN_ID=$(
@@ -88,7 +118,7 @@ curl -sS "${IDENTRAIL_API_URL}/v1/scans/${SCAN_ID}/events?limit=10" \
   -H "X-Identrail-Workspace-ID: ${IDENTRAIL_WORKSPACE_ID}" | jq .
 ```
 
-## 6. Verify AuthZ Decision Explainability
+## 7. Verify AuthZ Decision Explainability
 
 `/v1/authz/policies/simulate` requires an API key mapped to `admin` scope.
 
@@ -110,7 +140,7 @@ Expected:
 - `decision` contains `allowed`, `stage`, `reason`
 - `trace` includes ordered stages from tenant isolation through default deny
 
-## 7. Verify Decision Audit Log
+## 8. Verify Decision Audit Log
 
 ```bash
 docker exec identrail-api sh -lc 'tail -n 50 /tmp/identrail-audit.jsonl' \
@@ -122,7 +152,7 @@ Confirm:
 - no raw API key values in audit payload
 - subject/resource IDs appear only as hashed identifiers (`*_id_hash`)
 
-## 8. Set Up SSO With Okta
+## 9. Set Up SSO With Okta
 
 Native enterprise SSO requires `IDENTRAIL_FEATURE_NATIVE_SSO=true` on the API.
 Native SAML admin and login routes also require `IDENTRAIL_FEATURE_NEW_AUTH=true`,
@@ -151,12 +181,7 @@ Okta click path:
 9. In **SAML Signing Certificates**, copy **Identity Provider metadata** or **Metadata URL**.
 10. In Identrail, open the enterprise SSO connection and paste the metadata URL, then confirm the parsed Entity ID, SSO URL, and certificate fingerprint.
 
-Screenshot placeholders:
-- `[Screenshot placeholder: Okta Create App Integration modal with SAML 2.0 selected]`
-- `[Screenshot placeholder: Okta Configure SAML page showing Single sign-on URL and Audience URI fields]`
-- `[Screenshot placeholder: Okta Sign On tab showing Identity Provider metadata link]`
-
-## 9. Set Up SSO With Azure AD
+## 10. Set Up SSO With Azure AD
 
 Microsoft now labels Azure AD as **Microsoft Entra ID** in the admin center. The click path below uses the current Entra labels while keeping the Azure AD wording operators still recognize.
 
@@ -178,12 +203,7 @@ Azure AD / Entra click path:
 9. In **SAML Certificates**, copy **App Federation Metadata Url**.
 10. In Identrail, open the enterprise SSO connection and paste the metadata URL, then confirm the parsed Entity ID, SSO URL, and certificate fingerprint.
 
-Screenshot placeholders:
-- `[Screenshot placeholder: Entra Enterprise applications page with New application selected]`
-- `[Screenshot placeholder: Entra SAML Basic SAML Configuration editor]`
-- `[Screenshot placeholder: Entra SAML Certificates area showing App Federation Metadata Url]`
-
-## 10. Enable SCIM Provisioning
+## 11. Enable SCIM Provisioning
 
 Each native SAML connection receives one SCIM bearer token when it is created. Identrail returns the plaintext token once; store it in the IdP immediately. The API stores only the token hash.
 
@@ -217,13 +237,7 @@ Azure AD / Entra SCIM click path:
 9. Keep the default user attribute mappings for `userName`, `active`, `displayName`, and `emails`.
 10. Set **Provisioning Status** to `On` when ready.
 
-Screenshot placeholders:
-- `[Screenshot placeholder: Okta Provisioning Integration tab with Base URL and API Token fields]`
-- `[Screenshot placeholder: Okta To App tab with Create, Update, and Deactivate enabled]`
-- `[Screenshot placeholder: Entra Provisioning page with Tenant URL and Secret Token fields]`
-- `[Screenshot placeholder: Entra Provisioning Status set to On]`
-
-## 11. Roll Out SSO-Only (`sso_required`)
+## 12. Roll Out SSO-Only (`sso_required`)
 
 Keep `sso_required=false` until at least one SAML admin has completed a
 successful sign-in and SCIM provisioning has created or matched the expected
@@ -250,7 +264,7 @@ Confirm:
 - `scim_op` matches the SCIM lifecycle operation
 - failed Slack/Jira/Linear attempts include `success=false` and an `error` string
 
-## 12. Executive Report (Board-Ready)
+## 13. Executive Report (Board-Ready)
 
 Fetch the leadership rollup for the current organization. The response is
 JSON only — there is no server-side PDF; use the printable web report page
@@ -279,7 +293,7 @@ Notes:
   carries a trustworthy `resolved_at`; it is derived solely from `resolved_at`
   (never the mutable `updated_at`), so the figure is not a guess.
 
-## 13. Clean Shutdown
+## 14. Clean Shutdown
 
 ```bash
 docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env down

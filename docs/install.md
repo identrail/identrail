@@ -1,15 +1,19 @@
 # Install Identrail
 
-Use Homebrew when the tap is published, Docker when you do not want to install
-anything locally, and a source build when you want to contribute or test
-development code.
+Use Homebrew for the simplest local install, Docker when you do not want to
+install the CLI, and a source build when you want to contribute.
 
 ## Homebrew
 
-After the Homebrew tap has been published, install the CLI on macOS or Linux:
+Install the CLI on macOS or Linux:
 
 ```bash
 brew install identrail/tap/identrail
+```
+
+Run your first GitHub repository scan:
+
+```bash
 identrail scan owner/repo
 ```
 
@@ -18,22 +22,36 @@ requires Homebrew to accept an Identrail formula.
 
 ## Docker
 
-Run Identrail without installing it on your machine:
+Scan a GitHub repository without installing Identrail locally:
 
 ```bash
-docker run --rm ghcr.io/identrail/identrail-cli:dev scan owner/repo
+docker run --rm ghcr.io/identrail/identrail-cli:latest scan owner/repo
 ```
 
-For a private repository, clone it first and mount the checkout:
+Scan a private repository you already cloned:
 
 ```bash
-git clone git@github.com:owner/private-repo.git
 cd private-repo
-docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/identrail/identrail-cli:dev scan .
+docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/identrail/identrail-cli:latest scan .
 ```
 
-The Docker image uses the same command shape as the installed CLI. Put CLI
-arguments after the image name.
+Run an AWS scan with a local AWS profile:
+
+```bash
+docker run --rm \
+  -v "$HOME/.aws:/aws:ro" \
+  -e AWS_CONFIG_FILE=/aws/config \
+  -e AWS_SHARED_CREDENTIALS_FILE=/aws/credentials \
+  -e AWS_PROFILE=default \
+  -e IDENTRAIL_PROVIDER=aws \
+  -e IDENTRAIL_AWS_SOURCE=sdk \
+  -e IDENTRAIL_AWS_REGION=us-east-1 \
+  ghcr.io/identrail/identrail-cli:latest scan
+```
+
+For live Kubernetes scans, use the Homebrew or source-built CLI where `kubectl`
+is installed and configured. The CLI container stays small and does not include
+`kubectl`.
 
 ## Source Build
 
@@ -49,28 +67,22 @@ go build -o ./bin/identrail ./cmd/cli
 If you want to run `identrail` without the `./bin/` prefix, move the built
 binary into a directory on your `PATH`.
 
-## Scan Commands
+## First Scan Commands
 
 These commands assume `identrail` is installed or on your `PATH`. If you built
 from source and did not move the binary, replace `identrail` with
 `./bin/identrail`.
 
-Run the AWS/Kubernetes provider scan path:
-
-```bash
-identrail scan
-```
-
-Use the Kubernetes provider defaults explicitly:
-
-```bash
-IDENTRAIL_PROVIDER=kubernetes identrail scan
-```
-
 Scan a public GitHub repository:
 
 ```bash
 identrail scan owner/repo
+```
+
+Limit the scan for a fast first look:
+
+```bash
+identrail scan owner/repo --history-limit 5 --max-findings 5
 ```
 
 Scan a private repository you already cloned:
@@ -80,15 +92,32 @@ cd private-repo
 identrail scan .
 ```
 
-Repository scans report secrets, GitHub Actions, and CI risk. They complement
-the AWS/Kubernetes machine identity workflow; they do not replace it. Hosted
-private repository scans use the GitHub App connector in the Identrail web app.
+Run an AWS machine identity scan:
 
-## Homebrew Tap Maintenance
+```bash
+IDENTRAIL_PROVIDER=aws \
+IDENTRAIL_AWS_SOURCE=sdk \
+IDENTRAIL_AWS_REGION=us-east-1 \
+identrail scan
+```
 
-Release automation renders and publishes `Formula/identrail.rb` to
-`identrail/homebrew-tap` when maintainers create that repository, configure a
-`HOMEBREW_TAP_TOKEN` secret with write access, and cut a release that includes
-the Homebrew workflow. The formula is pinned to a stable uploaded release source
-archive, not GitHub's generated tag archive. Until the tap is published, use
-Docker or a source build.
+Run a Kubernetes machine identity scan:
+
+```bash
+kubectl config current-context
+kubectl auth can-i list serviceaccounts --all-namespaces
+kubectl auth can-i list rolebindings --all-namespaces
+kubectl auth can-i list clusterrolebindings
+kubectl auth can-i list roles --all-namespaces
+kubectl auth can-i list clusterroles
+kubectl auth can-i list pods --all-namespaces
+
+IDENTRAIL_PROVIDER=kubernetes \
+IDENTRAIL_K8S_SOURCE=kubectl \
+identrail scan
+```
+
+Repository scans report secrets, GitHub Actions, CI risk, and repository posture
+signals. AWS and Kubernetes scans report machine identity trust paths and
+authorization risk. Hosted private repository scans use the GitHub App connector
+in the Identrail web app.
