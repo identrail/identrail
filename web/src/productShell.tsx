@@ -534,6 +534,11 @@ function isCompletedScanStatus(status: string): boolean {
   return normalized === 'succeeded' || normalized === 'completed' || normalized === 'failed' || normalized === 'canceled';
 }
 
+function isFailedScanStatus(status: string): boolean {
+  const normalized = normalizeValue(status).toLowerCase();
+  return normalized === 'failed';
+}
+
 function repoScanStatusTone(status: string): 'success' | 'warning' | 'error' | 'neutral' {
   const normalized = normalizeValue(status).toLowerCase();
   if (normalized === 'succeeded' || normalized === 'completed') {
@@ -6008,14 +6013,14 @@ export function ProductFindingsPage() {
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
   const succeededScanCount = repoScans.filter((scan) => repoScanStatusTone(scan.status) === 'success').length;
-  const failedScans = scansByRecency.filter((scan) => repoScanStatusTone(scan.status) === 'error');
+  const failedScans = scansByRecency.filter((scan) => isFailedScanStatus(scan.status));
   const latestScan = scansByRecency[0] ?? null;
   const latestFailedScan = failedScans[0] ?? null;
   const hasQueuedOrRunningScan = scansByRecency.some((scan) => isActiveScanStatus(scan.status));
   const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
   const neverScanned = repoScans.length === 0;
   const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && succeededScanCount === 0 && failedScans.length > 0;
-  const latestScanFailed = latestScan ? repoScanStatusTone(latestScan.status) === 'error' : false;
+  const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
   const filtersActive =
     normalizeValue(repoScanFilter) !== '' ||
     severityFilter !== 'all' ||

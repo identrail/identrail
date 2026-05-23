@@ -812,4 +812,19 @@ describe('ProductFindingsPage states', () => {
     expect(screen.queryByText('No exposure found')).not.toBeInTheDocument();
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
   });
+
+  it('does not report cancellation as a failed scan', async () => {
+    const canceledScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-canceled',
+      status: 'canceled',
+      finished_at: '2026-05-17T11:09:00Z',
+      error_message: 'User canceled scan from API'
+    };
+
+    await renderFindings({ repoScans: [canceledScan] });
+
+    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+  });
 });
