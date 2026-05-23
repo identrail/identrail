@@ -97,13 +97,14 @@ default, stores Terraform state in S3, and only applies when an operator selects
 Run it from the `dev` branch because the AWS OIDC deployment role trust is
 intentionally scoped to that branch.
 
-For routine hosted API releases after an immutable image has been published,
-prefer the `AWS Production Release` workflow. It is still manually approved, but
-it runs the database migration workflow first, deploys the API and worker with
-the selected immutable `ghcr.io/identrail/identrail-api` image, and then checks
-`/healthz`, `/readyz`, and `/v1/auth/config`. This keeps hosted API code,
-worker code, and the database schema in the same release boundary instead of
-requiring operators to remember the migration and deploy order by hand.
+For routine hosted API releases after an immutable image for the current `dev`
+commit has been published, prefer the `AWS Production Release` workflow. It is
+still manually approved, but it runs the database migration workflow first,
+deploys the API and worker with the matching
+`ghcr.io/identrail/identrail-api:sha-<current-dev-commit>` image, and then
+checks `/healthz`, `/readyz`, and `/v1/auth/config`. This keeps hosted API
+code, worker code, and the database schema in the same release boundary instead
+of requiring operators to remember the migration and deploy order by hand.
 
 Repository configuration required before the workflow can plan:
 

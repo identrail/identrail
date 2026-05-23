@@ -91,9 +91,10 @@ Portable deployment profiles:
 
 1. Ensure CI is green on `dev` (`Go Quality`, `Go Tests`, `Go Integration (Postgres)`, `Web Build`).
 2. For hosted AWS API releases, prefer the `AWS Production Release` workflow
-   after the immutable image is published. It runs migrations, deploys the API
-   and worker with the matching image, and performs hosted API smoke checks in
-   one ordered manual release.
+   after the immutable image for the current `dev` commit is published. It runs
+   migrations, deploys the API and worker with the matching
+   `sha-<current-dev-commit>` image, and performs hosted API smoke checks in one
+   ordered manual release.
 3. For non-AWS or lower-level deployments, run migrations once using the
    dedicated migration job:
    - Kubernetes manifests: apply `deploy/kubernetes/migration-job.yaml` and wait for job completion.

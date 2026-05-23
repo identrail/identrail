@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       api_container_image:
-        description: "Tagged immutable API image, for example ghcr.io/identrail/identrail-api:sha-<commit>."
+        description: "Current-commit API image, for example ghcr.io/identrail/identrail-api:sha-<current-dev-commit>."
         required: true
         type: string
       api_base_url:
@@ -79,8 +79,14 @@ jobs:
             exit 1
           fi
 
-          if ! [[ "${API_CONTAINER_IMAGE}" =~ ^ghcr\.io/identrail/identrail-api:(sha-[0-9a-f]{12,40}|v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
-            echo "api_container_image must be a tagged immutable ghcr.io/identrail/identrail-api image so the deploy workflow can derive the matching worker image."
+          if ! [[ "${API_CONTAINER_IMAGE}" =~ ^ghcr\.io/identrail/identrail-api:sha-([0-9a-f]{12,40})$ ]]; then
+            echo "api_container_image must be a current-commit ghcr.io/identrail/identrail-api:sha-<commit> image so migrations and deployed code come from the same source."
+            exit 1
+          fi
+
+          image_sha="${BASH_REMATCH[1]}"
+          if [[ "${GITHUB_SHA}" != "${image_sha}"* ]]; then
+            echo "api_container_image sha tag must match this workflow commit (${GITHUB_SHA}) so migrations and deployed code stay in lockstep."
             exit 1
           fi
 
@@ -94,6 +100,7 @@ jobs:
             echo "## AWS production release"
             echo
             echo "- API image: \`${API_CONTAINER_IMAGE}\`"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
             echo "- API base URL: \`${api_base_url}\`"
             echo "- Next step: run database migrations before deploying API and worker."
           } >> "${GITHUB_STEP_SUMMARY}"
