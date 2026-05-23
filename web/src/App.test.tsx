@@ -628,9 +628,9 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 3, name: /Google sign-in data accessed/i })).toBeInTheDocument();
     expect(screen.getByText(/Identrail does not use Google sign-in to access Gmail/i)).toBeInTheDocument();
     expect(screen.getByText(/Google API Services User Data Policy/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /security@identrail.com/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /support@identrail.com/i })).toHaveAttribute(
       'href',
-      'mailto:security@identrail.com?subject=Privacy%20Request'
+      'mailto:support@identrail.com?subject=Privacy%20Request'
     );
   });
 
@@ -643,7 +643,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 3, name: /Acceptance and scope/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /Acceptable use/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 3, name: /Customer data and integrations/i })).toBeInTheDocument();
-    expect(screen.getByText(/Questions about these Terms of Use can be sent to security@identrail.com/i)).toBeInTheDocument();
+    expect(screen.getByText(/Questions about these Terms of Use can be sent to support@identrail.com/i)).toBeInTheDocument();
   });
 
   it('guards product shell routes and redirects unauthenticated users to sign-in', async () => {
