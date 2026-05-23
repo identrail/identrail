@@ -524,9 +524,11 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), s.retry_count, s.max_retry_count, COALESCE(s.failure_category, ''), s.next_retry_at, s.dead_lettered, s.dead_lettered_at, COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID, strings.TrimSpace(provider)}
 	}
-	row := p.queryRowContext(ctx, query, args...)
+	var row rowScanner
 	if scope == nil {
 		row = p.queryRowContextAnyScope(ctx, query, args...)
+	} else {
+		row = p.queryRowContext(ctx, query, args...)
 	}
 	record, err := scanQueuedScanRecord(row)
 	if err != nil {
@@ -2818,9 +2820,11 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			COALESCE(r.trace_state, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID}
 	}
-	row := p.queryRowContext(ctx, query, args...)
+	var row rowScanner
 	if scope == nil {
 		row = p.queryRowContextAnyScope(ctx, query, args...)
+	} else {
+		row = p.queryRowContext(ctx, query, args...)
 	}
 	record, err := scanQueuedRepoScanRecord(row)
 	if err != nil {
