@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Fixed the branch-protection enforcement workflow, which had failed on every
+  run since `actions/github-script` was bumped to v9. The injected `octokit`
+  binding collided with the script's own `const octokit`, producing a parse-time
+  `SyntaxError`; the script's admin-token client is now named `adminOctokit`.
 - Remediated open security and quality findings. Bumped vulnerable Go
   dependencies (`golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/sys`)
   and the Go toolchain to `1.25.10` to clear stdlib CVEs, removed the stale
