@@ -76,16 +76,44 @@ function normalizeReturnTo(value: string | null): string {
   return candidate;
 }
 
-function authReasonMessage(reason: string): string {
+type AuthReasonDetails = {
+  message: string;
+  actionLabel?: string;
+  actionHref?: string;
+};
+
+function authPathWithReturnTo(path: string, returnTo: string): string {
+  const query = new URLSearchParams();
+  if (returnTo && returnTo !== '/app') {
+    query.set('return_to', returnTo);
+  }
+  const encoded = query.toString();
+  return encoded ? `${path}?${encoded}` : path;
+}
+
+function authReasonDetails(reason: string, returnTo: string): AuthReasonDetails | null {
   switch (reason) {
     case 'session_expired':
-      return 'Your session expired. Sign in again to continue.';
+      return { message: 'Your session expired. Sign in again to continue.' };
     case 'callback_error':
-      return 'Sign-in did not complete. Please retry.';
+      return { message: 'Sign-in did not complete. Please retry from this page.' };
     case 'state_mismatch':
-      return 'Secure sign-in validation failed. Please retry.';
+      return { message: 'Secure sign-in validation failed. Start a new sign-in from this page.' };
+    case 'account_not_found':
+      return {
+        message: 'No Identrail account uses that sign-in method yet.',
+        actionLabel: 'Create an account',
+        actionHref: authPathWithReturnTo('/signup', returnTo)
+      };
+    case 'identity_conflict':
+      return {
+        message:
+          'That email or GitHub identity is already tied to a different Identrail account. Sign in with the original method or contact support.'
+      };
+    case 'provider_unavailable':
+      return { message: 'The sign-in provider is temporarily unavailable. Please retry in a moment.' };
     default:
-      return '';
+      return null;
   }
 }
 
@@ -149,7 +177,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const returnTo = normalizeReturnTo(query.get('return_to') ?? query.get('next'));
   const signedOut = query.get('signed_out') === '1';
-  const reason = authReasonMessage(query.get('reason') ?? '');
+  const reason = authReasonDetails(query.get('reason') ?? '', returnTo);
   const [config, setConfig] = useState<AuthConfigResponse | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [configError, setConfigError] = useState('');
@@ -256,7 +284,17 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
           <h1>{title}</h1>
 
           {signedOut ? <p className="idt-app-alert idt-app-alert-success">Signed out successfully.</p> : null}
-          {reason ? <p className="idt-app-alert">{reason}</p> : null}
+          {reason ? (
+            <p className="idt-app-alert">
+              {reason.message}
+              {reason.actionHref && reason.actionLabel ? (
+                <>
+                  {' '}
+                  <Link to={reason.actionHref}>{reason.actionLabel}</Link>.
+                </>
+              ) : null}
+            </p>
+          ) : null}
 
           {configError ? <p className="idt-app-alert idt-app-alert-error">{configError}</p> : null}
 

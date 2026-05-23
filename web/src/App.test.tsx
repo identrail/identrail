@@ -989,6 +989,19 @@ describe('App', () => {
     );
   });
 
+  it('points unknown hosted sign-ins to sign-up without raw callback errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
+
+    setCurrentPath('/signin?reason=account_not_found&return_to=/app/team/workspace');
+    render(<App />);
+
+    expect(await screen.findByText(/No Identrail account uses that sign-in method yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Create an account/i })).toHaveAttribute(
+      'href',
+      '/signup?return_to=%2Fapp%2Fteam%2Fworkspace'
+    );
+  });
+
   it('does not show loading copy or provider actions while auth config loads', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
 

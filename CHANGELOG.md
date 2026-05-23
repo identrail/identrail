@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Improved hosted auth and GitHub connector onboarding UX. WorkOS callback
+  failures now redirect back to the web sign-in page with user-facing reasons
+  instead of raw JSON, login no longer provisions unknown identities, signup can
+  reactivate a deactivated/deleted account that still owns the same email, and
+  the GitHub App setup now continues directly to GitHub with copy covering both
+  personal accounts and organizations.
 - Fixed app workspace navigation so route changes inside an already-validated
   workspace no longer rerun the full session gate, and hardened repository
   finding display helpers against partially populated API records.

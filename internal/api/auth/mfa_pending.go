@@ -28,6 +28,7 @@ var (
 
 type WorkOSMFAPendingState struct {
 	Mode                       string             `json:"mode"`
+	Intent                     string             `json:"intent,omitempty"`
 	ReturnTo                   string             `json:"return_to,omitempty"`
 	PendingAuthenticationToken string             `json:"pending_authentication_token"`
 	User                       WorkOSProfile      `json:"user"`

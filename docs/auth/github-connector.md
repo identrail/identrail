@@ -21,7 +21,15 @@ Older project-scoped GitHub routes are not the product path. They remain interna
 
 ## Hosted GitHub.com Flow
 
-`POST /v1/connectors/github` creates a pending connector and returns a GitHub App install URL. The product sends GitHub back to `/app/github/callback`, and that callback calls `POST /v1/connectors/github/complete` with the returned state and installation ID. The backend owns the GitHub App slug and webhook secret through environment variables, so users do not paste app credentials into the browser.
+`POST /v1/connectors/github` creates a pending connector and returns a GitHub
+App install URL. The product immediately continues the user to that GitHub URL
+and keeps a fallback button visible if the browser blocks navigation. GitHub
+asks the user whether to install the App on a personal account or an
+organization, then asks which repositories Identrail can access. The product
+sends GitHub back to `/app/github/callback`, and that callback calls
+`POST /v1/connectors/github/complete` with the returned state and installation
+ID. The backend owns the GitHub App slug and webhook secret through environment
+variables, so users do not paste app credentials into the browser.
 
 Required runtime configuration for the hosted GitHub App flow:
 
@@ -53,6 +61,13 @@ GitHub source unavailable instead of calling the connector route and showing a
 raw framework 404. If the route is enabled but the GitHub App runtime settings
 are missing, the start request returns the API's configuration message so the
 operator sees a specific setup problem.
+
+Personal repositories and organization repositories follow the same completion
+path. After callback, Identrail lists repositories selected for that
+installation and accepts any `owner/repo` in the selected list, subject to the
+hosted repo scan allowlist described below. A repository that was not selected
+during installation or was not allowlisted should produce a targeted product
+message instead of a generic 404.
 
 ## GitHub Enterprise Fallback
 

@@ -6842,6 +6842,13 @@ html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] .idt-auth-provi
   line-height: 1.45;
 }
 
+.idt-auth-panel .idt-app-alert a {
+  color: var(--auth-text);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .idt-auth-panel .idt-app-alert-error {
   border-color: #7f1d1d;
   background: rgba(127, 29, 29, 0.18);

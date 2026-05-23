@@ -144,6 +144,123 @@ func TestUpsertWorkOSUserRespectsSelectedOrganization(t *testing.T) {
 	}
 }
 
+func TestUpsertWorkOSUserLoginIntentRejectsUnknownIdentity(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+
+	_, err := svc.UpsertWorkOSUserForIntent(context.Background(), sessionauth.WorkOSProfile{
+		ID:            "user_workos_unknown",
+		Email:         "unknown@example.com",
+		EmailVerified: true,
+	}, "login")
+	if !errors.Is(err, ErrAuthAccountNotFound) {
+		t.Fatalf("expected account not found, got %v", err)
+	}
+	if _, err := store.GetUserByPrimaryEmail(context.Background(), "unknown@example.com"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("login intent must not create a user, got %v", err)
+	}
+}
+
+func TestUpsertWorkOSUserSignupIntentReactivatesDeactivatedEmail(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-time.Hour)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "revoked@example.com",
+		DisplayName:  "Old Name",
+		Status:       "deactivated",
+		DeletedAt:    &deletedAt,
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	result, err := svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:                "user_workos_reactivated",
+		Email:             "Revoked@Example.COM",
+		FirstName:         "Fresh",
+		LastName:          "Owner",
+		EmailVerified:     true,
+		ProfilePictureURL: "https://cdn.example/new.png",
+	}, "signup")
+	if err != nil {
+		t.Fatalf("signup should reactivate deactivated user: %v", err)
+	}
+	if result.User.ID != user.ID {
+		t.Fatalf("expected existing user to be reused, got %s want %s", result.User.ID, user.ID)
+	}
+	if result.User.Status != "active" || result.User.DeletedAt != nil {
+		t.Fatalf("expected active restored user, got %+v", result.User)
+	}
+	if result.User.PrimaryEmail != "revoked@example.com" || result.User.DisplayName != "Fresh Owner" || result.User.AvatarURL == "" {
+		t.Fatalf("expected profile refresh, got %+v", result.User)
+	}
+	identity, err := store.GetUserIdentity(ctx, sessionauth.WorkOSProvider, "user_workos_reactivated")
+	if err != nil {
+		t.Fatalf("expected reactivated identity: %v", err)
+	}
+	if identity.UserID != user.ID {
+		t.Fatalf("expected identity on reactivated user, got %+v", identity)
+	}
+}
+
+func TestUpsertWorkOSUserSignupIntentRequiresVerifiedEmailForReactivation(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-time.Hour)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "revoked@example.com",
+		DisplayName:  "Old Name",
+		Status:       "deactivated",
+		DeletedAt:    &deletedAt,
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	_, err = svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:            "user_workos_unverified_reactivation",
+		Email:         "revoked@example.com",
+		EmailVerified: false,
+	}, "signup")
+	if !errors.Is(err, ErrAuthIdentityConflict) {
+		t.Fatalf("expected identity conflict for unverified reactivation email, got %v", err)
+	}
+	unchanged, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load retained user: %v", err)
+	}
+	if unchanged.Status != "deactivated" || unchanged.DeletedAt == nil {
+		t.Fatalf("unverified email must not reactivate retained user, got %+v", unchanged)
+	}
+	if _, err := store.GetUserIdentity(ctx, sessionauth.WorkOSProvider, "user_workos_unverified_reactivation"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("unverified email must not create identity, got %v", err)
+	}
+}
+
+func TestUpsertWorkOSUserSignupIntentRejectsActiveEmailConflict(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	if _, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "taken@example.com"}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	_, err := svc.UpsertWorkOSUserForIntent(context.Background(), sessionauth.WorkOSProfile{
+		ID:            "user_workos_conflict",
+		Email:         "taken@example.com",
+		EmailVerified: true,
+	}, "signup")
+	if !errors.Is(err, ErrAuthIdentityConflict) {
+		t.Fatalf("expected identity conflict, got %v", err)
+	}
+}
+
 func TestUpdateWorkOSUserEmailRejectsConflictingEmail(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := context.Background()

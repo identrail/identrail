@@ -231,7 +231,7 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 		code := strings.TrimSpace(c.Query("code"))
 		if code == "" {
 			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "code is required"})
+			redirectWorkOSCallbackFailure(c, opts, authFailureReturnToFromState(opts, c.Query("state")), authFailureReasonCallbackError)
 			return
 		}
 		// The store-backed, browser-bound transaction is the authoritative
@@ -250,14 +250,14 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			decoded, decodeErr := opts.StateManager.Decode(c.Query("state"))
 			if decodeErr != nil {
 				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				redirectWorkOSCallbackFailure(c, opts, "", authFailureReasonStateMismatch)
 				return
 			}
 			http.SetCookie(c.Writer, oauthTransactionClearCookie(opts.PublicBaseURL, decoded.Nonce))
 			cookie, cookieErr := c.Request.Cookie(sessionauth.OAuthTransactionCookieName(decoded.Nonce))
 			if cookieErr != nil || strings.TrimSpace(cookie.Value) == "" {
 				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				redirectWorkOSCallbackFailure(c, opts, decoded.ReturnTo, authFailureReasonStateMismatch)
 				return
 			}
 			txn, txnErr := opts.TransactionStore.Consume(c.Request.Context(), decoded.Nonce, cookie.Value)
@@ -266,7 +266,7 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 					logger.Error("consume workos oauth transaction", telemetry.ZapError(txnErr))
 				}
 				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				redirectWorkOSCallbackFailure(c, opts, decoded.ReturnTo, authFailureReasonStateMismatch)
 				return
 			}
 			// The persisted row is the authoritative return target. It was
@@ -281,7 +281,7 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			consumed, consumeErr := opts.StateManager.Consume(c.Query("state"))
 			if consumeErr != nil {
 				auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+				redirectWorkOSCallbackFailure(c, opts, authFailureReturnToFromState(opts, c.Query("state")), authFailureReasonStateMismatch)
 				return
 			}
 			state = consumed
@@ -302,18 +302,111 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 			}
 			if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
 				c.Header("Retry-After", "30")
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth provider unavailable"})
+				redirectWorkOSCallbackFailure(c, opts, state.ReturnTo, authFailureReasonProviderUnavailable)
 				return
 			}
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "login failed"})
+			redirectWorkOSCallbackFailure(c, opts, state.ReturnTo, authFailureReasonCallbackError)
 			return
 		}
-		redirectTo, ok := completeWorkOSLogin(c, logger, svc, manager, opts, authenticated, state.ReturnTo)
+		redirectTo, ok := completeWorkOSLogin(c, logger, svc, manager, opts, authenticated, state, workOSLoginFailureRedirect)
 		if !ok {
 			return
 		}
 		c.Redirect(http.StatusFound, redirectTo)
 	}
+}
+
+const (
+	authFailureReasonAccountNotFound     = "account_not_found"
+	authFailureReasonCallbackError       = "callback_error"
+	authFailureReasonIdentityConflict    = "identity_conflict"
+	authFailureReasonProviderUnavailable = "provider_unavailable"
+	authFailureReasonStateMismatch       = "state_mismatch"
+)
+
+type workOSLoginFailureMode int
+
+const (
+	workOSLoginFailureJSON workOSLoginFailureMode = iota
+	workOSLoginFailureRedirect
+	workOSLoginFailureRedirectJSON
+)
+
+func redirectWorkOSCallbackFailure(c *gin.Context, opts authSessionRouteOptions, returnTo string, reason string) {
+	c.Redirect(http.StatusFound, workOSAuthFailureRedirectURL(opts, returnTo, reason))
+}
+
+func writeWorkOSLoginFailure(c *gin.Context, opts authSessionRouteOptions, mode workOSLoginFailureMode, returnTo string, reason string, status int, message string) {
+	switch mode {
+	case workOSLoginFailureRedirect:
+		redirectWorkOSCallbackFailure(c, opts, returnTo, reason)
+		return
+	case workOSLoginFailureRedirectJSON:
+		c.JSON(http.StatusOK, gin.H{
+			"ok":          false,
+			"redirect_to": workOSAuthFailureRedirectURL(opts, returnTo, reason),
+		})
+		return
+	}
+	c.JSON(status, gin.H{"error": message})
+}
+
+func authFailureReturnToFromState(opts authSessionRouteOptions, rawState string) string {
+	if opts.StateManager == nil || strings.TrimSpace(rawState) == "" {
+		return ""
+	}
+	state, err := opts.StateManager.Decode(rawState)
+	if err != nil {
+		return ""
+	}
+	return state.ReturnTo
+}
+
+func workOSAuthFailureRedirectURL(opts authSessionRouteOptions, returnTo string, reason string) string {
+	origin := workOSAuthFailureFrontendOrigin(opts, returnTo)
+	path := "/signin"
+	query := url.Values{}
+	if trimmed := strings.TrimSpace(reason); trimmed != "" {
+		query.Set("reason", trimmed)
+	}
+	if sanitizedReturnTo := workOSAuthFailureReturnToParam(opts, origin, returnTo); sanitizedReturnTo != "" {
+		query.Set("return_to", sanitizedReturnTo)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	if origin == "" {
+		return path
+	}
+	return strings.TrimRight(origin, "/") + path
+}
+
+func workOSAuthFailureFrontendOrigin(opts authSessionRouteOptions, returnTo string) string {
+	if sanitized := sanitizeAuthReturnTo(returnTo, opts.ReturnToOrigins); sanitized != "" {
+		if origin, ok := authReturnToOrigin(sanitized); ok {
+			return origin
+		}
+	}
+	return preferredAuthFrontendOrigin(opts.PublicBaseURL, opts.ReturnToOrigins)
+}
+
+func workOSAuthFailureReturnToParam(opts authSessionRouteOptions, frontendOrigin string, returnTo string) string {
+	sanitized := sanitizeAuthReturnTo(returnTo, opts.ReturnToOrigins)
+	if sanitized == "" {
+		return ""
+	}
+	parsed, err := url.Parse(sanitized)
+	if err != nil {
+		return ""
+	}
+	if !parsed.IsAbs() {
+		return parsed.RequestURI()
+	}
+	returnToOrigin, ok := authReturnToOrigin(sanitized)
+	if !ok || !strings.EqualFold(returnToOrigin, frontendOrigin) {
+		return ""
+	}
+	return parsed.RequestURI()
 }
 
 func handleWorkOSMFARequired(c *gin.Context, logger *zap.Logger, opts authSessionRouteOptions, state sessionauth.OAuthState, required *sessionauth.WorkOSMFARequired) {
@@ -326,6 +419,7 @@ func handleWorkOSMFARequired(c *gin.Context, logger *zap.Logger, opts authSessio
 	}
 	pending := sessionauth.WorkOSMFAPendingState{
 		Mode:                       required.Mode,
+		Intent:                     state.Intent,
 		ReturnTo:                   sanitizeAuthReturnTo(state.ReturnTo, opts.ReturnToOrigins),
 		PendingAuthenticationToken: required.PendingAuthenticationToken,
 		User:                       required.User,
@@ -349,21 +443,25 @@ func handleWorkOSMFARequired(c *gin.Context, logger *zap.Logger, opts authSessio
 	c.Redirect(http.StatusFound, workOSMFARedirectURL(pending.ReturnTo, opts.PublicBaseURL, opts.ReturnToOrigins))
 }
 
-func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions, authenticated sessionauth.WorkOSAuthentication, returnTo string) (string, bool) {
+func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions, authenticated sessionauth.WorkOSAuthentication, state sessionauth.OAuthState, failureMode workOSLoginFailureMode) (string, bool) {
 	profile := authenticated.User
 	if strings.TrimSpace(profile.OrganizationID) == "" {
 		profile.OrganizationID = authenticated.OrganizationID
 	}
-	result, err := svc.UpsertWorkOSUser(c.Request.Context(), profile)
+	result, err := svc.UpsertWorkOSUserForIntent(c.Request.Context(), profile, state.Intent)
 	if err != nil {
 		if errors.Is(err, ErrAuthIdentityConflict) {
-			c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
+			writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonIdentityConflict, http.StatusConflict, "identity conflict")
+			return "", false
+		}
+		if errors.Is(err, ErrAuthAccountNotFound) {
+			writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonAccountNotFound, http.StatusNotFound, "account not found")
 			return "", false
 		}
 		if logger != nil {
 			logger.Error("upsert workos user", telemetry.ZapError(err))
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete login"})
+		writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonCallbackError, http.StatusInternalServerError, "failed to complete login")
 		return "", false
 	}
 	now := time.Now().UTC()
@@ -386,12 +484,12 @@ func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manag
 		if logger != nil {
 			logger.Error("create workos session", telemetry.ZapError(err))
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
+		writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonCallbackError, http.StatusInternalServerError, "failed to create session")
 		return "", false
 	}
 	auditAuthAction(c.Request.Context(), "auth.login.success", result.User.ID, "success")
 	http.SetCookie(c.Writer, manager.Cookie(cookieValue))
-	redirectTo := sanitizeAuthReturnTo(returnTo, opts.ReturnToOrigins)
+	redirectTo := sanitizeAuthReturnTo(state.ReturnTo, opts.ReturnToOrigins)
 	if redirectTo == "" || redirectTo == "/" {
 		redirectTo = result.RedirectPath
 	}
@@ -545,7 +643,10 @@ func workOSMFAVerifyHandler(logger *zap.Logger, svc *Service, manager sessionaut
 			writeWorkOSMFAVerifyError(c, logger, err)
 			return
 		}
-		redirectTo, ok := completeWorkOSLogin(c, logger, svc, manager, opts, authenticated, state.ReturnTo)
+		redirectTo, ok := completeWorkOSLogin(c, logger, svc, manager, opts, authenticated, sessionauth.OAuthState{
+			Intent:   state.Intent,
+			ReturnTo: state.ReturnTo,
+		}, workOSLoginFailureRedirectJSON)
 		if !ok {
 			return
 		}

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AWSConnectionStatus, CurrentUserContext, GitHubConnectionStatus, RepoScanRecord } from './api/client';
@@ -370,7 +370,7 @@ describe('ProductProjectDetailPage', () => {
     const { getGitHubConnectorStatus } = await renderProjectDetail(true);
 
     expect((await screen.findAllByText('identrail/identrail')).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: /GitHub/i })).not.toBeDisabled();
+    expect(within(screen.getByLabelText('Source types')).getByRole('button', { name: /GitHub/i })).not.toBeDisabled();
     expect(screen.getByText('Installation 12345')).toBeInTheDocument();
     expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
       'workspace-a',
@@ -647,7 +647,7 @@ describe('ProductProjectDetailPage', () => {
 
     await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
     expect(
-      await screen.findByText(/outside the allowed scan targets/i)
+      await screen.findByText(/not currently allowed for this project/i)
     ).toBeInTheDocument();
   });
 });
