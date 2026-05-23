@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Changed the homepage "Docker pulls" proof pill to report the primary
+  `identrail/identrail` image only, instead of summing pull counts across all
+  five published service images. The previous sum overstated adoption because a
+  single quickstart/CI run pulls multiple images at once.
 - Improved hosted auth and GitHub connector onboarding UX. WorkOS callback
   failures now redirect back to the web sign-in page with user-facing reasons
   instead of raw JSON, login no longer provisions unknown identities, signup can
@@ -10,6 +14,10 @@
 - Fixed app workspace navigation so route changes inside an already-validated
   workspace no longer rerun the full session gate, and hardened repository
   finding display helpers against partially populated API records.
+- Added a manual AWS production release workflow that runs hosted database
+  migrations before deploying the selected immutable API/worker image and then
+  performs API smoke checks, reducing the chance of code/schema drift during
+  hosted releases.
 - Fixed web UI polish issues: the workspace overview header no longer crowds the
   "Overview"/"Latest activity" text (the boxed border is removed and the title and
   subtitle get clean spacing with no divider), the sign-in/sign-up logo mark now renders a visible
