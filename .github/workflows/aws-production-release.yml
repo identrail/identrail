@@ -114,7 +114,7 @@ jobs:
     uses: ./.github/workflows/aws-api-database-migrations.yml
     with:
       confirm_migrations: run-api-migrations
-      database_url_secret_arn: ${{ inputs.database_url_secret_arn }}
+      database_url_secret_arn: ${{ inputs.database_url_secret_arn || '' }}
       migrations_dir: ${{ inputs.migrations_dir }}
     secrets: inherit
 
@@ -133,7 +133,7 @@ jobs:
       api_public_subnet_ids_json: ${{ inputs.api_public_subnet_ids_json }}
       api_task_subnet_ids_json: ${{ inputs.api_task_subnet_ids_json }}
       api_certificate_arn: ${{ inputs.api_certificate_arn }}
-      database_url_secret_arn: ${{ inputs.database_url_secret_arn }}
+      database_url_secret_arn: ${{ inputs.database_url_secret_arn || '' }}
       terraform_state_bucket: ${{ inputs.terraform_state_bucket || '' }}
       terraform_state_key: ${{ vars.AWS_TERRAFORM_STATE_KEY || '' }}
     secrets: inherit
