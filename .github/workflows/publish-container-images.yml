@@ -16,13 +16,13 @@ permissions:
 
 concurrency:
   group: publish-container-images-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
 
 jobs:
   publish:
     name: Build and Publish Container Images
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -83,8 +83,10 @@ jobs:
           revision="${{ steps.meta.outputs.source_sha }}"
           backend_platforms="linux/amd64,linux/arm64"
 
-          if ! grep -Eq '^ARG[[:space:]]+TARGETARCH([[:space:]=]|$)' deploy/docker/Dockerfile.backend; then
-            echo "deploy/docker/Dockerfile.backend does not support TARGETARCH; publishing backend images for linux/amd64 only." >&2
+          if ! grep -Eq '^FROM[[:space:]]+--platform=\$BUILDPLATFORM[[:space:]]+' deploy/docker/Dockerfile.backend ||
+             ! grep -Eq '^ARG[[:space:]]+TARGETOS([[:space:]]*(#.*)?)?$' deploy/docker/Dockerfile.backend ||
+             ! grep -Eq '^ARG[[:space:]]+TARGETARCH([[:space:]]*(#.*)?)?$' deploy/docker/Dockerfile.backend; then
+            echo "deploy/docker/Dockerfile.backend does not support native Buildx cross-compilation; publishing backend images for linux/amd64 only." >&2
             backend_platforms="linux/amd64"
           fi
 
