@@ -10,7 +10,7 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - deps/go
+      - deps/other
     groups:
       go-security-updates:
         applies-to: security-updates
@@ -31,7 +31,7 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - deps/npm
+      - deps/other
     groups:
       npm-security-updates:
         applies-to: security-updates
