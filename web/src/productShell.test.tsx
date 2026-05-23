@@ -708,3 +708,84 @@ describe('ProductProjectDetailPage', () => {
     ).toBeInTheDocument();
   });
 });
+
+async function renderFindings(options: { repoScans?: RepoScanRecord[] } = {}) {
+  vi.resetModules();
+  vi.doMock('./hooks/useMe', () => ({
+    useMe: () => ({
+      me: { ...loggedInWithoutWorkspace, role: 'owner' } as CurrentUserContext,
+      loading: false,
+      error: '',
+      unauthenticated: false,
+      refresh: vi.fn()
+    })
+  }));
+
+  const api = await import('./api/client');
+  const listRepoScans = vi
+    .spyOn(api.apiClient, 'listRepoScans')
+    .mockResolvedValue({ items: options.repoScans ?? [] });
+  const listRepoFindings = vi
+    .spyOn(api.apiClient, 'listRepoFindings')
+    .mockResolvedValue({ items: [], summary: undefined });
+  vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
+  vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
+
+  const { ProductFindingsPage } = await import('./productShell');
+  render(
+    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/findings']}>
+      <Routes>
+        <Route path="/app/:tenantID/:workspaceID/findings" element={<ProductFindingsPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  return { listRepoScans, listRepoFindings };
+}
+
+describe('ProductFindingsPage states', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('shows a first-scan onboarding state when no scans have run', async () => {
+    await renderFindings({ repoScans: [] });
+
+    expect(await screen.findByText('Run your first repository scan')).toBeInTheDocument();
+    // The zero-filled dashboard chrome must not render in the empty state.
+    expect(screen.queryByText('Completed repo scans')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a failure state instead of zeros when every scan failed', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed',
+      status: 'failed',
+      finished_at: '2026-05-17T11:05:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+
+    await renderFindings({ repoScans: [failedScan] });
+
+    expect(await screen.findByText('Your last repository scan failed')).toBeInTheDocument();
+    expect(screen.getByText(/Repository not found or access revoked/i)).toBeInTheDocument();
+    expect(screen.queryByText('Completed repo scans')).not.toBeInTheDocument();
+  });
+
+  it('shows a clean "no exposure" state when a scan succeeded with zero findings', async () => {
+    const succeededScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-succeeded',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:05:00Z',
+      finding_count: 0
+    };
+
+    await renderFindings({ repoScans: [succeededScan] });
+
+    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+    // The dashboard chrome renders for a succeeded scan.
+    expect(screen.getByText('Completed repo scans')).toBeInTheDocument();
+  });
+});

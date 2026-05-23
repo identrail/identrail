@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Made the repository Findings page state-aware instead of rendering a
+  zero-filled dashboard in every empty case. A never-scanned workspace now shows
+  a first-scan onboarding prompt, an all-failed scan history surfaces the failure
+  reason with a re-run path (so failed scans are no longer silently shown as
+  zeros), and a successful scan with no findings shows a clean "no exposure
+  found" state. Also removed the redundant "Reload trend" button (Refresh now
+  reloads everything) and collapsed the finding trend so it no longer repeats
+  empty zero rows.
 - Re-scan dependencies with osv-scanner on every push to `dev` so resolved
   dependency CVEs clear from the code-scanning dashboard right after a fix
   merges, instead of waiting for the daily scheduled run. Restyled the README
