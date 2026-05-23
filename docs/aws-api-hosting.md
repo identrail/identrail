@@ -156,8 +156,9 @@ tag to this hosted API path.
 Worker hosting is enabled by default in this manual workflow through
 `API_WORKER_ENABLED=true`. If `API_WORKER_CONTAINER_IMAGE` is omitted, the
 preparation script derives the matching immutable worker image from the API
-image tag or digest, for example
-`ghcr.io/identrail/identrail-worker:sha-<commit>`. Set
+image tag, for example `ghcr.io/identrail/identrail-worker:sha-<commit>`.
+When deploying the API image by digest, set `API_WORKER_CONTAINER_IMAGE`
+explicitly to the matching immutable worker digest. Set
 `API_WORKER_ENABLED=false` only as a rollback knob when the API should stay up
 but queued scan processing must be paused.
 

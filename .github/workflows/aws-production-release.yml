@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       api_container_image:
-        description: "Immutable API image, for example ghcr.io/identrail/identrail-api:sha-<commit>."
+        description: "Tagged immutable API image, for example ghcr.io/identrail/identrail-api:sha-<commit>."
         required: true
         type: string
       api_base_url:
@@ -79,8 +79,8 @@ jobs:
             exit 1
           fi
 
-          if ! [[ "${API_CONTAINER_IMAGE}" =~ ^ghcr\.io/identrail/identrail-api:(sha-[0-9a-f]{12,40}|v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ || "${API_CONTAINER_IMAGE}" =~ ^ghcr\.io/identrail/identrail-api@sha256:[0-9a-f]{64}$ ]]; then
-            echo "api_container_image must be an immutable ghcr.io/identrail/identrail-api image."
+          if ! [[ "${API_CONTAINER_IMAGE}" =~ ^ghcr\.io/identrail/identrail-api:(sha-[0-9a-f]{12,40}|v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+            echo "api_container_image must be a tagged immutable ghcr.io/identrail/identrail-api image so the deploy workflow can derive the matching worker image."
             exit 1
           fi
 
@@ -144,11 +144,12 @@ jobs:
 
           base="${API_BASE_URL%/}"
           last_error=""
+          curl_args=(-fsS --connect-timeout 3 --max-time 8)
 
           for attempt in $(seq 1 30); do
-            if health="$(curl -fsS "${base}/healthz" 2>&1)" &&
-               ready="$(curl -fsS "${base}/readyz" 2>&1)" &&
-               auth_config="$(curl -fsS "${base}/v1/auth/config" 2>&1)" &&
+            if health="$(curl "${curl_args[@]}" "${base}/healthz" 2>&1)" &&
+               ready="$(curl "${curl_args[@]}" "${base}/readyz" 2>&1)" &&
+               auth_config="$(curl "${curl_args[@]}" "${base}/v1/auth/config" 2>&1)" &&
                jq -e '.status == "ok"' >/dev/null <<< "${health}" &&
                jq -e '.status == "ready"' >/dev/null <<< "${ready}" &&
                jq -e 'has("auth") and has("features")' >/dev/null <<< "${auth_config}"; then

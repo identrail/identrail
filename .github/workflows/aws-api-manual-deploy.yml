@@ -89,7 +89,7 @@ on:
         description: "S3 key for Terraform state."
         required: false
         type: string
-        default: identrail/dev/aws-api.tfstate
+        default: ""
 
 permissions:
   contents: read
