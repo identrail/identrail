@@ -200,6 +200,24 @@ async function renderProjectDetail(
         rate_limit: { limit: 5000, remaining: 4990 }
       }
     });
+  const startGitHubConnector = vi.spyOn(api.apiClient, 'startGitHubConnector').mockImplementation(async (payload) => ({
+    connection: {
+      provider: 'github_app',
+      connected: false,
+      connector_id: 'github-app',
+      display_name: 'GitHub App',
+      status: 'pending',
+      health_status: 'unknown',
+      webhook_secret_rotation_required: false,
+      selected_repositories: []
+    },
+    connector_id: 'github-app',
+    state: 'github-state',
+    install_url: 'https://github.com/apps/identrail/installations/new?state=github-state',
+    install_account_type: payload.install_account_type ?? 'any',
+    webhook_url: '/auth/webhooks/github',
+    expires_at: '2026-05-17T10:10:00Z'
+  }));
 
   const { ProductProjectDetailPage } = await import('./productShell');
   function ProjectDetailHarness() {
@@ -224,7 +242,14 @@ async function renderProjectDetail(
     </MemoryRouter>
   );
 
-  return { getGitHubConnectorStatus, getGitHubConnectorRepositoryPosture, listRepoScans, runRepoScan, cancelRepoScan };
+  return {
+    getGitHubConnectorStatus,
+    getGitHubConnectorRepositoryPosture,
+    startGitHubConnector,
+    listRepoScans,
+    runRepoScan,
+    cancelRepoScan
+  };
 }
 
 describe('ProductAppIndexRedirect', () => {
@@ -377,6 +402,38 @@ describe('ProductProjectDetailPage', () => {
       'project-1',
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
+  });
+
+  it('opens GitHub installation in a new tab for the selected account type', async () => {
+    const assign = vi.fn();
+    const close = vi.fn();
+    const popup = {
+      closed: false,
+      opener: {},
+      document: { title: '', body: { innerHTML: '' } },
+      location: { assign },
+      close
+    } as unknown as Window;
+    const userAgent = vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0');
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup);
+    const { startGitHubConnector } = await renderProjectDetail(true);
+
+    expect(await screen.findByText('Install the GitHub App')).toBeInTheDocument();
+    const installTarget = screen.getByRole('group', { name: /Install on/i });
+    fireEvent.click(within(installTarget).getByRole('button', { name: /Organization repositories/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue to GitHub/i }));
+
+    await waitFor(() =>
+      expect(startGitHubConnector).toHaveBeenCalledWith(
+        expect.objectContaining({ install_account_type: 'organization' }),
+        expect.any(Object)
+      )
+    );
+    expect(open).toHaveBeenCalledWith('', '_blank');
+    expect(assign).toHaveBeenCalledWith('https://github.com/apps/identrail/installations/new?state=github-state');
+    expect(await screen.findByText(/GitHub opened in a new tab/i)).toBeInTheDocument();
+
+    userAgent.mockRestore();
   });
 
   it('keeps advanced GitHub and scan policy controls collapsed until requested', async () => {

@@ -36,8 +36,9 @@
   instead of raw JSON, login no longer provisions unknown identities, signup can
   reactivate a deactivated/deleted account that still owns the same email, login
   now points retained removed accounts to the reactivation signup path, and the
-  GitHub App setup now continues directly to GitHub with copy covering both
-  personal accounts and organizations.
+  GitHub App setup now opens GitHub in a new tab with an explicit personal
+  account versus organization choice, backed by a public app manifest for
+  Any-account installation.
 - Fixed app workspace navigation so route changes inside an already-validated
   workspace no longer rerun the full session gate, and hardened repository
   finding display helpers against partially populated API records.

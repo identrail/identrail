@@ -5276,6 +5276,10 @@ components:
         redirect_uri:
           type: string
           format: uri
+        install_account_type:
+          type: string
+          enum: [any, personal, organization]
+          description: Preferred GitHub account picker context for the installation flow. GitHub still controls the final personal-account or organization target.
     GitHubConnectorStartResponse:
       type: object
       properties:
@@ -5288,6 +5292,9 @@ components:
         install_url:
           type: string
           format: uri
+        install_account_type:
+          type: string
+          enum: [any, personal, organization]
         webhook_url:
           type: string
         expires_at:

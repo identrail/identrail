@@ -6,7 +6,7 @@
     "active": true
   },
   "redirect_url": "https://app.identrail.com/app/github/callback",
-  "public": false,
+  "public": true,
   "default_permissions": {
     "actions": "read",
     "administration": "read",

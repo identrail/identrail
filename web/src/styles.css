@@ -5817,6 +5817,60 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.idt-source-account-choice {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.idt-source-account-choice legend {
+  padding: 0;
+  color: #d3e1f7;
+  font-size: 0.95rem;
+}
+
+.idt-source-account-options {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.idt-source-account-options button {
+  min-height: 4.25rem;
+  border: 1px solid rgba(126, 157, 211, 0.35);
+  border-radius: 0.55rem;
+  background: rgba(9, 15, 26, 0.84);
+  color: #dbe8fb;
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  padding: 0.65rem 0.7rem;
+  text-align: left;
+}
+
+.idt-source-account-options button:hover,
+.idt-source-account-options button:focus-visible {
+  border-color: rgba(139, 184, 255, 0.74);
+  color: #ffffff;
+}
+
+.idt-source-account-options button.is-selected {
+  border-color: rgba(62, 211, 131, 0.7);
+  background: rgba(16, 75, 50, 0.45);
+}
+
+.idt-source-account-options strong,
+.idt-source-account-options span {
+  display: block;
+}
+
+.idt-source-account-options span {
+  color: #9eb4d5;
+  font-size: 0.85rem;
+}
+
 .idt-app-form textarea,
 .idt-app-form select {
   border: 1px solid rgba(126, 157, 211, 0.35);
@@ -6114,6 +6168,10 @@ html[data-theme='light'] .idt-app-kicker {
 }
 
 html[data-theme='light'] .idt-app-form label {
+  color: #2b456c;
+}
+
+html[data-theme='light'] .idt-source-account-choice legend {
   color: #2b456c;
 }
 
@@ -7297,6 +7355,26 @@ html[data-theme='light'] .idt-app-form select {
   color: #1c355d;
   background: #ffffff;
   border-color: rgba(42, 71, 119, 0.32);
+}
+
+html[data-theme='light'] .idt-source-account-options button {
+  color: #1c355d;
+  background: #ffffff;
+  border-color: rgba(42, 71, 119, 0.32);
+}
+
+html[data-theme='light'] .idt-source-account-options button:hover,
+html[data-theme='light'] .idt-source-account-options button:focus-visible {
+  border-color: rgba(37, 99, 235, 0.48);
+}
+
+html[data-theme='light'] .idt-source-account-options button.is-selected {
+  background: rgba(224, 244, 235, 0.95);
+  border-color: rgba(33, 124, 83, 0.36);
+}
+
+html[data-theme='light'] .idt-source-account-options span {
+  color: #557096;
 }
 
 html[data-theme='light'] .idt-source-diagnostics span {

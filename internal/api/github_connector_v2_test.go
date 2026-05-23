@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +70,8 @@ func TestRouterGitHubConnectorV2StartsAppInstall(t *testing.T) {
 		"workspace_id":"workspace-a",
 		"project_id":"project-1",
 		"display_name":"GitHub production",
-		"redirect_uri":"https://app.identrail.com/app/tenant-a/workspace-a/projects/project-1"
+		"redirect_uri":"https://app.identrail.com/app/tenant-a/workspace-a/projects/project-1",
+		"install_account_type":"personal"
 	}`)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected github connector start 200, got %d body=%s", resp.Code, resp.Body.String())
@@ -86,6 +88,25 @@ func TestRouterGitHubConnectorV2StartsAppInstall(t *testing.T) {
 	}
 	if body.InstallURL == "" || body.WebhookURL != "/auth/webhooks/github" {
 		t.Fatalf("expected install and webhook urls, got %+v", body)
+	}
+	if body.InstallAccountType != "personal" {
+		t.Fatalf("expected personal account install type, got %q", body.InstallAccountType)
+	}
+	if strings.Contains(body.InstallURL, "/organizations/") {
+		t.Fatalf("install url must use GitHub's account picker, got %q", body.InstallURL)
+	}
+}
+
+func TestRouterGitHubConnectorV2RejectsInvalidInstallAccountType(t *testing.T) {
+	r := newGitHubConnectorV2TestRouter(t, &fakeGitHubPATValidator{}, nil)
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"install_account_type":"enterprise"
+	}`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected github connector start 400, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 

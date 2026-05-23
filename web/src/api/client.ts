@@ -794,6 +794,7 @@ export type GitHubConnectorStartRequest = {
   connector_id?: string;
   display_name?: string;
   redirect_uri?: string;
+  install_account_type?: 'any' | 'personal' | 'organization';
 };
 
 export type GitHubConnectorStartResponse = {
@@ -801,6 +802,7 @@ export type GitHubConnectorStartResponse = {
   connector_id: string;
   state: string;
   install_url: string;
+  install_account_type: 'any' | 'personal' | 'organization';
   webhook_url?: string;
   expires_at: string;
 };

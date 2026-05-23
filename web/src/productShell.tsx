@@ -84,6 +84,7 @@ type ScopeRouteParams = {
 };
 
 type SourceProvider = 'github' | 'aws' | 'kubernetes';
+type GitHubInstallAccountType = 'personal' | 'organization';
 
 type SourceConnectionMap = {
   github?: GitHubConnectionStatus;
@@ -670,20 +671,79 @@ function sourceAvailabilityTone(
   return availability.available ? connectionTone(status) : 'error';
 }
 
-function openGitHubInstallURL(installURL: string) {
-  if (typeof window === 'undefined' || !installURL) {
-    return;
+function openPendingGitHubInstallWindow(): Window | null {
+  if (typeof window === 'undefined') {
+    return null;
   }
   if (/jsdom/i.test(window.navigator.userAgent)) {
+    return null;
+  }
+  let popup: Window | null = null;
+  try {
+    popup = window.open('', '_blank');
+  } catch {
+    return null;
+  }
+  if (!popup) {
+    return null;
+  }
+  try {
+    popup.opener = null;
+    popup.document.title = 'Opening GitHub';
+    if (popup.document.body) {
+      popup.document.body.innerHTML =
+        '<main style="font:16px system-ui,sans-serif;padding:24px;color:#111827">Opening GitHub...</main>';
+    }
+  } catch {
+    // The tab is still useful even if the browser blocks temporary about:blank edits.
+  }
+  return popup;
+}
+
+function openGitHubInstallURL(installURL: string, popup?: Window | null) {
+  if (typeof window === 'undefined' || !installURL) {
+    return false;
+  }
+  if (/jsdom/i.test(window.navigator.userAgent)) {
+    return false;
+  }
+  if (popup && !popup.closed) {
+    try {
+      popup.location.assign(installURL);
+      return true;
+    } catch {
+      closeGitHubInstallWindow(popup);
+      // Fall through to opening a fresh tab if the pre-opened tab is no longer writable.
+    }
+  }
+  try {
+    return window.open(installURL, '_blank', 'noopener,noreferrer') !== null;
+  } catch {
+    return false;
+  }
+}
+
+function closeGitHubInstallWindow(popup: Window | null) {
+  if (!popup) {
     return;
   }
   try {
-    window.location.assign(installURL);
-    return;
+    if (!popup.closed) {
+      popup.close();
+    }
   } catch {
-    // Fall back to a same-tab open when a test/browser shim blocks assign().
+    // Ignore browser restrictions after the tab has navigated away.
   }
-  window.open(installURL, '_self', 'noopener,noreferrer');
+}
+
+function describeGitHubInstallAccountType(value: GitHubConnectorStartResponse['install_account_type']) {
+  if (value === 'organization') {
+    return 'an organization';
+  }
+  if (value === 'personal') {
+    return 'a personal account';
+  }
+  return 'a personal account or organization';
 }
 
 function formatRepoScanSubmitError(error: unknown): string {
@@ -3688,7 +3748,8 @@ export function ProductProjectDetailPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);
   const [githubAppForm, setGitHubAppForm] = useState({
-    displayName: 'GitHub App'
+    displayName: 'GitHub App',
+    installAccountType: 'personal' as GitHubInstallAccountType
   });
   const [githubPATForm, setGitHubPATForm] = useState({
     displayName: 'GitHub Enterprise',
@@ -4129,6 +4190,7 @@ export function ProductProjectDetailPage() {
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, github: undefined }));
     const requestSequence = refreshSequenceRef.current;
+    const installWindow = openPendingGitHubInstallWindow();
     try {
       const auth = buildProductAuthContext(scope);
       const redirectURI =
@@ -4138,18 +4200,25 @@ export function ProductProjectDetailPage() {
           workspace_id: scope.workspaceID,
           project_id: projectID,
           display_name: normalizeValue(githubAppForm.displayName) || undefined,
+          install_account_type: githubAppForm.installAccountType,
           redirect_uri: redirectURI
         },
         auth
       );
       if (isStaleRequestSequence(requestSequence)) {
+        closeGitHubInstallWindow(installWindow);
         return;
       }
       setGitHubStart(response);
       setConnections((current) => ({ ...current, github: response.connection }));
-      setSuccessMessage('Opening GitHub installation.');
-      openGitHubInstallURL(response.install_url);
+      const opened = openGitHubInstallURL(response.install_url, installWindow);
+      setSuccessMessage(
+        opened
+          ? 'GitHub opened in a new tab. Finish the installation there to complete setup.'
+          : 'GitHub installation is ready. Continue with the GitHub button below.'
+      );
     } catch (error) {
+      closeGitHubInstallWindow(installWindow);
       if (isStaleRequestSequence(requestSequence)) {
         return;
       }
@@ -4773,6 +4842,31 @@ export function ProductProjectDetailPage() {
                       placeholder="GitHub App"
                     />
                   </label>
+                  <fieldset className="idt-source-account-choice">
+                    <legend>Install on</legend>
+                    <div className="idt-source-account-options">
+                      {(
+                        [
+                          ['personal', 'Personal account', 'Personal repositories'],
+                          ['organization', 'Organization', 'Organization repositories']
+                        ] as const
+                      ).map(([value, label, caption]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={githubAppForm.installAccountType === value ? 'is-selected' : ''}
+                          aria-pressed={githubAppForm.installAccountType === value}
+                          disabled={submitting !== ''}
+                          onClick={() =>
+                            setGitHubAppForm((current) => ({ ...current, installAccountType: value }))
+                          }
+                        >
+                          <strong>{label}</strong>
+                          <span>{caption}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
                   <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
                     {submitting === 'github' ? 'Preparing GitHub...' : 'Continue to GitHub'}
                   </button>
@@ -4783,7 +4877,10 @@ export function ProductProjectDetailPage() {
                 <article className="idt-source-install-card">
                   <div>
                     <h4>GitHub did not open automatically?</h4>
-                    <p>Continue with a personal account or organization. State expires {formatConnectionTime(githubStart.expires_at)}.</p>
+                    <p>
+                      Continue with {describeGitHubInstallAccountType(githubStart.install_account_type)}.
+                      State expires {formatConnectionTime(githubStart.expires_at)}.
+                    </p>
                   </div>
                   <a className="idt-btn idt-btn-dark" href={githubStart.install_url} target="_blank" rel="noreferrer">
                     Continue to GitHub

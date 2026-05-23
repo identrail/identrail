@@ -88,21 +88,23 @@ type GitHubRepositoryPostureCollector interface {
 
 // GitHubConnectorStartRequest captures the flat connector GitHub App bootstrap request.
 type GitHubConnectorStartRequest struct {
-	WorkspaceID string `json:"workspace_id,omitempty"`
-	ProjectID   string `json:"project_id,omitempty"`
-	ConnectorID string `json:"connector_id,omitempty"`
-	DisplayName string `json:"display_name,omitempty"`
-	RedirectURI string `json:"redirect_uri,omitempty"`
+	WorkspaceID        string `json:"workspace_id,omitempty"`
+	ProjectID          string `json:"project_id,omitempty"`
+	ConnectorID        string `json:"connector_id,omitempty"`
+	DisplayName        string `json:"display_name,omitempty"`
+	RedirectURI        string `json:"redirect_uri,omitempty"`
+	InstallAccountType string `json:"install_account_type,omitempty"`
 }
 
 // GitHubConnectorStartResponse returns the hosted GitHub App installation flow.
 type GitHubConnectorStartResponse struct {
-	Connection  GitHubConnectionStatus `json:"connection"`
-	ConnectorID string                 `json:"connector_id"`
-	State       string                 `json:"state"`
-	InstallURL  string                 `json:"install_url"`
-	WebhookURL  string                 `json:"webhook_url,omitempty"`
-	ExpiresAt   time.Time              `json:"expires_at"`
+	Connection         GitHubConnectionStatus `json:"connection"`
+	ConnectorID        string                 `json:"connector_id"`
+	State              string                 `json:"state"`
+	InstallURL         string                 `json:"install_url"`
+	InstallAccountType string                 `json:"install_account_type"`
+	WebhookURL         string                 `json:"webhook_url,omitempty"`
+	ExpiresAt          time.Time              `json:"expires_at"`
 }
 
 // GitHubConnectorCompleteRequest captures the GitHub App installation callback payload.
@@ -333,6 +335,10 @@ func (s *Service) StartGitHubConnector(ctx context.Context, request GitHubConnec
 	if strings.TrimSpace(request.ProjectID) == "" {
 		return GitHubConnectorStartResponse{}, ErrInvalidGitHubConnectionRequest
 	}
+	installAccountType, err := normalizeGitHubInstallAccountType(request.InstallAccountType)
+	if err != nil {
+		return GitHubConnectorStartResponse{}, ErrInvalidGitHubConnectionRequest
+	}
 	project, scope, err := s.requireScopedProject(ctx, request.WorkspaceID, request.ProjectID)
 	if err != nil {
 		return GitHubConnectorStartResponse{}, err
@@ -369,6 +375,7 @@ func (s *Service) StartGitHubConnector(ctx context.Context, request GitHubConnec
 		"provider":              "github_app",
 		"state":                 state,
 		"install_url":           installURL,
+		"install_account_type":  installAccountType,
 		"app_slug":              appSlug,
 		"redirect_uri":          strings.TrimSpace(request.RedirectURI),
 		"state_expires_at":      expiresAt.Format(time.RFC3339Nano),
@@ -410,12 +417,13 @@ func (s *Service) StartGitHubConnector(ctx context.Context, request GitHubConnec
 		UpdatedAt:            &now,
 	}
 	return GitHubConnectorStartResponse{
-		Connection:  status,
-		ConnectorID: connectorID,
-		State:       state,
-		InstallURL:  installURL,
-		WebhookURL:  "/auth/webhooks/github",
-		ExpiresAt:   expiresAt,
+		Connection:         status,
+		ConnectorID:        connectorID,
+		State:              state,
+		InstallURL:         installURL,
+		InstallAccountType: installAccountType,
+		WebhookURL:         "/auth/webhooks/github",
+		ExpiresAt:          expiresAt,
 	}, nil
 }
 
@@ -1788,6 +1796,18 @@ func timePtr(value time.Time) *time.Time {
 
 func githubConnectionKey(tenantID string, workspaceID string, projectID string) string {
 	return strings.ToLower(strings.TrimSpace(tenantID)) + "::" + strings.ToLower(strings.TrimSpace(workspaceID)) + "::" + strings.ToLower(strings.TrimSpace(projectID))
+}
+
+func normalizeGitHubInstallAccountType(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "":
+		return "any", nil
+	case "any", "personal", "organization":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("invalid github install account type")
+	}
 }
 
 func normalizeGitHubRepositories(repositories []string) ([]string, error) {
