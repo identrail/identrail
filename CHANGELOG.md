@@ -5,8 +5,8 @@
   workspace no longer rerun the full session gate, and hardened repository
   finding display helpers against partially populated API records.
 - Fixed web UI polish issues: the workspace overview header no longer crowds the
-  "Overview"/"Latest activity" text against its divider (boxed border replaced
-  with a spaced bottom rule), the sign-in/sign-up logo mark now renders a visible
+  "Overview"/"Latest activity" text (the boxed border is removed and the title and
+  subtitle get clean spacing with no divider), the sign-in/sign-up logo mark now renders a visible
   tile on the dark auth background instead of disappearing into it, and the
   homepage "Adoption Paths" eyebrow uses the brand accent color in light theme so
   it is no longer washed out. The workspace finder ("Go to anything") modal now

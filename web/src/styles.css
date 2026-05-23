@@ -22007,17 +22007,17 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 .idt-app-console-layout .idt-overview-header {
   align-items: center;
-  padding: 0 0 1.1rem;
+  padding: 0.5rem 0 0.75rem;
   border: none;
-  border-bottom: 1px solid var(--app-border-soft);
   border-radius: 0;
   background: transparent;
 }
 
 /* The always-on light-theme header rule otherwise re-applies a panel
-   background and a heavier border colour; keep the overview header clean. */
+   background and border; keep the overview header as clean text with no
+   box or divider, just breathing room around the title and subtitle. */
 html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
-  border-color: var(--app-border-soft);
+  border: none;
   background: transparent;
 }
 
