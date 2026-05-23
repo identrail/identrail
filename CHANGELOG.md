@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Re-scan dependencies with osv-scanner on every push to `dev` so resolved
+  dependency CVEs clear from the code-scanning dashboard right after a fix
+  merges, instead of waiting for the daily scheduled run. Restyled the README
+  OpenSSF Best Practices badge to a shields.io badge that matches the other
+  badges (black label, vivid "passing").
 - Refreshed the public onboarding docs so first-time users can start from the
   source they care about: GitHub repository scans, AWS machine identity scans,
   Kubernetes machine identity scans, Docker-based runs, or the hosted app. The

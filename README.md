@@ -6,14 +6,14 @@
   <br />
   <br />
 
-  <p><strong>Open-source machine identity security for GitHub, AWS, and Kubernetes.</strong></p>
+  <p><strong>Open-source machine identity security for AWS, GitHub, and Kubernetes.</strong></p>
   <p>Find risky trust paths, repository exposure, and authorization gaps before they become incidents.</p>
 </div>
 
 <p align="center">
   <a href="https://github.com/identrail/identrail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/identrail/identrail/ci.yml?branch=dev&style=flat&label=ci&labelColor=000000" alt="CI status" /></a>
   <a href="https://github.com/identrail/identrail/releases/tag/v1.0.1"><img src="https://img.shields.io/badge/version-v1.0.1-0969da?style=flat&labelColor=000000" alt="Version v1.0.1" /></a>
-  <a href="https://www.bestpractices.dev/projects/12950"><img src="https://www.bestpractices.dev/projects/12950/badge" alt="OpenSSF Best Practices" /></a>
+  <a href="https://www.bestpractices.dev/projects/12950"><img src="https://img.shields.io/cii/level/12950?style=flat&label=openssf%20best%20practices&labelColor=000000" alt="OpenSSF Best Practices" /></a>
   <a href="https://github.com/identrail/identrail/stargazers"><img src="https://img.shields.io/github/stars/identrail/identrail?style=flat&label=stars&labelColor=000000&color=d4af37" alt="GitHub stars" /></a>
 </p>
 
