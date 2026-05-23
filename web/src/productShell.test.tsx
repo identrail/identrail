@@ -213,7 +213,7 @@ async function renderProjectDetail(
     },
     connector_id: 'github-app',
     state: 'github-state',
-    install_url: 'https://github.com/apps/identrail/installations/new?state=github-state',
+    install_url: 'https://github.com/apps/identrail/installations/select_target?state=github-state',
     install_account_type: payload.install_account_type ?? 'any',
     webhook_url: '/auth/webhooks/github',
     expires_at: '2026-05-17T10:10:00Z'
@@ -420,7 +420,8 @@ describe('ProductProjectDetailPage', () => {
 
     expect(await screen.findByText('Install the GitHub App')).toBeInTheDocument();
     const installTarget = screen.getByRole('group', { name: /Install on/i });
-    fireEvent.click(within(installTarget).getByRole('button', { name: /Organization repositories/i }));
+    fireEvent.click(within(installTarget).getByRole('radio', { name: /Organization/i }));
+    expect(within(installTarget).getByRole('radio', { name: /Organization/i })).toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: /Continue to GitHub/i }));
 
     await waitFor(() =>
@@ -430,7 +431,7 @@ describe('ProductProjectDetailPage', () => {
       )
     );
     expect(open).toHaveBeenCalledWith('', '_blank');
-    expect(assign).toHaveBeenCalledWith('https://github.com/apps/identrail/installations/new?state=github-state');
+    expect(assign).toHaveBeenCalledWith('https://github.com/apps/identrail/installations/select_target?state=github-state');
     expect(await screen.findByText(/GitHub opened in a new tab/i)).toBeInTheDocument();
 
     userAgent.mockRestore();

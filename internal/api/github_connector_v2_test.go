@@ -92,6 +92,9 @@ func TestRouterGitHubConnectorV2StartsAppInstall(t *testing.T) {
 	if body.InstallAccountType != "personal" {
 		t.Fatalf("expected personal account install type, got %q", body.InstallAccountType)
 	}
+	if !strings.Contains(body.InstallURL, "/installations/select_target?") {
+		t.Fatalf("install url must start at GitHub's account picker, got %q", body.InstallURL)
+	}
 	if strings.Contains(body.InstallURL, "/organizations/") {
 		t.Fatalf("install url must use GitHub's account picker, got %q", body.InstallURL)
 	}

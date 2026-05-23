@@ -48,7 +48,7 @@ func NormalizeAppSlug(value string) (string, error) {
 	return slug, nil
 }
 
-// BuildInstallURL returns the GitHub App installation URL with an opaque state.
+// BuildInstallURL returns the GitHub App target-picker URL with an opaque state.
 func BuildInstallURL(appSlug string, state string, redirectURI string) (string, error) {
 	slug, err := NormalizeAppSlug(appSlug)
 	if err != nil {
@@ -67,7 +67,7 @@ func BuildInstallURL(appSlug string, state string, redirectURI string) (string, 
 		}
 		values.Set("redirect_uri", redirect)
 	}
-	return "https://github.com/apps/" + slug + "/installations/new?" + values.Encode(), nil
+	return "https://github.com/apps/" + slug + "/installations/select_target?" + values.Encode(), nil
 }
 
 // SignAppJWT signs a short-lived RS256 JWT accepted by GitHub App APIs.

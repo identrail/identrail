@@ -4842,28 +4842,37 @@ export function ProductProjectDetailPage() {
                       placeholder="GitHub App"
                     />
                   </label>
-                  <fieldset className="idt-source-account-choice">
+                  <fieldset className="idt-source-account-choice" aria-describedby="github-install-target-help">
                     <legend>Install on</legend>
+                    <p id="github-install-target-help">
+                      GitHub opens an account picker next. Choose where the repositories live.
+                    </p>
                     <div className="idt-source-account-options">
                       {(
                         [
-                          ['personal', 'Personal account', 'Personal repositories'],
-                          ['organization', 'Organization', 'Organization repositories']
+                          ['personal', 'Personal account', 'Repos owned by your GitHub user'],
+                          ['organization', 'Organization', 'Repos owned by a GitHub organization']
                         ] as const
                       ).map(([value, label, caption]) => (
-                        <button
+                        <label
                           key={value}
-                          type="button"
                           className={githubAppForm.installAccountType === value ? 'is-selected' : ''}
-                          aria-pressed={githubAppForm.installAccountType === value}
-                          disabled={submitting !== ''}
-                          onClick={() =>
-                            setGitHubAppForm((current) => ({ ...current, installAccountType: value }))
-                          }
                         >
+                          <input
+                            type="radio"
+                            name="github-install-account-type"
+                            value={value}
+                            checked={githubAppForm.installAccountType === value}
+                            disabled={submitting !== ''}
+                            onChange={() =>
+                              setGitHubAppForm((current) => ({ ...current, installAccountType: value }))
+                            }
+                          />
+                          <span className="idt-source-account-radio" aria-hidden="true" />
                           <strong>{label}</strong>
-                          <span>{caption}</span>
-                        </button>
+                          <span className="idt-source-account-caption">{caption}</span>
+                          <em>{githubAppForm.installAccountType === value ? 'Selected' : 'Choose'}</em>
+                        </label>
                       ))}
                     </div>
                   </fieldset>
