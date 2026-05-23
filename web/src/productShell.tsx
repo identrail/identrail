@@ -636,13 +636,29 @@ function sourceAvailabilityTone(
   return availability.available ? connectionTone(status) : 'error';
 }
 
+function openGitHubInstallURL(installURL: string) {
+  if (typeof window === 'undefined' || !installURL) {
+    return;
+  }
+  if (/jsdom/i.test(window.navigator.userAgent)) {
+    return;
+  }
+  try {
+    window.location.assign(installURL);
+    return;
+  } catch {
+    // Fall back to a same-tab open when a test/browser shim blocks assign().
+  }
+  window.open(installURL, '_self', 'noopener,noreferrer');
+}
+
 function formatRepoScanSubmitError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 400) {
       return 'Choose a valid owner/repo repository target before queueing a scan.';
     }
     if (error.status === 403) {
-      return 'That repository is outside the allowed scan targets. Choose a selected GitHub repository or update the hosted repo scan allowlist.';
+      return 'That repository is not currently allowed for this project. Choose a repository selected during GitHub App installation, or ask an operator to allow that owner/repo target.';
     }
     if (error.status === 409) {
       return 'A scan is already queued or running for this repository. Watch recent scan activity below.';
@@ -4065,7 +4081,8 @@ export function ProductProjectDetailPage() {
       }
       setGitHubStart(response);
       setConnections((current) => ({ ...current, github: response.connection }));
-      setSuccessMessage('GitHub installation link generated.');
+      setSuccessMessage('Opening GitHub installation.');
+      openGitHubInstallURL(response.install_url);
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
@@ -4677,7 +4694,7 @@ export function ProductProjectDetailPage() {
                 <div>
                   <p className="idt-app-kicker">Recommended setup</p>
                   <h4>Install the GitHub App</h4>
-                  <p>Start with selected repository access, webhook validation, and owner-ready scan context.</p>
+                  <p>Choose a personal account or organization on GitHub, then select the repositories Identrail can read.</p>
                 </div>
                 <form className="idt-app-form" onSubmit={handleGitHubStart}>
                   <label>
@@ -4691,7 +4708,7 @@ export function ProductProjectDetailPage() {
                     />
                   </label>
                   <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
-                    {submitting === 'github' ? 'Preparing...' : 'Generate install link'}
+                    {submitting === 'github' ? 'Preparing GitHub...' : 'Continue to GitHub'}
                   </button>
                 </form>
               </article>
@@ -4699,11 +4716,11 @@ export function ProductProjectDetailPage() {
               {githubStart ? (
                 <article className="idt-source-install-card">
                   <div>
-                    <h4>GitHub installation ready</h4>
-                    <p>State expires {formatConnectionTime(githubStart.expires_at)}.</p>
+                    <h4>GitHub did not open automatically?</h4>
+                    <p>Continue with a personal account or organization. State expires {formatConnectionTime(githubStart.expires_at)}.</p>
                   </div>
                   <a className="idt-btn idt-btn-dark" href={githubStart.install_url} target="_blank" rel="noreferrer">
-                    Open GitHub
+                    Continue to GitHub
                   </a>
                 </article>
               ) : null}

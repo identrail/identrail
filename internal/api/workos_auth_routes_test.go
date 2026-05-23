@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -130,7 +131,7 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	}
 
 	startResp := httptest.NewRecorder()
-	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/welcome", nil))
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=/app/welcome", nil))
 	if startResp.Code != http.StatusFound {
 		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
 	}
@@ -299,7 +300,7 @@ func TestWorkOSHostedLoginAllowsConfiguredWebReturnOrigin(t *testing.T) {
 	})
 
 	startResp := httptest.NewRecorder()
-	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=https%3A%2F%2Fapp.identrail.test%2Fapp%2Fwelcome", nil))
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=https%3A%2F%2Fapp.identrail.test%2Fapp%2Fwelcome", nil))
 	if startResp.Code != http.StatusFound {
 		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
 	}
@@ -484,8 +485,45 @@ func TestWorkOSCallbackRejectsEmailIdentityConflict(t *testing.T) {
 	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
 	callbackResp := httptest.NewRecorder()
 	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
-	if callbackResp.Code != http.StatusConflict {
-		t.Fatalf("expected identity conflict, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected identity conflict redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); !strings.Contains(got, "/signin?") || !strings.Contains(got, "reason=identity_conflict") {
+		t.Fatalf("unexpected identity conflict redirect: %q", got)
+	}
+}
+
+func TestWorkOSCallbackRedirectsUnknownLoginToSignupHint(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	workOS := &fakeWorkOSClient{authentication: sessionauth.WorkOSAuthentication{
+		User: sessionauth.WorkOSProfile{ID: "user_workos_unknown", Email: "unknown@example.com", EmailVerified: true},
+	}}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://api.identrail.test",
+		CORSAllowedOrigins:  []string{"https://app.identrail.test"},
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=https%3A%2F%2Fapp.identrail.test%2Fapp%2Fwelcome", nil))
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected account-not-found redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); got != "https://app.identrail.test/signin?reason=account_not_found&return_to=%2Fapp%2Fwelcome" {
+		t.Fatalf("unexpected account-not-found redirect: %q", got)
+	}
+	if _, err := store.GetUserByPrimaryEmail(context.Background(), "unknown@example.com"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("login intent must not create a user, got %v", err)
 	}
 }
 
@@ -541,15 +579,15 @@ func TestWorkOSCallbackRejectsInvalidStateAndUnavailableProvider(t *testing.T) {
 	})
 	invalidResp := httptest.NewRecorder()
 	router.ServeHTTP(invalidResp, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-1&state=tampered", nil))
-	if invalidResp.Code != http.StatusBadRequest {
-		t.Fatalf("expected invalid state 400, got %d", invalidResp.Code)
+	if invalidResp.Code != http.StatusFound || !strings.Contains(invalidResp.Header().Get("Location"), "reason=state_mismatch") {
+		t.Fatalf("expected invalid state redirect, got %d loc=%q", invalidResp.Code, invalidResp.Header().Get("Location"))
 	}
 	startResp := httptest.NewRecorder()
 	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
 	unavailableResp := httptest.NewRecorder()
 	router.ServeHTTP(unavailableResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
-	if unavailableResp.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected unavailable provider 503, got %d body=%s", unavailableResp.Code, unavailableResp.Body.String())
+	if unavailableResp.Code != http.StatusFound || !strings.Contains(unavailableResp.Header().Get("Location"), "reason=provider_unavailable") {
+		t.Fatalf("expected unavailable provider redirect, got %d loc=%q body=%s", unavailableResp.Code, unavailableResp.Header().Get("Location"), unavailableResp.Body.String())
 	}
 	if unavailableResp.Header().Get("Retry-After") == "" {
 		t.Fatal("expected Retry-After header for provider outage")
@@ -557,8 +595,8 @@ func TestWorkOSCallbackRejectsInvalidStateAndUnavailableProvider(t *testing.T) {
 
 	missingCodeResp := httptest.NewRecorder()
 	router.ServeHTTP(missingCodeResp, httptest.NewRequest(http.MethodGet, "/auth/callback?state="+url.QueryEscape(workOS.authorizationInput.State), nil))
-	if missingCodeResp.Code != http.StatusBadRequest {
-		t.Fatalf("expected missing code 400, got %d", missingCodeResp.Code)
+	if missingCodeResp.Code != http.StatusFound || !strings.Contains(missingCodeResp.Header().Get("Location"), "reason=callback_error") {
+		t.Fatalf("expected missing code redirect, got %d loc=%q", missingCodeResp.Code, missingCodeResp.Header().Get("Location"))
 	}
 }
 
@@ -601,7 +639,7 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 	})
 
 	startResp := httptest.NewRecorder()
-	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
 	if startResp.Code != http.StatusFound {
 		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
 	}
@@ -715,7 +753,7 @@ func TestWorkOSCallbackContinuesExistingMFAChallenge(t *testing.T) {
 	})
 
 	startResp := httptest.NewRecorder()
-	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
 	callbackResp := httptest.NewRecorder()
 	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingMFACookieName)
@@ -746,6 +784,65 @@ func TestWorkOSCallbackContinuesExistingMFAChallenge(t *testing.T) {
 	}
 	if workOS.verifyInput.PendingAuthenticationToken != "pending-token" || workOS.verifyInput.AuthenticationChallengeID != "auth_challenge_existing" || workOS.verifyInput.Code != "654321" {
 		t.Fatalf("unexpected verify input: %+v", workOS.verifyInput)
+	}
+}
+
+func TestWorkOSMFAVerifyRedirectsUnknownLoginToSignupHint(t *testing.T) {
+	secret := strings.Repeat("a", 64)
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	workOS := &fakeWorkOSClient{
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_unknown_mfa",
+				Email:         "unknown-mfa@example.com",
+				EmailVerified: true,
+			},
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:     true,
+		FeatureWorkOSLogin: true,
+		PublicBaseURL:      "https://api.identrail.test",
+		CORSAllowedOrigins: []string{"https://app.identrail.test"},
+		SessionKey:         secret,
+		WorkOSClientID:     "client_123",
+		WorkOSAuthClient:   workOS,
+		RateLimitRPM:       1000,
+		RateLimitBurst:     1000,
+	})
+	pending := sessionauth.WorkOSMFAPendingState{
+		Mode:                       sessionauth.WorkOSMFAModeChallenge,
+		Intent:                     workOSAuthIntentLogin,
+		ReturnTo:                   "https://app.identrail.test/app/welcome",
+		PendingAuthenticationToken: "pending-token",
+		User:                       sessionauth.WorkOSProfile{ID: "user_workos_unknown_mfa", Email: "unknown-mfa@example.com", EmailVerified: true},
+		AuthenticationFactors:      []sessionauth.WorkOSMFAFactor{{ID: "auth_factor_existing", Type: "totp"}},
+		ChallengeID:                "auth_challenge_existing",
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/mfa/verify", strings.NewReader(`{"code":"654321"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sealedPendingMFACookie(t, secret, pending))
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected mfa verify recovery redirect payload, got code=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		OK         bool   `json:"ok"`
+		RedirectTo string `json:"redirect_to"`
+		Error      string `json:"error"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode verify recovery payload: %v", err)
+	}
+	expected := "https://app.identrail.test/signin?reason=account_not_found&return_to=%2Fapp%2Fwelcome"
+	if payload.OK || payload.RedirectTo != expected || payload.Error != "" {
+		t.Fatalf("unexpected verify recovery payload: %+v", payload)
+	}
+	if _, err := store.GetUserByPrimaryEmail(context.Background(), "unknown-mfa@example.com"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("login mfa recovery must not create a user, got %v", err)
 	}
 }
 
@@ -781,7 +878,7 @@ func TestWorkOSMFAChallengeRejectsBadFactorAndInvalidCode(t *testing.T) {
 	}
 
 	startResp := httptest.NewRecorder()
-	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
 	callbackResp := httptest.NewRecorder()
 	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
 	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingMFACookieName)
@@ -842,7 +939,7 @@ func TestWorkOSCallbackRequiresBrowserBoundTransaction(t *testing.T) {
 	router := newWorkOSTestRouter(t, store, workOS)
 
 	startResp := httptest.NewRecorder()
-	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/welcome", nil))
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=/app/welcome", nil))
 	if startResp.Code != http.StatusFound {
 		t.Fatalf("expected login redirect, got %d", startResp.Code)
 	}
@@ -853,20 +950,20 @@ func TestWorkOSCallbackRequiresBrowserBoundTransaction(t *testing.T) {
 	// though the signed state is valid.
 	noCookieResp := httptest.NewRecorder()
 	router.ServeHTTP(noCookieResp, workOSCallbackRequest(state, nil))
-	if noCookieResp.Code != http.StatusBadRequest {
-		t.Fatalf("expected missing-cookie callback to be rejected, got %d body=%s", noCookieResp.Code, noCookieResp.Body.String())
+	if noCookieResp.Code != http.StatusFound || !strings.Contains(noCookieResp.Header().Get("Location"), "reason=state_mismatch") {
+		t.Fatalf("expected missing-cookie callback redirect, got %d loc=%q body=%s", noCookieResp.Code, noCookieResp.Header().Get("Location"), noCookieResp.Body.String())
 	}
 
 	// A second, independent login produces a different transaction cookie;
 	// pairing it with the first state must be rejected (state/cookie
 	// mismatch).
 	otherStart := httptest.NewRecorder()
-	router.ServeHTTP(otherStart, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/other", nil))
+	router.ServeHTTP(otherStart, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=/app/other", nil))
 	otherCookie := oauthTxnCookieFromStart(t, otherStart)
 	mismatchResp := httptest.NewRecorder()
 	router.ServeHTTP(mismatchResp, workOSCallbackRequest(state, otherCookie))
-	if mismatchResp.Code != http.StatusBadRequest {
-		t.Fatalf("expected mismatched state/cookie to be rejected, got %d body=%s", mismatchResp.Code, mismatchResp.Body.String())
+	if mismatchResp.Code != http.StatusFound || !strings.Contains(mismatchResp.Header().Get("Location"), "reason=state_mismatch") {
+		t.Fatalf("expected mismatched state/cookie redirect, got %d loc=%q body=%s", mismatchResp.Code, mismatchResp.Header().Get("Location"), mismatchResp.Body.String())
 	}
 
 	// The genuine pair succeeds exactly once.
@@ -879,8 +976,8 @@ func TestWorkOSCallbackRequiresBrowserBoundTransaction(t *testing.T) {
 	// Replaying the same state + cookie fails because the row is consumed.
 	replayResp := httptest.NewRecorder()
 	router.ServeHTTP(replayResp, workOSCallbackRequest(state, txnCookie))
-	if replayResp.Code != http.StatusBadRequest {
-		t.Fatalf("expected reused state to be rejected, got %d body=%s", replayResp.Code, replayResp.Body.String())
+	if replayResp.Code != http.StatusFound || !strings.Contains(replayResp.Header().Get("Location"), "reason=state_mismatch") {
+		t.Fatalf("expected reused state redirect, got %d loc=%q body=%s", replayResp.Code, replayResp.Header().Get("Location"), replayResp.Body.String())
 	}
 }
 
@@ -896,13 +993,13 @@ func TestWorkOSConcurrentStartsKeepIndependentTransactions(t *testing.T) {
 	router := newWorkOSTestRouter(t, store, workOS)
 
 	startA := httptest.NewRecorder()
-	router.ServeHTTP(startA, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/a", nil))
+	router.ServeHTTP(startA, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=/app/a", nil))
 	stateA := workOS.authorizationInput.State
 	cookieA := oauthTxnCookieFromStart(t, startA)
 
 	// Second flow starts before the first callback returns.
 	startB := httptest.NewRecorder()
-	router.ServeHTTP(startB, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/b", nil))
+	router.ServeHTTP(startB, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=/app/b", nil))
 	stateB := workOS.authorizationInput.State
 	cookieB := oauthTxnCookieFromStart(t, startB)
 
@@ -939,7 +1036,7 @@ func TestWorkOSCallbackReplayFailsAcrossInstances(t *testing.T) {
 	instanceB := newWorkOSTestRouter(t, store, workOS)
 
 	startResp := httptest.NewRecorder()
-	instanceA.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?return_to=/app/welcome", nil))
+	instanceA.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=/app/welcome", nil))
 	state := workOS.authorizationInput.State
 	txnCookie := oauthTxnCookieFromStart(t, startResp)
 
@@ -956,8 +1053,8 @@ func TestWorkOSCallbackReplayFailsAcrossInstances(t *testing.T) {
 	// map never saw this nonce consumed.
 	aReplay := httptest.NewRecorder()
 	instanceA.ServeHTTP(aReplay, workOSCallbackRequest(state, txnCookie))
-	if aReplay.Code != http.StatusBadRequest {
-		t.Fatalf("expected cross-instance replay to be rejected, got %d body=%s", aReplay.Code, aReplay.Body.String())
+	if aReplay.Code != http.StatusFound || !strings.Contains(aReplay.Header().Get("Location"), "reason=state_mismatch") {
+		t.Fatalf("expected cross-instance replay redirect, got %d loc=%q body=%s", aReplay.Code, aReplay.Header().Get("Location"), aReplay.Body.String())
 	}
 }
 

@@ -1083,11 +1083,9 @@ paths:
             type: string
       responses:
         "302":
-          description: Session cookie set and browser redirected to the app
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "409":
-          $ref: "#/components/responses/Conflict"
+          description: >
+            Session cookie set and browser redirected to the app, or browser
+            redirected back to sign-in with a user-facing reason.
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
   /auth/saml/login/{connection_id}:

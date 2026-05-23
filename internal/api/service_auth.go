@@ -14,7 +14,15 @@ import (
 	"github.com/identrail/identrail/internal/db"
 )
 
-var ErrAuthIdentityConflict = errors.New("auth identity conflicts with existing user")
+var (
+	ErrAuthIdentityConflict = errors.New("auth identity conflicts with existing user")
+	ErrAuthAccountNotFound  = errors.New("auth account not found")
+)
+
+const (
+	workOSAuthIntentLogin  = "login"
+	workOSAuthIntentSignup = "signup"
+)
 
 // CurrentUserContext is the response model for GET /v1/me.
 type CurrentUserContext struct {
@@ -69,9 +77,17 @@ var ErrAuthInvalidManualLogin = errors.New("manual login requires tenant and wor
 
 // UpsertWorkOSUser safely maps a WorkOS AuthKit profile into Identrail's local account model.
 func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.WorkOSProfile) (WorkOSLoginResult, error) {
+	return s.UpsertWorkOSUserForIntent(ctx, profile, workOSAuthIntentSignup)
+}
+
+// UpsertWorkOSUserForIntent safely maps a WorkOS AuthKit profile into
+// Identrail's local account model while preserving the user's entry point.
+// Login only resolves existing identities; signup can create or reactivate.
+func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile sessionauth.WorkOSProfile, intent string) (WorkOSLoginResult, error) {
 	if s == nil || s.Store == nil {
 		return WorkOSLoginResult{}, errors.New("service unavailable")
 	}
+	intent = normalizeWorkOSAuthIntent(intent)
 	subject := strings.TrimSpace(profile.ID)
 	email := strings.ToLower(strings.TrimSpace(profile.Email))
 	if subject == "" || email == "" {
@@ -125,10 +141,49 @@ func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.Work
 		return WorkOSLoginResult{}, err
 	}
 	if existing, emailErr := s.Store.GetUserByPrimaryEmail(ctx, email); emailErr == nil {
+		if workOSUserCanBeReactivated(existing) && intent == workOSAuthIntentSignup {
+			if !profile.EmailVerified {
+				auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthIdentityConflict
+			}
+			existing.PrimaryEmail = email
+			existing.DisplayName = displayName
+			existing.AvatarURL = strings.TrimSpace(profile.ProfilePictureURL)
+			existing.Status = "active"
+			existing.DeletedAt = nil
+			existing.UpdatedAt = now
+			user, saveErr := s.Store.UpsertUser(ctx, existing)
+			if saveErr != nil {
+				if errors.Is(saveErr, db.ErrConflict) {
+					auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
+					return WorkOSLoginResult{}, ErrAuthIdentityConflict
+				}
+				return WorkOSLoginResult{}, saveErr
+			}
+			identity, identityErr := s.Store.UpsertUserIdentity(ctx, db.UserIdentity{
+				UserID:              user.ID,
+				Provider:            sessionauth.WorkOSProvider,
+				Subject:             subject,
+				Email:               email,
+				EmailVerified:       profile.EmailVerified,
+				RawClaims:           rawClaims,
+				LastAuthenticatedAt: now,
+				CreatedAt:           now,
+			})
+			if identityErr != nil {
+				return WorkOSLoginResult{}, identityErr
+			}
+			auditAuthAction(ctx, "auth.user.reactivate", user.ID, "success")
+			return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: user, Identity: identity}, profile.OrganizationID)
+		}
 		auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
 		return WorkOSLoginResult{}, ErrAuthIdentityConflict
 	} else if emailErr != nil && !errors.Is(emailErr, db.ErrNotFound) {
 		return WorkOSLoginResult{}, emailErr
+	}
+	if intent == workOSAuthIntentLogin {
+		auditAuthAction(ctx, "auth.account.not_found", "", "denied")
+		return WorkOSLoginResult{}, ErrAuthAccountNotFound
 	}
 
 	user, err := s.Store.UpsertUser(ctx, db.User{
@@ -160,6 +215,18 @@ func (s *Service) UpsertWorkOSUser(ctx context.Context, profile sessionauth.Work
 		return WorkOSLoginResult{}, err
 	}
 	return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: user, Identity: identity, NewUser: true}, profile.OrganizationID)
+}
+
+func normalizeWorkOSAuthIntent(intent string) string {
+	if strings.EqualFold(strings.TrimSpace(intent), workOSAuthIntentLogin) {
+		return workOSAuthIntentLogin
+	}
+	return workOSAuthIntentSignup
+}
+
+func workOSUserCanBeReactivated(user db.User) bool {
+	status := strings.ToLower(strings.TrimSpace(user.Status))
+	return status == "deactivated" || status == "deleted" || user.DeletedAt != nil
 }
 
 // SAMLAssertedProfile is the subset of a SAML assertion Identrail consumes to

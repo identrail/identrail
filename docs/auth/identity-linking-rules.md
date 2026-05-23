@@ -18,7 +18,14 @@ The defense is simple to state and easy to get wrong: **email match is not proof
 
 ## Rule 1: One identity per user is created at signup
 
-When a callback arrives and we cannot find a matching `(provider, subject)` row in `user_identities`, we treat it as a brand-new user. We never look up existing users by email at this stage, regardless of whether the new identity carries an `email_verified` claim.
+When a callback arrives and we cannot find a matching `(provider, subject)` row
+in `user_identities`, the normal signup path treats it as a brand-new user. We
+do not look up active users by email at this stage, regardless of whether the
+new identity carries an `email_verified` claim. The only exception is the hosted
+WorkOS signup reactivation path: when the same verified email belongs to a
+retained `deactivated` or `deleted` user row, signup may restore that historical
+account instead of creating a new one. Active same-email users still fail closed
+as an identity conflict.
 
 `users.primary_email` is `UNIQUE`, which means we cannot persist two `users` rows with the same email. We resolve the collision deliberately rather than auto-linking:
 
@@ -109,6 +116,16 @@ Email changes update display, notification destination, and pending-invitation m
 WorkOS is the primary IdP for hosted Identrail. The WorkOS user `sub` becomes `user_identities.subject` with `provider="workos"`. WorkOS marks emails as verified per provider; we trust the `email_verified` field they pass through.
 
 When WorkOS sends a `user.deleted` webhook, we set the `users.status` to `deactivated`, revoke all sessions, but retain the row for audit. The `user_identities` row stays in place; it is the historical record of which WorkOS account was that user.
+
+The hosted `login` and `signup` entry points intentionally differ. `login` only
+resolves an existing WorkOS identity; when a verified email or GitHub OAuth
+profile has never signed up, the callback sends the browser back to
+`/signin?reason=account_not_found` so the app can point the user to sign up.
+`signup` may create a new user, and it may reactivate a retained `deactivated`
+or `deleted` user row when the verified email is the same. Signup still rejects
+an active user with the same email but a different WorkOS subject as an identity
+conflict; that account must use its original sign-in method or be resolved by
+support.
 
 If WorkOS requires MFA enrollment or an MFA challenge during hosted sign-in, Identrail does not create a local session from the first callback. The API stores the WorkOS pending-auth token only in a short-lived encrypted HttpOnly cookie scoped to `/auth/mfa`, redirects the browser to the app MFA page, and creates the Identrail session only after WorkOS accepts the TOTP verification response.
 
