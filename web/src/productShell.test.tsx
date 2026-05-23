@@ -341,6 +341,7 @@ describe('ProductShellLayout', () => {
 
 describe('ProductShellLayout', () => {
   afterEach(() => {
+    vi.doUnmock('./hooks/useMe');
     vi.restoreAllMocks();
     vi.resetModules();
   });
