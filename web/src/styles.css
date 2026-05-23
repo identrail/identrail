@@ -4738,7 +4738,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-repo-finding-stats {
   margin-top: 1rem;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
@@ -4758,15 +4758,45 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 
 .idt-repo-finding-stat span {
   color: #9fb5d8;
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .idt-repo-finding-stat strong {
   font-size: 1.55rem;
   color: #f4f8ff;
+}
+
+.idt-repo-finding-stat-note {
+  margin-top: 0.1rem;
+  color: var(--app-dim, #6f86ad);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+.idt-repo-scan-health {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.idt-repo-scan-health a {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.idt-repo-scan-failure-state .idt-inline-actions {
+  margin-top: 0.85rem;
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 .idt-repo-finding-filters {

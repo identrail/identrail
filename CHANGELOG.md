@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Polished the repository Findings page styling: softened the summary-tile
+  labels from all-caps to sentence case, styled the new metric captions, the
+  scan-health banner, and the failed-scan state actions, and set the summary
+  grid to the consolidated four-column layout.
 - Reworked the repository Findings page information architecture. Consolidated
   the ten summary tiles into four (open, critical, mean-time-to-fix, completed
   scans) with supporting detail in captions, led with the findings table by
