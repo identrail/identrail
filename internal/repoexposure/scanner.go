@@ -35,6 +35,7 @@ const (
 )
 
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+var fullHexRevisionPattern = regexp.MustCompile(`(?i)^[0-9a-f]{40}$`)
 var repositorySharedAddressRange = mustParseCIDR("100.64.0.0/10")
 var repositoryHostLookupIPs = func(ctx context.Context, host string) ([]net.IP, error) {
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
@@ -188,7 +189,7 @@ func (s *Scanner) ScanRepositoryWithOptions(ctx context.Context, target string, 
 	options = normalizeScanOptions(options)
 
 	started := s.now().UTC()
-	location, cleanup, err := s.prepareRepository(ctx, repo)
+	location, cleanup, err := s.prepareRepositoryWithOptions(ctx, repo, options)
 	if err != nil {
 		return ScanResult{}, err
 	}
@@ -353,13 +354,20 @@ type remoteRepositoryRef struct {
 }
 
 type remoteRepositoryClonePlan struct {
-	DefaultRef   remoteRepositoryRef
-	DefaultDepth int
-	ExtraRefs    []remoteRepositoryRef
-	ExtraDepth   int
+	DefaultRef        remoteRepositoryRef
+	DefaultDepth      int
+	RequiredRefs      []remoteRepositoryRef
+	RequiredRevisions []string
+	RequiredDepth     int
+	ExtraRefs         []remoteRepositoryRef
+	ExtraDepth        int
 }
 
 func (s *Scanner) prepareRepository(ctx context.Context, target string) (repositoryLocation, func(), error) {
+	return s.prepareRepositoryWithOptions(ctx, target, ScanOptions{})
+}
+
+func (s *Scanner) prepareRepositoryWithOptions(ctx context.Context, target string, options ScanOptions) (repositoryLocation, func(), error) {
 	if local, ok := localRepository(target); ok {
 		return local, func() {}, nil
 	}
@@ -374,7 +382,7 @@ func (s *Scanner) prepareRepository(ctx context.Context, target string) (reposit
 	}
 	cleanup := func() { _ = os.RemoveAll(workdir) }
 	repoPath := filepath.Join(workdir, "repo.git")
-	if runErr := s.cloneRemoteRepository(ctx, workdir, cloneURL, repoPath); runErr != nil {
+	if runErr := s.cloneRemoteRepositoryWithOptions(ctx, workdir, cloneURL, repoPath, options); runErr != nil {
 		cleanup()
 		return repositoryLocation{}, nil, fmt.Errorf("clone repository: %w", runErr)
 	}
@@ -382,6 +390,10 @@ func (s *Scanner) prepareRepository(ctx context.Context, target string) (reposit
 }
 
 func (s *Scanner) cloneRemoteRepository(ctx context.Context, workdir string, cloneURL string, repoPath string) error {
+	return s.cloneRemoteRepositoryWithOptions(ctx, workdir, cloneURL, repoPath, ScanOptions{})
+}
+
+func (s *Scanner) cloneRemoteRepositoryWithOptions(ctx context.Context, workdir string, cloneURL string, repoPath string, options ScanOptions) error {
 	runner, cleanup, err := s.cloneCommandRunner(workdir, cloneURL)
 	if err != nil {
 		return err
@@ -393,7 +405,7 @@ func (s *Scanner) cloneRemoteRepository(ctx context.Context, workdir string, clo
 		return fmt.Errorf("list remote refs: %w", err)
 	}
 	refs, defaultRefName := parseRemoteRepositoryRefs(refsOutput)
-	plan, err := buildRemoteRepositoryClonePlan(refs, defaultRefName, s.historyLimit)
+	plan, err := buildRemoteRepositoryClonePlanForRevisions(refs, defaultRefName, s.historyLimit, requiredCloneRevisions(options))
 	if err != nil {
 		return err
 	}
@@ -408,6 +420,12 @@ func (s *Scanner) cloneRemoteRepository(ctx context.Context, workdir string, clo
 		return err
 	}
 	if err := fetchRemoteRepositoryRefs(ctx, runner, repoPath, []remoteRepositoryRef{plan.DefaultRef}, plan.DefaultDepth); err != nil {
+		return err
+	}
+	if err := fetchRemoteRepositoryRefs(ctx, runner, repoPath, plan.RequiredRefs, plan.RequiredDepth); err != nil {
+		return err
+	}
+	if err := fetchRemoteRepositoryRevisions(ctx, runner, repoPath, plan.RequiredRevisions, plan.RequiredDepth); err != nil {
 		return err
 	}
 	if err := pointRemoteRepositoryHead(ctx, runner, repoPath, plan.DefaultRef); err != nil {
@@ -460,6 +478,50 @@ func fetchRemoteRepositoryRefs(ctx context.Context, runner CommandRunner, repoPa
 		return fmt.Errorf("fetch bounded repository refs: %w", err)
 	}
 	return nil
+}
+
+func fetchRemoteRepositoryRevisions(ctx context.Context, runner CommandRunner, repoPath string, revisions []string, depth int) error {
+	missing := missingRemoteRepositoryRevisions(ctx, runner, repoPath, revisions)
+	if len(missing) == 0 {
+		return nil
+	}
+	if depth < 1 {
+		depth = 1
+	}
+	args := []string{
+		"--git-dir", repoPath,
+		"fetch",
+		"--quiet",
+		"--no-tags",
+	}
+	args = appendBoundedFetchDepthArgs(args, depth)
+	args = append(args, "origin")
+	args = append(args, missing...)
+	if _, err := runner(ctx, "git", args...); err != nil {
+		return fmt.Errorf("fetch required repository revisions: %w", err)
+	}
+	stillMissing := missingRemoteRepositoryRevisions(ctx, runner, repoPath, missing)
+	if len(stillMissing) > 0 {
+		return fmt.Errorf("fetch required repository revisions: unavailable revisions: %s", strings.Join(stillMissing, ", "))
+	}
+	return nil
+}
+
+func missingRemoteRepositoryRevisions(ctx context.Context, runner CommandRunner, repoPath string, revisions []string) []string {
+	if len(revisions) == 0 {
+		return nil
+	}
+	missing := make([]string, 0, len(revisions))
+	for _, revision := range revisions {
+		normalized := strings.ToLower(strings.TrimSpace(revision))
+		if normalized == "" {
+			continue
+		}
+		if _, err := runner(ctx, "git", "--git-dir", repoPath, "cat-file", "-e", normalized+"^{commit}"); err != nil {
+			missing = append(missing, normalized)
+		}
+	}
+	return missing
 }
 
 func appendBoundedFetchDepthArgs(args []string, depth int) []string {
@@ -559,6 +621,10 @@ func parseRemoteRepositoryRefs(output []byte) ([]remoteRepositoryRef, string) {
 }
 
 func buildRemoteRepositoryClonePlan(refs []remoteRepositoryRef, defaultRefName string, historyLimit int) (remoteRepositoryClonePlan, error) {
+	return buildRemoteRepositoryClonePlanForRevisions(refs, defaultRefName, historyLimit, nil)
+}
+
+func buildRemoteRepositoryClonePlanForRevisions(refs []remoteRepositoryRef, defaultRefName string, historyLimit int, requiredRevisions []string) (remoteRepositoryClonePlan, error) {
 	if historyLimit < 1 {
 		historyLimit = defaultHistoryLimit
 	}
@@ -576,9 +642,18 @@ func buildRemoteRepositoryClonePlan(refs []remoteRepositoryRef, defaultRefName s
 		}
 	}
 
+	requiredRefs := requiredRemoteRepositoryRefs(refs, defaultRef, requiredRevisions)
+	requiredNames := map[string]struct{}{}
+	for _, ref := range requiredRefs {
+		requiredNames[ref.Name] = struct{}{}
+	}
+
 	extras := make([]remoteRepositoryRef, 0, len(refs)-1)
 	for _, ref := range refs {
 		if ref.Name == defaultRef.Name {
+			continue
+		}
+		if _, required := requiredNames[ref.Name]; required {
 			continue
 		}
 		extras = append(extras, ref)
@@ -612,11 +687,84 @@ func buildRemoteRepositoryClonePlan(refs []remoteRepositoryRef, defaultRefName s
 		defaultDepth = minFetchDepthForPatchScan
 	}
 	return remoteRepositoryClonePlan{
-		DefaultRef:   defaultRef,
-		DefaultDepth: defaultDepth,
-		ExtraRefs:    extras,
-		ExtraDepth:   extraDepth,
+		DefaultRef:        defaultRef,
+		DefaultDepth:      defaultDepth,
+		RequiredRefs:      requiredRefs,
+		RequiredRevisions: append([]string(nil), requiredRevisions...),
+		RequiredDepth:     fetchDepthBudget,
+		ExtraRefs:         extras,
+		ExtraDepth:        extraDepth,
 	}, nil
+}
+
+func requiredCloneRevisions(options ScanOptions) []string {
+	options = normalizeScanOptions(options)
+	revisions := make([]string, 0, 2)
+	seen := map[string]struct{}{}
+	for _, revision := range []string{options.HeadRevision, options.BaseRevision} {
+		normalized := strings.ToLower(strings.TrimSpace(revision))
+		if normalized == "" || isZeroRevision(normalized) || !fullHexRevisionPattern.MatchString(normalized) {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		revisions = append(revisions, normalized)
+	}
+	return revisions
+}
+
+func requiredRemoteRepositoryRefs(refs []remoteRepositoryRef, defaultRef remoteRepositoryRef, requiredRevisions []string) []remoteRepositoryRef {
+	if len(requiredRevisions) == 0 {
+		return nil
+	}
+	required := map[string]struct{}{}
+	for _, revision := range requiredRevisions {
+		normalized := strings.ToLower(strings.TrimSpace(revision))
+		if normalized != "" {
+			required[normalized] = struct{}{}
+		}
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	bestByRevision := map[string]remoteRepositoryRef{}
+	for _, ref := range refs {
+		revision := strings.ToLower(strings.TrimSpace(ref.SHA))
+		if _, ok := required[revision]; !ok {
+			continue
+		}
+		if ref.Name == defaultRef.Name {
+			continue
+		}
+		if current, exists := bestByRevision[revision]; !exists || compareRequiredRemoteRefs(ref, current) < 0 {
+			bestByRevision[revision] = ref
+		}
+	}
+	requiredRefs := make([]remoteRepositoryRef, 0, len(bestByRevision))
+	for _, ref := range bestByRevision {
+		requiredRefs = append(requiredRefs, ref)
+	}
+	sort.Slice(requiredRefs, func(i, j int) bool {
+		return compareRequiredRemoteRefs(requiredRefs[i], requiredRefs[j]) < 0
+	})
+	return requiredRefs
+}
+
+func compareRequiredRemoteRefs(left remoteRepositoryRef, right remoteRepositoryRef) int {
+	leftPriority := remoteRepositoryRequiredRefPriority(left.Name)
+	rightPriority := remoteRepositoryRequiredRefPriority(right.Name)
+	if leftPriority != rightPriority {
+		return leftPriority - rightPriority
+	}
+	if left.Name < right.Name {
+		return -1
+	}
+	if left.Name > right.Name {
+		return 1
+	}
+	return 0
 }
 
 func remoteRepositoryRefPriority(ref string) int {
@@ -624,6 +772,17 @@ func remoteRepositoryRefPriority(ref string) int {
 	case strings.HasPrefix(ref, "refs/tags/"):
 		return 0
 	case !strings.HasPrefix(ref, "refs/heads/"):
+		return 1
+	default:
+		return 2
+	}
+}
+
+func remoteRepositoryRequiredRefPriority(ref string) int {
+	switch {
+	case strings.HasPrefix(ref, "refs/heads/"):
+		return 0
+	case !strings.HasPrefix(ref, "refs/tags/"):
 		return 1
 	default:
 		return 2

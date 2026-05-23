@@ -907,6 +907,52 @@ func TestCloneRemoteRepositoryUsesBoundedFetchPlan(t *testing.T) {
 	}
 }
 
+func TestCloneRemoteRepositoryFetchesRequiredDeltaRef(t *testing.T) {
+	head := strings.Repeat("b", 40)
+	var gotCommands [][]string
+	scanner := NewScanner(
+		func(_ context.Context, name string, args ...string) ([]byte, error) {
+			command := append([]string{name}, args...)
+			gotCommands = append(gotCommands, command)
+			if reflect.DeepEqual(command, []string{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"}) {
+				return []byte(strings.Join([]string{
+					"ref: refs/heads/main\tHEAD",
+					strings.Repeat("a", 40) + "\tHEAD",
+					strings.Repeat("a", 40) + "\trefs/heads/main",
+					strings.Repeat("c", 40) + "\trefs/tags/release-keep",
+					head + "\trefs/pull/12/head",
+					head + "\trefs/heads/feature",
+				}, "\n")), nil
+			}
+			return []byte("ok"), nil
+		},
+		WithHistoryLimit(4),
+	)
+	repoPath := filepath.Join(t.TempDir(), "repo.git")
+
+	err := scanner.cloneRemoteRepositoryWithOptions(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", repoPath, ScanOptions{
+		Mode:         ScanModeDelta,
+		HeadRevision: head,
+	})
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+
+	expected := [][]string{
+		{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"},
+		{"git", "init", "--bare", "--quiet", repoPath},
+		{"git", "--git-dir", repoPath, "remote", "add", "origin", "https://github.com/owner/repo.git"},
+		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/tags/release-keep:refs/tags/release-keep"},
+		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/heads/main:refs/heads/main"},
+		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "4", "origin", "+refs/heads/feature:refs/heads/feature"},
+		{"git", "--git-dir", repoPath, "cat-file", "-e", head + "^{commit}"},
+		{"git", "--git-dir", repoPath, "symbolic-ref", "HEAD", "refs/heads/main"},
+	}
+	if !reflect.DeepEqual(gotCommands, expected) {
+		t.Fatalf("unexpected clone commands\ngot:  %+v\nwant: %+v", gotCommands, expected)
+	}
+}
+
 func TestCloneRemoteRepositoryPreservesNonBranchRefs(t *testing.T) {
 	source := t.TempDir()
 	runGit(t, source, "init", "-q")
@@ -980,6 +1026,94 @@ func TestCloneRemoteRepositoryExtraRefsDoNotTruncateDefaultHistory(t *testing.T)
 	}
 }
 
+func TestCloneRemoteRepositoryRequiredDeltaRefIsResolvable(t *testing.T) {
+	source := t.TempDir()
+	runGit(t, source, "init", "-q", "-b", "main")
+
+	for i := 1; i <= 5; i++ {
+		if err := os.WriteFile(filepath.Join(source, "main.txt"), []byte(fmt.Sprintf("%d\n", i)), 0o600); err != nil {
+			t.Fatalf("write main fixture: %v", err)
+		}
+		runGit(t, source, "add", "main.txt")
+		runGit(t, source, "commit", "-q", "-m", fmt.Sprintf("main %d", i))
+		runGit(t, source, "tag", fmt.Sprintf("release-%d", i))
+	}
+	runGit(t, source, "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(source, "feature.txt"), []byte("feature\n"), 0o600); err != nil {
+		t.Fatalf("write feature fixture: %v", err)
+	}
+	runGit(t, source, "add", "feature.txt")
+	runGit(t, source, "commit", "-q", "-m", "feature")
+	head := strings.TrimSpace(runGit(t, source, "rev-parse", "HEAD"))
+	runGit(t, source, "checkout", "-q", "main")
+
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	runGitCommand(t, "git", "clone", "--quiet", "--mirror", source, remotePath)
+
+	clonedPath := filepath.Join(t.TempDir(), "repo.git")
+	scanner := NewScanner(nil, WithHistoryLimit(4))
+	err := scanner.cloneRemoteRepositoryWithOptions(context.Background(), t.TempDir(), "file://"+remotePath, clonedPath, ScanOptions{
+		Mode:         ScanModeDelta,
+		HeadRevision: head,
+	})
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+
+	gotHead := strings.TrimSpace(runGitCommand(t, "git", "--git-dir", clonedPath, "rev-parse", head+"^{commit}"))
+	if gotHead != head {
+		t.Fatalf("expected required delta head %s to be fetchable, got %s", head, gotHead)
+	}
+	if output := runGitCommand(t, "git", "--git-dir", clonedPath, "rev-list", "--max-count", "4", head); !strings.Contains(output, head) {
+		t.Fatalf("expected required delta head in rev-list output, got %q", output)
+	}
+}
+
+func TestCloneRemoteRepositoryFetchesMissingRequiredBaseRevision(t *testing.T) {
+	source := t.TempDir()
+	runGit(t, source, "init", "-q", "-b", "main")
+
+	for i := 1; i <= 6; i++ {
+		if err := os.WriteFile(filepath.Join(source, "history.txt"), []byte(fmt.Sprintf("%d\n", i)), 0o600); err != nil {
+			t.Fatalf("write history fixture: %v", err)
+		}
+		runGit(t, source, "add", "history.txt")
+		runGit(t, source, "commit", "-q", "-m", fmt.Sprintf("main %d", i))
+	}
+	base := strings.TrimSpace(runGit(t, source, "rev-parse", "HEAD~4"))
+	runGit(t, source, "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(source, "feature.txt"), []byte("feature\n"), 0o600); err != nil {
+		t.Fatalf("write feature fixture: %v", err)
+	}
+	runGit(t, source, "add", "feature.txt")
+	runGit(t, source, "commit", "-q", "-m", "feature")
+	head := strings.TrimSpace(runGit(t, source, "rev-parse", "HEAD"))
+	runGit(t, source, "checkout", "-q", "main")
+
+	remotePath := filepath.Join(t.TempDir(), "remote.git")
+	runGitCommand(t, "git", "clone", "--quiet", "--mirror", source, remotePath)
+
+	clonedPath := filepath.Join(t.TempDir(), "repo.git")
+	scanner := NewScanner(nil, WithHistoryLimit(2))
+	err := scanner.cloneRemoteRepositoryWithOptions(context.Background(), t.TempDir(), "file://"+remotePath, clonedPath, ScanOptions{
+		Mode:         ScanModeDelta,
+		BaseRevision: base,
+		HeadRevision: head,
+	})
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+
+	gotBase := strings.TrimSpace(runGitCommand(t, "git", "--git-dir", clonedPath, "rev-parse", base+"^{commit}"))
+	if gotBase != base {
+		t.Fatalf("expected required delta base %s to be fetchable, got %s", base, gotBase)
+	}
+	gotHead := strings.TrimSpace(runGitCommand(t, "git", "--git-dir", clonedPath, "rev-parse", head+"^{commit}"))
+	if gotHead != head {
+		t.Fatalf("expected required delta head %s to be fetchable, got %s", head, gotHead)
+	}
+}
+
 func TestCloneRemoteRepositoryHandlesAnnotatedTagDefaultRef(t *testing.T) {
 	source := t.TempDir()
 	runGit(t, source, "init", "-q")
@@ -1039,6 +1173,38 @@ func TestBuildRemoteRepositoryClonePlanCapsExtraRefs(t *testing.T) {
 	expectedExtras := []string{"refs/tags/release-keep", "refs/identrail/archive"}
 	if !reflect.DeepEqual(gotExtras, expectedExtras) {
 		t.Fatalf("expected non-branch refs to be prioritized within ref budget, got %+v", gotExtras)
+	}
+}
+
+func TestBuildRemoteRepositoryClonePlanKeepsRequiredDeltaRefOutsideExtraBudget(t *testing.T) {
+	head := strings.Repeat("b", 40)
+	refs := []remoteRepositoryRef{
+		{Name: "refs/heads/main", SHA: strings.Repeat("a", 40)},
+		{Name: "refs/tags/release-keep", SHA: strings.Repeat("c", 40)},
+		{Name: "refs/pull/12/head", SHA: head},
+		{Name: "refs/heads/feature", SHA: head},
+	}
+
+	plan, err := buildRemoteRepositoryClonePlanForRevisions(refs, "refs/heads/main", 4, []string{head})
+	if err != nil {
+		t.Fatalf("build clone plan: %v", err)
+	}
+	if plan.RequiredDepth != 4 {
+		t.Fatalf("expected required ref to use the full history budget, got %+v", plan)
+	}
+	gotRequired := make([]string, 0, len(plan.RequiredRefs))
+	for _, ref := range plan.RequiredRefs {
+		gotRequired = append(gotRequired, ref.Name)
+	}
+	if !reflect.DeepEqual(gotRequired, []string{"refs/heads/feature"}) {
+		t.Fatalf("expected required delta commit to fetch branch ref, got %+v", gotRequired)
+	}
+	gotExtras := make([]string, 0, len(plan.ExtraRefs))
+	for _, ref := range plan.ExtraRefs {
+		gotExtras = append(gotExtras, ref.Name)
+	}
+	if !reflect.DeepEqual(gotExtras, []string{"refs/tags/release-keep"}) {
+		t.Fatalf("expected non-required extras to keep normal budget, got %+v", gotExtras)
 	}
 }
 
