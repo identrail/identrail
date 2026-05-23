@@ -877,7 +877,7 @@ describe('ProductFindingsPage states', () => {
 
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
     expect(await screen.findByText(/Completed\s+repo\s+scans/i)).toBeInTheDocument();
-    expect(screen.getByText('Legacy finding')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Legacy finding' })).toBeInTheDocument();
   });
 
   it('does not report cancellation as a failed scan', async () => {
