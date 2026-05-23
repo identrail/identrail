@@ -136,12 +136,12 @@ jobs:
               return;
             }
 
-            const octokit = github.getOctokit(token);
+            const adminOctokit = github.getOctokit(token);
 
             let liveNormalized = null;
             let branchUnprotected = false;
             try {
-              const liveResponse = await octokit.rest.repos.getBranchProtection({
+              const liveResponse = await adminOctokit.rest.repos.getBranchProtection({
                 owner,
                 repo,
                 branch
@@ -185,14 +185,14 @@ jobs:
               return;
             }
 
-            await octokit.rest.repos.updateBranchProtection({
+            await adminOctokit.rest.repos.updateBranchProtection({
               owner,
               repo,
               branch,
               ...desiredRaw
             });
 
-            const postApply = await octokit.rest.repos.getBranchProtection({
+            const postApply = await adminOctokit.rest.repos.getBranchProtection({
               owner,
               repo,
               branch
