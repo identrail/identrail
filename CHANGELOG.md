@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Changed the homepage "Docker pulls" proof pill to report the primary
+  `identrail/identrail` image only, instead of summing pull counts across all
+  five published service images. The previous sum overstated adoption because a
+  single quickstart/CI run pulls multiple images at once.
 - Improved hosted auth and GitHub connector onboarding UX. WorkOS callback
   failures now redirect back to the web sign-in page with user-facing reasons
   instead of raw JSON, login no longer provisions unknown identities, signup can
