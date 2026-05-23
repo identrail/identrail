@@ -534,6 +534,11 @@ function isCompletedScanStatus(status: string): boolean {
   return normalized === 'succeeded' || normalized === 'completed' || normalized === 'failed' || normalized === 'canceled';
 }
 
+function isFailedScanStatus(status: string): boolean {
+  const normalized = normalizeValue(status).toLowerCase();
+  return normalized === 'failed';
+}
+
 function repoScanStatusTone(status: string): 'success' | 'warning' | 'error' | 'neutral' {
   const normalized = normalizeValue(status).toLowerCase();
   if (normalized === 'succeeded' || normalized === 'completed') {
@@ -4842,28 +4847,37 @@ export function ProductProjectDetailPage() {
                       placeholder="GitHub App"
                     />
                   </label>
-                  <fieldset className="idt-source-account-choice">
+                  <fieldset className="idt-source-account-choice" aria-describedby="github-install-target-help">
                     <legend>Install on</legend>
+                    <p id="github-install-target-help">
+                      GitHub opens an account picker next. Choose where the repositories live.
+                    </p>
                     <div className="idt-source-account-options">
                       {(
                         [
-                          ['personal', 'Personal account', 'Personal repositories'],
-                          ['organization', 'Organization', 'Organization repositories']
+                          ['personal', 'Personal account', 'Repos owned by your GitHub user'],
+                          ['organization', 'Organization', 'Repos owned by a GitHub organization']
                         ] as const
                       ).map(([value, label, caption]) => (
-                        <button
+                        <label
                           key={value}
-                          type="button"
                           className={githubAppForm.installAccountType === value ? 'is-selected' : ''}
-                          aria-pressed={githubAppForm.installAccountType === value}
-                          disabled={submitting !== ''}
-                          onClick={() =>
-                            setGitHubAppForm((current) => ({ ...current, installAccountType: value }))
-                          }
                         >
+                          <input
+                            type="radio"
+                            name="github-install-account-type"
+                            value={value}
+                            checked={githubAppForm.installAccountType === value}
+                            disabled={submitting !== ''}
+                            onChange={() =>
+                              setGitHubAppForm((current) => ({ ...current, installAccountType: value }))
+                            }
+                          />
+                          <span className="idt-source-account-radio" aria-hidden="true" />
                           <strong>{label}</strong>
-                          <span>{caption}</span>
-                        </button>
+                          <span className="idt-source-account-caption">{caption}</span>
+                          <em>{githubAppForm.installAccountType === value ? 'Selected' : 'Choose'}</em>
+                        </label>
                       ))}
                     </div>
                   </fieldset>
@@ -6003,6 +6017,107 @@ export function ProductFindingsPage() {
     void loadTrendSignals(scope, 'refresh');
   };
 
+  const projectsPath = buildProjectsPath(scope);
+  const scansByRecency = [...repoScans].sort(
+    (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
+  );
+  const succeededScanCount = repoScans.filter((scan) => repoScanStatusTone(scan.status) === 'success').length;
+  const failedScans = scansByRecency.filter((scan) => isFailedScanStatus(scan.status));
+  const latestScan = scansByRecency[0] ?? null;
+  const latestFailedScan = failedScans[0] ?? null;
+  const hasQueuedOrRunningScan = scansByRecency.some((scan) => isActiveScanStatus(scan.status));
+  const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
+  const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
+  const neverScanned = repoScans.length === 0;
+  const hasRepoFindings = repoFindings.length > 0;
+  const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && !hasRepoFindings && succeededScanCount === 0 && latestScanFailed;
+  const filtersActive =
+    normalizeValue(repoScanFilter) !== '' ||
+    severityFilter !== 'all' ||
+    typeFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    normalizeValue(assigneeFilter) !== '';
+
+  const formatScanDate = (scan: RepoScanRecord | null): string => {
+    if (!scan) {
+      return '';
+    }
+    const when = new Date(scan.finished_at || scan.started_at);
+    return Number.isNaN(when.getTime()) ? '' : when.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+
+  const describeScanFailure = (scan: RepoScanRecord | null): string => {
+    if (!scan) {
+      return 'The scan did not complete.';
+    }
+    const parts = [summarizeScanFailure(scan)];
+    const repository = canonicalGitHubRepositoryDisplay(scan.repository);
+    if (repository) {
+      parts.push(repository);
+    }
+    const when = formatScanDate(scan);
+    if (when) {
+      parts.push(when);
+    }
+    return parts.join(' · ');
+  };
+
+  // Distinct empty/failed states: never showing the populated dashboard chrome
+  // (KPI grid, risk graph, trend, filters) filled with zeros when no scan has
+  // produced findings. A failed-only state surfaces the failure instead of
+  // silently rendering zeros.
+  if (neverScanned || allScansFailed) {
+    return (
+      <section className="idt-app-panel idt-repo-findings-page">
+        <div className="idt-repo-findings-header">
+          <div>
+            <p className="idt-app-kicker">Repository Exposure</p>
+            <h2>Findings</h2>
+            <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
+          </div>
+          <div className="idt-inline-actions">
+            <button
+              className="idt-btn idt-btn-ghost"
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing || signalsRefreshing}
+            >
+              {refreshing || signalsRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
+
+        {neverScanned ? (
+          <AppShellEmptyState
+            title="Run your first repository scan"
+            body="Scan a connected repository to surface risky trust paths, exposed secrets, and authorization gaps — then jump straight to the exact GitHub line."
+            action={{ label: 'Go to projects', to: projectsPath }}
+          />
+        ) : (
+          <article className="idt-app-empty-state idt-repo-scan-failure-state">
+            <h2>Your last repository scan failed</h2>
+            <p>{describeScanFailure(latestFailedScan)}</p>
+            <div className="idt-inline-actions">
+              <Link className="idt-app-empty-state-action" to={projectsPath}>
+                Review &amp; re-run scan
+              </Link>
+              <button
+                className="idt-btn idt-btn-ghost"
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing || signalsRefreshing}
+              >
+                {refreshing || signalsRefreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </article>
+        )}
+      </section>
+    );
+  }
+
   const totalTrendItems = trendPoints.reduce((acc, point) => acc + point.total, 0);
   const trendRows = trendPoints.map((point, index) => {
     const bySeverity = point.by_severity ?? ({} as Record<string, number>);
@@ -6043,17 +6158,13 @@ export function ProductFindingsPage() {
           </div>
         </div>
         <div className="idt-inline-actions">
-          <button className="idt-btn idt-btn-ghost" type="button" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
           <button
             className="idt-btn idt-btn-ghost"
             type="button"
             onClick={handleRefresh}
-            disabled={signalsRefreshing || signalsLoading}
-            style={{ marginLeft: '0.45rem' }}
+            disabled={refreshing || signalsRefreshing}
           >
-            {signalsRefreshing ? 'Loading signals...' : 'Reload trend'}
+            {refreshing || signalsRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           {selectedFinding?.source_url ? (
             <a className="idt-btn idt-btn-primary" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
@@ -6067,6 +6178,13 @@ export function ProductFindingsPage() {
       {signalError ? <div className="idt-app-alert idt-app-alert-error">{signalError}</div> : null}
       {trendError ? <div className="idt-app-alert idt-app-alert-error">{trendError}</div> : null}
       {riskGraphError ? <div className="idt-app-alert idt-app-alert-error">{riskGraphError}</div> : null}
+
+      {latestScanFailed ? (
+        <div className="idt-app-alert idt-app-alert-error idt-repo-scan-health">
+          <span>Last scan failed: {describeScanFailure(latestFailedScan)}</span>
+          <Link to={projectsPath}>Review &amp; re-run</Link>
+        </div>
+      ) : null}
 
       <div className="idt-repo-finding-stats" aria-label="Repository finding summary">
         <article className="idt-repo-finding-stat">
@@ -6184,10 +6302,10 @@ export function ProductFindingsPage() {
           <span className="idt-repo-finding-trend-subtitle">{totalTrendItems > 0 ? `${totalTrendItems} total events in window` : 'No trend items yet'}</span>
         </div>
         <div className="idt-repo-finding-trend-rows">
-          {trendRows.length === 0 ? (
+          {totalTrendItems === 0 ? (
             <AppShellEmptyState
-              title="Trend unavailable"
-              body="Run a scan so finding trend snapshots can appear with severity distribution over time."
+              title="No trend yet"
+              body="Trend snapshots with severity distribution will appear here once a scan produces findings."
             />
           ) : (
             trendRows.map((row) => (
@@ -6294,10 +6412,22 @@ export function ProductFindingsPage() {
             <p>{filteredFindings.length ? `${filteredFindings.length} findings in scope` : 'No findings match the current filters.'}</p>
           </div>
           {findingGroups.length === 0 ? (
-            <AppShellEmptyState
-              title="No repository findings"
-              body="Run a repository exposure scan or loosen the current filters to inspect GitHub-linked findings."
-            />
+            filtersActive ? (
+              <AppShellEmptyState
+                title="No findings match these filters"
+                body="Loosen the current filters to inspect GitHub-linked findings from your scans."
+              />
+            ) : latestScanSucceeded ? (
+              <AppShellEmptyState
+                title="No exposure found"
+                body="Your latest repository scan completed and surfaced no findings. New findings will appear here after the next scan."
+              />
+            ) : (
+              <AppShellEmptyState
+                title="No completed scan results"
+                body="No completed scan has surfaced findings yet. New findings will appear here after the next successful scan."
+              />
+            )
           ) : (
             <div>
               {findingGroups.map((group) => {

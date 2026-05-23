@@ -5827,48 +5827,117 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 
 .idt-source-account-choice legend {
   padding: 0;
-  color: #d3e1f7;
+  color: #2b456c;
   font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.idt-source-account-choice p {
+  margin: 0;
+  color: #35598d;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+html:not([data-theme='light']) .idt-source-account-choice legend {
+  color: #e8f1ff;
+}
+
+html:not([data-theme='light']) .idt-source-account-choice p {
+  color: #aebfda;
 }
 
 .idt-source-account-options {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.65rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.idt-source-account-options button {
-  min-height: 4.25rem;
-  border: 1px solid rgba(126, 157, 211, 0.35);
+.idt-source-account-options label {
+  position: relative;
+  min-height: 5rem;
+  border: 1px solid rgba(130, 160, 214, 0.38);
   border-radius: 0.55rem;
-  background: rgba(9, 15, 26, 0.84);
-  color: #dbe8fb;
+  background: rgba(10, 16, 28, 0.96);
+  color: #f4f8ff;
+  cursor: pointer;
   display: grid;
-  gap: 0.25rem;
-  justify-items: start;
-  padding: 0.65rem 0.7rem;
+  gap: 0.2rem 0.65rem;
+  grid-template-columns: 1.1rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    "radio title state"
+    "radio caption caption";
+  align-items: start;
+  padding: 0.75rem 0.85rem;
   text-align: left;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
-.idt-source-account-options button:hover,
-.idt-source-account-options button:focus-visible {
-  border-color: rgba(139, 184, 255, 0.74);
-  color: #ffffff;
+.idt-source-account-options label:hover,
+.idt-source-account-options label:has(input:focus-visible) {
+  border-color: rgba(143, 190, 255, 0.88);
+  box-shadow: 0 0 0 3px rgba(69, 125, 218, 0.22);
 }
 
-.idt-source-account-options button.is-selected {
-  border-color: rgba(62, 211, 131, 0.7);
-  background: rgba(16, 75, 50, 0.45);
+.idt-source-account-options label.is-selected {
+  border-color: rgba(79, 219, 145, 0.82);
+  background: rgba(16, 72, 51, 0.72);
+  box-shadow: 0 0 0 1px rgba(79, 219, 145, 0.22);
 }
 
-.idt-source-account-options strong,
-.idt-source-account-options span {
+.idt-source-account-options input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.idt-source-account-radio {
+  grid-area: radio;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(180, 200, 231, 0.78);
+  border-radius: 999px;
+  margin-top: 0.16rem;
+  background: rgba(5, 9, 16, 0.85);
+}
+
+.idt-source-account-options label.is-selected .idt-source-account-radio {
+  border-color: #7df0b3;
+  box-shadow: inset 0 0 0 3px rgba(10, 16, 28, 0.96);
+  background: #7df0b3;
+}
+
+.idt-source-account-options strong {
+  grid-area: title;
   display: block;
+  color: #ffffff;
+  font-size: 0.95rem;
+  line-height: 1.25;
 }
 
-.idt-source-account-options span {
+.idt-source-account-caption {
+  grid-area: caption;
   color: #9eb4d5;
+  display: block;
   font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+.idt-source-account-options em {
+  grid-area: state;
+  color: #9eb4d5;
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.idt-source-account-options label.is-selected .idt-source-account-caption,
+.idt-source-account-options label.is-selected em {
+  color: #d8ffea;
 }
 
 .idt-app-form textarea,
@@ -6173,6 +6242,18 @@ html[data-theme='light'] .idt-app-form label {
 
 html[data-theme='light'] .idt-source-account-choice legend {
   color: #2b456c;
+}
+
+html[data-theme='light'] .idt-source-account-choice p {
+  color: #35598d;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-source-account-choice legend {
+  color: #e8f1ff;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-source-account-choice p {
+  color: #aebfda;
 }
 
 html[data-theme='light'] .idt-app-form input {
@@ -7357,24 +7438,39 @@ html[data-theme='light'] .idt-app-form select {
   border-color: rgba(42, 71, 119, 0.32);
 }
 
-html[data-theme='light'] .idt-source-account-options button {
-  color: #1c355d;
-  background: #ffffff;
-  border-color: rgba(42, 71, 119, 0.32);
+html[data-theme='light'] .idt-source-account-options label {
+  color: #f4f8ff;
+  background: rgba(10, 16, 28, 0.96);
+  border-color: rgba(130, 160, 214, 0.38);
 }
 
-html[data-theme='light'] .idt-source-account-options button:hover,
-html[data-theme='light'] .idt-source-account-options button:focus-visible {
-  border-color: rgba(37, 99, 235, 0.48);
+html[data-theme='light'] .idt-source-account-options label:hover,
+html[data-theme='light'] .idt-source-account-options label:has(input:focus-visible) {
+  border-color: rgba(143, 190, 255, 0.88);
+  box-shadow: 0 0 0 3px rgba(69, 125, 218, 0.22);
 }
 
-html[data-theme='light'] .idt-source-account-options button.is-selected {
-  background: rgba(224, 244, 235, 0.95);
-  border-color: rgba(33, 124, 83, 0.36);
+html[data-theme='light'] .idt-source-account-options label.is-selected {
+  background: rgba(16, 72, 51, 0.72);
+  border-color: rgba(79, 219, 145, 0.82);
+  box-shadow: 0 0 0 1px rgba(79, 219, 145, 0.22);
 }
 
-html[data-theme='light'] .idt-source-account-options span {
-  color: #557096;
+html[data-theme='light'] .idt-source-account-options strong {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .idt-source-account-caption {
+  color: #9eb4d5;
+}
+
+html[data-theme='light'] .idt-source-account-options em {
+  color: #9eb4d5;
+}
+
+html[data-theme='light'] .idt-source-account-options label.is-selected .idt-source-account-caption,
+html[data-theme='light'] .idt-source-account-options label.is-selected em {
+  color: #d8ffea;
 }
 
 html[data-theme='light'] .idt-source-diagnostics span {

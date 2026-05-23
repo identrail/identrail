@@ -1,7 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AWSConnectionStatus, CurrentUserContext, GitHubConnectionStatus, RepoScanRecord } from './api/client';
+import type {
+  AWSConnectionStatus,
+  CurrentUserContext,
+  GitHubConnectionStatus,
+  Finding,
+  RepoScanRecord
+} from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
 
 const loggedInWithoutWorkspace: CurrentUserContext = {
@@ -213,7 +219,7 @@ async function renderProjectDetail(
     },
     connector_id: 'github-app',
     state: 'github-state',
-    install_url: 'https://github.com/apps/identrail/installations/new?state=github-state',
+    install_url: 'https://github.com/apps/identrail/installations/select_target?state=github-state',
     install_account_type: payload.install_account_type ?? 'any',
     webhook_url: '/auth/webhooks/github',
     expires_at: '2026-05-17T10:10:00Z'
@@ -341,6 +347,7 @@ describe('ProductShellLayout', () => {
 
 describe('ProductShellLayout', () => {
   afterEach(() => {
+    vi.doUnmock('./hooks/useMe');
     vi.restoreAllMocks();
     vi.resetModules();
   });
@@ -420,7 +427,8 @@ describe('ProductProjectDetailPage', () => {
 
     expect(await screen.findByText('Install the GitHub App')).toBeInTheDocument();
     const installTarget = screen.getByRole('group', { name: /Install on/i });
-    fireEvent.click(within(installTarget).getByRole('button', { name: /Organization repositories/i }));
+    fireEvent.click(within(installTarget).getByRole('radio', { name: /Organization/i }));
+    expect(within(installTarget).getByRole('radio', { name: /Organization/i })).toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: /Continue to GitHub/i }));
 
     await waitFor(() =>
@@ -430,7 +438,7 @@ describe('ProductProjectDetailPage', () => {
       )
     );
     expect(open).toHaveBeenCalledWith('', '_blank');
-    expect(assign).toHaveBeenCalledWith('https://github.com/apps/identrail/installations/new?state=github-state');
+    expect(assign).toHaveBeenCalledWith('https://github.com/apps/identrail/installations/select_target?state=github-state');
     expect(await screen.findByText(/GitHub opened in a new tab/i)).toBeInTheDocument();
 
     userAgent.mockRestore();
@@ -706,5 +714,184 @@ describe('ProductProjectDetailPage', () => {
     expect(
       await screen.findByText(/not currently allowed for this project/i)
     ).toBeInTheDocument();
+  });
+});
+
+async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindings?: Finding[] } = {}) {
+  vi.resetModules();
+  vi.doMock('./hooks/useMe', () => ({
+    useMe: () => ({
+      me: { ...loggedInWithoutWorkspace, role: 'owner' } as CurrentUserContext,
+      loading: false,
+      error: '',
+      unauthenticated: false,
+      refresh: vi.fn()
+    })
+  }));
+
+  const api = await import('./api/client');
+  const listRepoScans = vi
+    .spyOn(api.apiClient, 'listRepoScans')
+    .mockResolvedValue({ items: options.repoScans ?? [] });
+  const listRepoFindings = vi
+    .spyOn(api.apiClient, 'listRepoFindings')
+    .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
+  vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
+  vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
+
+  const { ProductFindingsPage } = await import('./productShell');
+  render(
+    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/findings']}>
+      <Routes>
+        <Route path="/app/:tenantID/:workspaceID/findings" element={<ProductFindingsPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  return { listRepoScans, listRepoFindings };
+}
+
+describe('ProductFindingsPage states', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useMe');
+    vi.resetModules();
+  });
+
+  it('shows a first-scan onboarding state when no scans have run', async () => {
+    await renderFindings({ repoScans: [] });
+
+    expect(await screen.findByText('Run your first repository scan')).toBeInTheDocument();
+    // The zero-filled dashboard chrome must not render in the empty state.
+    expect(screen.queryByText('Completed repo scans')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a failure state instead of zeros when every scan failed', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed',
+      status: 'failed',
+      finished_at: '2026-05-17T11:05:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+
+    await renderFindings({ repoScans: [failedScan] });
+
+    expect(await screen.findByText('Your last repository scan failed')).toBeInTheDocument();
+    expect(screen.getByText(/Repository not found or access revoked/i)).toBeInTheDocument();
+    expect(screen.queryByText('Completed repo scans')).not.toBeInTheDocument();
+  });
+
+  it('shows a clean "no exposure" state when a scan succeeded with zero findings', async () => {
+    const succeededScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-succeeded',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:05:00Z',
+      finding_count: 0
+    };
+
+    await renderFindings({ repoScans: [succeededScan] });
+
+    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+    // The dashboard chrome renders for a succeeded scan.
+    expect(screen.getByText('Completed repo scans')).toBeInTheDocument();
+  });
+
+  it('does not show failed state when a canceled scan is the latest', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-legacy',
+      status: 'failed',
+      finished_at: '2026-05-17T11:00:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+    const canceledScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-canceled-latest',
+      status: 'canceled',
+      finished_at: '2026-05-17T11:05:00Z',
+      error_message: 'User canceled scan from API'
+    };
+
+    await renderFindings({ repoScans: [canceledScan, failedScan] });
+
+    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+  });
+
+  it('shows "No completed scan results" while an active scan is still running', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-in-flight',
+      status: 'failed',
+      finished_at: '2026-05-17T11:03:00Z',
+      error_message: 'Repository access revoked'
+    };
+    const queuedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-queued-in-flight',
+      status: 'queued',
+      finished_at: undefined
+    };
+
+    await renderFindings({ repoScans: [queuedScan, failedScan] });
+
+    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
+    expect(screen.queryByText('No exposure found')).not.toBeInTheDocument();
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+  });
+
+  it('keeps findings visible when failed scans still return historical findings', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-latest',
+      status: 'failed',
+      started_at: '2026-05-17T12:00:00Z',
+      finished_at: '2026-05-17T12:01:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+    const oldSucceededScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-succeeded-older',
+      status: 'succeeded',
+      started_at: '2026-05-17T11:00:00Z',
+      finished_at: '2026-05-17T11:30:00Z',
+      finding_count: 2
+    };
+    const historicFinding: Finding = {
+      id: 'finding-legacy',
+      scan_id: 'repo-scan-succeeded-older',
+      type: 'secrets',
+      severity: 'high',
+      title: 'Legacy finding',
+      human_summary: 'Legacy risky secret exposure',
+      remediation: 'Rotate and clean up repository secret.',
+      created_at: '2026-05-17T11:10:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [failedScan, oldSucceededScan],
+      repoFindings: [historicFinding]
+    });
+
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Completed\s+repo\s+scans/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Legacy finding' })).toBeInTheDocument();
+  });
+
+  it('does not report cancellation as a failed scan', async () => {
+    const canceledScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-canceled',
+      status: 'canceled',
+      finished_at: '2026-05-17T11:09:00Z',
+      error_message: 'User canceled scan from API'
+    };
+
+    await renderFindings({ repoScans: [canceledScan] });
+
+    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
   });
 });
