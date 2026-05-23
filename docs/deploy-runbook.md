@@ -90,21 +90,27 @@ Portable deployment profiles:
 ## 2) Deploy Sequence
 
 1. Ensure CI is green on `dev` (`Go Quality`, `Go Tests`, `Go Integration (Postgres)`, `Web Build`).
-2. Run migrations once using the dedicated migration job:
+2. For hosted AWS API releases, prefer the `AWS Production Release` workflow
+   after the immutable image for the current `dev` commit is published. It runs
+   migrations, deploys the API and worker with the matching
+   `sha-<current-dev-commit>` image, and performs hosted API smoke checks in one
+   ordered manual release.
+3. For non-AWS or lower-level deployments, run migrations once using the
+   dedicated migration job:
    - Kubernetes manifests: apply `deploy/kubernetes/migration-job.yaml` and wait for job completion.
    - Helm: pre-install/pre-upgrade hook job runs automatically when `migrations.enabled=true`.
-3. Deploy API service with `IDENTRAIL_RUN_MIGRATIONS=false`.
-4. Verify health endpoint: `GET /healthz`.
-5. Deploy worker with same DB + provider config (`IDENTRAIL_RUN_MIGRATIONS=false`).
-6. Trigger one scan (`POST /v1/scans`) with write-authorized key.
-7. Verify:
+4. Deploy API service with `IDENTRAIL_RUN_MIGRATIONS=false`.
+5. Verify health endpoint: `GET /healthz`.
+6. Deploy worker with same DB + provider config (`IDENTRAIL_RUN_MIGRATIONS=false`).
+7. Trigger one scan (`POST /v1/scans`) with write-authorized key.
+8. Verify:
   - scan is accepted as queued (`202`) then completed by worker
   - findings list (`GET /v1/findings`)
   - findings summary (`GET /v1/findings/summary`)
   - findings trends (`GET /v1/findings/trends`)
   - scan diff (`GET /v1/scans/:scan_id/diff`)
   - scan events (`GET /v1/scans/:scan_id/events`)
-8. If repo scan is enabled:
+9. If repo scan is enabled:
    - trigger `POST /v1/repo-scans`
    - verify `GET /v1/repo-scans`
    - verify `GET /v1/repo-findings?repo_scan_id=<id>`
