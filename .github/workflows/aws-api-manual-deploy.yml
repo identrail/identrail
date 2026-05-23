@@ -35,6 +35,10 @@ on:
         description: "ACM certificate ARN. Leave blank to use repository variable API_CERTIFICATE_ARN."
         required: false
         type: string
+      database_url_secret_arn:
+        description: "Optional Secrets Manager ARN. Blank uses repository secret API_DATABASE_URL_SECRET_ARN."
+        required: false
+        type: string
       terraform_state_bucket:
         description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
         required: false
@@ -44,6 +48,57 @@ on:
         required: false
         type: string
         default: identrail/dev/aws-api.tfstate
+  workflow_call:
+    inputs:
+      operation:
+        description: "Run a Terraform plan or apply for the AWS API hosting stack."
+        required: false
+        type: string
+        default: plan
+      confirm_apply:
+        description: "Required for apply: type apply-api.identrail.com"
+        required: false
+        type: string
+        default: ""
+      api_container_image:
+        description: "Immutable API image, for example ghcr.io/identrail/identrail-api:sha-<commit>."
+        required: true
+        type: string
+      api_vpc_id:
+        description: "VPC ID. Leave blank to use repository variable API_VPC_ID."
+        required: false
+        type: string
+        default: ""
+      api_public_subnet_ids_json:
+        description: "JSON array of two public subnet IDs. Leave blank to use repository variable API_PUBLIC_SUBNET_IDS_JSON."
+        required: false
+        type: string
+        default: ""
+      api_task_subnet_ids_json:
+        description: "Optional JSON array of task subnet IDs. Blank uses the public subnets for low-cost bootstrap mode."
+        required: false
+        type: string
+        default: ""
+      api_certificate_arn:
+        description: "ACM certificate ARN. Leave blank to use repository variable API_CERTIFICATE_ARN."
+        required: false
+        type: string
+        default: ""
+      database_url_secret_arn:
+        description: "Optional Secrets Manager ARN. Blank uses repository secret API_DATABASE_URL_SECRET_ARN."
+        required: false
+        type: string
+        default: ""
+      terraform_state_bucket:
+        description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
+        required: false
+        type: string
+        default: ""
+      terraform_state_key:
+        description: "S3 key for Terraform state."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -76,7 +131,7 @@ jobs:
       API_WORKER_DESIRED_COUNT: ${{ vars.API_WORKER_DESIRED_COUNT || '1' }}
       API_WORKER_TASK_CPU: ${{ vars.API_WORKER_TASK_CPU || '256' }}
       API_WORKER_TASK_MEMORY: ${{ vars.API_WORKER_TASK_MEMORY || '512' }}
-      API_DATABASE_URL_SECRET_ARN: ${{ secrets.API_DATABASE_URL_SECRET_ARN }}
+      API_DATABASE_URL_SECRET_ARN: ${{ inputs.database_url_secret_arn || secrets.API_DATABASE_URL_SECRET_ARN }}
       API_SESSION_KEY_SECRET_ARN: ${{ secrets.API_SESSION_KEY_SECRET_ARN }}
       API_FEATURE_WORKOS_LOGIN: ${{ vars.API_FEATURE_WORKOS_LOGIN || '' }}
       API_FEATURE_ONBOARDING_WIZARD: ${{ vars.API_FEATURE_ONBOARDING_WIZARD || 'true' }}
