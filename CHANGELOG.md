@@ -5,7 +5,8 @@
   source they care about: GitHub repository scans, AWS machine identity scans,
   Kubernetes machine identity scans, Docker-based runs, or the hosted app. The
   install docs now point at the published Homebrew tap and released CLI image
-  instead of pre-publication wording.
+  instead of pre-publication wording, and the README badges now avoid forced
+  green CI states and flaky GitHub-backed version lookup.
 - Fixed the branch-protection enforcement workflow, which had failed on every
   run since `actions/github-script` was bumped to v9. The injected `octokit`
   binding collided with the script's own `const octokit`, producing a parse-time
