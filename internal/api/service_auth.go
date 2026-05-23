@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	ErrAuthIdentityConflict = errors.New("auth identity conflicts with existing user")
-	ErrAuthAccountNotFound  = errors.New("auth account not found")
+	ErrAuthIdentityConflict     = errors.New("auth identity conflicts with existing user")
+	ErrAuthAccountNotFound      = errors.New("auth account not found")
+	ErrAuthReactivationRequired = errors.New("auth account reactivation requires signup")
 )
 
 const (
@@ -141,10 +142,14 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		return WorkOSLoginResult{}, err
 	}
 	if existing, emailErr := s.Store.GetUserByPrimaryEmail(ctx, email); emailErr == nil {
-		if workOSUserCanBeReactivated(existing) && intent == workOSAuthIntentSignup {
+		if workOSUserCanBeReactivated(existing) {
 			if !profile.EmailVerified {
 				auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthIdentityConflict
+			}
+			if intent != workOSAuthIntentSignup {
+				auditAuthAction(ctx, "auth.account.reactivation_required", existing.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthReactivationRequired
 			}
 			existing.PrimaryEmail = email
 			existing.DisplayName = displayName

@@ -105,6 +105,12 @@ function authReasonDetails(reason: string, returnTo: string): AuthReasonDetails 
         actionLabel: 'Create an account',
         actionHref: authPathWithReturnTo('/signup', returnTo)
       };
+    case 'account_reactivation_required':
+      return {
+        message: 'That Identrail account was previously removed. Sign up again to reactivate it.',
+        actionLabel: 'Reactivate account',
+        actionHref: authPathWithReturnTo('/signup', returnTo)
+      };
     case 'identity_conflict':
       return {
         message:

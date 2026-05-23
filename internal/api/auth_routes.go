@@ -321,6 +321,7 @@ const (
 	authFailureReasonCallbackError       = "callback_error"
 	authFailureReasonIdentityConflict    = "identity_conflict"
 	authFailureReasonProviderUnavailable = "provider_unavailable"
+	authFailureReasonReactivationNeeded  = "account_reactivation_required"
 	authFailureReasonStateMismatch       = "state_mismatch"
 )
 
@@ -456,6 +457,10 @@ func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manag
 		}
 		if errors.Is(err, ErrAuthAccountNotFound) {
 			writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonAccountNotFound, http.StatusNotFound, "account not found")
+			return "", false
+		}
+		if errors.Is(err, ErrAuthReactivationRequired) {
+			writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonReactivationNeeded, http.StatusForbidden, "account reactivation requires signup")
 			return "", false
 		}
 		if logger != nil {
