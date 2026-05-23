@@ -6,9 +6,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  checks: write
-  issues: write
 
 concurrency:
   group: good-egg-trust-${{ github.event.pull_request.number }}
@@ -19,6 +16,11 @@ jobs:
     name: Score PR author trust
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+      issues: write
     steps:
       - name: Score PR author (advisory)
         id: egg
@@ -30,7 +32,7 @@ jobs:
           fail-on-low: 'false'
 
       - name: Sync trust labels
-        uses: actions/github-script@v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           TRUST_LEVEL: ${{ steps.egg.outputs.trust-level }}
         with:

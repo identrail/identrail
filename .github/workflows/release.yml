@@ -17,8 +17,7 @@ on:
         default: false
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   prepare:
@@ -203,6 +202,9 @@ jobs:
     if: needs.prepare.outputs.publish_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -416,6 +418,8 @@ jobs:
     if: needs.prepare.outputs.publish_images != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - name: Download release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -438,6 +442,8 @@ jobs:
     if: needs.prepare.outputs.publish_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - name: Download release binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c

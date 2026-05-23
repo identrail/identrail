@@ -5,6 +5,8 @@ license-check: true
 allow-dependencies-licenses:
   - pkg:golang/github.com/apparentlymart/go-textseg/v15
   - pkg:golang/golang.org/x/mod
+  - pkg:golang/golang.org/x/sync
+  - pkg:golang/golang.org/x/text
   - pkg:golang/golang.org/x/tools
 allow-licenses:
   - MIT

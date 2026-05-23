@@ -22,9 +22,7 @@ on:
     - cron: "23 2 * * 1-5"
 
 permissions:
-  contents: write
-  pull-requests: write
-  security-events: write
+  contents: read
 
 concurrency:
   group: code-scanning-autofix-${{ github.ref }}
@@ -35,10 +33,14 @@ jobs:
     name: Generate and PR Autofixes
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      security-events: write
 
     steps:
       - name: Process open code scanning alerts
-        uses: actions/github-script@v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const owner = context.repo.owner;

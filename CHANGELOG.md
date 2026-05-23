@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Remediated open security and quality findings. Bumped vulnerable Go
+  dependencies (`golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/sys`)
+  and the Go toolchain to `1.25.10` to clear stdlib CVEs, removed the stale
+  `golang.org/x/sys` downgrade `replace`, and pinned the backend builder image
+  to the matching `golang:1.25.10-alpine` digest. Updated `web` overrides to
+  patched `uuid`, `qs`, `ws`, and `basic-ftp` so `npm audit` reports no
+  vulnerabilities. Hardened GitHub Actions workflows by pinning every third-party
+  and GitHub-owned action to a commit SHA and moving write-scoped
+  `GITHUB_TOKEN` permissions from the workflow top level down to the individual
+  jobs that need them.
 - Changed the homepage "Docker pulls" proof pill to report the primary
   `identrail/identrail` image only, instead of summing pull counts across all
   five published service images. The previous sum overstated adoption because a
