@@ -6019,7 +6019,7 @@ export function ProductFindingsPage() {
   const hasQueuedOrRunningScan = scansByRecency.some((scan) => isActiveScanStatus(scan.status));
   const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
   const neverScanned = repoScans.length === 0;
-  const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && succeededScanCount === 0 && failedScans.length > 0;
+  const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && succeededScanCount === 0 && latestScanFailed;
   const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
   const filtersActive =
     normalizeValue(repoScanFilter) !== '' ||

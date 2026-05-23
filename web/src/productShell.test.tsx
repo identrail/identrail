@@ -791,6 +791,28 @@ describe('ProductFindingsPage states', () => {
     expect(screen.getByText('Completed repo scans')).toBeInTheDocument();
   });
 
+  it('does not show failed state when a canceled scan is the latest', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-legacy',
+      status: 'failed',
+      finished_at: '2026-05-17T11:00:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+    const canceledScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-canceled-latest',
+      status: 'canceled',
+      finished_at: '2026-05-17T11:05:00Z',
+      error_message: 'User canceled scan from API'
+    };
+
+    await renderFindings({ repoScans: [canceledScan, failedScan] });
+
+    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
+    expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+  });
+
   it('shows "No completed scan results" while an active scan is still running', async () => {
     const failedScan: RepoScanRecord = {
       ...queuedRepoScan,
