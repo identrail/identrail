@@ -39,9 +39,21 @@ function buildConnectSrc(env: Record<string, string>, isProduction: boolean): st
   return Array.from(allowlist).join(' ');
 }
 
+function buildStyleSrc(isProduction: boolean): string {
+  const allowlist = new Set<string>(["'self'", 'https://fonts.googleapis.com']);
+
+  if (!isProduction) {
+    allowlist.add("'unsafe-inline'");
+  }
+
+  return Array.from(allowlist).join(' ');
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const connectSrc = buildConnectSrc(env, mode === 'production');
+  const isProduction = mode === 'production';
+  const connectSrc = buildConnectSrc(env, isProduction);
+  const styleSrc = buildStyleSrc(isProduction);
 
   return {
     plugins: [
@@ -49,7 +61,9 @@ export default defineConfig(({ mode }) => {
       {
         name: 'identrail-csp-connect-src',
         transformIndexHtml(html) {
-          return html.replace(/__IDENTRAIL_CONNECT_SRC__/g, connectSrc);
+          return html
+            .replace(/__IDENTRAIL_CONNECT_SRC__/g, connectSrc)
+            .replace(/__IDENTRAIL_STYLE_SRC__/g, styleSrc);
         }
       }
     ],

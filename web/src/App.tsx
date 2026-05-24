@@ -3701,6 +3701,18 @@ function IntegrationsPage() {
   );
 }
 
+function LegacyDemoRedirect() {
+  const navigate = useNavigate();
+  const { openScanIntake } = useScanIntakeModal();
+
+  useEffect(() => {
+    openScanIntake();
+    navigate('/', { replace: true });
+  }, [navigate, openScanIntake]);
+
+  return null;
+}
+
 function DocsPage() {
   useSeo({
     title: 'Docs | Identrail Documentation',
@@ -4760,6 +4772,7 @@ export function RoutedSite() {
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/roi-assessment" element={<RoiAssessmentPage />} />
           <Route path="/deployment-models" element={<DeploymentModelsPage />} />
+          <Route path="/demo" element={<LegacyDemoRedirect />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/faq" element={<FaqPage />} />
           <Route path="/blog" element={<BlogPage />} />

@@ -232,6 +232,14 @@ describe('App', () => {
     expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
   });
 
+  it('keeps legacy demo links on the trust graph review flow without rendering a demo page', async () => {
+    setCurrentPath('/demo');
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
+  });
+
   it.each([
     ['l', '/signin'],
     ['S', '/signup']

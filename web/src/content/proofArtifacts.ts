@@ -25,7 +25,7 @@ export const TRUST_PROOF_LINKS: readonly ProofArtifact[] = [
   },
   {
     label: 'Sample Risk Report',
-    href: '/demo',
+    href: '/product',
     external: false,
     description: 'Example findings with path evidence, severity, and remediation sequence.',
     freshness: 'Redacted sample'
