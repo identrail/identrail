@@ -445,6 +445,13 @@ describe('ProductProjectDetailPage', () => {
     fireEvent.click(screen.getByText('GitHub Enterprise fallback'));
     expect(screen.getByLabelText(/Personal access token/i)).toBeVisible();
 
+    const scanLimits = screen.getByText('Advanced scan limits').closest('details');
+    expect(scanLimits).not.toBeNull();
+    expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).not.toBeVisible();
+
+    fireEvent.click(within(scanLimits as HTMLElement).getByText('Advanced scan limits'));
+    expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).toBeVisible();
+
     expect(screen.getByText('Scan policy editor')).toBeInTheDocument();
     expect(screen.getByLabelText(/Trigger mode/i)).not.toBeVisible();
 
@@ -456,7 +463,10 @@ describe('ProductProjectDetailPage', () => {
     const { getGitHubConnectorRepositoryPosture } = await renderProjectDetail(true);
 
     expect(await screen.findByText('Repository posture')).toBeInTheDocument();
-    expect(await screen.findByText(/Actions token can write by default/i)).toBeInTheDocument();
+    const postureDetails = await screen.findByText(/1 posture check needs attention/i);
+    expect(screen.getByText(/Actions token can write by default/i)).not.toBeVisible();
+    fireEvent.click(postureDetails);
+    expect(screen.getByText(/Actions token can write by default/i)).toBeVisible();
     expect(getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
       'github-app',
       'workspace-a',
