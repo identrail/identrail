@@ -1,8 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { renderToString } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App, RoutedSite, ScanIntakeModalProvider } from './App';
+import { App } from './App';
 import { clearAuthConfigCacheForTests } from './authConfigCache';
 import { clearMeCacheForTests } from './hooks/useMe';
 import { clearProductAuthSessionCacheForTests } from './productShell';
@@ -204,7 +202,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Every machine identity path/i
+        name: /See every machine identity path/i
       })
     ).toBeInTheDocument();
 
@@ -216,24 +214,12 @@ describe('App', () => {
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
     expect(
-      screen.getByRole('heading', { level: 2, name: /From connector setup to evidence-ready remediation/i })
+      screen.getByRole('heading', { level: 2, name: /Connect sources, trace risk/i })
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Book Demo/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /View Docs/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
     expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();
-  });
-
-  it('opens book demo in a dimmed modal from the homepage CTA', () => {
-    setCurrentPath('/');
-    render(<App />);
-
-    fireEvent.click(screen.getByRole('button', { name: /Book Demo/i }));
-
-    expect(screen.getByRole('dialog', { name: /Walk through a live trust path/i })).toBeInTheDocument();
-    expect(document.querySelector('.idt-modal-backdrop')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Choose Demo Time/i })).toHaveAttribute('href', '/demo#book-demo');
-    expect(screen.getByRole('link', { name: /Open Full Demo Page/i })).toHaveAttribute('href', '/demo');
   });
 
   it('uses first-party demo booking fields instead of an external calendar placeholder', () => {
@@ -242,7 +228,7 @@ describe('App', () => {
 
     expect(screen.getByLabelText(/Preferred day/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Preferred time/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Choose a preferred time/i })).toHaveAttribute('href', '/demo#book-demo');
+    expect(screen.getByRole('button', { name: /Request Trust Path Review/i })).toBeInTheDocument();
     expect(document.querySelector('a[href*="calendly"]')).not.toBeInTheDocument();
   });
 
@@ -400,7 +386,7 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
 
-    expect(screen.getByRole('heading', { level: 2, name: /Four connected surfaces/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Four product surfaces/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /The Trust Graph is the control plane/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /From discovery to fix/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Request Trust Path Review/i }).length).toBeGreaterThan(0);
@@ -435,40 +421,12 @@ describe('App', () => {
     }
   });
 
-  it('renders read-only scan intake flow route', () => {
-    setCurrentPath('/read-only-scan');
-    render(<App />);
-
-    expect(
-      screen.getByRole('dialog', {
-        name: /Verify company identity/i
-      })
-    ).toBeInTheDocument();
-
-    expect(screen.getByRole('heading', { name: /Request a trust path review/i })).toBeInTheDocument();
-    expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
-  });
-
-  it('prerenders read-only scan intake content without relying on effects', () => {
-    const html = renderToString(
-      <StaticRouter location="/read-only-scan">
-        <ScanIntakeModalProvider>
-          <RoutedSite />
-        </ScanIntakeModalProvider>
-      </StaticRouter>
-    );
-
-    expect(html).toContain('Request a trust path review');
-    expect(html).toContain('Verify company identity');
-    expect(html).toContain('idt-intake-step');
-  });
-
   it('rejects personal email domains before advancing the read-only scan intake', () => {
-    setCurrentPath('/read-only-scan');
+    setCurrentPath('/');
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
 
     fillScanIdentityStep({
       email: 'person@gmail.com',
@@ -482,10 +440,11 @@ describe('App', () => {
   });
 
   it('rejects company domains that do not match the work email domain', () => {
-    setCurrentPath('/read-only-scan');
+    setCurrentPath('/');
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
 
     fillScanIdentityStep({
       companyWebsite: 'other-company.com'
@@ -498,10 +457,11 @@ describe('App', () => {
   });
 
   it('rejects a whitespace-only company name before advancing', () => {
-    setCurrentPath('/read-only-scan');
+    setCurrentPath('/');
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
 
     fillScanIdentityStep({
       company: '   '
@@ -514,10 +474,11 @@ describe('App', () => {
   });
 
   it('does not submit the read-only scan intake before the final step', async () => {
-    setCurrentPath('/read-only-scan');
+    setCurrentPath('/');
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
 
     fillScanIdentityStep();
     const form = document.querySelector('form.idt-scan-form');
@@ -529,10 +490,11 @@ describe('App', () => {
   });
 
   it('submits read-only scan challenge details to lead capture', async () => {
-    setCurrentPath('/read-only-scan');
+    setCurrentPath('/');
     const fetchMock = vi.fn(async () => okJSON({ status: 'accepted' }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
 
     fillScanIdentityStep({
       companyWebsite: 'https://www.company.com'
@@ -565,7 +527,7 @@ describe('App', () => {
       identity_provider: 'AWS IAM Identity Center / SSO',
       infrastructure_scope: '1-5 cloud accounts or clusters',
       repository_url: 'https://gitlab.com/platform/security/identity-risk',
-      page_path: '/read-only-scan'
+      page_path: '/'
     });
   });
 

@@ -25,12 +25,12 @@ const storyStages = [
   {
     label: 'During',
     title: 'Evidence stitching',
-    detail: 'Read-only collection joins IAM, Kubernetes, repository, and OIDC proof into one chain.'
+    detail: 'Identity collection joins IAM, Kubernetes, repository, and OIDC signals into one chain.'
   },
   {
     label: 'After',
     title: 'Safe remediation',
-    detail: 'Owners get the affected workload, blast-radius context, and the first low-risk fix.'
+    detail: 'Owners get the affected workload, blast-radius context, and a recommended next step.'
   }
 ];
 
@@ -43,8 +43,8 @@ export function ProblemFramingSection() {
           <h2 id="problem-frame-title">Signals only matter when they reveal the path.</h2>
           <p>
             IAM policies, Kubernetes RBAC, repository exposure, and OIDC workflow identities are reviewed in separate
-            tools. Identrail connects them into one trust path, then shows the proof, blast radius, and safest first
-            fix.
+            tools. Identrail connects them into one operating view, then shows blast radius, ownership, and the next
+            action.
           </p>
         </div>
 
@@ -69,7 +69,7 @@ export function ProblemFramingSection() {
             <p>Identrail trust graph</p>
             <strong>One connected machine identity path</strong>
             <div aria-label="Trust graph outputs">
-              <span>Evidence packet</span>
+              <span>Source evidence</span>
               <span>Blast radius</span>
               <span>First safe fix</span>
             </div>

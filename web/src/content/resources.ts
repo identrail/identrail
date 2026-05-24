@@ -590,19 +590,19 @@ export const BLOG_POSTS: BlogPost[] = [
 export const DOC_ENTRIES: DocEntry[] = [
   {
     title: 'Quickstart on Docker',
-    description: 'Deploy Identrail locally in under 10 minutes using Docker Compose.',
+    description: 'Spin up the API, worker, and web services for a local Identrail evaluation.',
     href: 'https://github.com/identrail/identrail/blob/dev/deploy/docker/README.md',
     tags: ['quickstart', 'docker', 'self-hosted']
   },
   {
     title: 'Deploy Anywhere Runbook',
-    description: 'Production deployment guidance for Kubernetes, Helm, Terraform, and systemd.',
+    description: 'Choose a production path across Docker, Kubernetes, Helm, Terraform, and systemd.',
     href: 'https://github.com/identrail/identrail/blob/dev/docs/deployment-anywhere.md',
     tags: ['deployment', 'kubernetes', 'terraform']
   },
   {
     title: 'Architecture Deep Dive',
-    description: 'Understand ingestion pipelines, trust graph construction, and authorization controls.',
+    description: 'Understand ingestion, trust graph construction, repo exposure workflows, and authorization controls.',
     href: 'https://github.com/identrail/identrail/blob/dev/docs/architecture.md',
     tags: ['architecture', 'graph', 'platform']
   },

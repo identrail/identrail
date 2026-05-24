@@ -67,9 +67,7 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const SUPPORT_EMAIL = siteEmails.support;
 const SECURITY_EMAIL = siteEmails.security;
-const MARKETING_EMAIL = siteEmails.marketing;
 const DEMO_BOOKING_PATH = '/demo#book-demo';
-const SALES_MAILTO = `mailto:${MARKETING_EMAIL}?subject=Identrail%20demo%20and%20sales%20conversation`;
 const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
@@ -263,6 +261,30 @@ const NAV_LINKS = [
 
 const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
 
+const DOCS_FEATURED_GUIDES = [
+  {
+    eyebrow: 'Evaluation path',
+    title: 'Review your first live identity path',
+    description:
+      'Use the guided intake and docs together to scope AWS, Kubernetes, GitHub, and OIDC signals before rollout.',
+    href: '/demo'
+  },
+  {
+    eyebrow: 'Operator runbook',
+    title: 'Deploy the source collectors safely',
+    description:
+      'Move from local Docker evaluation to production deployment paths with connector scope and hardening guidance.',
+    href: 'https://github.com/identrail/identrail/blob/dev/docs/deployment-anywhere.md'
+  },
+  {
+    eyebrow: 'Architecture map',
+    title: 'Understand the trust graph engine',
+    description:
+      'See how ingestion, repository exposure, graph construction, and authorization controls work as one system.',
+    href: 'https://github.com/identrail/identrail/blob/dev/docs/architecture.md'
+  }
+] as const;
+
 const DIFFERENTIATION_ROWS = [
   {
     area: 'Trust-path explainability',
@@ -289,30 +311,30 @@ const DIFFERENTIATION_ROWS = [
 const PRODUCT_TOUR_STEPS = [
   {
     step: '01',
-    title: 'Connect read-only sources',
-    detail: 'Validate AWS IAM, Kubernetes, GitHub Actions, and OIDC claims without write permissions.',
+    title: 'Connect source systems',
+    detail: 'Validate AWS IAM, Kubernetes, GitHub Actions, and OIDC signals with scoped collection.',
     proof: 'Connector scope',
     active: true
   },
   {
     step: '02',
-    title: 'Trace reachable risk paths',
-    detail: 'Show the identity, workload, role, and resource in one chain with severity context.',
-    proof: 'Reachable path',
+    title: 'Trace real exposure',
+    detail: 'Show the identity, workload, role, and resource chain with severity context.',
+    proof: 'Exposure path',
     active: false
   },
   {
     step: '03',
-    title: 'Simulate the first safe fix',
+    title: 'Simulate the safest change',
     detail: 'Preview trust-policy and RBAC edits before anything touches production.',
     proof: 'Policy simulation',
     active: false
   },
   {
     step: '04',
-    title: 'Export the evidence packet',
-    detail: 'Package the source proof, owner note, policy diff, and residual risk for review.',
-    proof: 'Evidence packet',
+    title: 'Export the review bundle',
+    detail: 'Package source proof, owner notes, policy diffs, and residual risk for review.',
+    proof: 'Review bundle',
     active: false
   }
 ] as const;
@@ -506,7 +528,7 @@ const FEATURE_DEEP_PAGES = [
     ],
     outcomes: [
       'Earlier credential leak detection and containment',
-      'Lower false-priority triage load for security teams',
+      'Lower low-value triage noise for security teams',
       'Stronger software-to-cloud identity governance'
     ]
   },
@@ -964,7 +986,7 @@ function ProductHeroVisual() {
               <g className="idt-product-svg-card is-evidence" transform="translate(70 350)">
                 <rect width="274" height="96" rx="10" />
                 <text className="idt-product-card-kicker" x="18" y="28">
-                  Evidence packet
+                  Review bundle
                 </text>
                 <text className="idt-product-card-title" x="18" y="56">
                   OIDC wildcard can reach
@@ -1127,7 +1149,7 @@ function DocsHeroVisual() {
   return (
     <div className="idt-docs-hero-visual">
       <div className="idt-docs-search-preview">
-        <span>Search docs topics</span>
+        <span>Search the full docs index</span>
         <strong>{activeTab.title.toLowerCase()}</strong>
       </div>
       <div className="idt-docs-preview-shell">
@@ -1466,7 +1488,7 @@ function LeadCaptureForm({
           <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting}>
             {submitting ? 'Submitting...' : ctaLabel}
           </button>
-          {error ? <p className="idt-form-error" role="alert">{error} If urgent, use Book Demo.</p> : null}
+          {error ? <p className="idt-form-error" role="alert">{error} If urgent, contact support@identrail.com.</p> : null}
           <p className="idt-form-note">Receive a practical 30-day machine identity risk reduction plan.</p>
         </form>
       ) : (
@@ -1581,12 +1603,10 @@ function BookingPrompt() {
             <li>First remediation sequence</li>
           </ul>
           <div className="idt-inline-actions">
-            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary">
-              Choose Demo Time
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              View Docs
             </Link>
-            <a href={SALES_MAILTO} className="idt-btn idt-btn-dark">
-              Talk to Sales
-            </a>
           </div>
         </article>
         <aside className="idt-booking-prompt-preview" aria-label="Demo agenda preview">
@@ -1604,77 +1624,6 @@ function BookingPrompt() {
         </aside>
       </div>
     </section>
-  );
-}
-
-function BookDemoModal({ onClose }: { onClose: () => void }) {
-  return (
-    <ModalShell titleId="book-demo-modal-title" onClose={onClose} className="idt-book-demo-modal">
-      <button type="button" className="idt-modal-close" onClick={onClose} aria-label="Close dialog">
-        x
-      </button>
-      <div className="idt-book-demo-modal-shell">
-        <aside className="idt-book-demo-modal-visual" aria-label="Demo preview">
-          <p className="idt-eyebrow">Book Demo</p>
-          <h2 id="book-demo-modal-title">Walk through a live trust path</h2>
-          <p>Choose a guided walkthrough or send enough context for a prepared review.</p>
-          <div className="idt-book-demo-modal-preview" aria-label="Demo walkthrough preview">
-            <div className="idt-book-demo-preview-head">
-              <span>Live agenda</span>
-              <strong>15 minutes</strong>
-            </div>
-            <ol className="idt-book-demo-preview-list">
-              <li>
-                <span>01</span>
-                <div>
-                  <strong>Scope the environment</strong>
-                  <small>AWS account, cluster, or repository</small>
-                </div>
-              </li>
-              <li>
-                <span>02</span>
-                <div>
-                  <strong>Map one reachable path</strong>
-                  <small>Source identity to sensitive target</small>
-                </div>
-              </li>
-              <li>
-                <span>03</span>
-                <div>
-                  <strong>Package the first fix</strong>
-                  <small>Evidence, blast radius, owner handoff</small>
-                </div>
-              </li>
-            </ol>
-            <div className="idt-book-demo-preview-path" aria-hidden="true">
-              <span>OIDC</span>
-              <i />
-              <span>AWS</span>
-              <i />
-              <span>RDS</span>
-            </div>
-          </div>
-        </aside>
-        <div className="idt-book-demo-modal-body">
-          <LeadCaptureForm
-            compact
-            title="Book a guided walkthrough"
-            caption="Share the environment you want to review and we will route the demo around the trust paths that matter."
-            ctaLabel="Request demo time"
-            variant="short"
-            includeScheduleFields
-          />
-          <div className="idt-book-demo-modal-actions">
-            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary" onClick={onClose}>
-              Choose Demo Time
-            </Link>
-            <Link to="/demo" className="idt-btn idt-btn-dark" onClick={onClose}>
-              Open Full Demo Page
-            </Link>
-          </div>
-        </div>
-      </div>
-    </ModalShell>
   );
 }
 
@@ -2206,10 +2155,10 @@ function ProductTourSection() {
     <section className="idt-section idt-product-tour" aria-labelledby="product-tour-title">
       <div className="idt-product-tour-copy">
         <p className="idt-eyebrow">Product tour</p>
-        <h2 id="product-tour-title">From connector setup to evidence-ready remediation.</h2>
+        <h2 id="product-tour-title">Connect sources, trace risk, and ship the first safe fix.</h2>
         <p>
-          Connect read-only sources, trace the path to sensitive resources, test the safest fix, and hand owners one
-          evidence packet they can act on.
+          Validate IAM, Kubernetes, GitHub, and OIDC signals, preview the impact, and give teams a clear remediation
+          plan.
         </p>
       </div>
 
@@ -2292,10 +2241,10 @@ function ProductTourSection() {
 
             <div className="idt-tour-evidence-packet">
               <div>
-                <p>Evidence packet</p>
+                <p>Review bundle</p>
                 <strong>Ready for owner review</strong>
               </div>
-              <ul aria-label="Evidence packet contents">
+              <ul aria-label="Review bundle contents">
                 {PRODUCT_TOUR_PACKET.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
@@ -2370,7 +2319,7 @@ function FaqPage() {
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             <Link to="/docs" className="idt-btn idt-btn-dark">
-              Review Docs
+              View Docs
             </Link>
           </>
         }
@@ -2389,7 +2338,7 @@ function FaqPage() {
   );
 }
 
-function HomePage({ onRequestDemo }: { onRequestDemo?: () => void }) {
+function HomePage() {
   const seo: SeoConfig = {
     title: 'Machine Identity Trust Graph | AWS IAM, Kubernetes, OIDC | Identrail',
     description:
@@ -2408,11 +2357,11 @@ function HomePage({ onRequestDemo }: { onRequestDemo?: () => void }) {
           <div className="idt-hero-copy">
             <p className="idt-eyebrow">Machine identity trust graph</p>
             <h1>
-              Every machine identity path, clear to <span>you</span>.
+              See every machine identity path before it becomes <span>risk</span>.
             </h1>
             <p className="idt-lead idt-lead-body">
-              Identrail traces how AWS IAM roles, Kubernetes service accounts, GitHub Actions, and OIDC claims can reach
-              sensitive resources, then packages the proof and safest first fix for the owner.
+              Identrail connects cloud, cluster, repository, and OIDC identity signals into one live risk graph so teams can
+              prioritize exposure and ship safer access changes.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <ScanIntakeCTA className="idt-btn idt-btn-primary" />
@@ -2429,7 +2378,7 @@ function HomePage({ onRequestDemo }: { onRequestDemo?: () => void }) {
               </div>
               <div>
                 <dt>Output</dt>
-                <dd>Evidence and first fix</dd>
+                <dd>Prioritized risk graph</dd>
               </div>
             </dl>
             <ul className="idt-hero-trust-cues" aria-label="Evaluation trust cues">
@@ -2491,15 +2440,10 @@ function HomePage({ onRequestDemo }: { onRequestDemo?: () => void }) {
             body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
           />
           <div className="idt-inline-actions">
-            {onRequestDemo ? (
-              <button type="button" className="idt-btn idt-btn-primary idt-home-demo-cta" onClick={onRequestDemo}>
-                Book Demo
-              </button>
-            ) : (
-              <Link to="/demo" className="idt-btn idt-btn-primary idt-home-demo-cta">
-                Book Demo
-              </Link>
-            )}
+            <ScanIntakeCTA className="idt-btn idt-btn-primary idt-home-demo-cta" />
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              View Docs
+            </Link>
           </div>
         </section>
       </div>
@@ -2629,7 +2573,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
           normalizedRepositoryUrl ? `public repo: ${normalizedRepositoryUrl}` : ''
         ].filter(Boolean).join('; '),
         source: 'Read-Only Scan Intake',
-        page_path: '/read-only-scan'
+        page_path: window.location.pathname || '/'
       });
       setSubmitted(true);
     } catch (submissionError) {
@@ -2978,25 +2922,6 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ReadOnlyScanPage() {
-  const { openScanIntake } = useScanIntakeModal();
-  const navigate = useNavigate();
-  const [handoffStarted, setHandoffStarted] = useState(false);
-
-  useEffect(() => {
-    setHandoffStarted(true);
-    openScanIntake();
-    navigate('/', { replace: true });
-  }, [navigate, openScanIntake]);
-
-  return (
-    <>
-      <HomePage />
-      {!handoffStarted ? <ScanIntakeModal onClose={() => navigate('/', { replace: true })} /> : null}
-    </>
-  );
-}
-
 function ProductPage() {
   useSeo({
     title: 'Product | Identrail Machine Identity Security Platform',
@@ -3017,10 +2942,10 @@ function ProductPage() {
             workflows into one operator-grade platform.
           </p>
           <div className="idt-inline-actions">
-            <Link to="/demo" className="idt-btn idt-btn-primary">
-              Explore Product Demo
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              View Docs
             </Link>
-            <ScanIntakeCTA className="idt-btn idt-btn-dark" />
           </div>
         </div>
         <ProductHeroVisual />
@@ -3029,7 +2954,7 @@ function ProductPage() {
       <section className="idt-product-capability-band" aria-labelledby="product-capabilities-title">
         <div className="idt-product-section-heading">
           <p className="idt-eyebrow">Platform map</p>
-          <h2 id="product-capabilities-title">Four connected surfaces, spread across one workflow.</h2>
+          <h2 id="product-capabilities-title">Four product surfaces in one workflow.</h2>
         </div>
         <div className="idt-product-capability-grid">
           <article>
@@ -3112,11 +3037,9 @@ function ProductPage() {
             <h2>Bring one risky path. Leave with the evidence and rollout plan.</h2>
           </div>
           <div className="idt-inline-actions">
-            <Link to="/demo" className="idt-btn idt-btn-primary">
-              Book Demo
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             <Link to="/docs" className="idt-btn idt-btn-dark">
-              Review Docs
+              View Docs
             </Link>
           </div>
         </div>
@@ -3190,8 +3113,8 @@ function FeaturesPage() {
         actions={
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-            <Link to="/demo" className="idt-btn idt-btn-dark">
-              Open Demo
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              View Docs
             </Link>
           </>
         }
@@ -3211,8 +3134,8 @@ function FeaturesPage() {
               <Link to={feature.href} className="idt-btn idt-btn-primary">
                 Explore {feature.title}
               </Link>
-              <Link to="/demo" className="idt-btn idt-btn-ghost">
-                Open Demo
+              <Link to="/docs" className="idt-btn idt-btn-ghost">
+                View Docs
               </Link>
             </div>
           </article>
@@ -3238,10 +3161,10 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
         variant="product"
         actions={
           <>
-            <Link to="/demo" className="idt-btn idt-btn-primary">
-              Open Interactive Demo
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              View Docs
             </Link>
-            <ScanIntakeCTA className="idt-btn idt-btn-dark" />
             <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
               Star on GitHub
             </SafeLink>
@@ -3271,7 +3194,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
       </section>
 
       <section className="idt-section idt-shell">
-        <ScanIntakeCTA className="idt-btn idt-btn-primary">Start a {page.navLabel} review</ScanIntakeCTA>
+        <ScanIntakeCTA className="idt-btn idt-btn-primary">Start {page.navLabel === 'AWS' ? 'an' : 'a'} {page.navLabel} review</ScanIntakeCTA>
       </section>
     </div>
   );
@@ -3758,7 +3681,7 @@ function IntegrationsPage() {
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-dark">
-              Review Docs
+              View Docs
             </SafeLink>
           </>
         }
@@ -3833,10 +3756,10 @@ function DemoPage() {
         visual={<DemoBookingVisual />}
         actions={
           <>
-            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary">
-              Choose Demo Time
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              View Docs
             </Link>
-            <ScanIntakeCTA className="idt-btn idt-btn-dark">Request Trust Path Review</ScanIntakeCTA>
           </>
         }
       />
@@ -3846,7 +3769,7 @@ function DemoPage() {
           id="book-demo"
           title="Book a guided walkthrough"
           caption="Share the environment you want to review and we will route the demo around the trust paths that matter to your team."
-          ctaLabel="Request demo time"
+          ctaLabel="Request Trust Path Review"
           variant="full"
           includeScheduleFields
         />
@@ -3871,7 +3794,7 @@ function DemoPage() {
             </article>
           </div>
           <Link to={DEMO_BOOKING_PATH} className="idt-inline-link">
-            Choose a preferred time →
+            Send review context →
           </Link>
         </aside>
       </section>
@@ -3892,10 +3815,10 @@ function DemoPage() {
             <h2>Book the walkthrough, or send context for a trust path review.</h2>
           </div>
           <div className="idt-inline-actions">
-            <Link to={DEMO_BOOKING_PATH} className="idt-btn idt-btn-primary">
-              Choose Demo Time
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
+            <Link to="/docs" className="idt-btn idt-btn-dark">
+              View Docs
             </Link>
-            <ScanIntakeCTA className="idt-btn idt-btn-dark">Request Trust Path Review</ScanIntakeCTA>
           </div>
         </div>
       </section>
@@ -3941,9 +3864,9 @@ function DocsPage() {
 
       <section className="idt-section idt-shell">
         <div className="idt-card-grid three-col">
-          {DOC_ENTRIES.slice(0, 3).map((entry) => (
+          {DOCS_FEATURED_GUIDES.map((entry) => (
             <article key={entry.href} className="idt-card idt-doc-highlight-card">
-              <p className="idt-eyebrow">Quickstart</p>
+              <p className="idt-eyebrow">{entry.eyebrow}</p>
               <h2>{entry.title}</h2>
               <p>{entry.description}</p>
               <SafeLink href={entry.href} className="idt-inline-link">
@@ -3962,7 +3885,7 @@ function DocsPage() {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Try: kubernetes, hardening, quickstart"
+            placeholder="Try: repo exposure, connector, hardening"
           />
         </label>
 
@@ -4254,7 +4177,7 @@ function ResponsibleDisclosurePage() {
               Email Security
             </a>
             <Link to="/security" className="idt-btn idt-btn-dark">
-              Review Security
+              View Security
             </Link>
           </>
         }
@@ -4361,9 +4284,7 @@ function EnterprisePage() {
         visual={<EnterpriseHeroVisual />}
         actions={
           <>
-            <Link to="/demo" className="idt-btn idt-btn-primary">
-              Book Demo
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             <Link to="/security" className="idt-btn idt-btn-dark">
               Review Security
             </Link>
@@ -4385,7 +4306,7 @@ function EnterprisePage() {
           <LeadCaptureForm
             title="Talk to Enterprise Sales"
             caption="Share environment scope and business goals to get a deployment blueprint and pricing proposal."
-            ctaLabel="Book Demo"
+            ctaLabel="Request Trust Path Review"
             includeScheduleFields
           />
         </div>
@@ -4811,18 +4732,10 @@ function NotFoundPage() {
 export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
-  const [bookDemoModalOpen, setBookDemoModalOpen] = useState(false);
   const isProductShellRoute = location.pathname.startsWith('/app') || location.pathname.startsWith('/reports');
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
-  const openBookDemoModal = useCallback(() => setBookDemoModalOpen(true), []);
-  const closeBookDemoModal = useCallback(() => setBookDemoModalOpen(false), []);
-
-  useEffect(() => {
-    setBookDemoModalOpen(false);
-  }, [location.pathname, location.search, location.hash]);
-
   useEffect(() => {
     document.documentElement.dataset.theme = 'light';
     try {
@@ -4958,7 +4871,7 @@ export function RoutedSite() {
             <Route path="findings" element={<ProductFindingsPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
           </Route>
-          <Route path="/" element={<HomePage onRequestDemo={openBookDemoModal} />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
           <Route path="/integrations" element={<IntegrationsPage />} />
@@ -4971,7 +4884,6 @@ export function RoutedSite() {
           ))}
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/roi-assessment" element={<RoiAssessmentPage />} />
-          <Route path="/read-only-scan" element={<ReadOnlyScanPage />} />
           <Route path="/deployment-models" element={<DeploymentModelsPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
@@ -4994,7 +4906,6 @@ export function RoutedSite() {
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
         </>
       ) : null}
-      {bookDemoModalOpen ? <BookDemoModal onClose={closeBookDemoModal} /> : null}
     </div>
   );
 }

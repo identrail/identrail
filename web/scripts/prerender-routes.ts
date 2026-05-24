@@ -98,11 +98,6 @@ const ROUTE_META: Record<string, RouteMeta> = {
     description:
       'Estimate expected risk reduction and operational impact from machine identity hardening with an ROI-first assessment workflow.'
   },
-  '/read-only-scan': {
-    title: 'Read-Only Risk Scan | Safe Machine Identity Discovery',
-    description:
-      'Run a read-only machine identity risk scan across AWS and Kubernetes trust paths without making policy changes in your environment.'
-  },
   '/deployment-models': {
     title: 'Deployment Models | Self-Hosted, SaaS, and Enterprise Options',
     description:

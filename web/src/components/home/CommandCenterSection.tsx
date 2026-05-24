@@ -67,7 +67,7 @@ export function CommandCenterSection() {
       <div className="idt-command-center-grid">
         <div className="idt-command-copy">
           <p className="idt-eyebrow">Trust operations layer</p>
-          <h2 id="command-center-title">A premium control room for machine identity risk.</h2>
+          <h2 id="command-center-title">One operating view for machine identity risk.</h2>
           <p>
             Identrail gives security and platform teams the same operating picture: live trust paths, policy evidence,
             blast-radius context, and a practical next step for each owner.

@@ -14,7 +14,6 @@ export const PRERENDER_ROUTES = [
   '/solutions/security-teams',
   '/pricing',
   '/roi-assessment',
-  '/read-only-scan',
   '/deployment-models',
   '/demo',
   '/signin',
