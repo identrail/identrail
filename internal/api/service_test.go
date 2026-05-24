@@ -4248,6 +4248,33 @@ func TestServiceEnqueueRepoScanWithGitHubAppSourceCanonicalizesGitHubTarget(t *t
 	}
 }
 
+func TestServiceEnqueueRepoScanWithGitHubAppSourceUsesSelectedRepositoriesAsTargetGuard(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"Oluwatobi-Mustapha/iam-fuzzer"})
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "oluwatobi-mustapha/iam-fuzzer",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("expected selected GitHub App repository to queue without global repo scan allowlist: %v", err)
+	}
+	if record.Repository != "oluwatobi-mustapha/iam-fuzzer" || record.Source.Provider != "github_app" {
+		t.Fatalf("expected connector-backed scan for selected repository, got %+v", record)
+	}
+
+	_, err = svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "oluwatobi-mustapha/other",
+		ProjectID:  "project-1",
+	})
+	if !errors.Is(err, ErrRepoTargetNotAllowed) {
+		t.Fatalf("expected unselected GitHub App repository to remain denied, got %v", err)
+	}
+}
+
 func TestServiceEnqueueRepoScanUnknownProjectIDIsInvalidRequest(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

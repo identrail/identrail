@@ -74,8 +74,9 @@ curl -X POST http://localhost:8080/v1/repo-scans \
 ```
 
 Connector-backed scans require the repository to be selected on the project's
-GitHub App connection and still honor `IDENTRAIL_REPO_SCAN_ALLOWLIST`, queue
-capacity, and per-repository concurrency controls.
+GitHub App connection and still honor queue capacity and per-repository
+concurrency controls. Direct non-connector scans continue to use
+`IDENTRAIL_REPO_SCAN_ALLOWLIST` for their target guard.
 
 Read APIs:
 
