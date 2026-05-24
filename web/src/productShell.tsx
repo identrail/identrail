@@ -6029,7 +6029,21 @@ export function ProductFindingsPage() {
   const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
   const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
   const neverScanned = repoScans.length === 0;
-  const hasRepoFindings = repoFindings.length > 0;
+  // "Has findings" must be independent of both active finding filters and the
+  // recent-scan window (listRepoScans is capped). Combine the server-side
+  // lifecycle summary (uncapped, the authoritative signal) with the loaded list
+  // and per-scan finding counts so the all-failed empty state never triggers
+  // while findings exist anywhere in history.
+  const summaryFindingTotal = repoFindingSummary
+    ? repoFindingSummary.total_open +
+      repoFindingSummary.fixed_count +
+      repoFindingSummary.reopened_count +
+      repoFindingSummary.suppressed_count
+    : 0;
+  const hasRepoFindings =
+    summaryFindingTotal > 0 ||
+    repoFindings.length > 0 ||
+    repoScans.some((scan) => (scan.finding_count ?? 0) > 0);
   const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && !hasRepoFindings && succeededScanCount === 0 && latestScanFailed;
   const filtersActive =
     normalizeValue(repoScanFilter) !== '' ||
