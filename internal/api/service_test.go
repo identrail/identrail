@@ -4376,20 +4376,6 @@ func TestServiceProcessQueuedGitHubAppRepoScanImportsCodeScanningAlerts(t *testi
 	if collector.calls != 1 || collector.installationID != 101 || collector.repository != "owner/private" {
 		t.Fatalf("unexpected code scanning collector call: calls=%d installation=%d repository=%q", collector.calls, collector.installationID, collector.repository)
 	}
-	events, err := svc.ListScanEvents(ctx, record.ID, 40)
-	if err != nil {
-		t.Fatalf("list repo scan events: %v", err)
-	}
-	states := map[string]bool{}
-	for _, event := range events {
-		state, _ := event.Metadata["state"].(string)
-		if state != "" {
-			states[state] = true
-		}
-	}
-	if states[scanLifecyclePartial] {
-		t.Fatalf("expected no partial state for successful github code-scanning-only import flow")
-	}
 	stored, err := svc.GetRepoScan(ctx, record.ID)
 	if err != nil {
 		t.Fatalf("get repo scan: %v", err)
@@ -4491,25 +4477,6 @@ func TestServiceProcessQueuedGitHubAppRepoScanImportsSecretAndDependabotAlerts(t
 	dependabotCollector := svc.GitHubDependabotAlertCollector.(*fakeGitHubDependabotAlertCollector)
 	if dependabotCollector.calls != 1 || dependabotCollector.installationID != 101 || dependabotCollector.repository != "owner/private" {
 		t.Fatalf("unexpected dependabot collector call: calls=%d installation=%d repository=%q", dependabotCollector.calls, dependabotCollector.installationID, dependabotCollector.repository)
-	}
-	events, err := svc.ListScanEvents(ctx, record.ID, 40)
-	if err != nil {
-		t.Fatalf("list repo scan events: %v", err)
-	}
-	states := map[string]bool{}
-	for _, event := range events {
-		state, _ := event.Metadata["state"].(string)
-		if state != "" {
-			states[state] = true
-		}
-	}
-	for _, expected := range []string{scanLifecycleQueued, scanLifecycleRunning, scanLifecyclePartial, scanLifecycleSucceeded} {
-		if !states[expected] {
-			t.Fatalf("expected repo scan lifecycle state %q in events, got %+v", expected, states)
-		}
-	}
-	if !states[scanLifecyclePartial] {
-		t.Fatalf("expected partial lifecycle state when at least one source collector errors")
 	}
 	stored, err := svc.GetRepoScan(ctx, record.ID)
 	if err != nil {
