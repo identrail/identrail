@@ -15,6 +15,9 @@ function parseAppRoutes(src) {
   const routes = new Set();
   const runtimeOnlyRoutes = new Set([
     '/auth/callback',
+    // Legacy conversion route: the SPA opens the trust graph intake modal,
+    // but the URL is intentionally not republished in prerender/sitemap.
+    '/demo',
     '/onboarding/connect',
     '/onboarding/invite',
     '/onboarding/org',
