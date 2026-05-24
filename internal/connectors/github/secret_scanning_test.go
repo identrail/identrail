@@ -44,6 +44,9 @@ func TestRepositoryClientListSecretScanningAlerts(t *testing.T) {
 			if r.URL.Query().Get("page") != "2" {
 				t.Fatalf("unexpected second page query %s", r.URL.RawQuery)
 			}
+			if r.URL.Query().Get("hide_secret") != "true" {
+				t.Fatalf("second page did not preserve hide_secret=true: %s", r.URL.RawQuery)
+			}
 			_, _ = w.Write([]byte(`[{
 				"number": 2,
 				"state": "open",

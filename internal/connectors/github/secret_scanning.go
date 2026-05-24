@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strconv"
 )
 
@@ -37,7 +39,7 @@ func (c RepositoryClient) ListSecretScanningAlerts(ctx context.Context, installa
 	}
 	alerts := []SecretScanningAlert{}
 	endpoint := c.repositoryEndpoint(normalizedRepository, "/secret-scanning/alerts?state=open&per_page="+strconv.Itoa(defaultRepoPageLimit)+"&hide_secret=true")
-	_, err = c.getJSONPages(ctx, token.Token, endpoint, func(body []byte) error {
+	_, err = c.getSecretScanningAlertsPages(ctx, token.Token, endpoint, func(body []byte) error {
 		var page []SecretScanningAlert
 		if err := json.Unmarshal(body, &page); err != nil {
 			return err
@@ -49,4 +51,41 @@ func (c RepositoryClient) ListSecretScanningAlerts(ctx context.Context, installa
 		return nil, fmt.Errorf("list github secret scanning alerts: %w", err)
 	}
 	return alerts, nil
+}
+
+func (c RepositoryClient) getSecretScanningAlertsPages(ctx context.Context, token string, endpoint string, decode func([]byte) error) (*GitHubRateLimitState, error) {
+	nextURL := endpoint
+	var lastRateLimit *GitHubRateLimitState
+	for nextURL != "" {
+		body, rateLimit, link, err := c.doGitHubRequestRaw(ctx, token, http.MethodGet, nextURL)
+		if rateLimit != nil {
+			lastRateLimit = rateLimit
+		}
+		if err != nil {
+			return lastRateLimit, err
+		}
+		if err := decode(body); err != nil {
+			return lastRateLimit, fmt.Errorf("decode github posture page: %w", err)
+		}
+		nextURL = nextLink(link)
+		if nextURL == "" {
+			return lastRateLimit, nil
+		}
+		nextURL, err = ensureHideSecretQuery(nextURL)
+		if err != nil {
+			return lastRateLimit, err
+		}
+	}
+	return lastRateLimit, nil
+}
+
+func ensureHideSecretQuery(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	query := parsed.Query()
+	query.Set("hide_secret", "true")
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
 }
