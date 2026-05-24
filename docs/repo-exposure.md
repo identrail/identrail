@@ -247,6 +247,10 @@ The scanner uses a versioned secret detector registry for commit-history secret 
     - broad OIDC credential-minting context
     - cache keys or restore paths influenced by untrusted PR context
     - artifact or release publishing reachable from untrusted inputs
+    - AI-agent prompt-injection paths where untrusted PR, issue, review,
+      comment, workflow_run, or repository prompt-file content reaches an
+      LLM/agent step with write, secret, OIDC, cloud, release, or repository
+      mutation capability
     - self-hosted runner jobs reachable from untrusted events
     - runner placement that cannot be statically audited (expression, matrix, or broad labels)
   - Kubernetes `privileged: true`
@@ -303,8 +307,16 @@ write permissions is emitted as a critical workflow attack path.
 | `workflow_oidc_broad_trust` | `id-token: write` is available from untrusted events, `workflow_run`, or broad all-branch push deploys. | High | Restrict cloud trust policies to protected branches and environments, and avoid OIDC on untrusted workflow paths. |
 | `workflow_cache_poisoning` | Cache keys or restore paths are influenced by PR-controlled context, or broad restore keys are used on untrusted events. | Medium | Separate untrusted PR caches from trusted build caches and avoid broad restore keys in privileged jobs. |
 | `workflow_artifact_poisoning` | PR or `workflow_run` context can upload artifacts or release assets consumed later. | Medium to high | Keep untrusted artifacts isolated, verify provenance before reuse, and publish releases only from protected contexts. |
+| `workflow_ai_agent_prompt_injection` | An AI-agent or LLM workflow step consumes untrusted PR/issue/review/comment/workflow_run text or repository prompt files. | Medium to critical | Keep untrusted prompt processing read-only, remove secrets/write scopes from agent jobs, and gate autofix or repository mutation behind review. |
 | `workflow_self_hosted_runner` | Self-hosted runner usage has no obvious org-level controls and can route untrusted jobs to shared infrastructure. | Medium | Enforce repository-level self-hosted runner restrictions, dedicated groups, and minimal permissions before enabling untrusted pull-request execution. |
 | `workflow_self_hosted_runner_unresolved` | Self-hosted runner-group visibility is permission-limited or unavailable, leaving posture state uncertain. | Medium | Grant the GitHub App read access to org runner groups or route high-risk repos to managed GitHub-hosted runners. |
+
+`workflow_ai_agent_prompt_injection` complements
+`workflow_shell_injection_user_context`. Shell-injection findings cover direct
+interpolation into shell commands. AI-agent prompt-injection findings cover
+cases where the shell may be quoted safely, but untrusted text still becomes
+instructions for an agent that can read files, call tools, create PRs, comment,
+push branches, mint OIDC tokens, use secrets, or trigger cloud/deploy behavior.
 
 To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
 

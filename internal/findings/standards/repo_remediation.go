@@ -139,6 +139,8 @@ func repoMisconfigRemediation(finding domain.Finding) (RepoExposureRemediation, 
 		return workflowCachePoisoningRemediation(finding, detector), true
 	case "workflow_artifact_poisoning":
 		return workflowArtifactPoisoningRemediation(finding, detector), true
+	case "workflow_ai_agent_prompt_injection":
+		return workflowAIAgentPromptInjectionRemediation(finding, detector), true
 	case "workflow_self_hosted_runner":
 		return workflowSelfHostedRunnerRemediation(finding, detector), true
 	case "workflow_self_hosted_runner_unresolved":
@@ -390,6 +392,28 @@ func workflowArtifactPoisoningRemediation(finding domain.Finding, detector strin
 			"Verify release jobs require protected branch or environment context.",
 		},
 		"artifact remediation depends on producer and consumer workflow pairing")
+}
+
+func workflowAIAgentPromptInjectionRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
+	return guidanceRepoRemediation(finding, detector,
+		"Separate untrusted prompt input from privileged AI-agent workflow actions.",
+		"An AI-agent or LLM workflow step consumes untrusted repository text or prompt files in a path that may also hold write permissions, secrets, OIDC, cloud, release, or repository-write behavior.",
+		[]string{
+			"Run AI prompt processing from untrusted PR, issue, review, or comment text in a read-only job with no secrets and no repository write scopes.",
+			"Split autofix, branch push, PR creation, release, deployment, and cloud steps into a reviewed follow-up workflow or environment approval gate.",
+			"Treat repository prompt files from pull requests as untrusted input unless they come from a protected branch.",
+			"Pin AI actions and log prompt provenance without storing sensitive prompt context or secrets.",
+		},
+		[]string{
+			"Prompt injection is distinct from shell injection; quoted shell arguments can still steer an agent that has tools or credentials.",
+			"Do not pass secrets, OIDC credentials, deployment tokens, or write-capable GitHub tokens to an agent that consumes untrusted prompt content.",
+		},
+		[]string{
+			"Run a fork PR or issue-comment test and confirm the AI job receives read-only permissions and no secrets.",
+			"Verify any write-capable follow-up workflow requires maintainer approval or protected-branch/environment gates.",
+			"Inspect workflow logs to confirm prompt source, action ref, and permissions are visible for review.",
+		},
+		"AI-agent prompt paths need workflow-owner review before a safe generated source patch can be published")
 }
 
 func workflowSelfHostedRunnerRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
