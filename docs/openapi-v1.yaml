@@ -5397,6 +5397,8 @@ components:
           enum: [github_app]
         posture:
           $ref: "#/components/schemas/GitHubRepositoryPosture"
+        organization_posture:
+          $ref: "#/components/schemas/GitHubOrganizationPosture"
     GitHubRepositoryPosture:
       type: object
       required: [repository, collected_at, checks]
@@ -5404,6 +5406,26 @@ components:
         repository:
           type: string
           description: Normalized selected repository in `owner/name` form.
+        installation_id:
+          type: integer
+          format: int64
+          minimum: 1
+        collected_at:
+          type: string
+          format: date-time
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitHubRepositoryPostureCheck"
+        rate_limit:
+          $ref: "#/components/schemas/GitHubRateLimitState"
+    GitHubOrganizationPosture:
+      type: object
+      required: [organization, collected_at, checks]
+      properties:
+        organization:
+          type: string
+          description: Normalized GitHub organization login that owns the selected repository.
         installation_id:
           type: integer
           format: int64
@@ -5429,7 +5451,7 @@ components:
           example: branch_protection
         state:
           type: string
-          enum: [secure, insecure, unavailable, permission_limited]
+          enum: [secure, insecure, unavailable, permission_limited, unsupported, unknown]
         reason:
           type: string
           example: protection_enforced

@@ -221,6 +221,39 @@ The manifest permissions that support this collection are read-only:
 If one of these permissions is missing, the corresponding posture check should
 return `permission_limited` instead of failing the whole collection.
 
+## Organization Policy Posture
+
+Repository posture answers what is configured on one selected repository.
+GitHub App-backed posture collection also attempts to collect the organization
+security policy inherited by that repository owner, when GitHub exposes it to
+the installation.
+
+Organization posture is returned separately from repository posture so callers
+can distinguish a local repository gap from an inherited policy-plane gap. The
+collector currently evaluates:
+
+- organization secret scanning and push protection policy through
+  organization-scoped enforced code security configurations
+- organization Actions policy, including whether all actions are allowed
+- organization default workflow token permissions and whether Actions can
+  approve pull requests
+- selected-actions / reusable-workflow allowlist posture when applicable
+- organization code security configurations, including whether a central
+  organization-scoped configuration is enforced and enables protective controls
+  such as secret scanning or push protection
+
+Organization checks use the same normalized states as repository checks:
+`secure`, `insecure`, `permission_limited`, `unavailable`, `unsupported`, and
+`unknown`. `permission_limited`, `unsupported`, and `unknown` are never treated
+as passing controls. They indicate that GitHub did not expose enough information
+for Identrail to prove the policy is safe.
+
+Organization posture is best-effort enrichment. If the repository owner is a
+personal account, the installation lacks organization read permissions, the
+account plan does not expose a control, or GitHub returns an unavailable
+endpoint, repository posture still returns normally and the affected
+organization checks record the most precise non-secure state available.
+
 ## Imported GitHub Alert Findings
 
 Repository posture answers whether a security feature is configured. Connector-

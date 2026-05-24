@@ -21,6 +21,13 @@ const (
 	RepositoryPostureStateInsecure          RepositoryPostureState = "insecure"
 	RepositoryPostureStateUnavailable       RepositoryPostureState = "unavailable"
 	RepositoryPostureStatePermissionLimited RepositoryPostureState = "permission_limited"
+	// RepositoryPostureStateUnsupported marks a control GitHub does not expose
+	// for the repository/account plan (for example a GHAS-only org setting on a
+	// plan without GitHub Advanced Security).
+	RepositoryPostureStateUnsupported RepositoryPostureState = "unsupported"
+	// RepositoryPostureStateUnknown marks a control that was reachable but could
+	// not be classified from the response GitHub returned.
+	RepositoryPostureStateUnknown RepositoryPostureState = "unknown"
 )
 
 // RepositoryPosture describes GitHub-hosted repository security settings that

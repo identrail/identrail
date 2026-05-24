@@ -33,6 +33,7 @@ import {
   type FindingLifecycleStatus,
   type GitHubConnectorStartResponse,
   type GitHubConnectionStatus,
+  type GitHubOrganizationPosture,
   type GitHubRepositoryPosture,
   type GitHubRepositoryPostureCheck,
   type KubernetesConnectorStartResponse,
@@ -561,11 +562,14 @@ function githubPostureStateTone(state: GitHubRepositoryPostureCheck['state']): '
   if (state === 'permission_limited') {
     return 'warning';
   }
+  if (state === 'unsupported' || state === 'unknown') {
+    return 'warning';
+  }
   return 'neutral';
 }
 
 function countGitHubPostureChecks(
-  posture: GitHubRepositoryPosture | null,
+  posture: GitHubRepositoryPosture | GitHubOrganizationPosture | null,
   state: GitHubRepositoryPostureCheck['state']
 ): number {
   return posture?.checks.filter((check) => check.state === state).length ?? 0;
@@ -3735,6 +3739,7 @@ export function ProductProjectDetailPage() {
   const [repoScanCancelingID, setRepoScanCancelingID] = useState('');
   const [repoScanError, setRepoScanError] = useState('');
   const [githubPosture, setGitHubPosture] = useState<GitHubRepositoryPosture | null>(null);
+  const [githubOrganizationPosture, setGitHubOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
   const [githubPostureLoading, setGitHubPostureLoading] = useState(false);
   const [githubPostureError, setGitHubPostureError] = useState('');
   const [awsForm, setAWSForm] = useState({
@@ -3795,6 +3800,14 @@ export function ProductProjectDetailPage() {
   const githubPostureAttentionCount = countGitHubPostureChecks(githubPosture, 'insecure');
   const githubPostureLimitedCount = countGitHubPostureChecks(githubPosture, 'permission_limited');
   const githubPostureUnavailableCount = countGitHubPostureChecks(githubPosture, 'unavailable');
+  const githubPostureUnsupportedCount = countGitHubPostureChecks(githubPosture, 'unsupported');
+  const githubPostureUnknownCount = countGitHubPostureChecks(githubPosture, 'unknown');
+  const githubOrganizationPostureSecureCount = countGitHubPostureChecks(githubOrganizationPosture, 'secure');
+  const githubOrganizationPostureAttentionCount = countGitHubPostureChecks(githubOrganizationPosture, 'insecure');
+  const githubOrganizationPostureLimitedCount = countGitHubPostureChecks(githubOrganizationPosture, 'permission_limited');
+  const githubOrganizationPostureUnavailableCount = countGitHubPostureChecks(githubOrganizationPosture, 'unavailable');
+  const githubOrganizationPostureUnsupportedCount = countGitHubPostureChecks(githubOrganizationPosture, 'unsupported');
+  const githubOrganizationPostureUnknownCount = countGitHubPostureChecks(githubOrganizationPosture, 'unknown');
   const githubPostureAttentionChecks = useMemo(
     () => githubPosture?.checks.filter((check) => check.state !== 'secure') ?? [],
     [githubPosture]
@@ -3802,7 +3815,19 @@ export function ProductProjectDetailPage() {
   const githubPostureDetailChecks =
     githubPostureAttentionChecks.length > 0 ? githubPostureAttentionChecks : (githubPosture?.checks ?? []);
   const githubPostureNeedsAttentionCount =
-    githubPostureAttentionCount + githubPostureLimitedCount + githubPostureUnavailableCount;
+    githubPostureAttentionCount +
+    githubPostureLimitedCount +
+    githubPostureUnavailableCount +
+    githubPostureUnsupportedCount +
+    githubPostureUnknownCount;
+  const githubOrganizationPostureAttentionChecks = useMemo(
+    () => githubOrganizationPosture?.checks.filter((check) => check.state !== 'secure') ?? [],
+    [githubOrganizationPosture]
+  );
+  const githubOrganizationPostureDetailChecks =
+    githubOrganizationPostureAttentionChecks.length > 0
+      ? githubOrganizationPostureAttentionChecks
+      : (githubOrganizationPosture?.checks ?? []);
   const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
   const githubHasActiveSelectedRepoScan =
     effectiveRepoScanRepositoryKey !== '' &&
@@ -4060,12 +4085,14 @@ export function ProductProjectDetailPage() {
       setGitHubPosture(null);
       setGitHubPostureLoading(false);
       setGitHubPostureError('');
+      setGitHubOrganizationPosture(null);
       return undefined;
     }
 
     setGitHubPostureLoading(true);
     setGitHubPostureError('');
     setGitHubPosture(null);
+    setGitHubOrganizationPosture(null);
     void apiClient
       .getGitHubConnectorRepositoryPosture(
         connection.connector_id,
@@ -4079,12 +4106,14 @@ export function ProductProjectDetailPage() {
           return;
         }
         setGitHubPosture(response.posture);
+        setGitHubOrganizationPosture(response.organization_posture ?? null);
       })
       .catch((error) => {
         if (githubPostureRequestRef.current !== requestID) {
           return;
         }
         setGitHubPosture(null);
+        setGitHubOrganizationPosture(null);
         setGitHubPostureError(error instanceof Error ? error.message : 'Unable to load GitHub repository posture.');
       })
       .finally(() => {
@@ -5311,6 +5340,43 @@ export function ProductProjectDetailPage() {
                       ))}
                       {githubPostureDetailChecks.length > 6 ? (
                         <p>{formatCountLabel(githubPostureDetailChecks.length - 6, 'additional check', 'additional checks')} hidden.</p>
+                      ) : null}
+                      {githubOrganizationPosture ? (
+                        <>
+                          <article>
+                            <strong>Organization posture</strong>
+                            <span>{formatConnectionTime(githubOrganizationPosture.collected_at)}</span>
+                            <p>
+                              {githubOrganizationPostureSecureCount} secure · {githubOrganizationPostureAttentionCount}{' '}
+                              attention · {githubOrganizationPostureLimitedCount} permission limited ·{' '}
+                              {githubOrganizationPostureUnavailableCount} unavailable
+                            </p>
+                            <small>
+                              {githubOrganizationPostureUnsupportedCount} unsupported ·{' '}
+                              {githubOrganizationPostureUnknownCount} unknown
+                            </small>
+                          </article>
+                          {githubOrganizationPostureDetailChecks.slice(0, 5).map((check) => (
+                            <article key={`org-${check.id}`}>
+                              <strong>{formatTokenLabel(check.category || check.id)}</strong>
+                              <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
+                                {formatTokenLabel(check.state)}
+                              </span>
+                              <p>{check.summary}</p>
+                              {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
+                            </article>
+                          ))}
+                          {githubOrganizationPostureDetailChecks.length > 5 ? (
+                            <p>
+                              {formatCountLabel(
+                                githubOrganizationPostureDetailChecks.length - 5,
+                                'additional organization check',
+                                'additional organization checks'
+                              )}{' '}
+                              hidden.
+                            </p>
+                          ) : null}
+                        </>
                       ) : null}
                     </div>
                   </details>

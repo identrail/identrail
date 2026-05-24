@@ -48,10 +48,14 @@ func (f *fakeGitHubRepositoryLister) ListInstallationRepositories(ctx context.Co
 }
 
 type fakeGitHubRepositoryPostureCollector struct {
-	seenInstallationID int64
-	seenRepository     string
-	posture            githubconnector.RepositoryPosture
-	err                error
+	seenInstallationID   int64
+	seenRepository       string
+	seenOrganization     string
+	seenOrganizationRepo string
+	posture              githubconnector.RepositoryPosture
+	organizationPosture  githubconnector.OrganizationPosture
+	err                  error
+	organizationErr      error
 }
 
 func (f *fakeGitHubRepositoryPostureCollector) CollectRepositoryPosture(ctx context.Context, installationID int64, repository string) (githubconnector.RepositoryPosture, error) {
@@ -61,6 +65,16 @@ func (f *fakeGitHubRepositoryPostureCollector) CollectRepositoryPosture(ctx cont
 		return githubconnector.RepositoryPosture{}, f.err
 	}
 	return f.posture, nil
+}
+
+func (f *fakeGitHubRepositoryPostureCollector) CollectOrganizationPosture(ctx context.Context, installationID int64, organization string, repository string) (githubconnector.OrganizationPosture, error) {
+	f.seenInstallationID = installationID
+	f.seenOrganization = organization
+	f.seenOrganizationRepo = repository
+	if f.organizationErr != nil {
+		return githubconnector.OrganizationPosture{}, f.organizationErr
+	}
+	return f.organizationPosture, nil
 }
 
 func TestRouterGitHubConnectorV2StartsAppInstall(t *testing.T) {
@@ -221,6 +235,20 @@ func TestRouterGitHubConnectorV2CollectsRepositoryPosture(t *testing.T) {
 				},
 			},
 		},
+		organizationPosture: githubconnector.OrganizationPosture{
+			Organization:   "identrail",
+			InstallationID: 12345,
+			CollectedAt:    time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC),
+			Checks: []githubconnector.RepositoryPostureCheck{
+				{
+					ID:       "org_secret_scanning_policy",
+					Category: "secret_scanning",
+					State:    githubconnector.RepositoryPostureStateInsecure,
+					Reason:   "secret_scanning_policy_weak",
+					Summary:  "Organization does not enforce secret scanning and push protection for new repositories.",
+				},
+			},
+		},
 	}
 	store := db.NewMemoryStore()
 	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
@@ -254,11 +282,69 @@ func TestRouterGitHubConnectorV2CollectsRepositoryPosture(t *testing.T) {
 	if err := json.Unmarshal(postureResp.Body.Bytes(), &postureBody); err != nil {
 		t.Fatalf("decode posture response: %v", err)
 	}
-	if collector.seenInstallationID != 12345 || collector.seenRepository != "identrail/api" {
-		t.Fatalf("unexpected collector call installation=%d repository=%q", collector.seenInstallationID, collector.seenRepository)
+	if collector.seenInstallationID != 12345 || collector.seenRepository != "identrail/api" || collector.seenOrganization != "identrail" || collector.seenOrganizationRepo != "identrail/api" {
+		t.Fatalf("unexpected collector call installation=%d repository=%q organization=%q organizationRepo=%q", collector.seenInstallationID, collector.seenRepository, collector.seenOrganization, collector.seenOrganizationRepo)
 	}
 	if postureBody.ConnectorID != githubConnectorID || postureBody.Provider != "github_app" || postureBody.Posture.Repository != "identrail/api" {
 		t.Fatalf("unexpected posture response %+v", postureBody)
+	}
+	if postureBody.OrganizationPosture == nil || postureBody.OrganizationPosture.Organization != "identrail" || len(postureBody.OrganizationPosture.Checks) != 1 {
+		t.Fatalf("expected organization posture in response, got %+v", postureBody.OrganizationPosture)
+	}
+	if postureBody.OrganizationPosture.Checks[0].State != githubconnector.RepositoryPostureStateInsecure {
+		t.Fatalf("expected org secret scanning insecure, got %+v", postureBody.OrganizationPosture.Checks[0])
+	}
+
+	collector.organizationPosture = githubconnector.OrganizationPosture{
+		Organization:   "identrail",
+		InstallationID: 12345,
+		CollectedAt:    time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC),
+		Checks: []githubconnector.RepositoryPostureCheck{
+			{
+				ID:       "org_secret_scanning_policy",
+				Category: "secret_scanning",
+				State:    githubconnector.RepositoryPostureStateUnsupported,
+				Reason:   "not_an_organization",
+				Summary:  "Repository owner is a user account, so organization secret scanning policy does not apply.",
+			},
+		},
+	}
+	userOwnedResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-app/posture?workspace_id=workspace-a&project_id=project-1&repository=Identrail/API", "")
+	if userOwnedResp.Code != http.StatusOK {
+		t.Fatalf("expected user-owned github posture 200, got %d body=%s", userOwnedResp.Code, userOwnedResp.Body.String())
+	}
+	var userOwnedBody GitHubRepositoryPostureResponse
+	if err := json.Unmarshal(userOwnedResp.Body.Bytes(), &userOwnedBody); err != nil {
+		t.Fatalf("decode user-owned posture response: %v", err)
+	}
+	if userOwnedBody.OrganizationPosture != nil {
+		t.Fatalf("expected unsupported organization posture to be omitted, got %+v", userOwnedBody.OrganizationPosture)
+	}
+
+	collector.organizationPosture = githubconnector.OrganizationPosture{
+		Organization:   "identrail",
+		InstallationID: 12345,
+		CollectedAt:    time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC),
+		Checks: []githubconnector.RepositoryPostureCheck{
+			{
+				ID:       "org_secret_scanning_policy",
+				Category: "secret_scanning",
+				State:    githubconnector.RepositoryPostureStateUnsupported,
+				Reason:   "plan_unavailable",
+				Summary:  "Organization code security configurations are not available for this account or plan.",
+			},
+		},
+	}
+	planLimitedResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-app/posture?workspace_id=workspace-a&project_id=project-1&repository=Identrail/API", "")
+	if planLimitedResp.Code != http.StatusOK {
+		t.Fatalf("expected plan-limited github posture 200, got %d body=%s", planLimitedResp.Code, planLimitedResp.Body.String())
+	}
+	var planLimitedBody GitHubRepositoryPostureResponse
+	if err := json.Unmarshal(planLimitedResp.Body.Bytes(), &planLimitedBody); err != nil {
+		t.Fatalf("decode plan-limited posture response: %v", err)
+	}
+	if planLimitedBody.OrganizationPosture == nil || planLimitedBody.OrganizationPosture.Checks[0].Reason != "plan_unavailable" {
+		t.Fatalf("expected plan-limited organization posture to be preserved, got %+v", planLimitedBody.OrganizationPosture)
 	}
 
 	unselectedResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/github/github-app/posture?workspace_id=workspace-a&project_id=project-1&repository=identrail/other", "")
