@@ -5615,6 +5615,7 @@ export function ProductFindingsPage() {
   const [remediationPublishBaseBranch, setRemediationPublishBaseBranch] = useState('main');
   const [remediationPublishToken, setRemediationPublishToken] = useState('');
   const [remediationPublishApproved, setRemediationPublishApproved] = useState(false);
+  const [remediationPublishWritePermsConfirmed, setRemediationPublishWritePermsConfirmed] = useState(false);
   const [remediationPublishLoading, setRemediationPublishLoading] = useState(false);
   const [remediationPublishError, setRemediationPublishError] = useState('');
   const [remediationPublishResult, setRemediationPublishResult] =
@@ -5623,6 +5624,7 @@ export function ProductFindingsPage() {
   const requestRef = useRef(0);
   const signalRequestRef = useRef(0);
   const remediationPreviewRequestRef = useRef(0);
+  const remediationPublishRequestRef = useRef(0);
 
   const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
 
@@ -5946,6 +5948,7 @@ export function ProductFindingsPage() {
     setRemediationPublishBaseBranch('main');
     setRemediationPublishToken('');
     setRemediationPublishApproved(false);
+    setRemediationPublishWritePermsConfirmed(false);
     setRemediationPublishLoading(false);
     setRemediationPublishError('');
     setRemediationPublishResult(null);
@@ -5966,11 +5969,21 @@ export function ProductFindingsPage() {
       setRemediationPublishError('Operator approval is required.');
       return;
     }
+    if (!remediationPublishWritePermsConfirmed) {
+      setRemediationPublishError('Confirm the GitHub token is intentionally write-capable.');
+      return;
+    }
     if (!token) {
       setRemediationPublishError('A write-capable GitHub token is required.');
       return;
     }
 
+    const selectionKey = buildRepoFindingSelectionKey(selectedFinding);
+    const requestID = ++remediationPublishRequestRef.current;
+    const isStale = () =>
+      requestID !== remediationPublishRequestRef.current ||
+      !selectedFinding ||
+      buildRepoFindingSelectionKey(selectedFinding) !== selectionKey;
     setRemediationPublishLoading(true);
     setRemediationPublishError('');
     setRemediationPublishResult(null);
@@ -5983,20 +5996,29 @@ export function ProductFindingsPage() {
           base_branch: remediationPublishBaseBranch.trim() || undefined,
           finding_url: selectedFinding.source_url || undefined,
           operator_approved: remediationPublishApproved,
-          write_permissions_configured: true,
+          write_permissions_configured: remediationPublishWritePermsConfirmed,
           github_token: token
         },
         buildProductAuthContext(scope)
       );
+      if (isStale()) {
+        return;
+      }
       setRemediationPublishResult(response);
       setRemediationPublishToken('');
       setRemediationPublishApproved(false);
+      setRemediationPublishWritePermsConfirmed(false);
     } catch (requestError) {
+      if (isStale()) {
+        return;
+      }
       setRemediationPublishError(
         requestError instanceof Error ? requestError.message : 'Failed to publish remediation PR.'
       );
     } finally {
-      setRemediationPublishLoading(false);
+      if (requestID === remediationPublishRequestRef.current) {
+        setRemediationPublishLoading(false);
+      }
     }
   };
 
@@ -6680,11 +6702,25 @@ export function ProductFindingsPage() {
                           />
                           <span>Approved for publish</span>
                         </label>
+                        <label className="idt-repo-remediation-approval">
+                          <input
+                            type="checkbox"
+                            checked={remediationPublishWritePermsConfirmed}
+                            onChange={(event) =>
+                              setRemediationPublishWritePermsConfirmed(event.target.checked)
+                            }
+                          />
+                          <span>GitHub token is intentionally write-capable</span>
+                        </label>
                         <button
                           className="idt-btn"
                           type="button"
                           onClick={() => void handlePublishRemediation()}
-                          disabled={remediationPublishLoading || !remediationPublishApproved}
+                          disabled={
+                            remediationPublishLoading ||
+                            !remediationPublishApproved ||
+                            !remediationPublishWritePermsConfirmed
+                          }
                         >
                           {remediationPublishLoading ? 'Publishing...' : 'Publish fix PR'}
                         </button>

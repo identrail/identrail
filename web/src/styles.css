@@ -5210,6 +5210,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 }
 
 .idt-repo-remediation-approval {
+  display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   justify-content: start;

@@ -555,20 +555,13 @@ func buildRepoRemediationPreviewCmd(cfg config.Config, out io.Writer) *cobra.Com
 		Short: "Preview safe remediation for one repository finding",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if strings.TrimSpace(sourceFile) != "" && strings.TrimSpace(sourceContent) != "" {
-				return fmt.Errorf("use either --source-file or --source-content, not both")
-			}
 			formatter, err := parseOutputFormat(outputFormat)
 			if err != nil {
 				return err
 			}
-			content := sourceContent
-			if strings.TrimSpace(sourceFile) != "" {
-				data, err := os.ReadFile(strings.TrimSpace(sourceFile))
-				if err != nil {
-					return fmt.Errorf("read source file: %w", err)
-				}
-				content = string(data)
+			content, err := resolveCLIRemediationSource(sourceFile, sourceContent)
+			if err != nil {
+				return err
 			}
 			request := api.RepoFindingRemediationPreviewRequest{
 				RepoScanID:     strings.TrimSpace(repoScanID),
@@ -628,20 +621,13 @@ func buildRepoRemediationPublishCmd(cfg config.Config, out io.Writer) *cobra.Com
 		Short: "Publish an approved remediation pull request for one repository finding",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if strings.TrimSpace(sourceFile) != "" && strings.TrimSpace(sourceContent) != "" {
-				return fmt.Errorf("use either --source-file or --source-content, not both")
-			}
 			formatter, err := parseOutputFormat(outputFormat)
 			if err != nil {
 				return err
 			}
-			content := sourceContent
-			if strings.TrimSpace(sourceFile) != "" {
-				data, err := os.ReadFile(strings.TrimSpace(sourceFile))
-				if err != nil {
-					return fmt.Errorf("read source file: %w", err)
-				}
-				content = string(data)
+			content, err := resolveCLIRemediationSource(sourceFile, sourceContent)
+			if err != nil {
+				return err
 			}
 			token := strings.TrimSpace(githubToken)
 			if token == "" && strings.TrimSpace(githubTokenEnv) != "" {
@@ -688,6 +674,22 @@ func buildRepoRemediationPublishCmd(cfg config.Config, out io.Writer) *cobra.Com
 	cmd.Flags().BoolVar(&writePermissionsConfigured, "write-permissions-configured", false, "Confirm the supplied GitHub token is intentionally write-capable")
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
 	return cmd
+}
+
+// resolveCLIRemediationSource validates the mutually exclusive source flags and
+// returns the affected file content used to build a deterministic patch.
+func resolveCLIRemediationSource(sourceFile, sourceContent string) (string, error) {
+	if strings.TrimSpace(sourceFile) != "" && strings.TrimSpace(sourceContent) != "" {
+		return "", fmt.Errorf("use either --source-file or --source-content, not both")
+	}
+	if strings.TrimSpace(sourceFile) != "" {
+		data, err := os.ReadFile(strings.TrimSpace(sourceFile))
+		if err != nil {
+			return "", fmt.Errorf("read source file: %w", err)
+		}
+		return string(data), nil
+	}
+	return sourceContent, nil
 }
 
 func validateRepoScanMode(mode string) error {
