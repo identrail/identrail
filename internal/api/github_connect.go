@@ -858,12 +858,32 @@ func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID stri
 }
 
 func (s *Service) GetGitHubConnection(ctx context.Context, workspaceID string, projectID string) (GitHubConnectionStatus, error) {
+	return s.githubConnectionStatus(ctx, workspaceID, projectID, false)
+}
+
+func (s *Service) refreshGitHubConnection(ctx context.Context, workspaceID string, projectID string) (GitHubConnectionStatus, error) {
+	return s.githubConnectionStatus(ctx, workspaceID, projectID, true)
+}
+
+func (s *Service) githubConnectionStatus(ctx context.Context, workspaceID string, projectID string, refresh bool) (GitHubConnectionStatus, error) {
 	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
 		return GitHubConnectionStatus{}, err
 	}
 
 	key := githubConnectionKey(scope.TenantID, project.WorkspaceID, project.ProjectID)
+	if refresh {
+		loaded, loadErr := s.loadGitHubConnection(ctx, scope, project.WorkspaceID, project.ProjectID)
+		if loadErr != nil && !errors.Is(loadErr, db.ErrNotFound) {
+			return GitHubConnectionStatus{}, loadErr
+		}
+		if !loaded {
+			s.githubConnectMu.Lock()
+			delete(s.githubConnections, key)
+			s.githubConnectMu.Unlock()
+			return s.GetGitHubConnectorStatus(ctx, project.WorkspaceID, project.ProjectID)
+		}
+	}
 	s.githubConnectMu.RLock()
 	connection, exists := s.githubConnections[key]
 	s.githubConnectMu.RUnlock()

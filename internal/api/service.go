@@ -2005,7 +2005,10 @@ func (s *Service) githubAppRepoScanCredential(ctx context.Context, record db.Rep
 	if source.ProjectID == "" || source.InstallationID <= 0 {
 		return repoexposure.HTTPSCloneCredential{}, ErrInvalidRepoScanRequest
 	}
-	status, err := s.GetGitHubConnection(ctx, record.WorkspaceID, source.ProjectID)
+	// Workers run in a separate process from the API that completed the install
+	// flow. Reload persisted connector state so repository selection changes are
+	// honored before minting a short-lived installation token.
+	status, err := s.refreshGitHubConnection(ctx, record.WorkspaceID, source.ProjectID)
 	if err != nil {
 		if errors.Is(err, ErrInvalidGitHubConnectionRequest) || errors.Is(err, ErrGitHubConnectionNotFound) || errors.Is(err, db.ErrNotFound) {
 			return repoexposure.HTTPSCloneCredential{}, ErrRepoTargetNotAllowed

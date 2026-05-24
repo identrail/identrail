@@ -523,16 +523,32 @@ func seedGitHubAppConnection(t *testing.T, svc *Service, ctx context.Context, pr
 	if err != nil {
 		t.Fatalf("resolve scope: %v", err)
 	}
-	svc.githubConnections[githubConnectionKey(scope.TenantID, scope.WorkspaceID, projectID)] = githubProjectConnection{
-		TenantID:             scope.TenantID,
-		WorkspaceID:          scope.WorkspaceID,
-		ProjectID:            projectID,
-		ConnectorID:          githubConnectorID,
-		Status:               domain.ConnectorStatusActive,
-		HealthStatus:         "healthy",
-		Provider:             "github_app",
-		InstallationID:       installationID,
-		SelectedRepositories: repositories,
+	now := time.Now().UTC()
+	envelope, err := svc.encryptGitHubWebhookSecret(scope, projectID, "test-github-webhook-secret")
+	if err != nil {
+		t.Fatalf("encrypt github webhook secret: %v", err)
+	}
+	connection := githubProjectConnection{
+		TenantID:               scope.TenantID,
+		WorkspaceID:            scope.WorkspaceID,
+		ProjectID:              projectID,
+		ConnectorID:            githubConnectorID,
+		DisplayName:            githubConnectorDisplayName,
+		Status:                 domain.ConnectorStatusActive,
+		HealthStatus:           "healthy",
+		Provider:               "github_app",
+		InstallationID:         installationID,
+		TokenReference:         fmt.Sprintf("github-app-installation:%d", installationID),
+		WebhookSecretReference: "github-app:webhook",
+		WebhookSecretEnvelope:  envelope,
+		WebhookSecretRotatedAt: now,
+		SelectedRepositories:   repositories,
+		CreatedAt:              now,
+		UpdatedAt:              now,
+	}
+	svc.githubConnections[githubConnectionKey(scope.TenantID, scope.WorkspaceID, projectID)] = connection
+	if err := svc.persistGitHubConnection(ctx, connection); err != nil {
+		t.Fatalf("persist github connection: %v", err)
 	}
 }
 
@@ -4490,6 +4506,54 @@ func TestServiceProcessQueuedGitHubAppRepoScanUsesInstallationToken(t *testing.T
 	}
 	if gotCredential.Host != "github.com" || gotCredential.Username != "x-access-token" || gotCredential.Password != "ghs_installation_token" {
 		t.Fatalf("unexpected clone credential %+v", gotCredential)
+	}
+}
+
+func TestServiceProcessQueuedGitHubAppRepoScanRefreshesStaleWorkerConnection(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+
+	apiSvc := NewService(store, fakeScanner{}, "aws")
+	workerSvc := NewService(store, fakeScanner{}, "aws")
+	seedGitHubAppConnection(t, workerSvc, ctx, "project-1", 101, []string{"owner/old-private"})
+	seedGitHubAppConnection(t, apiSvc, ctx, "project-1", 101, []string{"owner/new-private"})
+	workerSvc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+	workerSvc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/new-private",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+			},
+		}
+	}
+
+	if _, err := apiSvc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/new-private",
+		ProjectID:  "project-1",
+	}); err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	processed, err := workerSvc.ProcessNextQueuedRepoScan(ctx)
+	if err != nil {
+		t.Fatalf("process connector-backed repo scan with stale worker cache: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued connector-backed repo scan to be processed")
+	}
+	minter := workerSvc.GitHubInstallationTokenMinter.(*fakeGitHubInstallationTokenMinter)
+	if minter.calls != 1 || minter.installationID != 101 {
+		t.Fatalf("expected one token mint for refreshed installation 101, got calls=%d installation=%d", minter.calls, minter.installationID)
+	}
+	records, err := store.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(records) != 1 || records[0].Status != "succeeded" {
+		t.Fatalf("expected refreshed worker connection to complete scan, got %+v", records)
 	}
 }
 
