@@ -382,3 +382,25 @@ func TestGitHubPublisher_Publish_ReturnsErrorOnAPIFailure(t *testing.T) {
 		t.Errorf("expected wrapped error, got: %v", err)
 	}
 }
+
+func TestGitHubPublisher_Publish_CredentialRejectionMapsToSentinel(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		status := status
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"message":"Bad credentials"}`, status)
+			}))
+			t.Cleanup(failServer.Close)
+
+			publisher := GitHubPublisher{APIBaseURL: failServer.URL}
+			_, err := publisher.Publish(context.Background(), "acme", "repo", "expired-tok", FixPRPlan{
+				BaseBranch: "main",
+				BranchName: "identrail/fix/x",
+				Files:      []PlanFile{{Path: "x", Content: "y"}},
+			})
+			if !errors.Is(err, ErrRepoExposurePublishCredentialRejected) {
+				t.Fatalf("expected credential-rejection sentinel for status %d, got: %v", status, err)
+			}
+		})
+	}
+}

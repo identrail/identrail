@@ -473,6 +473,11 @@ var ErrUnsupportedRepoRemediation = errors.New("unsupported repo remediation")
 // ErrInvalidRepoRemediationRequest indicates stale source content or invalid preview inputs.
 var ErrInvalidRepoRemediationRequest = errors.New("invalid repo remediation request")
 
+// ErrRepoRemediationCredentialRejected indicates GitHub rejected the supplied
+// write credential during publish (HTTP 401/403). It is client-actionable
+// (rotate or re-scope the token), not an internal server error.
+var ErrRepoRemediationCredentialRejected = errors.New("repo remediation github credential rejected")
+
 // ErrRepoScanQueueFull is returned when queued repo scan requests exceed configured capacity.
 var ErrRepoScanQueueFull = errors.New("repo scan queue is full")
 
@@ -2332,6 +2337,8 @@ func (s *Service) PublishRepoFindingRemediation(ctx context.Context, findingID s
 		switch {
 		case errors.Is(err, fixpr.ErrRepoExposureRemediationUnsupported):
 			return RepoFindingRemediationPublishResponse{}, ErrUnsupportedRepoRemediation
+		case errors.Is(err, fixpr.ErrRepoExposurePublishCredentialRejected):
+			return RepoFindingRemediationPublishResponse{}, ErrRepoRemediationCredentialRejected
 		case errors.Is(err, fixpr.ErrRepoExposurePublishApprovalRequired),
 			errors.Is(err, fixpr.ErrRepoExposurePublishCredentialsMissing),
 			errors.Is(err, fixpr.ErrRepoExposureSourceRequired),

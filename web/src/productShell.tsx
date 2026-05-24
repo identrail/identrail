@@ -5954,6 +5954,17 @@ export function ProductFindingsPage() {
     setRemediationPublishResult(null);
   };
 
+  // Changing (or clearing) the selected finding must invalidate any in-flight
+  // remediation preview/publish requests synchronously, on the transition
+  // itself, so a slow response cannot land on a newly selected finding. Bumping
+  // the guards here closes the race window that exists if invalidation is left
+  // to a post-render effect.
+  const selectRepoFinding = (key: string) => {
+    remediationPreviewRequestRef.current += 1;
+    remediationPublishRequestRef.current += 1;
+    setSelectedFindingKey(key);
+  };
+
   const handlePublishRemediation = async () => {
     if (!scope || !selectedFinding || !activeRemediationPreview || remediationPublishLoading) {
       return;
@@ -6086,12 +6097,12 @@ export function ProductFindingsPage() {
   useEffect(() => {
     if (filteredFindings.length === 0) {
       if (selectedFindingKey) {
-        setSelectedFindingKey('');
+        selectRepoFinding('');
       }
       return;
     }
     if (!findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey)) {
-      setSelectedFindingKey(buildRepoFindingSelectionKey(filteredFindings[0]));
+      selectRepoFinding(buildRepoFindingSelectionKey(filteredFindings[0]));
     }
   }, [filteredFindings, selectedFindingKey]);
 
@@ -6474,7 +6485,7 @@ export function ProductFindingsPage() {
                           type="button"
                           role="listitem"
                           className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
-                          onClick={() => setSelectedFindingKey(selectionKey)}
+                          onClick={() => selectRepoFinding(selectionKey)}
                         >
                           <SourceLogoMark provider="github" className="is-row" />
                           <div className="idt-repo-finding-row-copy">

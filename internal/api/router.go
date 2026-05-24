@@ -1062,6 +1062,8 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "unsupported repo remediation"})
 			case errors.Is(err, ErrInvalidRepoRemediationRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo remediation request"})
+			case errors.Is(err, ErrRepoRemediationCredentialRejected):
+				c.JSON(http.StatusForbidden, gin.H{"error": "github credential rejected for remediation publish"})
 			default:
 				logger.Error("publish repo finding remediation", telemetry.ZapError(err))
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to publish repo finding remediation"})
