@@ -611,6 +611,32 @@ jobs:
 	}
 }
 
+func TestGitHubWorkflowAnalyzerResolvesNestedMatrixSelfHostedRunner(t *testing.T) {
+	content := []byte(`name: matrix-object-self-hosted
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        target:
+          - runner: ubuntu-latest
+          - runner: self-hosted
+    runs-on: ${{ matrix.target.runner }}
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/matrix-object-self-hosted.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_self_hosted_runner",
+	})
+	if containsDetector(findings, "workflow_self_hosted_runner_unresolved") {
+		t.Fatalf("expected nested matrix self-hosted value to resolve to self-hosted, got %+v", findings)
+	}
+}
+
 func TestGitHubWorkflowAnalyzerRespectsReferencedMatrixKeyForSelfHostedResolution(t *testing.T) {
 	content := []byte(`name: matrix-different-axis
 on: pull_request
@@ -661,6 +687,26 @@ jobs:
 	unresolved := firstDetectorFinding(t, findings, "workflow_self_hosted_runner_unresolved")
 	if unresolved.Severity != domain.SeverityMedium {
 		t.Fatalf("expected unresolved runner finding to be medium, got %+v", unresolved)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerRecognizesAdditionalGitHubHostedRunnerLabels(t *testing.T) {
+	content := []byte(`name: hosted-arm
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/hosted-arm.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	for _, detector := range []string{"workflow_self_hosted_runner", "workflow_self_hosted_runner_unresolved"} {
+		if containsDetector(findings, detector) {
+			t.Fatalf("expected additional hosted runner labels not to emit %s, got %+v", detector, findings)
+		}
 	}
 }
 

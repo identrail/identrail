@@ -17,8 +17,27 @@ const workflowAnalyzerVersion = "2026.05"
 var gitHubActionCommitRefPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var workflowSecretsExpressionPattern = regexp.MustCompile(`\$\{\{\s*secrets\s*(?:\.|\[)`)
 var workflowExpressionPattern = regexp.MustCompile(`\$\{\{.*\}\}`)
-var workflowMatrixReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
-var workflowMatrixBracketReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix\[\s*['"]([a-zA-Z_][a-zA-Z0-9_-]*)\s*['"]\s*\]\s*\}\}`)
+var workflowMatrixReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix\.([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\}\}`)
+var workflowMatrixBracketReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix((?:\[\s*['\"][a-zA-Z_][a-zA-Z0-9_-]*['\"]\s*\])+)\s*\}\}`)
+var workflowMatrixBracketSegmentPattern = regexp.MustCompile(`\[\s*['\"]([a-zA-Z_][a-zA-Z0-9_-]*)['\"]\s*\]`)
+
+var workflowHostedRunnerLabels = map[string]struct{}{
+	"ubuntu-latest":    {},
+	"ubuntu-20.04":     {},
+	"ubuntu-22.04":     {},
+	"ubuntu-24.04":     {},
+	"ubuntu-24.04-arm": {},
+	"ubuntu-slim":      {},
+	"windows-latest":   {},
+	"windows-2019":     {},
+	"windows-2022":     {},
+	"windows-2025":     {},
+	"windows-11-arm":   {},
+	"macos-latest":     {},
+	"macos-13":         {},
+	"macos-14":         {},
+	"macos-15":         {},
+}
 
 type githubWorkflowModel struct {
 	Events      map[string]*yaml.Node
@@ -589,31 +608,36 @@ func collectWorkflowMatrixValues(node *yaml.Node) map[string][]string {
 		if key == "" {
 			continue
 		}
-		values := valuesByKey[key]
-		collectWorkflowMatrixScalarValues(valueNode, &values)
-		valuesByKey[key] = values
+		collectWorkflowMatrixValuesForPath(valueNode, key, valuesByKey)
 	}
 	return valuesByKey
 }
 
-func collectWorkflowMatrixScalarValues(node *yaml.Node, values *[]string) {
+func collectWorkflowMatrixValuesForPath(node *yaml.Node, path string, valuesByKey map[string][]string) {
 	if node == nil {
 		return
 	}
-	if node.Kind == yaml.ScalarNode {
+	switch node.Kind {
+	case yaml.ScalarNode:
 		if value := strings.TrimSpace(node.Value); value != "" {
-			*values = append(*values, value)
+			valuesByKey[path] = append(valuesByKey[path], value)
 		}
-		return
-	}
-	if node.Kind != yaml.SequenceNode {
-		return
-	}
-	for _, child := range node.Content {
-		if child != nil && child.Kind == yaml.ScalarNode {
-			if value := strings.TrimSpace(child.Value); value != "" {
-				*values = append(*values, value)
+	case yaml.SequenceNode:
+		for _, child := range node.Content {
+			collectWorkflowMatrixValuesForPath(child, path, valuesByKey)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			childKeyNode := node.Content[i]
+			childValueNode := node.Content[i+1]
+			if childKeyNode == nil || childValueNode == nil {
+				continue
 			}
+			childKey := strings.ToLower(strings.TrimSpace(childKeyNode.Value))
+			if childKey == "" {
+				continue
+			}
+			collectWorkflowMatrixValuesForPath(childValueNode, path+"."+childKey, valuesByKey)
 		}
 	}
 }
@@ -626,8 +650,18 @@ func workflowMatrixExpressionKeys(label string) []string {
 		}
 	}
 	for _, match := range workflowMatrixBracketReferencePattern.FindAllStringSubmatch(label, -1) {
-		if len(match) >= 2 && strings.TrimSpace(match[1]) != "" {
-			keys = append(keys, strings.ToLower(strings.TrimSpace(match[1])))
+		if len(match) < 2 || strings.TrimSpace(match[1]) == "" {
+			continue
+		}
+		parts := []string{}
+		for _, segmentMatch := range workflowMatrixBracketSegmentPattern.FindAllStringSubmatch(match[1], -1) {
+			if len(segmentMatch) < 2 || strings.TrimSpace(segmentMatch[1]) == "" {
+				continue
+			}
+			parts = append(parts, strings.ToLower(strings.TrimSpace(segmentMatch[1])))
+		}
+		if len(parts) > 0 {
+			keys = append(keys, strings.Join(parts, "."))
 		}
 	}
 	return keys
@@ -655,14 +689,8 @@ func workflowMatrixValuesIncludeSelfHosted(values []string) bool {
 }
 
 func workflowHostedRunnerLabel(label string) bool {
-	switch strings.ToLower(strings.TrimSpace(label)) {
-	case "ubuntu-latest", "ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04",
-		"windows-latest", "windows-2019", "windows-2022",
-		"macos-latest", "macos-13", "macos-14":
-		return true
-	default:
-		return false
-	}
+	_, ok := workflowHostedRunnerLabels[strings.ToLower(strings.TrimSpace(label))]
+	return ok
 }
 
 func (workflow githubWorkflowModel) effectivePermissions(job githubWorkflowJob) workflowPermissions {
