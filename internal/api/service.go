@@ -108,6 +108,11 @@ type GitHubCodeScanningAlertCollector interface {
 	ListCodeScanningAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.CodeScanningAlert, error)
 }
 
+// RepoRemediationPublisher publishes operator-approved repository remediation PRs.
+type RepoRemediationPublisher interface {
+	PublishRepoExposureRemediation(ctx context.Context, finding domain.Finding, opts fixpr.RepoExposurePublishOptions) (fixpr.PublishResult, standards.RepoExposureRemediation, error)
+}
+
 // AWSScannerFactory creates a scanner bound to one persisted AWS connector.
 type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
 
@@ -144,6 +149,7 @@ type Service struct {
 	RepoQueueMaxPending              int
 	RepoScannerFactory               RepoScannerFactory
 	AuthenticatedRepoScannerFactory  AuthenticatedRepoScannerFactory
+	RepoRemediationPublisher         RepoRemediationPublisher
 	ConnectorSecretManager           *secretstore.Manager
 	KubernetesPreflightFactory       KubernetesConnectorPreflightFactory
 	AWSConnectorValidator            AWSConnectorValidator
@@ -324,6 +330,27 @@ type RepoFindingRemediationPreview struct {
 	Finding     domain.Finding                    `json:"finding"`
 	Remediation standards.RepoExposureRemediation `json:"remediation"`
 	FixPRPlan   *fixpr.FixPRPlan                  `json:"fix_pr_plan,omitempty"`
+}
+
+// RepoFindingRemediationPublishRequest captures the explicit approval and
+// short-lived write credential needed to publish a deterministic remediation PR.
+type RepoFindingRemediationPublishRequest struct {
+	RepoScanID                 string `json:"repo_scan_id,omitempty"`
+	SourceContent              string `json:"source_content,omitempty"`
+	BaseBranch                 string `json:"base_branch,omitempty"`
+	BranchPrefix               string `json:"branch_prefix,omitempty"`
+	FindingURL                 string `json:"finding_url,omitempty"`
+	OperatorApproved           bool   `json:"operator_approved"`
+	WritePermissionsConfigured bool   `json:"write_permissions_configured"`
+	GitHubToken                string `json:"github_token,omitempty"`
+}
+
+// RepoFindingRemediationPublishResponse returns the GitHub pull request opened
+// for one approved repository remediation. It never echoes write credentials.
+type RepoFindingRemediationPublishResponse struct {
+	Finding     domain.Finding                    `json:"finding"`
+	Remediation standards.RepoExposureRemediation `json:"remediation"`
+	Publish     fixpr.PublishResult               `json:"publish"`
 }
 
 // FindingsPage captures one paginated findings response.
@@ -2117,6 +2144,72 @@ func (s *Service) PreviewRepoFindingRemediation(ctx context.Context, findingID s
 	}
 	response.FixPRPlan = &plan
 	return response, nil
+}
+
+// PublishRepoFindingRemediation publishes one deterministic repository
+// remediation PR after explicit operator approval and write-credential
+// confirmation. It reuses the same fix-plan builder as preview mode so stale
+// source content, unsafe paths, placeholder patches, and secret findings fail
+// closed before GitHub write APIs are called.
+func (s *Service) PublishRepoFindingRemediation(ctx context.Context, findingID string, request RepoFindingRemediationPublishRequest) (RepoFindingRemediationPublishResponse, error) {
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return RepoFindingRemediationPublishResponse{}, db.ErrNotFound
+	}
+	request.RepoScanID = strings.TrimSpace(request.RepoScanID)
+	finding, err := s.getRepoFindingForRemediation(ctx, id, request.RepoScanID)
+	if err != nil {
+		return RepoFindingRemediationPublishResponse{}, err
+	}
+	domain.NormalizeRepoFindingMetadata(&finding)
+	owner, repo, ok := splitRepositoryOwnerName(finding.Repository)
+	if !ok {
+		return RepoFindingRemediationPublishResponse{}, ErrInvalidRepoRemediationRequest
+	}
+
+	publisher := s.RepoRemediationPublisher
+	if publisher == nil {
+		publisher = fixpr.GitHubPublisher{}
+	}
+	result, remediation, err := publisher.PublishRepoExposureRemediation(ctx, finding, fixpr.RepoExposurePublishOptions{
+		Owner:         owner,
+		Repo:          repo,
+		Token:         request.GitHubToken,
+		SourceContent: request.SourceContent,
+		PlanOptions: fixpr.PlanOptions{
+			BaseBranch:   request.BaseBranch,
+			BranchPrefix: request.BranchPrefix,
+			FindingURL:   request.FindingURL,
+		},
+		OperatorApproved:           request.OperatorApproved,
+		WritePermissionsConfigured: request.WritePermissionsConfigured,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, fixpr.ErrRepoExposureRemediationUnsupported):
+			return RepoFindingRemediationPublishResponse{}, ErrUnsupportedRepoRemediation
+		case errors.Is(err, fixpr.ErrRepoExposurePublishApprovalRequired),
+			errors.Is(err, fixpr.ErrRepoExposurePublishCredentialsMissing),
+			errors.Is(err, fixpr.ErrRepoExposureSourceRequired),
+			errors.Is(err, fixpr.ErrRepoExposurePatchApplyFailed),
+			errors.Is(err, fixpr.ErrRepoExposureRemediationUnsafe):
+			return RepoFindingRemediationPublishResponse{}, ErrInvalidRepoRemediationRequest
+		default:
+			return RepoFindingRemediationPublishResponse{}, err
+		}
+	}
+	return RepoFindingRemediationPublishResponse{
+		Finding:     finding,
+		Remediation: remediation,
+		Publish:     result,
+	}, nil
+}
+
+func splitRepositoryOwnerName(repository string) (string, string, bool) {
+	owner, name, ok := strings.Cut(strings.TrimSpace(repository), "/")
+	owner = strings.TrimSpace(owner)
+	name = strings.TrimSpace(name)
+	return owner, name, ok && owner != "" && name != ""
 }
 
 func (s *Service) getRepoFindingForRemediation(ctx context.Context, findingID string, repoScanID string) (domain.Finding, error) {

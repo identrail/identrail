@@ -173,6 +173,31 @@ Key flags:
 - `--timeout`
 - `--output table|json`
 
+## `identrail repo-remediation publish`
+
+Publishes an approved deterministic remediation branch and GitHub pull request
+for one repository finding. Publication requires current source content, an
+explicit approval flag, explicit confirmation that write permissions are
+configured, and a short-lived GitHub token.
+
+Key flags:
+- `--api-url`
+- `--api-key`
+- `--tenant-id`
+- `--workspace-id`
+- `--repo-scan-id`
+- `--source-file`
+- `--source-content`
+- `--base-branch`
+- `--branch-prefix`
+- `--finding-url`
+- `--github-token`
+- `--github-token-env`
+- `--approve`
+- `--write-permissions-configured`
+- `--timeout`
+- `--output table|json`
+
 ## `identrail authz rollback`
 
 Calls rollback endpoint for active policy version switch.

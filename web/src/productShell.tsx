@@ -38,6 +38,7 @@ import {
   type KubernetesConnectorStartResponse,
   type KubernetesConnectionStatus,
   type ProjectRecord,
+  type RepoFindingRemediationPublishResponse,
   type RepoFindingRemediationPreview,
   type RepoFindingsSummary,
   type RepoFindingLifecycleStatus,
@@ -5504,6 +5505,14 @@ export function ProductFindingsPage() {
   const [remediationPreviewFindingKey, setRemediationPreviewFindingKey] = useState('');
   const [remediationPreviewLoading, setRemediationPreviewLoading] = useState(false);
   const [remediationPreviewError, setRemediationPreviewError] = useState('');
+  const [remediationPublishSourceContent, setRemediationPublishSourceContent] = useState('');
+  const [remediationPublishBaseBranch, setRemediationPublishBaseBranch] = useState('main');
+  const [remediationPublishToken, setRemediationPublishToken] = useState('');
+  const [remediationPublishApproved, setRemediationPublishApproved] = useState(false);
+  const [remediationPublishLoading, setRemediationPublishLoading] = useState(false);
+  const [remediationPublishError, setRemediationPublishError] = useState('');
+  const [remediationPublishResult, setRemediationPublishResult] =
+    useState<RepoFindingRemediationPublishResponse | null>(null);
 
   const requestRef = useRef(0);
   const signalRequestRef = useRef(0);
@@ -5807,6 +5816,7 @@ export function ProductFindingsPage() {
         return;
       }
       setRemediationPreview(preview);
+      setRemediationPublishBaseBranch(preview.fix_pr_plan?.base_branch || remediationPublishBaseBranch || 'main');
     } catch (requestError) {
       if (requestID !== remediationPreviewRequestRef.current) {
         return;
@@ -5819,6 +5829,65 @@ export function ProductFindingsPage() {
       if (requestID === remediationPreviewRequestRef.current) {
         setRemediationPreviewLoading(false);
       }
+    }
+  };
+
+  const resetRemediationPublishState = () => {
+    setRemediationPublishSourceContent('');
+    setRemediationPublishBaseBranch('main');
+    setRemediationPublishToken('');
+    setRemediationPublishApproved(false);
+    setRemediationPublishLoading(false);
+    setRemediationPublishError('');
+    setRemediationPublishResult(null);
+  };
+
+  const handlePublishRemediation = async () => {
+    if (!scope || !selectedFinding || !activeRemediationPreview || remediationPublishLoading) {
+      return;
+    }
+
+    const sourceContent = remediationPublishSourceContent;
+    const token = remediationPublishToken.trim();
+    if (!sourceContent.trim()) {
+      setRemediationPublishError('Current source content is required.');
+      return;
+    }
+    if (!remediationPublishApproved) {
+      setRemediationPublishError('Operator approval is required.');
+      return;
+    }
+    if (!token) {
+      setRemediationPublishError('A write-capable GitHub token is required.');
+      return;
+    }
+
+    setRemediationPublishLoading(true);
+    setRemediationPublishError('');
+    setRemediationPublishResult(null);
+    try {
+      const response = await apiClient.publishRepoFindingRemediation(
+        selectedFinding.id,
+        {
+          repo_scan_id: selectedFinding.scan_id,
+          source_content: sourceContent,
+          base_branch: remediationPublishBaseBranch.trim() || undefined,
+          finding_url: selectedFinding.source_url || undefined,
+          operator_approved: remediationPublishApproved,
+          write_permissions_configured: true,
+          github_token: token
+        },
+        buildProductAuthContext(scope)
+      );
+      setRemediationPublishResult(response);
+      setRemediationPublishToken('');
+      setRemediationPublishApproved(false);
+    } catch (requestError) {
+      setRemediationPublishError(
+        requestError instanceof Error ? requestError.message : 'Failed to publish remediation PR.'
+      );
+    } finally {
+      setRemediationPublishLoading(false);
     }
   };
 
@@ -5857,6 +5926,7 @@ export function ProductFindingsPage() {
       setRemediationPreviewFindingKey('');
       setRemediationPreviewLoading(false);
       setRemediationPreviewError('');
+      resetRemediationPublishState();
       return;
     }
 
@@ -5871,6 +5941,7 @@ export function ProductFindingsPage() {
     setRemediationPreviewFindingKey('');
     setRemediationPreviewLoading(false);
     setRemediationPreviewError('');
+    resetRemediationPublishState();
   }, [
     selectedFinding?.id,
     selectedFinding?.scan_id,
@@ -6425,6 +6496,65 @@ export function ProductFindingsPage() {
                         ? 'A deterministic fix branch can be prepared for this finding.'
                         : activeRemediationPreview.remediation.publish_blocked_reason || 'Manual remediation is required.'}
                     </p>
+                    {activeRemediationPreview.remediation.publishable ? (
+                      <div className="idt-repo-remediation-publish">
+                        {remediationPublishError ? (
+                          <div className="idt-app-alert idt-app-alert-error">{remediationPublishError}</div>
+                        ) : null}
+                        {remediationPublishResult ? (
+                          <div className="idt-app-alert idt-app-alert-success">
+                            PR #{remediationPublishResult.publish.pr_number} opened on{' '}
+                            {remediationPublishResult.publish.branch_name}.{' '}
+                            <a href={remediationPublishResult.publish.pr_url} target="_blank" rel="noreferrer">
+                              View PR
+                            </a>
+                          </div>
+                        ) : null}
+                        <label>
+                          Base branch
+                          <input
+                            type="text"
+                            value={remediationPublishBaseBranch}
+                            onChange={(event) => setRemediationPublishBaseBranch(event.target.value)}
+                            placeholder="main"
+                          />
+                        </label>
+                        <label>
+                          Current source content
+                          <textarea
+                            value={remediationPublishSourceContent}
+                            onChange={(event) => setRemediationPublishSourceContent(event.target.value)}
+                            rows={6}
+                            spellCheck={false}
+                          />
+                        </label>
+                        <label>
+                          GitHub token
+                          <input
+                            type="password"
+                            value={remediationPublishToken}
+                            onChange={(event) => setRemediationPublishToken(event.target.value)}
+                            autoComplete="off"
+                          />
+                        </label>
+                        <label className="idt-repo-remediation-approval">
+                          <input
+                            type="checkbox"
+                            checked={remediationPublishApproved}
+                            onChange={(event) => setRemediationPublishApproved(event.target.checked)}
+                          />
+                          <span>Approved for publish</span>
+                        </label>
+                        <button
+                          className="idt-btn"
+                          type="button"
+                          onClick={() => void handlePublishRemediation()}
+                          disabled={remediationPublishLoading || !remediationPublishApproved}
+                        >
+                          {remediationPublishLoading ? 'Publishing...' : 'Publish fix PR'}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

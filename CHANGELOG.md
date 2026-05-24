@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added approval-gated remediation PR publishing for repository findings across
+  the API, CLI, and app, so deterministic GitHub exposure fixes can open a
+  branch and pull request only after explicit operator approval and a
+  write-capable short-lived token.
 - Polished the repository Findings page styling: softened the summary-tile
   labels from all-caps to sentence case, styled the new metric captions, the
   scan-health banner, and the failed-scan state actions, and set the summary
