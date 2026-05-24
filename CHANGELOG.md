@@ -5,6 +5,13 @@
   labels from all-caps to sentence case, styled the new metric captions, the
   scan-health banner, and the failed-scan state actions, and set the summary
   grid to the consolidated four-column layout.
+- Added the GitHub PR review foundation: the app manifest now requests narrow
+  reviewer permissions for PR comments and check runs, subscribes to review
+  events, and `@identrail review` / `/identrail review` PR comments enqueue a
+  project-scoped repository scan.
+- Removed the temporary blank "Opening GitHub..." tab from hosted GitHub App
+  setup; the app now opens GitHub only after the install URL is ready and keeps
+  the in-app fallback button for browsers that block the popup.
 - Simplified hosted GitHub App setup to rely on GitHub's native account picker
   instead of duplicating personal-account and organization selection in the app.
   The versioned GitHub App manifest now includes the callback URL and setup URL,

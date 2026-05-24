@@ -15,10 +15,12 @@
   "default_permissions": {
     "actions": "read",
     "administration": "read",
+    "checks": "write",
     "contents": "read",
     "environments": "read",
+    "issues": "read",
     "metadata": "read",
-    "pull_requests": "read",
+    "pull_requests": "write",
     "repository_hooks": "read",
     "secret_scanning_alerts": "read",
     "security_events": "read",
@@ -27,8 +29,12 @@
   "default_events": [
     "installation",
     "installation_repositories",
+    "issue_comment",
     "push",
     "pull_request",
+    "pull_request_review",
+    "pull_request_review_comment",
+    "pull_request_review_thread",
     "repository",
     "code_scanning_alert"
   ]

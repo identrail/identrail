@@ -57,15 +57,31 @@ func githubPushWebhookPayload(repository string, installationID int64) []byte {
 func TestGitHubWebhookTriggersScan(t *testing.T) {
 	scanEvents := []string{"push", "pull_request", "repository_dispatch", "workflow_dispatch", "PUSH", " Pull_Request "}
 	for _, event := range scanEvents {
-		if !githubWebhookTriggersScan(event) {
+		if !githubWebhookTriggersScan(event, githubWebhookEnvelope{}) {
 			t.Errorf("githubWebhookTriggersScan(%q) = false, want true", event)
 		}
 	}
 	nonScanEvents := []string{"installation", "ping", "star", "fork", "issues", ""}
 	for _, event := range nonScanEvents {
-		if githubWebhookTriggersScan(event) {
+		if githubWebhookTriggersScan(event, githubWebhookEnvelope{}) {
 			t.Errorf("githubWebhookTriggersScan(%q) = true, want false", event)
 		}
+	}
+	var reviewCommand githubWebhookEnvelope
+	reviewCommand.Action = "created"
+	reviewCommand.Issue.PullRequest.URL = "https://api.github.com/repos/owner/repo/pulls/12"
+	reviewCommand.Comment.Body = "@identrail review"
+	if !githubWebhookTriggersScan("issue_comment", reviewCommand) {
+		t.Fatal("expected @identrail review PR comment to trigger a scan")
+	}
+	reviewCommand.Comment.Body = "looks good"
+	if githubWebhookTriggersScan("issue_comment", reviewCommand) {
+		t.Fatal("expected ordinary PR comment not to trigger a scan")
+	}
+	reviewCommand.Comment.Body = "@identrail review"
+	reviewCommand.Issue.PullRequest.URL = ""
+	if githubWebhookTriggersScan("issue_comment", reviewCommand) {
+		t.Fatal("expected issue comment outside a PR not to trigger a scan")
 	}
 }
 
@@ -100,6 +116,38 @@ func TestGitHubWebhookRepoScanContextPullRequestForkFallsBackToQuick(t *testing.
 	}
 	if scanContext.ScanMode != db.RepoScanModeQuick || scanContext.HeadRevision != "" || scanContext.BaseRevision != "" {
 		t.Fatalf("expected fork pull_request to fall back to quick scan, got %+v", scanContext)
+	}
+}
+
+func TestGitHubWebhookRepoScanContextReviewCommand(t *testing.T) {
+	var issueComment githubWebhookEnvelope
+	issueComment.Action = "created"
+	issueComment.Issue.PullRequest.URL = "https://api.github.com/repos/owner/repo/pulls/7"
+	issueComment.Comment.Body = "/identrail review"
+
+	scanContext, ok := githubWebhookRepoScanContext("issue_comment", issueComment)
+	if !ok {
+		t.Fatal("expected review command issue comment to queue a scan")
+	}
+	if scanContext.ScanMode != db.RepoScanModeQuick {
+		t.Fatalf("expected issue comment review command to queue quick scan, got %+v", scanContext)
+	}
+
+	var reviewComment githubWebhookEnvelope
+	reviewComment.Action = "created"
+	reviewComment.Repository.FullName = "owner/repo"
+	reviewComment.PullRequest.Base.SHA = "1111111111111111111111111111111111111111"
+	reviewComment.PullRequest.Base.Repo.FullName = "owner/repo"
+	reviewComment.PullRequest.Head.SHA = "2222222222222222222222222222222222222222"
+	reviewComment.PullRequest.Head.Repo.FullName = "owner/repo"
+	reviewComment.Comment.Body = "@identrail review"
+
+	scanContext, ok = githubWebhookRepoScanContext("pull_request_review_comment", reviewComment)
+	if !ok {
+		t.Fatal("expected review command inline comment to queue a scan")
+	}
+	if scanContext.ScanMode != db.RepoScanModeDelta || scanContext.HeadRevision != reviewComment.PullRequest.Head.SHA {
+		t.Fatalf("expected review comment command to queue PR delta scan, got %+v", scanContext)
 	}
 }
 

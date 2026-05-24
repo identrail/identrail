@@ -367,7 +367,9 @@ func TestRouterGitHubConnectorV2WebhookQueuesAndDisconnects(t *testing.T) {
 		repositories: []githubconnector.Repository{{FullName: "identrail/api", Private: true}},
 	}
 	store := db.NewMemoryStore()
-	r := newGitHubConnectorV2TestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
+	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"identrail/*"}
 
 	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
 		"workspace_id":"workspace-a",
@@ -469,6 +471,71 @@ func TestRouterGitHubConnectorV2WebhookQueuesAndDisconnects(t *testing.T) {
 	}
 	if postDeleteBody.Webhook.MatchedProjects != 0 {
 		t.Fatalf("expected deleted installation to stop matching webhook, got %+v", postDeleteBody.Webhook)
+	}
+}
+
+func TestRouterGitHubConnectorV2ReviewCommandQueuesScan(t *testing.T) {
+	lister := &fakeGitHubRepositoryLister{
+		repositories: []githubconnector.Repository{{FullName: "identrail/api", Private: true}},
+	}
+	store := db.NewMemoryStore()
+	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"identrail/*"}
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"redirect_uri":"https://app.identrail.com/app/github/callback"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody GitHubConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
+		"state":%q,
+		"installation_id":12345
+	}`, startBody.State))
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+
+	commentPayload := []byte(`{
+		"action":"created",
+		"repository":{"full_name":"identrail/api"},
+		"installation":{"id":12345},
+		"issue":{"number":17,"pull_request":{"url":"https://api.github.com/repos/identrail/api/pulls/17"}},
+		"comment":{"body":"@identrail review"}
+	}`)
+	commentResp := doGitHubWebhook(t, r, "/auth/webhooks/github", "issue_comment", "delivery-review-command", "global-webhook-secret", commentPayload)
+	if commentResp.Code != http.StatusAccepted {
+		t.Fatalf("expected github review command webhook 202, got %d body=%s", commentResp.Code, commentResp.Body.String())
+	}
+	var commentBody struct {
+		Webhook GitHubWebhookResult `json:"webhook"`
+	}
+	if err := json.Unmarshal(commentResp.Body.Bytes(), &commentBody); err != nil {
+		t.Fatalf("decode review command webhook response: %v", err)
+	}
+	if commentBody.Webhook.MatchedProjects != 1 || commentBody.Webhook.QueuedScans != 1 || commentBody.Webhook.SkippedScans != 0 {
+		t.Fatalf("expected review command to queue one scan, got %+v", commentBody.Webhook)
+	}
+
+	scansResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/repo-scans", "")
+	if scansResp.Code != http.StatusOK {
+		t.Fatalf("expected repo scan list 200, got %d body=%s", scansResp.Code, scansResp.Body.String())
+	}
+	var scansBody struct {
+		Items []db.RepoScanRecord `json:"items"`
+	}
+	if err := json.Unmarshal(scansResp.Body.Bytes(), &scansBody); err != nil {
+		t.Fatalf("decode repo scans response: %v", err)
+	}
+	if len(scansBody.Items) != 1 || scansBody.Items[0].Repository != "identrail/api" || scansBody.Items[0].ScanMode != db.RepoScanModeQuick {
+		t.Fatalf("expected queued quick scan for review command, got %+v", scansBody.Items)
 	}
 }
 

@@ -412,17 +412,8 @@ describe('ProductProjectDetailPage', () => {
   });
 
   it('opens GitHub installation in a new tab through GitHub account picker', async () => {
-    const assign = vi.fn();
-    const close = vi.fn();
-    const popup = {
-      closed: false,
-      opener: {},
-      document: { title: '', body: { innerHTML: '' } },
-      location: { assign },
-      close
-    } as unknown as Window;
     const userAgent = vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0');
-    const open = vi.spyOn(window, 'open').mockReturnValue(popup);
+    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const { startGitHubConnector } = await renderProjectDetail(true);
 
     expect(await screen.findByText('Install the GitHub App')).toBeInTheDocument();
@@ -434,8 +425,12 @@ describe('ProductProjectDetailPage', () => {
         expect.any(Object)
       )
     );
-    expect(open).toHaveBeenCalledWith('', '_blank');
-    expect(assign).toHaveBeenCalledWith('https://github.com/apps/identrail/installations/select_target?state=github-state');
+    expect(open).toHaveBeenCalledWith(
+      'https://github.com/apps/identrail/installations/select_target?state=github-state',
+      '_blank',
+      'noopener,noreferrer'
+    );
+    expect(open).not.toHaveBeenCalledWith('', '_blank');
     expect(await screen.findByText(/GitHub opened in a new tab/i)).toBeInTheDocument();
 
     userAgent.mockRestore();

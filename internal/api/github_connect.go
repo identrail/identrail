@@ -40,6 +40,7 @@ const (
 )
 
 var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+var githubReviewCommandPattern = regexp.MustCompile(`(?i)(?:^|\s)(?:@identrail|/identrail)\s+review(?:\s|$)`)
 
 // ErrInvalidGitHubConnectionRequest indicates invalid GitHub connect request input.
 var ErrInvalidGitHubConnectionRequest = errors.New("invalid github connection request")
@@ -261,9 +262,19 @@ type githubProjectConnection struct {
 }
 
 type githubWebhookEnvelope struct {
+	Action  string `json:"action"`
 	Before  string `json:"before"`
 	After   string `json:"after"`
 	Deleted bool   `json:"deleted"`
+	Comment struct {
+		Body string `json:"body"`
+	} `json:"comment"`
+	Issue struct {
+		Number      int `json:"number"`
+		PullRequest struct {
+			URL string `json:"url"`
+		} `json:"pull_request"`
+	} `json:"issue"`
 	Commits []struct {
 		ID       string   `json:"id"`
 		Added    []string `json:"added"`
@@ -997,7 +1008,8 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 	}
 
 	scanContext, scanContextOK := githubWebhookRepoScanContext(normalizedEventType, envelope)
-	result, err := s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, validConnections)
+	scanTriggerEvent := githubWebhookTriggersScan(normalizedEventType, envelope)
+	result, err := s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, scanTriggerEvent, validConnections)
 	if err != nil {
 		return GitHubWebhookResult{}, err
 	}
@@ -1047,10 +1059,11 @@ func (s *Service) HandleGitHubAppWebhook(ctx context.Context, eventType string, 
 	ctx, span := otel.Tracer("identrail/automation").Start(ctx, "automation.github_app_webhook")
 	defer span.End()
 	scanContext, scanContextOK := githubWebhookRepoScanContext(normalizedEventType, envelope)
-	return s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, candidates)
+	scanTriggerEvent := githubWebhookTriggersScan(normalizedEventType, envelope)
+	return s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, scanTriggerEvent, candidates)
 }
 
-func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trace.Span, eventType string, deliveryID string, repository string, scanContext db.RepoScanContext, scanContextOK bool, connections []githubProjectConnection) (GitHubWebhookResult, error) {
+func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trace.Span, eventType string, deliveryID string, repository string, scanContext db.RepoScanContext, scanContextOK bool, scanTriggerEvent bool, connections []githubProjectConnection) (GitHubWebhookResult, error) {
 	result := GitHubWebhookResult{
 		EventType:       eventType,
 		Repository:      repository,
@@ -1059,8 +1072,6 @@ func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trac
 
 	now := s.Now().UTC()
 	normalizedDeliveryID := strings.TrimSpace(deliveryID)
-	scanTriggerEvent := githubWebhookTriggersScan(eventType)
-
 	for _, connection := range connections {
 		replayed := s.isGitHubWebhookReplay(connection, normalizedDeliveryID, now)
 		if replayed && scanTriggerEvent {
@@ -2050,10 +2061,14 @@ func validateGitHubWebhookSignature(secret string, payload []byte, signature str
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
 }
 
-func githubWebhookTriggersScan(eventType string) bool {
+func githubWebhookTriggersScan(eventType string, envelope githubWebhookEnvelope) bool {
 	switch strings.ToLower(strings.TrimSpace(eventType)) {
 	case "push", "pull_request", "repository_dispatch", "workflow_dispatch":
 		return true
+	case "issue_comment":
+		return githubWebhookIssueCommentOnPullRequest(envelope) && githubWebhookReviewCommand(envelope)
+	case "pull_request_review_comment":
+		return githubWebhookReviewCommand(envelope)
 	default:
 		return false
 	}
@@ -2076,28 +2091,54 @@ func githubWebhookRepoScanContext(eventType string, envelope githubWebhookEnvelo
 			ChangedPaths: githubWebhookChangedPaths(envelope),
 		}), true
 	case "pull_request":
-		if !githubPullRequestHeadAvailableInBaseRepo(envelope) {
-			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), true
+		return githubWebhookPullRequestScanContext(envelope)
+	case "issue_comment":
+		if !githubWebhookIssueCommentOnPullRequest(envelope) || !githubWebhookReviewCommand(envelope) {
+			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), false
 		}
-		headRevision := strings.TrimSpace(envelope.PullRequest.Head.SHA)
-		if headRevision == "" || webhookZeroRevision(headRevision) {
-			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDelta}), false
+		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), true
+	case "pull_request_review_comment":
+		if !githubWebhookReviewCommand(envelope) {
+			return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), false
 		}
-		baseRevision := strings.TrimSpace(envelope.PullRequest.Base.SHA)
-		if webhookZeroRevision(baseRevision) {
-			baseRevision = ""
-		}
-		return db.NormalizeRepoScanContext(db.RepoScanContext{
-			ScanMode:     db.RepoScanModeDelta,
-			BaseRevision: baseRevision,
-			HeadRevision: headRevision,
-			ChangedPaths: githubWebhookChangedPaths(envelope),
-		}), true
+		return githubWebhookPullRequestScanContext(envelope)
 	case "repository_dispatch", "workflow_dispatch":
 		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), true
 	default:
 		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDeep}), false
 	}
+}
+
+func githubWebhookPullRequestScanContext(envelope githubWebhookEnvelope) (db.RepoScanContext, bool) {
+	if !githubPullRequestHeadAvailableInBaseRepo(envelope) {
+		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeQuick}), true
+	}
+	headRevision := strings.TrimSpace(envelope.PullRequest.Head.SHA)
+	if headRevision == "" || webhookZeroRevision(headRevision) {
+		return db.NormalizeRepoScanContext(db.RepoScanContext{ScanMode: db.RepoScanModeDelta}), false
+	}
+	baseRevision := strings.TrimSpace(envelope.PullRequest.Base.SHA)
+	if webhookZeroRevision(baseRevision) {
+		baseRevision = ""
+	}
+	return db.NormalizeRepoScanContext(db.RepoScanContext{
+		ScanMode:     db.RepoScanModeDelta,
+		BaseRevision: baseRevision,
+		HeadRevision: headRevision,
+		ChangedPaths: githubWebhookChangedPaths(envelope),
+	}), true
+}
+
+func githubWebhookIssueCommentOnPullRequest(envelope githubWebhookEnvelope) bool {
+	return strings.TrimSpace(envelope.Issue.PullRequest.URL) != ""
+}
+
+func githubWebhookReviewCommand(envelope githubWebhookEnvelope) bool {
+	action := strings.ToLower(strings.TrimSpace(envelope.Action))
+	if action != "" && action != "created" {
+		return false
+	}
+	return githubReviewCommandPattern.MatchString(envelope.Comment.Body)
 }
 
 func githubPullRequestHeadAvailableInBaseRepo(envelope githubWebhookEnvelope) bool {

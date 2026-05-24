@@ -675,68 +675,17 @@ function sourceAvailabilityTone(
   return availability.available ? connectionTone(status) : 'error';
 }
 
-function openPendingGitHubInstallWindow(): Window | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  if (/jsdom/i.test(window.navigator.userAgent)) {
-    return null;
-  }
-  let popup: Window | null = null;
-  try {
-    popup = window.open('', '_blank');
-  } catch {
-    return null;
-  }
-  if (!popup) {
-    return null;
-  }
-  try {
-    popup.opener = null;
-    popup.document.title = 'Opening GitHub';
-    if (popup.document.body) {
-      popup.document.body.innerHTML =
-        '<main style="font:16px system-ui,sans-serif;padding:24px;color:#111827">Opening GitHub...</main>';
-    }
-  } catch {
-    // The tab is still useful even if the browser blocks temporary about:blank edits.
-  }
-  return popup;
-}
-
-function openGitHubInstallURL(installURL: string, popup?: Window | null) {
+function openGitHubInstallURL(installURL: string) {
   if (typeof window === 'undefined' || !installURL) {
     return false;
   }
   if (/jsdom/i.test(window.navigator.userAgent)) {
     return false;
   }
-  if (popup && !popup.closed) {
-    try {
-      popup.location.assign(installURL);
-      return true;
-    } catch {
-      closeGitHubInstallWindow(popup);
-      // Fall through to opening a fresh tab if the pre-opened tab is no longer writable.
-    }
-  }
   try {
     return window.open(installURL, '_blank', 'noopener,noreferrer') !== null;
   } catch {
     return false;
-  }
-}
-
-function closeGitHubInstallWindow(popup: Window | null) {
-  if (!popup) {
-    return;
-  }
-  try {
-    if (!popup.closed) {
-      popup.close();
-    }
-  } catch {
-    // Ignore browser restrictions after the tab has navigated away.
   }
 }
 
@@ -4183,7 +4132,6 @@ export function ProductProjectDetailPage() {
     setSuccessMessage('');
     setSourceErrors((current) => ({ ...current, github: undefined }));
     const requestSequence = refreshSequenceRef.current;
-    const installWindow = openPendingGitHubInstallWindow();
     try {
       const auth = buildProductAuthContext(scope);
       const redirectURI =
@@ -4198,19 +4146,17 @@ export function ProductProjectDetailPage() {
         auth
       );
       if (isStaleRequestSequence(requestSequence)) {
-        closeGitHubInstallWindow(installWindow);
         return;
       }
       setGitHubStart(response);
       setConnections((current) => ({ ...current, github: response.connection }));
-      const opened = openGitHubInstallURL(response.install_url, installWindow);
+      const opened = openGitHubInstallURL(response.install_url);
       setSuccessMessage(
         opened
           ? 'GitHub opened in a new tab. Finish the installation there to complete setup.'
           : 'GitHub installation is ready. Continue with the GitHub button below.'
       );
     } catch (error) {
-      closeGitHubInstallWindow(installWindow);
       if (isStaleRequestSequence(requestSequence)) {
         return;
       }

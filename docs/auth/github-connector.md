@@ -69,6 +69,41 @@ must also confirm in the GitHub App settings that:
   `installation_repositories` webhook.
 - "Where can this GitHub App be installed?" is set to Any account.
 
+## Pull Request Review Foundation
+
+The same GitHub App can act as an Identrail reviewer when the app registration
+uses the versioned manifest permissions and events. The review surface is
+intentionally narrower than a full fix agent:
+
+- `contents: read` lets Identrail read repository content and changed files.
+- `pull_requests: write` lets Identrail participate in PR review surfaces.
+- `issues: read` lets Identrail receive PR conversation commands, which arrive
+  through the Issues event surface.
+- `checks: write` lets Identrail publish review or scan check runs.
+- `actions: read` and `administration: read` provide CI and branch-protection
+  context without granting source mutation.
+
+Do not grant `contents: write` for this path unless Identrail is explicitly
+running a future fix-PR workflow. Likewise, keep `issues` at `read` until a
+future reviewer flow needs to post top-level PR conversation comments. The
+current reviewer foundation is read-first:
+pull-request webhooks already queue repository scans for selected repositories,
+and a PR comment containing `@identrail review` or `/identrail review` queues a
+project-scoped quick scan for that repository. Inline review comments with the
+same command queue a PR delta scan when GitHub includes same-repository base and
+head revisions.
+
+The production app should subscribe to:
+
+- `pull_request`
+- `pull_request_review`
+- `pull_request_review_comment`
+- `pull_request_review_thread`
+- `issue_comment`
+
+These events are in addition to installation, repository, push, and code
+scanning events used by the scanner connector.
+
 For Identrail Cloud, the AWS API manual deploy workflow exposes first-class
 inputs for this path:
 
