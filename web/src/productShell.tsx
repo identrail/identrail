@@ -5978,12 +5978,10 @@ export function ProductFindingsPage() {
       return;
     }
 
-    const selectionKey = buildRepoFindingSelectionKey(selectedFinding);
+    // The selection-change effect bumps remediationPublishRequestRef, so a
+    // finding/scope switch (or a newer publish) invalidates this request.
     const requestID = ++remediationPublishRequestRef.current;
-    const isStale = () =>
-      requestID !== remediationPublishRequestRef.current ||
-      !selectedFinding ||
-      buildRepoFindingSelectionKey(selectedFinding) !== selectionKey;
+    const isStale = () => requestID !== remediationPublishRequestRef.current;
     setRemediationPublishLoading(true);
     setRemediationPublishError('');
     setRemediationPublishResult(null);
@@ -6055,6 +6053,7 @@ export function ProductFindingsPage() {
       setWorkflowComment('');
       setWorkflowSuppressionExpiresAt('');
       remediationPreviewRequestRef.current += 1;
+      remediationPublishRequestRef.current += 1;
       setRemediationPreview(null);
       setRemediationPreviewFindingKey('');
       setRemediationPreviewLoading(false);
@@ -6070,6 +6069,7 @@ export function ProductFindingsPage() {
       selectedFinding.triage?.suppression_expires_at ? toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at) : ''
     );
     remediationPreviewRequestRef.current += 1;
+    remediationPublishRequestRef.current += 1;
     setRemediationPreview(null);
     setRemediationPreviewFindingKey('');
     setRemediationPreviewLoading(false);
