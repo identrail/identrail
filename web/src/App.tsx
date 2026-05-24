@@ -2379,7 +2379,6 @@ function HomePage() {
           <SectionTitle
             eyebrow="Comparison"
             title="Why teams choose Identrail over closed black-box workflows"
-            body="Compare on explainability, rollout safety, and day-two operability."
           />
           <div className="idt-table-wrap idt-home-compare">
             <table className="idt-compare-table">
