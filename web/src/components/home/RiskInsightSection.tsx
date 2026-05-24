@@ -105,8 +105,8 @@ export function RiskInsightSection() {
           </p>
           <p className="idt-risk-follow-up">
             Need deeper context?{' '}
-            <Link to="/demo" className="idt-inline-link">
-              Inspect this path in the interactive demo
+            <Link to="/product" className="idt-inline-link">
+              See how Identrail maps this path
             </Link>
             .
           </p>
