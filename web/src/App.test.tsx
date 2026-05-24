@@ -1527,11 +1527,11 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(
-        fetchMock.mock.calls.some(([url]) => typeof url === 'string' && url.includes('/v1/findings/repo-f1/triage'))
+        fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/findings/repo-f1/triage'))
       ).toBe(true);
     });
 
-    const triageCall = fetchMock.mock.calls.find(([url]) => typeof url === 'string' && url.includes('/v1/findings/repo-f1/triage'));
+    const triageCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/findings/repo-f1/triage'));
     const payload = JSON.parse(String((triageCall?.[1] as RequestInit | undefined)?.body));
     expect(payload.assignee).toBe('platform');
     expect(payload.comment).toBeUndefined();
