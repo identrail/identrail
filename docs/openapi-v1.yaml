@@ -3902,6 +3902,10 @@ paths:
           name: owner
           schema: { type: string }
         - in: query
+          name: source
+          schema: { type: string }
+          description: Adapter source identifier (for example `github_secret_scanning`).
+        - in: query
           name: confidence
           schema:
             type: number
@@ -3909,6 +3913,14 @@ paths:
             minimum: 0
             maximum: 1
           description: Minimum confidence score to include.
+        - in: query
+          name: min_confidence
+          schema:
+            type: number
+            format: double
+            minimum: 0
+            maximum: 1
+          description: Alias for `confidence` minimum threshold.
         - in: query
           name: age_days
           schema:
