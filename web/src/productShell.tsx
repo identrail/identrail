@@ -571,6 +571,10 @@ function countGitHubPostureChecks(
   return posture?.checks.filter((check) => check.state === state).length ?? 0;
 }
 
+function formatCountLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function sortRepoRiskGraphScores(scores: RepoRiskGraphFindingScore[]): RepoRiskGraphFindingScore[] {
   return [...scores].sort((left, right) => {
     if (right.score !== left.score) {
@@ -3758,6 +3762,14 @@ export function ProductProjectDetailPage() {
   const githubPostureAttentionCount = countGitHubPostureChecks(githubPosture, 'insecure');
   const githubPostureLimitedCount = countGitHubPostureChecks(githubPosture, 'permission_limited');
   const githubPostureUnavailableCount = countGitHubPostureChecks(githubPosture, 'unavailable');
+  const githubPostureAttentionChecks = useMemo(
+    () => githubPosture?.checks.filter((check) => check.state !== 'secure') ?? [],
+    [githubPosture]
+  );
+  const githubPostureDetailChecks =
+    githubPostureAttentionChecks.length > 0 ? githubPostureAttentionChecks : (githubPosture?.checks ?? []);
+  const githubPostureNeedsAttentionCount =
+    githubPostureAttentionCount + githubPostureLimitedCount + githubPostureUnavailableCount;
   const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
   const githubHasActiveSelectedRepoScan =
     effectiveRepoScanRepositoryKey !== '' &&
@@ -4694,10 +4706,27 @@ export function ProductProjectDetailPage() {
           {selectedSource === 'github' && !selectedUnavailable ? (
             <div className="idt-source-form-stack">
               <article className="idt-source-install-card idt-source-primary-action">
-                <div>
+                <div className="idt-source-primary-copy">
                   <p className="idt-app-kicker">Recommended setup</p>
                   <h4>Install Identrail on GitHub</h4>
-                  <p>Choose a personal account or organization on GitHub, then select the repositories Identrail can read.</p>
+                  <p>Connect once, then choose the personal account or organization and repositories Identrail can read.</p>
+                  <ol className="idt-source-mini-steps" aria-label="GitHub installation flow">
+                    <li>
+                      <span>1</span>
+                      <strong>Pick account</strong>
+                      <small>Personal or organization</small>
+                    </li>
+                    <li>
+                      <span>2</span>
+                      <strong>Select repos</strong>
+                      <small>Only the repositories in scope</small>
+                    </li>
+                    <li>
+                      <span>3</span>
+                      <strong>Return here</strong>
+                      <small>Refresh status after GitHub completes</small>
+                    </li>
+                  </ol>
                 </div>
                 <form className="idt-app-form" onSubmit={handleGitHubStart}>
                   <label>
@@ -4840,8 +4869,13 @@ export function ProductProjectDetailPage() {
                     )}
                   </div>
 
-                  <details className="idt-source-advanced">
-                    <summary>Scan limits</summary>
+                  <details className="idt-source-advanced idt-scan-limits-details">
+                    <summary>
+                      <span>
+                        <strong>Advanced scan limits</strong>
+                        <small>Override history depth or finding volume for this scan.</small>
+                      </span>
+                    </summary>
                     <div className="idt-source-inline-fields">
                       <label>
                         History limit
@@ -4902,7 +4936,7 @@ export function ProductProjectDetailPage() {
                     ) : (
                       <article>
                         <strong>{effectiveRepoScanRepository || 'No repository selected'}</strong>
-                        <span>Not queued</span>
+                        <span className="idt-source-status-pill is-neutral">Not queued</span>
                         <p>Repository scan activity will appear here after the first scan is queued.</p>
                       </article>
                     )}
@@ -5157,17 +5191,39 @@ export function ProductProjectDetailPage() {
 
           {selectedSource === 'github' && connections.github ? (
             <div className="idt-source-diagnostics">
-              {connections.github.account_login ? <p>Account {connections.github.account_login}</p> : null}
-              {connections.github.installation_id ? <p>Installation {connections.github.installation_id}</p> : null}
+              <article className="idt-source-connection-summary">
+                <div>
+                  <strong>Connected GitHub App</strong>
+                  <p>
+                    {connections.github.account_login ? `Installed on ${connections.github.account_login}` : 'Installation active'}
+                    {githubSelectedRepositories.length > 0
+                      ? ` · ${formatCountLabel(githubSelectedRepositories.length, 'repository', 'repositories')} selected`
+                      : ''}
+                  </p>
+                </div>
+                <span className={`idt-source-status-pill is-${connectionHealth(connections.github) === 'healthy' ? 'success' : 'warning'}`}>
+                  {connectionHealth(connections.github)}
+                </span>
+                {connections.github.installation_id ? <small>Installation {connections.github.installation_id}</small> : null}
+              </article>
               {connections.github.webhook_secret_rotation_due_at ? (
                 <p>Webhook rotation due {formatConnectionTime(connections.github.webhook_secret_rotation_due_at)}</p>
               ) : null}
-              {connections.github.selected_repositories.map((repository) => (
-                <article key={repository}>
-                  <strong>{repository}</strong>
-                  <span>Selected</span>
-                </article>
-              ))}
+              {githubSelectedRepositories.length > 0 ? (
+                <details className="idt-source-advanced idt-source-compact-details">
+                  <summary>
+                    <span>
+                      <strong>Selected repositories</strong>
+                      <small>{formatCountLabel(githubSelectedRepositories.length, 'repository', 'repositories')} in scope</small>
+                    </span>
+                  </summary>
+                  <div className="idt-source-chip-list">
+                    {githubSelectedRepositories.map((repository) => (
+                      <span key={repository}>{repository}</span>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
               {githubPostureLoading ? (
                 <article>
                   <strong>{effectiveRepoScanRepository || 'Selected repository'}</strong>
@@ -5182,13 +5238,36 @@ export function ProductProjectDetailPage() {
               ) : null}
               {githubPosture ? (
                 <>
-                  <article>
-                    <strong>Repository posture</strong>
-                    <span>{formatConnectionTime(githubPosture.collected_at)}</span>
-                    <p>
-                      {githubPostureSecureCount} secure · {githubPostureAttentionCount} attention ·{' '}
-                      {githubPostureLimitedCount} permission limited · {githubPostureUnavailableCount} unavailable
-                    </p>
+                  <article className="idt-github-posture-card">
+                    <div className="idt-github-posture-card-head">
+                      <div>
+                        <strong>Repository posture</strong>
+                        <p>Collected {formatConnectionTime(githubPosture.collected_at)}</p>
+                      </div>
+                      <span className={`idt-source-status-pill is-${githubPostureNeedsAttentionCount > 0 ? 'warning' : 'success'}`}>
+                        {githubPostureNeedsAttentionCount > 0
+                          ? formatCountLabel(githubPostureNeedsAttentionCount, 'check', 'checks')
+                          : 'Secure'}
+                      </span>
+                    </div>
+                    <dl className="idt-github-posture-stats" aria-label="GitHub posture summary">
+                      <div>
+                        <dt>Secure</dt>
+                        <dd>{githubPostureSecureCount}</dd>
+                      </div>
+                      <div>
+                        <dt>Attention</dt>
+                        <dd>{githubPostureAttentionCount}</dd>
+                      </div>
+                      <div>
+                        <dt>Limited</dt>
+                        <dd>{githubPostureLimitedCount}</dd>
+                      </div>
+                      <div>
+                        <dt>Unavailable</dt>
+                        <dd>{githubPostureUnavailableCount}</dd>
+                      </div>
+                    </dl>
                     {githubPosture.rate_limit?.remaining !== undefined ? (
                       <small>
                         GitHub API remaining {githubPosture.rate_limit.remaining}
@@ -5196,16 +5275,39 @@ export function ProductProjectDetailPage() {
                       </small>
                     ) : null}
                   </article>
-                  {githubPosture.checks.slice(0, 6).map((check) => (
-                    <article key={check.id}>
-                      <strong>{formatTokenLabel(check.category || check.id)}</strong>
-                      <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
-                        {formatTokenLabel(check.state)}
+                  <details className="idt-source-advanced idt-github-posture-details">
+                    <summary>
+                      <span>
+                        <strong>
+                          {githubPostureNeedsAttentionCount > 0
+                            ? `${formatCountLabel(githubPostureNeedsAttentionCount, 'posture check', 'posture checks')} ${
+                                githubPostureNeedsAttentionCount === 1 ? 'needs' : 'need'
+                              } attention`
+                            : 'Posture checks look clear'}
+                        </strong>
+                        <small>
+                          {githubPostureNeedsAttentionCount > 0
+                            ? 'Open to review branch, Actions, and security control details.'
+                            : 'Open to inspect the collected GitHub signals.'}
+                        </small>
                       </span>
-                      <p>{check.summary}</p>
-                      {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
-                    </article>
-                  ))}
+                    </summary>
+                    <div className="idt-github-posture-checks">
+                      {githubPostureDetailChecks.slice(0, 6).map((check) => (
+                        <article key={check.id}>
+                          <strong>{formatTokenLabel(check.category || check.id)}</strong>
+                          <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
+                            {formatTokenLabel(check.state)}
+                          </span>
+                          <p>{check.summary}</p>
+                          {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
+                        </article>
+                      ))}
+                      {githubPostureDetailChecks.length > 6 ? (
+                        <p>{formatCountLabel(githubPostureDetailChecks.length - 6, 'additional check', 'additional checks')} hidden.</p>
+                      ) : null}
+                    </div>
+                  </details>
                 </>
               ) : null}
             </div>
