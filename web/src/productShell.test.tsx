@@ -411,7 +411,7 @@ describe('ProductProjectDetailPage', () => {
     );
   });
 
-  it('opens GitHub installation in a new tab for the selected account type', async () => {
+  it('opens GitHub installation in a new tab through GitHub account picker', async () => {
     const assign = vi.fn();
     const close = vi.fn();
     const popup = {
@@ -426,14 +426,11 @@ describe('ProductProjectDetailPage', () => {
     const { startGitHubConnector } = await renderProjectDetail(true);
 
     expect(await screen.findByText('Install the GitHub App')).toBeInTheDocument();
-    const installTarget = screen.getByRole('group', { name: /Install on/i });
-    fireEvent.click(within(installTarget).getByRole('radio', { name: /Organization/i }));
-    expect(within(installTarget).getByRole('radio', { name: /Organization/i })).toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: /Continue to GitHub/i }));
 
     await waitFor(() =>
       expect(startGitHubConnector).toHaveBeenCalledWith(
-        expect.objectContaining({ install_account_type: 'organization' }),
+        expect.not.objectContaining({ install_account_type: expect.anything() }),
         expect.any(Object)
       )
     );

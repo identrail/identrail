@@ -22,12 +22,12 @@ Older project-scoped GitHub routes are not the product path. They remain interna
 ## Hosted GitHub.com Flow
 
 `POST /v1/connectors/github` creates a pending connector and returns a GitHub
-App target-picker URL. The product asks whether the user expects to install on a
-personal account or an organization, opens GitHub in a new tab, and keeps a
+App target-picker URL. The product opens GitHub in a new tab and keeps a
 fallback button visible if the browser blocks navigation. The URL starts at
-GitHub's account selector (`/installations/select_target`) so GitHub shows the
-personal-account or organization choice before the selected-repository screen.
-The product sends GitHub back to `/app/github/callback`, and that callback calls
+GitHub's account selector (`/installations/select_target`) so GitHub, not
+Identrail, shows the personal-account or organization choice before the
+selected-repository screen. The product sends GitHub back to
+`/app/github/callback`, and that callback calls
 `POST /v1/connectors/github/complete` with the returned state and installation
 ID. The backend owns the GitHub App slug and webhook secret through environment
 variables, so users do not paste app credentials into the browser.
@@ -42,7 +42,31 @@ Required runtime configuration for the hosted GitHub App flow:
   `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true` for durable connector
   credential storage
 
-The GitHub App manifest lives at `deploy/connectors/github/app-manifest.json`. It requests read-only permissions for repository metadata, contents, pull requests, administration settings, Actions settings, repository environments, code scanning alerts, secret scanning alerts, Dependabot alerts, and repository webhooks. The manifest is public so GitHub can offer both personal-account and organization installation targets; production app settings should keep "Where can this GitHub App be installed?" on "Any account" rather than "Only on this account." If the production app remains private, GitHub may still only offer the app owner account even when Identrail starts at the account selector.
+The GitHub App manifest lives at `deploy/connectors/github/app-manifest.json`.
+It requests read-only permissions for repository metadata, contents, pull
+requests, administration settings, Actions settings, repository environments,
+code scanning alerts, secret scanning alerts, Dependabot alerts, and repository
+webhooks. The manifest is public so GitHub can offer both personal-account and
+organization installation targets; production app settings should keep "Where
+can this GitHub App be installed?" on "Any account" rather than "Only on this
+account." If the production app remains private, GitHub may still only offer the
+app owner account even when Identrail starts at the account selector.
+
+Before launching or after changing GitHub App settings, compare the public app
+registration against the manifest:
+
+```bash
+python3 scripts/check_github_app_manifest.py --slug identrail
+```
+
+This check intentionally uses GitHub's public app endpoint. A private app or
+wrong slug should fail even if a maintainer can view the app while signed in.
+GitHub does not expose every setting through that public endpoint, so operators
+must also confirm in the GitHub App settings that:
+
+- Setup URL is `https://app.identrail.com/app/github/callback`.
+- Redirect on update is enabled.
+- "Where can this GitHub App be installed?" is set to Any account.
 
 For Identrail Cloud, the AWS API manual deploy workflow exposes first-class
 inputs for this path:

@@ -150,6 +150,16 @@ deploys. Configure these values before running the manual workflow, or set
   the durable `IDENTRAIL_CONNECTOR_SECRET_KEYS` keyset used to encrypt connector
   credentials.
 
+The GitHub App itself must be public / installable on Any account for GitHub to
+show the account picker with personal and organization targets. The app settings
+must also use `https://app.identrail.com/app/github/callback` as the setup URL
+and enable redirect-on-update so repository selection changes return to
+Identrail. Run this before a production deploy when GitHub App settings change:
+
+```bash
+python3 scripts/check_github_app_manifest.py --slug "${API_GITHUB_APP_NAME}"
+```
+
 The workflow dispatch input `api_container_image` must be immutable, such as
 `ghcr.io/identrail/identrail-api:sha-<commit>`. Do not deploy the mutable `dev`
 tag to this hosted API path.

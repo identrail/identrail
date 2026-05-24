@@ -5,6 +5,11 @@
   labels from all-caps to sentence case, styled the new metric captions, the
   scan-health banner, and the failed-scan state actions, and set the summary
   grid to the consolidated four-column layout.
+- Simplified hosted GitHub App setup to rely on GitHub's native account picker
+  instead of duplicating personal-account and organization selection in the app.
+  The versioned GitHub App manifest now includes the callback URL, setup URL,
+  and redirect-on-update flag, and operators can compare live app settings with
+  `scripts/check_github_app_manifest.py`.
 - Reworked the repository Findings page information architecture. Consolidated
   the ten summary tiles into four (open, critical, mean-time-to-fix, completed
   scans) with supporting detail in captions, led with the findings table by
@@ -54,9 +59,8 @@
   instead of raw JSON, login no longer provisions unknown identities, signup can
   reactivate a deactivated/deleted account that still owns the same email, login
   now points retained removed accounts to the reactivation signup path, and the
-  GitHub App setup now opens GitHub's account selector in a new tab with an
-  explicit personal account versus organization choice, backed by a public app
-  manifest for Any-account installation.
+  GitHub App setup now opens GitHub's account selector in a new tab, backed by a
+  public app manifest for Any-account installation.
 - Fixed app workspace navigation so route changes inside an already-validated
   workspace no longer rerun the full session gate, and hardened repository
   finding display helpers against partially populated API records.

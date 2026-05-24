@@ -84,7 +84,6 @@ type ScopeRouteParams = {
 };
 
 type SourceProvider = 'github' | 'aws' | 'kubernetes';
-type GitHubInstallAccountType = 'personal' | 'organization';
 
 type SourceConnectionMap = {
   github?: GitHubConnectionStatus;
@@ -739,16 +738,6 @@ function closeGitHubInstallWindow(popup: Window | null) {
   } catch {
     // Ignore browser restrictions after the tab has navigated away.
   }
-}
-
-function describeGitHubInstallAccountType(value: GitHubConnectorStartResponse['install_account_type']) {
-  if (value === 'organization') {
-    return 'an organization';
-  }
-  if (value === 'personal') {
-    return 'a personal account';
-  }
-  return 'a personal account or organization';
 }
 
 function formatRepoScanSubmitError(error: unknown): string {
@@ -3753,8 +3742,7 @@ export function ProductProjectDetailPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);
   const [githubAppForm, setGitHubAppForm] = useState({
-    displayName: 'GitHub App',
-    installAccountType: 'personal' as GitHubInstallAccountType
+    displayName: 'GitHub App'
   });
   const [githubPATForm, setGitHubPATForm] = useState({
     displayName: 'GitHub Enterprise',
@@ -4205,7 +4193,6 @@ export function ProductProjectDetailPage() {
           workspace_id: scope.workspaceID,
           project_id: projectID,
           display_name: normalizeValue(githubAppForm.displayName) || undefined,
-          install_account_type: githubAppForm.installAccountType,
           redirect_uri: redirectURI
         },
         auth
@@ -4834,7 +4821,7 @@ export function ProductProjectDetailPage() {
                 <div>
                   <p className="idt-app-kicker">Recommended setup</p>
                   <h4>Install the GitHub App</h4>
-                  <p>Choose a personal account or organization on GitHub, then select the repositories Identrail can read.</p>
+                  <p>GitHub will ask whether to install on your personal account or an organization, then let you choose repositories.</p>
                 </div>
                 <form className="idt-app-form" onSubmit={handleGitHubStart}>
                   <label>
@@ -4847,40 +4834,6 @@ export function ProductProjectDetailPage() {
                       placeholder="GitHub App"
                     />
                   </label>
-                  <fieldset className="idt-source-account-choice" aria-describedby="github-install-target-help">
-                    <legend>Install on</legend>
-                    <p id="github-install-target-help">
-                      GitHub opens an account picker next. Choose where the repositories live.
-                    </p>
-                    <div className="idt-source-account-options">
-                      {(
-                        [
-                          ['personal', 'Personal account', 'Repos owned by your GitHub user'],
-                          ['organization', 'Organization', 'Repos owned by a GitHub organization']
-                        ] as const
-                      ).map(([value, label, caption]) => (
-                        <label
-                          key={value}
-                          className={githubAppForm.installAccountType === value ? 'is-selected' : ''}
-                        >
-                          <input
-                            type="radio"
-                            name="github-install-account-type"
-                            value={value}
-                            checked={githubAppForm.installAccountType === value}
-                            disabled={submitting !== ''}
-                            onChange={() =>
-                              setGitHubAppForm((current) => ({ ...current, installAccountType: value }))
-                            }
-                          />
-                          <span className="idt-source-account-radio" aria-hidden="true" />
-                          <strong>{label}</strong>
-                          <span className="idt-source-account-caption">{caption}</span>
-                          <em>{githubAppForm.installAccountType === value ? 'Selected' : 'Choose'}</em>
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
                   <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
                     {submitting === 'github' ? 'Preparing GitHub...' : 'Continue to GitHub'}
                   </button>
@@ -4892,8 +4845,7 @@ export function ProductProjectDetailPage() {
                   <div>
                     <h4>GitHub did not open automatically?</h4>
                     <p>
-                      Continue with {describeGitHubInstallAccountType(githubStart.install_account_type)}.
-                      State expires {formatConnectionTime(githubStart.expires_at)}.
+                      Open GitHub's account picker. State expires {formatConnectionTime(githubStart.expires_at)}.
                     </p>
                   </div>
                   <a className="idt-btn idt-btn-dark" href={githubStart.install_url} target="_blank" rel="noreferrer">

@@ -6,6 +6,11 @@
     "active": true
   },
   "redirect_url": "https://app.identrail.com/app/github/callback",
+  "callback_urls": [
+    "https://app.identrail.com/app/github/callback"
+  ],
+  "setup_url": "https://app.identrail.com/app/github/callback",
+  "setup_on_update": true,
   "public": true,
   "default_permissions": {
     "actions": "read",
