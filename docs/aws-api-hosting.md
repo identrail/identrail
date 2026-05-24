@@ -152,9 +152,12 @@ deploys. Configure these values before running the manual workflow, or set
 
 The GitHub App itself must be public / installable on Any account for GitHub to
 show the account picker with personal and organization targets. The app settings
-must also use `https://app.identrail.com/app/github/callback` as the setup URL
-and enable redirect-on-update so repository selection changes return to
-Identrail. Run this before a production deploy when GitHub App settings change:
+must also use `https://app.identrail.com/app/github/callback` as the setup URL.
+Leave "Redirect on update" disabled: update redirects do not carry the install
+state token the callback requires, so enabling it would route users to an error
+page — repository selection changes are reconciled through the
+`installation_repositories` webhook instead. Run this before a production deploy
+when GitHub App settings change:
 
 ```bash
 python3 scripts/check_github_app_manifest.py --slug "${API_GITHUB_APP_NAME}"

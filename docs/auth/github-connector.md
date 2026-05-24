@@ -65,7 +65,8 @@ GitHub does not expose every setting through that public endpoint, so operators
 must also confirm in the GitHub App settings that:
 
 - Setup URL is `https://app.identrail.com/app/github/callback`.
-- Redirect on update is enabled.
+- Redirect on update is disabled; repository-access changes sync through the
+  `installation_repositories` webhook.
 - "Where can this GitHub App be installed?" is set to Any account.
 
 For Identrail Cloud, the AWS API manual deploy workflow exposes first-class

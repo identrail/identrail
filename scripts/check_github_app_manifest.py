@@ -105,8 +105,12 @@ def compare(manifest: dict[str, Any], live: dict[str, Any]) -> list[str]:
         failures.append("manifest setup_url is required so GitHub can return users after install")
     if setup_url and setup_url not in callback_urls:
         failures.append("manifest callback_urls must include setup_url")
-    if manifest.get("setup_on_update") is not True:
-        failures.append("manifest setup_on_update must be true so repository selection updates return to Identrail")
+    if manifest.get("setup_on_update") is not False:
+        failures.append(
+            "manifest setup_on_update must be false: update redirects arrive without an install "
+            "state token, and the callback requires one, so enabling it sends users to an error "
+            "page. Repository selection changes already sync via the installation_repositories webhook."
+        )
 
     expected_name = str(manifest.get("name", "")).strip()
     live_name = str(live.get("name", "")).strip()

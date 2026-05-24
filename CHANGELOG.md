@@ -7,8 +7,10 @@
   grid to the consolidated four-column layout.
 - Simplified hosted GitHub App setup to rely on GitHub's native account picker
   instead of duplicating personal-account and organization selection in the app.
-  The versioned GitHub App manifest now includes the callback URL, setup URL,
-  and redirect-on-update flag, and operators can compare live app settings with
+  The versioned GitHub App manifest now includes the callback URL and setup URL,
+  keeps update redirects disabled (repository selection changes sync through the
+  `installation_repositories` webhook rather than a stateless redirect that the
+  callback cannot complete), and operators can compare live app settings with
   `scripts/check_github_app_manifest.py`.
 - Reworked the repository Findings page information architecture. Consolidated
   the ten summary tiles into four (open, critical, mean-time-to-fix, completed
