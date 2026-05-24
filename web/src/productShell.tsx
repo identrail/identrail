@@ -155,32 +155,31 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
   github: {
     provider: 'github',
     name: 'GitHub',
-    eyebrow: 'Code and workflow identity',
-    summary: 'Connect a GitHub App installation and select repositories that should feed exposure telemetry.',
-    primarySignal: 'Repositories, workflow identity, webhook scan triggers',
-    requiredAccess: 'GitHub App installation with selected repository access',
+    eyebrow: 'Repositories and workflows',
+    summary: 'Install Identrail on selected repositories so scans can read repository, workflow, and review signals.',
+    primarySignal: 'Repository, workflow, and pull request signals',
+    requiredAccess: 'GitHub App with selected repository access',
     logo: '/brand-logos/github.svg'
   },
   aws: {
     provider: 'aws',
     name: 'AWS',
     eyebrow: 'Cloud IAM identity',
-    summary: 'Validate a read-only IAM role before Identrail records the account connector.',
-    primarySignal: 'Roles, trust policies, account identity, IAM read checks',
-    requiredAccess: 'Assumable read-only IAM role ARN',
+    summary: 'Connect a read-only IAM role so Identrail can inspect roles, trust policies, and account context.',
+    primarySignal: 'IAM roles, trust policies, and account context',
+    requiredAccess: 'Read-only IAM role ARN',
     logo: '/brand-logos/aws.svg'
   },
   kubernetes: {
     provider: 'kubernetes',
     name: 'Kubernetes',
-    eyebrow: 'Cluster service identity',
-    summary: 'Install a read-only in-cluster agent or use kubeconfig fallback for ad-hoc development.',
-    primarySignal: 'Service accounts, RBAC bindings, pods, cluster metadata',
+    eyebrow: 'Cluster identity',
+    summary: 'Enroll a read-only agent or kubeconfig fallback for service account and RBAC signals.',
+    primarySignal: 'Service accounts, RBAC bindings, and pods',
     requiredAccess: 'Read-only ClusterRole through the Identrail agent',
     logo: '/brand-logos/kubernetes.svg'
   }
 };
-const CONNECT_SOURCE_STEPS = ['Choose', 'Configure', 'Validate', 'Active'] as const;
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
 const SOURCE_ORDER: SourceProvider[] = [
@@ -3388,8 +3387,6 @@ export function ProductProjectsPage() {
   );
   const archivedProjectCount = projects.length - activeProjectCount;
   const latestProject = projects[0];
-  const enabledSourceLabel = formatSourceNameList(SOURCE_STACK);
-
   if (!scope) {
     return <AppShellLoading message="Resolving workspace scope" />;
   }
@@ -3472,13 +3469,9 @@ export function ProductProjectsPage() {
     <section className="idt-app-panel idt-projects-page">
       <div className="idt-projects-header">
         <div>
-          <p className="idt-app-kicker">Project registry</p>
-          <h2>Choose a project before connecting source data</h2>
-          <p>Projects set the workspace boundary for {enabledSourceLabel} onboarding.</p>
-          <div className="idt-overview-source-strip">
-            <SourceLogoStack label="Project source stack" />
-            <span>Each project can carry enabled source signals without losing ownership context.</span>
-          </div>
+          <p className="idt-app-kicker">Workspace registry</p>
+          <h2>Projects</h2>
+          <p>Create project boundaries for repository, workflow, and cloud identity signals.</p>
         </div>
         <div className="idt-inline-actions">
           <Link className="idt-btn idt-btn-ghost" to={buildScopedPath(scope)}>
@@ -3491,23 +3484,20 @@ export function ProductProjectsPage() {
         <article className="is-light-surface">
           <div className="idt-overview-metric-top">
             <span>{projects.length}</span>
-            <SourceLogoStack label="All projects source coverage" />
           </div>
           <p>Total projects</p>
         </article>
         <article>
           <div className="idt-overview-metric-top">
             <span>{activeProjectCount}</span>
-            <SourceLogoStack label="Active project source coverage" />
           </div>
-          <p>Active boundaries</p>
+          <p>Active projects</p>
         </article>
         <article>
           <div className="idt-overview-metric-top">
             <span>{latestProject ? formatConnectionTime(latestProject.updated_at) : 'No activity yet'}</span>
-            <SourceLogoStack label="Latest project source coverage" />
           </div>
-          <p>Latest update</p>
+          <p>Last updated</p>
         </article>
       </div>
 
@@ -3517,11 +3507,11 @@ export function ProductProjectsPage() {
         <article className="idt-projects-list">
           <div className="idt-projects-section-header">
             <div>
-              <h3>Workspace projects</h3>
+              <h3>Project registry</h3>
               <p>
                 {archivedProjectCount > 0
                   ? `${activeProjectCount} active, ${archivedProjectCount} archived.`
-                  : 'Select an existing project to continue source onboarding.'}
+                  : 'Open a project to manage source connections and scans.'}
               </p>
             </div>
           </div>
@@ -3529,7 +3519,7 @@ export function ProductProjectsPage() {
           {projects.length === 0 ? (
             <AppShellEmptyState
               title="No projects yet"
-              body="Create the first project for this workspace, then continue into source onboarding."
+              body="Create the first project boundary for this workspace."
             />
           ) : (
             <div className="idt-project-card-list">
@@ -3541,9 +3531,8 @@ export function ProductProjectsPage() {
                       <div>
                         <div className="idt-project-card-title">
                           <h4>{project.name}</h4>
-                          <SourceLogoStack label={`${project.name} source stack`} />
                         </div>
-                        <p>{project.description || 'No description yet. Use this project to scope connector onboarding and scan ownership.'}</p>
+                        <p>{project.description || 'Scope source connections, scans, and findings for this boundary.'}</p>
                       </div>
                       <span
                         className={`idt-source-status-pill ${archived ? 'is-warning' : 'is-success'}`}
@@ -3572,7 +3561,7 @@ export function ProductProjectsPage() {
 
                     <div className="idt-inline-actions">
                       <Link className="idt-btn idt-btn-primary" to={buildProjectPath(scope, project.project_id)}>
-                        Manage sources
+                        Open project
                       </Link>
                     </div>
                   </article>
@@ -3585,8 +3574,8 @@ export function ProductProjectsPage() {
         <article className="idt-project-composer">
           <div className="idt-projects-section-header">
             <div>
-              <h3>Create project</h3>
-              <p>Set the canonical project ID and route-safe slug once, then continue into connector setup.</p>
+              <h3>New project</h3>
+              <p>Project ID and slug auto-fill from the name and can be adjusted before creation.</p>
             </div>
           </div>
 
@@ -3635,7 +3624,7 @@ export function ProductProjectsPage() {
               />
             </label>
             <button className="idt-btn idt-btn-primary" type="submit" disabled={saving}>
-              {saving ? 'Creating project...' : 'Create project and continue'}
+              {saving ? 'Creating project...' : 'Create project'}
             </button>
           </form>
         </article>
@@ -3691,7 +3680,7 @@ export function ProductProjectDetailPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);
   const [githubAppForm, setGitHubAppForm] = useState({
-    displayName: 'GitHub App'
+    displayName: 'Identrail'
   });
   const [githubPATForm, setGitHubPATForm] = useState({
     displayName: 'GitHub Enterprise',
@@ -3778,7 +3767,6 @@ export function ProductProjectDetailPage() {
         canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() === effectiveRepoScanRepositoryKey
     );
   const repoScanFindingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
-  const enabledSourceLabel = formatSourceNameList(sourceOrder);
 
   const nextRequestSequence = () => {
     const nextSequence = refreshSequenceRef.current + 1;
@@ -4104,20 +4092,6 @@ export function ProductProjectDetailPage() {
   const selectedProfile = SOURCE_PROFILES[selectedSource];
   const selectedAvailability = sourceAvailability[selectedSource] ?? { visible: true, available: true };
   const selectedUnavailable = !selectedAvailability.available;
-  const connectedCount = sourceOrder.filter((provider) => sourceConnection(connections, provider)?.connected).length;
-  const remainingCount = Math.max(actionableSourceOrder.length - connectedCount, 0);
-  const activeStepIndex = selectedUnavailable ? 0 : selectedStatus?.connected ? 3 : submitting === selectedSource ? 2 : 1;
-  const selectedLifecycle = selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus);
-  const selectedNextActionTitle = selectedUnavailable
-    ? 'Choose an available source'
-    : selectedStatus?.connected
-      ? `${selectedProfile.name} is ready`
-      : `Connect ${selectedProfile.name}`;
-  const selectedNextActionDescription = selectedUnavailable
-    ? selectedAvailability.unavailableMessage ?? `${selectedProfile.name} is not available on this API server.`
-    : selectedStatus?.connected
-      ? `Review ${selectedProfile.name} health, queue validation work, or refresh status before moving to findings.`
-      : `Use the guided ${selectedProfile.name} setup to collect the exact signals this project owns.`;
 
   const handleGitHubStart = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -4614,16 +4588,11 @@ export function ProductProjectDetailPage() {
     <section className="idt-app-panel idt-source-onboarding">
       <div className="idt-source-onboarding-header">
         <div>
-          <p className="idt-app-kicker">Project source onboarding</p>
-          <h2>Connect sources for {projectID}</h2>
+          <p className="idt-app-kicker">Project sources</p>
+          <h2>Connect project sources</h2>
           <p>
-            Add {enabledSourceLabel} signals for workspace <strong>{scope.workspaceID}</strong> with live
-            validation and remediation feedback.
+            Install source connections for <strong>{projectID}</strong> to collect repository, workflow, and cloud identity signals.
           </p>
-          <div className="idt-overview-source-strip">
-            <SourceLogoStack providers={sourceOrder} label="Available project sources" />
-            <span>Connect only the systems this project actually owns.</span>
-          </div>
         </div>
         <button
           type="button"
@@ -4637,50 +4606,11 @@ export function ProductProjectDetailPage() {
         </button>
       </div>
 
-      <div className="idt-source-command-center" aria-label="source onboarding command center">
-        <article className="idt-source-next-action">
-          <div>
-            <p className="idt-app-kicker">Next action</p>
-            <h3>{selectedNextActionTitle}</h3>
-            <p>{selectedNextActionDescription}</p>
-          </div>
-          <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
-            {selectedLifecycle}
-          </span>
-        </article>
-        <dl className="idt-source-compact-stats" aria-label="source connection summary">
-          <div>
-            <dt>Connected</dt>
-            <dd>{connectedCount}</dd>
-          </div>
-          <div>
-            <dt>Remaining</dt>
-            <dd>{remainingCount}</dd>
-          </div>
-          <div>
-            <dt>Source</dt>
-            <dd>
-              <SourceLogoMark provider={selectedSource} />
-              {selectedProfile.name}
-            </dd>
-          </div>
-        </dl>
-      </div>
-
       {successMessage ? (
         <p role="status" className="idt-app-alert idt-app-alert-success">
           {successMessage}
         </p>
       ) : null}
-
-      <ol className="idt-source-stepper" aria-label="Connect source steps">
-        {CONNECT_SOURCE_STEPS.map((step, index) => (
-          <li key={step} className={index <= activeStepIndex ? 'is-active' : ''}>
-            <span>{index + 1}</span>
-            {step}
-          </li>
-        ))}
-      </ol>
 
       <div className="idt-source-wizard-grid">
         <aside className="idt-source-picker" aria-label="Source types">
@@ -4766,22 +4696,22 @@ export function ProductProjectDetailPage() {
               <article className="idt-source-install-card idt-source-primary-action">
                 <div>
                   <p className="idt-app-kicker">Recommended setup</p>
-                  <h4>Install the GitHub App</h4>
-                  <p>GitHub will ask whether to install on your personal account or an organization, then let you choose repositories.</p>
+                  <h4>Install Identrail on GitHub</h4>
+                  <p>Choose a personal account or organization on GitHub, then select the repositories Identrail can read.</p>
                 </div>
                 <form className="idt-app-form" onSubmit={handleGitHubStart}>
                   <label>
-                    Display name
+                    Installation name
                     <input
                       value={githubAppForm.displayName}
                       onChange={(event) =>
                         setGitHubAppForm((current) => ({ ...current, displayName: event.target.value }))
                       }
-                      placeholder="GitHub App"
+                      placeholder="Identrail"
                     />
                   </label>
                   <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
-                    {submitting === 'github' ? 'Preparing GitHub...' : 'Continue to GitHub'}
+                    {submitting === 'github' ? 'Preparing GitHub...' : 'Install GitHub App'}
                   </button>
                 </form>
               </article>
@@ -4789,13 +4719,13 @@ export function ProductProjectDetailPage() {
               {githubStart ? (
                 <article className="idt-source-install-card">
                   <div>
-                    <h4>GitHub did not open automatically?</h4>
+                    <h4>GitHub did not open?</h4>
                     <p>
-                      Open GitHub's account picker. State expires {formatConnectionTime(githubStart.expires_at)}.
+                      Open the account picker manually. This link expires {formatConnectionTime(githubStart.expires_at)}.
                     </p>
                   </div>
                   <a className="idt-btn idt-btn-dark" href={githubStart.install_url} target="_blank" rel="noreferrer">
-                    Continue to GitHub
+                    Open GitHub
                   </a>
                 </article>
               ) : null}

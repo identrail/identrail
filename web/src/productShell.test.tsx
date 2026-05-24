@@ -79,7 +79,7 @@ const connectedGitHub: GitHubConnectionStatus = {
   provider: 'github_app',
   connected: true,
   connector_id: 'github-app',
-  display_name: 'GitHub App',
+  display_name: 'Identrail',
   status: 'active',
   health_status: 'healthy',
   account_login: 'identrail',
@@ -211,7 +211,7 @@ async function renderProjectDetail(
       provider: 'github_app',
       connected: false,
       connector_id: 'github-app',
-      display_name: 'GitHub App',
+      display_name: 'Identrail',
       status: 'pending',
       health_status: 'unknown',
       webhook_secret_rotation_required: false,
@@ -416,8 +416,8 @@ describe('ProductProjectDetailPage', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const { startGitHubConnector } = await renderProjectDetail(true);
 
-    expect(await screen.findByText('Install the GitHub App')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Continue to GitHub/i }));
+    expect(await screen.findByText('Install Identrail on GitHub')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Install GitHub App/i }));
 
     await waitFor(() =>
       expect(startGitHubConnector).toHaveBeenCalledWith(
@@ -672,7 +672,7 @@ describe('ProductProjectDetailPage', () => {
     expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: /Open project 2/i }));
-    expect(await screen.findByRole('heading', { name: /Connect sources for project-2/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Connect project sources/i })).toBeInTheDocument();
     const secondQueueButton = await screen.findByRole('button', { name: /Queue first scan/i });
     await waitFor(() => expect(secondQueueButton).not.toBeDisabled());
     fireEvent.click(secondQueueButton);

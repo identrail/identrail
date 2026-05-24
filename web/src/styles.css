@@ -20891,6 +20891,173 @@ html[data-theme='light'] .idt-source-policy-panel details {
   }
 }
 
+/* Project registry and source setup polish. */
+.idt-app-console-layout .idt-projects-header,
+.idt-app-console-layout .idt-source-onboarding-header {
+  padding: 1.25rem 1.35rem;
+}
+
+.idt-app-console-layout .idt-projects-header h2,
+.idt-app-console-layout .idt-source-onboarding-header h2 {
+  margin-top: 0.12rem;
+}
+
+.idt-app-console-layout .idt-projects-header p,
+.idt-app-console-layout .idt-source-onboarding-header p {
+  max-width: 62rem;
+}
+
+.idt-app-console-layout .idt-projects-summary {
+  grid-template-columns: 0.8fr 0.8fr 1.4fr;
+}
+
+.idt-app-console-layout .idt-projects-summary article {
+  min-height: 5.7rem;
+  padding: 0.95rem 1rem;
+}
+
+.idt-app-console-layout .idt-projects-summary .idt-overview-metric-top {
+  align-items: center;
+}
+
+.idt-app-console-layout .idt-projects-summary span,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary span {
+  color: #ffffff;
+  font-size: clamp(1.28rem, 1.8vw, 1.65rem);
+}
+
+.idt-app-console-layout .idt-projects-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.72fr);
+}
+
+.idt-app-console-layout .idt-projects-list,
+.idt-app-console-layout .idt-project-composer {
+  padding: 1.05rem;
+}
+
+.idt-app-console-layout .idt-project-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+}
+
+.idt-project-card-title h4 {
+  margin-bottom: 0.18rem;
+}
+
+.idt-project-card-details {
+  margin-top: 0;
+  background: transparent;
+}
+
+.idt-project-card-details summary {
+  padding: 0.62rem 0.72rem;
+  color: #dcdce2;
+  font-size: 0.86rem;
+}
+
+.idt-project-card-meta {
+  padding: 0.72rem;
+}
+
+.idt-project-card-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
+  padding: 0.62rem;
+}
+
+.idt-app-console-layout .idt-source-wizard-grid {
+  grid-template-columns: minmax(14rem, 0.36fr) minmax(0, 1fr);
+}
+
+.idt-app-console-layout .idt-source-picker {
+  gap: 0.7rem;
+}
+
+.idt-app-console-layout .idt-source-card {
+  min-height: 7.6rem;
+  padding: 0.95rem;
+  background: #080809;
+}
+
+.idt-app-console-layout .idt-source-card strong {
+  font-size: 1.08rem;
+  text-transform: none;
+}
+
+.idt-app-console-layout .idt-source-card small {
+  color: #b8b8c0;
+}
+
+.idt-app-console-layout .idt-source-card.is-selected {
+  background: #111113;
+}
+
+.idt-app-console-layout .idt-source-config {
+  gap: 1rem;
+  padding: 1.15rem;
+}
+
+.idt-source-config-header {
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.idt-source-config-header h3 {
+  margin-top: 0;
+}
+
+.idt-app-console-layout .idt-source-meta {
+  grid-template-columns: minmax(0, 1.25fr) minmax(9rem, 0.5fr) minmax(12rem, 0.7fr);
+}
+
+.idt-app-console-layout .idt-source-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
+  padding: 0.75rem;
+}
+
+.idt-app-console-layout .idt-source-primary-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.46fr);
+  align-items: end;
+  padding: 1rem;
+}
+
+.idt-app-console-layout .idt-source-primary-action form {
+  min-width: 0;
+  width: 100%;
+}
+
+.idt-app-console-layout .idt-source-primary-action .idt-btn {
+  width: 100%;
+}
+
+.idt-app-console-layout .idt-source-install-card:not(.idt-source-primary-action) {
+  padding: 0.95rem 1rem;
+}
+
+@media (max-width: 980px) {
+  .idt-app-console-layout .idt-projects-summary,
+  .idt-app-console-layout .idt-projects-grid,
+  .idt-app-console-layout .idt-source-wizard-grid,
+  .idt-app-console-layout .idt-source-meta,
+  .idt-app-console-layout .idt-source-primary-action {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .idt-app-console-layout .idt-projects-header,
+  .idt-app-console-layout .idt-source-onboarding-header,
+  .idt-app-console-layout .idt-source-config-header,
+  .idt-app-console-layout .idt-source-install-card {
+    display: grid;
+  }
+
+  .idt-app-console-layout .idt-source-card {
+    min-height: 0;
+  }
+}
+
 /* Header auth shortcut polish. */
 .idt-header-utility.idt-header-auth-chip {
   min-height: 44px;

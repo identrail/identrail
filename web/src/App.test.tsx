@@ -865,7 +865,7 @@ describe('App', () => {
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
     await waitFor(() => {
       const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
       expect(meCallsAfterNavigation).toBeGreaterThan(meCallsBeforeNavigation);
@@ -1065,14 +1065,14 @@ describe('App', () => {
     });
 
     expect(await screen.findByText(/Validating session/i)).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 2, name: /Choose a project/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Projects' })).not.toBeInTheDocument();
 
     await act(async () => {
       resolveScopedMe(okJSON(currentMePayload('tenant-a', 'workspace-a')));
       await scopedMeResponse;
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {
@@ -1111,7 +1111,7 @@ describe('App', () => {
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Choose a project/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(meCalls).toBe(2);
   });
@@ -1325,8 +1325,8 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect sources for project-1/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Project source onboarding/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
+    expect(await screen.findByText('Project sources')).toBeInTheDocument();
   });
 
   it('renders repository findings with direct GitHub line links inside the app shell', async () => {
