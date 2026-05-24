@@ -694,7 +694,7 @@ function formatRepoScanSubmitError(error: unknown): string {
       return 'Choose a valid owner/repo repository target before queueing a scan.';
     }
     if (error.status === 403) {
-      return 'That repository is not currently allowed for this project. Choose a repository selected during GitHub App installation, or ask an operator to allow that owner/repo target.';
+      return "That repository is not selected for this project's GitHub App installation. Add it in GitHub, refresh status, then queue the scan again.";
     }
     if (error.status === 409) {
       return 'A scan is already queued or running for this repository. Watch recent scan activity below.';

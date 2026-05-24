@@ -244,9 +244,14 @@ func TestEnqueueDueScanPolicyCountsInProgressRepoTowardConcurrency(t *testing.T)
 	}
 }
 
-func TestEnqueueDueScanPolicyDoesNotCountDisallowedRepoTowardConcurrency(t *testing.T) {
+func TestEnqueueDueScanPolicyDoesNotCountDisallowedPATRepoTowardConcurrency(t *testing.T) {
 	now := time.Date(2026, 5, 12, 12, 5, 0, 0, time.UTC)
 	svc, store, ctx := newScanPolicySchedulerTestService(t, now, []string{"owner/repo-a", "owner/repo-b"})
+	connection := svc.githubConnections[githubConnectionKey("default", "default", "project-1")]
+	connection.Provider = "github_pat"
+	connection.ConnectorID = "pat-connector"
+	connection.InstallationID = 0
+	svc.githubConnections[githubConnectionKey("default", "default", "project-1")] = connection
 	svc.RepoScanAllowedTargets = []string{"owner/repo-b"}
 
 	upsertTestScanPolicy(t, store, ctx, now.Add(-time.Hour), 1)

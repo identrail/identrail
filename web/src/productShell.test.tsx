@@ -693,7 +693,7 @@ describe('ProductProjectDetailPage', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Queue first scan/i })).not.toBeDisabled());
   });
 
-  it('explains allowlist failures when the first repository scan is not permitted', async () => {
+  it('explains selected-repository failures when the first repository scan is not permitted', async () => {
     const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
       repoScanError: { message: 'repo target not allowed', status: 403 }
     });
@@ -704,7 +704,7 @@ describe('ProductProjectDetailPage', () => {
 
     await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
     expect(
-      await screen.findByText(/not currently allowed for this project/i)
+      await screen.findByText(/not selected for this project's GitHub App installation/i)
     ).toBeInTheDocument();
   });
 });

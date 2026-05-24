@@ -40,9 +40,10 @@ Checks:
 
 Checks:
 1. `IDENTRAIL_REPO_SCAN_ENABLED=true`.
-2. `IDENTRAIL_REPO_SCAN_ALLOWLIST` is set and includes the target.
-3. API target is remote (`owner/repo`, `https://...`, or `ssh://...`) and not a local filesystem path.
-4. Request uses write-authorized API key/scope.
+2. For GitHub App-backed project scans, the repository is selected on that project's GitHub App installation.
+3. For direct non-connector scans, `IDENTRAIL_REPO_SCAN_ALLOWLIST` is set and includes the target.
+4. API target is remote (`owner/repo`, `https://...`, or `ssh://...`) and not a local filesystem path.
+5. Request uses write-authorized API key/scope.
 
 ## GitHub Action says missing `VITE_IDENTRAIL_API_URL`
 

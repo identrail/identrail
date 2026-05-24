@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Let GitHub App-backed project scans use the app installation's selected
+  repository list as the scoped target guard, so personal and organization repos
+  selected in GitHub no longer require a per-repo deployment allowlist update
+  before the first scan can be queued.
 - Ingest open GitHub secret-scanning and Dependabot vulnerability alerts as
   first-class repository findings during GitHub App-backed repo scans, alongside
   the existing code-scanning import. Secret-scanning alerts become redacted

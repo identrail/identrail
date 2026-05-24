@@ -125,9 +125,8 @@ operator sees a specific setup problem.
 
 Personal repositories and organization repositories follow the same completion
 path. After callback, Identrail lists repositories selected for that
-installation and accepts any `owner/repo` in the selected list, subject to the
-hosted repo scan allowlist described below. A repository that was not selected
-during installation or was not allowlisted should produce a targeted product
+installation and accepts any `owner/repo` in the selected list. A repository
+that was not selected during installation should produce a targeted product
 message instead of a generic 404.
 
 ## GitHub Enterprise Fallback
@@ -142,19 +141,19 @@ This fallback is for self-hosted GitHub Enterprise and development environments.
 
 `POST /auth/webhooks/github` verifies the global GitHub App HMAC secret before processing events.
 
-Installation lifecycle events can mark matching connectors disconnected. Repository events are matched by installation ID and repository allowlist before queueing scans.
+Installation lifecycle events can mark matching connectors disconnected. Repository events are matched by installation ID and the GitHub App selected-repository list before queueing scans.
 
-Webhook-triggered scans still honor the repo scan allowlist, per-repository
-cursor, and queue controls. Push and pull-request events enqueue `delta` scans
-when GitHub supplies a usable head revision. Push events use `before` and
-`after` as the base/head revisions and fold commit `added`, `modified`, and
-`removed` paths into the scan request. Duplicate delivery IDs, burst-window
-repeats, queue pressure, disabled scanning, target-deny decisions, and
-already-current cursors are recorded as skipped work instead of creating
+Webhook-triggered scans still honor the GitHub App selected-repository guard,
+per-repository cursor, and queue controls. Push and pull-request events enqueue
+`delta` scans when GitHub supplies a usable head revision. Push events use
+`before` and `after` as the base/head revisions and fold commit `added`,
+`modified`, and `removed` paths into the scan request. Duplicate delivery IDs,
+burst-window repeats, queue pressure, disabled scanning, target-deny decisions,
+and already-current cursors are recorded as skipped work instead of creating
 unbounded duplicate queue entries.
-Before enabling `IDENTRAIL_REPO_SCAN_ENABLED=true` for hosted production, set an
-explicit `IDENTRAIL_REPO_SCAN_ALLOWLIST` or equivalent scoped target guard so a
-GitHub webhook cannot enqueue scans outside approved repositories.
+Before enabling direct API or worker repo scans for hosted production, set an
+explicit `IDENTRAIL_REPO_SCAN_ALLOWLIST`. GitHub App-backed scans use the
+per-installation selected repository list as their scoped target guard.
 For the AWS-hosted API workflow, use the first-class repository variables
 `API_REPO_SCAN_ENABLED=true` and `API_REPO_SCAN_ALLOWLIST=<owner/repo>` instead
 of hiding the same runtime values inside `API_EXTRA_ENVIRONMENT_JSON`.
@@ -164,8 +163,8 @@ of hiding the same runtime values inside `API_EXTRA_ENVIRONMENT_JSON`.
 GitHub App connections can now back private repository exposure scans. When a
 repo scan request includes `project_id`, Identrail verifies that the scoped
 project has an active GitHub App connection, that the requested repository is in
-the selected repository list, and that the normal repo-scan allowlist still
-permits the target.
+the selected repository list, and that the scan source matches the stored
+connector context.
 
 Queued scans store only non-secret source metadata: provider, project id,
 connector id, and installation id. The API and worker never store the raw
