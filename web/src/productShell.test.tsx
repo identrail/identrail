@@ -79,7 +79,7 @@ const connectedGitHub: GitHubConnectionStatus = {
   provider: 'github_app',
   connected: true,
   connector_id: 'github-app',
-  display_name: 'GitHub App',
+  display_name: 'Identrail',
   status: 'active',
   health_status: 'healthy',
   account_login: 'identrail',
@@ -128,7 +128,7 @@ async function renderProjectDetail(
   githubBackend: BackendFeatureState,
   githubConnection = connectedGitHub,
   options: {
-    repoScanError?: { message: string; status: number };
+    repoScanError?: { message: string; status: number; code?: string; detail?: string };
     repoScans?: RepoScanRecord[];
     listRepoScans?: () => Promise<{ items: RepoScanRecord[] }>;
     withProjectSwitcher?: boolean;
@@ -173,7 +173,12 @@ async function renderProjectDetail(
   }
   const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
   if (options.repoScanError) {
-    runRepoScan.mockRejectedValue(new api.ApiError(options.repoScanError.message, options.repoScanError.status));
+    runRepoScan.mockRejectedValue(
+      new api.ApiError(options.repoScanError.message, options.repoScanError.status, {
+        code: options.repoScanError.code,
+        detail: options.repoScanError.detail
+      })
+    );
   } else {
     runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
   }
@@ -211,7 +216,7 @@ async function renderProjectDetail(
       provider: 'github_app',
       connected: false,
       connector_id: 'github-app',
-      display_name: 'GitHub App',
+      display_name: 'Identrail',
       status: 'pending',
       health_status: 'unknown',
       webhook_secret_rotation_required: false,
@@ -403,7 +408,7 @@ describe('ProductProjectDetailPage', () => {
 
     expect((await screen.findAllByText('identrail/identrail')).length).toBeGreaterThan(0);
     expect(within(screen.getByLabelText('Source types')).getByRole('button', { name: /GitHub/i })).not.toBeDisabled();
-    expect(screen.getByText('Installation 12345')).toBeInTheDocument();
+    expect(screen.getByText(/Installation 12345/i)).toBeInTheDocument();
     expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
       'workspace-a',
       'project-1',
@@ -416,8 +421,8 @@ describe('ProductProjectDetailPage', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const { startGitHubConnector } = await renderProjectDetail(true);
 
-    expect(await screen.findByText('Install the GitHub App')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Continue to GitHub/i }));
+    expect(await screen.findByText('Install Identrail on GitHub')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Install GitHub App/i }));
 
     await waitFor(() =>
       expect(startGitHubConnector).toHaveBeenCalledWith(
@@ -445,6 +450,13 @@ describe('ProductProjectDetailPage', () => {
     fireEvent.click(screen.getByText('GitHub Enterprise fallback'));
     expect(screen.getByLabelText(/Personal access token/i)).toBeVisible();
 
+    const scanLimits = screen.getByText('Scan limits').closest('details');
+    expect(scanLimits).not.toBeNull();
+    expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).not.toBeVisible();
+
+    fireEvent.click(within(scanLimits as HTMLElement).getByText('Scan limits'));
+    expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).toBeVisible();
+
     expect(screen.getByText('Scan policy editor')).toBeInTheDocument();
     expect(screen.getByLabelText(/Trigger mode/i)).not.toBeVisible();
 
@@ -456,7 +468,10 @@ describe('ProductProjectDetailPage', () => {
     const { getGitHubConnectorRepositoryPosture } = await renderProjectDetail(true);
 
     expect(await screen.findByText('Repository posture')).toBeInTheDocument();
-    expect(await screen.findByText(/Actions token can write by default/i)).toBeInTheDocument();
+    const postureDetails = await screen.findByText(/Review 1 check/i);
+    expect(screen.getByText(/Actions token can write by default/i)).not.toBeVisible();
+    fireEvent.click(postureDetails);
+    expect(screen.getByText(/Actions token can write by default/i)).toBeVisible();
     expect(getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
       'github-app',
       'workspace-a',
@@ -672,7 +687,7 @@ describe('ProductProjectDetailPage', () => {
     expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: /Open project 2/i }));
-    expect(await screen.findByRole('heading', { name: /Connect sources for project-2/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Connect project sources/i })).toBeInTheDocument();
     const secondQueueButton = await screen.findByRole('button', { name: /Queue first scan/i });
     await waitFor(() => expect(secondQueueButton).not.toBeDisabled());
     fireEvent.click(secondQueueButton);
@@ -693,7 +708,7 @@ describe('ProductProjectDetailPage', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Queue first scan/i })).not.toBeDisabled());
   });
 
-  it('explains allowlist failures when the first repository scan is not permitted', async () => {
+  it('explains selected-repository and allowlist failures when the first repository scan is not permitted', async () => {
     const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
       repoScanError: { message: 'repo target not allowed', status: 403 }
     });
@@ -704,8 +719,27 @@ describe('ProductProjectDetailPage', () => {
 
     await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
     expect(
-      await screen.findByText(/not currently allowed for this project/i)
+      await screen.findByText(/select it during installation and refresh status/i)
     ).toBeInTheDocument();
+    expect(screen.getByText(/ask an operator to allow that owner\/repo target/i)).toBeInTheDocument();
+  });
+
+  it('surfaces hosted repository scan diagnostics from the API response', async () => {
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
+      repoScanError: {
+        message: 'failed to enqueue repo scan',
+        status: 500,
+        code: 'repo_scan_migration_missing',
+        detail: 'Repository scan persistence failed; the hosted database may be missing migrations.'
+      }
+    });
+
+    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(queueButton).not.toBeDisabled());
+    fireEvent.click(queueButton);
+
+    await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
+    expect(await screen.findByText(/hosted database may be missing migrations/i)).toBeInTheDocument();
   });
 });
 

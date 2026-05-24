@@ -1,18 +1,18 @@
 # Auth Environment Variables Reference
 
 A flat list of authentication and connector environment variables, with
-defaults and validation notes. The "Track" column reflects the current roadmap;
-older PR-number references are historical.
+defaults and validation notes. The "Area" column names the active product
+surface each variable belongs to; older PR-number references are historical.
 
 The rule that drives every example below: domain references are always config-driven. The doc never hardcodes a deployment's domains as if they were defaults — concrete hosts like `https://api.identrail.com` (API callback origin) and `https://app.identrail.com` (web app origin) appear only as illustrative example values, including where the prose must contrast the two so operators do not confuse them.
 
 ## Core Session and Identity
 
-The two variables marked `Required` in the table below apply regardless of which auth driver is active (WorkOS, generic OIDC, or manual). Self-hosted operators set them just as cloud deployments do. The other two are optional knobs covered in the same table for completeness: `IDENTRAIL_SESSION_KEY_PREVIOUS` is only set during a key rotation, and `IDENTRAIL_AUTH_MANUAL_MODE` defaults to `false`.
+The two variables marked `Required` in the table below apply regardless of which auth driver is active (WorkOS, generic OIDC bearer auth, native SAML, or manual). Self-hosted operators set them just as cloud deployments do. The other two are optional knobs covered in the same table for completeness: `IDENTRAIL_SESSION_KEY_PREVIOUS` is only set during a key rotation, and `IDENTRAIL_AUTH_MANUAL_MODE` defaults to `false`.
 
-| Variable | Default | Validation | Track |
+| Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
-| `IDENTRAIL_PUBLIC_BASE_URL` | none | Required for any auth driver (WorkOS, OIDC, manual, or native SAML). This is the **externally reachable API origin** — the host the auth provider redirects back to. The WorkOS callback URL is constructed as `<IDENTRAIL_PUBLIC_BASE_URL>/auth/callback`, so for Identrail Cloud it is the API service origin (`https://api.identrail.com`), **not** the web app origin (`https://app.identrail.com`). Must parse as an absolute URL. Must be `https://` in any non-development build. Refuses to start if missing. See [`production-api-readiness.md`](./production-api-readiness.md). | Auth foundation |
+| `IDENTRAIL_PUBLIC_BASE_URL` | none | Required for any auth driver (WorkOS, OIDC bearer auth, manual, or native SAML). This is the **externally reachable API origin** used for absolute auth URLs and browser-provider callbacks. The WorkOS callback URL is constructed as `<IDENTRAIL_PUBLIC_BASE_URL>/auth/callback`, so for Identrail Cloud it is the API service origin (`https://api.identrail.com`), **not** the web app origin (`https://app.identrail.com`). Must parse as an absolute URL. Must be `https://` in any non-development build. Refuses to start if missing. See [`production-api-readiness.md`](./production-api-readiness.md). | Auth foundation |
 | `IDENTRAIL_SESSION_KEY` | none | Required for any auth driver. 32 bytes minimum (64 hex chars). Refuses to start if missing or shorter. | Auth foundation |
 | `IDENTRAIL_SESSION_KEY_PREVIOUS` | empty | Optional. Same format as `IDENTRAIL_SESSION_KEY`. Used during a key rotation. | Auth foundation |
 | `IDENTRAIL_AUTH_MANUAL_MODE` | `false` | Boolean. **Local development only.** `/auth/manual` mints a browser session from request-supplied tenant and identity fields, so it must never be enabled for production or any internet-accessible deployment. The server refuses to start when this is `true` unless **both** `IDENTRAIL_PUBLIC_BASE_URL` is a loopback origin (`http://localhost`, `http://127.0.0.1`, or `http://[::1]`) **and** `IDENTRAIL_HTTP_ADDR` binds a loopback interface (e.g. `127.0.0.1:8080`) — a loopback base URL alone does not stop a `0.0.0.0` bind or ingress from exposing the endpoint. As additional per-request defense-in-depth, `/auth/manual` also rejects any caller whose resolved client IP is not loopback unless the unsafe override is set. Mutually exclusive with `IDENTRAIL_WORKOS_CLIENT_ID`; setting both refuses to start. | Auth foundation |
@@ -40,18 +40,24 @@ in [`production-api-readiness.md`](./production-api-readiness.md).
 
 ## WorkOS Hosted Login
 
-| Variable | Default | Validation | Track |
+| Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
 | `IDENTRAIL_WORKOS_CLIENT_ID` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Refuses to start if `IDENTRAIL_AUTH_MANUAL_MODE=true` and this is set. | WorkOS login |
 | `IDENTRAIL_WORKOS_API_KEY` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Treated as a secret. | WorkOS login |
 | `IDENTRAIL_WORKOS_WEBHOOK_SECRET` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Used to verify webhook HMAC. | WorkOS login |
 | `IDENTRAIL_WORKOS_ENVIRONMENT_ID` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Picks the WorkOS environment (test, staging, production). | WorkOS login |
 
-Self-hosted operators leave all four WorkOS variables in this section empty. They still set the two required core variables in the previous section (`IDENTRAIL_PUBLIC_BASE_URL` and `IDENTRAIL_SESSION_KEY`), set the two optional ones if they need them (`IDENTRAIL_SESSION_KEY_PREVIOUS` during a key rotation, `IDENTRAIL_AUTH_MANUAL_MODE` for local dev), and configure their OIDC issuer via the existing `IDENTRAIL_OIDC_*` variables.
+Self-hosted operators leave all four WorkOS variables in this section empty.
+They still set the two required core variables in the previous section
+(`IDENTRAIL_PUBLIC_BASE_URL` and `IDENTRAIL_SESSION_KEY`), set the two optional
+ones if they need them (`IDENTRAIL_SESSION_KEY_PREVIOUS` during a key rotation,
+`IDENTRAIL_AUTH_MANUAL_MODE` for local dev), and then choose scoped API keys,
+native SAML/SCIM, or the existing `IDENTRAIL_OIDC_*` API bearer-token variables
+for their deployment.
 
 ## Email
 
-| Variable | Default | Validation | Track |
+| Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
 | `IDENTRAIL_EMAIL_PROVIDER` | empty | One of `resend`, `postmark`, `ses`, or empty. Empty disables outgoing email and refuses to send invitations. | Future invitation/email work |
 | `IDENTRAIL_EMAIL_API_KEY` | empty | Required when `IDENTRAIL_EMAIL_PROVIDER` is set. Treated as a secret. | Future invitation/email work |
@@ -61,14 +67,14 @@ Self-hosted operators leave all four WorkOS variables in this section empty. The
 
 ### AWS Connector
 
-| Variable | Default | Validation | Track |
+| Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
 | `IDENTRAIL_AWS_CFN_TEMPLATE_URL` | empty | Required for the CFN one-click flow. Points at the CDN-hosted template. | AWS connector |
 | `IDENTRAIL_AWS_ACCOUNT_ID` | empty | Required. The Identrail-side AWS account that the customer's role trusts. | AWS connector |
 
 ### GitHub Connector
 
-| Variable | Default | Validation | Track |
+| Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
 | `IDENTRAIL_GITHUB_APP_ID` | empty | Required only when the hosted GitHub App flow is configured. | GitHub connector |
 | `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` | empty | Required only when the hosted GitHub App flow is configured. PEM-formatted RSA private key. Treated as a secret. | GitHub connector |
@@ -78,7 +84,7 @@ Self-hosted operators leave all four WorkOS variables in this section empty. The
 
 ### Kubernetes Connector
 
-| Variable | Default | Validation | Track |
+| Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
 | `IDENTRAIL_K8S_AGENT_HELM_REPO` | `oci://registry.identrail.com/charts` | The Helm OCI registry the operator references when installing the agent. Self-hosters can override. | Kubernetes connector |
 | `IDENTRAIL_K8S_AGENT_VERSION` | empty | Optional. Pins a specific agent version. Empty means latest stable. | Kubernetes connector |
@@ -89,7 +95,7 @@ The Kubernetes connector implementation ships the chart in `deploy/connectors/k8
 
 Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` patterns. Backend flags use `IDENTRAIL_FEATURE_*` and frontend flags use `VITE_FEATURE_*`. Defaults are conservative; every new feature ships off and gets turned on after the PR is reviewed and verified.
 
-| Variable | Default | Track |
+| Variable | Default | Area |
 | --- | --- | --- |
 | `IDENTRAIL_FEATURE_NEW_AUTH` | `false` | Auth foundation |
 | `IDENTRAIL_FEATURE_WORKOS_LOGIN` | `false` | WorkOS login |
@@ -98,7 +104,7 @@ Feature flags follow the existing `IDENTRAIL_FEATURE_*` and `VITE_FEATURE_*` pat
 | `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2` | `false` | GitHub connector |
 | `IDENTRAIL_FEATURE_CONNECTOR_K8S` | `false` | Kubernetes connector |
 | `IDENTRAIL_FEATURE_ONBOARDING_WIZARD` | `false` | Onboarding |
-| `IDENTRAIL_FEATURE_NATIVE_SSO` | `false` | Track 1 native SAML + SCIM |
+| `IDENTRAIL_FEATURE_NATIVE_SSO` | `false` | Native SAML + SCIM |
 | `IDENTRAIL_ENABLE_NATIVE_SSO` | empty | Compatibility alias for `IDENTRAIL_FEATURE_NATIVE_SSO`; when set, it overrides the canonical flag. |
 | `VITE_FEATURE_NEW_AUTH_UI` | `false` | Auth UI |
 | `VITE_FEATURE_CONNECTORS_V2` | `false` | Connector foundation |

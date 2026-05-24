@@ -12,7 +12,7 @@ func TestAuditFingerprintSecretIsDocumented(t *testing.T) {
 	required := "IDENTRAIL_AUDIT_FINGERPRINT_SECRET"
 	for _, relPath := range []string{
 		filepath.Join("docs", "configuration-reference.md"),
-		filepath.Join("docs", "phase-2.md"),
+		filepath.Join("docs", "archive", "phase-2.md"),
 	} {
 		content := readRepositoryFile(t, relPath)
 		if !strings.Contains(content, required) {

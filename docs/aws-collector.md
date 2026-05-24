@@ -1,4 +1,4 @@
-# AWS Collector (Phase 1)
+# AWS Collector
 
 ## Purpose
 

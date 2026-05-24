@@ -65,8 +65,8 @@ A user cannot unlink their last remaining identity. The user must always have at
 
 A user with both Google and GitHub linked who unlinks Google: their Google
 `user_identities` row is deleted, the Identrail account stays, GitHub still
-works. Future recovery-code work can add another break-glass path, but Track 1
-native SAML does not ship recovery codes.
+works. Future recovery-code work can add another break-glass path, but native
+SAML does not ship recovery codes yet.
 
 Every unlink emits `auth.identity.unlinked` audit event.
 

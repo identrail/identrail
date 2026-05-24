@@ -93,7 +93,9 @@ Use this where Kubernetes is not required.
 - Helm, raw Kubernetes, Terraform, and systemd examples are production-oriented profiles and set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`.
 - AWS production collection uses live SDK mode (`IDENTRAIL_AWS_SOURCE=sdk`); use fixture mode only with `IDENTRAIL_REQUIRE_LIVE_SOURCES=false` in local/non-production tests.
 - Kubernetes production collection uses live kubectl mode (`IDENTRAIL_K8S_SOURCE=kubectl`); use fixture mode only with `IDENTRAIL_REQUIRE_LIVE_SOURCES=false` in local/non-production tests.
-- Repository exposure scans can be run via CLI (`identrail repo-scan`) or API (`POST /v1/repo-scans`).
+- Repository exposure scans can be run locally with `identrail scan owner/repo`,
+  through the advanced/API-backed CLI commands (`identrail repo-scan queue|list|show|cancel`),
+  or directly through `POST /v1/repo-scans`.
 - Optional continuous repo scanning can run from worker (`IDENTRAIL_WORKER_REPO_SCAN_ENABLED=true` + `IDENTRAIL_WORKER_REPO_SCAN_TARGETS`).
 - For tighter safety in shared environments, set `IDENTRAIL_REPO_SCAN_ALLOWLIST`.
 - For multi-instance API/worker deployments, use `IDENTRAIL_LOCK_BACKEND=postgres` (or `auto` with database mode).

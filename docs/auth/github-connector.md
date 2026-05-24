@@ -125,9 +125,8 @@ operator sees a specific setup problem.
 
 Personal repositories and organization repositories follow the same completion
 path. After callback, Identrail lists repositories selected for that
-installation and accepts any `owner/repo` in the selected list, subject to the
-hosted repo scan allowlist described below. A repository that was not selected
-during installation or was not allowlisted should produce a targeted product
+installation and accepts any `owner/repo` in the selected list. A repository
+that was not selected during installation should produce a targeted product
 message instead of a generic 404.
 
 ## GitHub Enterprise Fallback
@@ -142,19 +141,19 @@ This fallback is for self-hosted GitHub Enterprise and development environments.
 
 `POST /auth/webhooks/github` verifies the global GitHub App HMAC secret before processing events.
 
-Installation lifecycle events can mark matching connectors disconnected. Repository events are matched by installation ID and repository allowlist before queueing scans.
+Installation lifecycle events can mark matching connectors disconnected. Repository events are matched by installation ID and the GitHub App selected-repository list before queueing scans.
 
-Webhook-triggered scans still honor the repo scan allowlist, per-repository
-cursor, and queue controls. Push and pull-request events enqueue `delta` scans
-when GitHub supplies a usable head revision. Push events use `before` and
-`after` as the base/head revisions and fold commit `added`, `modified`, and
-`removed` paths into the scan request. Duplicate delivery IDs, burst-window
-repeats, queue pressure, disabled scanning, target-deny decisions, and
-already-current cursors are recorded as skipped work instead of creating
+Webhook-triggered scans still honor the GitHub App selected-repository guard,
+per-repository cursor, and queue controls. Push and pull-request events enqueue
+`delta` scans when GitHub supplies a usable head revision. Push events use
+`before` and `after` as the base/head revisions and fold commit `added`,
+`modified`, and `removed` paths into the scan request. Duplicate delivery IDs,
+burst-window repeats, queue pressure, disabled scanning, target-deny decisions,
+and already-current cursors are recorded as skipped work instead of creating
 unbounded duplicate queue entries.
-Before enabling `IDENTRAIL_REPO_SCAN_ENABLED=true` for hosted production, set an
-explicit `IDENTRAIL_REPO_SCAN_ALLOWLIST` or equivalent scoped target guard so a
-GitHub webhook cannot enqueue scans outside approved repositories.
+Before enabling direct API or worker repo scans for hosted production, set an
+explicit `IDENTRAIL_REPO_SCAN_ALLOWLIST`. GitHub App-backed scans use the
+per-installation selected repository list as their scoped target guard.
 For the AWS-hosted API workflow, use the first-class repository variables
 `API_REPO_SCAN_ENABLED=true` and `API_REPO_SCAN_ALLOWLIST=<owner/repo>` instead
 of hiding the same runtime values inside `API_EXTRA_ENVIRONMENT_JSON`.
@@ -164,8 +163,8 @@ of hiding the same runtime values inside `API_EXTRA_ENVIRONMENT_JSON`.
 GitHub App connections can now back private repository exposure scans. When a
 repo scan request includes `project_id`, Identrail verifies that the scoped
 project has an active GitHub App connection, that the requested repository is in
-the selected repository list, and that the normal repo-scan allowlist still
-permits the target.
+the selected repository list, and that the scan source matches the stored
+connector context.
 
 Queued scans store only non-secret source metadata: provider, project id,
 connector id, and installation id. The API and worker never store the raw
@@ -221,6 +220,75 @@ The manifest permissions that support this collection are read-only:
 
 If one of these permissions is missing, the corresponding posture check should
 return `permission_limited` instead of failing the whole collection.
+
+## Organization Policy Posture
+
+Repository posture answers what is configured on one selected repository.
+GitHub App-backed posture collection also attempts to collect the organization
+security policy inherited by that repository owner, when GitHub exposes it to
+the installation.
+
+Organization posture is returned separately from repository posture so callers
+can distinguish a local repository gap from an inherited policy-plane gap. The
+collector currently evaluates:
+
+- organization secret scanning and push protection policy through
+  organization-scoped enforced code security configurations
+- organization Actions policy, including whether all actions are allowed
+- organization default workflow token permissions and whether Actions can
+  approve pull requests
+- selected-actions / reusable-workflow allowlist posture when applicable
+- organization code security configurations, including whether a central
+  organization-scoped configuration is enforced and enables protective controls
+  such as secret scanning or push protection
+
+Organization checks use the same normalized states as repository checks:
+`secure`, `insecure`, `permission_limited`, `unavailable`, `unsupported`, and
+`unknown`. `permission_limited`, `unsupported`, and `unknown` are never treated
+as passing controls. They indicate that GitHub did not expose enough information
+for Identrail to prove the policy is safe.
+
+Organization posture is best-effort enrichment. If the repository owner is a
+personal account, the installation lacks organization read permissions, the
+account plan does not expose a control, or GitHub returns an unavailable
+endpoint, repository posture still returns normally and the affected
+organization checks record the most precise non-secure state available.
+
+## Imported GitHub Alert Findings
+
+Repository posture answers whether a security feature is configured. Connector-
+backed repository scans go one step further and import the actual open GitHub
+alerts as first-class Identrail findings, so operators see which secret alert
+exists, which dependency advisory is open, how severe it is, and what to do next.
+
+When a GitHub App-backed repository scan runs, Identrail also collects open
+alerts through the installation token and normalizes them into the repo-finding
+model used by native scanning and code-scanning imports:
+
+- Secret-scanning alerts become redacted `secret_exposure` findings.
+- Dependabot alerts become `repo_misconfiguration` findings carrying ecosystem,
+  package name, GHSA/CVE identifiers, the vulnerable version range, the first
+  patched version when available, the GitHub alert URL, and a mapped severity.
+
+The read-only manifest permissions that support this import are the same ones
+used by posture collection:
+
+- `security_events`: code-scanning alert import.
+- `secret_scanning_alerts`: secret-scanning alert import.
+- `vulnerability_alerts`: Dependabot alert import.
+
+Each alert source is collected independently and treated as enrichment. If a
+permission is missing, or GitHub returns a permission-limited, unavailable, or
+rate-limited response for one source, the native scan and the remaining imports
+still complete; the unavailable source simply contributes no findings for that
+run, consistent with code-scanning behavior.
+
+Imported secret-scanning findings never expose raw secret material. Identrail
+does not fetch or store the GitHub `secret` value; it keeps only the secret type
+label, validity, and alert metadata, and records a redacted snippet with
+`raw_secret_stored: false` and `secret_value_masked: true`. See
+`docs/repo-exposure.md` for the full evidence and redaction contract and the
+difference between posture checks and imported alert findings.
 
 ## Rollback
 

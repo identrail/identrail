@@ -24,13 +24,9 @@ function buildConnectSrc(env: Record<string, string>, isProduction: boolean): st
     'https://img.shields.io'
   ]);
   const apiOrigin = originFromURL(env.VITE_IDENTRAIL_API_URL);
-  const oidcOrigin = originFromURL(env.VITE_OIDC_ISSUER_URL);
 
   if (apiOrigin) {
     allowlist.add(apiOrigin);
-  }
-  if (oidcOrigin) {
-    allowlist.add(oidcOrigin);
   }
 
   if (!isProduction) {

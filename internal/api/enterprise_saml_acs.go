@@ -42,9 +42,9 @@ type nativeSAMLLoginRouteOptions struct {
 }
 
 // SAMLDefaultClockSkew is the asserted-NotOnOrAfter tolerance applied to
-// incoming SAML responses. Matches the de-facto Okta/Azure AD default and is
-// large enough to absorb modest server-to-server clock drift without opening
-// a meaningful replay window.
+// incoming SAML responses. The value matches common IdP defaults and is large
+// enough to absorb modest server-to-server clock drift without opening a
+// meaningful replay window.
 const SAMLDefaultClockSkew = 60 * time.Second
 
 func registerNativeSAMLLoginRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts nativeSAMLLoginRouteOptions) {
@@ -350,9 +350,8 @@ func loadNativeSAMLConnectionForLogin(c *gin.Context, svc *Service, logger *zap.
 // SSO URL, and PEM certificate.
 //
 // v1 ships without an SP signing key — Key is left nil so AuthnRequests are
-// unsigned. This is acceptable for the common case (Okta, Azure AD do not
-// require signed requests by default). A follow-up will introduce per-tenant
-// SP key material.
+// unsigned. This is acceptable for common IdP defaults. A follow-up will
+// introduce per-tenant SP key material.
 func buildSAMLServiceProvider(conn db.IdentityConnection, publicBaseURL string) (*saml.ServiceProvider, error) {
 	cert, err := enterprise.ParseSAMLCertificate(conn.CertificatePEM)
 	if err != nil {

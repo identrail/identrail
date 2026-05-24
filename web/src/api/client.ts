@@ -867,7 +867,13 @@ export type GitHubRepositoryListResponse = {
   repositories: GitHubRepositoryStatus[];
 };
 
-export type GitHubRepositoryPostureState = 'secure' | 'insecure' | 'unavailable' | 'permission_limited';
+export type GitHubRepositoryPostureState =
+  | 'secure'
+  | 'insecure'
+  | 'unavailable'
+  | 'permission_limited'
+  | 'unsupported'
+  | 'unknown';
 
 export type GitHubRepositoryPostureCheck = {
   id: string;
@@ -892,10 +898,19 @@ export type GitHubRepositoryPosture = {
   rate_limit?: GitHubRateLimitState;
 };
 
+export type GitHubOrganizationPosture = {
+  organization: string;
+  installation_id?: number;
+  collected_at: string;
+  checks: GitHubRepositoryPostureCheck[];
+  rate_limit?: GitHubRateLimitState;
+};
+
 export type GitHubRepositoryPostureResponse = {
   connector_id: string;
   provider: string;
   posture: GitHubRepositoryPosture;
+  organization_posture?: GitHubOrganizationPosture;
 };
 
 export type GitHubConnectionCompleteRequest = {
@@ -982,11 +997,15 @@ type IdentrailRequestInit = RequestInit & {
 
 export class ApiError extends Error {
   status: number;
+  code?: string;
+  detail?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, options: { code?: string; detail?: string } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = options.code;
+    this.detail = options.detail;
   }
 }
 
@@ -1060,18 +1079,22 @@ async function request<T>(path: string, auth?: RequestAuthContext, init: Identra
   });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let code: string | undefined;
+    let detail: string | undefined;
     try {
-      const payload = (await res.json()) as { error?: string };
+      const payload = (await res.json()) as { error?: string; error_code?: string; error_detail?: string };
       if (payload?.error) {
         message = payload.error;
       }
+      code = payload?.error_code;
+      detail = payload?.error_detail;
     } catch {
       // Keep status-based message when server does not return a JSON error body.
     }
     if (res.status === 401 && redirectOnUnauthorized) {
       redirectToSignInForUnauthorized();
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, { code, detail });
   }
   if (res.status === 204) {
     return undefined as T;
@@ -1395,6 +1418,7 @@ export const apiClient = {
       repository?: string;
       severity?: string;
       type?: string;
+      source?: string;
       repo_lifecycle_status?: RepoFindingLifecycleStatus;
       detector?: string;
       owner?: string;

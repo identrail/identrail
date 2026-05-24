@@ -1,16 +1,25 @@
-# V1 Scope And Baseline (First 20 Priorities)
+# Current Product Baseline
 
-This document locks the first twenty non-negotiable V1 priorities.
+This document describes the current Identrail baseline. Historical phase plans
+live under `docs/archive/` and should not be treated as the active product
+contract.
 
-## 1) Scope Freeze
+## 1) Current Scope
 
-- Core path: AWS + Kubernetes discovery, normalization, graph, risk findings, API, dashboard.
-- Optional module: GitHub repository exposure scanner (`repo-scan`) remains separate from core identity scan flow.
-- Provider guardrail: startup validation accepts only `aws` or `kubernetes` for V1 runtime.
+- AWS: IAM identity discovery, normalization, graph relationships, risk
+  findings, API, CLI, and dashboard surfaces.
+- GitHub: repository exposure scans, workflow and token posture checks,
+  GitHub App-backed private repository scanning, repo finding lifecycle, API,
+  CLI, worker, and dashboard surfaces.
+- Kubernetes: service account, RBAC, workload identity, graph relationships,
+  risk findings, API, CLI, and dashboard surfaces.
+- Runtime guardrails should keep unsupported providers explicit. AWS and
+  Kubernetes run through provider scan pipelines; GitHub repository exposure
+  runs through the repo scan pipeline.
 
 ## 2) Standards Baseline
 
-- Auth baseline: API key auth plus OIDC/OAuth2-compatible bearer auth (Keycloak-compatible issuer/audience model).
+- Auth baseline: hosted session auth, API key auth, native SAML/SCIM where enabled, and generic OIDC/OAuth2-compatible bearer auth for API clients.
 - Finding baseline: typed internal finding model enriched with control references.
 - Export baseline:
   - OCSF-aligned payload export
@@ -97,6 +106,9 @@ This document locks the first twenty non-negotiable V1 priorities.
   - `identrail scan`
   - `identrail findings`
   - `identrail repo-scan`
+- `identrail scan owner/repo` is the preferred short command for repository
+  exposure scans; `identrail repo-scan --repo owner/repo` remains the
+  compatibility and advanced form.
 - Output compatibility maintained (`table` and `json`).
 - Table output now uses deterministic severity ordering (`critical` first).
 - CLI smoke coverage is enforced in CI.

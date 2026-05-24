@@ -24,6 +24,8 @@ func TestSuggestRepoExposureRemediationSupportsMisconfigDetectors(t *testing.T) 
 		{"workflow_oidc_broad_trust", false, false},
 		{"workflow_cache_poisoning", false, false},
 		{"workflow_artifact_poisoning", false, false},
+		{"workflow_self_hosted_runner", false, false},
+		{"workflow_self_hosted_runner_unresolved", false, false},
 		{"k8s_privileged_true", true, true},
 		{"terraform_public_s3_acl", true, true},
 		{"terraform_open_ssh_rdp", false, true},

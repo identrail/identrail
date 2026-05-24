@@ -10,7 +10,9 @@ This file tracks major decisions in simple terms.
 
 ## ADR-002: AWS-First Scope
 - Date: 2026-03-16
-- Decision: Build full AWS pipeline first. Keep Kubernetes/Azure interfaces ready.
+- Decision: Build the AWS pipeline first, keep Kubernetes as the next provider
+  boundary, and keep additional provider seams open without committing Azure
+  runtime support.
 - Why: Smaller scope, faster value, lower risk.
 - Tradeoff: Multi-cloud comes later.
 
@@ -266,16 +268,16 @@ This file tracks major decisions in simple terms.
 - Why: Keep API stable for large datasets and improve remediation accountability without introducing heavy new persistence paths.
 - Tradeoff: Current cursor strategy is offset-based and can be less efficient at very high offsets.
 
-## ADR-045: Freeze V1 Runtime Scope to AWS + Kubernetes
+## ADR-045: Historical V1 Runtime Scope Guardrail
 - Date: 2026-03-19
-- Decision: Enforce provider guardrails so V1 runtime only accepts `aws` or `kubernetes`; keep repository exposure scanning optional and isolated.
+- Decision: Initially enforce provider guardrails so V1 runtime only accepted `aws` or `kubernetes`; repository exposure scanning was kept outside the first provider runtime contract at that time.
 - Why: Protect V1 delivery quality by locking scope to core machine identity workflows and preventing unstable multi-provider drift.
-- Tradeoff: Azure runtime collection remains deferred until post-V1 milestones.
+- Current status: Superseded by the current AWS, GitHub, and Kubernetes product baseline in `docs/v1_scope_and_baseline.md`. Azure runtime collection remains deferred.
 
 ## ADR-046: Add OIDC/OAuth2-Compatible Auth Alongside API Keys
 - Date: 2026-03-19
 - Decision: Add OIDC issuer/audience verification support and allow bearer-token auth with scope-based write authorization.
-- Why: Support enterprise SSO/IdP patterns (including Keycloak-compatible setups) without breaking existing API-key automation.
+- Why: Support enterprise SSO/IdP patterns (including generic OIDC-compatible setups) without breaking existing API-key automation.
 - Tradeoff: Mixed API key + OIDC deployments increase auth-path complexity and require explicit operational testing.
 
 ## ADR-047: Add Standards-Aligned Finding Enrichment and Export

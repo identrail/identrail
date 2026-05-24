@@ -1,4 +1,4 @@
-# AWS Normalizer and Graph (Phase 1)
+# AWS Normalizer and Graph
 
 ## Purpose
 

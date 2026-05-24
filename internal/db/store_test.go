@@ -59,6 +59,7 @@ func TestNormalizeRepoFindingFilter(t *testing.T) {
 		Type:            " SECRET_EXPOSURE ",
 		LifecycleStatus: " ACK ",
 		Assignee:        " Platform ",
+		Source:          " Github_Secret_Scanning ",
 		SortBy:          "severity",
 		SortDesc:        true,
 	})
@@ -70,6 +71,9 @@ func TestNormalizeRepoFindingFilter(t *testing.T) {
 	}
 	if normalized.LifecycleStatus != "ack" || normalized.Assignee != "platform" {
 		t.Fatalf("expected normalized triage filters, got %+v", normalized)
+	}
+	if normalized.Source != "github_secret_scanning" {
+		t.Fatalf("expected normalized source filter, got %+v", normalized)
 	}
 	if normalized.SortBy != "severity" || !normalized.SortDesc {
 		t.Fatalf("expected explicit sort controls to pass through, got %+v", normalized)

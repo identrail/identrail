@@ -24,12 +24,12 @@ Issuer/audience controls:
 - `IDENTRAIL_OIDC_ISSUER_URL`
 - `IDENTRAIL_OIDC_AUDIENCE`
 
-### Keycloak Baseline
+### Generic OIDC Bearer Setup
 
-For Keycloak-backed OIDC verification, set:
+For self-hosted API clients that present OIDC bearer tokens, set:
 
-- `IDENTRAIL_OIDC_ISSUER_URL=https://<keycloak-host>/realms/<realm>`
-- `IDENTRAIL_OIDC_AUDIENCE=<keycloak-client-id>`
+- `IDENTRAIL_OIDC_ISSUER_URL=https://<issuer-host>/<issuer-path>`
+- `IDENTRAIL_OIDC_AUDIENCE=<identrail-api-client-or-audience>`
 
 Token requirements for Identrail auth middleware:
 
@@ -38,7 +38,10 @@ Token requirements for Identrail auth middleware:
 - `exp` must be valid (expired tokens are rejected)
 - tenant/workspace claims must exist using configured claim names
 
-If your Keycloak token does not already expose `tenant_id` and `workspace_id` as top-level string claims, add protocol mappers for them in the client.
+If your IdP uses different claim names for tenant, workspace, groups, or roles,
+map those names with the `IDENTRAIL_OIDC_*_CLAIM` variables above. The web app
+does not run a separate browser-side OIDC flow; hosted browser login uses
+session-auth routes, and OIDC here is the API bearer-token path.
 
 ## Write Authorization
 

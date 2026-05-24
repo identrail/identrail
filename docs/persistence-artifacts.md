@@ -1,4 +1,4 @@
-# Artifact Persistence (Phase 2)
+# Artifact Persistence
 
 ## Purpose
 

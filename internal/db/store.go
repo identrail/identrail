@@ -2075,6 +2075,7 @@ type RepoFindingFilter struct {
 	Status            string
 	Detector          string
 	Owner             string
+	Source            string
 	MinConfidence     float64
 	MinAgeDays        int
 	LifecycleStatus   string
@@ -2202,6 +2203,7 @@ func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
 		Status:            strings.ToLower(strings.TrimSpace(filter.Status)),
 		Detector:          strings.ToLower(strings.TrimSpace(filter.Detector)),
 		Owner:             strings.ToLower(strings.TrimSpace(filter.Owner)),
+		Source:            strings.ToLower(strings.TrimSpace(filter.Source)),
 		MinConfidence:     minConfidence,
 		MinAgeDays:        filter.MinAgeDays,
 		LifecycleStatus:   strings.ToLower(strings.TrimSpace(filter.LifecycleStatus)),

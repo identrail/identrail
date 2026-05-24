@@ -5926,6 +5926,22 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   color: #c2d4f0;
 }
 
+.idt-source-primary-copy {
+  display: grid;
+  gap: 0.55rem;
+  align-self: center;
+  min-width: 0;
+}
+
+.idt-source-primary-copy h4 {
+  line-height: 1.15;
+}
+
+.idt-source-primary-copy > p:not(.idt-app-kicker) {
+  max-width: 44ch;
+  line-height: 1.45;
+}
+
 .idt-source-advanced summary {
   cursor: pointer;
   color: #dce9fb;
@@ -6034,6 +6050,173 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-source-diagnostics small {
   margin: 0.3rem 0 0;
   color: #c6d5ec;
+}
+
+.idt-source-diagnostics .idt-source-status-pill {
+  display: inline-flex;
+  margin-top: 0;
+}
+
+.idt-source-diagnostics .idt-source-status-pill.is-neutral {
+  color: #cbd9ef;
+  border-color: rgba(130, 160, 214, 0.3);
+  background: rgba(10, 18, 32, 0.78);
+}
+
+.idt-source-connection-body {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.idt-source-connection-body p {
+  margin: 0;
+}
+
+.idt-scan-limits-details,
+.idt-source-compact-details,
+.idt-github-posture-details {
+  padding: 0;
+  overflow: hidden;
+}
+
+.idt-scan-limits-details summary,
+.idt-source-compact-details summary,
+.idt-github-posture-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0.95rem;
+  list-style: none;
+}
+
+.idt-scan-limits-details summary::-webkit-details-marker,
+.idt-source-compact-details summary::-webkit-details-marker,
+.idt-github-posture-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.idt-scan-limits-details summary::after,
+.idt-source-compact-details summary::after,
+.idt-github-posture-details summary::after {
+  content: '';
+  width: 0.62rem;
+  height: 0.62rem;
+  flex: 0 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: #e5eefc;
+  transform: rotate(45deg);
+  transition: transform 0.16s ease;
+}
+
+.idt-scan-limits-details[open] summary::after,
+.idt-source-compact-details[open] summary::after,
+.idt-github-posture-details[open] summary::after {
+  transform: rotate(225deg);
+}
+
+.idt-scan-limits-details summary span,
+.idt-source-compact-details summary span,
+.idt-github-posture-details summary span {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  text-transform: none;
+}
+
+.idt-scan-limits-details summary strong,
+.idt-source-compact-details summary strong,
+.idt-github-posture-details summary strong {
+  color: #f2f7ff;
+}
+
+.idt-scan-limits-details summary small,
+.idt-source-compact-details summary small,
+.idt-github-posture-details summary small {
+  color: #9fb8de;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.idt-scan-limits-details .idt-source-inline-fields,
+.idt-source-compact-details .idt-source-connection-body,
+.idt-github-posture-details .idt-github-posture-checks {
+  margin-top: 0;
+  border-top: 1px solid rgba(130, 160, 214, 0.2);
+  padding: 0.85rem 0.95rem;
+}
+
+.idt-source-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.idt-source-chip-list span {
+  display: inline-flex;
+  max-width: 100%;
+  border: 1px solid rgba(130, 160, 214, 0.24);
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  color: #dce9fb;
+  background: rgba(9, 15, 26, 0.58);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
+.idt-github-posture-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-github-posture-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.idt-github-posture-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.idt-github-posture-stats div {
+  min-width: 0;
+  border: 1px solid rgba(130, 160, 214, 0.18);
+  border-radius: 0.55rem;
+  padding: 0.5rem;
+  background: rgba(9, 15, 26, 0.42);
+}
+
+.idt-github-posture-stats dt {
+  color: #9fb8de;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-github-posture-stats dd {
+  margin: 0.18rem 0 0;
+  color: #f2f7ff;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.idt-github-posture-rate-limit {
+  margin: 0.75rem 0 0;
+  padding: 0 0.95rem;
+}
+
+.idt-github-posture-checks {
+  display: grid;
+  gap: 0.55rem;
 }
 
 .idt-repo-scan-launch {
@@ -6151,6 +6334,10 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   .idt-executive-severity-list article,
   .idt-executive-type-list article {
     display: grid;
+  }
+
+  .idt-github-posture-stats {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -7294,6 +7481,7 @@ html[data-theme='light'] .idt-source-meta div,
 html[data-theme='light'] .idt-source-install-card,
 html[data-theme='light'] .idt-source-advanced,
 html[data-theme='light'] .idt-source-diagnostics article,
+html[data-theme='light'] .idt-github-posture-stats div,
 html[data-theme='light'] .idt-permission-preview-modal,
 html[data-theme='light'] .idt-permission-preview-list article,
 html[data-theme='light'] .idt-icon-btn {
@@ -7351,8 +7539,25 @@ html[data-theme='light'] .idt-source-stepper li {
 }
 
 html[data-theme='light'] .idt-source-card-topline > span:first-child,
-html[data-theme='light'] .idt-source-meta dt {
+html[data-theme='light'] .idt-source-meta dt,
+html[data-theme='light'] .idt-github-posture-stats dt,
+html[data-theme='light'] .idt-scan-limits-details summary small,
+html[data-theme='light'] .idt-source-compact-details summary small,
+html[data-theme='light'] .idt-github-posture-details summary small {
   color: #4c6f9f;
+}
+
+html[data-theme='light'] .idt-github-posture-stats dd,
+html[data-theme='light'] .idt-scan-limits-details summary strong,
+html[data-theme='light'] .idt-source-compact-details summary strong,
+html[data-theme='light'] .idt-github-posture-details summary strong,
+html[data-theme='light'] .idt-source-chip-list span {
+  color: #17345f;
+}
+
+html[data-theme='light'] .idt-source-chip-list span {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(42, 71, 119, 0.24);
 }
 
 html[data-theme='light'] .idt-app-form textarea,
@@ -20290,6 +20495,7 @@ html[data-theme='light'] .idt-app-shell-screen select {
   resize: vertical;
 }
 
+
 .idt-app-console-layout select:disabled,
 .idt-app-console-layout input:disabled,
 .idt-app-console-layout textarea:disabled,
@@ -20921,6 +21127,173 @@ html[data-theme='light'] .idt-source-policy-panel details {
 
   .idt-source-compact-stats div:last-child {
     border-bottom: 0;
+  }
+}
+
+/* Project registry and source setup polish. */
+.idt-app-console-layout .idt-projects-header,
+.idt-app-console-layout .idt-source-onboarding-header {
+  padding: 1.25rem 1.35rem;
+}
+
+.idt-app-console-layout .idt-projects-header h2,
+.idt-app-console-layout .idt-source-onboarding-header h2 {
+  margin-top: 0.12rem;
+}
+
+.idt-app-console-layout .idt-projects-header p,
+.idt-app-console-layout .idt-source-onboarding-header p {
+  max-width: 62rem;
+}
+
+.idt-app-console-layout .idt-projects-summary {
+  grid-template-columns: 0.8fr 0.8fr 1.4fr;
+}
+
+.idt-app-console-layout .idt-projects-summary article {
+  min-height: 5.7rem;
+  padding: 0.95rem 1rem;
+}
+
+.idt-app-console-layout .idt-projects-summary .idt-overview-metric-top {
+  align-items: center;
+}
+
+.idt-app-console-layout .idt-projects-summary span,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary span {
+  color: #ffffff;
+  font-size: clamp(1.28rem, 1.8vw, 1.65rem);
+}
+
+.idt-app-console-layout .idt-projects-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.72fr);
+}
+
+.idt-app-console-layout .idt-projects-list,
+.idt-app-console-layout .idt-project-composer {
+  padding: 1.05rem;
+}
+
+.idt-app-console-layout .idt-project-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+}
+
+.idt-project-card-title h4 {
+  margin-bottom: 0.18rem;
+}
+
+.idt-project-card-details {
+  margin-top: 0;
+  background: transparent;
+}
+
+.idt-project-card-details summary {
+  padding: 0.62rem 0.72rem;
+  color: #dcdce2;
+  font-size: 0.86rem;
+}
+
+.idt-project-card-meta {
+  padding: 0.72rem;
+}
+
+.idt-project-card-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
+  padding: 0.62rem;
+}
+
+.idt-app-console-layout .idt-source-wizard-grid {
+  grid-template-columns: minmax(14rem, 0.36fr) minmax(0, 1fr);
+}
+
+.idt-app-console-layout .idt-source-picker {
+  gap: 0.7rem;
+}
+
+.idt-app-console-layout .idt-source-card {
+  min-height: 7.6rem;
+  padding: 0.95rem;
+  background: #080809;
+}
+
+.idt-app-console-layout .idt-source-card strong {
+  font-size: 1.08rem;
+  text-transform: none;
+}
+
+.idt-app-console-layout .idt-source-card small {
+  color: #b8b8c0;
+}
+
+.idt-app-console-layout .idt-source-card.is-selected {
+  background: #111113;
+}
+
+.idt-app-console-layout .idt-source-config {
+  gap: 1rem;
+  padding: 1.15rem;
+}
+
+.idt-source-config-header {
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.idt-source-config-header h3 {
+  margin-top: 0;
+}
+
+.idt-app-console-layout .idt-source-meta {
+  grid-template-columns: minmax(0, 1.25fr) minmax(9rem, 0.5fr) minmax(12rem, 0.7fr);
+}
+
+.idt-app-console-layout .idt-source-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
+  padding: 0.75rem;
+}
+
+.idt-app-console-layout .idt-source-primary-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.46fr);
+  align-items: end;
+  padding: 1rem;
+}
+
+.idt-app-console-layout .idt-source-primary-action form {
+  min-width: 0;
+  width: 100%;
+}
+
+.idt-app-console-layout .idt-source-primary-action .idt-btn {
+  width: 100%;
+}
+
+.idt-app-console-layout .idt-source-install-card:not(.idt-source-primary-action) {
+  padding: 0.95rem 1rem;
+}
+
+@media (max-width: 980px) {
+  .idt-app-console-layout .idt-projects-summary,
+  .idt-app-console-layout .idt-projects-grid,
+  .idt-app-console-layout .idt-source-wizard-grid,
+  .idt-app-console-layout .idt-source-meta,
+  .idt-app-console-layout .idt-source-primary-action {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .idt-app-console-layout .idt-projects-header,
+  .idt-app-console-layout .idt-source-onboarding-header,
+  .idt-app-console-layout .idt-source-config-header,
+  .idt-app-console-layout .idt-source-install-card {
+    display: grid;
+  }
+
+  .idt-app-console-layout .idt-source-card {
+    min-height: 0;
   }
 }
 
@@ -23324,4 +23697,32 @@ html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procure
   html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix {
     overflow-x: auto;
   }
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-source-advanced summary,
+html[data-theme='light'] .idt-app-console-layout .idt-scan-limits-details summary,
+html[data-theme='light'] .idt-app-console-layout .idt-source-compact-details summary,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-details summary {
+  color: var(--app-text);
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-scan-limits-details summary small,
+html[data-theme='light'] .idt-app-console-layout .idt-source-compact-details summary small,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-details summary small,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-stats dt {
+  color: var(--app-muted);
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-scan-limits-details summary strong,
+html[data-theme='light'] .idt-app-console-layout .idt-source-compact-details summary strong,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-details summary strong,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-stats dd {
+  color: var(--app-text);
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-stats div,
+html[data-theme='light'] .idt-app-console-layout .idt-source-chip-list span {
+  border-color: var(--app-border);
+  background: var(--app-panel-strong);
+  color: var(--app-text);
 }

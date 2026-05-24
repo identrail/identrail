@@ -6,7 +6,6 @@ env_files=(
   ".env.local"
   "deploy/docker/.env"
   "web/.env.local"
-  "site/.env.local"
 )
 
 findings=0

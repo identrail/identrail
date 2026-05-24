@@ -42,12 +42,11 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 ## Auth and identity foundation
 
 - Architecture and contracts: `auth/README.md`
-- Current three-track roadmap: `auth/12-pr-plan.md`
 
 ## API and developer track
 
 - API contract (OpenAPI): `openapi-v1.yaml`
-- Frontend topology (`web/` vs `site/`): `frontend-topology.md`
+- Frontend topology: `frontend-topology.md`
 - Development workflow: `development-workflow.md`
 - Local token hygiene (Vercel OIDC): `local-token-hygiene.md`
 - Install Identrail CLI: `install.md`
@@ -74,7 +73,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - Threat model: `threat_model.md`
 - Contributor trust scoring (Good Egg): `contributor-trust-scoring.md`
 - Architecture decisions: `ADR.md`
-- V1 scope baseline: `v1_scope_and_baseline.md`
+- Current product baseline: `v1_scope_and_baseline.md`
 - Security policy: `../SECURITY.md`
 - Contributing guide: `../CONTRIBUTING.md`
 - Code of conduct: `../CODE_OF_CONDUCT.md`
@@ -86,12 +85,17 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS normalizer and graph: `aws-normalizer-graph.md`
 - AWS risk engine: `aws-risk-engine.md`
 
-## Historical phase records
+## Historical Records
 
-- Phase 1: `phase-1.md`
-- Phase 2: `phase-2.md`
-- Phase 3: `phase-3.md`
-- Phase 4: `phase-4.md`
+These files are retained for audit and release-history context. They are not
+the active product contract.
+
+- Archive index: `archive/README.md`
+- Phase 1: `archive/phase-1.md`
+- Phase 2: `archive/phase-2.md`
+- Phase 3: `archive/phase-3.md`
+- Phase 4: `archive/phase-4.md`
+- Auth twelve-PR plan: `archive/auth-12-pr-plan.md`
 
 ## Supply chain implementation notes
 

@@ -5,6 +5,36 @@
   the API, CLI, and app, so deterministic GitHub exposure fixes can open a
   branch and pull request only after explicit operator approval and a
   write-capable short-lived token.
+- Added GitHub organization-level security policy posture as inherited context
+  for repository posture. GitHub App-backed posture now distinguishes repository
+  controls from organization policy controls such as enforced code security
+  configurations, Actions policy, workflow token defaults, reusable-workflow
+  allowlists, and central code security posture, with explicit `unsupported` and
+  `unknown` states when GitHub cannot prove the control.
+- Added structured repository scan diagnostics to API errors and the hosted app
+  so enqueue/list failures can distinguish disabled scans, allowlist or
+  selected-repository rejection, queue pressure, missing migrations, GitHub App
+  token minting failures, and worker timeouts. Cleaned stale documentation by
+  aligning current architecture/scope docs with AWS, GitHub, and Kubernetes,
+  leading repo exposure docs with `identrail scan owner/repo`, archiving phase
+  records, and removing historical leftovers.
+- Let GitHub App-backed project scans use the app installation's selected
+  repository list as the scoped target guard, so personal and organization repos
+  selected in GitHub no longer require a per-repo deployment allowlist update
+  before the first scan can be queued.
+- Tightened the project source setup surface: the GitHub App install card now
+  uses one clear action, optional scan limits and installation details stay
+  compact, and repository posture summaries keep raw checks collapsed with
+  restored dark-console contrast.
+- Ingest open GitHub secret-scanning and Dependabot vulnerability alerts as
+  first-class repository findings during GitHub App-backed repo scans, alongside
+  the existing code-scanning import. Secret-scanning alerts become redacted
+  `secret_exposure` findings (the raw secret value is never fetched or stored),
+  and Dependabot alerts become repository findings carrying ecosystem, package,
+  GHSA/CVE identifiers, vulnerable range, first patched version, alert URL, and a
+  mapped severity. Each alert source is independent enrichment: permission-
+  limited, unavailable, or rate-limited endpoints no longer fail the native scan.
+  Imported alerts are deduplicated deterministically across scans.
 - Polished the repository Findings page styling: softened the summary-tile
   labels from all-caps to sentence case, styled the new metric captions, the
   scan-health banner, and the failed-scan state actions, and set the summary

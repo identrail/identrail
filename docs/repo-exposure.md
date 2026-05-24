@@ -4,17 +4,24 @@
 
 Detect leaked secrets and high-signal misconfigurations in authorized repository history, without storing raw secret values.
 
-## Command
+## Quick Command
 
 ```bash
-identrail repo-scan --repo owner/repo
+identrail scan owner/repo
 ```
 
 CLI also supports full URLs and local git paths:
 
 ```bash
-identrail repo-scan --repo https://github.com/owner/repo.git
-identrail repo-scan --repo /path/to/local/repo
+identrail scan https://github.com/owner/repo.git
+identrail scan /path/to/local/repo
+identrail scan owner/repo --history-limit 5 --max-findings 5
+```
+
+`repo-scan` remains available as the compatibility and advanced command form:
+
+```bash
+identrail repo-scan --repo owner/repo
 ```
 
 The terminal also exposes the hosted/API-backed GitHub intelligence surface:
@@ -75,14 +82,15 @@ curl -X POST http://localhost:8080/v1/repo-scans \
 ```
 
 Connector-backed scans require the repository to be selected on the project's
-GitHub App connection and still honor `IDENTRAIL_REPO_SCAN_ALLOWLIST`, queue
-capacity, and per-repository concurrency controls.
+GitHub App connection and still honor queue capacity and per-repository
+concurrency controls. Direct non-connector scans continue to use
+`IDENTRAIL_REPO_SCAN_ALLOWLIST` for their target guard.
 
 Read APIs:
 
 - `GET /v1/repo-scans`
 - `GET /v1/repo-scans/:repo_scan_id`
-- `GET /v1/repo-findings?repo_scan_id=&repository=&status=&severity=&type=&detector=&owner=&confidence=&age_days=`
+- `GET /v1/repo-findings?repo_scan_id=&repository=&status=&severity=&type=&detector=&owner=&source=&confidence=&min_confidence=&age_days=`
 - `POST /v1/repo-findings/:finding_id/remediation/preview?repo_scan_id=`
 - `POST /v1/repo-findings/:finding_id/remediation/publish?repo_scan_id=`
 - `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
@@ -239,6 +247,8 @@ The scanner uses a versioned secret detector registry for commit-history secret 
     - broad OIDC credential-minting context
     - cache keys or restore paths influenced by untrusted PR context
     - artifact or release publishing reachable from untrusted inputs
+    - self-hosted runner jobs reachable from untrusted events
+    - runner placement that cannot be statically audited (expression, matrix, or broad labels)
   - Kubernetes `privileged: true`
   - Terraform public S3 ACL
   - Terraform SSH/RDP open to world (`0.0.0.0/0`)
@@ -293,6 +303,8 @@ write permissions is emitted as a critical workflow attack path.
 | `workflow_oidc_broad_trust` | `id-token: write` is available from untrusted events, `workflow_run`, or broad all-branch push deploys. | High | Restrict cloud trust policies to protected branches and environments, and avoid OIDC on untrusted workflow paths. |
 | `workflow_cache_poisoning` | Cache keys or restore paths are influenced by PR-controlled context, or broad restore keys are used on untrusted events. | Medium | Separate untrusted PR caches from trusted build caches and avoid broad restore keys in privileged jobs. |
 | `workflow_artifact_poisoning` | PR or `workflow_run` context can upload artifacts or release assets consumed later. | Medium to high | Keep untrusted artifacts isolated, verify provenance before reuse, and publish releases only from protected contexts. |
+| `workflow_self_hosted_runner` | Self-hosted runner usage has no obvious org-level controls and can route untrusted jobs to shared infrastructure. | Medium | Enforce repository-level self-hosted runner restrictions, dedicated groups, and minimal permissions before enabling untrusted pull-request execution. |
+| `workflow_self_hosted_runner_unresolved` | Self-hosted runner-group visibility is permission-limited or unavailable, leaving posture state uncertain. | Medium | Grant the GitHub App read access to org runner groups or route high-risk repos to managed GitHub-hosted runners. |
 
 To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
 
@@ -309,11 +321,57 @@ Supported ingestion surfaces:
   other scanners that emit SARIF.
 - GitHub code-scanning alerts fetched through the GitHub App connector's
   `security_events: read` permission.
+- GitHub secret-scanning alerts fetched through the GitHub App connector's
+  `secret_scanning_alerts: read` permission.
+- GitHub Dependabot vulnerability alerts fetched through the GitHub App
+  connector's `vulnerability_alerts: read` permission.
 
-Connector-backed GitHub App repository scans collect open code-scanning alerts
-for selected repositories when the installation permission allows it. If the
-installation cannot read code-scanning alerts, the native Identrail scan still
-completes and adapter findings are simply absent for that run.
+Connector-backed GitHub App repository scans collect open code-scanning,
+secret-scanning, and Dependabot alerts for selected repositories when the
+installation permission allows it. Each source is independent: if the
+installation cannot read one of these alert APIs, or GitHub returns a
+permission-limited, unavailable, or rate-limited response, the native Identrail
+scan and the other imports still complete. Adapter findings are simply absent
+for the source that could not be read.
+
+### Posture checks vs imported alert findings
+
+These imports are distinct from the repository posture collection exposed by
+`GET /v1/connectors/github/{connector_id}/posture`:
+
+- Posture checks answer "is this security feature configured?" They return a
+  per-control state (`secure`, `insecure`, `permission_limited`, `unavailable`)
+  for code scanning, secret scanning, and Dependabot, without enumerating the
+  individual alerts.
+- Imported alert findings answer "what open problems exist right now?" They turn
+  each open GitHub-native alert into a first-class `domain.Finding` that
+  participates in the same findings workflow, lifecycle, dedupe, and risk
+  scoring as native scanner results.
+
+A repository can therefore show a `secure` posture for "secret scanning enabled"
+while still surfacing individual imported secret-scanning findings for the open
+alerts GitHub reports.
+
+GitHub-native alert findings carry source metadata so they are distinguishable
+from native scanner output:
+
+- secret-scanning alerts: `adapter_source_type: github_secret_scanning`,
+  `adapter_secret_type`, `adapter_secret_validity`, and the GitHub
+  `adapter_alert_url`. They are normalized as `secret_exposure` findings.
+- Dependabot alerts: `adapter_source_type: github_dependabot`,
+  `adapter_ecosystem`, `adapter_package`, `adapter_advisory_ghsa`,
+  `adapter_advisory_cve`, `adapter_advisory_identifiers`,
+  `adapter_vulnerable_range`, `adapter_first_patched_version`, and the GitHub
+  `adapter_alert_url`. They are normalized as repository findings
+  (`repo_misconfiguration`).
+
+Imported secret-scanning alerts never store the raw secret value. Identrail does
+not fetch or deserialize the GitHub `secret` field; it keeps only the secret type
+label, validity, and alert metadata, stores a redacted snippet marker, and sets
+`line_snippet_redacted: true`, `raw_secret_stored: false`, and
+`secret_value_masked: true`. Severity is mapped from alert validity (active
+secrets are treated as critical; otherwise high). Dependabot severity is mapped
+from the advisory severity (`critical`/`high`/`medium`/`moderate`/`low`).
 
 Adapter findings are normalized into the same `domain.Finding` shape as native
 repository findings, and include adapter-specific evidence metadata:

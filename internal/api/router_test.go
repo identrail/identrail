@@ -876,6 +876,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 			HumanSummary:    "ack finding",
 			Detector:        "workflow_pull_request_target",
 			Owner:           "platform",
+			AdapterSource:   "github_secret_scanning",
 			CreatedAt:       now.Add(-10 * 24 * time.Hour),
 		},
 	}); err != nil {
@@ -901,7 +902,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 
 	filteredReq := httptest.NewRequest(
 		http.MethodGet,
-		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&repo_lifecycle_status=open&detector=workflow_pull_request_target&owner=platform&confidence=0.9&age_days=7&lifecycle_status=ack&assignee=platform&limit=50",
+		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&repo_lifecycle_status=open&detector=workflow_pull_request_target&owner=platform&source=github_secret_scanning&confidence=0.9&age_days=7&lifecycle_status=ack&assignee=platform&limit=50",
 		nil,
 	)
 	filteredW := httptest.NewRecorder()
@@ -1233,6 +1234,203 @@ func TestRouterRepoScanQueueBackpressureAndDuplicateGuard(t *testing.T) {
 	r.ServeHTTP(otherW, otherReq)
 	if otherW.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected repo queue backpressure 429, got %d", otherW.Code)
+	}
+}
+
+type routerRepoScanErrorStore struct {
+	*db.MemoryStore
+	enqueueErr error
+	listErr    error
+}
+
+func (s *routerRepoScanErrorStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, scanContext db.RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
+	if s.enqueueErr != nil {
+		return db.RepoScanRecord{}, s.enqueueErr
+	}
+	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, scanContext, historyLimit, maxFindings, queuedAt, maxPending)
+}
+
+func (s *routerRepoScanErrorStore) ListRepoScans(ctx context.Context, limit int) ([]db.RepoScanRecord, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.MemoryStore.ListRepoScans(ctx, limit)
+}
+
+func TestRouterRepoScanEnqueueDiagnosticError(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := &routerRepoScanErrorStore{
+		MemoryStore: db.NewMemoryStore(),
+		enqueueErr:  errors.New(`pq: relation "repo_scans" does not exist (SQLSTATE 42P01)`),
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected diagnostic enqueue status 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Error       string `json:"error"`
+		ErrorCode   string `json:"error_code"`
+		ErrorDetail string `json:"error_detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode diagnostic response: %v", err)
+	}
+	if body.Error != "failed to enqueue repo scan" {
+		t.Fatalf("expected generic public error, got %q", body.Error)
+	}
+	if body.ErrorCode != "repo_scan_migration_missing" {
+		t.Fatalf("expected migration diagnostic code, got %q", body.ErrorCode)
+	}
+	if !strings.Contains(body.ErrorDetail, "database may be missing migrations") {
+		t.Fatalf("expected migration diagnostic detail, got %q", body.ErrorDetail)
+	}
+}
+
+func TestRouterRepoScanEnqueueTimeoutDiagnosticDoesNotBlameWorker(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := &routerRepoScanErrorStore{
+		MemoryStore: db.NewMemoryStore(),
+		enqueueErr:  context.DeadlineExceeded,
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected diagnostic enqueue status 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		ErrorCode   string `json:"error_code"`
+		ErrorDetail string `json:"error_detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode diagnostic response: %v", err)
+	}
+	if body.ErrorCode != "repo_scan_operation_timeout" {
+		t.Fatalf("expected operation timeout diagnostic code, got %q", body.ErrorCode)
+	}
+	if strings.Contains(strings.ToLower(body.ErrorDetail), "worker") {
+		t.Fatalf("enqueue timeout detail should not blame worker execution, got %q", body.ErrorDetail)
+	}
+	if !strings.Contains(body.ErrorDetail, "before the repository scan was queued") {
+		t.Fatalf("expected enqueue-specific timeout detail, got %q", body.ErrorDetail)
+	}
+}
+
+func TestRouterRepoScanEnqueueTimeoutDiagnosticWinsOverSQLStateHeuristic(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := &routerRepoScanErrorStore{
+		MemoryStore: db.NewMemoryStore(),
+		enqueueErr:  errors.New("canceling statement due to statement timeout (SQLSTATE 57014)"),
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected diagnostic enqueue status 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		ErrorCode   string `json:"error_code"`
+		ErrorDetail string `json:"error_detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode diagnostic response: %v", err)
+	}
+	if body.ErrorCode != "repo_scan_operation_timeout" {
+		t.Fatalf("expected timeout diagnostic code to win over SQLSTATE heuristic, got %q", body.ErrorCode)
+	}
+	if !strings.Contains(body.ErrorDetail, "before the repository scan was queued") {
+		t.Fatalf("expected enqueue-specific timeout detail, got %q", body.ErrorDetail)
+	}
+}
+
+func TestRouterRepoScanListDiagnosticError(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := &routerRepoScanErrorStore{
+		MemoryStore: db.NewMemoryStore(),
+		listErr:     errors.New(`pq: column error_message does not exist (SQLSTATE 42703)`),
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/repo-scans", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected diagnostic list status 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Error       string `json:"error"`
+		ErrorCode   string `json:"error_code"`
+		ErrorDetail string `json:"error_detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode diagnostic response: %v", err)
+	}
+	if body.Error != "failed to list repo scans" || body.ErrorCode != "repo_scan_migration_missing" {
+		t.Fatalf("unexpected diagnostic response: %+v", body)
+	}
+	if !strings.Contains(body.ErrorDetail, "database may be missing migrations") {
+		t.Fatalf("expected migration diagnostic detail, got %q", body.ErrorDetail)
+	}
+}
+
+func TestRouterRepoScanListTimeoutDiagnosticDoesNotBlameWorker(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := &routerRepoScanErrorStore{
+		MemoryStore: db.NewMemoryStore(),
+		listErr:     errors.New("query timeout: context deadline exceeded"),
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/repo-scans", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected diagnostic list status 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		ErrorCode   string `json:"error_code"`
+		ErrorDetail string `json:"error_detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode diagnostic response: %v", err)
+	}
+	if body.ErrorCode != "repo_scan_operation_timeout" {
+		t.Fatalf("expected operation timeout diagnostic code, got %q", body.ErrorCode)
+	}
+	if strings.Contains(strings.ToLower(body.ErrorDetail), "worker") {
+		t.Fatalf("list timeout detail should not blame worker execution, got %q", body.ErrorDetail)
+	}
+	if !strings.Contains(body.ErrorDetail, "listing repository scans") {
+		t.Fatalf("expected list-specific timeout detail, got %q", body.ErrorDetail)
 	}
 }
 
