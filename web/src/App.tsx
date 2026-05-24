@@ -915,6 +915,10 @@ function ProductHeroVisual() {
                 <path className="idt-product-path-glow is-three" d="M570 306 C616 318 604 370 620 382" />
                 <path className="idt-product-path-edge is-active" d="M570 306 C616 318 604 370 620 382" />
                 <path className="idt-product-path-flow is-three" d="M570 306 C616 318 604 370 620 382" />
+
+                <path className="idt-product-path-glow is-proof" d="M370 306 C350 338 344 354 350 384" />
+                <path className="idt-product-path-edge is-proof" d="M370 306 C350 338 344 354 350 384" />
+                <path className="idt-product-path-flow is-proof" d="M370 306 C350 338 344 354 350 384" />
               </g>
 
               <g className="idt-product-path-tag" transform="translate(286 184)">

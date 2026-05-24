@@ -23751,6 +23751,22 @@ html[data-theme='light'] .idt-home-after-stack .idt-command-surface {
   animation-delay: -2.4s;
 }
 
+.idt-product-path-glow.is-proof {
+  stroke-width: 7;
+  opacity: 0.2;
+}
+
+.idt-product-path-edge.is-proof {
+  stroke-width: 2.25;
+  opacity: 0.82;
+}
+
+.idt-product-path-flow.is-proof {
+  stroke-width: 1.35;
+  opacity: 0.5;
+  animation-delay: -3.2s;
+}
+
 .idt-product-path-edge {
   stroke-width: 3.1;
 }
