@@ -841,26 +841,59 @@ func renderRepoRiskGraphOutput(out io.Writer, graph domain.RepoRiskGraph) error 
 
 func renderRepoPostureOutput(out io.Writer, response api.GitHubRepositoryPostureResponse) error {
 	posture := response.Posture
-	insecure, limited, unavailable := countPostureStates(posture.Checks)
+	counts := countPostureStates(posture.Checks)
 	if _, err := fmt.Fprintf(
 		out,
-		"GitHub posture: repo=%s connector=%s provider=%s checks=%d insecure=%d permission_limited=%d unavailable=%d collected_at=%s\n",
+		"GitHub posture: repo=%s connector=%s provider=%s checks=%d insecure=%d permission_limited=%d unavailable=%d unsupported=%d unknown=%d collected_at=%s\n",
 		posture.Repository,
 		response.ConnectorID,
 		response.Provider,
 		len(posture.Checks),
-		insecure,
-		limited,
-		unavailable,
+		counts.insecure,
+		counts.limited,
+		counts.unavailable,
+		counts.unsupported,
+		counts.unknown,
 		posture.CollectedAt.Format(time.RFC3339),
 	); err != nil {
 		return err
 	}
 	if len(posture.Checks) == 0 {
-		_, err := fmt.Fprintln(out, "No posture checks.")
+		if _, err := fmt.Fprintln(out, "No posture checks."); err != nil {
+			return err
+		}
+	}
+	if err := renderPostureChecks(out, posture.Checks); err != nil {
 		return err
 	}
-	for i, check := range posture.Checks {
+	return renderOrgPostureSection(out, response.OrganizationPosture)
+}
+
+func renderOrgPostureSection(out io.Writer, posture *githubconnector.OrganizationPosture) error {
+	if posture == nil {
+		_, err := fmt.Fprintln(out, "Organization posture: not collected (repository owner is not an accessible organization).")
+		return err
+	}
+	counts := countPostureStates(posture.Checks)
+	if _, err := fmt.Fprintf(
+		out,
+		"Organization posture (inherited): org=%s checks=%d insecure=%d permission_limited=%d unavailable=%d unsupported=%d unknown=%d collected_at=%s\n",
+		posture.Organization,
+		len(posture.Checks),
+		counts.insecure,
+		counts.limited,
+		counts.unavailable,
+		counts.unsupported,
+		counts.unknown,
+		posture.CollectedAt.Format(time.RFC3339),
+	); err != nil {
+		return err
+	}
+	return renderPostureChecks(out, posture.Checks)
+}
+
+func renderPostureChecks(out io.Writer, checks []githubconnector.RepositoryPostureCheck) error {
+	for i, check := range checks {
 		if _, err := fmt.Fprintf(
 			out,
 			"%d. [%s] %s/%s - %s\n",
@@ -881,19 +914,31 @@ func renderRepoPostureOutput(out io.Writer, response api.GitHubRepositoryPosture
 	return nil
 }
 
-func countPostureStates(checks []githubconnector.RepositoryPostureCheck) (int, int, int) {
-	var insecure, limited, unavailable int
+type postureStateCounts struct {
+	insecure    int
+	limited     int
+	unavailable int
+	unsupported int
+	unknown     int
+}
+
+func countPostureStates(checks []githubconnector.RepositoryPostureCheck) postureStateCounts {
+	var counts postureStateCounts
 	for _, check := range checks {
 		switch check.State {
 		case githubconnector.RepositoryPostureStateInsecure:
-			insecure++
+			counts.insecure++
 		case githubconnector.RepositoryPostureStatePermissionLimited:
-			limited++
+			counts.limited++
 		case githubconnector.RepositoryPostureStateUnavailable:
-			unavailable++
+			counts.unavailable++
+		case githubconnector.RepositoryPostureStateUnsupported:
+			counts.unsupported++
+		case githubconnector.RepositoryPostureStateUnknown:
+			counts.unknown++
 		}
 	}
-	return insecure, limited, unavailable
+	return counts
 }
 
 func renderRepoRemediationPreviewOutput(out io.Writer, response api.RepoFindingRemediationPreview) error {

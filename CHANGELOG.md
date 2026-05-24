@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added GitHub organization-level security policy posture as inherited context
+  for repository posture. GitHub App-backed posture now distinguishes repository
+  controls from organization policy controls such as enforced code security
+  configurations, Actions policy, workflow token defaults, reusable-workflow
+  allowlists, and central code security posture, with explicit `unsupported` and
+  `unknown` states when GitHub cannot prove the control.
 - Added structured repository scan diagnostics to API errors and the hosted app
   so enqueue/list failures can distinguish disabled scans, allowlist or
   selected-repository rejection, queue pressure, missing migrations, GitHub App

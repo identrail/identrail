@@ -82,9 +82,11 @@ type GitHubRepositoryLister interface {
 	ListInstallationRepositories(ctx context.Context, installationID int64) ([]githubconnector.Repository, error)
 }
 
-// GitHubRepositoryPostureCollector collects GitHub repository posture through an installation token.
+// GitHubRepositoryPostureCollector collects GitHub repository and organization
+// posture through an installation token.
 type GitHubRepositoryPostureCollector interface {
 	CollectRepositoryPosture(ctx context.Context, installationID int64, repository string) (githubconnector.RepositoryPosture, error)
+	CollectOrganizationPosture(ctx context.Context, installationID int64, organization string, repository string) (githubconnector.OrganizationPosture, error)
 }
 
 // GitHubConnectorStartRequest captures the flat connector GitHub App bootstrap request.
@@ -149,11 +151,15 @@ type GitHubRepositoryListResponse struct {
 	Repositories []GitHubRepositoryStatus `json:"repositories"`
 }
 
-// GitHubRepositoryPostureResponse returns normalized posture for one selected repository.
+// GitHubRepositoryPostureResponse returns normalized posture for one selected
+// repository plus the organization-level policy it inherits. The organization
+// posture is omitted when it could not be collected, so existing repository
+// posture consumers are unaffected.
 type GitHubRepositoryPostureResponse struct {
-	ConnectorID string                            `json:"connector_id"`
-	Provider    string                            `json:"provider"`
-	Posture     githubconnector.RepositoryPosture `json:"posture"`
+	ConnectorID         string                               `json:"connector_id"`
+	Provider            string                               `json:"provider"`
+	Posture             githubconnector.RepositoryPosture    `json:"posture"`
+	OrganizationPosture *githubconnector.OrganizationPosture `json:"organization_posture,omitempty"`
 }
 
 // GitHubConnectionStartRequest captures one project-scoped connection bootstrap request.
@@ -741,11 +747,35 @@ func (s *Service) GetGitHubConnectorRepositoryPosture(ctx context.Context, conne
 	if err != nil {
 		return GitHubRepositoryPostureResponse{}, fmt.Errorf("%w: collect github repository posture: %w", ErrGitHubRepositoryPostureUnavailable, err)
 	}
-	return GitHubRepositoryPostureResponse{
+	response := GitHubRepositoryPostureResponse{
 		ConnectorID: stored.Connector.ConnectorID,
 		Provider:    provider,
 		Posture:     posture,
-	}, nil
+	}
+	if owner, _, ok := strings.Cut(target, "/"); ok && strings.TrimSpace(owner) != "" {
+		if orgPosture, orgErr := s.GitHubRepositoryPostureCollector.CollectOrganizationPosture(ctx, installationID, owner, target); orgErr == nil {
+			if githubOrganizationPostureAvailable(orgPosture) {
+				response.OrganizationPosture = &orgPosture
+			}
+		}
+	}
+	return response, nil
+}
+
+func githubOrganizationPostureAvailable(posture githubconnector.OrganizationPosture) bool {
+	if strings.TrimSpace(posture.Organization) == "" || len(posture.Checks) == 0 {
+		return false
+	}
+	notOrganization := true
+	for _, check := range posture.Checks {
+		if check.State != githubconnector.RepositoryPostureStateUnsupported {
+			return true
+		}
+		if check.Reason != "not_an_organization" {
+			notOrganization = false
+		}
+	}
+	return !notOrganization
 }
 
 func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID string, projectID string, request GitHubConnectionCompleteRequest) (GitHubConnectionStatus, error) {

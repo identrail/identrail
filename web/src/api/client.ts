@@ -843,7 +843,13 @@ export type GitHubRepositoryListResponse = {
   repositories: GitHubRepositoryStatus[];
 };
 
-export type GitHubRepositoryPostureState = 'secure' | 'insecure' | 'unavailable' | 'permission_limited';
+export type GitHubRepositoryPostureState =
+  | 'secure'
+  | 'insecure'
+  | 'unavailable'
+  | 'permission_limited'
+  | 'unsupported'
+  | 'unknown';
 
 export type GitHubRepositoryPostureCheck = {
   id: string;
@@ -868,10 +874,19 @@ export type GitHubRepositoryPosture = {
   rate_limit?: GitHubRateLimitState;
 };
 
+export type GitHubOrganizationPosture = {
+  organization: string;
+  installation_id?: number;
+  collected_at: string;
+  checks: GitHubRepositoryPostureCheck[];
+  rate_limit?: GitHubRateLimitState;
+};
+
 export type GitHubRepositoryPostureResponse = {
   connector_id: string;
   provider: string;
   posture: GitHubRepositoryPosture;
+  organization_posture?: GitHubOrganizationPosture;
 };
 
 export type GitHubConnectionCompleteRequest = {
