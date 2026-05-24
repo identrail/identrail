@@ -117,6 +117,13 @@ func (c RepositoryClient) CollectOrganizationPosture(ctx context.Context, instal
 	posture.Checks = append(posture.Checks, c.collectOrgReusableWorkflowPolicy(ctx, token.Token, org, actionsPolicy, updateRate))
 	posture.Checks = append(posture.Checks, collectOrgCodeSecurityConfiguration(org, normalizedRepository, codeSecurityConfigurations, codeSecurityErr, repositoryCodeSecurity, repositoryCodeSecurityErr))
 
+	if organizationPostureMayBeUserOwner(posture) {
+		exists, existsErr := c.githubOrganizationExists(ctx, token.Token, org, updateRate)
+		if existsErr == nil && !exists {
+			return organizationPostureNotAnOrganization(posture), nil
+		}
+	}
+
 	return posture, nil
 }
 
@@ -643,6 +650,49 @@ func collectOrgCodeSecurityConfiguration(org string, repository string, configur
 		Summary:  "Scanned repository is attached to an enforced organization code security configuration.",
 		Evidence: evidence,
 	}
+}
+
+func organizationPostureMayBeUserOwner(posture OrganizationPosture) bool {
+	if len(posture.Checks) == 0 {
+		return false
+	}
+	for _, check := range posture.Checks {
+		if check.State != RepositoryPostureStateUnsupported {
+			return false
+		}
+		switch check.Reason {
+		case "plan_unavailable", "organization_policy_unavailable":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (c RepositoryClient) githubOrganizationExists(ctx context.Context, token string, org string, updateRate func(*GitHubRateLimitState)) (bool, error) {
+	rateLimit, err := c.getJSON(ctx, token, c.orgEndpoint(org, ""), nil)
+	updateRate(rateLimit)
+	if err == nil {
+		return true, nil
+	}
+	if apiErr, ok := asGitHubAPIError(err); ok && apiErr.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	return false, err
+}
+
+func organizationPostureNotAnOrganization(posture OrganizationPosture) OrganizationPosture {
+	for index := range posture.Checks {
+		check := &posture.Checks[index]
+		check.State = RepositoryPostureStateUnsupported
+		check.Reason = "not_an_organization"
+		check.Summary = "Repository owner is a user account, so organization-level GitHub policy does not apply."
+		if check.Evidence == nil {
+			check.Evidence = map[string]any{}
+		}
+		check.Evidence["organization"] = posture.Organization
+	}
+	return posture
 }
 
 func shouldCollectRepositoryCodeSecurityConfiguration(configurations []organizationCodeSecurityConfiguration) bool {

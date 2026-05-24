@@ -380,6 +380,65 @@ func TestCollectOrganizationPosturePermissionAndRateLimitStates(t *testing.T) {
 	}
 }
 
+func TestCollectOrganizationPostureMarksUserOwnerNotAnOrganization(t *testing.T) {
+	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
+	orgLookupCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/orgs/octocat/actions/permissions", "/orgs/octocat/actions/permissions/workflow", "/orgs/octocat/actions/permissions/selected-actions", "/orgs/octocat/code-security/configurations":
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		case "/orgs/octocat":
+			orgLookupCalls++
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		default:
+			t.Errorf("unexpected org posture path %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	posture, err := (RepositoryClient{TokenClient: minter, APIBaseURL: server.URL}).CollectOrganizationPosture(context.Background(), 321, "octocat", "octocat/repo")
+	if err != nil {
+		t.Fatalf("collect org posture: %v", err)
+	}
+	if orgLookupCalls != 1 {
+		t.Fatalf("expected organization existence check once, got %d", orgLookupCalls)
+	}
+	if len(posture.Checks) == 0 {
+		t.Fatal("expected non-organization posture checks")
+	}
+	for _, check := range posture.Checks {
+		if check.State != RepositoryPostureStateUnsupported || check.Reason != "not_an_organization" {
+			t.Fatalf("expected non-organization check, got %+v", check)
+		}
+	}
+}
+
+func TestCollectOrganizationPosturePreservesPlanLimitedOrganization(t *testing.T) {
+	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/orgs/acme/actions/permissions", "/orgs/acme/actions/permissions/workflow", "/orgs/acme/actions/permissions/selected-actions", "/orgs/acme/code-security/configurations":
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		case "/orgs/acme":
+			_, _ = w.Write([]byte(`{"login":"acme"}`))
+		default:
+			t.Errorf("unexpected org posture path %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	posture, err := (RepositoryClient{TokenClient: minter, APIBaseURL: server.URL}).CollectOrganizationPosture(context.Background(), 321, "acme", "acme/repo")
+	if err != nil {
+		t.Fatalf("collect org posture: %v", err)
+	}
+	if check := orgPostureCheckByID(posture, "org_secret_scanning_policy"); check.State != RepositoryPostureStateUnsupported || check.Reason != "plan_unavailable" {
+		t.Fatalf("expected organization plan-limited posture to be preserved, got %+v", check)
+	}
+	if check := orgPostureCheckByID(posture, "org_actions_policy"); check.State != RepositoryPostureStateUnsupported || check.Reason != "organization_policy_unavailable" {
+		t.Fatalf("expected organization policy unavailable posture to be preserved, got %+v", check)
+	}
+}
+
 func TestCollectOrganizationPostureUnsupportedAndUnknownStates(t *testing.T) {
 	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
