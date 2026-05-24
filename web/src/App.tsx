@@ -2021,10 +2021,6 @@ function DeploymentPathBanner() {
           <div className="idt-deployment-copy">
             <p className="idt-eyebrow">Adoption Paths</p>
             <h2>Choose the deployment model that fits your operating constraints.</h2>
-            <p>
-              Start with the control posture you need today, then move into the path that gets your first trust graph
-              reviewed without forcing a platform rewrite.
-            </p>
           </div>
           <aside className="idt-deployment-summary" aria-label="Recommended deployment path">
             <span>Recommended default</span>

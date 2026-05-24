@@ -16524,6 +16524,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-deployment-summary {
   color: #ffffff;
   padding: clamp(1.35rem, 2.2vw, 2rem);
   min-height: 260px;
+  align-self: center;
   display: grid;
   align-content: space-between;
   box-shadow: none;
