@@ -5,6 +5,11 @@
   repository list as the scoped target guard, so personal and organization repos
   selected in GitHub no longer require a per-repo deployment allowlist update
   before the first scan can be queued.
+- Polished the project source setup surface: the GitHub App install card now
+  separates the account/repository flow into compact steps, scan limits are
+  presented as an actionable advanced control, and verbose GitHub repository
+  posture diagnostics stay collapsed behind a summary until operators need the
+  details.
 - Ingest open GitHub secret-scanning and Dependabot vulnerability alerts as
   first-class repository findings during GitHub App-backed repo scans, alongside
   the existing code-scanning import. Secret-scanning alerts become redacted
