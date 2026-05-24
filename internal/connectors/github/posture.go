@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -162,6 +163,48 @@ type repositoryEnvironment struct {
 	} `json:"protection_rules"`
 }
 
+type actionsRunnerPage struct {
+	TotalCount int             `json:"total_count"`
+	Runners    []actionsRunner `json:"runners"`
+}
+
+type actionsRunner struct {
+	ID     int64                `json:"id"`
+	Name   string               `json:"name"`
+	OS     string               `json:"os"`
+	Status string               `json:"status"`
+	Busy   bool                 `json:"busy"`
+	Labels []actionsRunnerLabel `json:"labels"`
+}
+
+type actionsRunnerLabel struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type orgRunnerGroupPage struct {
+	TotalCount   int              `json:"total_count"`
+	RunnerGroups []orgRunnerGroup `json:"runner_groups"`
+}
+
+type orgRunnerGroupRepositoryPage struct {
+	TotalCount   int                        `json:"total_count"`
+	Repositories []orgRunnerGroupRepository `json:"repositories"`
+}
+
+type orgRunnerGroupRepository struct {
+	FullName string `json:"full_name"`
+}
+
+type orgRunnerGroup struct {
+	ID                       int64  `json:"id"`
+	Name                     string `json:"name"`
+	Visibility               string `json:"visibility"`
+	AllowsPublicRepositories bool   `json:"allows_public_repositories"`
+	Default                  bool   `json:"default"`
+	RestrictedToWorkflows    bool   `json:"restricted_to_workflows"`
+}
+
 // CollectRepositoryPosture collects normalized security posture from GitHub API
 // endpoints that require an installation token. Each endpoint contributes a
 // check even when the setting is unavailable or permission-limited.
@@ -182,7 +225,7 @@ func (c RepositoryClient) CollectRepositoryPosture(ctx context.Context, installa
 		Repository:     normalizedRepository,
 		InstallationID: installationID,
 		CollectedAt:    c.now().UTC(),
-		Checks:         make([]RepositoryPostureCheck, 0, 10),
+		Checks:         make([]RepositoryPostureCheck, 0, 11),
 	}
 	updateRate := func(limit *GitHubRateLimitState) {
 		if limit != nil {
@@ -222,6 +265,7 @@ func (c RepositoryClient) CollectRepositoryPosture(ctx context.Context, installa
 	posture.Checks = append(posture.Checks, c.collectDeployKeys(ctx, token.Token, normalizedRepository, updateRate))
 	posture.Checks = append(posture.Checks, c.collectWebhooks(ctx, token.Token, normalizedRepository, updateRate))
 	posture.Checks = append(posture.Checks, c.collectEnvironments(ctx, token.Token, normalizedRepository, updateRate))
+	posture.Checks = append(posture.Checks, c.collectSelfHostedRunners(ctx, token.Token, normalizedRepository, updateRate))
 
 	return posture, nil
 }
@@ -654,6 +698,252 @@ func (c RepositoryClient) collectEnvironments(ctx context.Context, token string,
 	}
 }
 
+// collectSelfHostedRunners reports whether the repository can run jobs on
+// self-hosted GitHub Actions runners. Self-hosted runners are a machine-identity
+// risk boundary because they can hold persistent cloud, deployment, registry, or
+// internal-network credentials. The repository runner list is the authoritative
+// repo-scope signal; organization runner-group breadth is collected best-effort
+// and recorded as evidence rather than failing the whole check when the App
+// lacks organization permission. Evidence is summary-shaped: it never includes
+// runner registration tokens, runner host names, or other secret-bearing values.
+func (c RepositoryClient) collectSelfHostedRunners(ctx context.Context, token string, repository string, updateRate func(*GitHubRateLimitState)) RepositoryPostureCheck {
+	runners := []actionsRunner{}
+	rateLimit, err := c.getJSONPages(ctx, token, c.repositoryEndpoint(repository, "/actions/runners?per_page=100"), func(body []byte) error {
+		var page actionsRunnerPage
+		if err := json.Unmarshal(body, &page); err != nil {
+			return err
+		}
+		runners = append(runners, page.Runners...)
+		return nil
+	})
+	updateRate(rateLimit)
+	if err != nil {
+		return checkFromAPIError("self_hosted_runners", "runners", err, RepositoryPostureStateUnavailable, "api_unavailable", "Self-hosted runner posture could not be collected.")
+	}
+
+	online, offline, busy := 0, 0, 0
+	labelSet := map[string]struct{}{}
+	osSet := map[string]struct{}{}
+	for _, runner := range runners {
+		switch strings.ToLower(strings.TrimSpace(runner.Status)) {
+		case "online":
+			online++
+		case "offline":
+			offline++
+		}
+		if runner.Busy {
+			busy++
+		}
+		for _, label := range runner.Labels {
+			if name := strings.TrimSpace(label.Name); name != "" {
+				labelSet[name] = struct{}{}
+			}
+		}
+		if os := strings.TrimSpace(runner.OS); os != "" {
+			osSet[os] = struct{}{}
+		}
+	}
+
+	evidence := map[string]any{
+		"repository":               repository,
+		"self_hosted_runner_count": len(runners),
+		"online_runners":           online,
+		"offline_runners":          offline,
+		"busy_runners":             busy,
+	}
+	if len(labelSet) > 0 {
+		evidence["runner_labels"] = sortedStringSet(labelSet)
+	}
+	if len(osSet) > 0 {
+		evidence["runner_os"] = sortedStringSet(osSet)
+	}
+
+	groupsState, broadGroups, publicRepoGroups, groupCount := c.collectOrgRunnerGroupBreadth(ctx, token, repository, updateRate)
+	evidence["runner_groups_state"] = string(groupsState)
+	if groupsState == RepositoryPostureStateSecure || groupsState == RepositoryPostureStateInsecure {
+		evidence["org_runner_groups"] = groupCount
+		evidence["broadly_available_runner_groups"] = broadGroups
+		evidence["public_repository_runner_groups"] = publicRepoGroups
+	}
+
+	if len(runners) > 0 || broadGroups > 0 || publicRepoGroups > 0 {
+		reason := "self_hosted_runners_present"
+		summary := "Repository can use self-hosted GitHub Actions runners, which hold persistent credentials and require isolation from untrusted workflows."
+		if len(runners) == 0 {
+			reason = "broad_runner_groups_available"
+			summary = "Organization runner groups available to this repository are broadly shared or allow public repositories."
+		}
+		return RepositoryPostureCheck{
+			ID:       "self_hosted_runners",
+			Category: "runners",
+			State:    RepositoryPostureStateInsecure,
+			Reason:   reason,
+			Summary:  summary,
+			Evidence: evidence,
+		}
+	}
+	if groupsState != RepositoryPostureStateSecure {
+		summary := "Self-hosted runner group visibility is not fully observable, so repository runner posture could not be fully verified."
+		return RepositoryPostureCheck{
+			ID:       "self_hosted_runners",
+			Category: "runners",
+			State:    groupsState,
+			Reason:   "runner_group_visibility_unknown",
+			Summary:  summary,
+			Evidence: evidence,
+		}
+	}
+	return RepositoryPostureCheck{
+		ID:       "self_hosted_runners",
+		Category: "runners",
+		State:    RepositoryPostureStateSecure,
+		Reason:   "no_self_hosted_runners",
+		Summary:  "No self-hosted runners or broadly shared runner groups were visible to the installation.",
+		Evidence: evidence,
+	}
+}
+
+// collectOrgRunnerGroupBreadth inspects organization runner groups available to
+// the repository. It returns a normalized state plus broad/public/total counts.
+// Personal repositories and installations without organization permission return
+// permission_limited; rate limits and other failures return unavailable.
+func (c RepositoryClient) collectOrgRunnerGroupBreadth(ctx context.Context, token string, repository string, updateRate func(*GitHubRateLimitState)) (RepositoryPostureState, int, int, int) {
+	normalizedRepository, err := normalizeRepositoryName(repository)
+	if err != nil {
+		return RepositoryPostureStateUnavailable, 0, 0, 0
+	}
+	groupEndpoint := c.repositoryEndpoint(normalizedRepository, "/actions/runner-groups?per_page=100")
+	org := strings.SplitN(normalizedRepository, "/", 2)[0]
+	fallbackToOrg := false
+	groups := []orgRunnerGroup{}
+	fetchGroups := func(endpoint string) (*GitHubRateLimitState, error) {
+		groups = []orgRunnerGroup{}
+		rateLimit, err := c.getJSONPages(ctx, token, endpoint, func(body []byte) error {
+			var page orgRunnerGroupPage
+			if err := json.Unmarshal(body, &page); err != nil {
+				return err
+			}
+			groups = append(groups, page.RunnerGroups...)
+			return nil
+		})
+		updateRate(rateLimit)
+		return rateLimit, err
+	}
+
+	_, err = fetchGroups(groupEndpoint)
+	if err != nil {
+		apiErr, ok := asGitHubAPIError(err)
+		if !ok {
+			return RepositoryPostureStateUnavailable, 0, 0, 0
+		}
+		if apiErr.StatusCode == http.StatusNotFound {
+			_, err = fetchGroups(c.orgEndpoint(org, "/actions/runner-groups?per_page=100"))
+			fallbackToOrg = true
+		} else {
+			if apiErr.RateLimited {
+				return RepositoryPostureStateUnavailable, 0, 0, 0
+			}
+			switch apiErr.StatusCode {
+			case http.StatusForbidden, http.StatusUnauthorized:
+				return RepositoryPostureStatePermissionLimited, 0, 0, 0
+			case http.StatusNotFound:
+				return RepositoryPostureStateUnavailable, 0, 0, 0
+			default:
+				return RepositoryPostureStateUnavailable, 0, 0, 0
+			}
+		}
+	}
+	if err != nil {
+		apiErr, ok := asGitHubAPIError(err)
+		if !ok {
+			return RepositoryPostureStateUnavailable, 0, 0, 0
+		}
+		if apiErr.RateLimited {
+			return RepositoryPostureStateUnavailable, 0, 0, 0
+		}
+		switch apiErr.StatusCode {
+		case http.StatusForbidden, http.StatusUnauthorized:
+			return RepositoryPostureStatePermissionLimited, 0, 0, 0
+		case http.StatusNotFound:
+			return RepositoryPostureStateUnavailable, 0, 0, 0
+		default:
+			return RepositoryPostureStateUnavailable, 0, 0, 0
+		}
+	}
+	broad := 0
+	publicRepoGroups := 0
+	for _, group := range groups {
+		if fallbackToOrg && strings.EqualFold(strings.TrimSpace(group.Visibility), "selected") {
+			hasAccess, accessErr := c.repositoryInOrgRunnerGroup(ctx, token, org, group.ID, normalizedRepository, updateRate)
+			if accessErr != nil {
+				if apiErr, ok := asGitHubAPIError(accessErr); ok {
+					if apiErr.RateLimited {
+						return RepositoryPostureStateUnavailable, 0, 0, 0
+					}
+					switch apiErr.StatusCode {
+					case http.StatusForbidden, http.StatusUnauthorized:
+						return RepositoryPostureStatePermissionLimited, 0, 0, 0
+					case http.StatusNotFound:
+						return RepositoryPostureStateUnavailable, 0, 0, 0
+					default:
+						return RepositoryPostureStateUnavailable, 0, 0, 0
+					}
+				}
+				return RepositoryPostureStateUnavailable, 0, 0, 0
+			}
+			if !hasAccess {
+				continue
+			}
+		}
+
+		if strings.EqualFold(strings.TrimSpace(group.Visibility), "all") {
+			broad++
+		}
+		if group.AllowsPublicRepositories {
+			publicRepoGroups++
+		}
+	}
+	state := RepositoryPostureStateSecure
+	if broad > 0 || publicRepoGroups > 0 {
+		state = RepositoryPostureStateInsecure
+	}
+	return state, broad, publicRepoGroups, len(groups)
+}
+
+func (c RepositoryClient) repositoryInOrgRunnerGroup(
+	ctx context.Context,
+	token string,
+	org string,
+	groupID int64,
+	repository string,
+	updateRate func(*GitHubRateLimitState),
+) (bool, error) {
+	repository = strings.ToLower(strings.TrimSpace(repository))
+	groupReposEndpoint := c.orgEndpoint(org, fmt.Sprintf("/actions/runner-groups/%d/repositories?per_page=100", groupID))
+	groupHasRepo := false
+	rateLimit, err := c.getJSONPages(ctx, token, groupReposEndpoint, func(body []byte) error {
+		var page orgRunnerGroupRepositoryPage
+		if err := json.Unmarshal(body, &page); err != nil {
+			return err
+		}
+		if groupHasRepo {
+			return nil
+		}
+		for _, repo := range page.Repositories {
+			if strings.EqualFold(strings.TrimSpace(repo.FullName), repository) {
+				groupHasRepo = true
+				return nil
+			}
+		}
+		return nil
+	})
+	updateRate(rateLimit)
+	if err != nil {
+		return false, err
+	}
+	return groupHasRepo, nil
+}
+
 func (c RepositoryClient) featureStatus(ctx context.Context, token string, endpoint string) (bool, *GitHubRateLimitState, error) {
 	rateLimit, err := c.doGitHubRequest(ctx, token, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -852,6 +1142,19 @@ func parseHeaderInt(value string) (int, bool) {
 func (c RepositoryClient) repositoryEndpoint(repository string, suffix string) string {
 	parts := strings.Split(repository, "/")
 	return strings.TrimRight(c.apiBaseURL(), "/") + "/repos/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + suffix
+}
+
+func (c RepositoryClient) orgEndpoint(org string, suffix string) string {
+	return strings.TrimRight(c.apiBaseURL(), "/") + "/orgs/" + url.PathEscape(org) + suffix
+}
+
+func sortedStringSet(set map[string]struct{}) []string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func normalizeRepositoryName(repository string) (string, error) {

@@ -139,6 +139,10 @@ func repoMisconfigRemediation(finding domain.Finding) (RepoExposureRemediation, 
 		return workflowCachePoisoningRemediation(finding, detector), true
 	case "workflow_artifact_poisoning":
 		return workflowArtifactPoisoningRemediation(finding, detector), true
+	case "workflow_self_hosted_runner":
+		return workflowSelfHostedRunnerRemediation(finding, detector), true
+	case "workflow_self_hosted_runner_unresolved":
+		return workflowUnresolvedRunnerRemediation(finding, detector), true
 	case "k8s_privileged_true":
 		return k8sPrivilegedRemediation(finding, detector), true
 	case "terraform_public_s3_acl":
@@ -386,6 +390,44 @@ func workflowArtifactPoisoningRemediation(finding domain.Finding, detector strin
 			"Verify release jobs require protected branch or environment context.",
 		},
 		"artifact remediation depends on producer and consumer workflow pairing")
+}
+
+func workflowSelfHostedRunnerRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
+	return guidanceRepoRemediation(finding, detector,
+		"Keep untrusted workflows off self-hosted runners and isolate the runner pool.",
+		"A job on self-hosted GitHub Actions runners is reachable from untrusted events, so attacker-influenced input can run on infrastructure that may hold cloud, deployment, registry, or internal-network credentials.",
+		[]string{
+			"Run pull_request, issue, review, comment, and workflow_run jobs on ephemeral GitHub-hosted runners instead of self-hosted runners.",
+			"Move secrets, write tokens, id-token: write, cloud authentication, deploy environments, and release publishing off self-hosted jobs that untrusted events can reach.",
+			"Restrict self-hosted runner placement to protected branches or reviewed environments, and prefer ephemeral, single-use self-hosted runners over persistent ones.",
+		},
+		[]string{
+			"Self-hosted runners can retain credentials and state between jobs; treat any untrusted job that reached them as a potential compromise until reviewed.",
+			"Confirm runner-group visibility and required-approval settings on the GitHub side because repository workflow changes alone may not close the path.",
+		},
+		[]string{
+			"Open a fork pull request and confirm it cannot schedule onto self-hosted runners.",
+			"Review GitHub Actions runner-group and environment settings to verify untrusted events cannot reach privileged runners.",
+		},
+		"self-hosted runner remediation requires both workflow changes and runner/runner-group isolation review")
+}
+
+func workflowUnresolvedRunnerRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
+	return guidanceRepoRemediation(finding, detector,
+		"Make runner placement auditable for untrusted-event jobs.",
+		"A job reachable from untrusted events selects its runner through an expression, matrix, or broad custom label, so reviewers cannot prove whether it runs on ephemeral GitHub-hosted or persistent self-hosted infrastructure.",
+		[]string{
+			"Pin untrusted-event jobs to explicit GitHub-hosted runner labels such as ubuntu-latest.",
+			"If a matrix or expression is required, constrain it so untrusted combinations cannot resolve to self-hosted runners.",
+			"Document and isolate any self-hosted runner pool the job can target so placement is reviewable.",
+		},
+		[]string{
+			"Dynamic labels can silently change which infrastructure runs untrusted code; re-review after any matrix or label change.",
+		},
+		[]string{
+			"Resolve the matrix and expression locally and confirm no untrusted combination lands on self-hosted runners.",
+		},
+		"runner-label remediation depends on the project's matrix and runner inventory")
 }
 
 func workflowGenericRemediation(finding domain.Finding, detector string) RepoExposureRemediation {

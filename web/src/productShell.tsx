@@ -5420,6 +5420,8 @@ export function ProductFindingsPage() {
   const [typeFilter, setTypeFilter] = useState<(typeof REPO_FINDING_TYPE_FILTERS)[number]>('all');
   const [statusFilter, setStatusFilter] = useState<(typeof REPO_FINDING_STATUS_FILTERS)[number]>('all');
   const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [minConfidenceFilter, setMinConfidenceFilter] = useState('');
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedFindingKey, setSelectedFindingKey] = useState('');
@@ -5541,6 +5543,8 @@ export function ProductFindingsPage() {
     setError('');
     try {
       const auth = buildProductAuthContext(targetScope);
+      const sourceFilterValue = normalizeValue(sourceFilter).toLowerCase();
+      const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
       const [repoScanResponse, repoFindingResponse] = await Promise.all([
         apiClient.listRepoScans({ limit: 50 }, auth),
         apiClient.listRepoFindings(
@@ -5549,8 +5553,10 @@ export function ProductFindingsPage() {
             repo_scan_id: normalizeValue(repoScanFilter) || undefined,
             severity: severityFilter !== 'all' ? severityFilter : undefined,
             type: typeFilter !== 'all' ? typeFilter : undefined,
+            source: sourceFilterValue || undefined,
             lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined,
             assignee: normalizeValue(assigneeFilter) || undefined,
+            min_confidence: Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined,
             sort_by: sortBy,
             sort_order: sortOrder
           },
@@ -5772,6 +5778,8 @@ export function ProductFindingsPage() {
     typeFilter,
     statusFilter,
     assigneeFilter,
+    sourceFilter,
+    minConfidenceFilter,
     sortBy,
     sortOrder
   ]);
@@ -5878,7 +5886,9 @@ export function ProductFindingsPage() {
     severityFilter !== 'all' ||
     typeFilter !== 'all' ||
     statusFilter !== 'all' ||
-    normalizeValue(assigneeFilter) !== '';
+    normalizeValue(assigneeFilter) !== '' ||
+    normalizeValue(sourceFilter) !== '' ||
+    normalizeValue(minConfidenceFilter) !== '';
 
   const formatScanDate = (scan: RepoScanRecord | null): string => {
     if (!scan) {
@@ -6132,6 +6142,27 @@ export function ProductFindingsPage() {
               onChange={(event) => setAssigneeFilter(event.target.value)}
             />
           </label>
+          <label>
+            Source
+            <input
+              type="text"
+              placeholder="Filter by source (for example github_secret_scanning)"
+              value={sourceFilter}
+              onChange={(event) => setSourceFilter(event.target.value)}
+            />
+          </label>
+          <label>
+            Min confidence
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              placeholder="e.g. 0.7"
+              value={minConfidenceFilter}
+              onChange={(event) => setMinConfidenceFilter(event.target.value)}
+            />
+          </label>
         </div>
       </details>
       ) : null}
@@ -6194,6 +6225,7 @@ export function ProductFindingsPage() {
                             </div>
                             <div className="idt-repo-finding-row-meta">
                               <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
+                              <span>{`Source ${finding.adapter_source || 'native'}`}</span>
                               <span>{`Owner ${finding.owner || finding.triage?.assignee || 'Unassigned'}`}</span>
                               <span>{`Triage ${formatTokenLabel(triageStatus)}`}</span>
                             </div>

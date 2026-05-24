@@ -282,13 +282,17 @@ describe('apiClient', () => {
       {
         repo_scan_id: 'repo-scan-1',
         severity: 'high',
-        type: 'secret_exposure'
+        type: 'secret_exposure',
+        source: 'github_secret_scanning',
+        min_confidence: 0.8
       },
       { apiKey: 'reader' }
     );
 
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/v1/repo-findings?sort_by=created_at&sort_order=desc&repo_scan_id=repo-scan-1&severity=high&type=secret_exposure');
+    expect(url).toContain(
+      '/v1/repo-findings?sort_by=created_at&sort_order=desc&repo_scan_id=repo-scan-1&severity=high&type=secret_exposure&source=github_secret_scanning&min_confidence=0.8'
+    );
     const headers = new Headers(options.headers);
     expect(headers.get('x-api-key')).toBe('reader');
   });

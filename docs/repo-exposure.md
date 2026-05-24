@@ -81,7 +81,7 @@ Read APIs:
 
 - `GET /v1/repo-scans`
 - `GET /v1/repo-scans/:repo_scan_id`
-- `GET /v1/repo-findings?repo_scan_id=&repository=&status=&severity=&type=&detector=&owner=&confidence=&age_days=`
+- `GET /v1/repo-findings?repo_scan_id=&repository=&status=&severity=&type=&detector=&owner=&source=&confidence=&min_confidence=&age_days=`
 - `POST /v1/repo-findings/:finding_id/remediation/preview?repo_scan_id=`
 - `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
 - `GET /v1/repo-risk-graph?repo_scan_id=&repository=&default_branch=&severity=&type=`
@@ -213,6 +213,8 @@ The scanner uses a versioned secret detector registry for commit-history secret 
     - broad OIDC credential-minting context
     - cache keys or restore paths influenced by untrusted PR context
     - artifact or release publishing reachable from untrusted inputs
+    - self-hosted runner jobs reachable from untrusted events
+    - runner placement that cannot be statically audited (expression, matrix, or broad labels)
   - Kubernetes `privileged: true`
   - Terraform public S3 ACL
   - Terraform SSH/RDP open to world (`0.0.0.0/0`)
@@ -267,6 +269,8 @@ write permissions is emitted as a critical workflow attack path.
 | `workflow_oidc_broad_trust` | `id-token: write` is available from untrusted events, `workflow_run`, or broad all-branch push deploys. | High | Restrict cloud trust policies to protected branches and environments, and avoid OIDC on untrusted workflow paths. |
 | `workflow_cache_poisoning` | Cache keys or restore paths are influenced by PR-controlled context, or broad restore keys are used on untrusted events. | Medium | Separate untrusted PR caches from trusted build caches and avoid broad restore keys in privileged jobs. |
 | `workflow_artifact_poisoning` | PR or `workflow_run` context can upload artifacts or release assets consumed later. | Medium to high | Keep untrusted artifacts isolated, verify provenance before reuse, and publish releases only from protected contexts. |
+| `workflow_self_hosted_runner` | Self-hosted runner usage has no obvious org-level controls and can route untrusted jobs to shared infrastructure. | Medium | Enforce repository-level self-hosted runner restrictions, dedicated groups, and minimal permissions before enabling untrusted pull-request execution. |
+| `workflow_self_hosted_runner_unresolved` | Self-hosted runner-group visibility is permission-limited or unavailable, leaving posture state uncertain. | Medium | Grant the GitHub App read access to org runner groups or route high-risk repos to managed GitHub-hosted runners. |
 
 To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
 

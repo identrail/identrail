@@ -68,6 +68,12 @@ func TestRepositoryClientCollectRepositoryPostureHappyPath(t *testing.T) {
 				return
 			}
 			_, _ = w.Write([]byte(`{"total_count":2,"environments":[{"name":"staging","protection_rules":[{"type":"required_reviewers"}]}]}`))
+		case "/repos/owner/repo/actions/runners":
+			_, _ = w.Write([]byte(`{"total_count":0,"runners":[]}`))
+		case "/repos/owner/repo/actions/runner-groups":
+			_, _ = w.Write([]byte(`{"total_count":0,"runner_groups":[]}`))
+		case "/orgs/owner/actions/runner-groups":
+			_, _ = w.Write([]byte(`{"total_count":0,"runner_groups":[]}`))
 		default:
 			t.Errorf("unexpected posture path %s", r.URL.String())
 			return
@@ -86,7 +92,7 @@ func TestRepositoryClientCollectRepositoryPostureHappyPath(t *testing.T) {
 	if minter.seenInstallationID != 123 {
 		t.Fatalf("expected installation 123, got %d", minter.seenInstallationID)
 	}
-	if posture.Repository != "owner/repo" || posture.InstallationID != 123 || len(posture.Checks) != 10 {
+	if posture.Repository != "owner/repo" || posture.InstallationID != 123 || len(posture.Checks) != 11 {
 		t.Fatalf("unexpected posture summary: %+v", posture)
 	}
 	for _, id := range []string{
@@ -100,6 +106,7 @@ func TestRepositoryClientCollectRepositoryPostureHappyPath(t *testing.T) {
 		"deploy_keys",
 		"webhooks",
 		"deployment_environments",
+		"self_hosted_runners",
 	} {
 		if check := postureCheckByID(posture, id); check.State != RepositoryPostureStateSecure {
 			t.Fatalf("expected %s to be secure, got %+v", id, check)
@@ -132,6 +139,12 @@ func TestRepositoryClientCollectRepositoryPostureClassifiesWeakSettings(t *testi
 			_, _ = w.Write([]byte(`[{"id":1,"active":true,"config":{"insecure_ssl":"1"},"last_response":{"code":500,"status":"failed"}}]`))
 		case "/repos/owner/repo/environments":
 			_, _ = w.Write([]byte(`{"total_count":1,"environments":[{"name":"production","protection_rules":[]}]}`))
+		case "/repos/owner/repo/actions/runners":
+			_, _ = w.Write([]byte(`{"total_count":1,"runners":[{"id":1,"os":"linux","status":"online","busy":false,"labels":[{"name":"self-hosted","type":"read-only"},{"name":"x64","type":"read-only"}]}]}`))
+		case "/repos/owner/repo/actions/runner-groups":
+			_, _ = w.Write([]byte(`{"total_count":1,"runner_groups":[{"id":1,"name":"default","visibility":"all","allows_public_repositories":true}]}`))
+		case "/orgs/owner/actions/runner-groups":
+			_, _ = w.Write([]byte(`{"total_count":1,"runner_groups":[{"id":1,"name":"default","visibility":"all","allows_public_repositories":true}]}`))
 		default:
 			t.Errorf("unexpected posture path %s", r.URL.String())
 			return
@@ -154,10 +167,26 @@ func TestRepositoryClientCollectRepositoryPostureClassifiesWeakSettings(t *testi
 		"deploy_keys",
 		"webhooks",
 		"deployment_environments",
+		"self_hosted_runners",
 	} {
 		if check := postureCheckByID(posture, id); check.State != RepositoryPostureStateInsecure {
 			t.Fatalf("expected %s to be insecure, got %+v", id, check)
 		}
+	}
+
+	runners := postureCheckByID(posture, "self_hosted_runners")
+	if count, _ := runners.Evidence["self_hosted_runner_count"].(int); count != 1 {
+		t.Fatalf("expected one self-hosted runner, got %+v", runners.Evidence)
+	}
+	labels, _ := runners.Evidence["runner_labels"].([]string)
+	if len(labels) != 2 || labels[0] != "self-hosted" || labels[1] != "x64" {
+		t.Fatalf("expected sorted self-hosted runner labels, got %+v", runners.Evidence)
+	}
+	if broad, _ := runners.Evidence["broadly_available_runner_groups"].(int); broad != 1 {
+		t.Fatalf("expected one broadly available runner group, got %+v", runners.Evidence)
+	}
+	if public, _ := runners.Evidence["public_repository_runner_groups"].(int); public != 1 {
+		t.Fatalf("expected one public-repository runner group, got %+v", runners.Evidence)
 	}
 }
 
@@ -182,6 +211,8 @@ func TestRepositoryClientCollectRepositoryPosturePermissionAndRateLimitStates(t 
 			http.Error(w, `{"message":"Resource not accessible by integration"}`, http.StatusForbidden)
 		case "/repos/owner/repo/environments":
 			_, _ = w.Write([]byte(`{"total_count":0,"environments":[]}`))
+		case "/repos/owner/repo/actions/runners":
+			http.Error(w, `{"message":"Resource not accessible by integration"}`, http.StatusForbidden)
 		default:
 			t.Errorf("unexpected posture path %s", r.URL.String())
 			return
@@ -201,6 +232,161 @@ func TestRepositoryClientCollectRepositoryPosturePermissionAndRateLimitStates(t 
 	}
 	if check := postureCheckByID(posture, "actions_permissions"); check.State != RepositoryPostureStateUnavailable || check.Reason != "rate_limited" {
 		t.Fatalf("expected actions secondary rate limit, got %+v", check)
+	}
+	if check := postureCheckByID(posture, "self_hosted_runners"); check.State != RepositoryPostureStatePermissionLimited {
+		t.Fatalf("expected self-hosted runner posture permission-limited, got %+v", check)
+	}
+}
+
+func TestRepositoryClientCollectSelfHostedRunnerPostureOrgGroupPermissionLimited(t *testing.T) {
+	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo":
+			_, _ = w.Write([]byte(`{"full_name":"owner/repo","default_branch":"main","has_security_policy":true}`))
+		case "/repos/owner/repo/branches/main/protection":
+			_, _ = w.Write([]byte(`{"required_pull_request_reviews":{"required_approving_review_count":2},"required_status_checks":{"contexts":["test"]},"enforce_admins":{"enabled":true},"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}`))
+		case "/repos/owner/repo/rulesets":
+			_, _ = w.Write([]byte(`[{"id":1,"enforcement":"active"}]`))
+		case "/repos/owner/repo/actions/permissions":
+			_, _ = w.Write([]byte(`{"enabled":true,"allowed_actions":"selected","default_workflow_permissions":"read"}`))
+		case "/repos/owner/repo/vulnerability-alerts", "/repos/owner/repo/automated-security-fixes":
+			w.WriteHeader(http.StatusNoContent)
+		case "/repos/owner/repo/code-scanning/alerts", "/repos/owner/repo/secret-scanning/alerts", "/repos/owner/repo/keys", "/repos/owner/repo/hooks":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/owner/repo/environments":
+			_, _ = w.Write([]byte(`{"total_count":0,"environments":[]}`))
+		case "/repos/owner/repo/actions/runners":
+			_, _ = w.Write([]byte(`{"total_count":1,"runners":[{"id":7,"os":"linux","status":"offline","busy":false,"labels":[{"name":"self-hosted"}]}]}`))
+		case "/repos/owner/repo/actions/runner-groups":
+			http.Error(w, `{"message":"Resource not accessible by integration"}`, http.StatusForbidden)
+		case "/orgs/owner/actions/runner-groups":
+			http.Error(w, `{"message":"Resource not accessible by integration"}`, http.StatusForbidden)
+		default:
+			t.Errorf("unexpected posture path %s", r.URL.String())
+			return
+		}
+	}))
+	defer server.Close()
+
+	posture, err := (RepositoryClient{TokenClient: minter, APIBaseURL: server.URL}).CollectRepositoryPosture(context.Background(), 123, "owner/repo")
+	if err != nil {
+		t.Fatalf("collect posture: %v", err)
+	}
+	check := postureCheckByID(posture, "self_hosted_runners")
+	if check.State != RepositoryPostureStateInsecure || check.Reason != "self_hosted_runners_present" {
+		t.Fatalf("expected insecure self-hosted runner state, got %+v", check)
+	}
+	if state, _ := check.Evidence["runner_groups_state"].(string); state != string(RepositoryPostureStatePermissionLimited) {
+		t.Fatalf("expected permission-limited org runner-group state evidence, got %+v", check.Evidence)
+	}
+	if _, present := check.Evidence["broadly_available_runner_groups"]; present {
+		t.Fatalf("expected no runner-group counts when org read is permission-limited, got %+v", check.Evidence)
+	}
+	if offline, _ := check.Evidence["offline_runners"].(int); offline != 1 {
+		t.Fatalf("expected one offline runner, got %+v", check.Evidence)
+	}
+}
+
+func TestRepositoryClientCollectSelfHostedRunnerPostureOrgGroupPermissionLimitedWithoutLocalRunners(t *testing.T) {
+	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo":
+			_, _ = w.Write([]byte(`{"full_name":"owner/repo","default_branch":"main","has_security_policy":true}`))
+		case "/repos/owner/repo/branches/main/protection":
+			_, _ = w.Write([]byte(`{"required_pull_request_reviews":{"required_approving_review_count":2},"required_status_checks":{"contexts":["test"]},"enforce_admins":{"enabled":true},"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}`))
+		case "/repos/owner/repo/rulesets":
+			_, _ = w.Write([]byte(`[{"id":1,"enforcement":"active"}]`))
+		case "/repos/owner/repo/actions/permissions":
+			_, _ = w.Write([]byte(`{"enabled":true,"allowed_actions":"selected","default_workflow_permissions":"read"}`))
+		case "/repos/owner/repo/vulnerability-alerts", "/repos/owner/repo/automated-security-fixes":
+			w.WriteHeader(http.StatusNoContent)
+		case "/repos/owner/repo/code-scanning/alerts", "/repos/owner/repo/secret-scanning/alerts", "/repos/owner/repo/keys", "/repos/owner/repo/hooks":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/owner/repo/environments":
+			_, _ = w.Write([]byte(`{"total_count":0,"environments":[]}`))
+		case "/repos/owner/repo/actions/runners":
+			_, _ = w.Write([]byte(`{"total_count":0,"runners":[]}`))
+		case "/repos/owner/repo/actions/runner-groups":
+			http.Error(w, `{"message":"Resource not accessible by integration"}`, http.StatusForbidden)
+		case "/orgs/owner/actions/runner-groups":
+			http.Error(w, `{"message":"Resource not accessible by integration"}`, http.StatusForbidden)
+		default:
+			t.Errorf("unexpected posture path %s", r.URL.String())
+			return
+		}
+	}))
+	defer server.Close()
+
+	posture, err := (RepositoryClient{TokenClient: minter, APIBaseURL: server.URL}).CollectRepositoryPosture(context.Background(), 123, "owner/repo")
+	if err != nil {
+		t.Fatalf("collect posture: %v", err)
+	}
+	check := postureCheckByID(posture, "self_hosted_runners")
+	if check.State != RepositoryPostureStatePermissionLimited {
+		t.Fatalf("expected permission-limited self-hosted runner state, got %+v", check)
+	}
+	if check.Reason != "runner_group_visibility_unknown" {
+		t.Fatalf("expected runner-group visibility reason, got %+v", check)
+	}
+	if state, _ := check.Evidence["runner_groups_state"].(string); state != string(RepositoryPostureStatePermissionLimited) {
+		t.Fatalf("expected permission-limited runner-group state evidence, got %+v", check.Evidence)
+	}
+	if _, present := check.Evidence["runner_groups_state"]; !present {
+		t.Fatalf("expected runner group state evidence to be present, got %+v", check.Evidence)
+	}
+}
+
+func TestRepositoryClientCollectSelfHostedRunnerPostureFiltersSelectedOrgGroupsWithoutRepositoryMembership(t *testing.T) {
+	minter := &fakeInstallationTokenMinter{token: InstallationToken{Token: "inst-token", ExpiresAt: time.Now().Add(time.Hour)}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo":
+			_, _ = w.Write([]byte(`{"full_name":"owner/repo","default_branch":"main","has_security_policy":true}`))
+		case "/repos/owner/repo/branches/main/protection":
+			_, _ = w.Write([]byte(`{"required_pull_request_reviews":{"required_approving_review_count":2},"required_status_checks":{"contexts":["test"]},"enforce_admins":{"enabled":true},"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}`))
+		case "/repos/owner/repo/rulesets":
+			_, _ = w.Write([]byte(`[{"id":1,"enforcement":"active"}]`))
+		case "/repos/owner/repo/actions/permissions":
+			_, _ = w.Write([]byte(`{"enabled":true,"allowed_actions":"selected","default_workflow_permissions":"read"}`))
+		case "/repos/owner/repo/vulnerability-alerts", "/repos/owner/repo/automated-security-fixes":
+			w.WriteHeader(http.StatusNoContent)
+		case "/repos/owner/repo/code-scanning/alerts", "/repos/owner/repo/secret-scanning/alerts", "/repos/owner/repo/keys", "/repos/owner/repo/hooks":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/owner/repo/environments":
+			_, _ = w.Write([]byte(`{"total_count":0,"environments":[]}`))
+		case "/repos/owner/repo/actions/runners":
+			_, _ = w.Write([]byte(`{"total_count":0,"runners":[]}`))
+		case "/repos/owner/repo/actions/runner-groups":
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		case "/orgs/owner/actions/runner-groups":
+			_, _ = w.Write([]byte(`{"total_count":1,"runner_groups":[{"id":11,"name":"public-shared","visibility":"selected","allows_public_repositories":true}]}`))
+		case "/orgs/owner/actions/runner-groups/11/repositories":
+			_, _ = w.Write([]byte(`{"total_count":1,"repositories":[{"full_name":"owner/other-repo"}]}`))
+		default:
+			t.Errorf("unexpected posture path %s", r.URL.String())
+			return
+		}
+	}))
+	defer server.Close()
+
+	posture, err := (RepositoryClient{TokenClient: minter, APIBaseURL: server.URL}).CollectRepositoryPosture(context.Background(), 123, "owner/repo")
+	if err != nil {
+		t.Fatalf("collect posture: %v", err)
+	}
+	check := postureCheckByID(posture, "self_hosted_runners")
+	if check.State != RepositoryPostureStateSecure {
+		t.Fatalf("expected secure self-hosted runner state, got %+v", check)
+	}
+	if check.Reason != "no_self_hosted_runners" {
+		t.Fatalf("expected secure self-hosted runner reason, got %+v", check)
+	}
+	if broad, _ := check.Evidence["broadly_available_runner_groups"].(int); broad != 0 {
+		t.Fatalf("expected no broadly available groups, got %+v", check.Evidence)
+	}
+	if public, _ := check.Evidence["public_repository_runner_groups"].(int); public != 0 {
+		t.Fatalf("expected no public-repository groups, got %+v", check.Evidence)
 	}
 }
 

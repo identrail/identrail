@@ -1371,6 +1371,7 @@ export const apiClient = {
       repository?: string;
       severity?: string;
       type?: string;
+      source?: string;
       repo_lifecycle_status?: RepoFindingLifecycleStatus;
       detector?: string;
       owner?: string;

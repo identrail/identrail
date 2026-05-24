@@ -2563,6 +2563,9 @@ func repoFindingMatchesFilter(finding domain.Finding, filter RepoFindingFilter) 
 	if filter.Owner != "" && strings.ToLower(strings.TrimSpace(finding.Owner)) != filter.Owner {
 		return false
 	}
+	if filter.Source != "" && strings.ToLower(strings.TrimSpace(finding.AdapterSource)) != filter.Source {
+		return false
+	}
 	if filter.MinConfidence > 0 && finding.ConfidenceScore < filter.MinConfidence {
 		return false
 	}

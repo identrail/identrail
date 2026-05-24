@@ -955,6 +955,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			Status:          strings.TrimSpace(firstNonEmpty(firstNonEmpty(c.Query("repo_lifecycle_status"), c.Query("repo_status")), c.Query("status"))),
 			Detector:        strings.TrimSpace(c.Query("detector")),
 			Owner:           strings.TrimSpace(c.Query("owner")),
+			Source:          strings.TrimSpace(c.Query("source")),
 			MinConfidence:   minConfidence,
 			MinAgeDays:      minAgeDays,
 			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),

@@ -875,6 +875,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 			HumanSummary:    "ack finding",
 			Detector:        "workflow_pull_request_target",
 			Owner:           "platform",
+			AdapterSource:   "github_secret_scanning",
 			CreatedAt:       now.Add(-10 * 24 * time.Hour),
 		},
 	}); err != nil {
@@ -900,7 +901,7 @@ func TestRouterRepoFindingsCanBeFilteredByTriageState(t *testing.T) {
 
 	filteredReq := httptest.NewRequest(
 		http.MethodGet,
-		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&repo_lifecycle_status=open&detector=workflow_pull_request_target&owner=platform&confidence=0.9&age_days=7&lifecycle_status=ack&assignee=platform&limit=50",
+		"/v1/repo-findings?repo_scan_id="+repoScan.ID+"&repo_lifecycle_status=open&detector=workflow_pull_request_target&owner=platform&source=github_secret_scanning&confidence=0.9&age_days=7&lifecycle_status=ack&assignee=platform&limit=50",
 		nil,
 	)
 	filteredW := httptest.NewRecorder()
