@@ -66,14 +66,14 @@ export function Header({
       }
 
       const key = event.key.toLowerCase();
-      if (key !== 'l' && key !== 'd') {
+      if (key !== 'l' && key !== 's') {
         return;
       }
 
       event.preventDefault();
       setMenuOpen(false);
       preloadAuthConfig();
-      navigate(key === 'l' ? siteLinks.signIn : siteLinks.docs);
+      navigate(key === 'l' ? siteLinks.signIn : '/signup');
     };
 
     document.addEventListener('keydown', onKeyDown);
@@ -127,16 +127,16 @@ export function Header({
             </span>
           </Link>
           <Link
-            to={siteLinks.docs}
+            to="/signup"
             className="idt-header-utility idt-header-signup idt-header-auth-chip is-primary"
             data-ab-slot="header_primary_cta"
             onFocus={preloadAuthConfig}
             onMouseEnter={preloadAuthConfig}
             onPointerDown={preloadAuthConfig}
           >
-            <span>View Docs</span>
+            <span>Sign up</span>
             <span className="idt-header-keycap" aria-hidden="true">
-              D
+              S
             </span>
           </Link>
         </div>

@@ -216,7 +216,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: /Connect sources, trace risk/i })
     ).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /View Docs/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Book Demo/i })).toBeInTheDocument();
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
     expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();

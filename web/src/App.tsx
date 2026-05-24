@@ -2440,9 +2440,8 @@ function HomePage() {
             body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
           />
           <div className="idt-inline-actions">
-            <ScanIntakeCTA className="idt-btn idt-btn-primary idt-home-demo-cta" />
-            <Link to="/docs" className="idt-btn idt-btn-dark">
-              View Docs
+            <Link to="/demo" className="idt-btn idt-btn-primary idt-home-demo-cta">
+              Book Demo
             </Link>
           </div>
         </section>
