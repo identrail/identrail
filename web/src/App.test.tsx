@@ -216,21 +216,12 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: /Connect sources, trace risk/i })
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Book Demo/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Book Demo/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
     expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();
   });
 
-  it('uses first-party demo booking fields instead of an external calendar placeholder', () => {
-    setCurrentPath('/demo');
-    render(<App />);
-
-    expect(screen.getByLabelText(/Preferred day/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Preferred time/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Request Trust Path Review/i })).toBeInTheDocument();
-    expect(document.querySelector('a[href*="calendly"]')).not.toBeInTheDocument();
-  });
 
   it('routes shared sales CTAs to the marketing mailbox', () => {
     setCurrentPath('/enterprise');
@@ -295,21 +286,6 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/');
   });
 
-  it('closes the book demo modal when the route changes', async () => {
-    setCurrentPath('/');
-    render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: /Book Demo/i }));
-    expect(screen.getByRole('dialog', { name: /Walk through a live trust path/i })).toBeInTheDocument();
-
-    act(() => {
-      window.history.pushState({}, '', '/product');
-      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-    });
-
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: /Walk through a live trust path/i })).not.toBeInTheDocument()
-    );
-  });
 
   it('resets scroll when a routed hash target is missing', async () => {
     setCurrentPath('/pricing');

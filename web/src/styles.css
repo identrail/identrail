@@ -23693,3 +23693,247 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-chip-list span {
   background: var(--app-panel-strong);
   color: var(--app-text);
 }
+
+
+/* Follow-up polish: modal demo flow, graph connections, and docs review panel. */
+.idt-home-after-stack .idt-command-center-grid,
+html[data-theme='light'] .idt-home-after-stack .idt-command-center-grid {
+  grid-template-columns: minmax(300px, 0.62fr) minmax(660px, 1.38fr);
+  gap: clamp(3rem, 5vw, 6rem);
+}
+
+.idt-home-after-stack .idt-command-copy,
+html[data-theme='light'] .idt-home-after-stack .idt-command-copy {
+  min-width: 0;
+  max-width: 34rem;
+}
+
+.idt-home-after-stack .idt-command-copy h2,
+html[data-theme='light'] .idt-home-after-stack .idt-command-copy h2 {
+  max-width: 8.85ch;
+  overflow-wrap: normal;
+}
+
+.idt-home-after-stack .idt-command-surface,
+html[data-theme='light'] .idt-home-after-stack .idt-command-surface {
+  width: min(100%, 920px);
+  margin-left: auto;
+}
+
+.idt-product-path-glow,
+.idt-product-path-flow {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.idt-product-path-glow {
+  stroke: rgba(255, 255, 255, 0.22);
+  stroke-width: 11;
+  opacity: 0.34;
+}
+
+.idt-product-path-flow {
+  stroke: url(#idt-product-trust-flow-gradient);
+  stroke-width: 1.8;
+  stroke-dasharray: 24 112;
+  stroke-dashoffset: 0;
+  opacity: 0.72;
+  animation: idt-product-live-edge 4.8s linear infinite;
+}
+
+.idt-product-path-flow.is-two {
+  animation-delay: -1.2s;
+}
+
+.idt-product-path-flow.is-three {
+  animation-delay: -2.4s;
+}
+
+.idt-product-path-edge {
+  stroke-width: 3.1;
+}
+
+.idt-product-trust-arrow-head {
+  fill: #f5f5f5;
+  stroke-width: 1.8;
+}
+
+.idt-demo-edge-base,
+.idt-demo-edge-arrow,
+.idt-demo-edge-flow {
+  stroke-linejoin: round;
+}
+
+.idt-demo-edge-base {
+  stroke-width: 1.35;
+  opacity: 0.62;
+}
+
+.idt-demo-edge-arrow {
+  stroke-width: 1.65;
+  opacity: 0.88;
+}
+
+.idt-demo-edges g.is-connected .idt-demo-edge-arrow {
+  stroke-width: 2.15;
+}
+
+.idt-demo-edge-flow {
+  stroke-dasharray: 20 118;
+  stroke-dashoffset: 0;
+  animation: idt-product-live-edge 5.4s linear infinite;
+}
+
+.idt-product-graph-band .idt-demo-edge-flow {
+  stroke-dasharray: 28 124;
+}
+
+.idt-product-card-metric {
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.idt-inline-button-link {
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: inline;
+  font: inherit;
+  font-weight: 800;
+  padding: 0;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1.4px;
+  text-underline-offset: 0.2em;
+}
+
+.idt-inline-button-link:hover,
+.idt-inline-button-link:focus-visible {
+  color: #ffffff;
+  outline: none;
+  text-decoration-color: currentColor;
+}
+
+.idt-docs-page .idt-booking-prompt,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  gap: clamp(1.5rem, 3vw, 2.4rem);
+  border: 1px solid #27313f;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(82, 119, 190, 0.2), transparent 18rem),
+    radial-gradient(circle at 12% 84%, rgba(123, 92, 255, 0.16), transparent 20rem),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    #070b12;
+  background-size: auto, auto, 56px 56px, 56px 56px, auto;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+}
+
+.idt-docs-page .idt-booking-prompt::before,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: 19px;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.11), transparent 32%, rgba(255, 255, 255, 0.08) 72%, transparent),
+    radial-gradient(circle at 60% 52%, rgba(255, 255, 255, 0.08), transparent 18rem);
+  pointer-events: none;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-section-title h2,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-section-title h2 {
+  max-width: 12ch;
+  color: #ffffff;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-section-title p,
+.idt-docs-page .idt-booking-prompt-note,
+.idt-docs-page .idt-booking-prompt-checklist,
+.idt-docs-page .idt-booking-prompt-preview ol,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-section-title p,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-note,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-checklist,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-preview ol {
+  color: #d5ddea;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-section-title .idt-eyebrow,
+.idt-docs-page .idt-booking-prompt-preview .idt-eyebrow,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-section-title .idt-eyebrow,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-preview .idt-eyebrow {
+  color: #9db3d8;
+}
+
+.idt-docs-page .idt-booking-prompt-shell,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-shell {
+  gap: 1px;
+  border: 1px solid #27313f;
+  border-radius: 16px;
+  background: #27313f;
+}
+
+.idt-docs-page .idt-booking-prompt-card,
+.idt-docs-page .idt-booking-prompt-preview,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-card,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-preview {
+  border: 0;
+  border-radius: 15px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)),
+    #0a1019;
+  box-shadow: none;
+}
+
+.idt-docs-page .idt-booking-prompt-card,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-card {
+  display: grid;
+  gap: 1rem;
+  min-height: 260px;
+  align-content: space-between;
+}
+
+.idt-docs-page .idt-booking-prompt-checklist li::marker,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-checklist li::marker {
+  color: #9db3d8;
+}
+
+.idt-docs-page .idt-booking-prompt-slot-row span,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
+  border-color: rgba(157, 179, 216, 0.28);
+  background: rgba(157, 179, 216, 0.1);
+  color: #dfe7f5;
+}
+
+@keyframes idt-product-live-edge {
+  to {
+    stroke-dashoffset: -148;
+  }
+}
+
+@media (max-width: 1180px) {
+  .idt-home-after-stack .idt-command-center-grid,
+  html[data-theme='light'] .idt-home-after-stack .idt-command-center-grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .idt-home-after-stack .idt-command-copy h2,
+  html[data-theme='light'] .idt-home-after-stack .idt-command-copy h2 {
+    max-width: 10ch;
+  }
+
+  .idt-home-after-stack .idt-command-surface,
+  html[data-theme='light'] .idt-home-after-stack .idt-command-surface {
+    width: 100%;
+    margin-left: 0;
+  }
+}

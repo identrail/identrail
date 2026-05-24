@@ -103,11 +103,6 @@ const ROUTE_META: Record<string, RouteMeta> = {
     description:
       'Compare Identrail deployment models across self-hosted, hosted SaaS, and enterprise rollout patterns with security and control tradeoffs.'
   },
-  '/demo': {
-    title: 'Demo | Interactive Trust Graph and Risk Workflows',
-    description:
-      'Explore an interactive trust graph demo showing machine identity attack-path evidence, risk scoring, and recommended controls.'
-  },
   '/integrations': {
     title: 'Integrations | AWS, Kubernetes, GitHub, OIDC, and Observability',
     description:

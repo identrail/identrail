@@ -67,7 +67,6 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const SUPPORT_EMAIL = siteEmails.support;
 const SECURITY_EMAIL = siteEmails.security;
-const DEMO_BOOKING_PATH = '/demo#book-demo';
 const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
@@ -267,7 +266,7 @@ const DOCS_FEATURED_GUIDES = [
     title: 'Review your first live identity path',
     description:
       'Use the guided intake and docs together to scope AWS, Kubernetes, GitHub, and OIDC signals before rollout.',
-    href: '/demo'
+    href: '#book-demo'
   },
   {
     eyebrow: 'Operator runbook',
@@ -872,17 +871,22 @@ function ProductHeroVisual() {
           <div className="idt-product-hero-graph">
             <svg className="idt-product-trust-svg" viewBox="0 0 920 520" aria-hidden="true" focusable="false">
               <defs>
+                <linearGradient id="idt-product-trust-flow-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="rgba(255, 255, 255, 0.22)" />
+                  <stop offset="48%" stopColor="rgba(255, 255, 255, 0.92)" />
+                  <stop offset="100%" stopColor="rgba(255, 255, 255, 0.28)" />
+                </linearGradient>
                 <marker
                   id="idt-product-trust-arrow"
                   viewBox="0 0 18 18"
-                  refX="15"
+                  refX="15.6"
                   refY="9"
                   markerWidth="18"
                   markerHeight="18"
                   orient="auto"
                   markerUnits="userSpaceOnUse"
                 >
-                  <path className="idt-product-trust-arrow-head" d="M3 3 L15 9 L3 15" />
+                  <path className="idt-product-trust-arrow-head" d="M3.2 3.2 L15 9 L3.2 14.8 L6.1 9 Z" />
                 </marker>
               </defs>
               <circle className="idt-product-focus-halo" cx="475" cy="276" r="150" />
@@ -899,23 +903,33 @@ function ProductHeroVisual() {
                 </text>
               </g>
 
-              <path className="idt-product-path-edge is-active" d="M250 168 C318 172 326 266 370 266" />
-              <path className="idt-product-path-edge is-active" d="M570 260 C626 236 636 174 668 174" />
-              <path className="idt-product-path-edge is-active" d="M570 302 C598 318 604 365 626 374" />
+              <g className="idt-product-path-layer" aria-hidden="true">
+                <path className="idt-product-path-glow is-one" d="M250 168 C316 168 324 248 370 258" />
+                <path className="idt-product-path-edge is-active" d="M250 168 C316 168 324 248 370 258" />
+                <path className="idt-product-path-flow is-one" d="M250 168 C316 168 324 248 370 258" />
 
-              <g className="idt-product-path-tag" transform="translate(284 178)">
+                <path className="idt-product-path-glow is-two" d="M570 258 C628 246 622 178 668 176" />
+                <path className="idt-product-path-edge is-active" d="M570 258 C628 246 622 178 668 176" />
+                <path className="idt-product-path-flow is-two" d="M570 258 C628 246 622 178 668 176" />
+
+                <path className="idt-product-path-glow is-three" d="M570 306 C612 318 600 370 626 382" />
+                <path className="idt-product-path-edge is-active" d="M570 306 C612 318 600 370 626 382" />
+                <path className="idt-product-path-flow is-three" d="M570 306 C612 318 600 370 626 382" />
+              </g>
+
+              <g className="idt-product-path-tag" transform="translate(286 184)">
                 <rect width="92" height="30" rx="15" />
                 <text x="46" y="20">
                   federates
                 </text>
               </g>
-              <g className="idt-product-path-tag" transform="translate(584 226)">
+              <g className="idt-product-path-tag" transform="translate(590 224)">
                 <rect width="108" height="30" rx="15" />
                 <text x="54" y="20">
                   assumes role
                 </text>
               </g>
-              <g className="idt-product-path-tag" transform="translate(520 326)">
+              <g className="idt-product-path-tag" transform="translate(520 330)">
                 <rect width="100" height="30" rx="15" />
                 <text x="50" y="20">
                   reaches data
@@ -998,12 +1012,12 @@ function ProductHeroVisual() {
                   JWT claims, trust policy, API call proof
                 </text>
               </g>
-              <g className="idt-product-svg-card is-queue" transform="translate(698 432)">
-                <rect width="156" height="72" rx="10" />
+              <g className="idt-product-svg-card is-queue" transform="translate(666 430)">
+                <rect width="188" height="74" rx="10" />
                 <text className="idt-product-card-kicker" x="18" y="25">
                   Live queue
                 </text>
-                <text className="idt-product-card-metric" x="18" y="52">
+                <text className="idt-product-card-metric" x="18" y="53">
                   37 risky paths
                 </text>
               </g>
@@ -1318,40 +1332,6 @@ function EnterpriseHeroVisual() {
   );
 }
 
-function DemoBookingVisual() {
-  return (
-    <div className="idt-demo-booking-visual" aria-hidden="true">
-      <div className="idt-demo-booking-agenda">
-        <span>Live agenda</span>
-        <ol>
-          <li>Scope one production boundary</li>
-          <li>Map a reachable high-risk path</li>
-          <li>Package the safest first fix</li>
-        </ol>
-      </div>
-      <div className="idt-demo-booking-orbit" aria-label="Trust path preview">
-        <svg viewBox="0 0 420 260" focusable="false">
-          <defs>
-            <marker id="idt-demo-booking-arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
-              <path d="M1 1 L11 6 L1 11 Z" />
-            </marker>
-          </defs>
-          <path d="M78 74 C145 54 202 74 252 120" />
-          <path d="M252 120 C300 164 316 199 356 211" />
-        </svg>
-        <span className="is-source">OIDC</span>
-        <span className="is-workload">K8s</span>
-        <span className="is-target">RDS</span>
-      </div>
-      <div className="idt-demo-booking-card">
-        <span>Guided walkthrough</span>
-        <strong>15 minute trust path review</strong>
-        <p>Bring one AWS account, namespace, or repository. Leave with the first path, blast radius, and owner-ready next step.</p>
-      </div>
-    </div>
-  );
-}
-
 function LeadCaptureForm({
   id,
   title,
@@ -1586,40 +1566,37 @@ function ModalShell({
 
 function BookingPrompt() {
   return (
-    <section className="idt-booking-prompt">
+    <section className="idt-booking-prompt" id="book-demo">
       <SectionTitle
-        eyebrow="Book Demo"
+        eyebrow="Guided Review"
         title="Walk through your trust graph in 15 minutes"
-        body="Bring one AWS account or Kubernetes namespace, and we will map live trust paths and top risk chains."
+        body="Bring one AWS account, Kubernetes namespace, or repository. We will map a live trust path, show the evidence, and leave you with the safest first fix."
       />
       <div className="idt-booking-prompt-shell">
         <article className="idt-booking-prompt-card">
           <p className="idt-booking-prompt-note">
-            Choose a slot and we will review trust-path evidence, blast radius, and rollout-safe remediation priorities.
+            Share the environment you want reviewed and we will focus the session on a real boundary, not a generic product tour.
           </p>
           <ul className="idt-booking-prompt-checklist">
-            <li>Read-only onboarding review</li>
-            <li>Live trust graph walkthrough</li>
-            <li>First remediation sequence</li>
+            <li>Scope one cloud, cluster, or repository boundary</li>
+            <li>Trace the highest-confidence reachable path</li>
+            <li>Leave with owner-ready evidence and first fix</li>
           </ul>
           <div className="idt-inline-actions">
-            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-            <Link to="/docs" className="idt-btn idt-btn-dark">
-              View Docs
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary">Book Demo</ScanIntakeCTA>
           </div>
         </article>
-        <aside className="idt-booking-prompt-preview" aria-label="Demo agenda preview">
-          <p className="idt-eyebrow">Sample agenda</p>
+        <aside className="idt-booking-prompt-preview" aria-label="Trust graph review agenda preview">
+          <p className="idt-eyebrow">Review board</p>
           <ol>
-            <li>Scope environment and trust boundaries</li>
-            <li>Inspect one high-risk path with evidence</li>
-            <li>Review safe remediation plan and rollout options</li>
+            <li>Confirm the source identity and trust boundary</li>
+            <li>Inspect reachable resources with evidence</li>
+            <li>Prioritize the safest rollout sequence</li>
           </ol>
           <div className="idt-booking-prompt-slot-row" aria-hidden="true">
-            <span>All-day availability</span>
             <span>15-minute review</span>
-            <span>Email confirmation</span>
+            <span>Read-only scope</span>
+            <span>Email follow-up</span>
           </div>
         </aside>
       </div>
@@ -1716,29 +1693,25 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   const graphPanelId = `trust-graph-panel-${variant}`;
   const listPanelId = `trust-list-panel-${variant}`;
 
-  const getNode = (id: (typeof nodes)[number]['id']) => nodes.find((node) => node.id === id);
-  const edgePath = (fromId: (typeof nodes)[number]['id'], toId: (typeof nodes)[number]['id']) => {
-    const from = getNode(fromId);
-    const to = getNode(toId);
-    if (!from || !to) {
-      return '';
-    }
+  type DemoEdge = (typeof edges)[number];
+  type EdgeAnchor = {
+    start: readonly [number, number];
+    c1: readonly [number, number];
+    c2: readonly [number, number];
+    end: readonly [number, number];
+  };
 
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const ux = dx / length;
-    const uy = dy / length;
-    const startX = from.x + ux * 5.8;
-    const startY = from.y + uy * 5.8;
-    const endX = to.x - ux * 7.2;
-    const endY = to.y - uy * 7.2;
-    const bend = Math.min(12, Math.max(4.5, Math.abs(dx) * 0.14 + Math.abs(dy) * 0.06));
-    const c1x = startX + dx * 0.32;
-    const c1y = startY + dy * 0.16 - bend;
-    const c2x = endX - dx * 0.26;
-    const c2y = endY - dy * 0.12 + bend * 0.16;
-    return `M ${startX} ${startY} C ${c1x} ${c1y} ${c2x} ${c2y} ${endX} ${endY}`;
+  const edgeAnchors: Record<DemoEdge['id'], EdgeAnchor> = {
+    'e-oidc-role': { start: [31, 17], c1: [40, 15], c2: [47, 33], end: [58, 35] },
+    'e-oidc-sa': { start: [23, 22], c1: [29, 34], c2: [29, 47], end: [35, 58] },
+    'e-sa-role': { start: [48, 58], c1: [52, 49], c2: [55, 42], end: [58, 39] },
+    'e-sa-repo': { start: [49, 66], c1: [54, 70], c2: [53, 77], end: [58, 80] },
+    'e-repo-db': { start: [57, 86], c1: [54, 90], c2: [48, 91], end: [42, 92] }
+  };
+
+  const edgePath = (edge: DemoEdge) => {
+    const anchor = edgeAnchors[edge.id];
+    return `M ${anchor.start[0]} ${anchor.start[1]} C ${anchor.c1[0]} ${anchor.c1[1]} ${anchor.c2[0]} ${anchor.c2[1]} ${anchor.end[0]} ${anchor.end[1]}`;
   };
 
   const connectedEdges = edges.filter((edge) => edge.from === selected.id || edge.to === selected.id);
@@ -1800,7 +1773,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
               </marker>
             </defs>
             {edges.map((edge, index) => {
-              const path = edgePath(edge.from, edge.to);
+              const path = edgePath(edge);
               if (!path) {
                 return null;
               }
@@ -1868,11 +1841,8 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           </article>
         ) : null}
         <p className="idt-demo-follow-up">
-          Explore the full investigation workflow on the{' '}
-          <Link to="/demo" className="idt-inline-link">
-            interactive demo page
-          </Link>
-          .
+          Want this mapped against your own environment?{' '}
+          <ScanIntakeCTA className="idt-inline-button-link">Book Demo</ScanIntakeCTA>.
         </p>
       </aside>
     </section>
@@ -2440,9 +2410,7 @@ function HomePage() {
             body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
           />
           <div className="idt-inline-actions">
-            <Link to="/demo" className="idt-btn idt-btn-primary idt-home-demo-cta">
-              Book Demo
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary idt-home-demo-cta">Book Demo</ScanIntakeCTA>
           </div>
         </section>
       </div>
@@ -3250,9 +3218,7 @@ function SolutionsPage() {
         actions={
           <>
             <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Demo
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-dark">Book Demo</ScanIntakeCTA>
           </>
         }
       />
@@ -3295,9 +3261,7 @@ function SolutionDetailPage({ page }: { page: (typeof SOLUTION_DEEP_PAGES)[numbe
         variant="product"
         actions={
           <>
-            <Link to="/enterprise" className="idt-btn idt-btn-primary">
-              Book Demo
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-primary">Book Demo</ScanIntakeCTA>
             <Link to="/pricing" className="idt-btn idt-btn-dark">
               Compare Plans
             </Link>
@@ -3328,9 +3292,7 @@ function SolutionDetailPage({ page }: { page: (typeof SOLUTION_DEEP_PAGES)[numbe
 
       <section className="idt-section idt-shell">
         <div className="idt-inline-actions">
-          <Link to="/enterprise" className="idt-btn idt-btn-primary">
-            Book Demo
-          </Link>
+          <ScanIntakeCTA className="idt-btn idt-btn-primary">Book Demo</ScanIntakeCTA>
           <Link to="/pricing" className="idt-btn idt-btn-dark">
             Compare Plans
           </Link>
@@ -3621,9 +3583,7 @@ function DeploymentModelsPage() {
               <li>SCIM and advanced governance controls</li>
               <li>24/7 support and named TAM</li>
             </ul>
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Demo
-            </Link>
+            <ScanIntakeCTA className="idt-btn idt-btn-dark">Book Demo</ScanIntakeCTA>
           </article>
         </div>
       </section>
@@ -3731,94 +3691,6 @@ function IntegrationsPage() {
               <ScanIntakeCTA className="idt-btn idt-btn-primary" />
             </div>
           </article>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function DemoPage() {
-  useSeo({
-    title: 'Book Demo | Identrail Trust Graph Walkthrough',
-    description:
-      'Book a guided Identrail demo to review live machine identity trust paths, blast radius, and owner-ready remediation.',
-    path: '/demo'
-  });
-
-  return (
-    <div className="idt-marketing-page idt-modern-public-page idt-demo-page">
-      <PageHero
-        eyebrow="Book Demo"
-        title="Walk through your first machine identity trust path with us"
-        body="Bring one AWS account, Kubernetes namespace, or repository. We will show the reachable path, explain the evidence, and leave you with the safest first fix."
-        variant="enterprise"
-        visual={<DemoBookingVisual />}
-        actions={
-          <>
-            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-            <Link to="/docs" className="idt-btn idt-btn-dark">
-              View Docs
-            </Link>
-          </>
-        }
-      />
-
-      <section className="idt-section idt-shell idt-demo-booking-section">
-        <LeadCaptureForm
-          id="book-demo"
-          title="Book a guided walkthrough"
-          caption="Share the environment you want to review and we will route the demo around the trust paths that matter to your team."
-          ctaLabel="Request Trust Path Review"
-          variant="full"
-          includeScheduleFields
-        />
-        <aside className="idt-demo-agenda-panel" aria-label="Demo agenda">
-          <p className="idt-eyebrow">What we will cover</p>
-          <h2>Not a generic product tour. A working review path.</h2>
-          <div className="idt-demo-agenda-list">
-            <article>
-              <span>01</span>
-              <strong>Scope</strong>
-              <p>Pick one real trust boundary across cloud, cluster, or CI/CD identity.</p>
-            </article>
-            <article>
-              <span>02</span>
-              <strong>Trace</strong>
-              <p>Follow source identity to reachable resource with explainable evidence.</p>
-            </article>
-            <article>
-              <span>03</span>
-              <strong>Package</strong>
-              <p>Turn the path into owner-ready remediation and rollout notes.</p>
-            </article>
-          </div>
-          <Link to={DEMO_BOOKING_PATH} className="idt-inline-link">
-            Send review context →
-          </Link>
-        </aside>
-      </section>
-
-      <section className="idt-section idt-shell idt-demo-graph-preview">
-        <SectionTitle
-          eyebrow="Live preview"
-          title="The demo uses the same graph language your team will operate later"
-          body="We keep the walkthrough close to the real product surface: source evidence, reachable path, blast radius, and next action."
-        />
-        <TrustGraphDemo variant="full" />
-      </section>
-
-      <section className="idt-section idt-shell idt-connect-cloud">
-        <div className="idt-demo-choice-band">
-          <div>
-            <p className="idt-eyebrow">Two ways in</p>
-            <h2>Book the walkthrough, or send context for a trust path review.</h2>
-          </div>
-          <div className="idt-inline-actions">
-            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-            <Link to="/docs" className="idt-btn idt-btn-dark">
-              View Docs
-            </Link>
-          </div>
         </div>
       </section>
     </div>
@@ -4884,7 +4756,6 @@ export function RoutedSite() {
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/roi-assessment" element={<RoiAssessmentPage />} />
           <Route path="/deployment-models" element={<DeploymentModelsPage />} />
-          <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/faq" element={<FaqPage />} />
           <Route path="/blog" element={<BlogPage />} />

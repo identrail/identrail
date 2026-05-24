@@ -15,7 +15,6 @@ export const PRERENDER_ROUTES = [
   '/pricing',
   '/roi-assessment',
   '/deployment-models',
-  '/demo',
   '/signin',
   '/signup',
   '/auth/mfa',
