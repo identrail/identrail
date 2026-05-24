@@ -10,7 +10,9 @@ This page is the v1 security baseline for operators.
   - Kubernetes Secret
   - Terraform sensitive variables
 - Treat local `.env.local` OIDC tokens as ephemeral credentials and regenerate on demand.
-- Prefer OIDC (`IDENTRAIL_OIDC_ISSUER_URL` + `IDENTRAIL_OIDC_AUDIENCE`) over static API keys for human access.
+- For hosted browser access, prefer WorkOS or native SAML sessions. For
+  self-hosted API access, prefer scoped API keys or OIDC bearer tokens over
+  unscoped static keys.
 - See local handling runbook: `local-token-hygiene.md`.
 
 ## 2) API Key Hardening

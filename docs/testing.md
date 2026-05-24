@@ -41,11 +41,11 @@
 - Partial scan lifecycle state assertions (`partial` on non-fatal source errors)
 - API list sort contract behavior (`sort_by`, `sort_order`) on findings and scans
 - OpenAPI v1 contract presence checks for core endpoints and parameters
-- Native SAML admin, SAML login/ACS, Okta/Azure metadata import, SCIM 2.0 lifecycle, and SCIM workflow dispatch behavior
+- Native SAML admin, SAML login/ACS, provider-shaped metadata import, SCIM 2.0 lifecycle, and SCIM workflow dispatch behavior
 - Migration rollback roundtrip integration test (up -> down -> up)
 - Migration compatibility integration test for existing nullable legacy rows
 
-## Track 1 Enterprise SSO Checks
+## Enterprise SSO Checks
 
 Run these before moving dependent work forward:
 
@@ -70,8 +70,8 @@ required = [
 ]
 missing = [path for path in required if path not in doc.get('paths', {})]
 if missing:
-    raise SystemExit('missing Track 1 OpenAPI paths: ' + ', '.join(missing))
-print('Track 1 OpenAPI paths present')
+    raise SystemExit('missing native SAML/SCIM OpenAPI paths: ' + ', '.join(missing))
+print('native SAML/SCIM OpenAPI paths present')
 PY
 ```
 
@@ -90,7 +90,7 @@ For a live IdP smoke test:
    delete against `/scim/v2/Users` using that bearer token.
 5. Confirm a `scim_provisioning_events` row and, when a workflow route is
    configured, a `scim.provisioned` dispatch audit record.
-6. Configure Okta or Entra with ACS
+6. Configure your IdP with ACS
    `${IDENTRAIL_PUBLIC_BASE_URL}/auth/saml/acs/<connection_id>` and SP Entity
    ID `${IDENTRAIL_PUBLIC_BASE_URL}/auth/saml/metadata/<connection_id>`.
 7. Start SAML login through `/auth/saml/login/<connection_id>` and confirm the

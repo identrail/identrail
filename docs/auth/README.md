@@ -19,7 +19,6 @@ Start at the top. Each later doc fills in detail for one section of the first.
 8. [`kubernetes-connector.md`](./kubernetes-connector.md) - the standard in-cluster agent and kubeconfig fallback path.
 9. [`production-api-readiness.md`](./production-api-readiness.md) - the production web/API split required before the frontend auth UI can work on Vercel.
 10. [`env-vars-reference.md`](./env-vars-reference.md) - flat list of authentication-related environment variables.
-11. [`12-pr-plan.md`](./12-pr-plan.md) - superseded roadmap file that now records the current three-track plan.
 
 ## When to Update These Docs
 
@@ -35,7 +34,8 @@ When a doc and the code disagree, the doc is wrong. Fix the doc. Then either cha
 
 ## Status
 
-The original twelve-PR sequence has been superseded by the three-track roadmap
-in [`12-pr-plan.md`](./12-pr-plan.md). When implementation and docs disagree,
-the implementation on `dev` wins and the docs should be corrected in the same
-PR.
+The original twelve-PR auth plan is archived at
+[`../archive/auth-12-pr-plan.md`](../archive/auth-12-pr-plan.md). It is useful
+for release history, but it is not the active product contract. When
+implementation and docs disagree, the implementation on `dev` wins and the docs
+should be corrected in the same PR.

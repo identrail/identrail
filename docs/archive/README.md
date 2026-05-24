@@ -9,3 +9,9 @@ For current operator and developer guidance, start with:
 - `../architecture.md`
 - `../v1_scope_and_baseline.md`
 - `../enterprise-quickstart.md`
+
+Archived records:
+
+- `phase-1.md` through `phase-4.md`: early V1 delivery phases.
+- `auth-12-pr-plan.md`: superseded auth implementation plan retained for
+  release-history context.

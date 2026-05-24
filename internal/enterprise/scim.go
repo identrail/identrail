@@ -26,8 +26,8 @@ type SCIMUserActiveStatus bool
 // specifics into the rest of the system.
 //
 // JSON tags follow the SCIM 2.0 on-wire shape so the future /scim/v2/Users
-// handler can decode standard provider payloads (Okta, Azure AD, OneLogin,
-// etc.) directly into this struct without an intermediate wire DTO. In
+// handler can decode standard provider payloads directly into this struct
+// without an intermediate wire DTO. In
 // particular, email addresses are carried in the SCIM `emails` multi-valued
 // attribute and resource timestamps live under the SCIM `meta` complex
 // attribute (`meta.created`, `meta.lastModified`).

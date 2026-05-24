@@ -69,7 +69,9 @@ export IDENTRAIL_ADMIN_KEY="<admin-key-from-.env>"
 ```
 
 If you are using the web dashboard:
-- Preferred: sign in through OIDC (`/app/login`) so API credentials and scope come from the identity provider session.
+- Hosted deployments sign in through the normal session-auth routes. Local
+  Docker quickstarts can use manual workspace entry only for disposable
+  development.
 - Manual workspace entry is disabled by default for production-safe deployments.
 - Demo-only local override: set `VITE_ALLOW_MANUAL_PRODUCT_SESSION=true` in `deploy/docker/.env`, then rebuild the web image so Vite receives the flag at build time (for example: `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build web`).
 
@@ -152,58 +154,35 @@ Confirm:
 - no raw API key values in audit payload
 - subject/resource IDs appear only as hashed identifiers (`*_id_hash`)
 
-## 9. Set Up SSO With Okta
+## 9. Set Up Native SAML SSO (Optional)
 
 Native enterprise SSO requires `IDENTRAIL_FEATURE_NATIVE_SSO=true` on the API.
-Native SAML admin and login routes also require `IDENTRAIL_FEATURE_NEW_AUTH=true`,
-`IDENTRAIL_PUBLIC_BASE_URL`, and `IDENTRAIL_SESSION_KEY`. Create the Identrail
-SAML connection first, then paste the IdP metadata URL into Identrail so the
-connection can validate Okta assertions.
+Native SAML admin and login routes also require
+`IDENTRAIL_FEATURE_NEW_AUTH=true`, `IDENTRAIL_PUBLIC_BASE_URL`, and
+`IDENTRAIL_SESSION_KEY`. Provider consoles change often, so this guide uses the
+generic SAML labels you will see in most IdPs instead of maintaining separate
+vendor click paths.
 
-Identrail values to copy into Okta:
-- **Single sign-on URL / ACS URL:** `${IDENTRAIL_API_URL}/auth/saml/acs/<connection_id>`
-- **Audience URI / SP Entity ID:** `${IDENTRAIL_API_URL}/auth/saml/metadata/<connection_id>`
-- **Name ID format:** `EmailAddress`
-- **Application username:** `Email`
+Identrail values to copy into your IdP's SAML app:
+- **ACS URL / Reply URL:** `${IDENTRAIL_API_URL}/auth/saml/acs/<connection_id>`
+- **Audience / SP Entity ID:** `${IDENTRAIL_API_URL}/auth/saml/metadata/<connection_id>`
+- **Start URL / Sign-on URL:** `${IDENTRAIL_API_URL}/auth/saml/login/<connection_id>`
+- **Name ID format:** email address
+- **Name ID value:** the user's verified email address
 
 The SP Entity ID is a SAML audience identifier. The current API does not serve
 an SP metadata document from that URL.
 
-Okta click path:
-1. Open **Okta Admin Console -> Applications -> Applications -> Create App Integration**.
-2. Select **SAML 2.0**, then **Next**.
-3. Enter `Identrail` as the app name.
-4. On **Configure SAML**, paste the Identrail ACS URL into **Single sign-on URL**.
-5. Paste the Identrail SP Entity ID into **Audience URI (SP Entity ID)**.
-6. Set **Name ID format** to `EmailAddress` and **Application username** to `Email`.
-7. Finish the wizard.
-8. Open the new app's **Sign On** tab.
-9. In **SAML Signing Certificates**, copy **Identity Provider metadata** or **Metadata URL**.
-10. In Identrail, open the enterprise SSO connection and paste the metadata URL, then confirm the parsed Entity ID, SSO URL, and certificate fingerprint.
+Generic setup flow:
+1. Create the Identrail SAML connection in the API or app and note the returned `connection_id`.
+2. In your IdP, create a custom SAML application named `Identrail`.
+3. Paste the ACS URL and SP Entity ID above into the IdP's SAML settings.
+4. Configure the Name ID to send a verified user email address.
+5. Save the app and copy the IdP metadata URL or metadata XML.
+6. Import that metadata into the Identrail SAML connection and confirm the parsed Entity ID, SSO URL, and certificate fingerprint.
+7. Assign only a small admin test group until the first login and SCIM checks pass.
 
-## 10. Set Up SSO With Azure AD
-
-Microsoft now labels Azure AD as **Microsoft Entra ID** in the admin center. The click path below uses the current Entra labels while keeping the Azure AD wording operators still recognize.
-
-Identrail values to copy into Azure AD:
-- **Identifier (Entity ID):** `${IDENTRAIL_API_URL}/auth/saml/metadata/<connection_id>`
-- **Reply URL (Assertion Consumer Service URL):** `${IDENTRAIL_API_URL}/auth/saml/acs/<connection_id>`
-- **Sign on URL:** `${IDENTRAIL_API_URL}/auth/saml/login/<connection_id>`
-- **Unique User Identifier / Name ID:** `user.mail` or `user.userprincipalname`
-
-Azure AD / Entra click path:
-1. Open **Microsoft Entra admin center -> Identity -> Applications -> Enterprise applications**.
-2. Select **New application -> Create your own application**.
-3. Name it `Identrail`, select **Integrate any other application you don't find in the gallery (Non-gallery)**, then **Create**.
-4. Open **Single sign-on -> SAML**.
-5. In **Basic SAML Configuration**, paste the Identrail Entity ID into **Identifier (Entity ID)**.
-6. Paste the Identrail ACS URL into **Reply URL (Assertion Consumer Service URL)**.
-7. Paste the Identrail SAML login URL into **Sign on URL**.
-8. In **Attributes & Claims**, confirm the Name ID claim resolves to the user's email address.
-9. In **SAML Certificates**, copy **App Federation Metadata Url**.
-10. In Identrail, open the enterprise SSO connection and paste the metadata URL, then confirm the parsed Entity ID, SSO URL, and certificate fingerprint.
-
-## 11. Enable SCIM Provisioning
+## 10. Enable SCIM Provisioning (Optional)
 
 Each native SAML connection receives one SCIM bearer token when it is created. Identrail returns the plaintext token once; store it in the IdP immediately. The API stores only the token hash.
 
@@ -213,40 +192,26 @@ SCIM values:
 - **Supported resources:** Users only; Groups are intentionally deferred
 - **Supported filter:** `userName eq "value"`
 
-Okta SCIM click path:
-1. Open **Okta Admin Console -> Applications -> Applications -> Identrail**.
-2. Open the **General** tab.
-3. In **App Settings**, set **Provisioning** to `SCIM`, then save.
-4. Open the **Provisioning** tab.
-5. Select **Integration -> Configure API Integration**.
-6. Check **Enable API integration**.
-7. Paste `${IDENTRAIL_API_URL}/scim/v2` into **Base URL**.
-8. Paste the Identrail SCIM bearer token into **API Token**.
-9. Select **Test API Credentials** and confirm success.
-10. Under **To App**, enable **Create Users**, **Update User Attributes**, and **Deactivate Users**.
+Generic SCIM setup flow:
+1. Open the provisioning settings for the same SAML app in your IdP.
+2. Enable SCIM or API provisioning.
+3. Paste `${IDENTRAIL_API_URL}/scim/v2` as the Base URL or Tenant URL.
+4. Paste the one-time Identrail SCIM bearer token as the Secret Token or API Token.
+5. Test the credentials from the IdP.
+6. Enable create, update, deactivate, and delete operations for users.
+7. Keep group provisioning disabled until Identrail adds group-resource support.
 
-Azure AD / Entra SCIM click path:
-1. Open **Microsoft Entra admin center -> Identity -> Applications -> Enterprise applications -> Identrail**.
-2. Open **Provisioning**.
-3. Select **Get started** if provisioning has not been configured.
-4. Set **Provisioning Mode** to `Automatic`.
-5. Paste `${IDENTRAIL_API_URL}/scim/v2` into **Tenant URL**.
-6. Paste the Identrail SCIM bearer token into **Secret Token**.
-7. Select **Test Connection** and confirm success.
-8. Save the provisioning configuration.
-9. Keep the default user attribute mappings for `userName`, `active`, `displayName`, and `emails`.
-10. Set **Provisioning Status** to `On` when ready.
-
-## 12. Roll Out SSO-Only (`sso_required`)
+## 11. Roll Out SSO-Only (`sso_required`)
 
 Keep `sso_required=false` until at least one SAML admin has completed a
 successful sign-in and SCIM provisioning has created or matched the expected
-users. Track 1 persists the flag on the connection as the org's rollout marker;
-it does not yet ship recovery-code generation or a full lockout-rescue flow.
+users. The API persists the flag on the connection as the org's rollout
+marker; it does not yet ship recovery-code generation or a full
+lockout-rescue flow.
 
 Recommended rollout:
 1. Create the native SAML connection with `sso_required=false`.
-2. Assign a small admin test group in Okta or Azure AD.
+2. Assign a small admin test group in your IdP.
 3. Confirm SAML login creates a `saml:<connection_id>` identity for the admin.
 4. Enable SCIM provisioning and confirm a test create/update/deactivate writes one `scim_provisioning_events` row and, when a workflow router is configured, one workflow dispatch audit record.
 5. Flip `sso_required=true` only after the operator has verified the break-glass path they intend to use.
@@ -264,7 +229,7 @@ Confirm:
 - `scim_op` matches the SCIM lifecycle operation
 - failed Slack/Jira/Linear attempts include `success=false` and an `error` string
 
-## 13. Executive Report (Board-Ready)
+## 12. Executive Report (Board-Ready)
 
 Fetch the leadership rollup for the current organization. The response is
 JSON only — there is no server-side PDF; use the printable web report page
@@ -293,7 +258,7 @@ Notes:
   carries a trustworthy `resolved_at`; it is derived solely from `resolved_at`
   (never the mutable `updated_at`), so the figure is not a guess.
 
-## 14. Clean Shutdown
+## 13. Clean Shutdown
 
 ```bash
 docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env down

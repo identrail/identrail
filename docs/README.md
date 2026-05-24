@@ -42,12 +42,11 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 ## Auth and identity foundation
 
 - Architecture and contracts: `auth/README.md`
-- Current three-track roadmap: `auth/12-pr-plan.md`
 
 ## API and developer track
 
 - API contract (OpenAPI): `openapi-v1.yaml`
-- Frontend topology (`web/` vs `site/`): `frontend-topology.md`
+- Frontend topology: `frontend-topology.md`
 - Development workflow: `development-workflow.md`
 - Local token hygiene (Vercel OIDC): `local-token-hygiene.md`
 - Install Identrail CLI: `install.md`
@@ -96,6 +95,7 @@ the active product contract.
 - Phase 2: `archive/phase-2.md`
 - Phase 3: `archive/phase-3.md`
 - Phase 4: `archive/phase-4.md`
+- Auth twelve-PR plan: `archive/auth-12-pr-plan.md`
 
 ## Supply chain implementation notes
 

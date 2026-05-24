@@ -1,11 +1,12 @@
 # Frontend Topology
 
-Identrail uses `web/` as the active tracked frontend on `dev`.
+Identrail uses `web/` as the active tracked frontend on `dev`. It owns both
+the public website routes and the authenticated product dashboard.
 
-## `web/` (product dashboard)
+## `web/` (Public Website and Product Dashboard)
 
 - Stack: Vite + React
-- Purpose: operator-facing app experience tied to API workflows
+- Purpose: public website, docs/resource pages, and operator-facing app experience tied to API workflows
 - Product shell route group: `/app/*` for authenticated workflows
   - Login gateway: `/app/login`
   - Scoped shell paths: `/app/:tenantID/:workspaceID/*`
@@ -78,16 +79,11 @@ The preflight verifies that `/healthz` and `/v1/auth/config` return API response
 
 See [Production API Readiness](./auth/production-api-readiness.md) for the full API/web domain checklist.
 
-## `site/` (legacy Next.js marketing surface)
-
-- Stack: Next.js
-- Purpose: public marketing/documentation landing pages
-- Typical runtime: Vercel-hosted static/dynamic site
-- Not part of the core API/worker runtime path
-- Not tracked in this branch snapshot; local leftovers can drift from API contract and should not be treated as source of truth.
-
 ## Operational Guidance
 
-- Treat `web/` as product UI release surface coupled to API compatibility.
-- Treat `site/` as legacy/branch-specific surface unless explicitly restored and reviewed.
-- Validate both in CI where relevant, but keep deployment ownership boundaries explicit.
+- Treat `web/` as the only frontend release surface coupled to API compatibility.
+- Do not restore a separate `site/` tree without a design and deployment review;
+  stale frontend roots create duplicated routes, stale env handling, and broken
+  docs ownership.
+- Keep deployment ownership boundaries explicit: `web/` ships the frontend,
+  `internal/api` ships the API, and workers process asynchronous scans.

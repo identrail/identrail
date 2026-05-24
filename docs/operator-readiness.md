@@ -21,7 +21,7 @@ Primary docs:
 
 ## Minimum Production Checklist
 
-1. Auth enabled (OIDC or strong API keys).
+1. Auth enabled (hosted session auth, native SAML, OIDC bearer auth, or strong scoped API keys).
 2. PostgreSQL configured and migrations applied.
 3. Lock backend set to `postgres` for multi-instance deploys.
 4. Audit sink configured.

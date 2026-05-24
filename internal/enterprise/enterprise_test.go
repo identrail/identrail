@@ -117,9 +117,8 @@ func TestSCIMProvisioningEvent_Validate(t *testing.T) {
 }
 
 func TestSCIMUser_DecodesStandardSCIMWirePayload(t *testing.T) {
-	// Verbatim payload shape an Okta/Azure AD SCIM client would POST per
-	// RFC 7643: emails is multi-valued and resource timestamps live under
-	// meta.created / meta.lastModified.
+	// Verbatim SCIM 2.0 payload shape per RFC 7643: emails is multi-valued
+	// and resource timestamps live under meta.created / meta.lastModified.
 	const payload = `{
 		"schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
 		"id": "scim-user-1",
@@ -300,7 +299,7 @@ func sampleSAMLConnection(t *testing.T) SAMLConnection {
 	return SAMLConnection{
 		ID:             "saml-1",
 		OrganizationID: "org-1",
-		DisplayName:    "Okta",
+		DisplayName:    "Example IdP",
 		EntityID:       "https://idp.example.com/entity",
 		SSOURL:         "https://idp.example.com/sso",
 		CertificatePEM: generateSelfSignedCertPEM(t),

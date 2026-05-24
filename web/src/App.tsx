@@ -2816,7 +2816,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
                       <option>AWS IAM Identity Center / SSO</option>
                       <option>GitHub Actions OIDC</option>
                       <option>Kubernetes service accounts</option>
-                      <option>Okta / WorkOS / SAML</option>
+                      <option>SAML/SCIM identity provider</option>
                       <option>Mixed or unsure</option>
                     </select>
                   </label>

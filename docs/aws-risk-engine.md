@@ -1,4 +1,4 @@
-# AWS Risk Engine (Phase 1)
+# AWS Risk Engine
 
 ## Purpose
 

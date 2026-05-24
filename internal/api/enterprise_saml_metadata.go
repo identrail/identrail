@@ -27,8 +27,7 @@ const (
 // samlIdPMetadata is the subset of the SAML 2.0 metadata schema Identrail
 // reads from an IdP-issued document. encoding/xml ignores namespace prefixes
 // in tag matching when the local name matches, which lets one struct shape
-// decode payloads from Okta, Azure AD, OneLogin, JumpCloud, and Google
-// Workspace without per-vendor branching.
+// decode standard IdP metadata payloads without per-vendor branching.
 type samlIdPMetadata struct {
 	XMLName          xml.Name `xml:"EntityDescriptor"`
 	EntityID         string   `xml:"entityID,attr"`
@@ -123,9 +122,9 @@ func pickPreferredSSO(doc samlIdPMetadata) string {
 }
 
 // pickSigningCertificate returns the first X509Certificate value, preferring
-// KeyDescriptors marked use="signing". Some IdPs (notably Azure AD) omit the
-// use attribute and emit a single descriptor that serves both signing and
-// encryption, so the fallback returns the first available certificate.
+// KeyDescriptors marked use="signing". Some IdPs omit the use attribute and
+// emit a single descriptor that serves both signing and encryption, so the
+// fallback returns the first available certificate.
 func pickSigningCertificate(doc samlIdPMetadata) string {
 	var fallback string
 	for _, kd := range doc.IDPSSODescriptor.KeyDescriptors {

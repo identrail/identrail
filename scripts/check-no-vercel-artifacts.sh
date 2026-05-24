@@ -13,7 +13,6 @@ Detected staged .vercel artifacts.
 The following paths must not be committed:
 - .vercel/**
 - web/.vercel/**
-- site/.vercel/**
 
 Remove these paths from the commit before pushing.
 MSG

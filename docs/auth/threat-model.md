@@ -15,7 +15,7 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 3. `SameSite=Lax`. The cookie does not ride along with cross-site POSTs by default.
 4. The cookie value is opaque (an ID, not a token with claims). Possession of the cookie still requires the server's `sessions` row to exist and not be revoked.
 5. Sessions are server-side and revocable. An admin or the user can kill a session immediately from `/app/account/security`.
-6. Every authenticated request emits an audit event with IP and user agent through the existing `audit.AuditEvent` pipeline. Queryable audit-log UI work is separate from Track 1 native SSO.
+6. Every authenticated request emits an audit event with IP and user agent through the existing `audit.AuditEvent` pipeline. Queryable audit-log UI work is separate from native SAML/SCIM.
 
 **What we accept.** A determined attacker with persistent malware on the user's machine can replay the cookie until the session expires or is revoked. This is true of every cookie-based auth system. We mitigate the blast radius (revocation, audit visibility, idle timeout) rather than try to defeat the threat.
 
@@ -74,9 +74,9 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 
 **Defenses.**
 
-1. We do not have password endpoints. WorkOS is the auth front door for Cloud, and self-host runs through OIDC.
+1. We do not have password endpoints. WorkOS is the auth front door for Cloud; self-hosted API access uses scoped API keys, optional OIDC bearer-token auth, local-only manual mode, or native SAML where enabled.
 2. Native SAML and SCIM are feature-flagged behind `IDENTRAIL_FEATURE_NATIVE_SSO`, and native SAML sessions carry `auth_method="saml"` so follow-up enforcement work can distinguish them from WorkOS, OIDC, and manual sessions.
-3. Track 1 persists `sso_required` on the native SAML connection but does not yet ship recovery-code generation or a full org lockout-rescue flow. Operators should keep `sso_required=false` until SAML and SCIM have been tested for the tenant.
+3. Native SAML persists `sso_required` on the connection but does not yet ship recovery-code generation or a full org lockout-rescue flow. Operators should keep `sso_required=false` until SAML and SCIM have been tested for the tenant.
 
 ## SSO Lockout
 
@@ -87,7 +87,7 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 1. Native SAML setup is opt-in and starts with `sso_required=false`.
 2. Admins test real SAML login through `/auth/saml/login/{connection_id}` and `/auth/saml/acs/{connection_id}` before changing the rollout marker.
 3. Admins enable SCIM and verify create/update/deactivate flows before treating the IdP as the source of truth.
-4. The complete recovery-code and enforcement-toggle flow remains follow-up work and should not be represented as shipped Track 1 behavior.
+4. The complete recovery-code and enforcement-toggle flow remains follow-up work and should not be represented as shipped behavior.
 
 ## Identity-Linking Account Takeover
 

@@ -19,7 +19,7 @@ contract.
 
 ## 2) Standards Baseline
 
-- Auth baseline: API key auth plus OIDC/OAuth2-compatible bearer auth (Keycloak-compatible issuer/audience model).
+- Auth baseline: hosted session auth, API key auth, native SAML/SCIM where enabled, and generic OIDC/OAuth2-compatible bearer auth for API clients.
 - Finding baseline: typed internal finding model enriched with control references.
 - Export baseline:
   - OCSF-aligned payload export

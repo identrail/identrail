@@ -19,7 +19,7 @@ python3 - <<'PY'
 import re
 from pathlib import Path
 root=Path('.').resolve()
-paths=[root/'docs', root/'deploy', root/'site', root/'README.md']
+paths=[root/'docs', root/'deploy', root/'README.md']
 files=[]
 for p in paths:
     if p.is_file():

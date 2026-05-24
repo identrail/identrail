@@ -10,28 +10,33 @@ disagree, update this document or the code in the same PR.
 The auth system needs to do four things well.
 
 1. Let any new user sign up to Identrail Cloud in under 60 seconds without talking to sales, without cloning anything, and without a password.
-2. Let self-hosted operators run the same software with the same auth flow, using either a generic OIDC provider they already run or a "manual mode" for local development.
+2. Let self-hosted operators run the same software with scoped API keys,
+   optional generic OIDC bearer-token auth for API clients, native SAML/SCIM
+   where enabled, or a local-only manual mode for development.
 3. Support enterprise SSO (SAML or OIDC), domain verification, group-to-role mapping, and SCIM directory sync without forking the codebase.
 4. Stay auditable end to end. Every login, session change, role change, and connector credential change ends up in one audit log.
 
-## Decision: WorkOS plus dual-driver OIDC
+## Decision: WorkOS Hosted Login Plus Stable API Auth Modes
 
-Identrail Cloud uses [WorkOS](https://workos.com) as the hosted identity provider. Self-hosted Identrail uses a generic OIDC driver that points at any IdP the operator runs.
+Identrail Cloud uses [WorkOS](https://workos.com) as the hosted identity
+provider for browser login. Self-hosted and automated API access continue to
+support scoped API keys and generic OIDC bearer-token verification. Native SAML
+and SCIM are opt-in enterprise capabilities behind
+`IDENTRAIL_FEATURE_NATIVE_SSO`.
 
-We considered Zitadel, Keycloak, Auth0, and rolling our own. Comparison and reasoning:
+We considered self-hosted IdP packages, hosted identity SaaS, and rolling our
+own login. Comparison and reasoning:
 
 | Option | Why not |
 | --- | --- |
 | Roll our own | Three to four engineer-months for v1, plus a permanent CVE tail. A security product that gets popped because of a hand-rolled login is a brand-ending event. |
-| Keycloak | Java, 1 to 2 GB JVM footprint. Brutal for self-hosters running on a single VPS. |
-| Auth0 | Strong product, but closed SaaS. Bifurcates the codebase between Cloud and self-host the moment we adopt it. Pricing cliff at SSO. |
-| Zitadel | Strong technical fit (Go, single binary, Postgres). Stayed on the shortlist; we picked WorkOS for AuthKit's hosted UI and for the SSO/SCIM developer experience. Zitadel remains a viable replacement if WorkOS pricing or fit ever stops working. |
+| Require a bundled self-hosted IdP | Heavy operational burden for small self-hosters and a second system for us to support. |
+| Hosted identity SaaS only | Bifurcates the codebase between Cloud and self-host the moment it becomes the only auth path. |
+| WorkOS for Cloud, stable API auth for everyone else | Keeps Cloud signup simple while preserving open-source self-host paths through scoped API keys, OIDC bearer auth, and opt-in native SAML/SCIM. |
 
-The discipline rule that keeps the dual-driver setup healthy:
-
-> No auth feature ships unless both `WorkOSProvider` and `OIDCProvider` support it.
-
-This is the rule that prevents drift over time. If WorkOS releases a new feature, OSS users either get the equivalent on the OIDC path or the feature does not ship.
+The maintenance rule is explicit: do not document a browser login provider path
+unless the web app and API both implement it. Generic OIDC remains a stable API
+bearer-token auth mode, not a separate browser-side login flow.
 
 ## Identity Model
 
@@ -84,7 +89,7 @@ Identrail supports four authenticated request types. All four coexist forever. N
 | Mode | How it works | Used by |
 | --- | --- | --- |
 | WorkOS hosted login | Cookie-based session after AuthKit OAuth | Cloud product UI |
-| Generic OIDC bearer | `Authorization: Bearer <jwt>` from a self-hosted IdP | Self-host product UI, programmatic clients with OIDC tokens |
+| Generic OIDC bearer | `Authorization: Bearer <jwt>` from a self-hosted IdP | Programmatic clients and self-host API integrations with OIDC tokens |
 | API key | `X-API-Key` header | Programmatic clients (CI, scripts) |
 | Manual mode | Local-only, gated by a flag | Self-host development and local quickstart |
 
@@ -215,7 +220,7 @@ depend on session-auth middleware and the SAML relay store.
 ### Enterprise admin
 
 The invitation, verified-domain, and WorkOS Admin Portal routes from the
-original roadmap are no longer the Track 1 source of truth. Keep the current
+original roadmap are no longer the product source of truth. Keep the current
 WorkOS login path working, but use the native SAML admin API above for native
 SAML configuration.
 
@@ -246,10 +251,11 @@ Limits are enforced server-side and emit metrics. Hitting a limit returns HTTP 4
 Native SAML connections persist two rollout controls:
 `sso_required` and `jit_provisioning_enabled`. Both default to `false`.
 
-The current Track 1 implementation stores `sso_required` and exposes it through
-the native SAML admin API, but it does not yet ship recovery-code generation,
-an IdP-authenticated enforcement toggle, or a full org lockout-rescue flow. Do
-not document or rely on those older roadmap features as shipped behavior.
+The current native SAML implementation stores `sso_required` and exposes it
+through the native SAML admin API, but it does not yet ship recovery-code
+generation, an IdP-authenticated enforcement toggle, or a full org
+lockout-rescue flow. Do not document or rely on those older roadmap features as
+shipped behavior.
 
 The safe operating sequence is:
 
@@ -330,8 +336,10 @@ The most important rule: every domain reference in code, config, and email templ
 
 ## Roadmap
 
-The current roadmap lives in [`12-pr-plan.md`](./12-pr-plan.md). The file name
-is historical; the content now records the three-track plan.
+The original twelve-PR auth plan is archived at
+[`../archive/auth-12-pr-plan.md`](../archive/auth-12-pr-plan.md). Current
+product behavior is described by this document, the OpenAPI contract, and the
+configuration reference.
 
 ## Non-Goals for the Auth Foundation
 
@@ -361,4 +369,4 @@ These are the questions we have not answered yet and do not need to answer to sh
 - [`identity-linking-rules.md`](./identity-linking-rules.md)
 - [`connector-foundation.md`](./connector-foundation.md)
 - [`env-vars-reference.md`](./env-vars-reference.md)
-- [`12-pr-plan.md`](./12-pr-plan.md) - historical file name, current three-track roadmap
+- [`../archive/auth-12-pr-plan.md`](../archive/auth-12-pr-plan.md) - superseded implementation plan
