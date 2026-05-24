@@ -165,6 +165,30 @@ export type RepoFindingRemediationPreview = {
   fix_pr_plan?: FixPRPlan;
 };
 
+export type RepoFindingRemediationPublishRequest = {
+  repo_scan_id?: string;
+  source_content: string;
+  base_branch?: string;
+  branch_prefix?: string;
+  finding_url?: string;
+  operator_approved: boolean;
+  write_permissions_configured: boolean;
+  github_token: string;
+};
+
+export type RepoRemediationPublishResult = {
+  pr_number: number;
+  pr_url: string;
+  branch_name: string;
+  commit_sha: string;
+};
+
+export type RepoFindingRemediationPublishResponse = {
+  finding: Finding;
+  remediation: RepoExposureRemediation;
+  publish: RepoRemediationPublishResult;
+};
+
 export type RepoRiskGraphNode = {
   id: string;
   kind: string;
@@ -1434,6 +1458,21 @@ export const apiClient = {
     const query = buildQuery({ repo_scan_id: payload.repo_scan_id });
     return request<RepoFindingRemediationPreview>(
       `/v1/repo-findings/${encodeURIComponent(findingID)}/remediation/preview${query}`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
+    );
+  },
+  publishRepoFindingRemediation(
+    findingID: string,
+    payload: RepoFindingRemediationPublishRequest,
+    auth?: RequestAuthContext
+  ) {
+    const query = buildQuery({ repo_scan_id: payload.repo_scan_id });
+    return request<RepoFindingRemediationPublishResponse>(
+      `/v1/repo-findings/${encodeURIComponent(findingID)}/remediation/publish${query}`,
       auth,
       {
         method: 'POST',

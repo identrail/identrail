@@ -5187,6 +5187,40 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   margin-bottom: 0.22rem;
 }
 
+.idt-repo-remediation-publish {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.25rem;
+}
+
+.idt-repo-remediation-publish label {
+  display: grid;
+  gap: 0.3rem;
+  color: #dce9ff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.idt-repo-remediation-publish textarea {
+  min-height: 8rem;
+  resize: vertical;
+  font-family: var(--idt-mono);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.idt-repo-remediation-approval {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  justify-content: start;
+}
+
+.idt-repo-remediation-approval input {
+  width: 1rem;
+  height: 1rem;
+}
+
 @media (max-width: 960px) {
   .idt-repo-findings-header,
   .idt-repo-finding-row-top {

@@ -12,6 +12,11 @@ import (
 var (
 	ErrRepoExposurePublishApprovalRequired   = errors.New("repo exposure publish requires operator approval")
 	ErrRepoExposurePublishCredentialsMissing = errors.New("repo exposure publish requires explicit write-capable credentials")
+	// ErrRepoExposurePublishCredentialRejected indicates GitHub rejected the
+	// supplied write credential (HTTP 401/403): an expired, invalid, or
+	// insufficiently scoped token. This is a client-actionable failure, not an
+	// internal server error.
+	ErrRepoExposurePublishCredentialRejected = errors.New("repo exposure publish rejected by github credential")
 )
 
 // RepoExposurePublishOptions controls the publish boundary for repository

@@ -283,6 +283,33 @@ func TestExecuteRepoPostureAndRemediationCommands(t *testing.T) {
 					Files:      []fixpr.PlanFile{{Path: ".github/workflows/ci.yml", Content: "permissions: read-all\n"}},
 				},
 			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/repo-findings/finding-1/remediation/publish":
+			if r.URL.Query().Get("repo_scan_id") != "33333333-3333-3333-3333-333333333333" {
+				t.Fatalf("unexpected publish query: %s", r.URL.RawQuery)
+			}
+			var request api.RepoFindingRemediationPublishRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode publish request: %v", err)
+			}
+			if request.BaseBranch != "dev" || !request.OperatorApproved || !request.WritePermissionsConfigured || request.GitHubToken != "ghs_write_token" {
+				t.Fatalf("unexpected publish request: %+v", request)
+			}
+			_ = json.NewEncoder(w).Encode(api.RepoFindingRemediationPublishResponse{
+				Finding: domain.Finding{
+					ID:        "finding-1",
+					Type:      domain.FindingRepoMisconfig,
+					Severity:  domain.SeverityHigh,
+					Title:     "Workflow token can write broadly",
+					CreatedAt: now,
+				},
+				Remediation: standards.RepoExposureRemediation{Detector: "workflow_write_all_permissions"},
+				Publish: fixpr.PublishResult{
+					PRNumber:   42,
+					PRURL:      "https://github.com/identrail/identrail/pull/42",
+					BranchName: "identrail/fix/finding-1",
+					CommitSHA:  "abc123",
+				},
+			})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
@@ -296,6 +323,7 @@ func TestExecuteRepoPostureAndRemediationCommands(t *testing.T) {
 	}{
 		{name: "posture", args: []string{"repo-posture", "--api-url", server.URL, "--api-key", "admin-key", "--tenant-id", "tenant-a", "--workspace-id", "workspace-a", "--connector-id", "github-app", "--project-id", "project-1", "--repo", "identrail/identrail"}, want: "GitHub posture: repo=identrail/identrail connector=github-app"},
 		{name: "remediation", args: []string{"repo-remediation", "preview", "finding-1", "--api-url", server.URL, "--api-key", "admin-key", "--tenant-id", "tenant-a", "--workspace-id", "workspace-a", "--repo-scan-id", "33333333-3333-3333-3333-333333333333", "--base-branch", "dev", "--require-fix-plan"}, want: "Fix PR plan: branch=identrail/fix/finding-1 base=dev files=1"},
+		{name: "publish", args: []string{"repo-remediation", "publish", "finding-1", "--api-url", server.URL, "--api-key", "admin-key", "--tenant-id", "tenant-a", "--workspace-id", "workspace-a", "--repo-scan-id", "33333333-3333-3333-3333-333333333333", "--base-branch", "dev", "--source-content", "name: ci\npermissions: write-all\n", "--github-token", "ghs_write_token", "--approve", "--write-permissions-configured"}, want: "Repo remediation published: finding=finding-1 detector=workflow_write_all_permissions pr=42"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer

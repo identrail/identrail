@@ -21,6 +21,7 @@ import (
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/remediation/fixpr"
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/telemetry"
@@ -997,6 +998,102 @@ func TestRouterRepoFindingRemediationPreview(t *testing.T) {
 	}
 	if len(body.FixPRPlan.Files) != 1 || body.FixPRPlan.Files[0].Path != ".github/workflows/ci.yml" {
 		t.Fatalf("expected affected file only, got %+v", body.FixPRPlan.Files)
+	}
+}
+
+func TestRouterRepoFindingRemediationPublish(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:          "repo-remediation-publish-route",
+		Type:        domain.FindingRepoMisconfig,
+		Severity:    domain.SeverityHigh,
+		Repository:  "owner/repo",
+		FilePath:    ".github/workflows/ci.yml",
+		LineNumber:  2,
+		Detector:    "workflow_write_all_permissions",
+		LineSnippet: "permissions: write-all",
+		CreatedAt:   now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoRemediationPublisher = &fakeRepoRemediationPublisher{
+		result: fixpr.PublishResult{
+			PRNumber:   42,
+			PRURL:      "https://github.com/owner/repo/pull/42",
+			BranchName: "identrail/fix/repo-remediation-publish-route",
+			CommitSHA:  "abc123",
+		},
+	}
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+	payload := []byte(`{"source_content":"name: ci\npermissions: write-all\n","base_branch":"dev","operator_approved":true,"write_permissions_configured":true,"github_token":"ghs_write_token"}`)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/repo-findings/repo-remediation-publish-route/remediation/publish?repo_scan_id="+repoScan.ID,
+		bytes.NewReader(payload),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected remediation publish 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body RepoFindingRemediationPublishResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode remediation publish: %v", err)
+	}
+	if body.Publish.PRNumber != 42 || body.Publish.PRURL == "" {
+		t.Fatalf("expected publish result, got %+v", body.Publish)
+	}
+}
+
+func TestRouterRepoFindingRemediationPublishRejectedCredentialReturns403(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:          "repo-remediation-publish-403",
+		Type:        domain.FindingRepoMisconfig,
+		Severity:    domain.SeverityHigh,
+		Repository:  "owner/repo",
+		FilePath:    ".github/workflows/ci.yml",
+		LineNumber:  2,
+		Detector:    "workflow_write_all_permissions",
+		LineSnippet: "permissions: write-all",
+		CreatedAt:   now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoRemediationPublisher = &fakeRepoRemediationPublisher{
+		err: fmt.Errorf("create branch: %w", fixpr.ErrRepoExposurePublishCredentialRejected),
+	}
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+	payload := []byte(`{"source_content":"name: ci\npermissions: write-all\n","base_branch":"dev","operator_approved":true,"write_permissions_configured":true,"github_token":"ghs_expired_token"}`)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/repo-findings/repo-remediation-publish-403/remediation/publish?repo_scan_id="+repoScan.ID,
+		bytes.NewReader(payload),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected credential rejection 403, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

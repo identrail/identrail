@@ -15,7 +15,9 @@ import (
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/findings/standards"
 	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/remediation/fixpr"
 	"github.com/identrail/identrail/internal/repoexposure"
 	"github.com/identrail/identrail/internal/scheduler"
 	"go.opentelemetry.io/otel/trace"
@@ -103,6 +105,25 @@ func (f *fakeGitHubCodeScanningAlertCollector) ListCodeScanningAlerts(ctx contex
 		return nil, f.err
 	}
 	return f.alerts, nil
+}
+
+type fakeRepoRemediationPublisher struct {
+	result  fixpr.PublishResult
+	err     error
+	finding domain.Finding
+	opts    fixpr.RepoExposurePublishOptions
+	calls   int
+}
+
+func (f *fakeRepoRemediationPublisher) PublishRepoExposureRemediation(ctx context.Context, finding domain.Finding, opts fixpr.RepoExposurePublishOptions) (fixpr.PublishResult, standards.RepoExposureRemediation, error) {
+	f.calls++
+	f.finding = finding
+	f.opts = opts
+	remediation, _ := standards.SuggestRepoExposureRemediation(finding)
+	if f.err != nil {
+		return fixpr.PublishResult{}, remediation, f.err
+	}
+	return f.result, remediation, nil
 }
 
 type fakeGitHubSecretScanningAlertCollector struct {
@@ -2860,6 +2881,136 @@ func TestServicePreviewRepoFindingRemediationReturnsGuidanceAndFixPlan(t *testin
 	}
 	if !strings.Contains(preview.FixPRPlan.Files[0].Content, "permissions:\n  contents: read\n") {
 		t.Fatalf("expected patched permissions, got:\n%s", preview.FixPRPlan.Files[0].Content)
+	}
+}
+
+func TestServicePublishRepoFindingRemediationRequiresApprovalAndPublishes(t *testing.T) {
+	store := db.NewMemoryStore()
+	publisher := &fakeRepoRemediationPublisher{
+		result: fixpr.PublishResult{
+			PRNumber:   42,
+			PRURL:      "https://github.com/owner/repo/pull/42",
+			BranchName: "identrail/fix/repo-finding-remediate",
+			CommitSHA:  "abc123",
+		},
+	}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoRemediationPublisher = publisher
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:          "repo-finding-remediate",
+		ScanID:      repoScan.ID,
+		Type:        domain.FindingRepoMisconfig,
+		Severity:    domain.SeverityHigh,
+		Repository:  "owner/repo",
+		FilePath:    ".github/workflows/ci.yml",
+		LineNumber:  2,
+		Detector:    "workflow_write_all_permissions",
+		LineSnippet: "permissions: write-all",
+		CreatedAt:   now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	response, err := svc.PublishRepoFindingRemediation(defaultScopeContext(), finding.ID, RepoFindingRemediationPublishRequest{
+		RepoScanID:                 repoScan.ID,
+		SourceContent:              "name: ci\npermissions: write-all\n",
+		BaseBranch:                 "dev",
+		BranchPrefix:               "identrail/fix",
+		FindingURL:                 "https://app.example.com/findings/repo-finding-remediate",
+		OperatorApproved:           true,
+		WritePermissionsConfigured: true,
+		GitHubToken:                "ghs_write_token",
+	})
+	if err != nil {
+		t.Fatalf("publish remediation: %v", err)
+	}
+	if publisher.calls != 1 {
+		t.Fatalf("expected publisher call, got %d", publisher.calls)
+	}
+	if publisher.opts.Owner != "owner" || publisher.opts.Repo != "repo" || publisher.opts.Token != "ghs_write_token" {
+		t.Fatalf("unexpected publisher options: %+v", publisher.opts)
+	}
+	if !publisher.opts.OperatorApproved || !publisher.opts.WritePermissionsConfigured {
+		t.Fatalf("expected explicit approval and write credential gate, got %+v", publisher.opts)
+	}
+	if response.Publish.PRNumber != 42 || response.Publish.PRURL == "" {
+		t.Fatalf("unexpected publish response: %+v", response.Publish)
+	}
+}
+
+func TestServicePublishRepoFindingRemediationRejectsMissingApproval(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoRemediationPublisher = &fakeRepoRemediationPublisher{err: fixpr.ErrRepoExposurePublishApprovalRequired}
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:          "repo-finding-remediate",
+		ScanID:      repoScan.ID,
+		Type:        domain.FindingRepoMisconfig,
+		Repository:  "owner/repo",
+		Detector:    "workflow_write_all_permissions",
+		LineSnippet: "permissions: write-all",
+		CreatedAt:   now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	_, err = svc.PublishRepoFindingRemediation(defaultScopeContext(), finding.ID, RepoFindingRemediationPublishRequest{
+		RepoScanID:    repoScan.ID,
+		SourceContent: "name: ci\npermissions: write-all\n",
+		GitHubToken:   "ghs_write_token",
+	})
+	if !errors.Is(err, ErrInvalidRepoRemediationRequest) {
+		t.Fatalf("expected invalid remediation request for missing approval, got %v", err)
+	}
+}
+
+func TestServicePublishRepoFindingRemediationMapsCredentialRejection(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	// Simulate GitHub rejecting the supplied write token (HTTP 401/403), wrapped
+	// the same way the real publisher surfaces it through the call chain.
+	svc.RepoRemediationPublisher = &fakeRepoRemediationPublisher{
+		err: fmt.Errorf("create branch: %w", fixpr.ErrRepoExposurePublishCredentialRejected),
+	}
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	finding := domain.Finding{
+		ID:          "repo-finding-remediate",
+		ScanID:      repoScan.ID,
+		Type:        domain.FindingRepoMisconfig,
+		Repository:  "owner/repo",
+		Detector:    "workflow_write_all_permissions",
+		LineSnippet: "permissions: write-all",
+		CreatedAt:   now,
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{finding}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+
+	_, err = svc.PublishRepoFindingRemediation(defaultScopeContext(), finding.ID, RepoFindingRemediationPublishRequest{
+		RepoScanID:                 repoScan.ID,
+		SourceContent:              "name: ci\npermissions: write-all\n",
+		GitHubToken:                "ghs_expired_token",
+		OperatorApproved:           true,
+		WritePermissionsConfigured: true,
+	})
+	if !errors.Is(err, ErrRepoRemediationCredentialRejected) {
+		t.Fatalf("expected credential rejection error, got %v", err)
 	}
 }
 

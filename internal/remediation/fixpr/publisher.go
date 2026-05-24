@@ -215,6 +215,12 @@ func (p GitHubPublisher) doJSON(ctx context.Context, method, path, token string,
 		if len(snippet) > 200 {
 			snippet = snippet[:200] + "..."
 		}
+		// 401/403 mean the supplied write credential was rejected (expired,
+		// invalid, or insufficiently scoped). Surface a sentinel so callers can
+		// map it to a client-actionable response instead of a generic 500.
+		if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+			return fmt.Errorf("github %s %s: status %d: %s: %w", method, path, res.StatusCode, snippet, ErrRepoExposurePublishCredentialRejected)
+		}
 		return fmt.Errorf("github %s %s: status %d: %s", method, path, res.StatusCode, snippet)
 	}
 	if out == nil {

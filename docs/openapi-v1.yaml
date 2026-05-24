@@ -125,6 +125,11 @@ x-identrail-route-authorizations:
     action: repo_scans.read
     resource_type: repo_finding
     resource_id_param: finding_id
+  - method: POST
+    path: /v1/repo-findings/{finding_id}/remediation/publish
+    action: repo_scans.run
+    resource_type: repo_finding
+    resource_id_param: finding_id
   - method: GET
     path: /v1/repo-finding-clusters
     action: repo_scans.read
@@ -3991,6 +3996,51 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/repo-findings/{finding_id}/remediation/publish:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [RepositoryExposure]
+      summary: Publish an approved repository finding remediation PR
+      operationId: publishRepoFindingRemediation
+      parameters:
+        - in: path
+          name: finding_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: repo_scan_id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoFindingRemediationPublishRequest"
+      responses:
+        "200":
+          description: Repository finding remediation PR publish result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoFindingRemediationPublishResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The supplied GitHub write credential was rejected (expired, invalid, or insufficiently scoped), or the caller lacks publish authorization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/repo-finding-clusters:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -6090,6 +6140,38 @@ components:
         require_fix_plan:
           type: boolean
           description: Return 400 when a deterministic fix PR plan cannot be produced.
+    RepoFindingRemediationPublishRequest:
+      type: object
+      required: [source_content, operator_approved, write_permissions_configured, github_token]
+      properties:
+        repo_scan_id:
+          type: string
+          description: Optional repo scan scope when the finding id exists in more than one scan.
+        source_content:
+          type: string
+          description: Current affected file content used to build the deterministic patch that will be committed to the remediation branch.
+        base_branch:
+          type: string
+          description: Base branch for the generated remediation PR.
+        branch_prefix:
+          type: string
+          description: Branch prefix for the generated remediation PR.
+        finding_url:
+          type: string
+          format: uri
+          description: Optional app URL included in generated PR traceability.
+        operator_approved:
+          type: boolean
+          enum: [true]
+          description: Must be true; confirms a human operator approved publishing a remediation branch and PR.
+        write_permissions_configured:
+          type: boolean
+          enum: [true]
+          description: Must be true; confirms the supplied GitHub credential is intentionally write-capable for this repository.
+        github_token:
+          type: string
+          format: password
+          description: Short-lived write-capable GitHub token used only for this publish request. The token is never echoed in the response.
     RepoExposurePatchTemplate:
       type: object
       properties:
@@ -6168,6 +6250,27 @@ components:
           $ref: "#/components/schemas/RepoExposureRemediation"
         fix_pr_plan:
           $ref: "#/components/schemas/FixPRPlan"
+    RepoRemediationPublishResult:
+      type: object
+      properties:
+        pr_number:
+          type: integer
+        pr_url:
+          type: string
+          format: uri
+        branch_name:
+          type: string
+        commit_sha:
+          type: string
+    RepoFindingRemediationPublishResponse:
+      type: object
+      properties:
+        finding:
+          $ref: "#/components/schemas/Finding"
+        remediation:
+          $ref: "#/components/schemas/RepoExposureRemediation"
+        publish:
+          $ref: "#/components/schemas/RepoRemediationPublishResult"
     FindingBaseline:
       type: object
       properties:
