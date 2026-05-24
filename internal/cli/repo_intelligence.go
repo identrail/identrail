@@ -534,6 +534,7 @@ func buildRepoRemediationCmd(cfg config.Config, out io.Writer) *cobra.Command {
 		Short: "Repository finding remediation intelligence",
 	}
 	cmd.AddCommand(buildRepoRemediationPreviewCmd(cfg, out))
+	cmd.AddCommand(buildRepoRemediationPublishCmd(cfg, out))
 	return cmd
 }
 
@@ -554,20 +555,13 @@ func buildRepoRemediationPreviewCmd(cfg config.Config, out io.Writer) *cobra.Com
 		Short: "Preview safe remediation for one repository finding",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			if strings.TrimSpace(sourceFile) != "" && strings.TrimSpace(sourceContent) != "" {
-				return fmt.Errorf("use either --source-file or --source-content, not both")
-			}
 			formatter, err := parseOutputFormat(outputFormat)
 			if err != nil {
 				return err
 			}
-			content := sourceContent
-			if strings.TrimSpace(sourceFile) != "" {
-				data, err := os.ReadFile(strings.TrimSpace(sourceFile))
-				if err != nil {
-					return fmt.Errorf("read source file: %w", err)
-				}
-				content = string(data)
+			content, err := resolveCLIRemediationSource(sourceFile, sourceContent)
+			if err != nil {
+				return err
 			}
 			request := api.RepoFindingRemediationPreviewRequest{
 				RepoScanID:     strings.TrimSpace(repoScanID),
@@ -605,6 +599,97 @@ func buildRepoRemediationPreviewCmd(cfg config.Config, out io.Writer) *cobra.Com
 	cmd.Flags().BoolVar(&requireFixPlan, "require-fix-plan", false, "Fail unless a deterministic fix PR plan can be produced")
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
 	return cmd
+}
+
+func buildRepoRemediationPublishCmd(cfg config.Config, out io.Writer) *cobra.Command {
+	options := defaultCLIAPIOptions(cfg)
+	var (
+		repoScanID                 string
+		sourceFile                 string
+		sourceContent              string
+		baseBranch                 string
+		branchPrefix               string
+		findingURL                 string
+		githubToken                string
+		githubTokenEnv             string
+		operatorApproved           bool
+		writePermissionsConfigured bool
+		outputFormat               string
+	)
+	cmd := &cobra.Command{
+		Use:   "publish <finding-id>",
+		Short: "Publish an approved remediation pull request for one repository finding",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			formatter, err := parseOutputFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+			content, err := resolveCLIRemediationSource(sourceFile, sourceContent)
+			if err != nil {
+				return err
+			}
+			token := strings.TrimSpace(githubToken)
+			if token == "" && strings.TrimSpace(githubTokenEnv) != "" {
+				token = strings.TrimSpace(os.Getenv(strings.TrimSpace(githubTokenEnv)))
+			}
+			request := api.RepoFindingRemediationPublishRequest{
+				RepoScanID:                 strings.TrimSpace(repoScanID),
+				SourceContent:              content,
+				BaseBranch:                 strings.TrimSpace(baseBranch),
+				BranchPrefix:               strings.TrimSpace(branchPrefix),
+				FindingURL:                 strings.TrimSpace(findingURL),
+				OperatorApproved:           operatorApproved,
+				WritePermissionsConfigured: writePermissionsConfigured,
+				GitHubToken:                token,
+			}
+			query := url.Values{}
+			addCLIQuery(query, "repo_scan_id", repoScanID)
+			path := "/v1/repo-findings/" + url.PathEscape(strings.TrimSpace(args[0])) + "/remediation/publish"
+
+			var response api.RepoFindingRemediationPublishResponse
+			ctx, cancel := newCLIAPIRequestContext(options)
+			defer cancel()
+			if err := doCLIAPIRequest(ctx, options, http.MethodPost, path, query, request, &response); err != nil {
+				return err
+			}
+			switch formatter {
+			case outputJSON:
+				return writeJSON(out, response)
+			default:
+				return renderRepoRemediationPublishOutput(out, response)
+			}
+		},
+	}
+	bindCLIAPIFlags(cmd, &options, "API key used to publish repository remediation")
+	cmd.Flags().StringVar(&repoScanID, "repo-scan-id", "", "Repository scan ID for finding lookup")
+	cmd.Flags().StringVar(&sourceFile, "source-file", "", "Path to current affected source file content")
+	cmd.Flags().StringVar(&sourceContent, "source-content", "", "Inline current affected source file content")
+	cmd.Flags().StringVar(&baseBranch, "base-branch", "", "Base branch for generated fix PR")
+	cmd.Flags().StringVar(&branchPrefix, "branch-prefix", "", "Branch prefix for generated fix PR")
+	cmd.Flags().StringVar(&findingURL, "finding-url", "", "URL to include in generated remediation context")
+	cmd.Flags().StringVar(&githubToken, "github-token", "", "Short-lived write-capable GitHub token for PR publication")
+	cmd.Flags().StringVar(&githubTokenEnv, "github-token-env", "", "Environment variable containing the write-capable GitHub token")
+	cmd.Flags().BoolVar(&operatorApproved, "approve", false, "Confirm operator approval to publish the remediation PR")
+	cmd.Flags().BoolVar(&writePermissionsConfigured, "write-permissions-configured", false, "Confirm the supplied GitHub token is intentionally write-capable")
+	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
+	return cmd
+}
+
+// resolveCLIRemediationSource validates the mutually exclusive source flags and
+// returns the affected file content used to build a deterministic patch.
+func resolveCLIRemediationSource(sourceFile, sourceContent string) (string, error) {
+	if strings.TrimSpace(sourceFile) != "" && strings.TrimSpace(sourceContent) != "" {
+		return "", fmt.Errorf("use either --source-file or --source-content, not both")
+	}
+	if strings.TrimSpace(sourceFile) != "" {
+		data, err := os.ReadFile(strings.TrimSpace(sourceFile))
+		if err != nil {
+			return "", fmt.Errorf("read source file: %w", err)
+		}
+		return string(data), nil
+	}
+	return sourceContent, nil
 }
 
 func validateRepoScanMode(mode string) error {
@@ -991,6 +1076,25 @@ func renderRepoRemediationPreviewOutput(out io.Writer, response api.RepoFindingR
 	}
 	if remediation.PublishBlockedReason != "" {
 		_, err := fmt.Fprintf(out, "Publish blocked: %s\n", remediation.PublishBlockedReason)
+		return err
+	}
+	return nil
+}
+
+func renderRepoRemediationPublishOutput(out io.Writer, response api.RepoFindingRemediationPublishResponse) error {
+	if _, err := fmt.Fprintf(
+		out,
+		"Repo remediation published: finding=%s detector=%s pr=%d branch=%s url=%s\n",
+		response.Finding.ID,
+		response.Remediation.Detector,
+		response.Publish.PRNumber,
+		response.Publish.BranchName,
+		response.Publish.PRURL,
+	); err != nil {
+		return err
+	}
+	if response.Publish.CommitSHA != "" {
+		_, err := fmt.Fprintf(out, "Commit: %s\n", response.Publish.CommitSHA)
 		return err
 	}
 	return nil

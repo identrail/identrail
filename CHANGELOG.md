@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added approval-gated remediation PR publishing for repository findings across
+  the API, CLI, and app, so deterministic GitHub exposure fixes can open a
+  branch and pull request only after explicit operator approval and a
+  write-capable short-lived token.
 - Added GitHub organization-level security policy posture as inherited context
   for repository posture. GitHub App-backed posture now distinguishes repository
   controls from organization policy controls such as enforced code security

@@ -37,6 +37,7 @@ identrail repo-findings list --repo owner/private-repo --status open --min-confi
 identrail repo-risk-graph --repo owner/private-repo
 identrail repo-posture --connector-id github-app --project-id project-1 --repo owner/private-repo
 identrail repo-remediation preview <finding-id> --repo-scan-id <repo-scan-id>
+identrail repo-remediation publish <finding-id> --repo-scan-id <repo-scan-id> --source-file ./workflow.yml --github-token-env GITHUB_TOKEN --approve --write-permissions-configured
 ```
 
 API-backed CLI commands use `IDENTRAIL_API_URL`, `IDENTRAIL_API_KEY`,
@@ -91,6 +92,7 @@ Read APIs:
 - `GET /v1/repo-scans/:repo_scan_id`
 - `GET /v1/repo-findings?repo_scan_id=&repository=&status=&severity=&type=&detector=&owner=&source=&confidence=&min_confidence=&age_days=`
 - `POST /v1/repo-findings/:finding_id/remediation/preview?repo_scan_id=`
+- `POST /v1/repo-findings/:finding_id/remediation/publish?repo_scan_id=`
 - `GET /v1/repo-finding-clusters?repo_scan_id=&severity=&type=`
 - `GET /v1/repo-risk-graph?repo_scan_id=&repository=&default_branch=&severity=&type=`
 - list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
@@ -153,8 +155,32 @@ Generated fix-PR plans are intentionally constrained:
 
 - they modify only the affected repository file, never a default branch directly
 - they include finding ID, scan ID, detector, risk summary, validation notes, and safety notes in the PR body
-- they are preview-only until an operator explicitly approves publication and supplies write-capable GitHub credentials
+- they publish only after an operator explicitly approves publication and supplies write-capable GitHub credentials
 - read-only scanner installations can request previews but cannot publish PRs by default
+
+Approved deterministic remediations can publish a GitHub branch and PR:
+
+```bash
+curl -X POST http://localhost:8080/v1/repo-findings/:finding_id/remediation/publish \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <write-enabled-key>" \
+  -d '{
+    "repo_scan_id": "<repo-scan-id>",
+    "base_branch": "main",
+    "source_content": "name: ci\npermissions: write-all\n",
+    "operator_approved": true,
+    "write_permissions_configured": true,
+    "github_token": "<short-lived-write-token>"
+  }'
+```
+
+Publish mode returns the finding, remediation summary, branch name, commit SHA,
+PR number, and PR URL. The GitHub token is accepted only on the request body and
+is never echoed back. Identrail still refuses publication when a detector is
+guidance-only, the patch template needs operator-supplied placeholders, current
+source content is missing, the target repository cannot be split into
+`owner/repo`, approval is absent, or write-capable credentials are not
+explicitly configured.
 
 Secret findings are handled differently. Identrail returns rotation and
 revocation guidance, but does not generate source patches or PR plans for
