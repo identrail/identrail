@@ -108,6 +108,16 @@ type GitHubCodeScanningAlertCollector interface {
 	ListCodeScanningAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.CodeScanningAlert, error)
 }
 
+// GitHubSecretScanningAlertCollector lists secret-scanning alerts visible to one GitHub App installation.
+type GitHubSecretScanningAlertCollector interface {
+	ListSecretScanningAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.SecretScanningAlert, error)
+}
+
+// GitHubDependabotAlertCollector lists Dependabot alerts visible to one GitHub App installation.
+type GitHubDependabotAlertCollector interface {
+	ListDependabotAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.DependabotAlert, error)
+}
+
 // AWSScannerFactory creates a scanner bound to one persisted AWS connector.
 type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
 
@@ -134,41 +144,43 @@ type Service struct {
 	ReadinessCheck       func(context.Context) error
 	Metrics              *telemetry.Metrics
 	// Repo scan controls are intentionally separate from cloud identity scan flow.
-	RepoScanEnabled                  bool
-	RepoScanDefaultHistoryLimit      int
-	RepoScanDefaultMaxFindings       int
-	RepoScanMaxHistoryLimit          int
-	RepoScanMaxFindingsLimit         int
-	RepoScanAllowedTargets           []string
-	ScanQueueMaxPending              int
-	RepoQueueMaxPending              int
-	RepoScannerFactory               RepoScannerFactory
-	AuthenticatedRepoScannerFactory  AuthenticatedRepoScannerFactory
-	ConnectorSecretManager           *secretstore.Manager
-	KubernetesPreflightFactory       KubernetesConnectorPreflightFactory
-	AWSConnectorValidator            AWSConnectorValidator
-	AWSScannerFactory                AWSScannerFactory
-	AWSCloudFormationTemplateURL     string
-	AWSAccountID                     string
-	WorkflowRouter                   *workflow.Router
-	GitHubAppID                      int64
-	GitHubAppName                    string
-	GitHubAppPrivateKey              string
-	GitHubAppWebhookSecret           string
-	GitHubPATValidator               GitHubPATValidator
-	GitHubRepositoryLister           GitHubRepositoryLister
-	GitHubRepositoryPostureCollector GitHubRepositoryPostureCollector
-	GitHubInstallationTokenMinter    GitHubInstallationTokenMinter
-	GitHubCodeScanningAlertCollector GitHubCodeScanningAlertCollector
-	GitHubWebhookReplayWindow        time.Duration
-	GitHubWebhookBurstWindow         time.Duration
-	githubConnectMu                  sync.RWMutex
-	githubConnections                map[string]githubProjectConnection
-	githubConnectStates              map[string]githubConnectState
-	githubWebhookSeen                map[string]time.Time
-	githubWebhookLastQueued          map[string]time.Time
-	kubernetesConnectMu              sync.RWMutex
-	kubernetesConnections            map[string]kubernetesProjectConnection
+	RepoScanEnabled                    bool
+	RepoScanDefaultHistoryLimit        int
+	RepoScanDefaultMaxFindings         int
+	RepoScanMaxHistoryLimit            int
+	RepoScanMaxFindingsLimit           int
+	RepoScanAllowedTargets             []string
+	ScanQueueMaxPending                int
+	RepoQueueMaxPending                int
+	RepoScannerFactory                 RepoScannerFactory
+	AuthenticatedRepoScannerFactory    AuthenticatedRepoScannerFactory
+	ConnectorSecretManager             *secretstore.Manager
+	KubernetesPreflightFactory         KubernetesConnectorPreflightFactory
+	AWSConnectorValidator              AWSConnectorValidator
+	AWSScannerFactory                  AWSScannerFactory
+	AWSCloudFormationTemplateURL       string
+	AWSAccountID                       string
+	WorkflowRouter                     *workflow.Router
+	GitHubAppID                        int64
+	GitHubAppName                      string
+	GitHubAppPrivateKey                string
+	GitHubAppWebhookSecret             string
+	GitHubPATValidator                 GitHubPATValidator
+	GitHubRepositoryLister             GitHubRepositoryLister
+	GitHubRepositoryPostureCollector   GitHubRepositoryPostureCollector
+	GitHubInstallationTokenMinter      GitHubInstallationTokenMinter
+	GitHubCodeScanningAlertCollector   GitHubCodeScanningAlertCollector
+	GitHubSecretScanningAlertCollector GitHubSecretScanningAlertCollector
+	GitHubDependabotAlertCollector     GitHubDependabotAlertCollector
+	GitHubWebhookReplayWindow          time.Duration
+	GitHubWebhookBurstWindow           time.Duration
+	githubConnectMu                    sync.RWMutex
+	githubConnections                  map[string]githubProjectConnection
+	githubConnectStates                map[string]githubConnectState
+	githubWebhookSeen                  map[string]time.Time
+	githubWebhookLastQueued            map[string]time.Time
+	kubernetesConnectMu                sync.RWMutex
+	kubernetesConnections              map[string]kubernetesProjectConnection
 }
 
 // RepoScanQueueEvent reports visible lifecycle transitions for repository scans
@@ -1568,7 +1580,14 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	result = applyRepoScanContextToResult(result, target, scanContext)
 	if !result.Truncated {
-		externalFindings, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
+		externalFindings, sourceErrors, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
+		if len(sourceErrors) > 0 {
+			s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, "repo scan completed with partial source errors", map[string]any{
+				"source_error_count": len(sourceErrors),
+				"source_errors":      truncateSourceErrors(sourceErrors, maxSourceErrorsInEvent),
+			})
+			s.appendScanLifecycleEvent(ctx, record.ID, scanLifecyclePartial, map[string]any{"source_error_count": len(sourceErrors)})
+		}
 		if externalErr != nil {
 			if errors.Is(externalErr, context.Canceled) || errors.Is(externalErr, context.DeadlineExceeded) {
 				s.recordRepoScanExecutionFailure()
@@ -1766,21 +1785,88 @@ func repoScanLastDeepScannedAt(mode string, completedAt time.Time) *time.Time {
 	return &converted
 }
 
-func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoScanRecord, detectedAt time.Time) ([]domain.Finding, error) {
+func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoScanRecord, detectedAt time.Time) ([]domain.Finding, []providers.SourceError, error) {
 	source := record.Source.Normalize()
-	if source.Provider != "github_app" || source.InstallationID <= 0 || s.GitHubCodeScanningAlertCollector == nil {
-		return nil, nil
+	if source.Provider != "github_app" || source.InstallationID <= 0 {
+		return nil, nil, nil
 	}
-	alerts, err := s.GitHubCodeScanningAlertCollector.ListCodeScanningAlerts(ctx, source.InstallationID, record.Repository)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+	sourceErrors := make([]providers.SourceError, 0)
+	recordSourceError := func(collector, code, message string) {
+		sourceErrors = append(sourceErrors, providers.SourceError{
+			Collector: collector,
+			Code:      code,
+			Message:   message,
+		})
+	}
+	recordSourceErr := func(collector string, operation string, err error) {
+		if err == nil {
+			return
 		}
-		// Code-scanning alerts are an enrichment source. Permission-limited
-		// installations should still complete the native repo scan.
-		return nil, nil
+		recordSourceError(collector, operation, err.Error())
 	}
-	return repoexposure.NormalizeGitHubCodeScanningAlerts(ctx, record.Repository, "", githubCodeScanningAlertsToRepoExposure(alerts), detectedAt)
+	findings := []domain.Finding{}
+	// Each GitHub-native alert source is an enrichment source. Permission-limited,
+	// unavailable, or rate-limited endpoints must not fail the native repo scan;
+	// they simply contribute no imported findings for that run. Only context
+	// cancellation/deadline aborts the collection.
+	if s.GitHubCodeScanningAlertCollector != nil {
+		alerts, err := s.GitHubCodeScanningAlertCollector.ListCodeScanningAlerts(ctx, source.InstallationID, record.Repository)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			recordSourceErr("github_code_scanning", "alert_list_error", err)
+		} else {
+			imported, normErr := repoexposure.NormalizeGitHubCodeScanningAlerts(ctx, record.Repository, "", githubCodeScanningAlertsToRepoExposure(alerts), detectedAt)
+			if normErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
+				recordSourceErr("github_code_scanning", "normalize_error", normErr)
+			} else {
+				findings = append(findings, imported...)
+			}
+		}
+	}
+	if s.GitHubSecretScanningAlertCollector != nil {
+		alerts, err := s.GitHubSecretScanningAlertCollector.ListSecretScanningAlerts(ctx, source.InstallationID, record.Repository)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			recordSourceErr("github_secret_scanning", "alert_list_error", err)
+		} else {
+			imported, normErr := repoexposure.NormalizeGitHubSecretScanningAlerts(ctx, record.Repository, "", githubSecretScanningAlertsToRepoExposure(alerts), detectedAt)
+			if normErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
+				recordSourceErr("github_secret_scanning", "normalize_error", normErr)
+			} else {
+				findings = append(findings, imported...)
+			}
+		}
+	}
+	if s.GitHubDependabotAlertCollector != nil {
+		alerts, err := s.GitHubDependabotAlertCollector.ListDependabotAlerts(ctx, source.InstallationID, record.Repository)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			recordSourceErr("github_dependabot", "alert_list_error", err)
+		} else {
+			imported, normErr := repoexposure.NormalizeGitHubDependabotAlerts(ctx, record.Repository, "", githubDependabotAlertsToRepoExposure(alerts), detectedAt)
+			if normErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
+				recordSourceErr("github_dependabot", "normalize_error", normErr)
+			} else {
+				findings = append(findings, imported...)
+			}
+		}
+	}
+	return findings, sourceErrors, nil
 }
 
 func githubCodeScanningAlertsToRepoExposure(alerts []githubconnector.CodeScanningAlert) []repoexposure.GitHubCodeScanningAlert {
@@ -1816,6 +1902,68 @@ func githubCodeScanningAlertsToRepoExposure(alerts []githubconnector.CodeScannin
 					EndLine:     alert.MostRecentInstance.Location.EndLine,
 					StartColumn: alert.MostRecentInstance.Location.StartColumn,
 					EndColumn:   alert.MostRecentInstance.Location.EndColumn,
+				},
+			},
+			HTMLURL: alert.HTMLURL,
+		})
+	}
+	return converted
+}
+
+func githubSecretScanningAlertsToRepoExposure(alerts []githubconnector.SecretScanningAlert) []repoexposure.GitHubSecretScanningAlert {
+	converted := make([]repoexposure.GitHubSecretScanningAlert, 0, len(alerts))
+	for _, alert := range alerts {
+		converted = append(converted, repoexposure.GitHubSecretScanningAlert{
+			Number:                alert.Number,
+			State:                 alert.State,
+			SecretType:            alert.SecretType,
+			SecretTypeDisplayName: alert.SecretTypeDisplayName,
+			Validity:              alert.Validity,
+			Resolution:            alert.Resolution,
+			PushProtectionBypass:  alert.PushProtectionBypass,
+			HTMLURL:               alert.HTMLURL,
+		})
+	}
+	return converted
+}
+
+func githubDependabotAlertsToRepoExposure(alerts []githubconnector.DependabotAlert) []repoexposure.GitHubDependabotAlert {
+	converted := make([]repoexposure.GitHubDependabotAlert, 0, len(alerts))
+	for _, alert := range alerts {
+		identifiers := make([]repoexposure.GitHubDependabotAdvisoryIdentity, 0, len(alert.SecurityAdvisory.Identifiers))
+		for _, identifier := range alert.SecurityAdvisory.Identifiers {
+			identifiers = append(identifiers, repoexposure.GitHubDependabotAdvisoryIdentity{
+				Type:  identifier.Type,
+				Value: identifier.Value,
+			})
+		}
+		converted = append(converted, repoexposure.GitHubDependabotAlert{
+			Number: alert.Number,
+			State:  alert.State,
+			Dependency: repoexposure.GitHubDependabotDependency{
+				Package: repoexposure.GitHubDependabotPackage{
+					Ecosystem: alert.Dependency.Package.Ecosystem,
+					Name:      alert.Dependency.Package.Name,
+				},
+				ManifestPath: alert.Dependency.ManifestPath,
+				Scope:        alert.Dependency.Scope,
+			},
+			SecurityAdvisory: repoexposure.GitHubDependabotAdvisory{
+				GHSAID:      alert.SecurityAdvisory.GHSAID,
+				CVEID:       alert.SecurityAdvisory.CVEID,
+				Summary:     alert.SecurityAdvisory.Summary,
+				Severity:    alert.SecurityAdvisory.Severity,
+				Identifiers: identifiers,
+			},
+			SecurityVulnerability: repoexposure.GitHubDependabotVulnerable{
+				Package: repoexposure.GitHubDependabotPackage{
+					Ecosystem: alert.SecurityVulnerability.Package.Ecosystem,
+					Name:      alert.SecurityVulnerability.Package.Name,
+				},
+				Severity:               alert.SecurityVulnerability.Severity,
+				VulnerableVersionRange: alert.SecurityVulnerability.VulnerableVersionRange,
+				FirstPatchedVersion: repoexposure.GitHubDependabotPatch{
+					Identifier: alert.SecurityVulnerability.FirstPatchedVersion.Identifier,
 				},
 			},
 			HTMLURL: alert.HTMLURL,

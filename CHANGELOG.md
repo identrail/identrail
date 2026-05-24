@@ -8,6 +8,15 @@
   aligning current architecture/scope docs with AWS, GitHub, and Kubernetes,
   leading repo exposure docs with `identrail scan owner/repo`, archiving phase
   records, and removing historical leftovers.
+- Ingest open GitHub secret-scanning and Dependabot vulnerability alerts as
+  first-class repository findings during GitHub App-backed repo scans, alongside
+  the existing code-scanning import. Secret-scanning alerts become redacted
+  `secret_exposure` findings (the raw secret value is never fetched or stored),
+  and Dependabot alerts become repository findings carrying ecosystem, package,
+  GHSA/CVE identifiers, vulnerable range, first patched version, alert URL, and a
+  mapped severity. Each alert source is independent enrichment: permission-
+  limited, unavailable, or rate-limited endpoints no longer fail the native scan.
+  Imported alerts are deduplicated deterministically across scans.
 - Polished the repository Findings page styling: softened the summary-tile
   labels from all-caps to sentence case, styled the new metric captions, the
   scan-health banner, and the failed-scan state actions, and set the summary

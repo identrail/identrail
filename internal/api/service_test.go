@@ -105,6 +105,42 @@ func (f *fakeGitHubCodeScanningAlertCollector) ListCodeScanningAlerts(ctx contex
 	return f.alerts, nil
 }
 
+type fakeGitHubSecretScanningAlertCollector struct {
+	alerts         []githubconnector.SecretScanningAlert
+	err            error
+	installationID int64
+	repository     string
+	calls          int
+}
+
+func (f *fakeGitHubSecretScanningAlertCollector) ListSecretScanningAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.SecretScanningAlert, error) {
+	f.calls++
+	f.installationID = installationID
+	f.repository = repository
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.alerts, nil
+}
+
+type fakeGitHubDependabotAlertCollector struct {
+	alerts         []githubconnector.DependabotAlert
+	err            error
+	installationID int64
+	repository     string
+	calls          int
+}
+
+func (f *fakeGitHubDependabotAlertCollector) ListDependabotAlerts(ctx context.Context, installationID int64, repository string) ([]githubconnector.DependabotAlert, error) {
+	f.calls++
+	f.installationID = installationID
+	f.repository = repository
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.alerts, nil
+}
+
 type traceCapturingScanner struct {
 	result app.ScanResult
 	err    error
@@ -4353,6 +4389,129 @@ func TestServiceProcessQueuedGitHubAppRepoScanImportsCodeScanningAlerts(t *testi
 	}
 	if len(findings) != 1 || findings[0].Detector != "github_code_scanning:codeql:js_sql-injection" || findings[0].SourceURL == "" {
 		t.Fatalf("unexpected imported finding: %+v", findings)
+	}
+}
+
+func TestServiceProcessQueuedGitHubAppRepoScanImportsSecretAndDependabotAlerts(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+	// Code scanning is permission-limited for this installation; the native scan
+	// and the other GitHub-native imports must still complete.
+	svc.GitHubCodeScanningAlertCollector = &fakeGitHubCodeScanningAlertCollector{
+		err: errors.New("github api /repos/owner/private/code-scanning/alerts: status 403: permission denied"),
+	}
+	svc.GitHubSecretScanningAlertCollector = &fakeGitHubSecretScanningAlertCollector{
+		alerts: []githubconnector.SecretScanningAlert{
+			{
+				Number:                3,
+				State:                 "open",
+				SecretType:            "github_personal_access_token",
+				SecretTypeDisplayName: "GitHub Personal Access Token",
+				Validity:              "active",
+				HTMLURL:               "https://github.com/owner/private/security/secret-scanning/3",
+			},
+		},
+	}
+	svc.GitHubDependabotAlertCollector = &fakeGitHubDependabotAlertCollector{
+		alerts: []githubconnector.DependabotAlert{
+			{
+				Number: 7,
+				State:  "open",
+				Dependency: githubconnector.DependabotDependency{
+					Package:      githubconnector.DependabotPackage{Ecosystem: "pip", Name: "django"},
+					ManifestPath: "requirements.txt",
+				},
+				SecurityAdvisory: githubconnector.DependabotSecurityAdvisory{
+					GHSAID:   "GHSA-xxxx-yyyy-zzzz",
+					CVEID:    "CVE-2024-0001",
+					Summary:  "SQL injection in django",
+					Severity: "high",
+				},
+				SecurityVulnerability: githubconnector.DependabotVulnerability{
+					Severity:               "high",
+					VulnerableVersionRange: "< 4.2.1",
+					FirstPatchedVersion:    githubconnector.DependabotPatchVersion{Identifier: "4.2.1"},
+				},
+				HTMLURL: "https://github.com/owner/private/security/dependabot/7",
+			},
+		},
+	}
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/private",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+			},
+		}
+	}
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/private",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+	if err != nil {
+		t.Fatalf("process connector-backed repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued connector-backed repo scan to be processed")
+	}
+	secretCollector := svc.GitHubSecretScanningAlertCollector.(*fakeGitHubSecretScanningAlertCollector)
+	if secretCollector.calls != 1 || secretCollector.installationID != 101 || secretCollector.repository != "owner/private" {
+		t.Fatalf("unexpected secret scanning collector call: calls=%d installation=%d repository=%q", secretCollector.calls, secretCollector.installationID, secretCollector.repository)
+	}
+	if secretCollector.err != nil {
+		t.Fatalf("secret collector unexpectedly failed: %v", secretCollector.err)
+	}
+	dependabotCollector := svc.GitHubDependabotAlertCollector.(*fakeGitHubDependabotAlertCollector)
+	if dependabotCollector.calls != 1 || dependabotCollector.installationID != 101 || dependabotCollector.repository != "owner/private" {
+		t.Fatalf("unexpected dependabot collector call: calls=%d installation=%d repository=%q", dependabotCollector.calls, dependabotCollector.installationID, dependabotCollector.repository)
+	}
+	stored, err := svc.GetRepoScan(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if stored.FindingCount != 2 {
+		t.Fatalf("expected two imported alert findings, got %+v", stored)
+	}
+	findings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{RepoScanID: record.ID})
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	var secretFinding, dependabotFinding *domain.Finding
+	for i := range findings {
+		switch findings[i].Type {
+		case domain.FindingSecretExposure:
+			secretFinding = &findings[i]
+		case domain.FindingRepoMisconfig:
+			dependabotFinding = &findings[i]
+		}
+	}
+	if secretFinding == nil {
+		t.Fatalf("expected an imported secret-exposure finding, got %+v", findings)
+	}
+	if secretFinding.Severity != domain.SeverityCritical || secretFinding.LineSnippetRedacted == nil || !*secretFinding.LineSnippetRedacted {
+		t.Fatalf("unexpected secret finding: %+v", secretFinding)
+	}
+	if got, _ := secretFinding.Evidence["raw_secret_stored"].(bool); got {
+		t.Fatalf("secret finding must not store raw secret: %+v", secretFinding.Evidence)
+	}
+	if dependabotFinding == nil {
+		t.Fatalf("expected an imported dependabot finding, got %+v", findings)
+	}
+	if dependabotFinding.Evidence["adapter_advisory_ghsa"] != "GHSA-xxxx-yyyy-zzzz" || dependabotFinding.Evidence["adapter_package"] != "django" {
+		t.Fatalf("unexpected dependabot finding evidence: %+v", dependabotFinding.Evidence)
 	}
 }
 

@@ -222,6 +222,42 @@ The manifest permissions that support this collection are read-only:
 If one of these permissions is missing, the corresponding posture check should
 return `permission_limited` instead of failing the whole collection.
 
+## Imported GitHub Alert Findings
+
+Repository posture answers whether a security feature is configured. Connector-
+backed repository scans go one step further and import the actual open GitHub
+alerts as first-class Identrail findings, so operators see which secret alert
+exists, which dependency advisory is open, how severe it is, and what to do next.
+
+When a GitHub App-backed repository scan runs, Identrail also collects open
+alerts through the installation token and normalizes them into the repo-finding
+model used by native scanning and code-scanning imports:
+
+- Secret-scanning alerts become redacted `secret_exposure` findings.
+- Dependabot alerts become `repo_misconfiguration` findings carrying ecosystem,
+  package name, GHSA/CVE identifiers, the vulnerable version range, the first
+  patched version when available, the GitHub alert URL, and a mapped severity.
+
+The read-only manifest permissions that support this import are the same ones
+used by posture collection:
+
+- `security_events`: code-scanning alert import.
+- `secret_scanning_alerts`: secret-scanning alert import.
+- `vulnerability_alerts`: Dependabot alert import.
+
+Each alert source is collected independently and treated as enrichment. If a
+permission is missing, or GitHub returns a permission-limited, unavailable, or
+rate-limited response for one source, the native scan and the remaining imports
+still complete; the unavailable source simply contributes no findings for that
+run, consistent with code-scanning behavior.
+
+Imported secret-scanning findings never expose raw secret material. Identrail
+does not fetch or store the GitHub `secret` value; it keeps only the secret type
+label, validity, and alert metadata, and records a redacted snippet with
+`raw_secret_stored: false` and `secret_value_masked: true`. See
+`docs/repo-exposure.md` for the full evidence and redaction contract and the
+difference between posture checks and imported alert findings.
+
 ## Rollback
 
 Set `IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2=false` to return the standard GitHub connector API to 404. Set `VITE_FEATURE_CONNECTOR_GITHUB_V2=false` to hide the frontend path.
