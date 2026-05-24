@@ -2374,7 +2374,7 @@ func repoScanEnqueueErrorResponse(err error) (int, gin.H) {
 			"error_detail": "The repository scan queue is at capacity; retry after queued scans drain or increase worker capacity.",
 		}
 	default:
-		code, detail := classifyRepoScanInternalError(err)
+		code, detail := classifyRepoScanInternalError(err, "The API timed out before the repository scan was queued; check API, database, or network logs for repository scan diagnostics.")
 		return http.StatusInternalServerError, gin.H{
 			"error":        "failed to enqueue repo scan",
 			"error_code":   code,
@@ -2384,7 +2384,7 @@ func repoScanEnqueueErrorResponse(err error) (int, gin.H) {
 }
 
 func repoScanListErrorResponse(err error) gin.H {
-	code, detail := classifyRepoScanInternalError(err)
+	code, detail := classifyRepoScanInternalError(err, "The API timed out while listing repository scans; check API, database, or network logs for repository scan diagnostics.")
 	return gin.H{
 		"error":        "failed to list repo scans",
 		"error_code":   code,
@@ -2392,7 +2392,7 @@ func repoScanListErrorResponse(err error) gin.H {
 	}
 }
 
-func classifyRepoScanInternalError(err error) (string, string) {
+func classifyRepoScanInternalError(err error, timeoutDetail string) (string, string) {
 	message := strings.ToLower(strings.TrimSpace(errorString(err)))
 	switch {
 	case message == "":
@@ -2414,7 +2414,7 @@ func classifyRepoScanInternalError(err error) (string, string) {
 		return "repo_scan_connector_state_invalid", "GitHub connector metadata is incomplete or does not match the selected installation."
 	case strings.Contains(message, "timeout") ||
 		strings.Contains(message, "deadline exceeded"):
-		return "repo_scan_worker_timeout", "The repository scan worker timed out before reporting a terminal result."
+		return "repo_scan_operation_timeout", timeoutDetail
 	default:
 		return "repo_scan_internal_error", "The API could not complete the repository scan operation; check API logs for the repo scan diagnostic event."
 	}
