@@ -889,12 +889,14 @@ func detectMisconfigFindings(repo string, commit string, path string, content []
 		revision = "HEAD"
 	}
 
+	if isAIAgentConfigPath(path) {
+		findings = append(findings, detectAIAgentConfigFindings(repo, revision, path, content, seen, detectedAt, options...)...)
+		return findings
+	}
+
 	parserFindings, parserUsed := detectMisconfigFindingsWithParsers(repo, revision, path, content, seen, detectedAt)
 	findings = append(findings, parserFindings...)
 	findings = append(findings, detectAIAgentConfigFindings(repo, revision, path, content, seen, detectedAt, options...)...)
-	if isAIAgentConfigPath(path) {
-		return findings
-	}
 
 	for _, rule := range lineMisconfigRules {
 		if parserUsed && shouldSkipLineRuleByParser(rule.ID, path) {

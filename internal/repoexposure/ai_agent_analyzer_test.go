@@ -106,6 +106,32 @@ func TestDetectAIAgentConfigFindingsSkipsLineHeuristicForCopilotSurfaces(t *test
 	}
 }
 
+func TestDetectMisconfigFindingsSkipsParserFindingsForAIAgentConfigSurfaces(t *testing.T) {
+	findings := detectMisconfigFindings(
+		"octo-org/octo-repo",
+		"HEAD",
+		".continue/config.yaml",
+		[]byte(`permissions:
+  contents: write-all
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: shell
+      securityContext:
+        privileged: true
+`),
+		time.Time{},
+	)
+
+	for _, finding := range findings {
+		switch finding.Detector {
+		case "workflow_write_all_permissions", "workflow_pull_request_target", "k8s_privileged_true":
+			t.Fatalf("expected AI-agent parser surface to skip YAML parser findings, got %+v", finding)
+		}
+	}
+}
+
 func TestAIAgentConfigPathSelection(t *testing.T) {
 	for _, path := range []string{
 		".mcp.json",
