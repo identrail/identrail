@@ -283,11 +283,57 @@ Supported ingestion surfaces:
   other scanners that emit SARIF.
 - GitHub code-scanning alerts fetched through the GitHub App connector's
   `security_events: read` permission.
+- GitHub secret-scanning alerts fetched through the GitHub App connector's
+  `secret_scanning_alerts: read` permission.
+- GitHub Dependabot vulnerability alerts fetched through the GitHub App
+  connector's `vulnerability_alerts: read` permission.
 
-Connector-backed GitHub App repository scans collect open code-scanning alerts
-for selected repositories when the installation permission allows it. If the
-installation cannot read code-scanning alerts, the native Identrail scan still
-completes and adapter findings are simply absent for that run.
+Connector-backed GitHub App repository scans collect open code-scanning,
+secret-scanning, and Dependabot alerts for selected repositories when the
+installation permission allows it. Each source is independent: if the
+installation cannot read one of these alert APIs, or GitHub returns a
+permission-limited, unavailable, or rate-limited response, the native Identrail
+scan and the other imports still complete. Adapter findings are simply absent
+for the source that could not be read.
+
+### Posture checks vs imported alert findings
+
+These imports are distinct from the repository posture collection exposed by
+`GET /v1/connectors/github/{connector_id}/posture`:
+
+- Posture checks answer "is this security feature configured?" They return a
+  per-control state (`secure`, `insecure`, `permission_limited`, `unavailable`)
+  for code scanning, secret scanning, and Dependabot, without enumerating the
+  individual alerts.
+- Imported alert findings answer "what open problems exist right now?" They turn
+  each open GitHub-native alert into a first-class `domain.Finding` that
+  participates in the same findings workflow, lifecycle, dedupe, and risk
+  scoring as native scanner results.
+
+A repository can therefore show a `secure` posture for "secret scanning enabled"
+while still surfacing individual imported secret-scanning findings for the open
+alerts GitHub reports.
+
+GitHub-native alert findings carry source metadata so they are distinguishable
+from native scanner output:
+
+- secret-scanning alerts: `adapter_source_type: github_secret_scanning`,
+  `adapter_secret_type`, `adapter_secret_validity`, and the GitHub
+  `adapter_alert_url`. They are normalized as `secret_exposure` findings.
+- Dependabot alerts: `adapter_source_type: github_dependabot`,
+  `adapter_ecosystem`, `adapter_package`, `adapter_advisory_ghsa`,
+  `adapter_advisory_cve`, `adapter_advisory_identifiers`,
+  `adapter_vulnerable_range`, `adapter_first_patched_version`, and the GitHub
+  `adapter_alert_url`. They are normalized as repository findings
+  (`repo_misconfiguration`).
+
+Imported secret-scanning alerts never store the raw secret value. Identrail does
+not fetch or deserialize the GitHub `secret` field; it keeps only the secret type
+label, validity, and alert metadata, stores a redacted snippet marker, and sets
+`line_snippet_redacted: true`, `raw_secret_stored: false`, and
+`secret_value_masked: true`. Severity is mapped from alert validity (active
+secrets are treated as critical; otherwise high). Dependabot severity is mapped
+from the advisory severity (`critical`/`high`/`medium`/`moderate`/`low`).
 
 Adapter findings are normalized into the same `domain.Finding` shape as native
 repository findings, and include adapter-specific evidence metadata:
