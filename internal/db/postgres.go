@@ -3656,6 +3656,9 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	if normalized.Owner != "" {
 		outerConditions = append(outerConditions, fmt.Sprintf("LOWER(f.owner) = %s", addArg(normalized.Owner)))
 	}
+	if normalized.Source != "" {
+		outerConditions = append(outerConditions, fmt.Sprintf("LOWER(f.adapter_source) = %s", addArg(normalized.Source)))
+	}
 	if normalized.MinConfidence > 0 {
 		outerConditions = append(outerConditions, fmt.Sprintf("f.confidence_score >= %s", addArg(normalized.MinConfidence)))
 	}

@@ -955,6 +955,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			Status:          strings.TrimSpace(firstNonEmpty(firstNonEmpty(c.Query("repo_lifecycle_status"), c.Query("repo_status")), c.Query("status"))),
 			Detector:        strings.TrimSpace(c.Query("detector")),
 			Owner:           strings.TrimSpace(c.Query("owner")),
+			Source:          strings.TrimSpace(c.Query("source")),
 			MinConfidence:   minConfidence,
 			MinAgeDays:      minAgeDays,
 			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
@@ -2403,6 +2404,9 @@ func classifyRepoScanInternalError(err error, timeoutDetail string) (string, str
 		return "github_token_mint_failed", "GitHub App token minting failed for the selected installation."
 	case strings.Contains(message, "github installation token is empty"):
 		return "github_token_empty", "GitHub returned an empty installation token for the selected installation."
+	case strings.Contains(message, "timeout") ||
+		strings.Contains(message, "deadline exceeded"):
+		return "repo_scan_operation_timeout", timeoutDetail
 	case strings.Contains(message, "migration") ||
 		strings.Contains(message, "relation") ||
 		strings.Contains(message, "column") ||
@@ -2412,9 +2416,6 @@ func classifyRepoScanInternalError(err error, timeoutDetail string) (string, str
 	case strings.Contains(message, "connector") ||
 		strings.Contains(message, "installation"):
 		return "repo_scan_connector_state_invalid", "GitHub connector metadata is incomplete or does not match the selected installation."
-	case strings.Contains(message, "timeout") ||
-		strings.Contains(message, "deadline exceeded"):
-		return "repo_scan_operation_timeout", timeoutDetail
 	default:
 		return "repo_scan_internal_error", "The API could not complete the repository scan operation; check API logs for the repo scan diagnostic event."
 	}

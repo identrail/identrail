@@ -464,6 +464,325 @@ jobs:
 	})
 }
 
+func TestGitHubWorkflowAnalyzerFlagsPrivilegedSelfHostedRunner(t *testing.T) {
+	content := []byte(`name: pr-target-self-hosted
+on: pull_request_target
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: production
+    steps:
+      - uses: aws-actions/configure-aws-credentials@f00dbabe1234567890abcdef1234567890abcdef
+      - run: ./deploy.sh
+        env:
+          TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/self-hosted.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_self_hosted_runner",
+	})
+
+	runner := firstDetectorFinding(t, findings, "workflow_self_hosted_runner")
+	if runner.Severity != domain.SeverityCritical {
+		t.Fatalf("expected privileged self-hosted runner to be critical, got %+v", runner)
+	}
+	if labels, _ := runner.Evidence["runner_labels"].([]string); len(labels) != 1 || labels[0] != "self-hosted" {
+		t.Fatalf("expected self-hosted label evidence, got %+v", runner.Evidence)
+	}
+	if selfHosted, _ := runner.Evidence["self_hosted_runner"].(bool); !selfHosted {
+		t.Fatalf("expected self_hosted_runner evidence true, got %+v", runner.Evidence)
+	}
+	if env, _ := runner.Evidence["deployment_environment"].(string); env != "production" {
+		t.Fatalf("expected production environment evidence, got %+v", runner.Evidence)
+	}
+	for _, amplifier := range []string{"cloud_auth", "environment", "id_token", "secrets"} {
+		if !workflowEvidenceHasString(runner.Evidence["risk_amplifiers"], amplifier) {
+			t.Fatalf("expected risk amplifier %s, got %+v", amplifier, runner.Evidence["risk_amplifiers"])
+		}
+	}
+	if capability, _ := runner.Evidence["runner_capability"].(string); capability != "untrusted_privileged" {
+		t.Fatalf("expected untrusted_privileged capability, got %+v", runner.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerFlagsArraySelfHostedRunnerWithoutAmplifiers(t *testing.T) {
+	content := []byte(`name: pr-self-hosted-array
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: [self-hosted, linux, x64, prod]
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/array.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	runner := firstDetectorFinding(t, findings, "workflow_self_hosted_runner")
+	if runner.Severity != domain.SeverityHigh {
+		t.Fatalf("expected unamplified self-hosted runner to be high, got %+v", runner)
+	}
+	if unresolved, _ := runner.Evidence["labels_unresolved"].(bool); unresolved {
+		t.Fatalf("expected explicit self-hosted array labels to be resolved, got %+v", runner.Evidence)
+	}
+	labels, _ := runner.Evidence["runner_labels"].([]string)
+	if len(labels) != 4 || labels[0] != "self-hosted" || labels[3] != "prod" {
+		t.Fatalf("expected ordered array label evidence, got %+v", runner.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerFlagsRunnerGroupAsSelfHosted(t *testing.T) {
+	content := []byte(`name: group-runner
+on: pull_request_target
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on:
+      group: gpu-runners
+      labels: [self-hosted, gpu]
+    steps:
+      - run: make build
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/group.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	runner := firstDetectorFinding(t, findings, "workflow_self_hosted_runner")
+	if runner.Severity != domain.SeverityCritical {
+		t.Fatalf("expected write-token self-hosted runner to be critical, got %+v", runner)
+	}
+	if group, _ := runner.Evidence["runner_group"].(string); group != "gpu-runners" {
+		t.Fatalf("expected runner group evidence, got %+v", runner.Evidence)
+	}
+	if !workflowEvidenceHasString(runner.Evidence["risk_amplifiers"], "write_token") {
+		t.Fatalf("expected write_token amplifier, got %+v", runner.Evidence["risk_amplifiers"])
+	}
+}
+
+func TestGitHubWorkflowAnalyzerTreatsRunnerGroupWithoutSelfHostedLabelAsUnresolved(t *testing.T) {
+	content := []byte(`name: group-runner-unresolved
+on:
+  pull_request
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on:
+      group: gpu-runners
+      labels: [linux, x64]
+    steps:
+      - run: make build
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/group.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_self_hosted_runner") {
+		t.Fatalf("expected group runner without explicit self-hosted label to be unresolved, got %+v", findings)
+	}
+	unresolved := firstDetectorFinding(t, findings, "workflow_self_hosted_runner_unresolved")
+	if unresolved.Severity != domain.SeverityMedium {
+		t.Fatalf("expected unresolved group-runner finding to be medium, got %+v", unresolved)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerResolvesMatrixSelfHostedRunner(t *testing.T) {
+	content := []byte(`name: matrix-self-hosted
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, self-hosted]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/matrix-self-hosted.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_self_hosted_runner",
+	})
+	if containsDetector(findings, "workflow_self_hosted_runner_unresolved") {
+		t.Fatalf("expected matrix self-hosted value to resolve to self-hosted, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerResolvesNestedMatrixSelfHostedRunner(t *testing.T) {
+	content := []byte(`name: matrix-object-self-hosted
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        target:
+          - runner: ubuntu-latest
+          - runner: self-hosted
+    runs-on: ${{ matrix.target.runner }}
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/matrix-object-self-hosted.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_self_hosted_runner",
+	})
+	if containsDetector(findings, "workflow_self_hosted_runner_unresolved") {
+		t.Fatalf("expected nested matrix self-hosted value to resolve to self-hosted, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerRespectsReferencedMatrixKeyForSelfHostedResolution(t *testing.T) {
+	content := []byte(`name: matrix-different-axis
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        runner: [self-hosted]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/matrix-other-axis.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_self_hosted_runner_unresolved",
+	})
+	if containsDetector(findings, "workflow_self_hosted_runner") {
+		t.Fatalf("expected referenced matrix key isolation to avoid false positive self-hosted, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerTreatsExpressionRunnerAsUnresolved(t *testing.T) {
+	content := []byte(`name: matrix-runner
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/matrix.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_self_hosted_runner_unresolved",
+	})
+	if containsDetector(findings, "workflow_self_hosted_runner") {
+		t.Fatalf("expected unresolved matrix runner not to assert self-hosted, got %+v", findings)
+	}
+	unresolved := firstDetectorFinding(t, findings, "workflow_self_hosted_runner_unresolved")
+	if unresolved.Severity != domain.SeverityMedium {
+		t.Fatalf("expected unresolved runner finding to be medium, got %+v", unresolved)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerRecognizesAdditionalGitHubHostedRunnerLabels(t *testing.T) {
+	content := []byte(`name: hosted-arm
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/hosted-arm.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	for _, detector := range []string{"workflow_self_hosted_runner", "workflow_self_hosted_runner_unresolved"} {
+		if containsDetector(findings, detector) {
+			t.Fatalf("expected additional hosted runner labels not to emit %s, got %+v", detector, findings)
+		}
+	}
+}
+
+func TestGitHubWorkflowAnalyzerTreatsBroadCustomLabelAsUnresolved(t *testing.T) {
+	content := []byte(`name: custom-runner
+on: issue_comment
+permissions:
+  contents: read
+jobs:
+  triage:
+    runs-on: my-fleet
+    steps:
+      - run: make triage
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/custom.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_self_hosted_runner_unresolved",
+	})
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagTrustedSelfHostedRunner(t *testing.T) {
+	content := []byte(`name: push-self-hosted
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: [self-hosted, linux]
+    steps:
+      - run: make build
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/push-self-hosted.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	for _, detector := range []string{"workflow_self_hosted_runner", "workflow_self_hosted_runner_unresolved"} {
+		if containsDetector(findings, detector) {
+			t.Fatalf("expected trusted-only self-hosted runner not to emit %s, got %+v", detector, findings)
+		}
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagGitHubHostedRunner(t *testing.T) {
+	content := []byte(`name: pr-hosted
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make test
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/hosted.yml", content, time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC))
+	for _, detector := range []string{"workflow_self_hosted_runner", "workflow_self_hosted_runner_unresolved"} {
+		if containsDetector(findings, detector) {
+			t.Fatalf("expected GitHub-hosted runner not to emit %s, got %+v", detector, findings)
+		}
+	}
+}
+
+func workflowEvidenceHasString(value any, want string) bool {
+	values, ok := value.([]string)
+	if !ok {
+		return false
+	}
+	for _, candidate := range values {
+		if candidate == want {
+			return true
+		}
+	}
+	return false
+}
+
 func assertWorkflowDetectors(t *testing.T, findings []domain.Finding, detectors []string) {
 	t.Helper()
 	for _, detector := range detectors {

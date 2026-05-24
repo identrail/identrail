@@ -1434,10 +1434,6 @@ func (s *Service) validateRepoScanRequest(ctx context.Context, request RepoScanR
 			return "", db.RepoScanSource{}, db.RepoScanContext{}, 0, 0, err
 		}
 
-		if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
-			s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
-			return "", db.RepoScanSource{}, db.RepoScanContext{}, 0, 0, ErrRepoTargetNotAllowed
-		}
 		return target, source, scanContext, historyLimit, maxFindings, nil
 	}
 	if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {

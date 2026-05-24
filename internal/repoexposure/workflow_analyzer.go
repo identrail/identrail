@@ -16,6 +16,28 @@ const workflowAnalyzerVersion = "2026.05"
 
 var gitHubActionCommitRefPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var workflowSecretsExpressionPattern = regexp.MustCompile(`\$\{\{\s*secrets\s*(?:\.|\[)`)
+var workflowExpressionPattern = regexp.MustCompile(`\$\{\{.*\}\}`)
+var workflowMatrixReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix\.([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\}\}`)
+var workflowMatrixBracketReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix((?:\[\s*['\"][a-zA-Z_][a-zA-Z0-9_-]*['\"]\s*\])+)\s*\}\}`)
+var workflowMatrixBracketSegmentPattern = regexp.MustCompile(`\[\s*['\"]([a-zA-Z_][a-zA-Z0-9_-]*)['\"]\s*\]`)
+
+var workflowHostedRunnerLabels = map[string]struct{}{
+	"ubuntu-latest":    {},
+	"ubuntu-20.04":     {},
+	"ubuntu-22.04":     {},
+	"ubuntu-24.04":     {},
+	"ubuntu-24.04-arm": {},
+	"ubuntu-slim":      {},
+	"windows-latest":   {},
+	"windows-2019":     {},
+	"windows-2022":     {},
+	"windows-2025":     {},
+	"windows-11-arm":   {},
+	"macos-latest":     {},
+	"macos-13":         {},
+	"macos-14":         {},
+	"macos-15":         {},
+}
 
 type githubWorkflowModel struct {
 	Events      map[string]*yaml.Node
@@ -42,7 +64,23 @@ type githubWorkflowJob struct {
 	Secrets     map[string]string
 	SecretsRaw  string
 	Permissions workflowPermissions
+	RunsOn      workflowRunsOn
+	Environment string
 	Steps       []githubWorkflowStep
+}
+
+// workflowRunsOn captures a normalized view of a job's runner placement. It
+// records the literal labels for safe evidence and classifies whether the job
+// confidently targets self-hosted runners or whether the placement cannot be
+// resolved statically (expression-driven, matrix-driven, or broad custom
+// labels). It never stores runner credentials or registration tokens.
+type workflowRunsOn struct {
+	Configured bool
+	Line       int
+	Labels     []string
+	Group      string
+	SelfHosted bool
+	Unresolved bool
 }
 
 type githubWorkflowStep struct {
@@ -145,6 +183,48 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 					"permission_summary": effectivePermissions.summary(),
 					"cloud_auth_action":  job.cloudAuthAction(),
 					"oidc_risk_context":  oidcContext,
+				}))
+		}
+
+		if untrustedEvent && job.RunsOn.SelfHosted {
+			amplifiers := job.selfHostedRiskAmplifiers(workflow.Env, effectivePermissions)
+			severity := domain.SeverityHigh
+			if len(amplifiers) > 0 {
+				severity = domain.SeverityCritical
+			}
+			evidence := map[string]any{
+				"self_hosted_runner": true,
+				"runner_labels":      job.RunsOn.labelEvidence(),
+				"labels_unresolved":  job.RunsOn.Unresolved,
+				"risk_amplifiers":    amplifiers,
+				"runner_capability":  runnerCapabilitySummary(amplifiers),
+				"permission_summary": effectivePermissions.summary(),
+				"references_secrets": jobSecrets,
+			}
+			if job.RunsOn.Group != "" {
+				evidence["runner_group"] = job.RunsOn.Group
+			}
+			if environment := strings.TrimSpace(job.Environment); environment != "" {
+				evidence["deployment_environment"] = environment
+			}
+			if action := job.cloudAuthAction(); action != "" {
+				evidence["cloud_auth_action"] = action
+			}
+			appendWorkflowFinding(&findings, seen, repo, commit, path, job.RunsOn.Line, "workflow_self_hosted_runner", severity,
+				"Self-hosted runner reachable from untrusted workflow context",
+				"A job that targets self-hosted GitHub Actions runners is reachable from pull request, issue, review, comment, or workflow_run triggers, so untrusted input can execute on infrastructure that may hold cloud, deployment, registry, or internal-network credentials.",
+				"Run untrusted-event jobs on ephemeral GitHub-hosted runners, isolate self-hosted runners behind protected branches or environments, and keep secrets, write tokens, and id-token: write off self-hosted jobs that untrusted events can reach.",
+				job.RunsOn.summary(), detectedAt, workflowEvidence(eventNames, job.ID, 0, "", evidence))
+		} else if untrustedEvent && job.RunsOn.Unresolved {
+			appendWorkflowFinding(&findings, seen, repo, commit, path, job.RunsOn.Line, "workflow_self_hosted_runner_unresolved", domain.SeverityMedium,
+				"Workflow runner placement cannot be statically audited",
+				"A job reachable from untrusted events selects its runner through an expression, matrix, or broad custom label, so Identrail cannot prove whether it lands on ephemeral GitHub-hosted or persistent self-hosted infrastructure.",
+				"Pin untrusted-event jobs to explicit GitHub-hosted runner labels, or document and isolate the self-hosted runner pool so reviewers can audit where untrusted code executes.",
+				job.RunsOn.summary(), detectedAt, workflowEvidence(eventNames, job.ID, 0, "", map[string]any{
+					"self_hosted_runner": false,
+					"runner_labels":      job.RunsOn.labelEvidence(),
+					"labels_unresolved":  true,
+					"permission_summary": effectivePermissions.summary(),
 				}))
 		}
 
@@ -256,6 +336,12 @@ func parseWorkflowJobs(node *yaml.Node) []githubWorkflowJob {
 		}
 		if permissionsNode, ok := yamlMappingValue(value, "permissions"); ok {
 			job.Permissions = parseWorkflowPermissions(permissionsNode)
+		}
+		if runsOnNode, ok := yamlMappingValue(value, "runs-on"); ok {
+			job.RunsOn = parseWorkflowRunsOn(runsOnNode, workflowJobMatrixValues(value))
+		}
+		if environmentNode, ok := yamlMappingValue(value, "environment"); ok {
+			job.Environment = parseWorkflowEnvironment(environmentNode)
 		}
 		if stepsNode, ok := yamlMappingValue(value, "steps"); ok && stepsNode.Kind == yaml.SequenceNode {
 			job.Steps = parseWorkflowSteps(stepsNode)
@@ -381,6 +467,232 @@ func parseWorkflowPermissions(node *yaml.Node) workflowPermissions {
 	return permissions
 }
 
+func parseWorkflowRunsOn(node *yaml.Node, matrixValues map[string][]string) workflowRunsOn {
+	runsOn := workflowRunsOn{Configured: node != nil, Line: workflowLine(node)}
+	if node == nil {
+		return runsOn
+	}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		runsOn.Labels = append(runsOn.Labels, strings.TrimSpace(node.Value))
+	case yaml.SequenceNode:
+		for _, item := range node.Content {
+			if item != nil && item.Kind == yaml.ScalarNode {
+				if label := strings.TrimSpace(item.Value); label != "" {
+					runsOn.Labels = append(runsOn.Labels, label)
+				}
+			}
+		}
+	case yaml.MappingNode:
+		if groupNode, ok := yamlMappingValue(node, "group"); ok {
+			runsOn.Group = yamlScalarValue(groupNode)
+		}
+		if labelsNode, ok := yamlMappingValue(node, "labels"); ok {
+			switch labelsNode.Kind {
+			case yaml.ScalarNode:
+				if label := strings.TrimSpace(labelsNode.Value); label != "" {
+					runsOn.Labels = append(runsOn.Labels, label)
+				}
+			case yaml.SequenceNode:
+				for _, item := range labelsNode.Content {
+					if item != nil && item.Kind == yaml.ScalarNode {
+						if label := strings.TrimSpace(item.Value); label != "" {
+							runsOn.Labels = append(runsOn.Labels, label)
+						}
+					}
+				}
+			}
+		}
+	}
+	runsOn.classify(matrixValues)
+	return runsOn
+}
+
+func (runsOn *workflowRunsOn) classify(matrixValues map[string][]string) {
+	hasExpression := false
+	matrixExpressionKeys := map[string]struct{}{}
+	hasSelfHostedLabel := false
+	hasUnclassifiedLabel := false
+	for _, label := range runsOn.Labels {
+		lower := strings.ToLower(strings.TrimSpace(label))
+		switch {
+		case workflowExpressionPattern.MatchString(label):
+			hasExpression = true
+			for _, key := range workflowMatrixExpressionKeys(label) {
+				if strings.TrimSpace(key) != "" {
+					matrixExpressionKeys[key] = struct{}{}
+				}
+			}
+		case lower == "self-hosted":
+			hasSelfHostedLabel = true
+		case workflowHostedRunnerLabel(lower):
+			// Known GitHub-hosted runner image; no placement ambiguity.
+		default:
+			hasUnclassifiedLabel = true
+		}
+	}
+	if hasSelfHostedLabel {
+		runsOn.SelfHosted = true
+	}
+	if hasExpression && !runsOn.SelfHosted && workflowMatrixValuesIncludeReferencedSelfHosted(matrixValues, matrixExpressionKeys) {
+		runsOn.SelfHosted = true
+	}
+	if runsOn.Group != "" && !runsOn.SelfHosted {
+		runsOn.Unresolved = true
+	}
+	if !runsOn.SelfHosted && (hasExpression || hasUnclassifiedLabel) {
+		runsOn.Unresolved = true
+	}
+}
+
+func (runsOn workflowRunsOn) summary() string {
+	parts := []string{}
+	if runsOn.Group != "" {
+		parts = append(parts, "group:"+runsOn.Group)
+	}
+	if len(runsOn.Labels) > 0 {
+		parts = append(parts, "labels:"+strings.Join(runsOn.Labels, ","))
+	}
+	if len(parts) == 0 {
+		return "runs-on"
+	}
+	return "runs-on " + strings.Join(parts, " ")
+}
+
+func (runsOn workflowRunsOn) labelEvidence() []string {
+	if len(runsOn.Labels) == 0 {
+		return []string{}
+	}
+	return append([]string(nil), runsOn.Labels...)
+}
+
+func parseWorkflowEnvironment(node *yaml.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Kind == yaml.ScalarNode {
+		return strings.TrimSpace(node.Value)
+	}
+	if node.Kind == yaml.MappingNode {
+		if nameNode, ok := yamlMappingValue(node, "name"); ok {
+			return yamlScalarValue(nameNode)
+		}
+	}
+	return ""
+}
+
+func workflowJobMatrixValues(jobNode *yaml.Node) map[string][]string {
+	strategyNode, ok := yamlMappingValue(jobNode, "strategy")
+	if !ok {
+		return map[string][]string{}
+	}
+	matrixNode, ok := yamlMappingValue(strategyNode, "matrix")
+	if !ok {
+		return map[string][]string{}
+	}
+	return collectWorkflowMatrixValues(matrixNode)
+}
+
+func collectWorkflowMatrixValues(node *yaml.Node) map[string][]string {
+	valuesByKey := map[string][]string{}
+	if node == nil || node.Kind != yaml.MappingNode {
+		return valuesByKey
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		valueNode := node.Content[i+1]
+		if keyNode == nil || valueNode == nil {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(keyNode.Value))
+		if key == "" {
+			continue
+		}
+		collectWorkflowMatrixValuesForPath(valueNode, key, valuesByKey)
+	}
+	return valuesByKey
+}
+
+func collectWorkflowMatrixValuesForPath(node *yaml.Node, path string, valuesByKey map[string][]string) {
+	if node == nil {
+		return
+	}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		if value := strings.TrimSpace(node.Value); value != "" {
+			valuesByKey[path] = append(valuesByKey[path], value)
+		}
+	case yaml.SequenceNode:
+		for _, child := range node.Content {
+			collectWorkflowMatrixValuesForPath(child, path, valuesByKey)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			childKeyNode := node.Content[i]
+			childValueNode := node.Content[i+1]
+			if childKeyNode == nil || childValueNode == nil {
+				continue
+			}
+			childKey := strings.ToLower(strings.TrimSpace(childKeyNode.Value))
+			if childKey == "" {
+				continue
+			}
+			collectWorkflowMatrixValuesForPath(childValueNode, path+"."+childKey, valuesByKey)
+		}
+	}
+}
+
+func workflowMatrixExpressionKeys(label string) []string {
+	keys := []string{}
+	for _, match := range workflowMatrixReferencePattern.FindAllStringSubmatch(label, -1) {
+		if len(match) >= 2 && strings.TrimSpace(match[1]) != "" {
+			keys = append(keys, strings.ToLower(strings.TrimSpace(match[1])))
+		}
+	}
+	for _, match := range workflowMatrixBracketReferencePattern.FindAllStringSubmatch(label, -1) {
+		if len(match) < 2 || strings.TrimSpace(match[1]) == "" {
+			continue
+		}
+		parts := []string{}
+		for _, segmentMatch := range workflowMatrixBracketSegmentPattern.FindAllStringSubmatch(match[1], -1) {
+			if len(segmentMatch) < 2 || strings.TrimSpace(segmentMatch[1]) == "" {
+				continue
+			}
+			parts = append(parts, strings.ToLower(strings.TrimSpace(segmentMatch[1])))
+		}
+		if len(parts) > 0 {
+			keys = append(keys, strings.Join(parts, "."))
+		}
+	}
+	return keys
+}
+
+func workflowMatrixValuesIncludeReferencedSelfHosted(valuesByKey map[string][]string, keys map[string]struct{}) bool {
+	if len(keys) == 0 {
+		return false
+	}
+	for key := range keys {
+		if workflowMatrixValuesIncludeSelfHosted(valuesByKey[key]) {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowMatrixValuesIncludeSelfHosted(values []string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), "self-hosted") {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowHostedRunnerLabel(label string) bool {
+	_, ok := workflowHostedRunnerLabels[strings.ToLower(strings.TrimSpace(label))]
+	return ok
+}
+
 func (workflow githubWorkflowModel) effectivePermissions(job githubWorkflowJob) workflowPermissions {
 	if job.Permissions.configured() {
 		return job.Permissions
@@ -487,6 +799,54 @@ func (job githubWorkflowJob) usesReleaseOrCloudStep() bool {
 		}
 	}
 	return false
+}
+
+func (job githubWorkflowJob) usesReleaseStep() bool {
+	for _, step := range job.Steps {
+		if step.usesReleaseBehavior() {
+			return true
+		}
+	}
+	return false
+}
+
+func (job githubWorkflowJob) usesUntrustedCheckout() bool {
+	for _, step := range job.Steps {
+		if step.checkoutUsesUntrustedHead() {
+			return true
+		}
+	}
+	return false
+}
+
+// selfHostedRiskAmplifiers returns the safe capability labels that make a
+// self-hosted runner job more dangerous when reached from untrusted events. The
+// list is deterministic and never includes secret values.
+func (job githubWorkflowJob) selfHostedRiskAmplifiers(workflowEnv map[string]string, permissions workflowPermissions) []string {
+	amplifiers := []string{}
+	if job.referencesSecrets(workflowEnv) {
+		amplifiers = append(amplifiers, "secrets")
+	}
+	if permissions.hasBroadGitHubTokenWrite() {
+		amplifiers = append(amplifiers, "write_token")
+	}
+	if permissions.idTokenWrite() {
+		amplifiers = append(amplifiers, "id_token")
+	}
+	if job.usesCloudAuthAction() {
+		amplifiers = append(amplifiers, "cloud_auth")
+	}
+	if strings.TrimSpace(job.Environment) != "" {
+		amplifiers = append(amplifiers, "environment")
+	}
+	if job.usesReleaseStep() {
+		amplifiers = append(amplifiers, "release")
+	}
+	if job.usesUntrustedCheckout() {
+		amplifiers = append(amplifiers, "untrusted_checkout")
+	}
+	sort.Strings(amplifiers)
+	return amplifiers
 }
 
 func (step githubWorkflowStep) checkoutUsesUntrustedHead() bool {
@@ -866,6 +1226,13 @@ func truncateWorkflowSnippet(value string) string {
 		return trimmed[:240] + "..."
 	}
 	return trimmed
+}
+
+func runnerCapabilitySummary(amplifiers []string) string {
+	if len(amplifiers) == 0 {
+		return "untrusted_reachable"
+	}
+	return "untrusted_privileged"
 }
 
 func firstNonEmptyWorkflowString(values ...string) string {
