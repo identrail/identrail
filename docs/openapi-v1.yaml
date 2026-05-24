@@ -4217,6 +4217,12 @@ components:
       properties:
         error:
           type: string
+        error_code:
+          type: string
+          description: Optional stable diagnostic code for clients that can render specific remediation guidance.
+        error_detail:
+          type: string
+          description: Optional sanitized diagnostic detail intended for operator-facing UI.
     SCIMError:
       type: object
       required: [schemas, status, detail]

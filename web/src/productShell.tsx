@@ -689,22 +689,55 @@ function openGitHubInstallURL(installURL: string) {
   }
 }
 
+function formatAPIError(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const detail = normalizeValue(error.detail);
+    if (detail) {
+      return detail;
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
+function appendAPIDetail(message: string, error: ApiError): string {
+  const detail = normalizeValue(error.detail);
+  if (!detail) {
+    return message;
+  }
+  return `${message} ${detail}`;
+}
+
 function formatRepoScanSubmitError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 400) {
-      return 'Choose a valid owner/repo repository target before queueing a scan.';
+      return appendAPIDetail('Choose a valid owner/repo repository target before queueing a scan.', error);
     }
     if (error.status === 403) {
-      return 'That repository is not currently allowed for this project. Choose a repository selected during GitHub App installation, or ask an operator to allow that owner/repo target.';
+      return appendAPIDetail(
+        'That repository is not currently allowed for this project. Choose a repository selected during GitHub App installation, or ask an operator to allow that owner/repo target.',
+        error
+      );
     }
     if (error.status === 409) {
-      return 'A scan is already queued or running for this repository. Watch recent scan activity below.';
+      return appendAPIDetail(
+        'A scan is already queued or running for this repository. Watch recent scan activity below.',
+        error
+      );
     }
     if (error.status === 429) {
-      return 'The repository scan queue is full. Wait for worker capacity to drain, then retry.';
+      return appendAPIDetail('The repository scan queue is full. Wait for worker capacity to drain, then retry.', error);
     }
     if (error.status === 503) {
-      return 'Repository scanning is disabled on this API server. Ask an operator to enable repo scanning before queueing the first scan.';
+      return appendAPIDetail(
+        'Repository scanning is disabled on this API server. Ask an operator to enable repo scanning before queueing the first scan.',
+        error
+      );
+    }
+    if (error.detail) {
+      return `Unable to queue repository scan. ${error.detail}`;
     }
   }
   return error instanceof Error ? error.message : 'Unable to queue repository scan.';
@@ -2157,7 +2190,7 @@ export function ProductOverviewPage() {
         if (!mounted) {
           return;
         }
-        setError(err instanceof Error ? err.message : 'Unable to load workspace overview');
+        setError(formatAPIError(err, 'Unable to load workspace overview'));
       } finally {
         if (mounted) {
           setLoading(false);
@@ -3938,7 +3971,7 @@ export function ProductProjectDetailPage() {
         return;
       }
       if (mode === 'interactive') {
-        setRepoScanError(error instanceof Error ? error.message : 'Unable to refresh recent repository scans.');
+        setRepoScanError(formatAPIError(error, 'Unable to refresh recent repository scans.'));
       }
     }
   };
@@ -5637,8 +5670,7 @@ export function ProductFindingsPage() {
       if (requestID !== requestRef.current) {
         return;
       }
-      const message = requestError instanceof Error ? requestError.message : 'Failed to load repository findings.';
-      setError(message);
+      setError(formatAPIError(requestError, 'Failed to load repository findings.'));
     } finally {
       if (requestID === requestRef.current) {
         setLoading(false);

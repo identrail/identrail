@@ -162,6 +162,27 @@ describe('apiClient', () => {
     expect(headers.get('X-Identrail-Workspace-ID')).toBe('workspace-a');
   });
 
+  it('preserves API error code and detail for repository scan diagnostics', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        error: 'failed to enqueue repo scan',
+        error_code: 'repo_scan_migration_missing',
+        error_detail: 'Repository scan persistence failed; the hosted database may be missing migrations.'
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(apiClient.runRepoScan({ repository: 'identrail/identrail' })).rejects.toMatchObject({
+      name: 'ApiError',
+      message: 'failed to enqueue repo scan',
+      status: 500,
+      code: 'repo_scan_migration_missing',
+      detail: 'Repository scan persistence failed; the hosted database may be missing migrations.'
+    });
+  });
+
   it('cancels repository scans with the scoped auth headers', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

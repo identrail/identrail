@@ -895,7 +895,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		items, err := svc.ListRepoScans(c.Request.Context(), maxCursorFetchLimit)
 		if err != nil {
 			logger.Error("list repo scans", telemetry.ZapError(err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list repo scans"})
+			c.JSON(http.StatusInternalServerError, repoScanListErrorResponse(err))
 			return
 		}
 		sortRepoScans(items, sortBy, sortDesc)
@@ -1165,39 +1165,22 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		var request RepoScanRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			metrics.RepoScanEnqueueFailureTotal.Inc()
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":        "invalid request body",
+				"error_code":   "repo_scan_invalid_request_body",
+				"error_detail": "Malformed JSON body or incompatible repository scan field type.",
+			})
 			return
 		}
 
 		record, err := svc.EnqueueRepoScan(c.Request.Context(), request)
 		if err != nil {
 			metrics.RepoScanEnqueueFailureTotal.Inc()
-			if errors.Is(err, ErrInvalidRepoScanRequest) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo scan request"})
-				return
+			status, payload := repoScanEnqueueErrorResponse(err)
+			if status == http.StatusInternalServerError {
+				logger.Error("enqueue repo scan", requestErrorLogFields(c, opts.AuditFingerprinter, "enqueue_repo_scan", telemetry.ZapError(err))...)
 			}
-			if errors.Is(err, ErrRepoScanInProgress) {
-				c.JSON(http.StatusConflict, gin.H{"error": "repo scan already in progress"})
-				return
-			}
-			if errors.Is(err, ErrRepoScanAlreadyCurrent) {
-				c.JSON(http.StatusConflict, gin.H{"error": "repo scan already current"})
-				return
-			}
-			if errors.Is(err, ErrRepoTargetNotAllowed) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "repo target not allowed"})
-				return
-			}
-			if errors.Is(err, ErrRepoScanDisabled) {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan is disabled"})
-				return
-			}
-			if errors.Is(err, ErrRepoScanQueueFull) {
-				c.JSON(http.StatusTooManyRequests, gin.H{"error": "repo scan queue is full"})
-				return
-			}
-			logger.Error("enqueue repo scan", requestErrorLogFields(c, opts.AuditFingerprinter, "enqueue_repo_scan", telemetry.ZapError(err))...)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue repo scan"})
+			c.JSON(status, payload)
 			return
 		}
 
@@ -2350,6 +2333,98 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 
 func tenancyServiceUnavailable(c *gin.Context) {
 	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
+}
+
+func repoScanEnqueueErrorResponse(err error) (int, gin.H) {
+	switch {
+	case errors.Is(err, ErrInvalidRepoScanRequest):
+		return http.StatusBadRequest, gin.H{
+			"error":        "invalid repo scan request",
+			"error_code":   "repo_scan_invalid_request",
+			"error_detail": "Provide a non-empty repository in owner/repo, HTTPS, SSH, or git URL form.",
+		}
+	case errors.Is(err, ErrRepoScanInProgress):
+		return http.StatusConflict, gin.H{
+			"error":        "repo scan already in progress",
+			"error_code":   "repo_scan_in_progress",
+			"error_detail": "A queued or running scan already exists for this repository.",
+		}
+	case errors.Is(err, ErrRepoScanAlreadyCurrent):
+		return http.StatusConflict, gin.H{
+			"error":        "repo scan already current",
+			"error_code":   "repo_scan_already_current",
+			"error_detail": "The requested delta is already covered by the stored repository cursor.",
+		}
+	case errors.Is(err, ErrRepoTargetNotAllowed):
+		return http.StatusForbidden, gin.H{
+			"error":        "repo target not allowed",
+			"error_code":   "repo_scan_target_not_allowed",
+			"error_detail": "The repository is not selected for this project, is outside the configured allowlist, or the GitHub App installation does not match.",
+		}
+	case errors.Is(err, ErrRepoScanDisabled):
+		return http.StatusServiceUnavailable, gin.H{
+			"error":        "repo scan is disabled",
+			"error_code":   "repo_scan_disabled",
+			"error_detail": "Repository scanning is disabled on this API server; enable repo scanning and deploy the API and worker before queueing scans.",
+		}
+	case errors.Is(err, ErrRepoScanQueueFull):
+		return http.StatusTooManyRequests, gin.H{
+			"error":        "repo scan queue is full",
+			"error_code":   "repo_scan_queue_full",
+			"error_detail": "The repository scan queue is at capacity; retry after queued scans drain or increase worker capacity.",
+		}
+	default:
+		code, detail := classifyRepoScanInternalError(err)
+		return http.StatusInternalServerError, gin.H{
+			"error":        "failed to enqueue repo scan",
+			"error_code":   code,
+			"error_detail": detail,
+		}
+	}
+}
+
+func repoScanListErrorResponse(err error) gin.H {
+	code, detail := classifyRepoScanInternalError(err)
+	return gin.H{
+		"error":        "failed to list repo scans",
+		"error_code":   code,
+		"error_detail": detail,
+	}
+}
+
+func classifyRepoScanInternalError(err error) (string, string) {
+	message := strings.ToLower(strings.TrimSpace(errorString(err)))
+	switch {
+	case message == "":
+		return "repo_scan_unknown_error", "The API hit an unknown repository scan error; check API logs for repository scan diagnostics."
+	case strings.Contains(message, "github installation token minter is not configured"):
+		return "github_token_minter_not_configured", "GitHub App token minting is not configured on this API server."
+	case strings.Contains(message, "mint github installation token"):
+		return "github_token_mint_failed", "GitHub App token minting failed for the selected installation."
+	case strings.Contains(message, "github installation token is empty"):
+		return "github_token_empty", "GitHub returned an empty installation token for the selected installation."
+	case strings.Contains(message, "migration") ||
+		strings.Contains(message, "relation") ||
+		strings.Contains(message, "column") ||
+		strings.Contains(message, "constraint") ||
+		strings.Contains(message, "sqlstate"):
+		return "repo_scan_migration_missing", "Repository scan persistence failed; the hosted database may be missing migrations."
+	case strings.Contains(message, "connector") ||
+		strings.Contains(message, "installation"):
+		return "repo_scan_connector_state_invalid", "GitHub connector metadata is incomplete or does not match the selected installation."
+	case strings.Contains(message, "timeout") ||
+		strings.Contains(message, "deadline exceeded"):
+		return "repo_scan_worker_timeout", "The repository scan worker timed out before reporting a terminal result."
+	default:
+		return "repo_scan_internal_error", "The API could not complete the repository scan operation; check API logs for the repo scan diagnostic event."
+	}
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func configureTrustedProxies(r *gin.Engine, logger *zap.Logger, proxies []string) {

@@ -1181,6 +1181,97 @@ func TestRouterRepoScanQueueBackpressureAndDuplicateGuard(t *testing.T) {
 	}
 }
 
+type routerRepoScanErrorStore struct {
+	*db.MemoryStore
+	enqueueErr error
+	listErr    error
+}
+
+func (s *routerRepoScanErrorStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, source db.RepoScanSource, scanContext db.RepoScanContext, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (db.RepoScanRecord, error) {
+	if s.enqueueErr != nil {
+		return db.RepoScanRecord{}, s.enqueueErr
+	}
+	return s.MemoryStore.CreateQueuedRepoScanWithinLimit(ctx, repository, source, scanContext, historyLimit, maxFindings, queuedAt, maxPending)
+}
+
+func (s *routerRepoScanErrorStore) ListRepoScans(ctx context.Context, limit int) ([]db.RepoScanRecord, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.MemoryStore.ListRepoScans(ctx, limit)
+}
+
+func TestRouterRepoScanEnqueueDiagnosticError(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := &routerRepoScanErrorStore{
+		MemoryStore: db.NewMemoryStore(),
+		enqueueErr:  errors.New(`pq: relation "repo_scans" does not exist (SQLSTATE 42P01)`),
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected diagnostic enqueue status 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Error       string `json:"error"`
+		ErrorCode   string `json:"error_code"`
+		ErrorDetail string `json:"error_detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode diagnostic response: %v", err)
+	}
+	if body.Error != "failed to enqueue repo scan" {
+		t.Fatalf("expected generic public error, got %q", body.Error)
+	}
+	if body.ErrorCode != "repo_scan_migration_missing" {
+		t.Fatalf("expected migration diagnostic code, got %q", body.ErrorCode)
+	}
+	if !strings.Contains(body.ErrorDetail, "database may be missing migrations") {
+		t.Fatalf("expected migration diagnostic detail, got %q", body.ErrorDetail)
+	}
+}
+
+func TestRouterRepoScanListDiagnosticError(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := &routerRepoScanErrorStore{
+		MemoryStore: db.NewMemoryStore(),
+		listErr:     errors.New(`pq: column error_message does not exist (SQLSTATE 42703)`),
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/repo-scans", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected diagnostic list status 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Error       string `json:"error"`
+		ErrorCode   string `json:"error_code"`
+		ErrorDetail string `json:"error_detail"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode diagnostic response: %v", err)
+	}
+	if body.Error != "failed to list repo scans" || body.ErrorCode != "repo_scan_migration_missing" {
+		t.Fatalf("unexpected diagnostic response: %+v", body)
+	}
+	if !strings.Contains(body.ErrorDetail, "database may be missing migrations") {
+		t.Fatalf("expected migration diagnostic detail, got %q", body.ErrorDetail)
+	}
+}
+
 func TestRouterCancelRepoScan(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

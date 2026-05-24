@@ -38,16 +38,30 @@ Collector -> Raw Assets -> Normalizer -> Domain Entities
 
 ## Core Design Decisions
 
-- V1 scope is explicitly frozen to AWS + Kubernetes core identity security workflows; repository exposure scanning remains optional and isolated.
-- Provider abstraction via interfaces (`Collector`, `Normalizer`, `RiskRuleSet`) keeps AWS/K8s/Azure implementations isolated.
-- Idempotency is a first-class requirement for every scan stage to avoid duplicated records and scan drift.
-- Raw and normalized data are both preserved for auditability and rule explainability.
-- Repository exposure scans persist in dedicated repo scan tables to avoid coupling with cloud scan records.
-- Observability is integrated from day one with structured logs, Prometheus metrics, and tracing hooks.
-- Authentication baseline supports API keys and OIDC/OAuth2-compatible bearer tokens with backward compatibility.
-- Persistence supports local memory mode and PostgreSQL mode behind a single store interface.
-- Scan execution persists both raw and normalized artifacts for auditability and explainability.
-- Postgres read paths are moving to typed query contracts first, then full sqlc generation.
+- Identrail's current product surface covers AWS, GitHub, and Kubernetes as
+  first-class sources for machine identity and repository exposure risk.
+- Provider abstraction via interfaces (`Collector`, `Normalizer`, `RiskRuleSet`)
+  keeps AWS, Kubernetes, and future cloud providers isolated. GitHub repository
+  exposure uses a dedicated `repoexposure` pipeline because it scans source
+  history, workflow configuration, and repository posture instead of cloud
+  resource inventories.
+- Idempotency is a first-class requirement for every scan stage to avoid
+  duplicated records and scan drift.
+- Raw and normalized data are both preserved for auditability and rule
+  explainability.
+- Repository exposure scans persist in dedicated repo scan tables to keep
+  source-control evidence, lifecycle state, and cloud scan records clearly
+  separated while still presenting them together in the product.
+- Observability is integrated from day one with structured logs, Prometheus
+  metrics, and tracing hooks.
+- Authentication baseline supports API keys and OIDC/OAuth2-compatible bearer
+  tokens with backward compatibility.
+- Persistence supports local memory mode and PostgreSQL mode behind a single
+  store interface.
+- Scan execution persists both raw and normalized artifacts for auditability and
+  explainability.
+- Postgres read paths are moving to typed query contracts first, then full sqlc
+  generation.
 
 ## Initial Runtime Components
 
@@ -58,8 +72,8 @@ Collector -> Raw Assets -> Normalizer -> Domain Entities
 - `internal/api.Service`: scan orchestration + persistence bridge.
 - `internal/db`: storage adapters and migration-backed schema.
 - `internal/runtime`: shared service bootstrap used by server and worker.
-- `internal/providers/aws`: AWS phase-1 provider pipeline (collector -> normalizer -> graph -> rules).
-- `internal/providers/kubernetes`: Kubernetes phase-4 pipeline with fixture/kubectl collection, RBAC role-rule normalization, graph, and risk rules.
+- `internal/providers/aws`: AWS IAM provider pipeline (collector -> normalizer -> graph -> rules).
+- `internal/providers/kubernetes`: Kubernetes pipeline with fixture/kubectl collection, RBAC role-rule normalization, graph, and risk rules.
 - `internal/repoexposure`: read-only git history and HEAD scanner with redacted evidence output.
 
 ## Future Extraction Plan

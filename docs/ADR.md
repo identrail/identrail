@@ -266,11 +266,11 @@ This file tracks major decisions in simple terms.
 - Why: Keep API stable for large datasets and improve remediation accountability without introducing heavy new persistence paths.
 - Tradeoff: Current cursor strategy is offset-based and can be less efficient at very high offsets.
 
-## ADR-045: Freeze V1 Runtime Scope to AWS + Kubernetes
+## ADR-045: Historical V1 Runtime Scope Guardrail
 - Date: 2026-03-19
-- Decision: Enforce provider guardrails so V1 runtime only accepts `aws` or `kubernetes`; keep repository exposure scanning optional and isolated.
+- Decision: Initially enforce provider guardrails so V1 runtime only accepted `aws` or `kubernetes`; repository exposure scanning was kept outside the first provider runtime contract at that time.
 - Why: Protect V1 delivery quality by locking scope to core machine identity workflows and preventing unstable multi-provider drift.
-- Tradeoff: Azure runtime collection remains deferred until post-V1 milestones.
+- Current status: Superseded by the current AWS, GitHub, and Kubernetes product baseline in `docs/v1_scope_and_baseline.md`. Azure runtime collection remains deferred.
 
 ## ADR-046: Add OIDC/OAuth2-Compatible Auth Alongside API Keys
 - Date: 2026-03-19

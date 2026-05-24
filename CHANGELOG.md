@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Added structured repository scan diagnostics to API errors and the hosted app
+  so enqueue/list failures can distinguish disabled scans, allowlist or
+  selected-repository rejection, queue pressure, missing migrations, GitHub App
+  token minting failures, and worker timeouts. Cleaned stale documentation by
+  aligning current architecture/scope docs with AWS, GitHub, and Kubernetes,
+  leading repo exposure docs with `identrail scan owner/repo`, archiving phase
+  records, and removing historical leftovers.
 - Polished the repository Findings page styling: softened the summary-tile
   labels from all-caps to sentence case, styled the new metric captions, the
   scan-health banner, and the failed-scan state actions, and set the summary

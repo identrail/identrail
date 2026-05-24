@@ -128,7 +128,7 @@ async function renderProjectDetail(
   githubBackend: BackendFeatureState,
   githubConnection = connectedGitHub,
   options: {
-    repoScanError?: { message: string; status: number };
+    repoScanError?: { message: string; status: number; code?: string; detail?: string };
     repoScans?: RepoScanRecord[];
     listRepoScans?: () => Promise<{ items: RepoScanRecord[] }>;
     withProjectSwitcher?: boolean;
@@ -173,7 +173,12 @@ async function renderProjectDetail(
   }
   const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
   if (options.repoScanError) {
-    runRepoScan.mockRejectedValue(new api.ApiError(options.repoScanError.message, options.repoScanError.status));
+    runRepoScan.mockRejectedValue(
+      new api.ApiError(options.repoScanError.message, options.repoScanError.status, {
+        code: options.repoScanError.code,
+        detail: options.repoScanError.detail
+      })
+    );
   } else {
     runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
   }
@@ -706,6 +711,24 @@ describe('ProductProjectDetailPage', () => {
     expect(
       await screen.findByText(/not currently allowed for this project/i)
     ).toBeInTheDocument();
+  });
+
+  it('surfaces hosted repository scan diagnostics from the API response', async () => {
+    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
+      repoScanError: {
+        message: 'failed to enqueue repo scan',
+        status: 500,
+        code: 'repo_scan_migration_missing',
+        detail: 'Repository scan persistence failed; the hosted database may be missing migrations.'
+      }
+    });
+
+    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
+    await waitFor(() => expect(queueButton).not.toBeDisabled());
+    fireEvent.click(queueButton);
+
+    await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
+    expect(await screen.findByText(/hosted database may be missing migrations/i)).toBeInTheDocument();
   });
 });
 

@@ -958,11 +958,15 @@ type IdentrailRequestInit = RequestInit & {
 
 export class ApiError extends Error {
   status: number;
+  code?: string;
+  detail?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, options: { code?: string; detail?: string } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = options.code;
+    this.detail = options.detail;
   }
 }
 
@@ -1036,18 +1040,22 @@ async function request<T>(path: string, auth?: RequestAuthContext, init: Identra
   });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let code: string | undefined;
+    let detail: string | undefined;
     try {
-      const payload = (await res.json()) as { error?: string };
+      const payload = (await res.json()) as { error?: string; error_code?: string; error_detail?: string };
       if (payload?.error) {
         message = payload.error;
       }
+      code = payload?.error_code;
+      detail = payload?.error_detail;
     } catch {
       // Keep status-based message when server does not return a JSON error body.
     }
     if (res.status === 401 && redirectOnUnauthorized) {
       redirectToSignInForUnauthorized();
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, { code, detail });
   }
   if (res.status === 204) {
     return undefined as T;

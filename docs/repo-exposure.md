@@ -4,17 +4,24 @@
 
 Detect leaked secrets and high-signal misconfigurations in authorized repository history, without storing raw secret values.
 
-## Command
+## Quick Command
 
 ```bash
-identrail repo-scan --repo owner/repo
+identrail scan owner/repo
 ```
 
 CLI also supports full URLs and local git paths:
 
 ```bash
-identrail repo-scan --repo https://github.com/owner/repo.git
-identrail repo-scan --repo /path/to/local/repo
+identrail scan https://github.com/owner/repo.git
+identrail scan /path/to/local/repo
+identrail scan owner/repo --history-limit 5 --max-findings 5
+```
+
+`repo-scan` remains available as the compatibility and advanced command form:
+
+```bash
+identrail repo-scan --repo owner/repo
 ```
 
 The terminal also exposes the hosted/API-backed GitHub intelligence surface:

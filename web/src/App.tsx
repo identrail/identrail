@@ -3473,7 +3473,7 @@ function PricingPage() {
             <p className="idt-plan-fit">
               <strong>Best for:</strong> Self-hosted evaluation and internal platform control.
             </p>
-            <p>Self-hosted core platform for AWS + Kubernetes machine identity workflows.</p>
+            <p>Self-hosted core platform for AWS, GitHub, and Kubernetes machine identity workflows.</p>
             <ul>
               <li>Trust graph + exposure detections</li>
               <li>Community support</li>
