@@ -1819,6 +1819,9 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		} else {
 			imported, normErr := repoexposure.NormalizeGitHubCodeScanningAlerts(ctx, record.Repository, "", githubCodeScanningAlertsToRepoExposure(alerts), detectedAt)
 			if normErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
 				recordSourceErr("github_code_scanning", "normalize_error", normErr)
 			} else {
 				findings = append(findings, imported...)
@@ -1835,6 +1838,9 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		} else {
 			imported, normErr := repoexposure.NormalizeGitHubSecretScanningAlerts(ctx, record.Repository, "", githubSecretScanningAlertsToRepoExposure(alerts), detectedAt)
 			if normErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
 				recordSourceErr("github_secret_scanning", "normalize_error", normErr)
 			} else {
 				findings = append(findings, imported...)
@@ -1851,6 +1857,9 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		} else {
 			imported, normErr := repoexposure.NormalizeGitHubDependabotAlerts(ctx, record.Repository, "", githubDependabotAlertsToRepoExposure(alerts), detectedAt)
 			if normErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
 				recordSourceErr("github_dependabot", "normalize_error", normErr)
 			} else {
 				findings = append(findings, imported...)
