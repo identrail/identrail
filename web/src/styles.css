@@ -23937,3 +23937,229 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
     margin-left: 0;
   }
 }
+
+/* Correction pass: make product graph connections deliberate and redesign docs CTA panel. */
+.idt-product-graph-band .idt-demo-graph,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-graph {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 52% 50%, rgba(255, 255, 255, 0.08), transparent 18rem),
+    #050505;
+  background-size: 76px 76px, 76px 76px, auto, auto;
+}
+
+.idt-product-graph-band .idt-demo-node,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node {
+  width: 178px;
+  min-width: 178px;
+  transform: none;
+  z-index: 3;
+}
+
+.idt-product-graph-band .idt-demo-node-oidc,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-oidc {
+  top: 12%;
+  left: 8%;
+}
+
+.idt-product-graph-band .idt-demo-node-sa,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-sa {
+  top: 40%;
+  left: 36%;
+  width: 214px;
+  min-width: 214px;
+}
+
+.idt-product-graph-band .idt-demo-node-role,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-role {
+  top: 24%;
+  left: 67%;
+  width: 228px;
+  min-width: 228px;
+}
+
+.idt-product-graph-band .idt-demo-node-repo,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-repo {
+  top: 68%;
+  left: 67%;
+}
+
+.idt-product-graph-band .idt-demo-node-db,
+html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-db {
+  top: 78%;
+  left: 12%;
+  width: 244px;
+  min-width: 244px;
+}
+
+.idt-product-graph-band .idt-demo-edges {
+  inset: 0;
+  z-index: 2;
+}
+
+.idt-product-graph-band .idt-demo-edge-base {
+  stroke-width: 3.2;
+  opacity: 0.24;
+}
+
+.idt-product-graph-band .idt-demo-edge-arrow {
+  stroke: #f8fafc;
+  stroke-width: 3.8;
+  opacity: 0.96;
+}
+
+.idt-product-graph-band .idt-demo-edges g.is-connected .idt-demo-edge-arrow {
+  stroke-width: 4.2;
+}
+
+.idt-product-graph-band .idt-demo-edge-flow {
+  stroke-width: 2.2;
+  stroke-dasharray: 26 120;
+  opacity: 0.58;
+}
+
+.idt-product-graph-band .idt-demo-edges g.is-connected .idt-demo-edge-flow {
+  stroke-width: 2.4;
+  opacity: 0.76;
+}
+
+.idt-product-graph-band .idt-demo-edges path {
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.12));
+}
+
+.idt-product-graph-band .idt-demo-edges marker path {
+  fill: #f8fafc;
+}
+
+.idt-docs-page .idt-booking-prompt,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.62fr) minmax(0, 1.38fr);
+  align-items: stretch;
+  gap: clamp(1rem, 2.4vw, 1.6rem);
+  padding: clamp(1.2rem, 2.5vw, 2rem);
+  border: 1px solid #d9d2c5;
+  border-radius: 12px;
+  background: #f5f0e8;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
+}
+
+.idt-docs-page .idt-booking-prompt::before,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt::before {
+  display: none;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-section-title,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-section-title {
+  align-self: center;
+  max-width: 760px;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-section-title h2,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-section-title h2 {
+  max-width: 13ch;
+  color: #090909;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-section-title p,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-section-title p {
+  max-width: 64ch;
+  color: #2f3033;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-section-title .idt-eyebrow,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-section-title .idt-eyebrow {
+  color: #655846;
+}
+
+.idt-docs-page .idt-booking-prompt-shell,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-shell {
+  align-self: stretch;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.78fr);
+  gap: 0;
+  border: 1px solid #161616;
+  border-radius: 10px;
+  background: #161616;
+  overflow: hidden;
+}
+
+.idt-docs-page .idt-booking-prompt-card,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-card {
+  border-radius: 0;
+  background: #ffffff;
+  color: #0b0b0b;
+}
+
+.idt-docs-page .idt-booking-prompt-preview,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-preview {
+  border-left: 1px solid #161616;
+  border-radius: 0;
+  background: #0b0b0b;
+  color: #ffffff;
+}
+
+.idt-docs-page .idt-booking-prompt-note,
+.idt-docs-page .idt-booking-prompt-checklist,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-note,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-checklist {
+  color: #222222;
+}
+
+.idt-docs-page .idt-booking-prompt .idt-btn-primary,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt .idt-btn-primary {
+  border-color: #0b0b0b;
+  background: #0b0b0b;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.idt-docs-page .idt-booking-prompt-preview ol,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-preview ol {
+  color: #e7e7e7;
+}
+
+.idt-docs-page .idt-booking-prompt-preview .idt-eyebrow,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-preview .idt-eyebrow {
+  color: #bdb7ad;
+}
+
+.idt-docs-page .idt-booking-prompt-slot-row span,
+html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f4f4;
+}
+
+@media (max-width: 820px) {
+  .idt-product-graph-band .idt-demo-node,
+  html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node {
+    width: 160px;
+    min-width: 160px;
+  }
+
+  .idt-product-graph-band .idt-demo-node-sa,
+  .idt-product-graph-band .idt-demo-node-role,
+  .idt-product-graph-band .idt-demo-node-db,
+  html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-sa,
+  html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-role,
+  html[data-theme='light'] .idt-product-page .idt-product-graph-band .idt-demo-node-db {
+    width: 180px;
+    min-width: 180px;
+  }
+
+  .idt-docs-page .idt-booking-prompt-preview,
+  html[data-theme='light'] .idt-docs-page .idt-booking-prompt-preview {
+    border-left: 0;
+    border-top: 1px solid #161616;
+  }
+
+  .idt-docs-page .idt-booking-prompt,
+  html[data-theme='light'] .idt-docs-page .idt-booking-prompt,
+  .idt-docs-page .idt-booking-prompt-shell,
+  html[data-theme='light'] .idt-docs-page .idt-booking-prompt-shell {
+    grid-template-columns: 1fr;
+  }
+}

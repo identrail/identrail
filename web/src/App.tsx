@@ -1702,11 +1702,11 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   };
 
   const edgeAnchors: Record<DemoEdge['id'], EdgeAnchor> = {
-    'e-oidc-role': { start: [31, 17], c1: [40, 15], c2: [47, 33], end: [58, 35] },
-    'e-oidc-sa': { start: [23, 22], c1: [29, 34], c2: [29, 47], end: [35, 58] },
-    'e-sa-role': { start: [48, 58], c1: [52, 49], c2: [55, 42], end: [58, 39] },
-    'e-sa-repo': { start: [49, 66], c1: [54, 70], c2: [53, 77], end: [58, 80] },
-    'e-repo-db': { start: [57, 86], c1: [54, 90], c2: [48, 91], end: [42, 92] }
+    'e-oidc-role': { start: [28, 18], c1: [42, 18], c2: [55, 24], end: [67, 29] },
+    'e-oidc-sa': { start: [21, 27], c1: [25, 34], c2: [31, 40], end: [37, 46] },
+    'e-sa-role': { start: [62, 48], c1: [66, 43], c2: [66, 37], end: [67, 34] },
+    'e-sa-repo': { start: [61, 56], c1: [66, 60], c2: [66, 66], end: [67, 72] },
+    'e-repo-db': { start: [67, 80], c1: [60, 88], c2: [52, 88], end: [43, 86] }
   };
 
   const edgePath = (edge: DemoEdge) => {
