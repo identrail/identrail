@@ -5905,62 +5905,8 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 }
 
 .idt-source-primary-copy > p:not(.idt-app-kicker) {
-  max-width: 62ch;
+  max-width: 44ch;
   line-height: 1.45;
-}
-
-.idt-source-mini-steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 0.2rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.idt-source-mini-steps li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.12rem 0.42rem;
-  align-items: start;
-  min-width: 0;
-  border: 1px solid rgba(130, 160, 214, 0.18);
-  border-radius: 0.55rem;
-  padding: 0.55rem;
-  background: rgba(9, 15, 26, 0.46);
-}
-
-.idt-source-mini-steps span {
-  grid-row: 1 / 3;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.35rem;
-  height: 1.35rem;
-  border: 1px solid rgba(184, 243, 214, 0.3);
-  border-radius: 999px;
-  color: #dffce9;
-  background: rgba(28, 89, 50, 0.22);
-  font-size: 0.76rem;
-  font-weight: 900;
-}
-
-.idt-source-mini-steps strong,
-.idt-source-mini-steps small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.idt-source-mini-steps strong {
-  color: #f2f7ff;
-  font-size: 0.83rem;
-  line-height: 1.2;
-}
-
-.idt-source-mini-steps small {
-  color: #9fb8de;
-  font-size: 0.75rem;
-  line-height: 1.3;
 }
 
 .idt-source-advanced summary {
@@ -6084,19 +6030,13 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   background: rgba(10, 18, 32, 0.78);
 }
 
-.idt-source-connection-summary {
+.idt-source-connection-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.1rem 0.75rem;
-  align-items: start;
+  gap: 0.65rem;
 }
 
-.idt-source-connection-summary p {
-  margin-top: 0.22rem;
-}
-
-.idt-source-connection-summary small {
-  grid-column: 1 / -1;
+.idt-source-connection-body p {
+  margin: 0;
 }
 
 .idt-scan-limits-details,
@@ -6168,7 +6108,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 }
 
 .idt-scan-limits-details .idt-source-inline-fields,
-.idt-source-compact-details .idt-source-chip-list,
+.idt-source-compact-details .idt-source-connection-body,
 .idt-github-posture-details .idt-github-posture-checks {
   margin-top: 0;
   border-top: 1px solid rgba(130, 160, 214, 0.2);
@@ -6234,6 +6174,11 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   color: #f2f7ff;
   font-size: 1rem;
   font-weight: 900;
+}
+
+.idt-github-posture-rate-limit {
+  margin: 0.75rem 0 0;
+  padding: 0 0.95rem;
 }
 
 .idt-github-posture-checks {
@@ -6358,7 +6303,6 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
     display: grid;
   }
 
-  .idt-source-mini-steps,
   .idt-github-posture-stats {
     grid-template-columns: 1fr;
   }
@@ -7504,7 +7448,6 @@ html[data-theme='light'] .idt-source-meta div,
 html[data-theme='light'] .idt-source-install-card,
 html[data-theme='light'] .idt-source-advanced,
 html[data-theme='light'] .idt-source-diagnostics article,
-html[data-theme='light'] .idt-source-mini-steps li,
 html[data-theme='light'] .idt-github-posture-stats div,
 html[data-theme='light'] .idt-permission-preview-modal,
 html[data-theme='light'] .idt-permission-preview-list article,
@@ -7564,7 +7507,6 @@ html[data-theme='light'] .idt-source-stepper li {
 
 html[data-theme='light'] .idt-source-card-topline > span:first-child,
 html[data-theme='light'] .idt-source-meta dt,
-html[data-theme='light'] .idt-source-mini-steps small,
 html[data-theme='light'] .idt-github-posture-stats dt,
 html[data-theme='light'] .idt-scan-limits-details summary small,
 html[data-theme='light'] .idt-source-compact-details summary small,
@@ -7572,19 +7514,12 @@ html[data-theme='light'] .idt-github-posture-details summary small {
   color: #4c6f9f;
 }
 
-html[data-theme='light'] .idt-source-mini-steps strong,
 html[data-theme='light'] .idt-github-posture-stats dd,
 html[data-theme='light'] .idt-scan-limits-details summary strong,
 html[data-theme='light'] .idt-source-compact-details summary strong,
 html[data-theme='light'] .idt-github-posture-details summary strong,
 html[data-theme='light'] .idt-source-chip-list span {
   color: #17345f;
-}
-
-html[data-theme='light'] .idt-source-mini-steps span {
-  color: #17613d;
-  background: rgba(218, 245, 229, 0.9);
-  border-color: rgba(33, 124, 83, 0.28);
 }
 
 html[data-theme='light'] .idt-source-chip-list span {
@@ -20527,6 +20462,7 @@ html[data-theme='light'] .idt-app-shell-screen select {
   resize: vertical;
 }
 
+
 .idt-app-console-layout select:disabled,
 .idt-app-console-layout input:disabled,
 .idt-app-console-layout textarea:disabled,
@@ -23728,4 +23664,32 @@ html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procure
   html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix {
     overflow-x: auto;
   }
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-source-advanced summary,
+html[data-theme='light'] .idt-app-console-layout .idt-scan-limits-details summary,
+html[data-theme='light'] .idt-app-console-layout .idt-source-compact-details summary,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-details summary {
+  color: var(--app-text);
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-scan-limits-details summary small,
+html[data-theme='light'] .idt-app-console-layout .idt-source-compact-details summary small,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-details summary small,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-stats dt {
+  color: var(--app-muted);
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-scan-limits-details summary strong,
+html[data-theme='light'] .idt-app-console-layout .idt-source-compact-details summary strong,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-details summary strong,
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-stats dd {
+  color: var(--app-text);
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-github-posture-stats div,
+html[data-theme='light'] .idt-app-console-layout .idt-source-chip-list span {
+  border-color: var(--app-border);
+  background: var(--app-panel-strong);
+  color: var(--app-text);
 }

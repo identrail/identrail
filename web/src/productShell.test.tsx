@@ -408,7 +408,7 @@ describe('ProductProjectDetailPage', () => {
 
     expect((await screen.findAllByText('identrail/identrail')).length).toBeGreaterThan(0);
     expect(within(screen.getByLabelText('Source types')).getByRole('button', { name: /GitHub/i })).not.toBeDisabled();
-    expect(screen.getByText('Installation 12345')).toBeInTheDocument();
+    expect(screen.getByText(/Installation 12345/i)).toBeInTheDocument();
     expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
       'workspace-a',
       'project-1',
@@ -450,11 +450,11 @@ describe('ProductProjectDetailPage', () => {
     fireEvent.click(screen.getByText('GitHub Enterprise fallback'));
     expect(screen.getByLabelText(/Personal access token/i)).toBeVisible();
 
-    const scanLimits = screen.getByText('Advanced scan limits').closest('details');
+    const scanLimits = screen.getByText('Scan limits').closest('details');
     expect(scanLimits).not.toBeNull();
     expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).not.toBeVisible();
 
-    fireEvent.click(within(scanLimits as HTMLElement).getByText('Advanced scan limits'));
+    fireEvent.click(within(scanLimits as HTMLElement).getByText('Scan limits'));
     expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).toBeVisible();
 
     expect(screen.getByText('Scan policy editor')).toBeInTheDocument();
@@ -468,7 +468,7 @@ describe('ProductProjectDetailPage', () => {
     const { getGitHubConnectorRepositoryPosture } = await renderProjectDetail(true);
 
     expect(await screen.findByText('Repository posture')).toBeInTheDocument();
-    const postureDetails = await screen.findByText(/1 posture check needs attention/i);
+    const postureDetails = await screen.findByText(/Review 1 check/i);
     expect(screen.getByText(/Actions token can write by default/i)).not.toBeVisible();
     fireEvent.click(postureDetails);
     expect(screen.getByText(/Actions token can write by default/i)).toBeVisible();
