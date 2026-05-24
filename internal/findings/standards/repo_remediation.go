@@ -71,7 +71,8 @@ func SuggestRepoExposureRemediation(finding domain.Finding) (RepoExposureRemedia
 			if strings.HasPrefix(detector, "workflow_") ||
 				strings.HasPrefix(detector, "terraform_") ||
 				strings.HasPrefix(detector, "docker_") ||
-				strings.HasPrefix(detector, "k8s_") {
+				strings.HasPrefix(detector, "k8s_") ||
+				strings.HasPrefix(detector, "ai_agent_") {
 				finding.Type = domain.FindingRepoMisconfig
 				return repoMisconfigRemediation(finding)
 			}
@@ -151,9 +152,18 @@ func repoMisconfigRemediation(finding domain.Finding) (RepoExposureRemediation, 
 		return terraformOpenManagementPortRemediation(finding, detector), true
 	case "docker_latest_tag":
 		return dockerLatestTagRemediation(finding, detector), true
+	case "ai_agent_sensitive_env_reference":
+		return aiAgentSensitiveEnvRemediation(finding, detector), true
+	case "ai_agent_dangerous_tool_capability":
+		return aiAgentDangerousToolRemediation(finding, detector), true
+	case "ai_agent_committed_local_config":
+		return aiAgentCommittedConfigRemediation(finding, detector), true
 	default:
 		if strings.HasPrefix(detector, "workflow_") {
 			return workflowGenericRemediation(finding, detector), true
+		}
+		if strings.HasPrefix(detector, "ai_agent_") {
+			return aiAgentGenericRemediation(finding, detector), true
 		}
 		return RepoExposureRemediation{}, false
 	}
@@ -540,6 +550,85 @@ func dockerLatestTagRemediation(finding domain.Finding, detector string) RepoExp
 		},
 		"FROM <image>:<pinned-version-or-digest>",
 		"Docker image pinning requires an operator-selected tested version or digest")
+}
+
+func aiAgentSensitiveEnvRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
+	return guidanceRepoRemediation(finding, detector,
+		"Constrain sensitive environment variables exposed to MCP or AI-agent tools.",
+		"Agent configuration references credential-like environment variables that may be reachable by tool execution.",
+		[]string{
+			"Move sensitive values to a secret manager or runtime injection path that is not committed to the repository.",
+			"Scope the agent runtime environment to only the variables each server or tool requires.",
+			"Use separate low-privilege tokens for agent tooling instead of developer or deployment credentials.",
+		},
+		[]string{
+			"Environment variable names are not raw secrets, but they identify machine identities that should be reviewed.",
+			"Do not paste the current variable values into remediation notes, issues, or generated PRs.",
+		},
+		[]string{
+			"Run the agent with a minimal environment and confirm the intended tools still work.",
+			"Review provider audit logs for the referenced token or key families.",
+		},
+		"agent environment exposure requires operator review of runtime secret injection")
+}
+
+func aiAgentDangerousToolRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
+	return guidanceRepoRemediation(finding, detector,
+		"Restrict dangerous MCP or AI-agent tool capabilities.",
+		"Agent configuration exposes shell, filesystem, browser, network, cloud, cluster, or deployment capabilities that can expand machine-identity blast radius.",
+		[]string{
+			"Remove arbitrary shell or command-runner access unless it is isolated in a sandbox with explicit approval.",
+			"Limit filesystem roots, network access, browser automation, cloud CLIs, and deployment commands to reviewed allowlists.",
+			"Separate read-only analysis tools from write-capable deployment or infrastructure tools.",
+		},
+		[]string{
+			"Do not auto-publish capability changes without an owner reviewing expected agent workflows.",
+			"Treat any agent with shell plus secrets as a privileged machine identity.",
+		},
+		[]string{
+			"Run the agent in a dry-run or sandbox mode and verify blocked tools fail closed.",
+			"Confirm cloud, GitHub, package, and deployment providers show no unexpected writes from agent credentials.",
+		},
+		"dangerous agent capability changes need workflow-owner review and sandbox design")
+}
+
+func aiAgentCommittedConfigRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
+	return guidanceRepoRemediation(finding, detector,
+		"Move local MCP or AI-agent configuration out of source control.",
+		"Committed local agent configuration can expose tool definitions, internal endpoints, and sensitive environment expectations.",
+		[]string{
+			"Move developer-local agent configuration to ignored files or per-user secret storage.",
+			"Commit only reviewed templates that contain placeholders and no internal endpoints or credentials.",
+			"Add ignore rules and pre-commit checks for local MCP/agent config variants.",
+		},
+		[]string{
+			"Some team-managed agent templates are safe to commit when reviewed; prefer explicit template filenames.",
+			"Do not remove shared configuration until owners confirm it is not required for CI or onboarding.",
+		},
+		[]string{
+			"Re-run the repository scanner and confirm only safe templates remain.",
+			"Confirm local developer setup still works through documented non-secret configuration.",
+		},
+		"local agent config cleanup needs repository-owner review")
+}
+
+func aiAgentGenericRemediation(finding domain.Finding, detector string) RepoExposureRemediation {
+	return guidanceRepoRemediation(finding, detector,
+		"Harden MCP or AI-agent repository configuration.",
+		firstNonEmpty(finding.HumanSummary, "The repository contains AI-agent configuration that can affect machine identity exposure."),
+		[]string{
+			"Review the affected agent server, tool command, environment variables, filesystem roots, and network access.",
+			"Separate trusted automation from developer-local tooling and remove secrets from committed configuration.",
+			"Run write-capable agent tools only inside isolated, auditable approval flows.",
+		},
+		[]string{
+			"Agent configuration can behave like machine identity policy; review changes with the same rigor as CI credentials.",
+		},
+		[]string{
+			"Re-run repository scanning after reducing tool and secret exposure.",
+			"Confirm provider logs show expected agent credential usage only.",
+		},
+		"generic agent remediation requires detector-specific owner review")
 }
 
 func deterministicRepoRemediation(

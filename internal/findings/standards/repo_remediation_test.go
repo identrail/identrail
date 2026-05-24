@@ -30,6 +30,9 @@ func TestSuggestRepoExposureRemediationSupportsMisconfigDetectors(t *testing.T) 
 		{"terraform_public_s3_acl", true, true},
 		{"terraform_open_ssh_rdp", false, true},
 		{"docker_latest_tag", false, true},
+		{"ai_agent_sensitive_env_reference", false, false},
+		{"ai_agent_dangerous_tool_capability", false, false},
+		{"ai_agent_committed_local_config", false, false},
 	}
 
 	for _, tc := range cases {

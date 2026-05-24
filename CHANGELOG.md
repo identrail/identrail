@@ -35,6 +35,10 @@
   mapped severity. Each alert source is independent enrichment: permission-
   limited, unavailable, or rate-limited endpoints no longer fail the native scan.
   Imported alerts are deduplicated deterministically across scans.
+- Added MCP and AI-agent repository exposure detection for committed agent
+  configs, sensitive environment-variable references, dangerous tool
+  capabilities, and raw provider-shaped secrets in agent config without storing
+  raw secret values.
 - Polished the repository Findings page styling: softened the summary-tile
   labels from all-caps to sentence case, styled the new metric captions, the
   scan-health banner, and the failed-scan state actions, and set the summary

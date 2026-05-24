@@ -253,6 +253,11 @@ The scanner uses a versioned secret detector registry for commit-history secret 
   - Terraform public S3 ACL
   - Terraform SSH/RDP open to world (`0.0.0.0/0`)
   - Docker `FROM ...:latest`
+  - MCP and AI-agent configuration:
+    - committed local MCP/agent config files such as `.mcp.json`, `.cursor/mcp.json`, `.continue/*`, `.codex/*`, and `.claude/*`
+    - raw provider-shaped secret values inside agent config, emitted as redacted secret findings
+    - sensitive environment-variable references such as GitHub, cloud, package registry, database, signing, and AI provider tokens
+    - shell, filesystem, browser, network, cloud, cluster, and deployment tool capabilities exposed through repository-defined agent config
 
 ## Registry model
 
@@ -305,6 +310,23 @@ write permissions is emitted as a critical workflow attack path.
 | `workflow_artifact_poisoning` | PR or `workflow_run` context can upload artifacts or release assets consumed later. | Medium to high | Keep untrusted artifacts isolated, verify provenance before reuse, and publish releases only from protected contexts. |
 | `workflow_self_hosted_runner` | Self-hosted runner usage has no obvious org-level controls and can route untrusted jobs to shared infrastructure. | Medium | Enforce repository-level self-hosted runner restrictions, dedicated groups, and minimal permissions before enabling untrusted pull-request execution. |
 | `workflow_self_hosted_runner_unresolved` | Self-hosted runner-group visibility is permission-limited or unavailable, leaving posture state uncertain. | Medium | Grant the GitHub App read access to org runner groups or route high-risk repos to managed GitHub-hosted runners. |
+
+### MCP And AI-Agent Detectors
+
+Identrail treats MCP servers and AI-agent tool definitions as repository
+machine-identity exposure surfaces. The scanner inspects common committed
+configuration paths without executing agent tools or contacting external
+services.
+
+| Detector | Signal | Typical severity | Recommended remediation |
+| --- | --- | --- | --- |
+| `ai_agent_sensitive_env_reference` | Agent config references credential-like environment variables such as GitHub, cloud, package registry, database, signing, or AI provider tokens. | Medium | Scope the agent runtime environment, move values to secret-manager injection, and use low-privilege agent-specific credentials. |
+| `ai_agent_dangerous_tool_capability` | Agent config exposes shell, filesystem, network, browser, cloud, cluster, or deployment tools. | Medium to high | Restrict tool allowlists, sandbox execution, separate read-only tools from write-capable tools, and gate cloud/deploy commands. |
+| `ai_agent_committed_local_config` | Developer-local MCP or AI-agent config is committed to the repo. | Low | Move local config to ignored files and commit only reviewed non-secret templates. |
+
+Raw secret-like values found in these files are emitted through the existing
+secret detectors with `ai_agent_surface: true`, redacted snippets,
+`raw_secret_stored: false`, and provider-specific rotation guidance.
 
 To add a new secret detector, add a new entry to the registry with a unique ID, a new version if needed for compatibility, and test fixtures.
 

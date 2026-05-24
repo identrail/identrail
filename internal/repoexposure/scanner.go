@@ -276,7 +276,7 @@ func (s *Scanner) ScanRepositoryWithOptions(ctx context.Context, target string, 
 				continue
 			}
 			filesScanned++
-			for _, finding := range detectMisconfigFindings(location.Display, headCommit, filePath, content, started) {
+			for _, finding := range detectMisconfigFindings(location.Display, headCommit, filePath, content, started, secretOptions...) {
 				if _, exists := seen[finding.ID]; exists {
 					continue
 				}
