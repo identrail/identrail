@@ -8,6 +8,11 @@
   aligning current architecture/scope docs with AWS, GitHub, and Kubernetes,
   leading repo exposure docs with `identrail scan owner/repo`, archiving phase
   records, and removing historical leftovers.
+- Polished the project source setup surface: the GitHub App install card now
+  separates the account/repository flow into compact steps, scan limits are
+  presented as an actionable advanced control, and verbose GitHub repository
+  posture diagnostics stay collapsed behind a summary until operators need the
+  details.
 - Ingest open GitHub secret-scanning and Dependabot vulnerability alerts as
   first-class repository findings during GitHub App-backed repo scans, alongside
   the existing code-scanning import. Secret-scanning alerts become redacted
