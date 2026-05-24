@@ -223,14 +223,13 @@ describe('App', () => {
   });
 
 
-  it('routes shared sales CTAs to the marketing mailbox', () => {
+  it('opens the trust graph review flow from enterprise CTAs', () => {
     setCurrentPath('/enterprise');
     render(<App />);
 
-    expect(screen.getByRole('link', { name: /Talk to Sales/i })).toHaveAttribute(
-      'href',
-      'mailto:marketing@identrail.com?subject=Identrail%20demo%20and%20sales%20conversation'
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Book Demo/i }));
+
+    expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
   });
 
   it.each([
