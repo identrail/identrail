@@ -23,3 +23,28 @@ func (r Relationship) Validate() bool {
 func (f Finding) Validate() bool {
 	return f.ID != "" && f.Type != "" && f.Severity != "" && strings.TrimSpace(f.Title) != ""
 }
+
+// Validate ensures resources are usable as first-class scan nodes.
+func (r Resource) Validate() bool {
+	return strings.TrimSpace(r.ID) != "" && strings.TrimSpace(string(r.Provider)) != "" &&
+		strings.TrimSpace(string(r.Type)) != "" && strings.TrimSpace(r.Name) != ""
+}
+
+// Validate ensures credentials carry identity metadata without secret payloads.
+func (c Credential) Validate() bool {
+	return strings.TrimSpace(c.ID) != "" && strings.TrimSpace(string(c.Provider)) != "" &&
+		strings.TrimSpace(string(c.Type)) != "" && strings.TrimSpace(c.Name) != ""
+}
+
+// Validate ensures agent nodes are addressable and provider-native.
+func (a Agent) Validate() bool {
+	return strings.TrimSpace(a.ID) != "" && strings.TrimSpace(string(a.Provider)) != "" &&
+		strings.TrimSpace(string(a.Type)) != "" && strings.TrimSpace(a.Name) != ""
+}
+
+// Validate ensures runtime events are safe and linkable in graph contracts.
+func (e RuntimeEvent) Validate() bool {
+	return strings.TrimSpace(e.ID) != "" && strings.TrimSpace(string(e.Provider)) != "" &&
+		strings.TrimSpace(string(e.Type)) != "" && strings.TrimSpace(e.ActorID) != "" &&
+		strings.TrimSpace(e.SourceRef) != "" && !e.ObservedAt.IsZero()
+}

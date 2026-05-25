@@ -101,3 +101,62 @@ func TestAppModeEntityJSONUsesSnakeCaseFields(t *testing.T) {
 		}
 	}
 }
+
+func TestCredentialJSONRedactsRawValue(t *testing.T) {
+	credential := Credential{
+		ID:        "cred-1",
+		Provider:  ProviderAWS,
+		Type:      CredentialTypeAccessKey,
+		Name:      "demo",
+		Reference: "ref-1",
+		RawRef:    "raw-1",
+		RawValue:  "super-secret-key",
+	}
+	payload, err := json.Marshal(credential)
+	if err != nil {
+		t.Fatalf("marshal credential: %v", err)
+	}
+	text := string(payload)
+	if strings.Contains(text, `"raw_value"`) {
+		t.Fatalf("expected raw_value to be omitted from JSON, got %s", text)
+	}
+}
+
+func TestResourceAndRuntimeEventJSONUsesSnakeCaseFields(t *testing.T) {
+	resource := Resource{
+		ID:             "res-1",
+		Provider:       ProviderAWS,
+		Type:           ResourceTypeLambdaFunction,
+		Name:           "processor",
+		RawRef:         "arn:aws:lambda:us-east-1:123:function:processor",
+		SourceEntityID: "aws:identity:role/demo",
+	}
+	observedAt := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	runtimeEvent := RuntimeEvent{
+		ID:         "ev-1",
+		Provider:   ProviderAWS,
+		Type:       RuntimeEventTypeInvoke,
+		ActorID:    "agent-1",
+		TargetID:   "res-1",
+		SourceRef:  "source-1",
+		ObservedAt: observedAt,
+	}
+
+	resourcePayload, err := json.Marshal(resource)
+	if err != nil {
+		t.Fatalf("marshal resource: %v", err)
+	}
+	eventPayload, err := json.Marshal(runtimeEvent)
+	if err != nil {
+		t.Fatalf("marshal runtime event: %v", err)
+	}
+
+	for _, expected := range []string{`"type"`, `"source_entity_id"`, `"raw_ref"`, `"observed_at"`} {
+		if !strings.Contains(string(resourcePayload), expected) && !strings.Contains(string(eventPayload), expected) {
+			t.Fatalf("expected %s in one of resource/runtime payload: %s%s", expected, string(resourcePayload), string(eventPayload))
+		}
+	}
+	if strings.Contains(string(resourcePayload), `"SourceRef"`) || strings.Contains(string(eventPayload), `"SourceRef"`) {
+		t.Fatalf("unexpected struct field casing leaked in payload: %s%s", string(resourcePayload), string(eventPayload))
+	}
+}

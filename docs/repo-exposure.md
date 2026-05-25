@@ -43,6 +43,14 @@ identrail repo-remediation publish <finding-id> --repo-scan-id <repo-scan-id> --
 API-backed CLI commands use `IDENTRAIL_API_URL`, `IDENTRAIL_API_KEY`,
 `--tenant-id`, and `--workspace-id` the same way other API CLI commands do.
 
+The app exposes the same intelligence through **AI Risks** at
+`/app/{tenant_id}/{workspace_id}/ai-risks`. The dashboard summarizes AI
+and MCP exposure, AI workflow risk, GitHub secret/dependency alerts,
+self-hosted runner risk, organization policy gaps, repository hotspots, scan
+health, trends, and fix-ready findings. The full finding detail, triage, GitHub
+line links, remediation preview, and approval-gated PR publishing remain in the
+Repository Findings view.
+
 ## API
 
 You can trigger the same scanner through API:

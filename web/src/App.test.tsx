@@ -1389,6 +1389,248 @@ describe('App', () => {
     expect(await screen.findByText(/Secret rotation required/i)).toBeInTheDocument();
   });
 
+  it('renders the AI Risks dashboard inside the app shell', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-scan-1',
+              repository: 'owner/repo',
+              status: 'succeeded',
+              started_at: '2026-01-02T00:00:00Z',
+              finished_at: '2026-01-02T00:05:00Z',
+              commits_scanned: 12,
+              files_scanned: 9,
+              finding_count: 5,
+              truncated: false
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({
+          items: [
+            {
+              scan_id: 'repo-scan-1',
+              started_at: '2026-01-02T00:00:00Z',
+              total: 5,
+              by_severity: { critical: 1, high: 2, medium: 1, low: 1, info: 0 }
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        if (url.includes('cursor=repo-page-2')) {
+          return okJSON({
+            items: Array.from({ length: 5 }, (_, index) => ({
+              id: `repo-ai-${index + 2}`,
+              scan_id: 'repo-scan-1',
+              type: 'ai_agent_surface',
+              severity: 'low',
+              detector: 'ai_agent_config_secret_ref',
+              title: `Additional AI exposure ${index + 2}`,
+              human_summary: 'Additional scoped AI risk for repository counting.',
+              repository: `owner/repo-${index + 2}`,
+              file_path: '.mcp.json',
+              remediation: 'Move sensitive values behind scoped secrets.',
+              created_at: `2026-01-02T00:0${index + 5}:00Z`
+            }))
+          });
+        }
+        return okJSON({
+          summary: {
+            total_open: 99,
+            fixed_count: 2,
+            reopened_count: 1,
+            suppressed_count: 0,
+            sla_aged_count: 0,
+            mttr_ready_resolved_count: 2,
+            by_owner: {},
+            by_detector: {},
+            by_severity: { critical: 1, high: 2, medium: 1, low: 1 }
+          },
+          items: [
+            {
+              id: 'repo-ai',
+              scan_id: 'repo-scan-1',
+              type: 'ai_agent_surface',
+              severity: 'high',
+              detector: 'ai_agent_config_secret_ref',
+              title: 'MCP server exposes sensitive environment references',
+              human_summary: 'An MCP configuration exposes sensitive environment variable names.',
+              repository: 'owner/repo',
+              file_path: '.mcp.json',
+              remediation: 'Move sensitive values behind scoped secrets.',
+              created_at: '2026-01-02T00:00:00Z'
+            },
+            {
+              id: 'repo-workflow',
+              scan_id: 'repo-scan-1',
+              type: 'repo_misconfiguration',
+              severity: 'critical',
+              detector: 'workflow_ai_agent_prompt_injection',
+              title: 'AI workflow prompt injection can reach Claude',
+              human_summary: 'Untrusted pull request text is sent to an AI workflow step.',
+              repository: 'owner/repo',
+              file_path: '.github/workflows/review.yml',
+              remediation: 'Gate AI workflow input behind trusted events.',
+              created_at: '2026-01-02T00:01:00Z'
+            },
+            {
+              id: 'repo-native',
+              scan_id: 'repo-scan-1',
+              type: 'dependency_vulnerability',
+              severity: 'medium',
+              detector: 'github_dependabot_alert',
+              adapter_source: 'github_dependabot',
+              title: 'Dependabot alert requires package update',
+              human_summary: 'GitHub reported a vulnerable dependency.',
+              repository: 'owner/repo',
+              remediation: 'Update the vulnerable package.',
+              created_at: '2026-01-02T00:02:00Z'
+            },
+            {
+              id: 'repo-runner',
+              scan_id: 'repo-scan-1',
+              type: 'repo_misconfiguration',
+              severity: 'high',
+              detector: 'workflow_self_hosted_runner',
+              title: 'Self-hosted runner is reachable from repository workflow',
+              human_summary: 'A workflow can execute on a self-hosted runner.',
+              repository: 'owner/repo',
+              remediation: 'Restrict runner labels and workflow triggers.',
+              created_at: '2026-01-02T00:03:00Z'
+            },
+            {
+              id: 'repo-org',
+              scan_id: 'repo-scan-1',
+              type: 'repo_misconfiguration',
+              severity: 'low',
+              detector: 'org_secret_scanning_policy',
+              title: 'Organization secret scanning policy needs review',
+              human_summary: 'Organization policy is not uniformly enforced.',
+              repository: 'owner/repo',
+              remediation: 'Enable organization-level secret scanning policy.',
+              created_at: '2026-01-02T00:04:00Z'
+            },
+            {
+              id: 'repo-out-of-scope',
+              scan_id: 'repo-scan-1',
+              type: 'license_notice',
+              severity: 'low',
+              detector: 'license_notice',
+              title: 'Out-of-scope repository notice',
+              human_summary: 'This finding should not affect AI Risks metrics.',
+              repository: 'owner/unrelated',
+              file_path: 'NOTICE',
+              remediation: 'Review license notice separately.',
+              created_at: '2026-01-02T00:10:00Z'
+            }
+          ],
+          next_cursor: 'repo-page-2'
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
+    const summary = await screen.findByLabelText(/AI Risks summary/i);
+    const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
+    const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
+    expect(within(openMetric).getByText('10')).toBeInTheDocument();
+    expect(within(repoMetric).getByText('6')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('cursor=repo-page-2'))).toBe(true);
+    expect(screen.queryByText(/Out-of-scope repository notice/i)).not.toBeInTheDocument();
+    expect((await screen.findAllByText(/AI\/MCP Exposure/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/AI Workflow Risk/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/GitHub Alerts/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Runner Risk/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Org Policy/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Fix Ready/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/AI workflow prompt injection can reach Claude/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Repository hotspots/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/owner\/repo/i)).length).toBeGreaterThan(0);
+  });
+
+  it('keeps the AI Risks dashboard usable when trend loading fails', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({
+          items: [
+            {
+              id: 'repo-scan-1',
+              repository: 'owner/repo',
+              status: 'succeeded',
+              started_at: '2026-01-02T00:00:00Z',
+              finished_at: '2026-01-02T00:05:00Z',
+              commits_scanned: 12,
+              files_scanned: 9,
+              finding_count: 1,
+              truncated: false
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return errorJSON(503, 'trend down');
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({
+          summary: {
+            total_open: 1,
+            fixed_count: 0,
+            reopened_count: 0,
+            suppressed_count: 0,
+            sla_aged_count: 0,
+            mttr_ready_resolved_count: 0,
+            by_owner: {},
+            by_detector: {},
+            by_severity: { high: 1 }
+          },
+          items: [
+            {
+              id: 'repo-ai',
+              scan_id: 'repo-scan-1',
+              type: 'ai_agent_surface',
+              severity: 'high',
+              detector: 'ai_agent_config_secret_ref',
+              title: 'MCP server exposes sensitive environment references',
+              human_summary: 'An MCP configuration exposes sensitive environment variable names.',
+              repository: 'owner/repo',
+              file_path: '.mcp.json',
+              remediation: 'Move sensitive values behind scoped secrets.',
+              created_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
+    expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Trend unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No AI Risks yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Failed to load AI Risks/i)).not.toBeInTheDocument();
+  });
+
   it('allows suppressed repository finding assignee edits without a new suppression reason', async () => {
     const suppressionExpiresAt = '2027-01-01T00:00:00Z';
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

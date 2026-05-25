@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestIdentityValidate(t *testing.T) {
 	valid := Identity{ID: "1", Provider: ProviderAWS, Type: IdentityTypeRole, Name: "role-a"}
@@ -80,5 +83,71 @@ func TestFindingValidate(t *testing.T) {
 	invalid := Finding{ID: "1", Type: FindingEscalationPath, Severity: SeverityHigh, Title: "  "}
 	if invalid.Validate() {
 		t.Fatal("expected invalid finding")
+	}
+}
+
+func TestResourceValidate(t *testing.T) {
+	valid := Resource{
+		ID:       "arn:aws:s3:::bucket-a",
+		Provider: ProviderAWS,
+		Type:     ResourceTypeS3Bucket,
+		Name:     "bucket-a",
+	}
+	if !valid.Validate() {
+		t.Fatal("expected valid resource")
+	}
+	invalid := Resource{ID: "", Provider: ProviderAWS, Type: ResourceTypeS3Bucket, Name: "bucket-a"}
+	if invalid.Validate() {
+		t.Fatal("expected invalid resource")
+	}
+}
+
+func TestCredentialValidate(t *testing.T) {
+	valid := Credential{
+		ID:       "cred-1",
+		Provider: ProviderAWS,
+		Type:     CredentialTypeAccessKey,
+		Name:     "ci-key",
+	}
+	if !valid.Validate() {
+		t.Fatal("expected valid credential")
+	}
+	invalid := Credential{ID: "cred-2", Type: CredentialTypeAccessKey, Name: "ci-key"}
+	if invalid.Validate() {
+		t.Fatal("expected invalid credential")
+	}
+}
+
+func TestAgentValidate(t *testing.T) {
+	valid := Agent{
+		ID:       "agent-1",
+		Provider: ProviderAWS,
+		Type:     AgentTypeAI,
+		Name:     "reviewer",
+	}
+	if !valid.Validate() {
+		t.Fatal("expected valid agent")
+	}
+	invalid := Agent{ID: "agent-2", Provider: ProviderAWS, Name: "reviewer"}
+	if invalid.Validate() {
+		t.Fatal("expected invalid agent")
+	}
+}
+
+func TestRuntimeEventValidate(t *testing.T) {
+	valid := RuntimeEvent{
+		ID:         "event-1",
+		Provider:   ProviderAWS,
+		Type:       RuntimeEventTypeRuntimeSession,
+		ActorID:    "aws:identity:role/demo",
+		SourceRef:  "source-1",
+		ObservedAt: time.Now().UTC(),
+	}
+	if !valid.Validate() {
+		t.Fatal("expected valid runtime event")
+	}
+	invalid := RuntimeEvent{ID: "event-2", Provider: ProviderAWS, Type: RuntimeEventTypeRuntimeSession, ActorID: "actor", SourceRef: "source", ObservedAt: time.Time{}}
+	if invalid.Validate() {
+		t.Fatal("expected invalid runtime event")
 	}
 }
