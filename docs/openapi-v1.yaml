@@ -5154,6 +5154,11 @@ components:
         session_name:
           type: string
           default: identrail-connector-validation
+        capabilities:
+          type: array
+          description: Optional requested capability tiers. Defaults to discovery (read-only).
+          items:
+            $ref: "#/components/schemas/ConnectorCapability"
     AWSConnectorPollRequest:
       type: object
       properties:
@@ -5187,6 +5192,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSPermissionPreviewItem"
+        permission_tiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCapabilityPermissionTier"
     AWSConnectorPolicyResponse:
       type: object
       properties:
@@ -5198,6 +5207,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSPermissionPreviewItem"
+        permission_tiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCapabilityPermissionTier"
     AWSPermissionPreviewItem:
       type: object
       properties:
@@ -5211,6 +5224,68 @@ components:
           items: { type: string }
         reason:
           type: string
+    ConnectorCapability:
+      type: string
+      description: >-
+        Typed connector permission tier. discovery is the read-only default;
+        runtime_evidence, remediation_plan, and authorization_advisory are
+        additional read-only tiers; approved_remediation and
+        authorization_enforcement are write-capable and gated.
+      enum:
+        - discovery
+        - runtime_evidence
+        - remediation_plan
+        - approved_remediation
+        - authorization_advisory
+        - authorization_enforcement
+    AWSCapabilityPermissionTier:
+      type: object
+      description: AWS permissions grouped by connector capability tier.
+      properties:
+        capability:
+          $ref: "#/components/schemas/ConnectorCapability"
+        tier:
+          type: string
+          enum: [read_only, write]
+        available:
+          type: boolean
+          description: Whether the tier is grantable today. Only discovery is currently available.
+        summary:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPermissionPreviewItem"
+    AWSConnectorCapabilityUnavailable:
+      type: object
+      properties:
+        capability:
+          $ref: "#/components/schemas/ConnectorCapability"
+        tier:
+          type: string
+          enum: [read_only, write]
+        reason:
+          type: string
+    AWSConnectorCapabilities:
+      type: object
+      description: Requested, validated, and effective connector capability tiers.
+      properties:
+        requested:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorCapability"
+        validated:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorCapability"
+        effective:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorCapability"
+        unavailable:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorCapabilityUnavailable"
     AWSConnectionUpsertRequest:
       type: object
       required: [role_arn]
@@ -5231,6 +5306,11 @@ components:
         session_name:
           type: string
           default: identrail-connector-validation
+        capabilities:
+          type: array
+          description: Optional requested capability tiers. Defaults to discovery (read-only).
+          items:
+            $ref: "#/components/schemas/ConnectorCapability"
     AWSConnectionDiagnostic:
       type: object
       properties:
@@ -5289,6 +5369,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSConnectionDiagnostic"
+        capabilities:
+          $ref: "#/components/schemas/AWSConnectorCapabilities"
         remediation_message:
           type: string
         launch_url:

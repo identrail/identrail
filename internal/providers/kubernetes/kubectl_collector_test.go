@@ -71,6 +71,31 @@ func TestKubectlCollectorCollect(t *testing.T) {
 	}
 }
 
+func TestKubectlCollectorRejectsUnsafeCommandPath(t *testing.T) {
+	exec := &fakeCommandExec{}
+	collector := NewKubectlCollector("kubectl; rm -rf /", "dev", exec.run)
+	if _, err := collector.Collect(context.Background()); err == nil {
+		t.Fatalf("expected command failure for unsafe command path")
+	}
+}
+
+func TestKubectlCollectorAllowsDefaultPath(t *testing.T) {
+	exec := &fakeCommandExec{
+		responses: map[string][]byte{
+			"kubectl --context dev get serviceaccounts --all-namespaces -o json": []byte(`{"items":[]}`),
+			"kubectl --context dev get rolebindings --all-namespaces -o json":    []byte(`{"items":[]}`),
+			"kubectl --context dev get clusterrolebindings -o json":              []byte(`{"items":[]}`),
+			"kubectl --context dev get roles --all-namespaces -o json":           []byte(`{"items":[]}`),
+			"kubectl --context dev get clusterroles -o json":                     []byte(`{"items":[]}`),
+			"kubectl --context dev get pods --all-namespaces -o json":            []byte(`{"items":[]}`),
+		},
+	}
+	collector := NewKubectlCollector("kubectl", "dev", exec.run)
+	if _, err := collector.Collect(context.Background()); err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+}
+
 func TestKubectlCollectorUsesDefaults(t *testing.T) {
 	exec := &fakeCommandExec{
 		responses: map[string][]byte{
@@ -252,5 +277,17 @@ func TestIsRetryableKubectlError(t *testing.T) {
 	}
 	if isRetryableKubectlError(errors.New("forbidden")) {
 		t.Fatal("forbidden should not be retryable")
+	}
+}
+
+func TestIsSafeKubectlCommandPathRejectsRelativePath(t *testing.T) {
+	if isSafeKubectlCommandPath("../usr/bin/kubectl") {
+		t.Fatal("expected relative path with kubectl basename to be rejected")
+	}
+}
+
+func TestIsSafeKubectlCommandPathAcceptsAbsolutePathWithSpaces(t *testing.T) {
+	if !isSafeKubectlCommandPath("/tmp/kubectl with spaces/bin/kubectl") {
+		t.Fatal("expected absolute path with spaces to be accepted")
 	}
 }

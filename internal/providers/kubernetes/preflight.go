@@ -85,6 +85,9 @@ func NewKubectlPreflightDriver(kubectlPath string, contextName string, runner Co
 	if path == "" {
 		path = defaultKubectlPath
 	}
+	if !isSafeKubectlCommandPath(path) {
+		path = defaultKubectlPath
+	}
 	if runner == nil {
 		runner = defaultCommandRunner
 	}

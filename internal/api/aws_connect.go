@@ -43,12 +43,13 @@ type AWSConnectorValidator interface {
 
 // AWSConnectionUpsertRequest captures one project AWS connector onboarding request.
 type AWSConnectionUpsertRequest struct {
-	ConnectorID string `json:"connector_id,omitempty"`
-	DisplayName string `json:"display_name,omitempty"`
-	RoleARN     string `json:"role_arn"`
-	ExternalID  string `json:"external_id,omitempty"`
-	Region      string `json:"region,omitempty"`
-	SessionName string `json:"session_name,omitempty"`
+	ConnectorID  string                       `json:"connector_id,omitempty"`
+	DisplayName  string                       `json:"display_name,omitempty"`
+	RoleARN      string                       `json:"role_arn"`
+	ExternalID   string                       `json:"external_id,omitempty"`
+	Region       string                       `json:"region,omitempty"`
+	SessionName  string                       `json:"session_name,omitempty"`
+	Capabilities []domain.ConnectorCapability `json:"capabilities,omitempty"`
 }
 
 // AWSConnectorStartRequest starts the CloudFormation-based AWS connector flow.
@@ -64,12 +65,13 @@ type AWSConnectorStartRequest struct {
 
 // AWSConnectorValidateRequest validates a CloudFormation-created AWS connector role.
 type AWSConnectorValidateRequest struct {
-	WorkspaceID string `json:"workspace_id,omitempty"`
-	ProjectID   string `json:"project_id,omitempty"`
-	RoleARN     string `json:"role_arn"`
-	ExternalID  string `json:"external_id,omitempty"`
-	Region      string `json:"region,omitempty"`
-	SessionName string `json:"session_name,omitempty"`
+	WorkspaceID  string                       `json:"workspace_id,omitempty"`
+	ProjectID    string                       `json:"project_id,omitempty"`
+	RoleARN      string                       `json:"role_arn"`
+	ExternalID   string                       `json:"external_id,omitempty"`
+	Region       string                       `json:"region,omitempty"`
+	SessionName  string                       `json:"session_name,omitempty"`
+	Capabilities []domain.ConnectorCapability `json:"capabilities,omitempty"`
 }
 
 // AWSConnectorPollRequest resolves project scope for the flat connector poll API.
@@ -80,22 +82,24 @@ type AWSConnectorPollRequest struct {
 
 // AWSConnectorStartResponse returns launch data for the one-click AWS setup flow.
 type AWSConnectorStartResponse struct {
-	Connection        AWSConnectionStatus                  `json:"connection"`
-	ConnectorID       string                               `json:"connector_id"`
-	ExternalID        string                               `json:"external_id"`
-	LaunchURL         string                               `json:"launch_url"`
-	TemplateURL       string                               `json:"template_url"`
-	RoleName          string                               `json:"role_name"`
-	StackName         string                               `json:"stack_name"`
-	PolicyHash        string                               `json:"policy_hash"`
-	PermissionPreview []awsconnector.PermissionPreviewItem `json:"permission_preview"`
+	Connection        AWSConnectionStatus                     `json:"connection"`
+	ConnectorID       string                                  `json:"connector_id"`
+	ExternalID        string                                  `json:"external_id"`
+	LaunchURL         string                                  `json:"launch_url"`
+	TemplateURL       string                                  `json:"template_url"`
+	RoleName          string                                  `json:"role_name"`
+	StackName         string                                  `json:"stack_name"`
+	PolicyHash        string                                  `json:"policy_hash"`
+	PermissionPreview []awsconnector.PermissionPreviewItem    `json:"permission_preview"`
+	PermissionTiers   []awsconnector.CapabilityPermissionTier `json:"permission_tiers"`
 }
 
 // AWSConnectorPolicyResponse exposes the expected read-only policy for review.
 type AWSConnectorPolicyResponse struct {
-	PolicyHash        string                               `json:"policy_hash"`
-	PolicyDocument    json.RawMessage                      `json:"policy_document"`
-	PermissionPreview []awsconnector.PermissionPreviewItem `json:"permission_preview"`
+	PolicyHash        string                                  `json:"policy_hash"`
+	PolicyDocument    json.RawMessage                         `json:"policy_document"`
+	PermissionPreview []awsconnector.PermissionPreviewItem    `json:"permission_preview"`
+	PermissionTiers   []awsconnector.CapabilityPermissionTier `json:"permission_tiers"`
 }
 
 // AWSConnectionValidationRequest is passed to the provider validator.
@@ -119,6 +123,26 @@ type AWSConnectionPermissionCheck struct {
 	Passed      bool   `json:"passed"`
 	Message     string `json:"message"`
 	Remediation string `json:"remediation,omitempty"`
+}
+
+// AWSConnectorCapabilityUnavailable names a requested capability that could not be
+// granted and explains why, so a validation failure points at the specific tier
+// rather than a generic connector error.
+type AWSConnectorCapabilityUnavailable struct {
+	Capability domain.ConnectorCapability     `json:"capability"`
+	Tier       domain.ConnectorCapabilityTier `json:"tier"`
+	Reason     string                         `json:"reason"`
+}
+
+// AWSConnectorCapabilities reports the requested, validated, and effective
+// connector capability tiers for one AWS connector. Effective never exceeds what
+// the deployment's capability gate validated, so write-capable tiers cannot be
+// granted implicitly.
+type AWSConnectorCapabilities struct {
+	Requested   []domain.ConnectorCapability        `json:"requested"`
+	Validated   []domain.ConnectorCapability        `json:"validated"`
+	Effective   []domain.ConnectorCapability        `json:"effective"`
+	Unavailable []AWSConnectorCapabilityUnavailable `json:"unavailable"`
 }
 
 // AWSConnectionValidationResult contains the live AWS metadata and diagnostics.
@@ -149,6 +173,7 @@ type AWSConnectionStatus struct {
 	ExternalID           string                         `json:"-"`
 	PermissionChecks     []AWSConnectionPermissionCheck `json:"permission_checks"`
 	Diagnostics          []AWSConnectionDiagnostic      `json:"diagnostics"`
+	Capabilities         AWSConnectorCapabilities       `json:"capabilities"`
 	RemediationMessage   string                         `json:"remediation_message,omitempty"`
 	LaunchURL            string                         `json:"launch_url,omitempty"`
 	TemplateURL          string                         `json:"template_url,omitempty"`
@@ -200,6 +225,14 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		return AWSConnectorStartResponse{}, err
 	}
 
+	// The one-click CloudFormation flow provisions the read-only role only, so it
+	// always starts at the discovery baseline. Write-capable tiers can never be
+	// requested through this path.
+	capabilities, _, err := s.resolveAWSConnectorCapabilities(domain.DefaultConnectorCapabilities())
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+
 	metadata := map[string]any{
 		"external_id_configured": true,
 		"region":                 region,
@@ -210,6 +243,7 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		"policy_hash":            policyHash,
 		"permission_checks":      []AWSConnectionPermissionCheck{},
 		"diagnostics":            []AWSConnectionDiagnostic{},
+		"capabilities":           capabilities,
 		"last_started_at":        now.Format(time.RFC3339Nano),
 	}
 	connector := db.TenancyConnector{
@@ -258,6 +292,7 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		StackName:         stackName,
 		PolicyHash:        policyHash,
 		PermissionPreview: awsconnector.PermissionPreview(),
+		PermissionTiers:   awsconnector.CapabilityPermissionTiers(),
 	}, nil
 }
 
@@ -281,13 +316,18 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 	if externalID == "" {
 		externalID = s.awsExternalIDFromStored(ctx, stored)
 	}
+	requestedCapabilities := request.Capabilities
+	if len(requestedCapabilities) == 0 {
+		requestedCapabilities = awsMetadataCapabilities(stored.State.Metadata, "capabilities").Requested
+	}
 	return s.UpsertAWSConnection(ctx, project.WorkspaceID, project.ProjectID, AWSConnectionUpsertRequest{
-		ConnectorID: connectorID,
-		DisplayName: stored.Connector.DisplayName,
-		RoleARN:     request.RoleARN,
-		ExternalID:  externalID,
-		Region:      firstNonEmptyAWSValue(strings.TrimSpace(request.Region), awsMetadataString(stored.State.Metadata, "region")),
-		SessionName: request.SessionName,
+		ConnectorID:  connectorID,
+		DisplayName:  stored.Connector.DisplayName,
+		RoleARN:      request.RoleARN,
+		ExternalID:   externalID,
+		Region:       firstNonEmptyAWSValue(strings.TrimSpace(request.Region), awsMetadataString(stored.State.Metadata, "region")),
+		SessionName:  request.SessionName,
+		Capabilities: requestedCapabilities,
 	})
 }
 
@@ -324,6 +364,7 @@ func (s *Service) AWSConnectorPolicy(ctx context.Context, connectorID string, re
 		PolicyHash:        hash,
 		PolicyDocument:    json.RawMessage(policy),
 		PermissionPreview: awsconnector.PermissionPreview(),
+		PermissionTiers:   awsconnector.CapabilityPermissionTiers(),
 	}, nil
 }
 
@@ -368,6 +409,16 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 			Message: "Role assumption succeeded.",
 		}}
 	}
+
+	// Capability resolution is independent of role-assumption health: a requested
+	// tier that the deployment gate denies surfaces as a capability-scoped
+	// diagnostic, but it does not degrade a healthy read-only connector.
+	capabilities, capabilityDiagnostics, err := s.resolveAWSConnectorCapabilities(normalized.Capabilities)
+	if err != nil {
+		return AWSConnectionStatus{}, err
+	}
+	diagnostics := append(copyAWSDiagnostics(validation.Diagnostics), capabilityDiagnostics...)
+
 	metadata := map[string]any{
 		"role_arn":               normalized.RoleARN,
 		"external_id_configured": normalized.ExternalID != "",
@@ -376,7 +427,8 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		"user_id":                strings.TrimSpace(validation.UserID),
 		"region":                 firstNonEmptyAWSValue(strings.TrimSpace(validation.Region), normalized.Region),
 		"permission_checks":      checks,
-		"diagnostics":            copyAWSDiagnostics(validation.Diagnostics),
+		"diagnostics":            diagnostics,
+		"capabilities":           capabilities,
 		"last_validated_at":      now.Format(time.RFC3339Nano),
 	}
 	state := db.TenancyConnectorState{
@@ -446,6 +498,7 @@ func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, proj
 			HealthStatus:     "unknown",
 			PermissionChecks: []AWSConnectionPermissionCheck{},
 			Diagnostics:      []AWSConnectionDiagnostic{},
+			Capabilities:     defaultAWSConnectorCapabilities(),
 		}, nil
 	}
 	return s.awsConnectionStatusFromStored(ctx, items[0]), nil
@@ -513,6 +566,7 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 		Region:               awsMetadataString(metadata, "region"),
 		PermissionChecks:     awsMetadataPermissionChecks(metadata, "permission_checks"),
 		Diagnostics:          awsMetadataDiagnostics(metadata, "diagnostics"),
+		Capabilities:         awsMetadataCapabilities(metadata, "capabilities"),
 		LaunchURL:            awsMetadataString(metadata, "launch_url"),
 		TemplateURL:          awsMetadataString(metadata, "template_url"),
 		PolicyHash:           awsMetadataString(metadata, "policy_hash"),
@@ -746,4 +800,78 @@ func accountIDFromRoleARN(roleARN string) string {
 		return parts[4]
 	}
 	return "unknown"
+}
+
+// awsCapabilityPolicy returns the configured capability gate, falling back to the
+// safe read-only default when the service has none configured.
+func (s *Service) awsCapabilityPolicy() awsconnector.CapabilityPolicy {
+	if s != nil && s.AWSConnectorCapabilityPolicy.Configured() {
+		return s.AWSConnectorCapabilityPolicy
+	}
+	return awsconnector.DefaultCapabilityPolicy()
+}
+
+// resolveAWSConnectorCapabilities resolves a requested capability set against the
+// deployment gate and returns both the capability summary and capability-scoped
+// diagnostics for any tier that could not be granted. The diagnostics name the
+// specific capability so a validation failure is never reported generically.
+func (s *Service) resolveAWSConnectorCapabilities(requested []domain.ConnectorCapability) (AWSConnectorCapabilities, []AWSConnectionDiagnostic, error) {
+	resolution, err := domain.ResolveConnectorCapabilities(requested, s.awsCapabilityPolicy())
+	if err != nil {
+		return AWSConnectorCapabilities{}, nil, fmt.Errorf("%w: %v", ErrInvalidAWSConnectionRequest, err)
+	}
+
+	capabilities := AWSConnectorCapabilities{
+		Requested:   resolution.Requested,
+		Validated:   resolution.Validated,
+		Effective:   resolution.Effective,
+		Unavailable: make([]AWSConnectorCapabilityUnavailable, 0, len(resolution.Unavailable)),
+	}
+	diagnostics := make([]AWSConnectionDiagnostic, 0, len(resolution.Unavailable))
+	for _, unavailable := range resolution.Unavailable {
+		capabilities.Unavailable = append(capabilities.Unavailable, AWSConnectorCapabilityUnavailable{
+			Capability: unavailable.Capability,
+			Tier:       unavailable.Tier,
+			Reason:     unavailable.Reason,
+		})
+		diagnostics = append(diagnostics, AWSConnectionDiagnostic{
+			Code:        fmt.Sprintf("aws_capability_unavailable_%s", unavailable.Capability),
+			Message:     fmt.Sprintf("requested capability %q is unavailable: %s", unavailable.Capability, unavailable.Reason),
+			Remediation: fmt.Sprintf("Enable the %q capability gate for this deployment before requesting it; write-capable tiers also require a dedicated write role.", unavailable.Capability),
+		})
+	}
+	return capabilities, diagnostics, nil
+}
+
+// defaultAWSConnectorCapabilities returns the read-only discovery baseline used
+// for connectors persisted before capability tracking existed.
+func defaultAWSConnectorCapabilities() AWSConnectorCapabilities {
+	base := domain.DefaultConnectorCapabilities()
+	return AWSConnectorCapabilities{
+		Requested:   base,
+		Validated:   base,
+		Effective:   base,
+		Unavailable: []AWSConnectorCapabilityUnavailable{},
+	}
+}
+
+func awsMetadataCapabilities(metadata map[string]any, key string) AWSConnectorCapabilities {
+	if metadata == nil || metadata[key] == nil {
+		return defaultAWSConnectorCapabilities()
+	}
+	payload, err := json.Marshal(metadata[key])
+	if err != nil {
+		return defaultAWSConnectorCapabilities()
+	}
+	var capabilities AWSConnectorCapabilities
+	if err := json.Unmarshal(payload, &capabilities); err != nil {
+		return defaultAWSConnectorCapabilities()
+	}
+	if len(capabilities.Effective) == 0 {
+		return defaultAWSConnectorCapabilities()
+	}
+	if capabilities.Unavailable == nil {
+		capabilities.Unavailable = []AWSConnectorCapabilityUnavailable{}
+	}
+	return capabilities
 }

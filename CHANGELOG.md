@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- Added typed AWS connector capability modes (`discovery`, `runtime_evidence`,
+  `remediation_plan`, `approved_remediation`, `authorization_advisory`,
+  `authorization_enforcement`). Connector status now reports requested,
+  validated, and effective capabilities; the read-only CloudFormation flow stays
+  pinned to `discovery`; permission preview is grouped by capability tier so
+  read-only discovery is visibly separate from future write/remediation/
+  enforcement tiers; and validation emits a capability-scoped diagnostic naming
+  any requested tier the deployment gate denies. Write-capable tiers are gated
+  behind `IDENTRAIL_AWS_CONNECTOR_CAPABILITIES` and a dedicated write role, and
+  no live remediation or enforcement executor is added. See
+  `docs/connector-capabilities.md`.
 - Expanded the normalized identity graph contract with precise AWS machine and
   agent relationship semantics for workload execution, secrets, KMS decrypt,
   role passing, invocations, tool calls, delegated users, runtime sessions, and

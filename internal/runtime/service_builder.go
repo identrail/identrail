@@ -10,6 +10,7 @@ import (
 	"github.com/identrail/identrail/internal/api"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/config"
+	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
@@ -127,6 +128,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
 	svc.AWSCloudFormationTemplateURL = cfg.AWSCloudFormationTemplateURL
 	svc.AWSAccountID = cfg.AWSAccountID
+	svc.AWSConnectorCapabilityPolicy = awsconnector.NewCapabilityPolicyFromStrings(cfg.AWSConnectorCapabilities)
 	svc.GitHubAppID = parseInt64Config(cfg.GitHubAppID)
 	svc.GitHubAppName = cfg.GitHubAppName
 	svc.GitHubAppPrivateKey = cfg.GitHubAppPrivateKey

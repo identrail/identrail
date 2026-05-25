@@ -4,7 +4,7 @@ Identrail source onboarding is available from the authenticated product shell at
 
 `/app/{tenant_id}/{workspace_id}/projects/{project_id}`
 
-The project detail view presents a guided connect-source wizard for GitHub, AWS, and Kubernetes. It reads current source status first, then runs the existing project-scoped connector APIs when an operator validates or saves a source.
+The project detail view presents a guided connect-source wizard for GitHub, AWS, and Kubernetes. It reads current source status first, then uses the current connector onboarding path for AWS, while the other provider flows still use their established project-scoped routes where applicable.
 
 ## GitHub
 
@@ -26,11 +26,33 @@ The action uses the tenant/workspace scope headers from the product session, sho
 
 ## AWS
 
-The wizard validates and saves one read-only IAM role through:
+AWS onboarding now follows the CloudFormation connector flow:
+
+```text
+POST /v1/connectors/aws
+GET  /v1/connectors/aws/{connector_id}/poll
+POST /v1/connectors/aws/{connector_id}/validate
+POST /v1/connectors/aws/{connector_id}/refresh-policy
+```
+
+`POST /v1/connectors/aws` starts onboarding and returns an AWS launch URL plus permission preview.
+`GET /v1/connectors/aws/{connector_id}/poll` returns status for long-running setup.
+`POST /v1/connectors/aws/{connector_id}/validate` validates the role created by that flow with scanner-critical IAM checks, permission checks, and diagnostics that are surfaced in the connector status.
+`POST /v1/connectors/aws/{connector_id}/refresh-policy` regenerates the read-only policy preview and capability matrix for the same connector.
+
+Current product behavior remains IAM-focused and read-only. CloudFormation creates a role with scanner-only permissions and does not execute cloud-side mutation or remediation.
+
+Keep in mind the older project-scoped route remains for compatibility only:
 
 `POST /v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection`
 
-Validation returns account identity, permission checks, diagnostics, and remediation text. A successful validation marks the connector active; failed checks leave the connector diagnosable instead of hiding the issue.
+This path is not the default product onboarding flow and is maintained only for legacy clients that still call it.
+
+For required environment and policy references, see:
+
+- [`docs/auth/aws-connector.md`](./auth/aws-connector.md)
+- [`docs/auth/env-vars-reference.md`](./auth/env-vars-reference.md) (AWS connector env vars)
+- [`../deploy/connectors/aws/policies/identrail-readonly-policy.md`](../deploy/connectors/aws/policies/identrail-readonly-policy.md)
 
 ## Kubernetes
 

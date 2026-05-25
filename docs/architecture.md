@@ -59,7 +59,8 @@ Collector -> Raw Assets -> Normalizer -> Domain Entities
 - Persistence supports local memory mode and PostgreSQL mode behind a single
   store interface.
 - Scan execution persists both raw and normalized artifacts for auditability and
-  explainability.
+  explainability, including first-class normalized entities such as resources,
+  credentials, agents, and runtime events.
 - Postgres read paths are moving to typed query contracts first, then full sqlc
   generation.
 

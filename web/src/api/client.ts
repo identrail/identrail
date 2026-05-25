@@ -661,6 +661,37 @@ export type AWSPermissionPreviewItem = {
   reason: string;
 };
 
+export type ConnectorCapability =
+  | 'discovery'
+  | 'runtime_evidence'
+  | 'remediation_plan'
+  | 'approved_remediation'
+  | 'authorization_advisory'
+  | 'authorization_enforcement';
+
+export type ConnectorCapabilityTier = 'read_only' | 'write';
+
+export type AWSCapabilityPermissionTier = {
+  capability: ConnectorCapability;
+  tier: ConnectorCapabilityTier;
+  available: boolean;
+  summary: string;
+  permissions: AWSPermissionPreviewItem[];
+};
+
+export type AWSConnectorCapabilityUnavailable = {
+  capability: ConnectorCapability;
+  tier: ConnectorCapabilityTier;
+  reason: string;
+};
+
+export type AWSConnectorCapabilities = {
+  requested: ConnectorCapability[];
+  validated: ConnectorCapability[];
+  effective: ConnectorCapability[];
+  unavailable: AWSConnectorCapabilityUnavailable[];
+};
+
 export type AWSConnectionStatus = {
   provider: 'aws';
   connected: boolean;
@@ -676,6 +707,7 @@ export type AWSConnectionStatus = {
   region?: string;
   permission_checks: AWSConnectionPermissionCheck[];
   diagnostics: AWSConnectionDiagnostic[];
+  capabilities: AWSConnectorCapabilities;
   remediation_message?: string;
   launch_url?: string;
   template_url?: string;
@@ -692,6 +724,7 @@ export type AWSConnectionUpsertRequest = {
   external_id?: string;
   region?: string;
   session_name?: string;
+  capabilities?: ConnectorCapability[];
 };
 
 export type AWSConnectorStartRequest = {
@@ -714,6 +747,7 @@ export type AWSConnectorStartResponse = {
   stack_name: string;
   policy_hash: string;
   permission_preview: AWSPermissionPreviewItem[];
+  permission_tiers: AWSCapabilityPermissionTier[];
 };
 
 export type AWSConnectorValidateRequest = {
@@ -723,12 +757,14 @@ export type AWSConnectorValidateRequest = {
   external_id?: string;
   region?: string;
   session_name?: string;
+  capabilities?: ConnectorCapability[];
 };
 
 export type AWSConnectorPolicyResponse = {
   policy_hash: string;
   policy_document: Record<string, unknown>;
   permission_preview: AWSPermissionPreviewItem[];
+  permission_tiers: AWSCapabilityPermissionTier[];
 };
 
 export type KubernetesPermissionCheck = {

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/audit"
+	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
@@ -166,6 +167,7 @@ type Service struct {
 	AWSScannerFactory                  AWSScannerFactory
 	AWSCloudFormationTemplateURL       string
 	AWSAccountID                       string
+	AWSConnectorCapabilityPolicy       awsconnector.CapabilityPolicy
 	WorkflowRouter                     *workflow.Router
 	GitHubAppID                        int64
 	GitHubAppName                      string
