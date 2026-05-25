@@ -91,6 +91,11 @@ type Config struct {
 	AWSProfile                   string
 	AWSCloudFormationTemplateURL string
 	AWSAccountID                 string
+	AWSRuntimeEvidence           bool
+	AWSRemediationPlan           bool
+	AWSApprovedRemediation       bool
+	AWSAuthorizationAdvisory     bool
+	AWSAuthorizationEnforcement  bool
 	AWSFixturePath               []string
 	KubernetesFixturePath        []string
 	KubernetesSource             string
@@ -243,6 +248,11 @@ func Load() Config {
 		AWSProfile:                   getEnv("IDENTRAIL_AWS_PROFILE", ""),
 		AWSCloudFormationTemplateURL: getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", ""),
 		AWSAccountID:                 getEnv("IDENTRAIL_AWS_ACCOUNT_ID", ""),
+		AWSRuntimeEvidence:           boolEnv("IDENTRAIL_AWS_CAPABILITY_RUNTIME_EVIDENCE", false),
+		AWSRemediationPlan:           boolEnv("IDENTRAIL_AWS_CAPABILITY_REMEDIATION_PLAN", false),
+		AWSApprovedRemediation:       boolEnv("IDENTRAIL_AWS_CAPABILITY_APPROVED_REMEDIATION", false),
+		AWSAuthorizationAdvisory:     boolEnv("IDENTRAIL_AWS_CAPABILITY_AUTHORIZATION_ADVISORY", false),
+		AWSAuthorizationEnforcement:  boolEnv("IDENTRAIL_AWS_CAPABILITY_AUTHORIZATION_ENFORCEMENT", false),
 		AWSFixturePath:               parseCommaSeparated(getEnv("IDENTRAIL_AWS_FIXTURES", defaultAWSFixtures)),
 		KubernetesFixturePath:        parseCommaSeparated(getEnv("IDENTRAIL_K8S_FIXTURES", defaultK8sFixtures)),
 		KubernetesSource:             strings.ToLower(getEnv("IDENTRAIL_K8S_SOURCE", defaultK8sSource)),

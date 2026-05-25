@@ -165,6 +165,11 @@ type Service struct {
 	AWSConnectorValidator              AWSConnectorValidator
 	AWSScannerFactory                  AWSScannerFactory
 	AWSCloudFormationTemplateURL       string
+	AWSRuntimeEvidenceEnabled          bool
+	AWSRemediationPlanEnabled          bool
+	AWSApprovedRemediationEnabled      bool
+	AWSAuthzAdvisoryEnabled            bool
+	AWSAuthzEnforcementEnabled         bool
 	AWSAccountID                       string
 	WorkflowRouter                     *workflow.Router
 	GitHubAppID                        int64

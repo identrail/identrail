@@ -24,6 +24,7 @@ import {
   ApiError,
   apiClient,
   type AuthConfigResponse,
+  type AWSConnectorCapability,
   type AWSConnectorStartResponse,
   type AWSConnectionStatus,
   type AWSPermissionPreviewItem,
@@ -184,6 +185,7 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
 };
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
+const AWS_DEFAULT_CAPABILITIES: AWSConnectorCapability[] = ['discovery'];
 const SOURCE_ORDER: SourceProvider[] = [
   ...(FEATURE_CONNECTOR_GITHUB_V2 ? (['github'] as SourceProvider[]) : []),
   'aws',
@@ -4282,12 +4284,13 @@ export function ProductProjectDetailPage() {
       }
       const auth = buildProductAuthContext(scope);
       const payload = {
-          role_arn: roleARN,
-          external_id: normalizeValue(awsForm.externalID) || undefined,
-          region: normalizeValue(awsForm.region) || 'us-east-1',
-          display_name: normalizeValue(awsForm.displayName) || undefined,
-          session_name: normalizeValue(awsForm.sessionName) || undefined
-        };
+        role_arn: roleARN,
+        external_id: normalizeValue(awsForm.externalID) || undefined,
+        region: normalizeValue(awsForm.region) || 'us-east-1',
+        display_name: normalizeValue(awsForm.displayName) || undefined,
+        session_name: normalizeValue(awsForm.sessionName) || undefined,
+        requested_capabilities: AWS_DEFAULT_CAPABILITIES
+      };
       const response =
         FEATURE_CONNECTOR_AWS && awsCloudFormationStart?.connector_id
           ? await apiClient.validateAWSConnector(
@@ -4298,7 +4301,8 @@ export function ProductProjectDetailPage() {
                 role_arn: payload.role_arn,
                 external_id: payload.external_id,
                 region: payload.region,
-                session_name: payload.session_name
+                session_name: payload.session_name,
+                requested_capabilities: payload.requested_capabilities
               },
               auth
             )
@@ -4340,7 +4344,8 @@ export function ProductProjectDetailPage() {
           display_name: normalizeValue(awsForm.displayName) || undefined,
           region: normalizeValue(awsForm.region) || 'us-east-1',
           role_name: normalizeValue(awsForm.roleName) || undefined,
-          stack_name: normalizeValue(awsForm.stackName) || undefined
+          stack_name: normalizeValue(awsForm.stackName) || undefined,
+          requested_capabilities: AWS_DEFAULT_CAPABILITIES
         },
         auth
       );
@@ -5185,10 +5190,26 @@ export function ProductProjectDetailPage() {
             <div className="idt-source-diagnostics">
               {connections.aws.account_id ? <p>Account {connections.aws.account_id}</p> : null}
               {connections.aws.principal_arn ? <p>Principal {connections.aws.principal_arn}</p> : null}
+              <article>
+                <strong>AWS connector capabilities</strong>
+                <span>Effective: {connections.aws.effective_capabilities.join(', ') || 'none yet'}</span>
+                <p>Requested: {connections.aws.requested_capabilities.join(', ') || 'discovery'}</p>
+                {connections.aws.unavailable_capabilities.length > 0 ? (
+                  <small>
+                    Unavailable:{' '}
+                    {connections.aws.unavailable_capabilities
+                      .map((capability) => `${capability.capability} (${capability.gate || 'validation'})`)
+                      .join(', ')}
+                  </small>
+                ) : null}
+              </article>
               {connections.aws.permission_checks.map((check) => (
                 <article key={check.name}>
                   <strong>{check.name}</strong>
-                  <span>{check.passed ? 'Passed' : 'Needs attention'}</span>
+                  <span>
+                    {check.passed ? 'Passed' : 'Needs attention'}
+                    {check.capability ? ` - ${check.capability}` : ''}
+                  </span>
                   <p>{check.message}</p>
                   {check.remediation ? <small>{check.remediation}</small> : null}
                 </article>
@@ -5196,7 +5217,7 @@ export function ProductProjectDetailPage() {
               {connections.aws.diagnostics.map((diagnostic) => (
                 <article key={diagnostic.code}>
                   <strong>{diagnostic.code}</strong>
-                  <span>Diagnostic</span>
+                  <span>{diagnostic.capability ? `Diagnostic - ${diagnostic.capability}` : 'Diagnostic'}</span>
                   <p>{diagnostic.message}</p>
                   {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
                 </article>

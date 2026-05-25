@@ -71,6 +71,11 @@ for their deployment.
 | --- | --- | --- | --- |
 | `IDENTRAIL_AWS_CFN_TEMPLATE_URL` | empty | Required for the CFN one-click flow. Points at the CDN-hosted template. | AWS connector |
 | `IDENTRAIL_AWS_ACCOUNT_ID` | empty | Required. The Identrail-side AWS account that the customer's role trusts. | AWS connector |
+| `IDENTRAIL_AWS_CAPABILITY_RUNTIME_EVIDENCE` | `false` | Optional gate for future AWS runtime-evidence collection. The read-only stack does not enable this by default. | AWS connector |
+| `IDENTRAIL_AWS_CAPABILITY_REMEDIATION_PLAN` | `false` | Optional gate for future AWS remediation planning workflows. | AWS connector |
+| `IDENTRAIL_AWS_CAPABILITY_APPROVED_REMEDIATION` | `false` | Optional gate for write-capable approved remediation. Keep disabled unless an explicit approval workflow and IAM policy are configured. | AWS connector |
+| `IDENTRAIL_AWS_CAPABILITY_AUTHORIZATION_ADVISORY` | `false` | Optional gate for future AWS authorization advisory workflows. | AWS connector |
+| `IDENTRAIL_AWS_CAPABILITY_AUTHORIZATION_ENFORCEMENT` | `false` | Optional gate for write-capable authorization enforcement. Keep disabled unless private tenancy, approvals, and write-capable IAM policy controls are configured. | AWS connector |
 
 ### GitHub Connector
 

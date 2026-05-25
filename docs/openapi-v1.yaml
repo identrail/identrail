@@ -5135,6 +5135,11 @@ components:
         stack_name:
           type: string
           default: identrail-readonly-connector
+        requested_capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorCapability"
+          default: [discovery]
     AWSConnectorValidateRequest:
       type: object
       required: [role_arn]
@@ -5154,12 +5159,37 @@ components:
         session_name:
           type: string
           default: identrail-connector-validation
+        requested_capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorCapability"
+          default: [discovery]
     AWSConnectorPollRequest:
       type: object
       properties:
         workspace_id:
           type: string
         project_id:
+          type: string
+    AWSConnectorCapability:
+      type: string
+      enum:
+        - discovery
+        - runtime_evidence
+        - remediation_plan
+        - approved_remediation
+        - authorization_advisory
+        - authorization_enforcement
+    AWSUnavailableCapability:
+      type: object
+      properties:
+        capability:
+          $ref: "#/components/schemas/AWSConnectorCapability"
+        reason:
+          type: string
+        gate:
+          type: string
+        remediation:
           type: string
     AWSConnectorStartResponse:
       type: object
@@ -5211,6 +5241,14 @@ components:
           items: { type: string }
         reason:
           type: string
+        capability:
+          $ref: "#/components/schemas/AWSConnectorCapability"
+        tier:
+          type: string
+        included:
+          type: boolean
+        gate:
+          type: string
     AWSConnectionUpsertRequest:
       type: object
       required: [role_arn]
@@ -5231,6 +5269,11 @@ components:
         session_name:
           type: string
           default: identrail-connector-validation
+        requested_capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorCapability"
+          default: [discovery]
     AWSConnectionDiagnostic:
       type: object
       properties:
@@ -5240,6 +5283,8 @@ components:
           type: string
         remediation:
           type: string
+        capability:
+          $ref: "#/components/schemas/AWSConnectorCapability"
     AWSConnectionPermissionCheck:
       type: object
       properties:
@@ -5251,6 +5296,8 @@ components:
           type: string
         remediation:
           type: string
+        capability:
+          $ref: "#/components/schemas/AWSConnectorCapability"
     AWSConnectionStatus:
       type: object
       properties:
@@ -5289,6 +5336,22 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSConnectionDiagnostic"
+        requested_capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorCapability"
+        validated_capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorCapability"
+        effective_capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorCapability"
+        unavailable_capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSUnavailableCapability"
         remediation_message:
           type: string
         launch_url:

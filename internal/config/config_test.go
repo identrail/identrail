@@ -381,6 +381,11 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "engineering")
 	t.Setenv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml")
 	t.Setenv("IDENTRAIL_AWS_ACCOUNT_ID", "123456789012")
+	t.Setenv("IDENTRAIL_AWS_CAPABILITY_RUNTIME_EVIDENCE", "true")
+	t.Setenv("IDENTRAIL_AWS_CAPABILITY_REMEDIATION_PLAN", "true")
+	t.Setenv("IDENTRAIL_AWS_CAPABILITY_APPROVED_REMEDIATION", "true")
+	t.Setenv("IDENTRAIL_AWS_CAPABILITY_AUTHORIZATION_ADVISORY", "true")
+	t.Setenv("IDENTRAIL_AWS_CAPABILITY_AUTHORIZATION_ENFORCEMENT", "true")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "fixtures/a.json,fixtures/b.json")
 	t.Setenv("IDENTRAIL_K8S_FIXTURES", "fixtures/sa.json,fixtures/rb.json")
 	t.Setenv("IDENTRAIL_K8S_SOURCE", "kubectl")
@@ -499,6 +504,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.AWSAccountID != "123456789012" {
 		t.Fatalf("unexpected aws account id: %q", cfg.AWSAccountID)
+	}
+	if !cfg.AWSRuntimeEvidence || !cfg.AWSRemediationPlan || !cfg.AWSApprovedRemediation || !cfg.AWSAuthorizationAdvisory || !cfg.AWSAuthorizationEnforcement {
+		t.Fatalf("expected all aws capability gates enabled, got runtime=%v remediation_plan=%v approved_remediation=%v authorization_advisory=%v authorization_enforcement=%v", cfg.AWSRuntimeEvidence, cfg.AWSRemediationPlan, cfg.AWSApprovedRemediation, cfg.AWSAuthorizationAdvisory, cfg.AWSAuthorizationEnforcement)
 	}
 	if len(cfg.AWSFixturePath) != 2 || cfg.AWSFixturePath[0] != "fixtures/a.json" || cfg.AWSFixturePath[1] != "fixtures/b.json" {
 		t.Fatalf("unexpected fixture paths: %+v", cfg.AWSFixturePath)

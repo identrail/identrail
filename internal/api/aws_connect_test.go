@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/secretstore"
@@ -69,10 +70,64 @@ func TestRouterAWSConnectionOnboardingActive(t *testing.T) {
 	if validator.seen.ExternalID != "tenant-external-id" || validator.seen.Region != "us-west-2" {
 		t.Fatalf("validator did not receive normalized request: %+v", validator.seen)
 	}
+	if len(body.Connection.RequestedCapabilities) != 1 || body.Connection.RequestedCapabilities[0] != awsconnector.CapabilityDiscovery {
+		t.Fatalf("expected discovery requested by default, got %+v", body.Connection.RequestedCapabilities)
+	}
+	if len(body.Connection.EffectiveCapabilities) != 1 || body.Connection.EffectiveCapabilities[0] != awsconnector.CapabilityDiscovery {
+		t.Fatalf("expected discovery effective by default, got %+v", body.Connection.EffectiveCapabilities)
+	}
+	if len(body.Connection.UnavailableCapabilities) != 0 {
+		t.Fatalf("expected no unavailable capabilities for default discovery, got %+v", body.Connection.UnavailableCapabilities)
+	}
 
 	statusResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/aws/connection", "")
 	if statusResp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+}
+
+func TestRouterAWSConnectionReportsUnavailableRequestedCapability(t *testing.T) {
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:             "123456789012",
+			PrincipalARN:          "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:                "AROATEST:identrail-connector-validation",
+			Region:                "us-west-2",
+			ValidatedCapabilities: awsconnector.DefaultCapabilities(),
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded.", Capability: awsconnector.CapabilityDiscovery},
+				{Name: "iam:ReadRolePolicies", Passed: true, Message: "IAM read is available.", Capability: awsconnector.CapabilityDiscovery},
+			},
+		},
+	}
+	r := newAWSConnectionTestRouter(t, validator)
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/aws/connection", `{
+		"connector_id":"aws-prod",
+		"display_name":"Production AWS",
+		"role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		"region":"us-west-2",
+		"requested_capabilities":["discovery","approved_remediation"]
+	}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected active connection 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Connection.EffectiveCapabilities) != 1 || body.Connection.EffectiveCapabilities[0] != awsconnector.CapabilityDiscovery {
+		t.Fatalf("expected only discovery effective, got %+v", body.Connection.EffectiveCapabilities)
+	}
+	if len(body.Connection.UnavailableCapabilities) != 1 {
+		t.Fatalf("expected approved remediation unavailable, got %+v", body.Connection.UnavailableCapabilities)
+	}
+	unavailable := body.Connection.UnavailableCapabilities[0]
+	if unavailable.Capability != awsconnector.CapabilityApprovedRemediation || unavailable.Gate != "aws_approved_remediation_capability" {
+		t.Fatalf("expected approved remediation gate, got %+v", unavailable)
 	}
 }
 
@@ -279,6 +334,21 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	}
 	if startBody.Connection.Status != domain.ConnectorStatusPending || !startBody.Connection.ExternalIDConfigured {
 		t.Fatalf("expected pending connector with external id configured, got %+v", startBody.Connection)
+	}
+	if len(startBody.Connection.RequestedCapabilities) != 1 || startBody.Connection.RequestedCapabilities[0] != awsconnector.CapabilityDiscovery {
+		t.Fatalf("expected CloudFormation flow to default to discovery, got %+v", startBody.Connection.RequestedCapabilities)
+	}
+	previewHasGatedTier := false
+	for _, item := range startBody.PermissionPreview {
+		if !item.Included {
+			previewHasGatedTier = true
+		}
+		if item.Included && item.Capability != awsconnector.CapabilityDiscovery {
+			t.Fatalf("read-only preview included non-discovery capability: %+v", item)
+		}
+	}
+	if !previewHasGatedTier {
+		t.Fatalf("expected preview to describe gated future capability tiers, got %+v", startBody.PermissionPreview)
 	}
 
 	pollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/"+startBody.ConnectorID+"/poll?workspace_id=workspace-a&project_id=project-1", "")

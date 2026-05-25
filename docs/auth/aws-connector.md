@@ -36,4 +36,14 @@ When a persistent database is configured and AWS connector setup is enabled, `ID
 4. The user pastes the created role ARN back into Identrail.
 5. The API uses the stored External ID, assumes the role with STS, verifies caller identity, checks scanner-critical IAM read access, and marks the connector active or degraded.
 
+## Capability modes
+
+AWS connectors report typed capability modes so operators can distinguish what was requested, what validation proved, and what is actually effective:
+
+- `discovery` is the default and remains the only capability enabled by the read-only CloudFormation stack.
+- `runtime_evidence`, `remediation_plan`, `approved_remediation`, `authorization_advisory`, and `authorization_enforcement` are modeled for future workflows, but stay unavailable unless deployment policy gates explicitly enable them.
+- Write-capable modes such as `approved_remediation` and `authorization_enforcement` are never enabled by the current read-only stack.
+
+The permission preview groups AWS actions by capability tier and marks future tiers as gated, so teams can review the extra policy surface before enabling any non-discovery workflow.
+
 The read-only policy and rationale live together under `deploy/connectors/aws/policies/`.

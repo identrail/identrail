@@ -6010,6 +6010,22 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   color: #c2d4f0;
 }
 
+.idt-permission-preview-list span,
+.idt-permission-preview-list small {
+  display: block;
+  margin-top: 0.2rem;
+  color: #8fa5c3;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.idt-permission-preview-list article.idt-preview-excluded {
+  border-style: dashed;
+  opacity: 0.78;
+}
+
 .idt-permission-preview-list code {
   max-width: 48%;
   white-space: normal;

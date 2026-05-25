@@ -2,6 +2,8 @@
 
 This policy is intentionally narrower than AWS managed `ReadOnlyAccess`. It grants only the read calls Identrail needs to validate a connector and build the first machine identity trust graph.
 
+Capability tier: `discovery`. This policy does not enable runtime evidence collection, remediation execution, authorization advisory decisions, or authorization enforcement.
+
 | Service | Actions | Why Identrail needs it |
 | --- | --- | --- |
 | STS | `sts:GetCallerIdentity` | Confirms the assumed-role identity during setup and recurring scans. |

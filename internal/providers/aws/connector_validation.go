@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	api "github.com/identrail/identrail/internal/api"
+	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
 )
 
 // ConnectionValidator validates AWS connector setup with read-only AWS calls.
@@ -78,9 +79,10 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 		RoleARN: strings.TrimSpace(request.RoleARN),
 		Region:  region,
 		PermissionChecks: []api.AWSConnectionPermissionCheck{{
-			Name:    "sts:AssumeRole",
-			Passed:  false,
-			Message: "Role assumption has not completed.",
+			Name:       "sts:AssumeRole",
+			Passed:     false,
+			Message:    "Role assumption has not completed.",
+			Capability: awsconnector.CapabilityDiscovery,
 		}},
 		Diagnostics: []api.AWSConnectionDiagnostic{},
 	}
@@ -104,6 +106,7 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 			Code:        classifyAWSError(err, "aws_assume_role_failed"),
 			Message:     "Unable to assume the AWS connector role.",
 			Remediation: result.PermissionChecks[0].Remediation,
+			Capability:  awsconnector.CapabilityDiscovery,
 		})
 		return result, nil
 	}
@@ -114,6 +117,7 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 			Code:        "aws_assume_role_empty_credentials",
 			Message:     "AssumeRole did not return temporary credentials.",
 			Remediation: result.PermissionChecks[0].Remediation,
+			Capability:  awsconnector.CapabilityDiscovery,
 		})
 		return result, nil
 	}
@@ -138,6 +142,7 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 			Code:        classifyAWSError(err, "aws_identity_metadata_failed"),
 			Message:     "Unable to read caller identity metadata after assuming the connector role.",
 			Remediation: "Verify the assumed-role credentials are usable and not blocked by an organization SCP or session policy.",
+			Capability:  awsconnector.CapabilityDiscovery,
 		})
 		return result, nil
 	}
@@ -155,18 +160,23 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 			Code:        classifyAWSError(iamCheckError(iamCheck), "aws_iam_read_failed"),
 			Message:     "AWS IAM permission sanity check failed.",
 			Remediation: iamCheck.Remediation,
+			Capability:  awsconnector.CapabilityDiscovery,
 		})
 	}
 	result.PermissionChecks = append(result.PermissionChecks, iamCheck)
+	if iamCheck.Passed && len(result.Diagnostics) == 0 {
+		result.ValidatedCapabilities = awsconnector.DefaultCapabilities()
+	}
 
 	return result, nil
 }
 
 func validateIAMReadPermissions(ctx context.Context, client iamValidationAPI) api.AWSConnectionPermissionCheck {
 	check := api.AWSConnectionPermissionCheck{
-		Name:    "iam:ReadRolePolicies",
-		Passed:  true,
-		Message: "IAM role and policy read permissions are available.",
+		Name:       "iam:ReadRolePolicies",
+		Passed:     true,
+		Message:    "IAM role and policy read permissions are available.",
+		Capability: awsconnector.CapabilityDiscovery,
 	}
 	roles, err := client.ListRoles(ctx, &iam.ListRolesInput{MaxItems: awsv2.Int32(1)})
 	if err != nil {

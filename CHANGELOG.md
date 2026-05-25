@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added typed AWS connector capability modes so the API, UI, OpenAPI contract,
+  and permission preview can report requested, validated, effective, and gated
+  capabilities while keeping discovery read-only by default.
 - Added GitHub Actions AI-agent prompt-injection detection for workflows that
   feed untrusted PR, issue, review, comment, workflow_run, or repository
   prompt-file content into LLM/agent steps with repository write, secret, OIDC,

@@ -127,6 +127,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
 	svc.AWSCloudFormationTemplateURL = cfg.AWSCloudFormationTemplateURL
 	svc.AWSAccountID = cfg.AWSAccountID
+	svc.AWSRuntimeEvidenceEnabled = cfg.AWSRuntimeEvidence
+	svc.AWSRemediationPlanEnabled = cfg.AWSRemediationPlan
+	svc.AWSApprovedRemediationEnabled = cfg.AWSApprovedRemediation
+	svc.AWSAuthzAdvisoryEnabled = cfg.AWSAuthorizationAdvisory
+	svc.AWSAuthzEnforcementEnabled = cfg.AWSAuthorizationEnforcement
 	svc.GitHubAppID = parseInt64Config(cfg.GitHubAppID)
 	svc.GitHubAppName = cfg.GitHubAppName
 	svc.GitHubAppPrivateKey = cfg.GitHubAppPrivateKey

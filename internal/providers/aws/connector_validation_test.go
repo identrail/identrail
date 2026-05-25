@@ -13,6 +13,7 @@ import (
 	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/aws/smithy-go"
 	api "github.com/identrail/identrail/internal/api"
+	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
 )
 
 type fakeSTSAssumeRoleClient struct {
@@ -123,6 +124,12 @@ func TestConnectionValidatorValidateAWSConnectionActive(t *testing.T) {
 		if !check.Passed {
 			t.Fatalf("expected check %s to pass: %+v", check.Name, result.PermissionChecks)
 		}
+		if check.Capability != awsconnector.CapabilityDiscovery {
+			t.Fatalf("expected discovery capability on check %s, got %+v", check.Name, check.Capability)
+		}
+	}
+	if len(result.ValidatedCapabilities) != 1 || result.ValidatedCapabilities[0] != awsconnector.CapabilityDiscovery {
+		t.Fatalf("expected discovery validation capability, got %+v", result.ValidatedCapabilities)
 	}
 	if assume.seen == nil || awsv2.ToString(assume.seen.ExternalId) != "external" || awsv2.ToString(assume.seen.RoleSessionName) != "session" {
 		t.Fatalf("assume role request was not populated correctly: %+v", assume.seen)
@@ -171,6 +178,9 @@ func TestConnectionValidatorValidateAWSConnectionIAMPermissionFailure(t *testing
 	}
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "aws_iam_read_failed" {
 		t.Fatalf("expected iam diagnostic, got %+v", result.Diagnostics)
+	}
+	if result.Diagnostics[0].Capability != awsconnector.CapabilityDiscovery {
+		t.Fatalf("expected discovery capability diagnostic, got %+v", result.Diagnostics[0])
 	}
 	if len(result.PermissionChecks) != 2 || result.PermissionChecks[1].Passed {
 		t.Fatalf("expected failed iam check, got %+v", result.PermissionChecks)

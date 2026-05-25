@@ -12,6 +12,8 @@ export function PermissionPreviewModal({ open, title, items, onClose }: Permissi
     return null;
   }
 
+  const formatTier = (tier: string) => tier.replace(/_/g, ' ');
+
   return (
     <div className="idt-modal-backdrop" role="presentation" onClick={onClose}>
       <section
@@ -32,10 +34,12 @@ export function PermissionPreviewModal({ open, title, items, onClose }: Permissi
         </header>
         <div className="idt-permission-preview-list">
           {items.map((item) => (
-            <article key={item.service}>
+            <article key={`${item.capability}-${item.service}-${item.tier}`} className={item.included ? '' : 'idt-preview-excluded'}>
               <div>
                 <strong>{item.service}</strong>
+                <span>{item.included ? formatTier(item.tier) : `Gated: ${formatTier(item.tier)}`}</span>
                 <p>{item.reason}</p>
+                {item.gate ? <small>Gate: {item.gate}</small> : null}
               </div>
               <code>{item.actions.join(', ')}</code>
             </article>

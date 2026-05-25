@@ -640,18 +640,34 @@ export type FindingTriageRequest = {
 
 export type ConnectorLifecycleStatus = 'pending' | 'active' | 'degraded' | 'disconnected';
 export type ConnectorHealthStatus = 'unknown' | 'healthy' | 'warning' | 'error';
+export type AWSConnectorCapability =
+  | 'discovery'
+  | 'runtime_evidence'
+  | 'remediation_plan'
+  | 'approved_remediation'
+  | 'authorization_advisory'
+  | 'authorization_enforcement';
+
+export type AWSUnavailableCapability = {
+  capability: AWSConnectorCapability;
+  reason: string;
+  gate?: string;
+  remediation?: string;
+};
 
 export type AWSConnectionPermissionCheck = {
   name: string;
   passed: boolean;
   message: string;
   remediation?: string;
+  capability?: AWSConnectorCapability;
 };
 
 export type AWSConnectionDiagnostic = {
   code: string;
   message: string;
   remediation?: string;
+  capability?: AWSConnectorCapability;
 };
 
 export type AWSPermissionPreviewItem = {
@@ -659,6 +675,10 @@ export type AWSPermissionPreviewItem = {
   actions: string[];
   resources: string[];
   reason: string;
+  capability: AWSConnectorCapability;
+  tier: string;
+  included: boolean;
+  gate?: string;
 };
 
 export type AWSConnectionStatus = {
@@ -676,6 +696,10 @@ export type AWSConnectionStatus = {
   region?: string;
   permission_checks: AWSConnectionPermissionCheck[];
   diagnostics: AWSConnectionDiagnostic[];
+  requested_capabilities: AWSConnectorCapability[];
+  validated_capabilities: AWSConnectorCapability[];
+  effective_capabilities: AWSConnectorCapability[];
+  unavailable_capabilities: AWSUnavailableCapability[];
   remediation_message?: string;
   launch_url?: string;
   template_url?: string;
@@ -692,6 +716,7 @@ export type AWSConnectionUpsertRequest = {
   external_id?: string;
   region?: string;
   session_name?: string;
+  requested_capabilities?: AWSConnectorCapability[];
 };
 
 export type AWSConnectorStartRequest = {
@@ -702,6 +727,7 @@ export type AWSConnectorStartRequest = {
   region?: string;
   role_name?: string;
   stack_name?: string;
+  requested_capabilities?: AWSConnectorCapability[];
 };
 
 export type AWSConnectorStartResponse = {
@@ -723,6 +749,7 @@ export type AWSConnectorValidateRequest = {
   external_id?: string;
   region?: string;
   session_name?: string;
+  requested_capabilities?: AWSConnectorCapability[];
 };
 
 export type AWSConnectorPolicyResponse = {
