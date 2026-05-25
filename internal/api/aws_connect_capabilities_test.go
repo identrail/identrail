@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
@@ -66,7 +67,7 @@ func TestUpsertAWSConnectionDefaultsToDiscoveryReadOnly(t *testing.T) {
 		t.Fatalf("expected no unavailable capabilities, got %+v", status.Capabilities.Unavailable)
 	}
 	for _, diagnostic := range status.Diagnostics {
-		if diagnostic.Code == "aws_capability_unavailable" {
+		if strings.HasPrefix(diagnostic.Code, "aws_capability_unavailable_") {
 			t.Fatalf("did not expect capability diagnostics for default connector, got %+v", status.Diagnostics)
 		}
 	}
@@ -108,7 +109,7 @@ func TestUpsertAWSConnectionReportsUnavailableWriteCapability(t *testing.T) {
 
 	var capabilityDiagnostic *AWSConnectionDiagnostic
 	for i := range status.Diagnostics {
-		if status.Diagnostics[i].Code == "aws_capability_unavailable" {
+		if status.Diagnostics[i].Code == "aws_capability_unavailable_approved_remediation" {
 			capabilityDiagnostic = &status.Diagnostics[i]
 			break
 		}

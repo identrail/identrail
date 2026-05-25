@@ -111,6 +111,36 @@ func TestResolveConnectorCapabilitiesDefaultReadOnly(t *testing.T) {
 	}
 }
 
+func TestResolveConnectorCapabilitiesNilGateRejectsWriteCapabilities(t *testing.T) {
+	resolution, err := ResolveConnectorCapabilities([]ConnectorCapability{
+		ConnectorCapabilityApprovedRemediation,
+		ConnectorCapabilityRuntimeEvidence,
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []ConnectorCapability{ConnectorCapabilityDiscovery}
+	if !reflect.DeepEqual(resolution.Effective, want) {
+		t.Fatalf("effective = %v, want %v", resolution.Effective, want)
+	}
+	if !reflect.DeepEqual(resolution.Validated, want) {
+		t.Fatalf("validated = %v, want %v", resolution.Validated, want)
+	}
+	if len(resolution.Unavailable) != 2 {
+		t.Fatalf("expected two unavailable capabilities, got %v", resolution.Unavailable)
+	}
+	unavailable := map[ConnectorCapability]bool{}
+	for _, item := range resolution.Unavailable {
+		unavailable[item.Capability] = true
+		if item.Reason == "" {
+			t.Fatalf("expected reason for unavailable capability %q", item.Capability)
+		}
+	}
+	if !unavailable[ConnectorCapabilityApprovedRemediation] || !unavailable[ConnectorCapabilityRuntimeEvidence] {
+		t.Fatalf("unexpected unavailable capabilities: %v", resolution.Unavailable)
+	}
+}
+
 func TestResolveConnectorCapabilitiesGatesWriteTier(t *testing.T) {
 	gate := stubCapabilityGate{
 		allow:  map[ConnectorCapability]bool{ConnectorCapabilityRuntimeEvidence: true},

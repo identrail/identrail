@@ -835,7 +835,7 @@ func (s *Service) resolveAWSConnectorCapabilities(requested []domain.ConnectorCa
 			Reason:     unavailable.Reason,
 		})
 		diagnostics = append(diagnostics, AWSConnectionDiagnostic{
-			Code:        "aws_capability_unavailable",
+			Code:        fmt.Sprintf("aws_capability_unavailable_%s", unavailable.Capability),
 			Message:     fmt.Sprintf("requested capability %q is unavailable: %s", unavailable.Capability, unavailable.Reason),
 			Remediation: fmt.Sprintf("Enable the %q capability gate for this deployment before requesting it; write-capable tiers also require a dedicated write role.", unavailable.Capability),
 		})

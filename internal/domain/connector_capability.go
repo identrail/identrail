@@ -163,7 +163,7 @@ func ResolveConnectorCapabilities(requested []ConnectorCapability, gate Capabili
 			validated[capability] = true
 			continue
 		}
-		allowed, reason := true, ""
+		allowed, reason := false, "capability policy is not configured"
 		if gate != nil {
 			allowed, reason = gate.CapabilityAllowed(capability)
 		}
