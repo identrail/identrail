@@ -1378,12 +1378,23 @@ describe('App', () => {
     }
     expect(within(missingSeverityRow).getByText('Unknown')).toBeInTheDocument();
 
+    const linkedFinding = await screen.findByText(/Potential AWS access key exposed in commit history/i);
+    const linkedFindingRow = linkedFinding.closest('button');
+    expect(linkedFindingRow).not.toBeNull();
+    if (!linkedFindingRow) {
+      throw new Error('linked finding row');
+    }
+    fireEvent.click(linkedFindingRow);
+
+    const findingDialog = await screen.findByRole('dialog', {
+      name: /Potential AWS access key exposed in commit history/i
+    });
     const openInGitHub = await screen.findByRole('link', { name: /Open in GitHub/i });
     expect(openInGitHub).toHaveAttribute('href', 'https://github.com/owner/repo/blob/abc123/config/app.env#L7');
-    expect((await screen.findAllByText('config/app.env:7')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('owner/repo')).length).toBeGreaterThan(0);
+    expect(within(findingDialog).getAllByText('config/app.env:7').length).toBeGreaterThan(0);
+    expect(within(findingDialog).getAllByText('owner/repo').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: /Preview remediation plan/i }));
+    fireEvent.click(within(findingDialog).getByRole('button', { name: /Preview remediation plan/i }));
     expect(await screen.findByText(/Rotate exposed AWS credential/i)).toBeInTheDocument();
     expect(await screen.findByText(/Revoke the leaked access key/i)).toBeInTheDocument();
     expect(await screen.findByText(/Secret rotation required/i)).toBeInTheDocument();
@@ -1706,7 +1717,17 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/findings');
     render(<App />);
 
-    const workflowControls = (await screen.findByText(/Workflow controls/i)).closest('.idt-repo-finding-triage-form');
+    const findingRow = (await screen.findByText(/Potential AWS access key exposed in commit history/i)).closest('button');
+    expect(findingRow).not.toBeNull();
+    if (!findingRow) {
+      throw new Error('finding row');
+    }
+    fireEvent.click(findingRow);
+
+    const findingDialog = await screen.findByRole('dialog', {
+      name: /Potential AWS access key exposed in commit history/i
+    });
+    const workflowControls = within(findingDialog).getByText(/Workflow controls/i).closest('.idt-repo-finding-triage-form');
     expect(workflowControls).toBeInTheDocument();
 
     fireEvent.change(within(workflowControls as HTMLElement).getByLabelText(/Assignee/i), { target: { value: 'platform' } });

@@ -919,7 +919,7 @@ describe('ProductFindingsPage states', () => {
 
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
     expect(await screen.findByText('Completed scans')).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Legacy finding' })).toBeInTheDocument();
+    expect(await screen.findByText('Legacy finding')).toBeInTheDocument();
   });
 
   it('does not report cancellation as a failed scan', async () => {
@@ -937,7 +937,7 @@ describe('ProductFindingsPage states', () => {
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
   });
 
-  it('keeps the finding detail pane visible when filters are active but no findings match', async () => {
+  it('keeps visible filters when active filters match no findings', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-with-findings',
@@ -964,13 +964,13 @@ describe('ProductFindingsPage states', () => {
 
     expect((await screen.findAllByText('IAM role with wildcard trust')).length).toBeGreaterThan(0);
 
-    const filtersSummary = await screen.findByText('Filters and sorting');
-    fireEvent.click(filtersSummary);
+    expect(await screen.findByText('Filters and sorting')).toBeInTheDocument();
 
     const severityFilter = screen.getByLabelText('Severity');
     fireEvent.change(severityFilter, { target: { value: 'high' } });
 
     expect(await screen.findByText('No findings match the current filters.')).toBeInTheDocument();
-    expect(screen.getByText('Select a finding')).toBeInTheDocument();
+    expect(screen.getByLabelText('Repository finding filters and sorting')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /IAM role with wildcard trust/i })).not.toBeInTheDocument();
   });
 });

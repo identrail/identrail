@@ -11,6 +11,34 @@ export type RepoFindingDisplayGroup = {
   findings: ApiFinding[];
 };
 
+export type RepoFindingDisplaySeverityGroup = {
+  key: string;
+  label: string;
+  findings: ApiFinding[];
+};
+
+export type RepoFindingDisplayScanGroup = {
+  key: string;
+  label: string;
+  sortValue: number;
+  findings: ApiFinding[];
+  severityGroups: RepoFindingDisplaySeverityGroup[];
+};
+
+export type RepoFindingDisplayRepositoryGroup = {
+  key: string;
+  label: string;
+  findings: ApiFinding[];
+  scanGroups: RepoFindingDisplayScanGroup[];
+};
+
+type RepoFindingHierarchyOptions = {
+  repositoryForFinding?: (finding: ApiFinding) => string;
+  scanDateForFinding?: (finding: ApiFinding) => string;
+  scanSortValueForFinding?: (finding: ApiFinding) => number;
+  sortOrder?: RepoFindingSortOrder;
+};
+
 export type RepoFindingSelection = Partial<
   Pick<
     ApiFinding,
@@ -49,6 +77,42 @@ function normalizeSeverityBucket(value: unknown): (typeof SEVERITY_ORDER)[number
   return 'unknown';
 }
 
+function severityRank(value: unknown): number {
+  const rank = SEVERITY_ORDER.indexOf(normalizeSeverityBucket(value));
+  return rank === -1 ? SEVERITY_ORDER.length : rank;
+}
+
+function evidenceRepositoryValue(finding: ApiFinding): string {
+  const repository = finding.evidence?.repository;
+  return typeof repository === 'string' ? normalizeDisplayValue(repository) : '';
+}
+
+function fallbackRepositoryLabel(finding: ApiFinding): string {
+  return normalizeDisplayValue(finding.repository) || evidenceRepositoryValue(finding) || 'Repository unavailable';
+}
+
+function fallbackScanDateLabel(finding: ApiFinding): string {
+  const timestamp =
+    normalizeDisplayValue(finding.first_seen_at) ||
+    normalizeDisplayValue(finding.created_at) ||
+    'Scan date unavailable';
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return timestamp;
+  }
+  return parsed.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function fallbackScanSortValue(finding: ApiFinding): number {
+  const timestamp = normalizeDisplayValue(finding.first_seen_at) || normalizeDisplayValue(finding.created_at);
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
 function stableFallbackFingerprint(values: string[]): string {
   const source = values.join('\u001f');
   let hash = 0x811c9dc5;
@@ -57,6 +121,103 @@ function stableFallbackFingerprint(values: string[]): string {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(36);
+}
+
+export function groupRepoFindingsByRepositoryDateSeverity(
+  findings: ApiFinding[],
+  options: RepoFindingHierarchyOptions = {}
+): RepoFindingDisplayRepositoryGroup[] {
+  if (findings.length === 0) {
+    return [];
+  }
+
+  const severityBuckets = options.sortOrder === 'asc' ? [...SEVERITY_ORDER].reverse() : [...SEVERITY_ORDER];
+  const repositories = new Map<string, RepoFindingDisplayRepositoryGroup>();
+  const scansByRepository = new Map<string, Map<string, RepoFindingDisplayScanGroup>>();
+
+  for (const finding of findings) {
+    const repositoryLabel =
+      normalizeDisplayValue(options.repositoryForFinding?.(finding)) || fallbackRepositoryLabel(finding);
+    const repositoryKey = `repo:${repositoryLabel.toLowerCase() || stableFallbackFingerprint([finding.id, finding.scan_id])}`;
+    let repositoryGroup = repositories.get(repositoryKey);
+    if (!repositoryGroup) {
+      repositoryGroup = {
+        key: repositoryKey,
+        label: repositoryLabel,
+        findings: [],
+        scanGroups: []
+      };
+      repositories.set(repositoryKey, repositoryGroup);
+      scansByRepository.set(repositoryKey, new Map());
+    }
+
+    repositoryGroup.findings.push(finding);
+
+    const scanLabel = normalizeDisplayValue(options.scanDateForFinding?.(finding)) || fallbackScanDateLabel(finding);
+    const scanSortValue = options.scanSortValueForFinding?.(finding) ?? fallbackScanSortValue(finding);
+    const scanKey = `scan:${scanLabel.toLowerCase()}`;
+    const repositoryScans = scansByRepository.get(repositoryKey) ?? new Map<string, RepoFindingDisplayScanGroup>();
+    let scanGroup = repositoryScans.get(scanKey);
+    if (!scanGroup) {
+      scanGroup = {
+        key: `${repositoryKey}:${scanKey}`,
+        label: scanLabel,
+        sortValue: scanSortValue,
+        findings: [],
+        severityGroups: []
+      };
+      repositoryScans.set(scanKey, scanGroup);
+      scansByRepository.set(repositoryKey, repositoryScans);
+      repositoryGroup.scanGroups.push(scanGroup);
+    }
+
+    scanGroup.sortValue = Math.max(scanGroup.sortValue, scanSortValue);
+    scanGroup.findings.push(finding);
+  }
+
+  for (const repositoryGroup of repositories.values()) {
+    repositoryGroup.scanGroups.sort((left, right) => {
+      if (right.sortValue !== left.sortValue) {
+        return right.sortValue - left.sortValue;
+      }
+      return left.label.localeCompare(right.label);
+    });
+
+    for (const scanGroup of repositoryGroup.scanGroups) {
+      const severityMap = new Map<string, ApiFinding[]>();
+      for (const finding of scanGroup.findings) {
+        const severity = normalizeSeverityBucket(finding.severity);
+        severityMap.set(severity, [...(severityMap.get(severity) ?? []), finding]);
+      }
+      scanGroup.severityGroups = severityBuckets.reduce<RepoFindingDisplaySeverityGroup[]>((groups, severity) => {
+        const severityFindings = severityMap.get(severity);
+        if (severityFindings && severityFindings.length > 0) {
+          groups.push({
+            key: `${scanGroup.key}:severity:${severity}`,
+            label: severity,
+            findings: severityFindings
+          });
+        }
+        return groups;
+      }, []);
+    }
+  }
+
+  return [...repositories.values()].sort((left, right) => {
+    if (left.label === 'Repository unavailable') return 1;
+    if (right.label === 'Repository unavailable') return -1;
+    const leftNewestScan = left.scanGroups[0]?.sortValue ?? 0;
+    const rightNewestScan = right.scanGroups[0]?.sortValue ?? 0;
+    if (rightNewestScan !== leftNewestScan) {
+      return rightNewestScan - leftNewestScan;
+    }
+    const leftHighestSeverity = Math.min(...left.findings.map((finding) => severityRank(finding.severity)));
+    const rightHighestSeverity = Math.min(...right.findings.map((finding) => severityRank(finding.severity)));
+    if (leftHighestSeverity !== rightHighestSeverity) {
+      return leftHighestSeverity - rightHighestSeverity;
+    }
+    return left.label.localeCompare(right.label);
+  });
 }
 
 export function groupRepoFindingsForDisplay(
