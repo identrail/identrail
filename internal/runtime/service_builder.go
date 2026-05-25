@@ -70,7 +70,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws sdk collector: %w", iamErr)
 			}
-			scanner = newAWSScanner(iamAPI)
+			scanner = newAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion)
 		default:
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)
@@ -153,7 +153,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if iamErr != nil {
 			return nil, iamErr
 		}
-		scanner := newAWSScanner(iamAPI)
+		scanner := newAWSScanner(iamAPI, connection.AccountID, connection.Region)
 		return scanner, nil
 	}
 	svc.DefaultScope = db.Scope{
@@ -235,14 +235,8 @@ func parseInt64Config(value string) int64 {
 	return parsed
 }
 
-func newAWSScanner(iamAPI awsprovider.IAMAPI) app.Scanner {
-	return app.Scanner{
-		Collector:            awsprovider.NewCollector(iamAPI),
-		Normalizer:           awsprovider.NewRoleNormalizer(),
-		PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
-		RelationshipResolver: awsprovider.NewRelationshipBuilder(),
-		RiskRuleSet:          awsprovider.NewRuleSet(),
-	}
+func newAWSScanner(iamAPI awsprovider.IAMAPI, accountID string, region string) app.Scanner {
+	return awsprovider.NewAWSScanner(iamAPI, accountID, region)
 }
 
 // NewStore returns memory store by default, Postgres when database URL is provided.

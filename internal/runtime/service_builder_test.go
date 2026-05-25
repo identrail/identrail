@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/config"
+	"github.com/identrail/identrail/internal/providers/aws"
 	"github.com/identrail/identrail/internal/scheduler"
 )
 
@@ -31,6 +33,25 @@ func TestBuildScanServiceMemoryStore(t *testing.T) {
 	}
 	if err := closeFn(); err != nil {
 		t.Fatalf("close failed: %v", err)
+	}
+}
+
+type noopIAMCollectorAPI struct{}
+
+func (noopIAMCollectorAPI) ListRoles(context.Context, string, int32) (aws.ListRolesPage, error) {
+	return aws.ListRolesPage{}, nil
+}
+
+func TestNewAWSScannerUsesCompositeCollectorScope(t *testing.T) {
+	// list roles never called in this test, but the composite collector should
+	// be constructed with exactly the account/region scope from the call site.
+	scanner := newAWSScanner(noopIAMCollectorAPI{}, "account-xyz", "us-east-2")
+	composite, ok := scanner.Collector.(*aws.AWSCompositeCollector)
+	if !ok {
+		t.Fatalf("expected aws composite collector, got %T", scanner.Collector)
+	}
+	if composite.AccountID() != "account-xyz" || composite.Region() != "us-east-2" {
+		t.Fatalf("unexpected composite scope account=%q region=%q", composite.AccountID(), composite.Region())
 	}
 }
 
@@ -172,13 +193,25 @@ func TestBuildScanServiceAWSSDKMode(t *testing.T) {
 		AllowMemoryStore: true,
 		AWSSource:        "sdk",
 		AWSRegion:        "us-east-1",
+		AWSAccountID:     "123456789012",
 	}
+	t.Setenv("AWS_ACCESS_KEY_ID", "ASIAXXXXXXXXXXXXXXXX")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "example-secret-key-replace-me")
 	svc, closeFn, err := BuildScanService(cfg)
 	if err != nil {
 		t.Fatalf("build service failed: %v", err)
 	}
 	if svc == nil || closeFn == nil {
 		t.Fatal("expected non-nil service and close function")
+	}
+	scannerRunner, ok := svc.Scanner.(app.Scanner)
+	if !ok {
+		t.Fatalf("expected app.Scanner scanner runner, got %T", svc.Scanner)
+	}
+	if composite, ok := scannerRunner.Collector.(*aws.AWSCompositeCollector); !ok {
+		t.Fatalf("expected composite collector, got %T", scannerRunner.Collector)
+	} else if composite.AccountID() != cfg.AWSAccountID || composite.Region() != cfg.AWSRegion {
+		t.Fatalf("unexpected composite scope: account=%q region=%q", composite.AccountID(), composite.Region())
 	}
 	if err := closeFn(); err != nil {
 		t.Fatalf("close failed: %v", err)
