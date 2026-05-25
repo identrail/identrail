@@ -24,6 +24,7 @@ import {
   ApiError,
   apiClient,
   type AuthConfigResponse,
+  type AWSCapabilityPermissionTier,
   type AWSConnectorStartResponse,
   type AWSConnectionStatus,
   type AWSPermissionPreviewItem,
@@ -3754,6 +3755,7 @@ export function ProductProjectDetailPage() {
   });
   const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
   const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
+  const [awsPermissionTiers, setAWSPermissionTiers] = useState<AWSCapabilityPermissionTier[]>([]);
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const [kubernetesForm, setKubernetesForm] = useState({
     displayName: '',
@@ -4024,6 +4026,7 @@ export function ProductProjectDetailPage() {
     setGitHubPostureError('');
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
+    setAWSPermissionTiers([]);
     setAWSPreviewOpen(false);
     setAWSForm((current) => ({ ...current, externalID: '' }));
     if (backendFeaturesLoading) {
@@ -4349,6 +4352,7 @@ export function ProductProjectDetailPage() {
       }
       setAWSCloudFormationStart(response);
       setAWSPermissionPreview(response.permission_preview);
+      setAWSPermissionTiers(response.permission_tiers ?? []);
       setAWSForm((current) => ({ ...current, externalID: response.external_id }));
       setConnections((current) => ({ ...current, aws: response.connection }));
       setSuccessMessage('AWS stack launch is ready.');
@@ -5566,6 +5570,7 @@ export function ProductProjectDetailPage() {
         open={awsPreviewOpen}
         title="AWS read-only connector policy"
         items={awsPermissionPreview}
+        tiers={awsPermissionTiers}
         onClose={() => setAWSPreviewOpen(false)}
       />
     </section>

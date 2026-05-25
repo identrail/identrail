@@ -91,6 +91,7 @@ type Config struct {
 	AWSProfile                   string
 	AWSCloudFormationTemplateURL string
 	AWSAccountID                 string
+	AWSConnectorCapabilities     []string
 	AWSFixturePath               []string
 	KubernetesFixturePath        []string
 	KubernetesSource             string
@@ -243,6 +244,7 @@ func Load() Config {
 		AWSProfile:                   getEnv("IDENTRAIL_AWS_PROFILE", ""),
 		AWSCloudFormationTemplateURL: getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", ""),
 		AWSAccountID:                 getEnv("IDENTRAIL_AWS_ACCOUNT_ID", ""),
+		AWSConnectorCapabilities:     parseCommaSeparated(getEnv("IDENTRAIL_AWS_CONNECTOR_CAPABILITIES", "")),
 		AWSFixturePath:               parseCommaSeparated(getEnv("IDENTRAIL_AWS_FIXTURES", defaultAWSFixtures)),
 		KubernetesFixturePath:        parseCommaSeparated(getEnv("IDENTRAIL_K8S_FIXTURES", defaultK8sFixtures)),
 		KubernetesSource:             strings.ToLower(getEnv("IDENTRAIL_K8S_SOURCE", defaultK8sSource)),

@@ -72,7 +72,8 @@ const disconnectedAWS: AWSConnectionStatus = {
   health_status: 'unknown',
   external_id_configured: false,
   permission_checks: [],
-  diagnostics: []
+  diagnostics: [],
+  capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] }
 };
 
 const connectedGitHub: GitHubConnectionStatus = {
