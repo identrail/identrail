@@ -5761,6 +5761,10 @@ const GITHUB_INTELLIGENCE_CATEGORIES: GitHubIntelligenceCategory[] = [
   }
 ];
 
+const GITHUB_INTELLIGENCE_SCOPE_CATEGORIES = GITHUB_INTELLIGENCE_CATEGORIES.filter(
+  (category) => category.id !== 'remediation-ready'
+);
+
 function githubIntelligenceCategoryForFinding(finding: ApiFinding): GitHubIntelligenceCategory {
   return GITHUB_INTELLIGENCE_CATEGORIES.find((category) => category.match(finding)) ?? GITHUB_INTELLIGENCE_CATEGORIES[5];
 }
@@ -5809,7 +5813,7 @@ export function ProductAIRisksPage() {
   const findingsInScope = useMemo(
     () =>
       repoFindings.filter((finding) =>
-        GITHUB_INTELLIGENCE_CATEGORIES.some((category) => category.match(finding))
+        GITHUB_INTELLIGENCE_SCOPE_CATEGORIES.some((category) => category.match(finding))
       ),
     [repoFindings]
   );

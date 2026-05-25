@@ -1527,6 +1527,7 @@ describe('App', () => {
               title: 'Out-of-scope repository notice',
               human_summary: 'This finding should not affect AI Risks metrics.',
               repository: 'owner/unrelated',
+              file_path: 'NOTICE',
               remediation: 'Review license notice separately.',
               created_at: '2026-01-02T00:10:00Z'
             }
@@ -1548,6 +1549,7 @@ describe('App', () => {
     expect(within(openMetric).getByText('10')).toBeInTheDocument();
     expect(within(repoMetric).getByText('6')).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('cursor=repo-page-2'))).toBe(true);
+    expect(screen.queryByText(/Out-of-scope repository notice/i)).not.toBeInTheDocument();
     expect((await screen.findAllByText(/AI\/MCP Exposure/i)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/AI Workflow Risk/i)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/GitHub Alerts/i)).length).toBeGreaterThan(0);
