@@ -19,7 +19,7 @@ env:
 jobs:
   sync:
     name: Sync identrail/identrail overview
-    if: github.repository == 'identrail/identrail'
+    if: github.repository == 'identrail/identrail' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
 
     steps:
