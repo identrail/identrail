@@ -56,14 +56,10 @@ func detectAIAgentConfigFindings(repo string, commit string, path string, conten
 			continue
 		}
 
-		// If structured parsing succeeds, it already captures command/env evidence
-		// more precisely than plain text matching.
-		if len(structuredSurfaces) > 0 {
-			continue
-		}
-		// For non-structured AI surfaces (for example copilot instructions), only
-		// secret scanning is intended at this stage.
-		if !structuredPossible {
+		// For structured surfaces, rely on structured parsing for capability capture,
+		// but still scan plain text for env placeholders in command arguments.
+		skipLineCapabilities := len(structuredSurfaces) > 0
+		if !skipLineCapabilities && !structuredPossible {
 			continue
 		}
 
@@ -79,17 +75,19 @@ func detectAIAgentConfigFindings(repo string, commit string, path string, conten
 					"raw_secret_data":   false,
 				})
 		}
-		for _, capability := range dangerousAgentCapabilities(line) {
-			appendAIAgentFinding(&findings, seen, repo, commit, path, lineNumber, "ai_agent_dangerous_tool_capability", capability.Severity,
-				"AI agent configuration exposes dangerous tool capability",
-				capability.Summary,
-				"Restrict the tool allowlist, isolate agent execution, remove broad shell/filesystem/network access, and gate deploy or cloud commands behind reviewed workflows.",
-				sanitizeAgentSnippet(line), detectedAt, map[string]any{
+		if !skipLineCapabilities {
+			for _, capability := range dangerousAgentCapabilities(line) {
+				appendAIAgentFinding(&findings, seen, repo, commit, path, lineNumber, "ai_agent_dangerous_tool_capability", capability.Severity,
+					"AI agent configuration exposes dangerous tool capability",
+					capability.Summary,
+					"Restrict the tool allowlist, isolate agent execution, remove broad shell/filesystem/network access, and gate deploy or cloud commands behind reviewed workflows.",
+					sanitizeAgentSnippet(line), detectedAt, map[string]any{
 					"agent_config_path": path,
 					"capability":        capability.Kind,
 					"tool_name":         capability.Name,
 					"raw_secret_data":   false,
 				})
+			}
 		}
 	}
 
@@ -173,7 +171,7 @@ func walkAIAgentValue(value any, trail []string, resolver *agentLineResolver, fi
 						Title:       "AI agent configuration references sensitive environment variables",
 						Summary:     "An MCP or AI-agent configuration references credential-like environment variables that may be reachable by tool execution.",
 						Remediation: "Keep sensitive values in a secret manager, scope agent runtime environment variables to the smallest needed set, and avoid committing local agent configs.",
-						Line:        resolver.lineFor(envVars[0]),
+					Line:        resolver.lineForContext(envVars[0], envVars[0]),
 						Snippet:     "env: " + strings.Join(envVars, ", "),
 						Evidence: map[string]any{
 							"config_tree_path": strings.Join(childTrail, "."),
@@ -254,7 +252,7 @@ func newAgentLineResolver(lines []string) *agentLineResolver {
 func (r *agentLineResolver) lineFor(needle string) int {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
-		return 1
+		return -1
 	}
 	for index := r.cursor[needle]; index < len(r.lower); index++ {
 		if strings.Contains(r.lower[index], needle) {
@@ -267,17 +265,20 @@ func (r *agentLineResolver) lineFor(needle string) int {
 			return index + 1
 		}
 	}
-	return 1
+	return -1
 }
 
 func (r *agentLineResolver) lineForContext(needle string, fallback string) int {
-	if line := r.lineFor(needle); line != 1 {
+	if line := r.lineFor(needle); line != -1 {
 		return line
 	}
 	if fallback == "" {
 		return 1
 	}
-	return r.lineFor(fallback)
+	if line := r.lineFor(fallback); line != -1 {
+		return line
+	}
+	return 1
 }
 
 func appendAIAgentFinding(

@@ -326,6 +326,44 @@ func TestStructuredAIAgentFindingsUseDeterministicTraversalAndLineMapping(t *tes
 	}
 }
 
+func TestStructuredAIAgentLineHeuristicStillCatchesEnvRefsInArgs(t *testing.T) {
+	content := []byte(`{
+  "mcpServers": {
+    "shellServer": {
+      "command": "bash",
+      "args": [
+        "-lc",
+        "echo ${OPENAI_API_KEY} && echo ${GH_TOKEN}"
+      ]
+    }
+  }
+}`)
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".cursor/mcp.json", content, time.Time{})
+
+	found := false
+	foundVars := map[string]struct{}{}
+	for _, finding := range findings {
+		if finding.Detector == "ai_agent_sensitive_env_reference" {
+			found = true
+			vars, _ := finding.Evidence["env_variables"].([]string)
+			if len(vars) < 2 {
+				t.Fatalf("expected both env placeholders to be included, got %+v", finding)
+			}
+			for _, v := range vars {
+				foundVars[v] = struct{}{}
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected env reference finding for args placeholders, got %+v", findings)
+	}
+	for _, expected := range []string{"OPENAI_API_KEY", "GH_TOKEN"} {
+		if _, ok := foundVars[expected]; !ok {
+			t.Fatalf("expected env placeholder %q to be detected in args, got %+v", expected, findings)
+		}
+	}
+}
+
 func structuredCapabilitySignatures(findings []domain.Finding) []string {
 	signatures := make([]string, 0)
 	for _, finding := range findings {
