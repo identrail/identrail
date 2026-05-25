@@ -132,13 +132,14 @@ export function groupRepoFindingsByRepositoryDateSeverity(
   }
 
   const severityBuckets = options.sortOrder === 'asc' ? [...SEVERITY_ORDER].reverse() : [...SEVERITY_ORDER];
+  const sortDirection = options.sortOrder === 'asc' ? 1 : -1;
   const repositories = new Map<string, RepoFindingDisplayRepositoryGroup>();
   const scansByRepository = new Map<string, Map<string, RepoFindingDisplayScanGroup>>();
 
   for (const finding of findings) {
     const repositoryLabel =
       normalizeDisplayValue(options.repositoryForFinding?.(finding)) || fallbackRepositoryLabel(finding);
-    const repositoryKey = `repo:${repositoryLabel.toLowerCase() || stableFallbackFingerprint([finding.id, finding.scan_id])}`;
+    const repositoryKey = `repo:${repositoryLabel.toLowerCase()}`;
     let repositoryGroup = repositories.get(repositoryKey);
     if (!repositoryGroup) {
       repositoryGroup = {
@@ -171,14 +172,17 @@ export function groupRepoFindingsByRepositoryDateSeverity(
       repositoryGroup.scanGroups.push(scanGroup);
     }
 
-    scanGroup.sortValue = Math.max(scanGroup.sortValue, scanSortValue);
+    scanGroup.sortValue =
+      options.sortOrder === 'asc'
+        ? Math.min(scanGroup.sortValue, scanSortValue)
+        : Math.max(scanGroup.sortValue, scanSortValue);
     scanGroup.findings.push(finding);
   }
 
   for (const repositoryGroup of repositories.values()) {
     repositoryGroup.scanGroups.sort((left, right) => {
-      if (right.sortValue !== left.sortValue) {
-        return right.sortValue - left.sortValue;
+      if (left.sortValue !== right.sortValue) {
+        return (left.sortValue - right.sortValue) * sortDirection;
       }
       return left.label.localeCompare(right.label);
     });
@@ -206,10 +210,16 @@ export function groupRepoFindingsByRepositoryDateSeverity(
   return [...repositories.values()].sort((left, right) => {
     if (left.label === 'Repository unavailable') return 1;
     if (right.label === 'Repository unavailable') return -1;
-    const leftNewestScan = left.scanGroups[0]?.sortValue ?? 0;
-    const rightNewestScan = right.scanGroups[0]?.sortValue ?? 0;
-    if (rightNewestScan !== leftNewestScan) {
-      return rightNewestScan - leftNewestScan;
+    const leftScanSortValue =
+      options.sortOrder === 'asc'
+        ? Math.min(...left.scanGroups.map((group) => group.sortValue))
+        : Math.max(...left.scanGroups.map((group) => group.sortValue));
+    const rightScanSortValue =
+      options.sortOrder === 'asc'
+        ? Math.min(...right.scanGroups.map((group) => group.sortValue))
+        : Math.max(...right.scanGroups.map((group) => group.sortValue));
+    if (leftScanSortValue !== rightScanSortValue) {
+      return (leftScanSortValue - rightScanSortValue) * sortDirection;
     }
     const leftHighestSeverity = Math.min(...left.findings.map((finding) => severityRank(finding.severity)));
     const rightHighestSeverity = Math.min(...right.findings.map((finding) => severityRank(finding.severity)));

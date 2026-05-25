@@ -199,4 +199,36 @@ describe('groupRepoFindingsByRepositoryDateSeverity', () => {
 
     expect(groups.map((group) => group.label)).toEqual(['zeta/repo', 'alpha/repo']);
   });
+
+  it('honors ascending order when ranking repositories by scan date', () => {
+    const groups = groupRepoFindingsByRepositoryDateSeverity(
+      [
+        { ...finding('alpha-older', 'critical'), repository: 'alpha/repo', created_at: '2026-05-24T00:00:00Z' },
+        { ...finding('zeta-newer', 'high'), repository: 'zeta/repo', created_at: '2026-05-25T00:00:00Z' }
+      ],
+      {
+        scanDateForFinding: (item) => (item.repository === 'alpha/repo' ? 'May 24, 2026' : 'May 25, 2026'),
+        scanSortValueForFinding: (item) => new Date(item.created_at).getTime(),
+        sortOrder: 'asc'
+      }
+    );
+
+    expect(groups.map((group) => group.label)).toEqual(['alpha/repo', 'zeta/repo']);
+  });
+
+  it('honors ascending order when ranking scan groups inside a repository', () => {
+    const groups = groupRepoFindingsByRepositoryDateSeverity(
+      [
+        { ...finding('newer-scan', 'critical'), repository: 'owner/repo', created_at: '2026-05-25T00:00:00Z' },
+        { ...finding('older-scan', 'high'), repository: 'owner/repo', created_at: '2026-05-24T00:00:00Z' }
+      ],
+      {
+        scanDateForFinding: (item) => (item.id === 'older-scan' ? 'May 24, 2026' : 'May 25, 2026'),
+        scanSortValueForFinding: (item) => new Date(item.created_at).getTime(),
+        sortOrder: 'asc'
+      }
+    );
+
+    expect(groups[0].scanGroups.map((group) => group.label)).toEqual(['May 24, 2026', 'May 25, 2026']);
+  });
 });
