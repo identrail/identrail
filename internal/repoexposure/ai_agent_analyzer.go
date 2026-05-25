@@ -16,6 +16,7 @@ import (
 const aiAgentAnalyzerVersion = "2026.05"
 
 var envTokenPattern = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9_]{2,}\b`)
+var aiKnownAIAgentConfigNamePattern = regexp.MustCompile(`(?i)^\.?mcp(?:[-.][^/.]+)?\.(?:json|ya?ml)$`)
 
 type aiAgentCapability struct {
 	Name     string
@@ -149,7 +150,13 @@ func walkAIAgentValue(value any, trail []string, resolver *agentLineResolver, fi
 	switch typed := value.(type) {
 	case map[string]any:
 		name := firstAIAgentName(typed, trail)
-		for key, child := range typed {
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			child := typed[key]
 			lowerKey := strings.ToLower(strings.TrimSpace(key))
 			childTrail := append(append([]string(nil), trail...), key)
 			switch {
@@ -194,7 +201,7 @@ func appendAgentCapabilityFindings(resolver *agentLineResolver, findings *[]aiAg
 			Title:       "AI agent configuration exposes dangerous tool capability",
 			Summary:     capability.Summary,
 			Remediation: "Restrict the tool allowlist, isolate agent execution, remove broad shell/filesystem/network access, and gate deploy or cloud commands behind reviewed workflows.",
-			Line:        resolver.lineFor(capability.Name),
+			Line:        resolver.lineForContext(value, capability.Name),
 			// The capability name is part of the snippet so multiple risky tools
 			// in the same command (for example "aws ... && vercel ...") are not
 			// collapsed by snippet-aware deduplication.
@@ -261,6 +268,16 @@ func (r *agentLineResolver) lineFor(needle string) int {
 		}
 	}
 	return 1
+}
+
+func (r *agentLineResolver) lineForContext(needle string, fallback string) int {
+	if line := r.lineFor(needle); line != 1 {
+		return line
+	}
+	if fallback == "" {
+		return 1
+	}
+	return r.lineFor(fallback)
 }
 
 func appendAIAgentFinding(
@@ -491,8 +508,15 @@ func isKnownAIAgentStructuredConfig(path string) bool {
 	if lower == "" {
 		return false
 	}
+	if isAIAgentGitHubWorkflowPath(lower) {
+		return false
+	}
 	base := strings.ToLower(filepathBase(path))
-	return strings.HasPrefix(base, ".mcp") || strings.HasPrefix(base, "mcp")
+	return aiKnownAIAgentConfigNamePattern.MatchString(base)
+}
+
+func isAIAgentGitHubWorkflowPath(path string) bool {
+	return strings.HasPrefix(path, ".github/workflows/") || strings.Contains(path, "/.github/workflows/")
 }
 
 func isCommittedLocalAIAgentConfig(path string) bool {

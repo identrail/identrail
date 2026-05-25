@@ -1,6 +1,8 @@
 package repoexposure
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -149,6 +151,9 @@ func TestAIAgentConfigPathSelection(t *testing.T) {
 	if isAIAgentConfigPath("ops/deploy-agent.yaml") {
 		t.Fatal("expected non-agent filenames containing 'agent' to be skipped")
 	}
+	if isAIAgentConfigPath(".github/workflows/mcp.yml") {
+		t.Fatal("expected workflows path to be skipped from AI-agent scanning")
+	}
 	if isAIAgentConfigPath("docs/agent-notes.md") {
 		t.Fatal("expected non-agent markdown notes to be skipped")
 	}
@@ -279,4 +284,57 @@ func TestStructuredAIAgentFindingsUseSourceLineNumbers(t *testing.T) {
 	if envLines == 0 {
 		t.Fatalf("expected structured env reference finding, got %+v", findings)
 	}
+}
+
+func TestStructuredAIAgentFindingsUseDeterministicTraversalAndLineMapping(t *testing.T) {
+	content := []byte(`{
+  "mcpServers": {
+    "shellServer": {
+      "command": "bash",
+      "env": {
+        "CACHE": "true"
+      }
+    },
+    "deployServer": {
+      "command": "vercel",
+      "args": ["--token", "deploy"]
+    },
+    "networkServer": {
+      "command": "curl",
+      "args": ["https://example.com"]
+    },
+    "cloudServer": {
+      "command": "aws",
+      "args": ["s3", "ls"]
+    }
+  }
+}`)
+	pass1 := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".cursor/mcp.json", content, time.Time{})
+	pass2 := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".cursor/mcp.json", content, time.Time{})
+
+	sig1 := structuredCapabilitySignatures(pass1)
+	sig2 := structuredCapabilitySignatures(pass2)
+	sort.Strings(sig1)
+	sort.Strings(sig2)
+	if len(sig1) != len(sig2) {
+		t.Fatalf("expected deterministic signatures, got %d vs %d. pass1=%v pass2=%v", len(sig1), len(sig2), sig1, sig2)
+	}
+	for i := range sig1 {
+		if sig1[i] != sig2[i] {
+			t.Fatalf("expected deterministic ordering and line mapping, got %v vs %v", sig1, sig2)
+		}
+	}
+}
+
+func structuredCapabilitySignatures(findings []domain.Finding) []string {
+	signatures := make([]string, 0)
+	for _, finding := range findings {
+		if finding.Detector != "ai_agent_dangerous_tool_capability" {
+			continue
+		}
+		tool, _ := finding.Evidence["tool_name"].(string)
+		capability, _ := finding.Evidence["capability"].(string)
+		signatures = append(signatures, fmt.Sprintf("%s|%s|%d|%s", capability, tool, finding.LineNumber, finding.LineSnippet))
+	}
+	return signatures
 }
