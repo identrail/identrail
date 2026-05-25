@@ -603,6 +603,12 @@ func (s *Service) resolveScanSource(ctx context.Context, request ScanRequest) (d
 	if source.Empty() {
 		return db.ScanSource{}, nil
 	}
+	// Source scoping is AWS-only. For other providers, ignore any project/connector
+	// hints so pending-scan guards keep their single-queue semantics rather than
+	// partitioning by project.
+	if strings.ToLower(strings.TrimSpace(s.Provider)) != string(domain.ConnectorTypeAWS) {
+		return db.ScanSource{}, nil
+	}
 	if source.ProjectID == "" {
 		return db.ScanSource{}, ErrInvalidScanRequest
 	}

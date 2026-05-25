@@ -1003,8 +1003,11 @@ function trimOrUndefined(value?: string): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function isScanRequestPayload(value?: ScanRequest | RequestAuthContext): value is ScanRequest {
-  return Boolean(value && ('project_id' in value || 'connector_id' in value));
+function isRequestAuthContext(value?: ScanRequest | RequestAuthContext): value is RequestAuthContext {
+  return Boolean(
+    value &&
+      ('apiKey' in value || 'tenantID' in value || 'workspaceID' in value || 'bearerToken' in value)
+  );
 }
 
 function currentBrowserHostname(): string | undefined {
@@ -1394,9 +1397,12 @@ export const apiClient = {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
   },
   startScan(payloadOrAuth?: ScanRequest | RequestAuthContext, maybeAuth?: RequestAuthContext) {
-    const hasPayload = isScanRequestPayload(payloadOrAuth);
-    const payload = hasPayload ? payloadOrAuth : undefined;
-    const auth = hasPayload ? maybeAuth : (payloadOrAuth as RequestAuthContext | undefined);
+    // A second argument means the first is unambiguously the scan payload. With a single
+    // argument, treat it as auth only when it carries auth fields, so an empty or
+    // conditionally-built payload (e.g. startScan({}, auth)) does not swallow the auth context.
+    const firstIsPayload = maybeAuth !== undefined || !isRequestAuthContext(payloadOrAuth);
+    const payload = firstIsPayload ? (payloadOrAuth as ScanRequest | undefined) : undefined;
+    const auth = firstIsPayload ? maybeAuth : (payloadOrAuth as RequestAuthContext | undefined);
     return request<{ scan: ScanRecord }>('/v1/scans', auth, {
       method: 'POST',
       body: payload && (payload.project_id || payload.connector_id) ? JSON.stringify(payload) : undefined

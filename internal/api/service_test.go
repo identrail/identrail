@@ -5587,3 +5587,23 @@ func TestServiceProjectScopedAWSScanWithoutConnectorDoesNotUseOtherProjectConnec
 		t.Fatal("expected project-a scan not to hydrate project-b connector")
 	}
 }
+
+func TestServiceNonAWSProviderIgnoresScanSourceScope(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{result: app.ScanResult{Assets: 1}}, "kubernetes")
+	svc.ScanQueueMaxPending = 1
+	ctx := defaultScopeContext()
+
+	first, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"})
+	if err != nil {
+		t.Fatalf("enqueue first non-aws scan: %v", err)
+	}
+	if first.ProjectID != "" || first.ConnectorID != "" {
+		t.Fatalf("expected non-aws scan to drop source scope, got %+v", first)
+	}
+
+	// A scan scoped to a different project must still hit the single pending-scan
+	// guard, proving the source scope did not partition the queue for non-AWS providers.
+	if _, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-b"}); !errors.Is(err, ErrScanInProgress) {
+		t.Fatalf("expected ErrScanInProgress for non-aws provider, got %v", err)
+	}
+}
