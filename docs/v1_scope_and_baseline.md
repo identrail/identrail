@@ -42,6 +42,15 @@ contract.
   - `bound_to`
   - `can_access`
   - `can_impersonate`
+  - `runs_as`
+  - `uses_secret`
+  - `can_decrypt`
+  - `can_pass_role`
+  - `invokes`
+  - `calls_tool`
+  - `acts_for_user`
+  - `has_runtime_session`
+  - `observed_action`
 - Fixture-based contract tests verify normalized identities and relationship types for AWS and Kubernetes pipelines.
 
 ## 5) Risk Engine Productionization
@@ -83,6 +92,10 @@ contract.
   - relationship ID uniqueness
   - semantic tuple uniqueness (`type + from + to`)
   - required discovery timestamp on all edges
+- Precise AWS machine and agent identity semantics are reserved in the contract
+  so future collectors can model secrets, KMS decrypt capability, role passing,
+  invocations, tool calls, delegated users, runtime sessions, and observed
+  actions without overloading generic `can_access` edges.
 - AWS and Kubernetes graph snapshots were added as regression fixtures.
 
 ## 10) Risk Rule Reliability Baseline

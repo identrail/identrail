@@ -288,9 +288,9 @@ This file tracks major decisions in simple terms.
 
 ## ADR-048: Freeze Graph Semantics with Explicit Relationship Contract
 - Date: 2026-03-19
-- Decision: Explicitly define supported relationship semantics (`can_assume`, `attached_policy`, `attached_to`, `bound_to`, `can_access`, `can_impersonate`) and validate relationship types against this contract.
+- Decision: Explicitly define supported relationship semantics (`can_assume`, `attached_policy`, `attached_to`, `bound_to`, `can_access`, `can_impersonate`, `runs_as`, `uses_secret`, `can_decrypt`, `can_pass_role`, `invokes`, `calls_tool`, `acts_for_user`, `has_runtime_session`, `observed_action`) and validate relationship types against this contract.
 - Why: Prevent silent graph-schema drift that would break findings logic, API consumers, and path analysis semantics.
-- Tradeoff: New relationship types require explicit contract updates before rollout.
+- Tradeoff: New relationship types require explicit contract updates before rollout, and precise AWS/agent semantics must carry endpoint-specific evidence instead of being collapsed into generic `can_access` edges.
 
 ## ADR-049: Enforce Deterministic Risk Evidence Ordering
 - Date: 2026-03-19

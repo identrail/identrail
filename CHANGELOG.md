@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Expanded the normalized identity graph contract with precise AWS machine and
+  agent relationship semantics for workload execution, secrets, KMS decrypt,
+  role passing, invocations, tool calls, delegated users, runtime sessions, and
+  observed actions, with domain metadata, endpoint validation, tests, and docs.
 - Added GitHub Actions AI-agent prompt-injection detection for workflows that
   feed untrusted PR, issue, review, comment, workflow_run, or repository
   prompt-file content into LLM/agent steps with repository write, secret, OIDC,

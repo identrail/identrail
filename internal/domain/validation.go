@@ -2,19 +2,10 @@ package domain
 
 import "strings"
 
-var supportedRelationshipTypes = map[RelationshipType]struct{}{
-	RelationshipCanAssume:      {},
-	RelationshipAttachedPolicy: {},
-	RelationshipAttachedTo:     {},
-	RelationshipBoundTo:        {},
-	RelationshipCanAccess:      {},
-	RelationshipCanImpersonate: {},
-}
-
 // IsSupportedRelationshipType reports whether the relationship semantic is part
 // of the v1 graph contract.
 func IsSupportedRelationshipType(rel RelationshipType) bool {
-	_, ok := supportedRelationshipTypes[rel]
+	_, ok := RelationshipContractFor(rel)
 	return ok
 }
 

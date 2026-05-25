@@ -360,6 +360,7 @@ func TestValidateGraphContractCoverageBranches(t *testing.T) {
 		Identities: []domain.Identity{
 			{ID: "id-a", Provider: domain.ProviderAWS, Type: domain.IdentityTypeRole, Name: "a"},
 			{ID: "id-b", Provider: domain.ProviderAWS, Type: domain.IdentityTypeRole, Name: "b"},
+			{ID: "user-a", Provider: domain.ProviderAWS, Type: domain.IdentityTypeUser, Name: "human-a"},
 		},
 		Workloads: []domain.Workload{
 			{ID: "wl-a", Provider: domain.ProviderKubernetes, Type: "pod", Name: "api"},
@@ -390,6 +391,15 @@ func TestValidateGraphContractCoverageBranches(t *testing.T) {
 		{ID: "r4", Type: domain.RelationshipCanAssume, FromNodeID: "aws:principal:111122223333:root", ToNodeID: "id-a", DiscoveredAt: now},
 		{ID: "r5", Type: domain.RelationshipCanImpersonate, FromNodeID: "wl-a", ToNodeID: "id-a", DiscoveredAt: now},
 		{ID: "r6", Type: domain.RelationshipCanAccess, FromNodeID: "id-a", ToNodeID: "k8s:access:get:pods", DiscoveredAt: now},
+		{ID: "r7", Type: domain.RelationshipRunsAs, FromNodeID: "wl-a", ToNodeID: "id-a", DiscoveredAt: now},
+		{ID: "r8", Type: domain.RelationshipUsesSecret, FromNodeID: "id-a", ToNodeID: "aws:secret:secretsmanager:prod/db", DiscoveredAt: now},
+		{ID: "r9", Type: domain.RelationshipCanDecrypt, FromNodeID: "id-a", ToNodeID: "aws:kms:key/abcd", DiscoveredAt: now},
+		{ID: "r10", Type: domain.RelationshipCanPassRole, FromNodeID: "id-a", ToNodeID: "id-b", DiscoveredAt: now},
+		{ID: "r11", Type: domain.RelationshipInvokes, FromNodeID: "wl-a", ToNodeID: "aws:lambda:function:rotate", DiscoveredAt: now},
+		{ID: "r12", Type: domain.RelationshipCallsTool, FromNodeID: "agent:bedrock:reviewer", ToNodeID: "tool:mcp:github.search", DiscoveredAt: now},
+		{ID: "r13", Type: domain.RelationshipActsForUser, FromNodeID: "agent:bedrock:reviewer", ToNodeID: "user-a", DiscoveredAt: now},
+		{ID: "r14", Type: domain.RelationshipRuntimeSession, FromNodeID: "id-a", ToNodeID: "aws:session:sts:session-1", DiscoveredAt: now},
+		{ID: "r15", Type: domain.RelationshipObservedAction, FromNodeID: "aws:session:sts:session-1", ToNodeID: "aws:access:s3%3AGetObject:arn%3Aaws%3As3%3A%3A%3Aprod%2F%2A", DiscoveredAt: now},
 	}
 	if err := ValidateGraphContract(bundle, valid); err != nil {
 		t.Fatalf("expected valid relationships, got %v", err)
@@ -436,6 +446,34 @@ func TestValidateGraphContractCoverageBranches(t *testing.T) {
 				{ID: "y", Type: domain.RelationshipCanImpersonate, FromNodeID: "missing", ToNodeID: "id-a", DiscoveredAt: now},
 			},
 			needle: "unknown source",
+		},
+		{
+			name: "bad uses_secret target",
+			relationships: []domain.Relationship{
+				{ID: "secret", Type: domain.RelationshipUsesSecret, FromNodeID: "id-a", ToNodeID: "plain-secret", DiscoveredAt: now},
+			},
+			needle: "invalid secret node",
+		},
+		{
+			name: "bad can_pass_role target",
+			relationships: []domain.Relationship{
+				{ID: "pass", Type: domain.RelationshipCanPassRole, FromNodeID: "id-a", ToNodeID: "user-a", DiscoveredAt: now},
+			},
+			needle: "target role identity",
+		},
+		{
+			name: "bad acts_for_user target",
+			relationships: []domain.Relationship{
+				{ID: "delegate", Type: domain.RelationshipActsForUser, FromNodeID: "agent:bedrock:reviewer", ToNodeID: "id-a", DiscoveredAt: now},
+			},
+			needle: "target user identity",
+		},
+		{
+			name: "bad observed_action target",
+			relationships: []domain.Relationship{
+				{ID: "observed", Type: domain.RelationshipObservedAction, FromNodeID: "aws:session:sts:session-1", ToNodeID: "plain-action", DiscoveredAt: now},
+			},
+			needle: "invalid action node",
 		},
 	}
 	for _, tc := range tests {

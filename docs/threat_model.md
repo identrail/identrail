@@ -234,7 +234,7 @@ Simple threat list for current system.
 
 ## 47) Graph Semantic Drift
 - Threat: New or mistyped relationship names can silently enter storage and break path logic and findings.
-- Fix: Validate relationships against an explicit supported semantic contract and enforce fixture-based contract tests.
+- Fix: Validate relationships against an explicit supported semantic contract, including precise AWS machine and agent identity edge types, and enforce fixture-based contract tests.
 - Status: Implemented.
 
 ## 48) Non-Deterministic Finding Evidence
