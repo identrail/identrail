@@ -329,8 +329,22 @@ func (p *PostgresStore) CreateQueuedScan(ctx context.Context, provider string, q
 	return p.createScanWithStatus(ctx, provider, "queued", queuedAt)
 }
 
+// CreateQueuedScanWithSource inserts a queued scan request row with project/connector source metadata.
+func (p *PostgresStore) CreateQueuedScanWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time) (ScanRecord, error) {
+	normalizedSource := source.Normalize()
+	if normalizedSource.Empty() {
+		return p.CreateQueuedScan(ctx, provider, queuedAt)
+	}
+	return p.createScanWithStatusAndSource(ctx, provider, normalizedSource, "queued", queuedAt)
+}
+
 // CreateQueuedScanWithinLimit inserts one queued scan request only when pending capacity remains.
 func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error) {
+	return p.CreateQueuedScanWithinLimitWithSource(ctx, provider, ScanSource{}, queuedAt, maxPending)
+}
+
+// CreateQueuedScanWithinLimitWithSource inserts one source-bound queued scan request only when pending capacity remains.
+func (p *PostgresStore) CreateQueuedScanWithinLimitWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time, maxPending int) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return ScanRecord{}, err
@@ -345,7 +359,8 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 	defer tx.Rollback()
 
 	normalizedProvider := strings.TrimSpace(provider)
-	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider)
+	normalizedSource := source.Normalize()
+	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider, normalizedSource.ProjectID, normalizedSource.ConnectorID)
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
 		return ScanRecord{}, fmt.Errorf("lock queued scan capacity: %w", err)
 	}
@@ -355,13 +370,17 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 		ctx,
 		`SELECT COUNT(*)
 		FROM scans
-		WHERE tenant_id = $1
-		  AND workspace_id = $2
-		  AND provider = $3
-		  AND status = 'queued'`,
+			WHERE tenant_id = $1
+			  AND workspace_id = $2
+			  AND provider = $3
+			  AND ($4 = '' OR source_project_id = $4)
+			  AND ($5 = '' OR source_connector_id = $5)
+			  AND status = 'queued'`,
 		scope.TenantID,
 		scope.WorkspaceID,
 		normalizedProvider,
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
 	).Scan(&queued); err != nil {
 		return ScanRecord{}, fmt.Errorf("count queued scans: %w", err)
 	}
@@ -373,13 +392,15 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 	row := tx.QueryRowContext(
 		ctx,
 		`INSERT INTO scans (
-			id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message, trace_parent, trace_state
-		)
-		VALUES ($1, $2, $3, $4, 'queued', $5, NULL, 0, 0, NULL, NULLIF($6, ''), NULLIF($7, ''))
-		RETURNING id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at, COALESCE(trace_parent, ''), COALESCE(trace_state, '')`,
+				id, tenant_id, workspace_id, source_project_id, source_connector_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message, trace_parent, trace_state
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, NULL, 0, 0, NULL, NULLIF($8, ''), NULLIF($9, ''))
+			RETURNING id, tenant_id, workspace_id, COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at, COALESCE(trace_parent, ''), COALESCE(trace_state, '')`,
 		uuid.NewString(),
 		scope.TenantID,
 		scope.WorkspaceID,
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
 		normalizedProvider,
 		queuedAt.UTC(),
 		traceParent,
@@ -397,6 +418,11 @@ func (p *PostgresStore) CreateQueuedScanWithinLimit(ctx context.Context, provide
 
 // CreateQueuedScanIfNoPending inserts one queued scan only when no queued/running scan exists.
 func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error) {
+	return p.CreateQueuedScanIfNoPendingWithSource(ctx, provider, ScanSource{}, queuedAt)
+}
+
+// CreateQueuedScanIfNoPendingWithSource inserts one source-bound queued scan only when no queued/running scan exists.
+func (p *PostgresStore) CreateQueuedScanIfNoPendingWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time) (ScanRecord, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return ScanRecord{}, err
@@ -408,7 +434,8 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 	defer tx.Rollback()
 
 	normalizedProvider := strings.TrimSpace(provider)
-	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider)
+	normalizedSource := source.Normalize()
+	lockKey := fmt.Sprintf("scan-queue:%s:%s:%s:%s:%s", scope.TenantID, scope.WorkspaceID, normalizedProvider, normalizedSource.ProjectID, normalizedSource.ConnectorID)
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, lockKey); err != nil {
 		return ScanRecord{}, fmt.Errorf("lock scan queue: %w", err)
 	}
@@ -418,13 +445,17 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 		ctx,
 		`SELECT COUNT(*)
 		 FROM scans
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		   AND provider = $3
-		   AND status IN ('queued', 'running')`,
+			 WHERE tenant_id = $1
+			   AND workspace_id = $2
+			   AND provider = $3
+			   AND ($4 = '' OR source_project_id = $4)
+			   AND ($5 = '' OR source_connector_id = $5)
+			   AND status IN ('queued', 'running')`,
 		scope.TenantID,
 		scope.WorkspaceID,
 		normalizedProvider,
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
 	).Scan(&pending); err != nil {
 		return ScanRecord{}, fmt.Errorf("count pending scans: %w", err)
 	}
@@ -436,6 +467,8 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 		ID:            uuid.NewString(),
 		TenantID:      scope.TenantID,
 		WorkspaceID:   scope.WorkspaceID,
+		ProjectID:     normalizedSource.ProjectID,
+		ConnectorID:   normalizedSource.ConnectorID,
 		Provider:      normalizedProvider,
 		Status:        "queued",
 		StartedAt:     queuedAt.UTC(),
@@ -444,11 +477,13 @@ func (p *PostgresStore) CreateQueuedScanIfNoPending(ctx context.Context, provide
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO scans (id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message, trace_parent, trace_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, 0, NULL, NULLIF($7, ''), NULLIF($8, ''))`,
+		`INSERT INTO scans (id, tenant_id, workspace_id, source_project_id, source_connector_id, provider, status, started_at, finished_at, asset_count, finding_count, error_message, trace_parent, trace_state)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, 0, 0, NULL, NULLIF($9, ''), NULLIF($10, ''))`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
+		record.ProjectID,
+		record.ConnectorID,
 		record.Provider,
 		record.Status,
 		record.StartedAt,
@@ -497,7 +532,7 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		    next_retry_at = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), s.retry_count, s.max_retry_count, COALESCE(s.failure_category, ''), s.next_retry_at, s.dead_lettered, s.dead_lettered_at, COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
+			RETURNING s.id, s.tenant_id, s.workspace_id, COALESCE(s.source_project_id, ''), COALESCE(s.source_connector_id, ''), s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), s.retry_count, s.max_retry_count, COALESCE(s.failure_category, ''), s.next_retry_at, s.dead_lettered, s.dead_lettered_at, COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
 	args := []any{strings.TrimSpace(provider)}
 	if scope != nil {
 		query = `WITH next_scan AS (
@@ -521,7 +556,7 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 		    next_retry_at = NULL
 		FROM next_scan
 		WHERE s.id = next_scan.id
-		RETURNING s.id, s.tenant_id, s.workspace_id, s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), s.retry_count, s.max_retry_count, COALESCE(s.failure_category, ''), s.next_retry_at, s.dead_lettered, s.dead_lettered_at, COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
+			RETURNING s.id, s.tenant_id, s.workspace_id, COALESCE(s.source_project_id, ''), COALESCE(s.source_connector_id, ''), s.provider, s.status, s.started_at, s.finished_at, s.asset_count, s.finding_count, COALESCE(s.error_message, ''), s.retry_count, s.max_retry_count, COALESCE(s.failure_category, ''), s.next_retry_at, s.dead_lettered, s.dead_lettered_at, COALESCE(s.trace_parent, ''), COALESCE(s.trace_state, '')`
 		args = []any{scope.TenantID, scope.WorkspaceID, strings.TrimSpace(provider)}
 	}
 	var row rowScanner
@@ -590,7 +625,7 @@ func (p *PostgresStore) GetScan(ctx context.Context, scanID string) (ScanRecord,
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
+		`SELECT id, tenant_id, workspace_id, COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 WHERE id = $1
 		   AND tenant_id = $2
@@ -1133,8 +1168,8 @@ func (p *PostgresStore) ListScans(ctx context.Context, limit int) ([]ScanRecord,
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
-		 , retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
+		`SELECT id, tenant_id, workspace_id, COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
+			 , retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at
 		 FROM scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -4556,6 +4591,41 @@ func (p *PostgresStore) createScanWithStatus(ctx context.Context, provider strin
 	return record, nil
 }
 
+func (p *PostgresStore) createScanWithStatusAndSource(ctx context.Context, provider string, source ScanSource, status string, startedAt time.Time) (ScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	normalizedSource := source.Normalize()
+	record := ScanRecord{
+		ID:            uuid.NewString(),
+		TenantID:      scope.TenantID,
+		WorkspaceID:   scope.WorkspaceID,
+		ProjectID:     normalizedSource.ProjectID,
+		ConnectorID:   normalizedSource.ConnectorID,
+		Provider:      strings.TrimSpace(provider),
+		Status:        strings.TrimSpace(status),
+		StartedAt:     startedAt.UTC(),
+		MaxRetryCount: DefaultScanMaxRetryCount,
+	}
+	_, err = p.execContext(
+		ctx,
+		`INSERT INTO scans (id, tenant_id, workspace_id, source_project_id, source_connector_id, provider, status, started_at, asset_count, finding_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0)`,
+		record.ID,
+		record.TenantID,
+		record.WorkspaceID,
+		record.ProjectID,
+		record.ConnectorID,
+		record.Provider,
+		record.Status,
+		record.StartedAt,
+	)
+	if err != nil {
+		return ScanRecord{}, fmt.Errorf("insert scan: %w", err)
+	}
+	return record, nil
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -4709,6 +4779,8 @@ func scanScanRecord(scanner scanner) (ScanRecord, error) {
 		&record.ID,
 		&record.TenantID,
 		&record.WorkspaceID,
+		&record.ProjectID,
+		&record.ConnectorID,
 		&record.Provider,
 		&record.Status,
 		&record.StartedAt,
@@ -4726,6 +4798,8 @@ func scanScanRecord(scanner scanner) (ScanRecord, error) {
 		return ScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.ProjectID = strings.TrimSpace(record.ProjectID)
+	record.ConnectorID = strings.TrimSpace(record.ConnectorID)
 	record.FailureCategory = strings.TrimSpace(failureCategory.String)
 	if record.MaxRetryCount <= 0 {
 		record.MaxRetryCount = DefaultScanMaxRetryCount
@@ -4755,6 +4829,8 @@ func scanQueuedScanRecord(scanner scanner) (ScanRecord, error) {
 		&record.ID,
 		&record.TenantID,
 		&record.WorkspaceID,
+		&record.ProjectID,
+		&record.ConnectorID,
 		&record.Provider,
 		&record.Status,
 		&record.StartedAt,
@@ -4774,6 +4850,8 @@ func scanQueuedScanRecord(scanner scanner) (ScanRecord, error) {
 		return ScanRecord{}, err
 	}
 	record.StartedAt = record.StartedAt.UTC()
+	record.ProjectID = strings.TrimSpace(record.ProjectID)
+	record.ConnectorID = strings.TrimSpace(record.ConnectorID)
 	record.FailureCategory = strings.TrimSpace(failureCategory.String)
 	if record.MaxRetryCount <= 0 {
 		record.MaxRetryCount = DefaultScanMaxRetryCount

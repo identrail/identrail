@@ -193,6 +193,8 @@ type ScanRecord struct {
 	ID              string     `json:"id"`
 	TenantID        string     `json:"-"`
 	WorkspaceID     string     `json:"-"`
+	ProjectID       string     `json:"project_id,omitempty"`
+	ConnectorID     string     `json:"connector_id,omitempty"`
 	Provider        string     `json:"provider"`
 	Status          string     `json:"status"`
 	StartedAt       time.Time  `json:"started_at"`
@@ -208,6 +210,26 @@ type ScanRecord struct {
 	DeadLetteredAt  *time.Time `json:"dead_lettered_at,omitempty"`
 	TraceParent     string     `json:"-"`
 	TraceState      string     `json:"-"`
+}
+
+// ScanSource carries non-secret project/connector context for cloud scans.
+type ScanSource struct {
+	ProjectID   string
+	ConnectorID string
+}
+
+// Normalize returns a stable source key.
+func (s ScanSource) Normalize() ScanSource {
+	return ScanSource{
+		ProjectID:   strings.TrimSpace(s.ProjectID),
+		ConnectorID: strings.TrimSpace(s.ConnectorID),
+	}
+}
+
+// Empty reports whether a scan has no explicit project/connector binding.
+func (s ScanSource) Empty() bool {
+	normalized := s.Normalize()
+	return normalized.ProjectID == "" && normalized.ConnectorID == ""
 }
 
 // RepoScanRecord tracks persisted repository exposure scan metadata.
@@ -2317,8 +2339,11 @@ type FindingTrendCount struct {
 type Store interface {
 	CreateScan(ctx context.Context, provider string, startedAt time.Time) (ScanRecord, error)
 	CreateQueuedScan(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error)
+	CreateQueuedScanWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time) (ScanRecord, error)
 	CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error)
+	CreateQueuedScanWithinLimitWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time, maxPending int) (ScanRecord, error)
 	CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error)
+	CreateQueuedScanIfNoPendingWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time) (ScanRecord, error)
 	ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error)
 	ClaimNextQueuedScanAnyScope(ctx context.Context, provider string) (ScanRecord, error)
 	CountQueuedScans(ctx context.Context, provider string) (int, error)

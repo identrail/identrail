@@ -659,3 +659,39 @@ func TestFifteenthMigrationEnforcesRLSForTenancyAndConnectorTables(t *testing.T)
 		t.Fatal("expected tenancy_workspaces policy to remain tenant-scoped for tenant-level workspace discovery")
 	}
 }
+
+func TestThirtyThirdMigrationContainsScanSourceMetadata(t *testing.T) {
+	upPath := filepath.Join("..", "..", "migrations", "000033_scan_source_metadata.up.sql")
+	upContent, err := os.ReadFile(upPath)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	upText := string(upContent)
+	upRequired := []string{
+		"ADD COLUMN IF NOT EXISTS source_project_id",
+		"ADD COLUMN IF NOT EXISTS source_connector_id",
+		"idx_scans_source_scope_status_started",
+	}
+	for _, item := range upRequired {
+		if !strings.Contains(upText, item) {
+			t.Fatalf("expected scan source migration item %q", item)
+		}
+	}
+
+	downPath := filepath.Join("..", "..", "migrations", "000033_scan_source_metadata.down.sql")
+	downContent, err := os.ReadFile(downPath)
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+	downText := string(downContent)
+	downRequired := []string{
+		"DROP INDEX IF EXISTS idx_scans_source_scope_status_started",
+		"DROP COLUMN IF EXISTS source_connector_id",
+		"DROP COLUMN IF EXISTS source_project_id",
+	}
+	for _, item := range downRequired {
+		if !strings.Contains(downText, item) {
+			t.Fatalf("expected scan source down migration item %q", item)
+		}
+	}
+}

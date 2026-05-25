@@ -95,6 +95,22 @@ describe('apiClient', () => {
     expect(headers.get('x-identrail-workspace-id')).toBe('workspace-a');
   });
 
+  it('starts scans with optional project and connector scope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ scan: { id: 'scan-1' } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.startScan(
+      { project_id: 'project-a', connector_id: 'aws-project-a' },
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' }
+    );
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(options.method).toBe('POST');
+    expect(options.body).toBe(JSON.stringify({ project_id: 'project-a', connector_id: 'aws-project-a' }));
+  });
+
   it('persists onboarding state through server endpoints', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
