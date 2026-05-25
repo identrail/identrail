@@ -31,6 +31,15 @@ const (
 	RelationshipBoundTo        RelationshipType = "bound_to"
 	RelationshipCanAccess      RelationshipType = "can_access"
 	RelationshipCanImpersonate RelationshipType = "can_impersonate"
+	RelationshipRunsAs         RelationshipType = "runs_as"
+	RelationshipUsesSecret     RelationshipType = "uses_secret"
+	RelationshipCanDecrypt     RelationshipType = "can_decrypt"
+	RelationshipCanPassRole    RelationshipType = "can_pass_role"
+	RelationshipInvokes        RelationshipType = "invokes"
+	RelationshipCallsTool      RelationshipType = "calls_tool"
+	RelationshipActsForUser    RelationshipType = "acts_for_user"
+	RelationshipRuntimeSession RelationshipType = "has_runtime_session"
+	RelationshipObservedAction RelationshipType = "observed_action"
 )
 
 // FindingSeverity aligns risk scoring with operator expectations.

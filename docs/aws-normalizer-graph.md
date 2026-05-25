@@ -19,6 +19,14 @@ This module converts raw IAM role assets into normalized domain entities and gra
    - `can_assume` (principal -> identity)
    - `can_access` (identity -> access node)
 
+The wider graph contract also supports precise AWS machine and agent identity
+edges such as `runs_as`, `uses_secret`, `can_decrypt`, `can_pass_role`,
+`invokes`, `calls_tool`, `acts_for_user`, `has_runtime_session`, and
+`observed_action`. The current IAM graph builder only emits edges it can prove
+from collected IAM role and policy evidence; later collectors should use the
+precise edge types instead of overloading `can_access` when runtime, secret,
+KMS, agent, or delegation evidence is available.
+
 ## Key Decisions
 
 - Trust and permission policies are retained as normalized policy records, preserving explainability.
