@@ -123,6 +123,49 @@ func TestAWSCompositeCollectorNonFatalServiceFailureContinuesAndRecordsDiagnosti
 	}
 }
 
+func TestAWSCompositeCollectorAllServicesFailingReturnsError(t *testing.T) {
+	api := &fakeIAMClient{listFn: func(_ context.Context, _ string, _ int32) (ListRolesPage, error) {
+		return ListRolesPage{}, errors.New("iam access denied")
+	}}
+
+	secondService := &fakeAWSServiceCollector{
+		name: "ecs",
+		err:  errors.New("temporary downstream failure"),
+	}
+	composite := NewAWSCompositeCollector(api, "123", "eu-west-1", secondService)
+	assets, sourceErrors, err := composite.CollectWithDiagnostics(context.Background())
+	if err == nil {
+		t.Fatalf("expected error when every service collector fails")
+	}
+	if !strings.Contains(err.Error(), "all aws service collectors failed") {
+		t.Fatalf("unexpected aggregate error message %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "iam access denied") || !strings.Contains(err.Error(), "temporary downstream failure") {
+		t.Fatalf("expected aggregate error to wrap underlying service errors, got %q", err.Error())
+	}
+	if len(assets) != 0 {
+		t.Fatalf("expected no assets on total failure, got %d", len(assets))
+	}
+	if len(sourceErrors) == 0 {
+		t.Fatalf("expected diagnostics to be surfaced alongside the total-failure error")
+	}
+}
+
+func TestAWSCompositeCollectorIAMOnlyFailureReturnsError(t *testing.T) {
+	api := &fakeIAMClient{listFn: func(_ context.Context, _ string, _ int32) (ListRolesPage, error) {
+		return ListRolesPage{}, errors.New("iam throttled")
+	}}
+
+	composite := NewAWSCompositeCollector(api, "123", "eu-west-1")
+	assets, _, err := composite.CollectWithDiagnostics(context.Background())
+	if err == nil {
+		t.Fatalf("expected IAM-only collection failure to fail the scan")
+	}
+	if len(assets) != 0 {
+		t.Fatalf("expected no assets when the only wired service fails, got %d", len(assets))
+	}
+}
+
 func TestAWSCompositeCollectorPassesAccountAndRegionScopeToServices(t *testing.T) {
 	api := &fakeIAMClient{listFn: func(_ context.Context, _ string, _ int32) (ListRolesPage, error) {
 		return ListRolesPage{Roles: []IAMRole{{ARN: "arn:aws:iam::123:role/safe", Name: "safe"}}}, nil

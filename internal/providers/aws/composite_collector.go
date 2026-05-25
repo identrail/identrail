@@ -91,6 +91,8 @@ func (c *AWSCompositeCollector) CollectWithDiagnostics(ctx context.Context) ([]p
 	var (
 		assets       []providers.RawAsset
 		sourceErrors []providers.SourceError
+		serviceErrs  []error
+		attempted    int
 	)
 	for _, service := range c.services {
 		if service == nil {
@@ -99,6 +101,7 @@ func (c *AWSCompositeCollector) CollectWithDiagnostics(ctx context.Context) ([]p
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
+		attempted++
 
 		scope := AWSCollectorScope{
 			AccountID: c.accountID,
@@ -119,7 +122,15 @@ func (c *AWSCompositeCollector) CollectWithDiagnostics(ctx context.Context) ([]p
 				return nil, nil, err
 			}
 			sourceErrors = append(sourceErrors, sourceServiceFailureDiagnostic(scope, err))
+			serviceErrs = append(serviceErrs, fmt.Errorf("%s: %w", serviceNameOrUnknown(scope.Service), err))
 		}
+	}
+
+	// Tolerate partial failures, but do not mask a total collection failure as an
+	// empty partial success: if every attempted service collector failed, surface
+	// an error so the scan fails instead of silently reporting zero assets.
+	if attempted > 0 && len(serviceErrs) == attempted {
+		return nil, sourceErrors, fmt.Errorf("all aws service collectors failed: %w", errors.Join(serviceErrs...))
 	}
 
 	return dedupeAndSortAssets(assets), sourceErrors, nil
