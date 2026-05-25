@@ -211,6 +211,8 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
   type: 'Finding type',
   title: 'Finding title'
 };
+const MODAL_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const TREND_POINTS = 10;
 const PRODUCT_AUTH_SESSION_SCOPE_KEY = '__product_session__';
@@ -6283,6 +6285,7 @@ export function ProductFindingsPage() {
   const remediationPreviewRequestRef = useRef(0);
   const remediationPublishRequestRef = useRef(0);
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
+  const findingDetailModalRef = useRef<HTMLElement | null>(null);
 
   const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
 
@@ -6303,6 +6306,50 @@ export function ProductFindingsPage() {
       }
       return { ...current, [level]: nextKeys, initialized: true };
     });
+  };
+
+  const handleFindingDetailModalKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setFindingDetailOpen(false);
+      return;
+    }
+
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const modal = findingDetailModalRef.current;
+    if (!modal) {
+      return;
+    }
+
+    const focusableElements = Array.from(modal.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE_SELECTOR)).filter(
+      (element) => element.getAttribute('aria-hidden') !== 'true'
+    );
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      modal.focus();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusIsOutsideModal = !activeElement || !modal.contains(activeElement);
+
+    if (event.shiftKey) {
+      if (focusIsOutsideModal || activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      }
+      return;
+    }
+
+    if (focusIsOutsideModal || activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
   };
 
   const trendMaxTotal = useMemo(() => {
@@ -7362,13 +7409,10 @@ export function ProductFindingsPage() {
             aria-modal="true"
             aria-labelledby="repo-finding-detail-title"
             className="idt-repo-finding-detail-modal"
+            ref={findingDetailModalRef}
             role="dialog"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                setFindingDetailOpen(false);
-              }
-            }}
+            tabIndex={-1}
+            onKeyDown={handleFindingDetailModalKeyDown}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header className="idt-repo-finding-detail-modal-header">
