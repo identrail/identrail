@@ -82,11 +82,11 @@ func detectAIAgentConfigFindings(repo string, commit string, path string, conten
 					capability.Summary,
 					"Restrict the tool allowlist, isolate agent execution, remove broad shell/filesystem/network access, and gate deploy or cloud commands behind reviewed workflows.",
 					sanitizeAgentSnippet(line), detectedAt, map[string]any{
-					"agent_config_path": path,
-					"capability":        capability.Kind,
-					"tool_name":         capability.Name,
-					"raw_secret_data":   false,
-				})
+						"agent_config_path": path,
+						"capability":        capability.Kind,
+						"tool_name":         capability.Name,
+						"raw_secret_data":   false,
+					})
 			}
 		}
 	}
@@ -171,7 +171,7 @@ func walkAIAgentValue(value any, trail []string, resolver *agentLineResolver, fi
 						Title:       "AI agent configuration references sensitive environment variables",
 						Summary:     "An MCP or AI-agent configuration references credential-like environment variables that may be reachable by tool execution.",
 						Remediation: "Keep sensitive values in a secret manager, scope agent runtime environment variables to the smallest needed set, and avoid committing local agent configs.",
-					Line:        resolver.lineForContext(envVars[0], envVars[0]),
+						Line:        resolver.lineForContext(envVars[0], envVars[0]),
 						Snippet:     "env: " + strings.Join(envVars, ", "),
 						Evidence: map[string]any{
 							"config_tree_path": strings.Join(childTrail, "."),
