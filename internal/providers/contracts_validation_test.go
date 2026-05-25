@@ -145,6 +145,12 @@ func TestValidateNormalizedBundleDuplicateAndSchemaFailures(t *testing.T) {
 		Type:     domain.IdentityTypeRole,
 		Name:     "demo",
 	}
+	baseResource := domain.Resource{
+		ID:       "res-1",
+		Provider: domain.ProviderAWS,
+		Type:     domain.ResourceTypeS3Bucket,
+		Name:     "bucket-a",
+	}
 	tests := []struct {
 		name   string
 		bundle NormalizedBundle
@@ -270,6 +276,92 @@ func TestValidateNormalizedBundleDuplicateAndSchemaFailures(t *testing.T) {
 					},
 				}},
 			},
+		},
+		{
+			name: "duplicate resource id",
+			bundle: NormalizedBundle{
+				Resources: []domain.Resource{
+					baseResource,
+					baseResource,
+				},
+			},
+			needle: "duplicate resource id",
+		},
+		{
+			name: "invalid credential",
+			bundle: NormalizedBundle{
+				Identities: []domain.Identity{baseIdentity},
+				Resources:  []domain.Resource{baseResource},
+				Credentials: []domain.Credential{{
+					ID:        "cred-1",
+					Provider:  domain.ProviderAWS,
+					Type:      domain.CredentialTypeAccessKey,
+					Reference: "ref-1",
+					Name:      "access-key",
+					RawRef:    "raw-cred",
+					OwnerID:   baseIdentity.ID,
+					RawValue:  "must-not-be-stored",
+				}},
+			},
+			needle: "contains unredacted raw value",
+		},
+		{
+			name: "credential missing owner/reference/resource",
+			bundle: NormalizedBundle{
+				Credentials: []domain.Credential{{
+					ID:       "cred-missing",
+					Provider: domain.ProviderAWS,
+					Type:     domain.CredentialTypeAccessKey,
+					Name:     "access-key",
+					RawRef:   "raw-cred",
+				}},
+			},
+			needle: "missing reference",
+		},
+		{
+			name: "credential unknown resource_id",
+			bundle: NormalizedBundle{
+				Credentials: []domain.Credential{{
+					ID:         "cred-2",
+					Provider:   domain.ProviderAWS,
+					Type:       domain.CredentialTypeAccessKey,
+					Name:       "access-key",
+					RawRef:     "raw-cred",
+					Reference:  "ref",
+					ResourceID: "missing-resource",
+				}},
+			},
+			needle: "unknown resource_id",
+		},
+		{
+			name: "runtime event synthetic actor allowed",
+			bundle: NormalizedBundle{
+				RuntimeEvents: []domain.RuntimeEvent{{
+					ID:         "event-1",
+					Provider:   domain.ProviderAWS,
+					Type:       domain.RuntimeEventTypeRuntimeSession,
+					ActorID:    "aws:session:sts:abc123",
+					SourceRef:  "source-1",
+					ObservedAt: time.Date(2026, 3, 19, 12, 0, 0, 0, time.UTC),
+				}},
+			},
+			needle: "",
+		},
+		{
+			name: "runtime event unknown target",
+			bundle: NormalizedBundle{
+				Identities: []domain.Identity{baseIdentity},
+				RuntimeEvents: []domain.RuntimeEvent{{
+					ID:         "event-2",
+					Provider:   domain.ProviderAWS,
+					Type:       domain.RuntimeEventTypeInvoke,
+					ActorID:    baseIdentity.ID,
+					TargetID:   "missing-target",
+					SourceRef:  "source-2",
+					ObservedAt: time.Date(2026, 3, 19, 12, 0, 0, 0, time.UTC),
+				}},
+			},
+			needle: "unknown target_id",
 		},
 	}
 

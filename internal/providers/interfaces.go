@@ -42,9 +42,13 @@ type RiskRuleSet interface {
 
 // NormalizedBundle contains all normalized entities produced in one pass.
 type NormalizedBundle struct {
-	Identities []domain.Identity
-	Workloads  []domain.Workload
-	Policies   []domain.Policy
+	Identities    []domain.Identity
+	Workloads     []domain.Workload
+	Policies      []domain.Policy
+	Resources     []domain.Resource
+	Credentials   []domain.Credential
+	Agents        []domain.Agent
+	RuntimeEvents []domain.RuntimeEvent
 }
 
 // PermissionTuple is a semantic permission unit used for graph and rule evaluation.
