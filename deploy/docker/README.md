@@ -37,6 +37,9 @@ Manual setup:
 
 `docker pull` only downloads an image into Docker's image store. It does not
 create a project folder, `.env` file, or runnable multi-service stack on disk.
+The public Docker Hub overview for `identrail/identrail` is maintained in
+`docs/dockerhub/identrail.md` and synced by the Docker Hub description workflow
+after changes merge to `dev`.
 
 For a no-clone, no-build evaluation path, download the published Compose file
 and run it directly. The public stack pulls from Docker Hub by default:

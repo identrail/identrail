@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added a Docker Hub repository overview source and sync workflow so
+  `identrail/identrail` presents a maintained, container-focused description on
+  Docker Hub instead of relying on indexed image layer pages.
 - Added GitHub Actions AI-agent prompt-injection detection for workflows that
   feed untrusted PR, issue, review, comment, workflow_run, or repository
   prompt-file content into LLM/agent steps with repository write, secret, OIDC,
