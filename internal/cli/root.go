@@ -595,7 +595,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				return app.Scanner{}, fmt.Errorf("initialize aws sdk collector: %w", err)
 			}
 			return awsprovider.NewAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, awsprovider.NewRuleSet(
-				awsprovider.WithStaleAfter(time.Duration(staleAfterDays) * 24 * time.Hour),
+				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),
 			)), nil
 		default:
 			return app.Scanner{}, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)

@@ -475,9 +475,9 @@ func TestExecuteAWSUnsupportedSource(t *testing.T) {
 
 func TestBuildScannerForProviderAWSUsesCompositeCollector(t *testing.T) {
 	cfg := config.Config{
-		Provider:    "aws",
-		AWSSource:   "sdk",
-		AWSRegion:   "eu-west-2",
+		Provider:     "aws",
+		AWSSource:    "sdk",
+		AWSRegion:    "eu-west-2",
 		AWSAccountID: "123456789012",
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", "ASIAXXXXXXXXXXXXXXXX")

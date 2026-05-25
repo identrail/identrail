@@ -89,7 +89,7 @@ func (c *AWSCompositeCollector) CollectWithDiagnostics(ctx context.Context) ([]p
 	}
 
 	var (
-		assets      []providers.RawAsset
+		assets       []providers.RawAsset
 		sourceErrors []providers.SourceError
 	)
 	for _, service := range c.services {
