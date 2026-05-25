@@ -259,6 +259,384 @@ jobs:
 	}
 }
 
+func TestGitHubWorkflowAnalyzerDetectsAIPromptInjectionWithWriteToken(t *testing.T) {
+	content := []byte(`name: ai-review
+on: pull_request
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt: ${{ github.event.pull_request.body }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-review.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{
+		"workflow_broad_token_permissions",
+		"workflow_ai_agent_prompt_injection",
+	})
+
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if prompt.Severity != domain.SeverityHigh {
+		t.Fatalf("expected high severity for write-capable agent prompt path, got %+v", prompt)
+	}
+	if tokens, _ := prompt.Evidence["untrusted_prompt_context"].([]string); len(tokens) == 0 || tokens[0] != "github.event.pull_request.body" {
+		t.Fatalf("expected PR body prompt evidence, got %+v", prompt.Evidence)
+	}
+	if capabilities, _ := prompt.Evidence["privileged_capabilities"].([]string); len(capabilities) == 0 || capabilities[0] != "github_token_write" {
+		t.Fatalf("expected write-token capability evidence, got %+v", prompt.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDetectsAIPromptInjectionThroughIssueAndReviewText(t *testing.T) {
+	cases := []struct {
+		name  string
+		event string
+		token string
+	}{
+		{name: "issue", event: "issues", token: "github.event.issue.body"},
+		{name: "comment", event: "issue_comment", token: "github.event.comment.body"},
+		{name: "review", event: "pull_request_review", token: "github.event.review.body"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := []byte(`name: ai-triage
+on: ` + tc.event + `
+permissions:
+  issues: write
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: openai/triage-action@v1
+        with:
+          prompt: ${{ ` + tc.token + ` }}
+`)
+			findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-"+tc.name+".yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+			assertWorkflowDetectors(t, findings, []string{"workflow_ai_agent_prompt_injection"})
+			prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+			if tokens, _ := prompt.Evidence["untrusted_prompt_context"].([]string); len(tokens) == 0 || tokens[0] != tc.token {
+				t.Fatalf("expected %s prompt evidence, got %+v", tc.token, prompt.Evidence)
+			}
+		})
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDetectsRepositoryPromptFileForAIAgent(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request
+permissions:
+  contents: write
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: prompts/autofix.md
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{"workflow_ai_agent_prompt_injection"})
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if tokens, _ := prompt.Evidence["untrusted_prompt_context"].([]string); len(tokens) == 0 || tokens[0] != "repository_prompt_file" {
+		t.Fatalf("expected repository prompt file evidence, got %+v", prompt.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagRepositoryPromptFileBeforeCheckoutOnPullRequest(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request
+permissions:
+  contents: write
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: prompts/autofix.md
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_ai_agent_prompt_injection") {
+		t.Fatalf("expected pull_request prompt file without checkout not to be treated as attacker-controlled, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerResolvesEnvRoutedRepositoryPromptFile(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request
+permissions:
+  contents: write
+env:
+  PROMPT_FILE: prompts/autofix.md
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: ${{ env.PROMPT_FILE }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	assertWorkflowDetectors(t, findings, []string{"workflow_ai_agent_prompt_injection"})
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if tokens, _ := prompt.Evidence["untrusted_prompt_context"].([]string); len(tokens) == 0 || tokens[0] != "repository_prompt_file" {
+		t.Fatalf("expected env-routed repository prompt file evidence, got %+v", prompt.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerClassifiesUnprivilegedAIPromptPathAsMedium(t *testing.T) {
+	content := []byte(`name: ai-summary
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: openai/summary-action@v1
+        with:
+          prompt: ${{ github.event.pull_request.body }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-summary.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if prompt.Severity != domain.SeverityMedium {
+		t.Fatalf("expected medium severity without privileged capabilities, got %+v", prompt)
+	}
+	if capabilities, _ := prompt.Evidence["privileged_capabilities"].([]string); len(capabilities) != 0 {
+		t.Fatalf("expected no privileged capability evidence, got %+v", prompt.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagTrustedLeastPrivilegeAIJob(t *testing.T) {
+	content := []byte(`name: trusted-ai
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: openai/docs-action@f00dbabe1234567890abcdef1234567890abcdef
+        with:
+          prompt: Summarize the latest generated docs.
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/trusted-ai.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_ai_agent_prompt_injection") {
+		t.Fatalf("expected trusted least-privilege AI job not to emit prompt injection finding, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerResolvesEnvRoutedUntrustedPromptInput(t *testing.T) {
+	cases := []struct {
+		name      string
+		reference string
+	}{
+		{name: "dot", reference: "${{ env.PROMPT }}"},
+		{name: "bracket-single", reference: "${{ env['PROMPT'] }}"},
+		{name: "bracket-double", reference: `${{ env["PROMPT"] }}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := []byte(`name: ai-review
+on: pull_request
+permissions:
+  contents: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      PROMPT: ${{ github.event.pull_request.body }}
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt: ` + tc.reference + `
+`)
+
+			findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-review.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+			if !containsDetector(findings, "workflow_ai_agent_prompt_injection") {
+				t.Fatalf("expected env-routed untrusted prompt to be detected, got %+v", findings)
+			}
+			prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+			if tokens, _ := prompt.Evidence["untrusted_prompt_context"].([]string); len(tokens) == 0 || tokens[0] != "github.event.pull_request.body" {
+				t.Fatalf("expected PR body prompt evidence resolved through inherited env, got %+v", prompt.Evidence)
+			}
+		})
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagRepositoryPromptFileOnIssueOnlyTrigger(t *testing.T) {
+	content := []byte(`name: ai-triage
+on: issue_comment
+permissions:
+  contents: write
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: prompts/triage.md
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-triage.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_ai_agent_prompt_injection") {
+		t.Fatalf("expected repository prompt file on issue-only trigger not to be treated as attacker-controlled, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotFlagRepositoryPromptFileOnTrustedPullRequestTarget(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request_target
+permissions:
+  contents: write
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: prompts/autofix.md
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_ai_agent_prompt_injection") {
+		t.Fatalf("expected trusted base-ref pull_request_target prompt file not to be treated as attacker-controlled, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotTaintEarlierPromptFileFromLaterUntrustedCheckoutPullRequestTarget(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request_target
+permissions:
+  contents: write
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: prompts/autofix.md
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	if containsDetector(findings, "workflow_ai_agent_prompt_injection") {
+		t.Fatalf("expected later untrusted checkout not to taint earlier AI prompt file step, got %+v", findings)
+	}
+	if !containsDetector(findings, "workflow_pull_request_target_untrusted_checkout") {
+		t.Fatalf("expected later untrusted checkout to still be reported, got %+v", findings)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerDoesNotEscalatePullRequestOnlyPromptFilePathToTargetCritical(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on:
+  pull_request:
+  pull_request_target:
+permissions:
+  contents: write
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: prompts/autofix.md
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if prompt.Severity != domain.SeverityHigh {
+		t.Fatalf("expected pull_request-only repository prompt file path to stay high severity, got %+v", prompt)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerEscalatesPullRequestTargetPromptBodyPathToCritical(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request_target
+permissions:
+  contents: write
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt: ${{ github.event.pull_request.body }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if prompt.Severity != domain.SeverityCritical {
+		t.Fatalf("expected pull_request_target prompt body path to stay critical severity, got %+v", prompt)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerTreatsImplicitTargetTokenAsPrivilegedForAIPromptPath(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request_target
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt: ${{ github.event.pull_request.body }}
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if prompt.Severity != domain.SeverityCritical {
+		t.Fatalf("expected implicit pull_request_target token write path to be critical severity, got %+v", prompt)
+	}
+	if capabilities, _ := prompt.Evidence["privileged_capabilities"].([]string); len(capabilities) == 0 || capabilities[0] != "github_token_write_default" {
+		t.Fatalf("expected implicit token write capability evidence, got %+v", prompt.Evidence)
+	}
+}
+
+func TestGitHubWorkflowAnalyzerFlagsRepositoryPromptFileOnUntrustedCheckoutPullRequestTarget(t *testing.T) {
+	content := []byte(`name: ai-autofix
+on: pull_request_target
+permissions:
+  contents: write
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt_file: prompts/autofix.md
+`)
+
+	findings := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".github/workflows/ai-autofix.yml", content, time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC))
+	prompt := firstDetectorFinding(t, findings, "workflow_ai_agent_prompt_injection")
+	if tokens, _ := prompt.Evidence["untrusted_prompt_context"].([]string); len(tokens) == 0 || tokens[0] != "repository_prompt_file" {
+		t.Fatalf("expected repository prompt file evidence when PR head is checked out, got %+v", prompt.Evidence)
+	}
+}
+
 func TestGitHubWorkflowAnalyzerDoesNotTreatHeadSHAAsShellInjection(t *testing.T) {
 	content := []byte(`name: pr-info
 on: pull_request

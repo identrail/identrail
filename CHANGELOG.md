@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Added GitHub Actions AI-agent prompt-injection detection for workflows that
+  feed untrusted PR, issue, review, comment, workflow_run, or repository
+  prompt-file content into LLM/agent steps with repository write, secret, OIDC,
+  cloud, release, or mutation capabilities.
 - Added approval-gated remediation PR publishing for repository findings across
   the API, CLI, and app, so deterministic GitHub exposure fixes can open a
   branch and pull request only after explicit operator approval and a

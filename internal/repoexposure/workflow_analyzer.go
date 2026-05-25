@@ -16,6 +16,8 @@ const workflowAnalyzerVersion = "2026.05"
 
 var gitHubActionCommitRefPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var workflowSecretsExpressionPattern = regexp.MustCompile(`\$\{\{\s*secrets\s*(?:\.|\[)`)
+var workflowEnvReferencePattern = regexp.MustCompile(`(?i)env\.([a-z_][a-z0-9_-]*)`)
+var workflowEnvBracketReferencePattern = regexp.MustCompile(`(?i)env\[\s*['"]([a-z_][a-z0-9_-]*)['"]\s*\]`)
 var workflowExpressionPattern = regexp.MustCompile(`\$\{\{.*\}\}`)
 var workflowMatrixReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix\.([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\}\}`)
 var workflowMatrixBracketReferencePattern = regexp.MustCompile(`\$\{\{\s*matrix((?:\[\s*['\"][a-zA-Z_][a-zA-Z0-9_-]*['\"]\s*\])+)\s*\}\}`)
@@ -106,6 +108,7 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 	}
 
 	eventNames := sortedWorkflowEventNames(workflow.Events)
+	pullRequest := workflowHasEvent(workflow, "pull_request")
 	pullRequestTarget := workflowHasEvent(workflow, "pull_request_target")
 	workflowRun := workflowHasEvent(workflow, "workflow_run")
 	untrustedEvent := workflowHasUntrustedEvent(workflow)
@@ -124,6 +127,15 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 
 	for _, job := range workflow.Jobs {
 		effectivePermissions := workflow.effectivePermissions(job)
+		// Repository file contents (and therefore repository prompt files) are
+		// only attacker-controlled after a workflow has checked out attacker
+		// content. pull_request checkouts receive PR-controlled repository
+		// files, while pull_request_target starts from trusted base code and
+		// becomes tainted only after an earlier step checks out the untrusted PR
+		// head. Issue, comment, review, and workflow_run triggers expose
+		// untrusted event text but not attacker-authored repository files.
+		repoFilesUntrusted := false
+		pullRequestTargetRepoFilesUntrusted := false
 		if job.Permissions.hasBroadGitHubTokenWrite() {
 			appendWorkflowFinding(&findings, seen, repo, commit, path, job.Permissions.Line, "workflow_broad_token_permissions", domain.SeverityHigh,
 				"GitHub workflow grants broad token write permissions",
@@ -230,7 +242,8 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 
 		for _, step := range job.Steps {
 			action := normalizeWorkflowUses(step.Uses)
-			if pullRequestTarget && step.checkoutUsesUntrustedHead() {
+			untrustedCheckout := pullRequestTarget && step.checkoutUsesUntrustedHead()
+			if untrustedCheckout {
 				appendWorkflowFinding(&findings, seen, repo, commit, path, stepLine(step), "workflow_pull_request_target_untrusted_checkout", domain.SeverityCritical,
 					"pull_request_target checks out untrusted PR code",
 					"A pull_request_target job checks out the contributor-controlled PR head, which can run attacker code in a privileged workflow context.",
@@ -284,6 +297,41 @@ func analyzeGitHubWorkflowFindings(repo string, commit string, path string, ast 
 					firstNonEmptyWorkflowString(step.Uses, truncateWorkflowSnippet(step.Run)), detectedAt, workflowEvidence(eventNames, job.ID, step.Index, action, map[string]any{
 						"publishes_release": step.usesReleaseBehavior(),
 					}))
+			}
+
+			inheritedEnv := workflowMergedEnv(workflow.Env, job.Env, step.Env)
+			if signal, promptTokens := step.aiAgentPromptInjectionSignal(untrustedEvent || workflowRun, repoFilesUntrusted, inheritedEnv); signal != "" && len(promptTokens) > 0 {
+				capabilities := workflowAIAgentPrivilegedCapabilities(job, step, effectivePermissions, jobSecrets)
+				if pullRequestTarget && effectivePermissions.implicitGitHubTokenWritePossible() && workflowPromptTokensReachPullRequestTarget(promptTokens, pullRequestTargetRepoFilesUntrusted) {
+					capabilities = append(capabilities, "github_token_write_default")
+				}
+				capabilities = uniqueSortedWorkflowTokens(capabilities)
+				severity := domain.SeverityMedium
+				if len(capabilities) > 0 {
+					severity = domain.SeverityHigh
+				}
+				if pullRequestTarget && len(capabilities) > 0 && workflowPromptTokensReachPullRequestTarget(promptTokens, pullRequestTargetRepoFilesUntrusted) {
+					severity = domain.SeverityCritical
+				}
+				appendWorkflowFinding(&findings, seen, repo, commit, path, stepLine(step), "workflow_ai_agent_prompt_injection", severity,
+					"AI-agent workflow consumes untrusted prompt input",
+					"An AI-agent or LLM workflow step consumes PR, issue, review, comment, workflow_run, or repository prompt-file input that can influence privileged repository automation.",
+					"Keep AI-agent prompts on trusted events, avoid passing untrusted repository text directly to write-capable agents, and gate autofix or PR-writing behavior behind review.",
+					firstNonEmptyWorkflowString(step.Uses, truncateWorkflowSnippet(step.Run), signal), detectedAt, workflowEvidence(eventNames, job.ID, step.Index, action, map[string]any{
+						"ai_agent_signal":          signal,
+						"untrusted_prompt_context": promptTokens,
+						"permission_summary":       effectivePermissions.summary(),
+						"privileged_capabilities":  capabilities,
+						"references_secrets":       jobSecrets,
+					}))
+			}
+
+			if pullRequest && step.checksOutRepositoryContents() {
+				repoFilesUntrusted = true
+			}
+			if untrustedCheckout {
+				repoFilesUntrusted = true
+				pullRequestTargetRepoFilesUntrusted = true
 			}
 		}
 	}
@@ -717,6 +765,10 @@ func (permissions workflowPermissions) hasBroadGitHubTokenWrite() bool {
 	return false
 }
 
+func (permissions workflowPermissions) implicitGitHubTokenWritePossible() bool {
+	return !permissions.configured()
+}
+
 func (permissions workflowPermissions) idTokenWrite() bool {
 	if permissions.WriteAll {
 		return true
@@ -850,7 +902,7 @@ func (job githubWorkflowJob) selfHostedRiskAmplifiers(workflowEnv map[string]str
 }
 
 func (step githubWorkflowStep) checkoutUsesUntrustedHead() bool {
-	if !workflowActionMatches(normalizeWorkflowUses(step.Uses), "actions/checkout") {
+	if !step.checksOutRepositoryContents() {
 		return false
 	}
 	for _, key := range []string{"ref", "repository"} {
@@ -860,6 +912,10 @@ func (step githubWorkflowStep) checkoutUsesUntrustedHead() bool {
 		}
 	}
 	return false
+}
+
+func (step githubWorkflowStep) checksOutRepositoryContents() bool {
+	return workflowActionMatches(normalizeWorkflowUses(step.Uses), "actions/checkout")
 }
 
 func (step githubWorkflowStep) untrustedExpressionTokens(untrustedEvent bool) []string {
@@ -901,6 +957,189 @@ func (step githubWorkflowStep) usesReleaseBehavior() bool {
 		workflowActionMatches(action, "actions/upload-release-asset") ||
 		strings.Contains(lowerRun, "gh release upload") ||
 		strings.Contains(lowerRun, "gh release create")
+}
+
+func (step githubWorkflowStep) aiAgentPromptInjectionSignal(untrustedEvent bool, repoFilesUntrusted bool, inheritedEnv map[string]string) (string, []string) {
+	if !untrustedEvent {
+		return "", nil
+	}
+	signal := step.aiAgentSignal()
+	if signal == "" {
+		return "", nil
+	}
+	// Resolve env.* indirection from inherited workflow/job/step scopes so
+	// untrusted text routed through env (for example, a job env value of
+	// ${{ github.event.pull_request.body }} referenced via ${{ env.PROMPT }})
+	// still taints the prompt context.
+	context := workflowResolveEnvReferences(step.promptContext(), inheritedEnv)
+	tokens := workflowUserControlledTokens(context)
+	if workflowStringReferencesWorkflowRun(context) {
+		tokens = append(tokens, "github.event.workflow_run")
+	}
+	if repoFilesUntrusted && workflowReferencesRepositoryPromptFile(context) {
+		tokens = append(tokens, "repository_prompt_file")
+	}
+	tokens = uniqueSortedWorkflowTokens(tokens)
+	if len(tokens) == 0 {
+		return "", nil
+	}
+	return signal, tokens
+}
+
+func (step githubWorkflowStep) aiAgentSignal() string {
+	action := strings.ToLower(normalizeWorkflowUses(step.Uses))
+	if action != "" {
+		for _, token := range []string{
+			"anthropic", "claude", "openai", "codex", "copilot", "gemini", "aider", "continue-dev", "cursor", "llm",
+		} {
+			if strings.Contains(action, token) {
+				return "action:" + action
+			}
+		}
+	}
+
+	text := strings.ToLower(step.Name + "\n" + step.Run + "\n" + stringMapValues(step.With) + "\n" + stringMapValues(step.Env))
+	for _, token := range []string{
+		"anthropic", "claude", "openai", "codex", "copilot", "gemini", "aider", "continue-dev", "cursor", "llm",
+		"chat completions", "responses api", "prompt-file", "prompt_file",
+	} {
+		if strings.Contains(text, token) {
+			return "step:" + token
+		}
+	}
+	return ""
+}
+
+func (step githubWorkflowStep) promptContext() string {
+	return step.Run + "\n" + stringMapValues(step.With) + "\n" + stringMapValues(step.Env)
+}
+
+// workflowMergedEnv combines env scopes in precedence order (later scopes win),
+// used to resolve env.* references that a step inherits from its job or workflow.
+func workflowMergedEnv(scopes ...map[string]string) map[string]string {
+	merged := map[string]string{}
+	for _, scope := range scopes {
+		for key, value := range scope {
+			merged[key] = value
+		}
+	}
+	return merged
+}
+
+// workflowResolveEnvReferences appends the values of any env.* references found
+// in context (transitively, guarding against cycles) so taint analysis can see
+// untrusted sources that reach a step only through inherited env indirection.
+func workflowResolveEnvReferences(context string, env map[string]string) string {
+	if len(env) == 0 {
+		return context
+	}
+	resolved := strings.Builder{}
+	resolved.WriteString(context)
+	visited := map[string]struct{}{}
+	queue := workflowEnvReferenceNames(context)
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if _, seen := visited[name]; seen {
+			continue
+		}
+		visited[name] = struct{}{}
+		value, ok := env[name]
+		if !ok {
+			continue
+		}
+		resolved.WriteString("\n")
+		resolved.WriteString(value)
+		queue = append(queue, workflowEnvReferenceNames(value)...)
+	}
+	return resolved.String()
+}
+
+func workflowEnvReferenceNames(value string) []string {
+	names := []string{}
+	for _, pattern := range []*regexp.Regexp{workflowEnvReferencePattern, workflowEnvBracketReferencePattern} {
+		for _, match := range pattern.FindAllStringSubmatch(value, -1) {
+			names = append(names, strings.ToLower(match[1]))
+		}
+	}
+	return names
+}
+
+func workflowReferencesRepositoryPromptFile(context string) bool {
+	text := strings.ToLower(context)
+	if !strings.Contains(text, "prompt") && !strings.Contains(text, "instruction") {
+		return false
+	}
+	for _, suffix := range []string{".md", ".txt", ".yaml", ".yml", ".json"} {
+		if strings.Contains(text, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowPromptTokensReachPullRequestTarget(tokens []string, repoFilesUntrusted bool) bool {
+	for _, token := range tokens {
+		if token == "repository_prompt_file" {
+			if repoFilesUntrusted {
+				return true
+			}
+			continue
+		}
+		if workflowPromptTokenReachableFromPullRequestTarget(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowPromptTokenReachableFromPullRequestTarget(token string) bool {
+	token = strings.TrimSpace(strings.ToLower(token))
+	return token == "github.head_ref" || strings.HasPrefix(token, "github.event.pull_request.")
+}
+
+func workflowAIAgentPrivilegedCapabilities(job githubWorkflowJob, step githubWorkflowStep, permissions workflowPermissions, jobSecrets bool) []string {
+	capabilities := []string{}
+	if permissions.hasBroadGitHubTokenWrite() {
+		capabilities = append(capabilities, "github_token_write")
+	}
+	if permissions.idTokenWrite() {
+		capabilities = append(capabilities, "oidc_token_write")
+	}
+	if jobSecrets {
+		capabilities = append(capabilities, "secrets")
+	}
+	if job.usesCloudAuthAction() || step.usesCloudOrDeployCommand() {
+		capabilities = append(capabilities, "cloud_or_deploy")
+	}
+	if step.usesReleaseBehavior() {
+		capabilities = append(capabilities, "release_publish")
+	}
+	if step.usesRepositoryWriteCommand() {
+		capabilities = append(capabilities, "repository_write")
+	}
+	return uniqueSortedWorkflowTokens(capabilities)
+}
+
+func (step githubWorkflowStep) usesCloudOrDeployCommand() bool {
+	text := strings.ToLower(step.Run + "\n" + step.Uses)
+	for _, token := range []string{"aws ", "gcloud ", "az ", "kubectl ", "vercel ", "flyctl ", "terraform apply", "pulumi up"} {
+		if strings.Contains(text, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func (step githubWorkflowStep) usesRepositoryWriteCommand() bool {
+	text := strings.ToLower(step.Run)
+	for _, token := range []string{"gh pr create", "gh pr comment", "gh pr merge", "gh issue comment", "git push", "create-pull-request"} {
+		if strings.Contains(text, token) {
+			return true
+		}
+	}
+	action := strings.ToLower(normalizeWorkflowUses(step.Uses))
+	return strings.Contains(action, "create-pull-request") || strings.Contains(action, "peter-evans/create-pull-request")
 }
 
 func workflowEvidence(events []string, job string, stepIndex int, action string, extra map[string]any) map[string]any {
@@ -1139,6 +1378,10 @@ func workflowStringReferencesSecrets(value string) bool {
 	return workflowSecretsExpressionPattern.MatchString(strings.ToLower(value))
 }
 
+func workflowStringReferencesWorkflowRun(value string) bool {
+	return strings.Contains(strings.ToLower(value), "github.event.workflow_run")
+}
+
 func workflowStringMapReferencesSecrets(values map[string]string) bool {
 	for _, value := range values {
 		if workflowStringReferencesSecrets(value) {
@@ -1191,12 +1434,44 @@ func workflowUserControlledTokens(value string) []string {
 		"github.event.issue.body",
 		"github.event.review.body",
 		"github.event.comment.body",
+		"github.event.pull_request_review.body",
+		"github.event.pull_request_review_comment.body",
 	} {
 		if strings.Contains(lower, token) {
 			tokens = append(tokens, token)
 		}
 	}
 	return tokens
+}
+
+func uniqueSortedWorkflowTokens(tokens []string) []string {
+	seen := map[string]struct{}{}
+	unique := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if _, exists := seen[token]; exists {
+			continue
+		}
+		seen[token] = struct{}{}
+		unique = append(unique, token)
+	}
+	sort.Strings(unique)
+	return unique
+}
+
+func stringMapValues(values map[string]string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(values))
+	for key, value := range values {
+		parts = append(parts, key+"="+value)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "\n")
 }
 
 func isGitHubWorkflowPath(path string) bool {
