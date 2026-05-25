@@ -6308,9 +6308,10 @@ export function ProductFindingsPage() {
           'Repository unavailable',
         scanDateForFinding: (finding) => repoFindingScanDateLabel(finding, repoScansByID),
         scanSortValueForFinding: (finding) => repoFindingScanTimestamp(finding, repoScansByID),
+        sortBy,
         sortOrder
       }),
-    [filteredFindings, repoScansByID, sortOrder]
+    [filteredFindings, repoScansByID, sortBy, sortOrder]
   );
 
   const selectedFinding = useMemo(
@@ -7152,7 +7153,9 @@ export function ProductFindingsPage() {
                 const highCount = repositoryGroup.findings.filter(
                   (finding) => normalizeValue(finding.severity).toLowerCase() === 'high'
                 ).length;
-                const latestScanLabel = repositoryGroup.scanGroups[0]?.label ?? 'Scan date unavailable';
+                const latestScanLabel =
+                  [...repositoryGroup.scanGroups].sort((left, right) => right.sortValue - left.sortValue)[0]?.label ??
+                  'Scan date unavailable';
 
                 return (
                   <details

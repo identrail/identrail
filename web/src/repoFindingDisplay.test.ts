@@ -159,7 +159,8 @@ describe('groupRepoFindingsByRepositoryDateSeverity', () => {
 
     const groups = groupRepoFindingsByRepositoryDateSeverity(findings, {
       scanDateForFinding: (item) => (item.repository === 'owner/repo-b' ? 'May 14, 2026' : 'May 15, 2026'),
-      scanSortValueForFinding: (item) => new Date(item.created_at).getTime()
+      scanSortValueForFinding: (item) => new Date(item.created_at).getTime(),
+      sortBy: 'severity'
     });
 
     expect(groups.map((group) => group.label)).toEqual(['owner/repo-a', 'owner/repo-b']);
@@ -230,5 +231,79 @@ describe('groupRepoFindingsByRepositoryDateSeverity', () => {
     );
 
     expect(groups[0].scanGroups.map((group) => group.label)).toEqual(['May 24, 2026', 'May 25, 2026']);
+  });
+
+  it('honors severity sort when ranking repository groups', () => {
+    const groups = groupRepoFindingsByRepositoryDateSeverity(
+      [
+        { ...finding('newer-high', 'high'), repository: 'alpha/repo', created_at: '2026-05-25T00:00:00Z' },
+        { ...finding('older-critical', 'critical'), repository: 'zeta/repo', created_at: '2026-05-24T00:00:00Z' }
+      ],
+      {
+        scanDateForFinding: (item) => (item.repository === 'alpha/repo' ? 'May 25, 2026' : 'May 24, 2026'),
+        scanSortValueForFinding: (item) => new Date(item.created_at).getTime(),
+        sortBy: 'severity',
+        sortOrder: 'desc'
+      }
+    );
+
+    expect(groups.map((group) => group.label)).toEqual(['zeta/repo', 'alpha/repo']);
+  });
+
+  it('honors title sort when ranking repository and scan groups', () => {
+    const groups = groupRepoFindingsByRepositoryDateSeverity(
+      [
+        {
+          ...finding('newer-zulu', 'critical'),
+          repository: 'zeta/repo',
+          title: 'Zulu workflow issue',
+          created_at: '2026-05-25T00:00:00Z'
+        },
+        {
+          ...finding('older-alpha', 'high'),
+          repository: 'alpha/repo',
+          title: 'Alpha token exposure',
+          created_at: '2026-05-24T00:00:00Z'
+        },
+        {
+          ...finding('same-repo-beta', 'medium'),
+          repository: 'alpha/repo',
+          title: 'Beta database secret',
+          created_at: '2026-05-23T00:00:00Z'
+        }
+      ],
+      {
+        scanDateForFinding: (item) => {
+          if (item.id === 'same-repo-beta') return 'May 23, 2026';
+          return item.repository === 'alpha/repo' ? 'May 24, 2026' : 'May 25, 2026';
+        },
+        scanSortValueForFinding: (item) => new Date(item.created_at).getTime(),
+        sortBy: 'title',
+        sortOrder: 'asc'
+      }
+    );
+
+    expect(groups.map((group) => group.label)).toEqual(['alpha/repo', 'zeta/repo']);
+    expect(groups[0].scanGroups.map((group) => group.label)).toEqual(['May 24, 2026', 'May 23, 2026']);
+  });
+
+  it('sorts findings inside severity lanes by the selected field', () => {
+    const groups = groupRepoFindingsByRepositoryDateSeverity(
+      [
+        { ...finding('zulu-item', 'high'), repository: 'owner/repo', title: 'Zulu secret' },
+        { ...finding('alpha-item', 'high'), repository: 'owner/repo', title: 'Alpha secret' }
+      ],
+      {
+        scanDateForFinding: () => 'May 25, 2026',
+        scanSortValueForFinding: () => 1,
+        sortBy: 'title',
+        sortOrder: 'asc'
+      }
+    );
+
+    expect(groups[0].scanGroups[0].severityGroups[0].findings.map((item) => item.id)).toEqual([
+      'alpha-item',
+      'zulu-item'
+    ]);
   });
 });
