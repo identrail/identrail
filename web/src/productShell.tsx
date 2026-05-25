@@ -6243,6 +6243,7 @@ export function ProductFindingsPage() {
   const [minConfidenceFilter, setMinConfidenceFilter] = useState('');
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [selectedFindingKey, setSelectedFindingKey] = useState('');
   const [findingDetailOpen, setFindingDetailOpen] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<FindingLifecycleStatus>('open');
@@ -7016,7 +7017,12 @@ export function ProductFindingsPage() {
       </div>
 
       {filteredFindings.length > 0 || filtersActive ? (
-        <details className="idt-repo-filter-panel" aria-label="Repository finding filters and sorting" open>
+        <details
+          className="idt-repo-filter-panel"
+          aria-label="Repository finding filters and sorting"
+          open={filtersExpanded}
+          onToggle={(event) => setFiltersExpanded(event.currentTarget.open)}
+        >
           <summary className="idt-repo-filter-panel-header">
             <span>Filters and sorting</span>
             <small>{filteredFindings.length ? `${filteredFindings.length} findings shown` : 'No findings in scope'}</small>
