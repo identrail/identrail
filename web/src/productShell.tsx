@@ -200,6 +200,7 @@ const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
+const AI_RISKS_REPO_FINDINGS_PAGE_LIMIT = 100;
 const EXECUTIVE_REPORT_SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
 const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], string> = {
@@ -326,6 +327,37 @@ async function listOverviewProjects(
     }
     if (seenCursors.has(nextCursor)) {
       throw new Error('Project pagination returned a repeated cursor');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  return items;
+}
+
+async function listAIRisksRepoFindings(auth: RequestAuthContext): Promise<ApiFinding[]> {
+  const items: ApiFinding[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  do {
+    const response = await apiClient.listRepoFindings(
+      {
+        limit: AI_RISKS_REPO_FINDINGS_PAGE_LIMIT,
+        cursor,
+        sort_by: 'severity',
+        sort_order: 'desc'
+      },
+      auth
+    );
+    items.push(...(response.items ?? []));
+
+    const nextCursor = response.next_cursor?.trim();
+    if (!nextCursor) {
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('Repository finding pagination returned a repeated cursor');
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
@@ -577,7 +609,7 @@ function countGitHubPostureChecks(
   return posture?.checks.filter((check) => check.state === state).length ?? 0;
 }
 
-function formatCountLabel(count: number, singular: string, plural: string): string {
+function formatCountLabel(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
@@ -1459,6 +1491,13 @@ export function ProductShellLayout() {
         path: `${basePath}/findings`
       },
       {
+        id: 'ai-risks',
+        label: 'AI Risks',
+        description: 'AI, MCP, workflow, runner, and GitHub alerts',
+        keywords: ['github', 'intelligence', 'mcp', 'ai', 'workflow', 'runner', 'dependabot'],
+        path: `${basePath}/ai-risks`
+      },
+      {
         id: 'workspaces',
         label: 'Workspaces',
         description: 'Members, roles, and active workspace scope',
@@ -1836,6 +1875,12 @@ export function ProductShellLayout() {
                 <Shield size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Findings</span>
+            </NavLink>
+            <NavLink to={`${basePath}/ai-risks`} aria-label="AI Risks" title={sidebarCollapsed ? 'AI Risks' : undefined}>
+              <span className="idt-app-nav-icon" aria-hidden="true">
+                <img src="/brand-logos/github.svg" alt="" aria-hidden="true" />
+              </span>
+              <span className="idt-app-nav-label">AI Risks</span>
             </NavLink>
             <NavLink to="/reports/executive" aria-label="Executive report" title={sidebarCollapsed ? 'Executive report' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
@@ -5573,6 +5618,574 @@ export function ProductProjectDetailPage() {
         tiers={awsPermissionTiers}
         onClose={() => setAWSPreviewOpen(false)}
       />
+    </section>
+  );
+}
+
+type GitHubIntelligenceCategory = {
+  id: string;
+  label: string;
+  summary: string;
+  empty: string;
+  match: (finding: ApiFinding) => boolean;
+};
+
+function repoFindingSearchText(finding: ApiFinding): string {
+  const evidence = (() => {
+    try {
+      return finding.evidence ? JSON.stringify(finding.evidence) : '';
+    } catch {
+      return '';
+    }
+  })();
+  return [
+    finding.type,
+    finding.detector,
+    finding.adapter_source,
+    finding.title,
+    finding.human_summary,
+    finding.file_path,
+    finding.line_snippet,
+    finding.remediation,
+    evidence
+  ]
+    .map((value) => normalizeValue(value).toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+}
+
+function repoFindingMatchesAny(finding: ApiFinding, tokens: string[]): boolean {
+  const haystack = repoFindingSearchText(finding);
+  return tokens.some((token) => haystack.includes(token));
+}
+
+const GITHUB_INTELLIGENCE_CATEGORIES: GitHubIntelligenceCategory[] = [
+  {
+    id: 'ai-agent-mcp',
+    label: 'AI/MCP Exposure',
+    summary: 'Agent configs, MCP servers, and risky tool access.',
+    empty: 'No AI/MCP exposure.',
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'ai_agent_surface',
+        'ai_agent_config',
+        'ai agent config',
+        'mcp',
+        '.mcp.json',
+        '.cursor',
+        '.continue',
+        '.codex',
+        '.claude',
+        'copilot-instructions',
+        'agent config',
+        'dangerous tool'
+      ])
+  },
+  {
+    id: 'ai-workflow',
+    label: 'AI Workflow Risk',
+    summary: 'Untrusted PR or issue text reaching AI steps.',
+    empty: 'No AI workflow risk.',
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'workflow_ai_agent_prompt_injection',
+        'prompt injection',
+        'workflow prompt',
+        'pull_request_target',
+        'anthropic',
+        'claude',
+        'openai',
+        'codex',
+        'gemini',
+        'aider',
+        'cursor'
+      ])
+  },
+  {
+    id: 'native-alerts',
+    label: 'GitHub Alerts',
+    summary: 'Secret scanning and Dependabot alerts.',
+    empty: 'No GitHub alerts.',
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'github_secret_scanning',
+        'secret scanning alert',
+        'github_dependabot',
+        'dependabot',
+        'vulnerability alert'
+      ])
+  },
+  {
+    id: 'runner-posture',
+    label: 'Runner Risk',
+    summary: 'Self-hosted runner reachability and labels.',
+    empty: 'No runner risk.',
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'workflow_self_hosted_runner',
+        'self_hosted_runner',
+        'self-hosted runner',
+        'runs-on self-hosted',
+        'runner label',
+        'runner group'
+      ])
+  },
+  {
+    id: 'org-posture',
+    label: 'Org Policy',
+    summary: 'Rulesets, branch protection, and scanning policy.',
+    empty: 'No org policy risk.',
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'organization posture',
+        'org_secret_scanning_policy',
+        'secret scanning policy',
+        'dependabot policy',
+        'ruleset',
+        'branch protection',
+        'repository rules'
+      ])
+  },
+  {
+    id: 'remediation-ready',
+    label: 'Fix Ready',
+    summary: 'Open findings with file or line context.',
+    empty: 'No fix-ready risks.',
+    match: (finding) => {
+      const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+      if (lifecycle !== 'open' && lifecycle !== 'reopened') {
+        return false;
+      }
+      return Boolean(normalizeValue(finding.source_url ?? '') || normalizeValue(finding.file_path ?? ''));
+    }
+  }
+];
+
+const GITHUB_INTELLIGENCE_SCOPE_CATEGORIES = GITHUB_INTELLIGENCE_CATEGORIES.filter(
+  (category) => category.id !== 'remediation-ready'
+);
+
+function githubIntelligenceCategoryForFinding(finding: ApiFinding): GitHubIntelligenceCategory {
+  return GITHUB_INTELLIGENCE_CATEGORIES.find((category) => category.match(finding)) ?? GITHUB_INTELLIGENCE_CATEGORIES[5];
+}
+
+function isOpenRepoFinding(finding: ApiFinding): boolean {
+  const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+  const triage = normalizeFindingStatus(finding.triage?.status);
+  return (lifecycle === 'open' || lifecycle === 'reopened') && triage !== 'resolved' && triage !== 'suppressed';
+}
+
+function sortGitHubIntelligenceFindings(findings: ApiFinding[]): ApiFinding[] {
+  return [...findings].sort((left, right) => {
+    const severityDelta = severityRank(right.severity) - severityRank(left.severity);
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+    const confidenceDelta = (right.confidence_score ?? 0) - (left.confidence_score ?? 0);
+    if (confidenceDelta !== 0) {
+      return confidenceDelta;
+    }
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
+}
+
+export function ProductAIRisksPage() {
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [trendError, setTrendError] = useState('');
+  const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
+  const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
+  const requestRef = useRef(0);
+
+  const repoScansByID = useMemo(
+    () =>
+      repoScans.reduce<Record<string, RepoScanRecord>>((acc, scan) => {
+        acc[scan.id] = scan;
+        return acc;
+      }, {}),
+    [repoScans]
+  );
+
+  const findingsInScope = useMemo(
+    () =>
+      repoFindings.filter((finding) =>
+        GITHUB_INTELLIGENCE_SCOPE_CATEGORIES.some((category) => category.match(finding))
+      ),
+    [repoFindings]
+  );
+
+  const openFindings = useMemo(() => findingsInScope.filter(isOpenRepoFinding), [findingsInScope]);
+  const sortedOpenFindings = useMemo(() => sortGitHubIntelligenceFindings(openFindings), [openFindings]);
+  const priorityFindings = sortedOpenFindings.slice(0, 6);
+
+  const categoryCards = useMemo(
+    () =>
+      GITHUB_INTELLIGENCE_CATEGORIES.map((category) => {
+        const findings = findingsInScope.filter((finding) => category.match(finding));
+        const open = findings.filter(isOpenRepoFinding);
+        const criticalHigh = open.filter((finding) => {
+          const severity = normalizeValue(finding.severity).toLowerCase();
+          return severity === 'critical' || severity === 'high';
+        }).length;
+        return {
+          ...category,
+          total: findings.length,
+          open: open.length,
+          criticalHigh
+        };
+      }),
+    [findingsInScope]
+  );
+
+  const allRepositoryRows = useMemo(() => {
+    const byRepository = new Map<string, { repository: string; open: number; criticalHigh: number; total: number }>();
+    for (const finding of findingsInScope) {
+      const repository = canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(finding, repoScansByID)) || 'Repository unavailable';
+      const current = byRepository.get(repository) ?? { repository, open: 0, criticalHigh: 0, total: 0 };
+      current.total += 1;
+      if (isOpenRepoFinding(finding)) {
+        current.open += 1;
+        const severity = normalizeValue(finding.severity).toLowerCase();
+        if (severity === 'critical' || severity === 'high') {
+          current.criticalHigh += 1;
+        }
+      }
+      byRepository.set(repository, current);
+    }
+    return [...byRepository.values()]
+      .sort((left, right) => right.criticalHigh - left.criticalHigh || right.open - left.open || right.total - left.total);
+  }, [findingsInScope, repoScansByID]);
+
+  const repositoryRows = useMemo(() => allRepositoryRows.slice(0, 5), [allRepositoryRows]);
+
+  const trendRows = useMemo(() => {
+    const maxTotal = Math.max(...trendPoints.map((point) => point.total), 0);
+    return trendPoints.slice(-6).map((point, index) => {
+      const startedAt = new Date(point.started_at);
+      return {
+        key: `${point.started_at}-${index}`,
+        label: Number.isNaN(startedAt.getTime())
+          ? 'Unknown'
+          : startedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        total: point.total,
+        percentage: maxTotal > 0 ? Math.round((point.total / maxTotal) * 100) : 0,
+        high:
+          (point.by_severity?.critical ?? 0) +
+          (point.by_severity?.high ?? 0)
+      };
+    });
+  }, [trendPoints]);
+
+  const loadDashboard = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+    const requestID = ++requestRef.current;
+    if (mode === 'initial') {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+    setError('');
+    setTrendError('');
+    try {
+      const auth = buildProductAuthContext(targetScope);
+      const [scanResult, findingResult, trendResult] = await Promise.allSettled([
+        apiClient.listRepoScans({ limit: 50 }, auth),
+        listAIRisksRepoFindings(auth),
+        apiClient.getRepoFindingsTrends({ points: TREND_POINTS }, auth)
+      ]);
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      if (scanResult.status === 'rejected') {
+        throw scanResult.reason;
+      }
+      if (findingResult.status === 'rejected') {
+        throw findingResult.reason;
+      }
+      setRepoScans(scanResult.value.items ?? []);
+      setRepoFindings(findingResult.value);
+      if (trendResult.status === 'fulfilled') {
+        setTrendPoints(trendResult.value.items ?? []);
+      } else {
+        setTrendPoints([]);
+        setTrendError(formatAPIError(trendResult.reason, 'Finding trend is unavailable.'));
+      }
+    } catch (requestError) {
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setError(formatAPIError(requestError, 'Failed to load AI Risks.'));
+      setRepoScans([]);
+      setRepoFindings([]);
+      setTrendPoints([]);
+      setTrendError('');
+    } finally {
+      if (requestID === requestRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!scope) {
+      setLoading(false);
+      setError('Workspace route context is missing.');
+      return;
+    }
+    void loadDashboard(scope, 'initial');
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [scope?.tenantID, scope?.workspaceID]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error">
+        <p className="idt-app-kicker">AI Risks</p>
+        <h2>Dashboard unavailable</h2>
+        <p>Workspace route context is missing.</p>
+      </section>
+    );
+  }
+
+  if (loading) {
+    return (
+      <AppRouteLoadingState
+        title="Preparing AI Risks"
+        body="Loading repository scans, GitHub alerts, and AI workflow signals."
+      />
+    );
+  }
+
+  const findingsPath = buildScopedPath(scope, 'findings');
+  const projectsPath = buildProjectsPath(scope);
+  const scansByRecency = [...repoScans].sort(
+    (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
+  );
+  const latestScan = scansByRecency[0] ?? null;
+  const activeScanCount = repoScans.filter((scan) => isActiveScanStatus(scan.status)).length;
+  const failedScanCount = repoScans.filter((scan) => isFailedScanStatus(scan.status)).length;
+  const openFindingCount = openFindings.length;
+  const highPriorityCount = openFindings.filter((finding) => {
+    const severity = normalizeValue(finding.severity).toLowerCase();
+    return severity === 'critical' || severity === 'high';
+  }).length;
+  const repositoriesWithSignals = allRepositoryRows.length;
+  const fixedFindingCount = findingsInScope.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed').length;
+  const reopenedFindingCount = findingsInScope.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'reopened').length;
+  const latestScanLabel = latestScan
+    ? `${canonicalGitHubRepositoryDisplay(latestScan.repository) || latestScan.repository} · ${formatTokenLabel(latestScan.status)}`
+    : 'No repository scans yet';
+
+  return (
+    <section className="idt-app-panel idt-github-intelligence-page">
+      <div className="idt-repo-findings-header idt-github-intelligence-header">
+        <div>
+          <p className="idt-app-kicker">AI Risks</p>
+          <h2>AI Risks</h2>
+          <p>AI, MCP, workflow, runner, GitHub alert, and fix-ready signals.</p>
+          <div className="idt-overview-source-strip">
+            <SourceLogoMark provider="github" />
+            <span>{latestScanLabel}</span>
+          </div>
+        </div>
+        <div className="idt-inline-actions">
+          <button
+            className="idt-btn idt-btn-ghost"
+            type="button"
+            onClick={() => void loadDashboard(scope, 'refresh')}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <Link className="idt-btn idt-btn-primary" to={findingsPath}>
+            Open findings
+          </Link>
+        </div>
+      </div>
+
+      {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
+
+      <div className="idt-repo-finding-stats idt-github-intelligence-stats" aria-label="AI Risks summary">
+        <article className="idt-repo-finding-stat">
+          <span>Open</span>
+          <strong>{openFindingCount}</strong>
+          <small className="idt-repo-finding-stat-note">{formatCountLabel(findingsInScope.length, 'signal')}</small>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>High</span>
+          <strong>{highPriorityCount}</strong>
+          <small className="idt-repo-finding-stat-note">critical or high</small>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>Repos</span>
+          <strong>{repositoriesWithSignals}</strong>
+          <small className="idt-repo-finding-stat-note">
+            {formatCountLabel(activeScanCount, 'active scan')} · {formatCountLabel(failedScanCount, 'failed scan')}
+          </small>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>Fixed</span>
+          <strong>{fixedFindingCount}</strong>
+          <small className="idt-repo-finding-stat-note">
+            {formatCountLabel(reopenedFindingCount, 'reopened', 'reopened')}
+          </small>
+        </article>
+      </div>
+
+      {!error && repoScans.length === 0 && findingsInScope.length === 0 ? (
+        <AppShellEmptyState
+          title="No AI Risks yet"
+          body="Connect GitHub and run a repository scan to populate AI, MCP, workflow, runner, alert, and fix-ready signals."
+          action={{ label: 'Go to projects', to: projectsPath }}
+        />
+      ) : null}
+
+      <div className="idt-github-intelligence-grid">
+        {categoryCards.map((category) => (
+          <article className="idt-github-intelligence-card" key={category.id}>
+            <div className="idt-github-intelligence-card-head">
+              <div>
+                <span>{category.label}</span>
+                <strong>{category.open}</strong>
+              </div>
+              <small>{category.criticalHigh > 0 ? formatCountLabel(category.criticalHigh, 'high', 'high') : 'No high'}</small>
+            </div>
+            <p>{category.summary}</p>
+            <Link
+              className="idt-github-intelligence-card-link"
+              to={findingsPath}
+              aria-label={category.total > 0 ? `Review ${category.label} findings` : category.empty}
+            >
+              {category.total > 0 ? 'Review' : 'Clear'}
+            </Link>
+          </article>
+        ))}
+      </div>
+
+      <div className="idt-github-intelligence-main">
+        <section className="idt-github-intelligence-panel">
+          <div className="idt-github-intelligence-panel-head">
+            <h3>Priority queue</h3>
+            <Link to={findingsPath}>Review all</Link>
+          </div>
+          {priorityFindings.length === 0 ? (
+            <AppShellEmptyState
+              title="No priority risks"
+              body="Open AI, MCP, workflow, runner, alert, or fix-ready findings will appear here."
+            />
+          ) : (
+            <div className="idt-github-intelligence-list" role="list">
+              {priorityFindings.map((finding) => {
+                const repository = canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(finding, repoScansByID)) || 'Repository unavailable';
+                const category = githubIntelligenceCategoryForFinding(finding);
+                return (
+                  <Link className="idt-github-intelligence-row" to={findingsPath} key={`${finding.scan_id}-${finding.id}`} role="listitem">
+                    <div className="idt-repo-finding-row-top">
+                      <strong>{finding.title}</strong>
+                      <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
+                    </div>
+                    <p>{finding.human_summary}</p>
+                    <div className="idt-repo-finding-row-meta">
+                      <span>{category.label}</span>
+                      <span>{repository}</span>
+                      <span>{repoFindingLocationLabel(finding)}</span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <aside className="idt-github-intelligence-panel">
+          <div className="idt-github-intelligence-panel-head">
+            <h3>Repository hotspots</h3>
+            <span>{repositoryRows.length ? formatCountLabel(repositoryRows.length, 'repo') : 'No hotspots'}</span>
+          </div>
+          {repositoryRows.length === 0 ? (
+            <AppShellEmptyState
+              title="No repository hotspots"
+              body="Hotspots appear once findings can be attributed to repositories."
+            />
+          ) : (
+            <div className="idt-github-intelligence-hotspots">
+              {repositoryRows.map((row) => (
+                <article key={row.repository}>
+                  <div>
+                    <strong>{row.repository}</strong>
+                    <span>{row.open} open · {row.total} total</span>
+                  </div>
+                  <b>{row.criticalHigh}</b>
+                </article>
+              ))}
+            </div>
+          )}
+        </aside>
+      </div>
+
+      <div className="idt-github-intelligence-main">
+        <section className="idt-github-intelligence-panel">
+          <div className="idt-github-intelligence-panel-head">
+            <h3>Scan health</h3>
+            <Link to={projectsPath}>Manage scans</Link>
+          </div>
+          {latestScan ? (
+            <div className="idt-github-intelligence-scan">
+              <span className={`idt-source-status-pill is-${repoScanStatusTone(latestScan.status)}`}>
+                {formatTokenLabel(latestScan.status)}
+              </span>
+              <strong>{canonicalGitHubRepositoryDisplay(latestScan.repository) || latestScan.repository}</strong>
+              <p>
+                {formatCountLabel(latestScan.finding_count, 'finding')} · {formatCountLabel(latestScan.files_scanned, 'file')} · {formatDateLabel(latestScan.started_at)}
+              </p>
+              {latestScan.error_message ? <p>{latestScan.error_message}</p> : null}
+            </div>
+          ) : (
+            <AppShellEmptyState
+              title="No scans yet"
+              body="AI Risks needs at least one repository scan."
+            />
+          )}
+        </section>
+
+        <section className="idt-github-intelligence-panel">
+          <div className="idt-github-intelligence-panel-head">
+            <h3>Finding trend</h3>
+            <span>{trendRows.length ? formatCountLabel(trendRows.length, 'point') : 'No trend'}</span>
+          </div>
+          {trendError ? (
+            <AppShellEmptyState
+              title="Trend unavailable"
+              body={trendError}
+            />
+          ) : trendRows.length === 0 ? (
+            <AppShellEmptyState
+              title="No trend yet"
+              body="Trend points will appear after repository finding snapshots are available."
+            />
+          ) : (
+            <div className="idt-github-intelligence-trend">
+              {trendRows.map((row) => (
+                <article key={row.key}>
+                  <div>
+                    <span>{row.label}</span>
+                    <strong>{row.total}</strong>
+                  </div>
+                  <div className="idt-repo-finding-trend-bar-track" role="img" aria-label={`AI Risks trend ${row.label}`}>
+                    <div className="idt-repo-finding-trend-bar" style={{ width: `${row.percentage}%` }} />
+                  </div>
+                  <small>{formatCountLabel(row.high, 'high priority', 'high priority')}</small>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </section>
   );
 }

@@ -4769,6 +4769,151 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   color: #f4f8ff;
 }
 
+.idt-github-intelligence-grid,
+.idt-github-intelligence-main {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-github-intelligence-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.idt-github-intelligence-main {
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.45fr);
+}
+
+.idt-github-intelligence-card,
+.idt-github-intelligence-panel,
+.idt-github-intelligence-row {
+  border: 1px solid rgba(126, 157, 211, 0.24);
+  border-radius: 8px;
+  background: rgba(9, 15, 26, 0.56);
+}
+
+.idt-github-intelligence-card,
+.idt-github-intelligence-panel {
+  padding: 0.9rem;
+}
+
+.idt-github-intelligence-card {
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+  min-height: 8.5rem;
+}
+
+.idt-github-intelligence-card-head,
+.idt-github-intelligence-panel-head,
+.idt-github-intelligence-row .idt-repo-finding-row-top,
+.idt-github-intelligence-hotspots article,
+.idt-github-intelligence-trend article > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.idt-github-intelligence-card-head div,
+.idt-github-intelligence-hotspots article div,
+.idt-github-intelligence-scan {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.idt-github-intelligence-card-head span,
+.idt-github-intelligence-panel-head span,
+.idt-github-intelligence-hotspots span,
+.idt-github-intelligence-trend small {
+  color: var(--app-dim);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.idt-github-intelligence-card-head strong {
+  color: #f4f8ff;
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.idt-github-intelligence-card-head small,
+.idt-github-intelligence-card > small {
+  color: #aab8cd;
+}
+
+.idt-github-intelligence-card-link,
+.idt-github-intelligence-panel-head a {
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.idt-github-intelligence-card-link {
+  display: inline-flex;
+  gap: 0.22rem;
+  align-items: center;
+  justify-self: start;
+}
+
+.idt-github-intelligence-card-link:hover,
+.idt-github-intelligence-card-link:focus-visible,
+.idt-github-intelligence-panel-head a:hover,
+.idt-github-intelligence-panel-head a:focus-visible {
+  text-decoration: underline;
+}
+
+.idt-github-intelligence-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-github-intelligence-panel-head h3 {
+  margin: 0;
+}
+
+.idt-github-intelligence-list,
+.idt-github-intelligence-hotspots,
+.idt-github-intelligence-trend {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-github-intelligence-row {
+  padding: 0.72rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.idt-github-intelligence-row p,
+.idt-github-intelligence-card p,
+.idt-github-intelligence-scan p {
+  margin: 0;
+}
+
+.idt-github-intelligence-hotspots article,
+.idt-github-intelligence-trend article {
+  border: 1px solid rgba(126, 157, 211, 0.18);
+  border-radius: 8px;
+  padding: 0.65rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.idt-github-intelligence-hotspots b {
+  display: inline-grid;
+  min-width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 107, 107, 0.14);
+  color: #ffc3c3;
+}
+
+.idt-github-intelligence-trend article {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .idt-repo-finding-stat-note {
   margin-top: 0.1rem;
   color: var(--app-dim, #6f86ad);
@@ -19472,7 +19617,8 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
 .idt-app-console-layout .idt-projects-page,
 .idt-app-console-layout .idt-source-onboarding,
 .idt-app-console-layout .idt-settings-page,
-.idt-app-console-layout .idt-repo-findings-page {
+.idt-app-console-layout .idt-repo-findings-page,
+.idt-app-console-layout .idt-github-intelligence-page {
   border: 0;
   padding: 0;
   background: transparent;
@@ -19485,6 +19631,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
 .idt-app-console-layout .idt-projects-header,
 .idt-app-console-layout .idt-source-onboarding-header,
 .idt-app-console-layout .idt-repo-findings-header,
+.idt-app-console-layout .idt-github-intelligence-header,
 .idt-app-console-layout .idt-settings-header {
   border: 1px solid var(--app-border);
   border-radius: 8px;
@@ -19514,6 +19661,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
 .idt-app-console-layout .idt-projects-header h2,
 .idt-app-console-layout .idt-source-onboarding-header h2,
 .idt-app-console-layout .idt-repo-findings-header h2,
+.idt-app-console-layout .idt-github-intelligence-header h2,
 .idt-app-console-layout .idt-settings-header h2 {
   margin: 0.2rem 0 0.35rem;
   font-size: clamp(1.8rem, 2.4vw, 2.35rem);
@@ -19613,6 +19761,9 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metri
 .idt-app-console-layout .idt-repo-finding-detail,
 .idt-app-console-layout .idt-repo-finding-trend,
 .idt-app-console-layout .idt-repo-finding-row,
+.idt-app-console-layout .idt-github-intelligence-card,
+.idt-app-console-layout .idt-github-intelligence-panel,
+.idt-app-console-layout .idt-github-intelligence-row,
 .idt-app-console-layout .idt-settings-card,
 .idt-app-console-layout .idt-settings-facts div,
 .idt-app-console-layout .idt-overview-risk-row,
@@ -19634,6 +19785,9 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-list,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row,
+html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-card,
+html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-panel,
+html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-row,
 html[data-theme='light'] .idt-account-security-page .idt-security-overview article,
 html[data-theme='light'] .idt-account-security-page .idt-session-row,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section {
@@ -19661,6 +19815,8 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-secti
 .idt-app-console-layout .idt-repo-finding-row:hover,
 .idt-app-console-layout .idt-repo-finding-row:focus-visible,
 .idt-app-console-layout .idt-repo-finding-row.is-selected,
+.idt-app-console-layout .idt-github-intelligence-row:hover,
+.idt-app-console-layout .idt-github-intelligence-row:focus-visible,
 .idt-app-console-layout .idt-overview-projects a:hover,
 .idt-app-console-layout .idt-overview-projects a:focus-visible,
 .idt-app-console-layout .idt-overview-actions a:hover,
@@ -19969,7 +20125,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
 .idt-app-console-layout .idt-source-install-card,
 .idt-app-console-layout .idt-settings-header,
 .idt-app-console-layout .idt-settings-card-header,
-.idt-app-console-layout .idt-repo-findings-header {
+.idt-app-console-layout .idt-repo-findings-header,
+.idt-app-console-layout .idt-github-intelligence-header {
   flex-wrap: wrap;
 }
 
@@ -20150,6 +20307,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-bar-tra
   }
 
   .idt-app-console-layout .idt-repo-finding-layout,
+  .idt-app-console-layout .idt-github-intelligence-grid,
+  .idt-app-console-layout .idt-github-intelligence-main,
   .idt-app-console-layout .idt-source-wizard-grid {
     grid-template-columns: 1fr;
   }
@@ -20241,6 +20400,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-bar-tra
   .idt-app-console-layout .idt-projects-header,
   .idt-app-console-layout .idt-source-onboarding-header,
   .idt-app-console-layout .idt-repo-findings-header,
+  .idt-app-console-layout .idt-github-intelligence-header,
   .idt-app-console-layout .idt-settings-header {
     width: 100%;
     max-width: 100%;
@@ -20287,6 +20447,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-bar-tra
     grid-template-columns: 1fr;
   }
 
+  .idt-app-console-layout .idt-github-intelligence-stats,
+  .idt-app-console-layout .idt-github-intelligence-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .idt-app-console-layout .idt-source-stepper li {
     border-right: 0;
     border-bottom: 1px solid var(--app-border);
@@ -20294,6 +20459,13 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-bar-tra
 
   .idt-app-console-layout .idt-source-stepper li:last-child {
     border-bottom: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .idt-app-console-layout .idt-github-intelligence-stats,
+  .idt-app-console-layout .idt-github-intelligence-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -20693,6 +20865,12 @@ html[data-theme='light'] .idt-overview-source-strip > span {
 .idt-app-console-layout .idt-repo-findings-header,
 .idt-app-console-layout .idt-settings-header {
   background: #080809;
+}
+
+.idt-app-console-layout .idt-repo-findings-header.idt-github-intelligence-header {
+  border: 0;
+  padding: 0.25rem 0 0.35rem;
+  background: transparent !important;
 }
 
 .idt-app-console-layout .idt-overview-metrics article,
@@ -22290,10 +22468,25 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   color: #85858f;
 }
 
+.idt-app-console-layout .idt-app-nav-icon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  filter: invert(0.62);
+  opacity: 0.95;
+}
+
 .idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon,
 .idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon,
 .idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon {
   color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon img,
+.idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon img,
+.idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon img {
+  filter: invert(1);
+  opacity: 1;
 }
 
 .idt-app-console-layout .idt-app-nav-label {
