@@ -51,6 +51,8 @@ contract.
   - `acts_for_user`
   - `has_runtime_session`
   - `observed_action`
+- Normalized entity set now includes: `Identity`, `Workload`, `Policy`,
+  `Resource`, `Credential`, `Agent`, and `RuntimeEvent`.
 - Fixture-based contract tests verify normalized identities and relationship types for AWS and Kubernetes pipelines.
 
 ## 5) Risk Engine Productionization
@@ -81,6 +83,8 @@ contract.
 ## 8) Normalization Contract Hardening
 
 - Normalized bundle validator now enforces required identity/workload/policy fields.
+- Normalized bundle validator now also enforces required fields and reference integrity
+  for first-class `Resource`, `Credential`, `Agent`, and `RuntimeEvent` records.
 - Policy normalized payload contract is strict and explicit (`policy_type`, `identity_id`, statement/principal requirements).
 - AWS and Kubernetes fixture pipelines are covered by contract tests to prevent schema drift.
 

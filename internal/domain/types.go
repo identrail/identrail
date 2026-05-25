@@ -53,6 +53,63 @@ const (
 	SeverityInfo     FindingSeverity = "info"
 )
 
+// ResourceType identifies normalized cloud/resource-like nodes in the scan graph.
+type ResourceType string
+
+const (
+	ResourceTypeS3Bucket         ResourceType = "s3_bucket"
+	ResourceTypeKMSKey           ResourceType = "kms_key"
+	ResourceTypeSecretsManager   ResourceType = "secrets_manager_secret"
+	ResourceTypeSSMParameter     ResourceType = "ssm_parameter"
+	ResourceTypeLambdaFunction   ResourceType = "lambda_function"
+	ResourceTypeECSService       ResourceType = "ecs_service"
+	ResourceTypeECSTask          ResourceType = "ecs_task"
+	ResourceTypeEKSCluster       ResourceType = "eks_cluster"
+	ResourceTypeEKSWorkload      ResourceType = "eks_workload"
+	ResourceTypeBedrockAgentCore ResourceType = "bedrock_agentcore"
+	ResourceTypeTool             ResourceType = "tool"
+	ResourceTypeAccessNode       ResourceType = "access_node"
+	ResourceTypeRuntimeSession   ResourceType = "runtime_session"
+	ResourceTypeUnknown          ResourceType = "resource"
+)
+
+// CredentialType identifies secrets/keys usable by identities and agents.
+type CredentialType string
+
+const (
+	CredentialTypeAccessKey       CredentialType = "access_key"
+	CredentialTypeAPIKey          CredentialType = "api_key"
+	CredentialTypeOAuthToken      CredentialType = "oauth_token"
+	CredentialTypeCertificate     CredentialType = "certificate"
+	CredentialTypeSecretReference CredentialType = "secret_reference"
+	CredentialTypeSessionToken    CredentialType = "session_token"
+	CredentialTypeUnknown         CredentialType = "credential"
+)
+
+// AgentType identifies runtime-capable actors in normalized scans.
+type AgentType string
+
+const (
+	AgentTypeAI      AgentType = "ai_agent"
+	AgentTypeTool    AgentType = "tool_agent"
+	AgentTypeRuntime AgentType = "runtime_agent"
+	AgentTypeUnknown AgentType = "agent"
+)
+
+// RuntimeEventType identifies observed action semantics during scan execution.
+type RuntimeEventType string
+
+const (
+	RuntimeEventTypeAssumeRole     RuntimeEventType = "sts_assume_role"
+	RuntimeEventTypeSecretRead     RuntimeEventType = "secret_read"
+	RuntimeEventTypeDecrypt        RuntimeEventType = "kms_decrypt"
+	RuntimeEventTypeToolCall       RuntimeEventType = "tool_call"
+	RuntimeEventTypeInvoke         RuntimeEventType = "invoke"
+	RuntimeEventTypeAuthDecision   RuntimeEventType = "authorization_decision"
+	RuntimeEventTypeRuntimeSession RuntimeEventType = "runtime_session"
+	RuntimeEventTypeUnknown        RuntimeEventType = "runtime_event"
+)
+
 // FindingType keeps rule output strongly typed for filtering and remediation.
 type FindingType string
 
@@ -140,6 +197,69 @@ type Policy struct {
 	Document   []byte         `json:"document"`
 	Normalized map[string]any `json:"normalized,omitempty"`
 	RawRef     string         `json:"raw_ref"`
+}
+
+// Resource represents first-class cloud and runtime resources.
+type Resource struct {
+	ID             string            `json:"id"`
+	Provider       Provider          `json:"provider"`
+	Type           ResourceType      `json:"type"`
+	Name           string            `json:"name"`
+	ARN            string            `json:"arn"`
+	Region         string            `json:"region"`
+	AccountID      string            `json:"account_id"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Metadata       map[string]any    `json:"metadata,omitempty"`
+	RawRef         string            `json:"raw_ref"`
+	SourceEntityID string            `json:"source_entity_id,omitempty"`
+}
+
+// Credential stores machine credential references and metadata.
+type Credential struct {
+	ID          string            `json:"id"`
+	Provider    Provider          `json:"provider"`
+	Type        CredentialType    `json:"type"`
+	Name        string            `json:"name"`
+	OwnerID     string            `json:"owner_id"`
+	ResourceID  string            `json:"resource_id"`
+	Reference   string            `json:"reference"`
+	Fingerprint string            `json:"fingerprint,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	ExpiresAt   *time.Time        `json:"expires_at,omitempty"`
+	LastUsedAt  *time.Time        `json:"last_used_at,omitempty"`
+	RawRef      string            `json:"raw_ref"`
+	RawValue    string            `json:"-"`
+	SourceInfo  map[string]any    `json:"source_info,omitempty"`
+}
+
+// Agent describes tool or AI-capable actors discovered during normalization.
+type Agent struct {
+	ID       string            `json:"id"`
+	Provider Provider          `json:"provider"`
+	Type     AgentType         `json:"type"`
+	Name     string            `json:"name"`
+	Model    string            `json:"model,omitempty"`
+	Runtime  string            `json:"runtime,omitempty"`
+	OwnerID  string            `json:"owner_id,omitempty"`
+	RawRef   string            `json:"raw_ref"`
+	Metadata map[string]any    `json:"metadata,omitempty"`
+	Tags     map[string]string `json:"tags,omitempty"`
+}
+
+// RuntimeEvent captures observed runtime activity without retaining secret values.
+type RuntimeEvent struct {
+	ID           string           `json:"id"`
+	Provider     Provider         `json:"provider"`
+	Type         RuntimeEventType `json:"type"`
+	ActorID      string           `json:"actor_id"`
+	TargetID     string           `json:"target_id,omitempty"`
+	CredentialID string           `json:"credential_id,omitempty"`
+	SourceRef    string           `json:"source_ref"`
+	Action       string           `json:"action,omitempty"`
+	Decision     string           `json:"decision,omitempty"`
+	ObservedAt   time.Time        `json:"observed_at"`
+	RawRef       string           `json:"raw_ref"`
+	Evidence     map[string]any   `json:"evidence,omitempty"`
 }
 
 // Relationship models directional edges in the permission graph.
