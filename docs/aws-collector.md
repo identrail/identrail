@@ -32,6 +32,10 @@ The AWS collector is the first provider ingestion module in Identrail. It reads 
 - No credential persistence in collector module
 - No mutation API calls
 
-## Next Step
+## Current Implementation State
 
-Wire this collector to a concrete AWS SDK adapter and pass outputs into the normalizer module.
+- IAM role collection is implemented through a concrete AWS SDK adapter.
+- The collector output flows into the normalizer pipeline as `kind=iam_role` raw assets.
+- Connectors currently assume the onboarded read-only role at scan time, then perform IAM-only collection.
+- Runtime behavior stays IAM-focused and read-only; no live remediation or policy enforcement is executed during collection.
+- Cross-service expansion is expected through the separate composite-connector roadmap, not through this IAM collector path today.
