@@ -6244,6 +6244,17 @@ export function ProductFindingsPage() {
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [hierarchyOpenState, setHierarchyOpenState] = useState<{
+    repositories: Set<string>;
+    scans: Set<string>;
+    severities: Set<string>;
+    initialized: boolean;
+  }>({
+    repositories: new Set(),
+    scans: new Set(),
+    severities: new Set(),
+    initialized: false
+  });
   const [selectedFindingKey, setSelectedFindingKey] = useState('');
   const [findingDetailOpen, setFindingDetailOpen] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<FindingLifecycleStatus>('open');
@@ -6274,6 +6285,25 @@ export function ProductFindingsPage() {
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
 
   const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
+
+  const updateHierarchyOpenState = (
+    level: 'repositories' | 'scans' | 'severities',
+    key: string,
+    open: boolean
+  ) => {
+    setHierarchyOpenState((current) => {
+      if (current[level].has(key) === open) {
+        return current;
+      }
+      const nextKeys = new Set(current[level]);
+      if (open) {
+        nextKeys.add(key);
+      } else {
+        nextKeys.delete(key);
+      }
+      return { ...current, [level]: nextKeys, initialized: true };
+    });
+  };
 
   const trendMaxTotal = useMemo(() => {
     const totals = trendPoints.map((point) => point.total);
@@ -6314,6 +6344,26 @@ export function ProductFindingsPage() {
       }),
     [filteredFindings, repoScansByID, sortBy, sortOrder]
   );
+
+  useEffect(() => {
+    if (findingHierarchy.length === 0) {
+      return;
+    }
+    setHierarchyOpenState((current) => {
+      if (current.initialized) {
+        return current;
+      }
+      const firstRepository = findingHierarchy[0];
+      const firstScan = firstRepository.scanGroups[0];
+      const firstSeverity = firstScan?.severityGroups[0];
+      return {
+        repositories: new Set(firstRepository ? [firstRepository.key] : []),
+        scans: new Set(firstScan ? [firstScan.key] : []),
+        severities: new Set(firstSeverity ? [firstSeverity.key] : []),
+        initialized: true
+      };
+    });
+  }, [findingHierarchy]);
 
   const selectedFinding = useMemo(
     () => findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey),
@@ -7167,7 +7217,10 @@ export function ProductFindingsPage() {
                   <details
                     className="idt-repo-finding-bucket idt-repo-finding-repository"
                     key={repositoryGroup.key}
-                    {...(repositoryIndex === 0 ? { open: true } : {})}
+                    open={hierarchyOpenState.repositories.has(repositoryGroup.key)}
+                    onToggle={(event) =>
+                      updateHierarchyOpenState('repositories', repositoryGroup.key, event.currentTarget.open)
+                    }
                   >
                     <summary className="idt-repo-repository-summary">
                       <span className="idt-repo-summary-main">
@@ -7199,7 +7252,10 @@ export function ProductFindingsPage() {
                         <details
                           className="idt-repo-finding-bucket idt-repo-finding-scan"
                           key={scanGroup.key}
-                          {...(repositoryIndex === 0 && scanIndex === 0 ? { open: true } : {})}
+                          open={hierarchyOpenState.scans.has(scanGroup.key)}
+                          onToggle={(event) =>
+                            updateHierarchyOpenState('scans', scanGroup.key, event.currentTarget.open)
+                          }
                         >
                           <summary className="idt-repo-scan-summary">
                             <span className="idt-repo-scan-node" aria-hidden="true" />
@@ -7217,9 +7273,10 @@ export function ProductFindingsPage() {
                               <details
                                 className={`idt-repo-finding-bucket idt-repo-finding-severity-group is-${severityGroup.label}`}
                                 key={severityGroup.key}
-                                {...(repositoryIndex === 0 && scanIndex === 0 && severityIndex === 0
-                                  ? { open: true }
-                                  : {})}
+                                open={hierarchyOpenState.severities.has(severityGroup.key)}
+                                onToggle={(event) =>
+                                  updateHierarchyOpenState('severities', severityGroup.key, event.currentTarget.open)
+                                }
                               >
                                 <summary className="idt-repo-severity-summary">
                                   <span className="idt-repo-severity-copy">
