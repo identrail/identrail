@@ -16,7 +16,7 @@ func TestDefaultCommandRunnerCancelsDescendantProcess(t *testing.T) {
 
 	started := time.Now()
 	cmd := exec.CommandContext(ctx, "sh", "-c", "(sleep 30) & wait")
-	cmd.WaitDelay = defaultCommandWaitDelay
+	configureRepositoryCommand(cmd)
 	_, err := cmd.CombinedOutput()
 	if err == nil || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		t.Fatalf("expected command cancellation after deadline, err=%v ctx=%v", err, ctx.Err())

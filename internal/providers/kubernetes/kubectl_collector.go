@@ -392,14 +392,17 @@ func isSafeKubectlCommandPath(raw string) bool {
 	if clean == "." || clean == ".." {
 		return false
 	}
-	if strings.IndexAny(clean, "&;<>$(){}[]*?\"'\t ") >= 0 {
+	if strings.IndexAny(clean, "&;<>$(){}[]*?\"'\t") >= 0 {
 		return false
 	}
 	if strings.ContainsRune(clean, '`') {
 		return false
 	}
 	base := strings.ToLower(filepath.Base(clean))
-	return base == defaultKubectlPath || base == defaultKubectlPath+".exe"
+	if base != defaultKubectlPath && base != defaultKubectlPath+".exe" {
+		return false
+	}
+	return clean == base || filepath.IsAbs(clean)
 }
 
 func defaultKubectlSleeper(ctx context.Context, delay time.Duration) error {

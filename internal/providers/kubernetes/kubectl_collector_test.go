@@ -279,3 +279,15 @@ func TestIsRetryableKubectlError(t *testing.T) {
 		t.Fatal("forbidden should not be retryable")
 	}
 }
+
+func TestIsSafeKubectlCommandPathRejectsRelativePath(t *testing.T) {
+	if isSafeKubectlCommandPath("../usr/bin/kubectl") {
+		t.Fatal("expected relative path with kubectl basename to be rejected")
+	}
+}
+
+func TestIsSafeKubectlCommandPathAcceptsAbsolutePathWithSpaces(t *testing.T) {
+	if !isSafeKubectlCommandPath("/tmp/kubectl with spaces/bin/kubectl") {
+		t.Fatal("expected absolute path with spaces to be accepted")
+	}
+}
