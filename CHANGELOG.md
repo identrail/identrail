@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Expanded the normalized identity graph contract with precise AWS machine and
+  agent relationship semantics for workload execution, secrets, KMS decrypt,
+  role passing, invocations, tool calls, delegated users, runtime sessions, and
+  observed actions, with domain metadata, endpoint validation, tests, and docs.
 - Added a Docker Hub repository overview source and sync workflow so
   `identrail/identrail` presents a maintained, container-focused description on
   Docker Hub instead of relying on indexed image layer pages.
