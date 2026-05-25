@@ -200,6 +200,7 @@ const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
+const AI_RISKS_REPO_FINDINGS_PAGE_LIMIT = 100;
 const EXECUTIVE_REPORT_SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
 const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], string> = {
@@ -326,6 +327,37 @@ async function listOverviewProjects(
     }
     if (seenCursors.has(nextCursor)) {
       throw new Error('Project pagination returned a repeated cursor');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  return items;
+}
+
+async function listAIRisksRepoFindings(auth: RequestAuthContext): Promise<ApiFinding[]> {
+  const items: ApiFinding[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  do {
+    const response = await apiClient.listRepoFindings(
+      {
+        limit: AI_RISKS_REPO_FINDINGS_PAGE_LIMIT,
+        cursor,
+        sort_by: 'severity',
+        sort_order: 'desc'
+      },
+      auth
+    );
+    items.push(...(response.items ?? []));
+
+    const nextCursor = response.next_cursor?.trim();
+    if (!nextCursor) {
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('Repository finding pagination returned a repeated cursor');
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
@@ -5857,7 +5889,7 @@ export function ProductAIRisksPage() {
       const auth = buildProductAuthContext(targetScope);
       const [scanResult, findingResult, trendResult] = await Promise.allSettled([
         apiClient.listRepoScans({ limit: 50 }, auth),
-        apiClient.listRepoFindings({ limit: 100, sort_by: 'severity', sort_order: 'desc' }, auth),
+        listAIRisksRepoFindings(auth),
         apiClient.getRepoFindingsTrends({ points: TREND_POINTS }, auth)
       ]);
       if (requestID !== requestRef.current) {
@@ -5870,7 +5902,7 @@ export function ProductAIRisksPage() {
         throw findingResult.reason;
       }
       setRepoScans(scanResult.value.items ?? []);
-      setRepoFindings(findingResult.value.items ?? []);
+      setRepoFindings(findingResult.value);
       if (trendResult.status === 'fulfilled') {
         setTrendPoints(trendResult.value.items ?? []);
       } else {

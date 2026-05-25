@@ -1425,6 +1425,23 @@ describe('App', () => {
         });
       }
       if (url.includes('/v1/repo-findings')) {
+        if (url.includes('cursor=repo-page-2')) {
+          return okJSON({
+            items: Array.from({ length: 5 }, (_, index) => ({
+              id: `repo-ai-${index + 2}`,
+              scan_id: 'repo-scan-1',
+              type: 'ai_agent_surface',
+              severity: 'low',
+              detector: 'ai_agent_config_secret_ref',
+              title: `Additional AI exposure ${index + 2}`,
+              human_summary: 'Additional scoped AI risk for repository counting.',
+              repository: `owner/repo-${index + 2}`,
+              file_path: '.mcp.json',
+              remediation: 'Move sensitive values behind scoped secrets.',
+              created_at: `2026-01-02T00:0${index + 5}:00Z`
+            }))
+          });
+        }
         return okJSON({
           summary: {
             total_open: 99,
@@ -1501,19 +1518,6 @@ describe('App', () => {
               remediation: 'Enable organization-level secret scanning policy.',
               created_at: '2026-01-02T00:04:00Z'
             },
-            ...Array.from({ length: 5 }, (_, index) => ({
-              id: `repo-ai-${index + 2}`,
-              scan_id: 'repo-scan-1',
-              type: 'ai_agent_surface',
-              severity: 'low',
-              detector: 'ai_agent_config_secret_ref',
-              title: `Additional AI exposure ${index + 2}`,
-              human_summary: 'Additional scoped AI risk for repository counting.',
-              repository: `owner/repo-${index + 2}`,
-              file_path: '.mcp.json',
-              remediation: 'Move sensitive values behind scoped secrets.',
-              created_at: `2026-01-02T00:0${index + 5}:00Z`
-            })),
             {
               id: 'repo-out-of-scope',
               scan_id: 'repo-scan-1',
@@ -1526,7 +1530,8 @@ describe('App', () => {
               remediation: 'Review license notice separately.',
               created_at: '2026-01-02T00:10:00Z'
             }
-          ]
+          ],
+          next_cursor: 'repo-page-2'
         });
       }
       throw new Error(`Unexpected URL ${url}`);
@@ -1542,6 +1547,7 @@ describe('App', () => {
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
     expect(within(openMetric).getByText('10')).toBeInTheDocument();
     expect(within(repoMetric).getByText('6')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('cursor=repo-page-2'))).toBe(true);
     expect((await screen.findAllByText(/AI\/MCP Exposure/i)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/AI Workflow Risk/i)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/GitHub Alerts/i)).length).toBeGreaterThan(0);

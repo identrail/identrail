@@ -1469,7 +1469,7 @@ export const apiClient = {
     } = {},
     auth?: RequestAuthContext
   ) {
-    return request<{ items: Finding[]; summary?: RepoFindingsSummary }>(
+    return request<{ items: Finding[]; summary?: RepoFindingsSummary; next_cursor?: string }>(
       `/v1/repo-findings${buildQuery({ sort_by: 'created_at', sort_order: 'desc', ...filters })}`,
       auth
     );
