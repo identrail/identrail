@@ -1,0 +1,67 @@
+name: Sync Docker Hub Description
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - docs/dockerhub/identrail.md
+      - .github/workflows/sync-dockerhub-description.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOCKERHUB_README: docs/dockerhub/identrail.md
+  DOCKERHUB_SHORT_DESCRIPTION: Machine identity security for AWS IAM, Kubernetes, GitHub/OIDC, and repo exposure
+
+jobs:
+  sync:
+    name: Sync identrail/identrail overview
+    if: github.repository == 'identrail/identrail' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Validate Docker Hub metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "${DOCKERHUB_README}" ]; then
+            echo "Missing Docker Hub README at ${DOCKERHUB_README}." >&2
+            exit 1
+          fi
+
+          readme_bytes="$(wc -c < "${DOCKERHUB_README}" | tr -d '[:space:]')"
+          short_description_bytes="$(printf '%s' "${DOCKERHUB_SHORT_DESCRIPTION}" | wc -c | tr -d '[:space:]')"
+
+          if [ "${readme_bytes}" -eq 0 ]; then
+            echo "Docker Hub README must not be empty." >&2
+            exit 1
+          fi
+
+          if [ "${readme_bytes}" -gt 25000 ]; then
+            echo "Docker Hub README is ${readme_bytes} bytes; Docker Hub allows at most 25000 bytes." >&2
+            exit 1
+          fi
+
+          if [ "${short_description_bytes}" -gt 100 ]; then
+            echo "Docker Hub short description is ${short_description_bytes} bytes; Docker Hub allows at most 100 bytes." >&2
+            exit 1
+          fi
+
+          echo "Docker Hub README is ${readme_bytes} bytes."
+          echo "Docker Hub short description is ${short_description_bytes} bytes."
+
+      - name: Sync Docker Hub repository description
+        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: identrail/identrail
+          short-description: ${{ env.DOCKERHUB_SHORT_DESCRIPTION }}
+          readme-filepath: ${{ env.DOCKERHUB_README }}
