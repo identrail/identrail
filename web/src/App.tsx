@@ -28,6 +28,7 @@ import { RequireOnboardingBackend } from './components/onboarding/OnboardingAvai
 import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
+  ProductAIRisksPage,
   ProductExecutiveReportPage,
   ProductFindingsPage,
   ProductGitHubCallbackPage,
@@ -4751,6 +4752,7 @@ export function RoutedSite() {
             <Route path="projects" element={<ProductProjectsPage />} />
             <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
             <Route path="findings" element={<ProductFindingsPage />} />
+            <Route path="ai-risks" element={<ProductAIRisksPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
           </Route>
           <Route path="/" element={<HomePage />} />
