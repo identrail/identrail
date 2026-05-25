@@ -84,6 +84,23 @@ func ValidateNormalizedBundle(bundle NormalizedBundle) error {
 		resourceIDs[resource.ID] = struct{}{}
 	}
 
+	for i, agent := range bundle.Agents {
+		if !agent.Validate() {
+			return fmt.Errorf("invalid agent at index %d", i)
+		}
+		if _, exists := agentIDs[agent.ID]; exists {
+			return fmt.Errorf("duplicate agent id %q", agent.ID)
+		}
+		agentIDs[agent.ID] = struct{}{}
+
+		if strings.TrimSpace(agent.RawRef) == "" {
+			return fmt.Errorf("agent %q missing raw_ref", agent.ID)
+		}
+		if agent.OwnerID != "" && !bundleEntityExists(agent.OwnerID, identityIDs, workloadIDs, agentIDs, resourceIDs) {
+			return fmt.Errorf("agent %q unknown owner_id %q", agent.ID, agent.OwnerID)
+		}
+	}
+
 	for i, credential := range bundle.Credentials {
 		if !credential.Validate() {
 			return fmt.Errorf("invalid credential at index %d", i)
@@ -114,23 +131,6 @@ func ValidateNormalizedBundle(bundle NormalizedBundle) error {
 		}
 		if credential.RawValue != "" {
 			return fmt.Errorf("credential %q contains unredacted raw value", credential.ID)
-		}
-	}
-
-	for i, agent := range bundle.Agents {
-		if !agent.Validate() {
-			return fmt.Errorf("invalid agent at index %d", i)
-		}
-		if _, exists := agentIDs[agent.ID]; exists {
-			return fmt.Errorf("duplicate agent id %q", agent.ID)
-		}
-		agentIDs[agent.ID] = struct{}{}
-
-		if strings.TrimSpace(agent.RawRef) == "" {
-			return fmt.Errorf("agent %q missing raw_ref", agent.ID)
-		}
-		if agent.OwnerID != "" && !bundleEntityExists(agent.OwnerID, identityIDs, workloadIDs, agentIDs, resourceIDs) {
-			return fmt.Errorf("agent %q unknown owner_id %q", agent.ID, agent.OwnerID)
 		}
 	}
 

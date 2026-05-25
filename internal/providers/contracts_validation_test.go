@@ -151,6 +151,13 @@ func TestValidateNormalizedBundleDuplicateAndSchemaFailures(t *testing.T) {
 		Type:     domain.ResourceTypeS3Bucket,
 		Name:     "bucket-a",
 	}
+	baseAgent := domain.Agent{
+		ID:       "agent-1",
+		Provider: domain.ProviderAWS,
+		Type:     domain.AgentTypeAI,
+		Name:     "agent-one",
+		RawRef:   "agent-ref",
+	}
 	tests := []struct {
 		name   string
 		bundle NormalizedBundle
@@ -319,6 +326,22 @@ func TestValidateNormalizedBundleDuplicateAndSchemaFailures(t *testing.T) {
 			needle: "missing reference",
 		},
 		{
+			name: "credential owned by agent",
+			bundle: NormalizedBundle{
+				Agents: []domain.Agent{baseAgent},
+				Credentials: []domain.Credential{{
+					ID:        "cred-agent",
+					Provider:  domain.ProviderAWS,
+					Type:      domain.CredentialTypeAccessKey,
+					Name:      "access-key",
+					RawRef:    "raw-cred",
+					Reference: "ref-agent",
+					OwnerID:   baseAgent.ID,
+				}},
+			},
+			needle: "",
+		},
+		{
 			name: "credential unknown resource_id",
 			bundle: NormalizedBundle{
 				Credentials: []domain.Credential{{
@@ -457,6 +480,14 @@ func TestValidateGraphContractCoverageBranches(t *testing.T) {
 		Workloads: []domain.Workload{
 			{ID: "wl-a", Provider: domain.ProviderKubernetes, Type: "pod", Name: "api"},
 		},
+		Resources: []domain.Resource{
+			{
+				ID:       "res-bucket",
+				Provider: domain.ProviderAWS,
+				Type:     domain.ResourceTypeS3Bucket,
+				Name:     "bucket",
+			},
+		},
 		Policies: []domain.Policy{
 			{
 				ID:       "policy-a",
@@ -552,6 +583,13 @@ func TestValidateGraphContractCoverageBranches(t *testing.T) {
 				{ID: "pass", Type: domain.RelationshipCanPassRole, FromNodeID: "id-a", ToNodeID: "user-a", DiscoveredAt: now},
 			},
 			needle: "target role identity",
+		},
+		{
+			name: "bad invokes target non-invocable resource",
+			relationships: []domain.Relationship{
+				{ID: "bad-invoke", Type: domain.RelationshipInvokes, FromNodeID: "wl-a", ToNodeID: "res-bucket", DiscoveredAt: now},
+			},
+			needle: "invalid invocable node",
 		},
 		{
 			name: "bad acts_for_user target",

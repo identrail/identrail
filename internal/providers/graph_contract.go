@@ -101,10 +101,6 @@ func validateRelationshipEndpoints(
 		got, ok := identityTypes[id]
 		return ok && got == identityType
 	}
-	hasResource := func(id string) bool {
-		_, ok := resourceTypes[id]
-		return ok
-	}
 	hasResourceType := func(id string, resourceType domain.ResourceType) bool {
 		got, ok := resourceTypes[id]
 		return ok && got == resourceType
@@ -146,6 +142,7 @@ func validateRelationshipEndpoints(
 	hasInvocable := func(id string) bool {
 		return hasWorkload(id) ||
 			hasResourceType(id, domain.ResourceTypeLambdaFunction) ||
+			hasResourceType(id, domain.ResourceTypeTool) ||
 			strings.HasPrefix(id, "invocable:") ||
 			strings.HasPrefix(id, "aws:lambda:") ||
 			strings.HasPrefix(id, "aws:service:") ||
@@ -158,12 +155,6 @@ func validateRelationshipEndpoints(
 			strings.HasPrefix(id, "mcp:tool:") ||
 			strings.HasPrefix(id, "agent:tool:") ||
 			hasResourceType(id, domain.ResourceTypeTool)
-	}
-	hasResourceNode := func(id string) bool {
-		return hasResource(id) ||
-			strings.HasPrefix(id, "aws:resource:") ||
-			strings.HasPrefix(id, "aws:lambda:") ||
-			strings.HasPrefix(id, "aws:service:")
 	}
 
 	switch relationship.Type {
@@ -247,7 +238,7 @@ func validateRelationshipEndpoints(
 		if !hasActor(relationship.FromNodeID) {
 			return fmt.Errorf("invokes relationship %q has unknown source actor %q", relationship.ID, relationship.FromNodeID)
 		}
-		if !hasInvocable(relationship.ToNodeID) && !hasResourceNode(relationship.ToNodeID) {
+		if !hasInvocable(relationship.ToNodeID) {
 			return fmt.Errorf("invokes relationship %q has invalid invocable node %q", relationship.ID, relationship.ToNodeID)
 		}
 	case domain.RelationshipCallsTool:
