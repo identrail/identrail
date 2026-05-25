@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -58,6 +59,9 @@ var _ providers.DiagnosticCollector = (*KubectlCollector)(nil)
 func NewKubectlCollector(kubectlPath string, contextName string, runner CommandRunner, opts ...KubectlOption) *KubectlCollector {
 	path := strings.TrimSpace(kubectlPath)
 	if path == "" {
+		path = defaultKubectlPath
+	}
+	if !isSafeKubectlCommandPath(path) {
 		path = defaultKubectlPath
 	}
 	if runner == nil {
@@ -365,8 +369,40 @@ func (c *KubectlCollector) list(ctx context.Context, resource string, allNamespa
 }
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, sanitizeKubectlCommandPath(name), args...)
 	return cmd.CombinedOutput()
+}
+
+func sanitizeKubectlCommandPath(raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return defaultKubectlPath
+	}
+	if !isSafeKubectlCommandPath(path) {
+		return defaultKubectlPath
+	}
+	return path
+}
+
+func isSafeKubectlCommandPath(raw string) bool {
+	if strings.IndexAny(raw, "\x00\r\n") >= 0 {
+		return false
+	}
+	clean := filepath.Clean(strings.TrimSpace(raw))
+	if clean == "." || clean == ".." {
+		return false
+	}
+	if strings.IndexAny(clean, "&;<>$(){}[]*?\"'\t") >= 0 {
+		return false
+	}
+	if strings.ContainsRune(clean, '`') {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(clean))
+	if base != defaultKubectlPath && base != defaultKubectlPath+".exe" {
+		return false
+	}
+	return clean == base || filepath.IsAbs(clean)
 }
 
 func defaultKubectlSleeper(ctx context.Context, delay time.Duration) error {

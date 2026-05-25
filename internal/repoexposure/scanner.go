@@ -1632,13 +1632,21 @@ func severityRank(severity domain.FindingSeverity) int {
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := newRepositoryCommand(ctx, name, args...)
-	return cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
+	if err != nil && ctx.Err() != nil {
+		return output, ctx.Err()
+	}
+	return output, err
 }
 
 func defaultEnvCommandRunner(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
 	cmd := newRepositoryCommand(ctx, name, args...)
 	cmd.Env = append(os.Environ(), env...)
-	return cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput()
+	if err != nil && ctx.Err() != nil {
+		return output, ctx.Err()
+	}
+	return output, err
 }
 
 func sanitizeError(err error, secrets ...string) error {
