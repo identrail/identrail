@@ -1635,6 +1635,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
     render(<App />);
 
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true));
     expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
     expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
     expect(await screen.findByText(/Trend unavailable/i)).toBeInTheDocument();
