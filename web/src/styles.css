@@ -24381,6 +24381,447 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   display: block;
 }
 
+/* Product shell depth palette */
+#main-content:has(.idt-app-console-layout),
+#main-content:has(.idt-account-security-page),
+#main-content:has(.idt-executive-report-shell) {
+  background: #121518;
+}
+
+.idt-app-console-layout,
+.idt-account-security-page,
+.idt-app-shell-screen,
+.idt-executive-report-shell {
+  --app-bg: #121518;
+  --app-panel: #181b1f;
+  --app-panel-strong: #111417;
+  --app-border: #2b3037;
+  --app-border-soft: #23282e;
+  --app-text: #f5f7f8;
+  --app-muted: #adb5bf;
+  --app-dim: #7f8792;
+  --app-ink: #101317;
+  --app-paper: #171a1e;
+  --app-paper-muted: #aeb6c0;
+  --app-blueprint: #111827;
+  --idt-console-rail: #191d21;
+  --idt-console-rail-hover: #23282e;
+  --idt-console-surface: #181b1f;
+  --idt-console-surface-raised: #1b1f24;
+  --idt-console-surface-quiet: #15191d;
+  --idt-console-surface-deep: #101317;
+  --idt-console-focus: #7c6dff;
+  --idt-console-shadow: 0 18px 48px rgba(0, 0, 0, 0.26);
+}
+
+.idt-app-console-layout,
+html[data-theme='light'] .idt-app-console-layout,
+.idt-account-security-page,
+html[data-theme='light'] .idt-account-security-page,
+.idt-app-shell-screen,
+html[data-theme='light'] .idt-app-shell-screen,
+.idt-executive-report-shell,
+html[data-theme='light'] .idt-executive-report-shell {
+  background: linear-gradient(180deg, #15191d 0%, #121518 42%, #111417 100%);
+  color: var(--app-text);
+}
+
+.idt-app-console-layout .idt-app-console,
+.idt-app-console-layout .idt-app-shell-main {
+  background: transparent;
+}
+
+.idt-app-console-layout .idt-app-sidebar,
+html[data-theme='light'] .idt-app-console-layout .idt-app-sidebar {
+  border-color: var(--app-border);
+  background: var(--idt-console-rail);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.035);
+}
+
+.idt-app-console-layout .idt-app-quick-find,
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger,
+.idt-app-console-layout .idt-app-sidebar-account-trigger,
+html[data-theme='light'] .idt-app-console-layout .idt-app-quick-find {
+  background: transparent;
+  border-color: transparent;
+  color: #d8dde4;
+}
+
+.idt-app-console-layout .idt-app-quick-find:hover,
+.idt-app-console-layout .idt-app-quick-find:focus-visible,
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger:hover,
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger:focus-visible,
+.idt-app-console-layout .idt-app-sidebar-workspace-trigger[aria-expanded='true'],
+.idt-app-console-layout .idt-app-sidebar-account-trigger:hover,
+.idt-app-console-layout .idt-app-sidebar-account-trigger:focus-visible,
+.idt-app-console-layout .idt-app-sidebar-account-trigger[aria-expanded='true'] {
+  border-color: var(--app-border-soft);
+  background: var(--idt-console-rail-hover);
+}
+
+.idt-app-console-layout .idt-app-shell-nav a,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+  color: #aab2bd;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
+.idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active),
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active) {
+  background: var(--idt-console-rail-hover);
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a.active,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
+  background: #293039;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-shell-nav a.active::before {
+  background: var(--idt-console-focus);
+}
+
+.idt-app-console-layout .idt-app-sidebar-workspace-menu,
+.idt-app-sidebar-account-menu,
+html[data-theme='light'] .idt-app-console-layout .idt-app-sidebar-workspace-menu,
+html[data-theme='light'] .idt-app-console-layout .idt-app-sidebar-account-menu {
+  border-color: var(--app-border);
+  background: var(--idt-console-surface-raised);
+  box-shadow: var(--idt-console-shadow);
+}
+
+.idt-app-console-layout .idt-app-sidebar-workspace-menu a:hover,
+.idt-app-console-layout .idt-app-sidebar-workspace-menu a:focus-visible,
+.idt-app-console-layout .idt-app-sidebar-workspace-menu button:hover,
+.idt-app-console-layout .idt-app-sidebar-workspace-menu button:focus-visible,
+.idt-app-sidebar-account-menu a:hover,
+.idt-app-sidebar-account-menu a:focus-visible,
+.idt-app-sidebar-account-menu button:hover,
+.idt-app-sidebar-account-menu button:focus-visible {
+  background: #252b32;
+}
+
+.idt-app-console-layout .idt-overview-header,
+.idt-app-console-layout .idt-workspace-admin-header,
+.idt-app-console-layout .idt-projects-header,
+.idt-app-console-layout .idt-source-onboarding-header,
+.idt-app-console-layout .idt-repo-findings-header,
+.idt-app-console-layout .idt-github-intelligence-header,
+.idt-app-console-layout .idt-settings-header,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-header,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-admin-header,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-header,
+html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding-header,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header,
+html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-header,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-header {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-overview-page,
+.idt-app-console-layout .idt-workspace-admin,
+.idt-app-console-layout .idt-projects-page,
+.idt-app-console-layout .idt-source-onboarding,
+.idt-app-console-layout .idt-settings-page,
+.idt-app-console-layout .idt-repo-findings-page,
+.idt-app-console-layout .idt-github-intelligence-page,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-page,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-admin,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-page,
+html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-page,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-page,
+html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-page {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-overview-metrics article,
+.idt-app-console-layout .idt-workspace-stats article,
+.idt-app-console-layout .idt-projects-summary article,
+.idt-app-console-layout .idt-source-summary article,
+.idt-app-console-layout .idt-settings-counts article,
+.idt-app-console-layout .idt-repo-finding-stat,
+.idt-app-console-layout .idt-overview-card,
+.idt-app-console-layout .idt-projects-list,
+.idt-app-console-layout .idt-project-composer,
+.idt-app-console-layout .idt-project-card,
+.idt-app-console-layout .idt-source-card,
+.idt-app-console-layout .idt-source-config,
+.idt-app-console-layout .idt-source-install-card,
+.idt-app-console-layout .idt-source-advanced,
+.idt-app-console-layout .idt-source-diagnostics article,
+.idt-app-console-layout .idt-source-next-action,
+.idt-app-console-layout .idt-source-compact-stats,
+.idt-app-console-layout .idt-source-recovery-card,
+.idt-app-console-layout .idt-source-policy-panel details,
+.idt-app-console-layout .idt-repo-filter-panel,
+.idt-app-console-layout .idt-repo-finding-list,
+.idt-app-console-layout .idt-repo-finding-detail,
+.idt-app-console-layout .idt-repo-finding-trend,
+.idt-app-console-layout .idt-repo-finding-bucket,
+.idt-app-console-layout .idt-repo-finding-repository,
+.idt-app-console-layout .idt-repo-finding-detail-modal,
+.idt-app-console-layout .idt-github-intelligence-card,
+.idt-app-console-layout .idt-github-intelligence-panel,
+.idt-app-console-layout .idt-github-intelligence-row,
+.idt-app-console-layout .idt-settings-card,
+.idt-app-console-layout .idt-settings-facts div,
+.idt-app-console-layout .idt-overview-risk-row,
+.idt-app-console-layout .idt-overview-scan-row,
+.idt-app-console-layout .idt-overview-projects a,
+.idt-app-console-layout .idt-overview-actions a,
+.idt-account-security-page .idt-security-overview article,
+.idt-account-security-page .idt-session-row,
+.idt-executive-report-shell .idt-executive-report-section,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics article,
+html[data-theme='light'] .idt-app-console-layout .idt-workspace-stats article,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-summary article,
+html[data-theme='light'] .idt-app-console-layout .idt-source-summary article,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-counts article,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-stat,
+html[data-theme='light'] .idt-app-console-layout .idt-overview-card,
+html[data-theme='light'] .idt-app-console-layout .idt-projects-list,
+html[data-theme='light'] .idt-app-console-layout .idt-project-composer,
+html[data-theme='light'] .idt-app-console-layout .idt-project-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-config,
+html[data-theme='light'] .idt-app-console-layout .idt-source-install-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-advanced,
+html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics article,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-list,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-repository,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-modal,
+html[data-theme='light'] .idt-account-security-page .idt-security-overview article,
+html[data-theme='light'] .idt-account-security-page .idt-session-row,
+html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section {
+  border-color: var(--app-border);
+  background: var(--idt-console-surface);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035), var(--idt-console-shadow);
+}
+
+.idt-app-console-layout .idt-repo-finding-row,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row,
+.idt-app-console-layout .idt-repo-finding-detail-section,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-section,
+.idt-app-console-layout .idt-project-card-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div,
+.idt-app-console-layout .idt-source-meta div,
+html[data-theme='light'] .idt-app-console-layout .idt-source-meta div,
+.idt-app-console-layout .idt-repo-summary-metrics > span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics > span,
+.idt-app-console-layout .idt-repo-scan-meta span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-meta span {
+  border-color: var(--app-border-soft);
+  background: var(--idt-console-surface-deep);
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-repo-repository-summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-repository-summary,
+.idt-app-console-layout .idt-repo-scan-summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-summary,
+.idt-app-console-layout .idt-repo-severity-summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-summary {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0)),
+    var(--idt-console-surface-raised);
+}
+
+.idt-app-console-layout .idt-repo-finding-severity-group,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group {
+  border-color: var(--app-border-soft);
+  background: var(--idt-console-surface-quiet);
+}
+
+.idt-app-console-layout .idt-repo-scan-node,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-node {
+  box-shadow: 0 0 0 0.35rem var(--idt-console-surface);
+}
+
+.idt-app-console-layout .idt-repo-finding-scan::before,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-scan::before {
+  background: #343a43;
+}
+
+.idt-app-console-layout .idt-repo-finding-row:hover,
+.idt-app-console-layout .idt-repo-finding-row:focus-visible,
+.idt-app-console-layout .idt-repo-finding-row.is-selected,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row:hover,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row:focus-visible,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row.is-selected {
+  border-color: #4c5664;
+  background: #161b21;
+}
+
+.idt-app-console-layout .idt-btn-primary,
+.idt-account-security-page .idt-btn-primary,
+.idt-app-shell-screen .idt-btn-primary,
+.idt-executive-report-shell .idt-btn-primary,
+html[data-theme='light'] .idt-app-console-layout .idt-btn-primary,
+html[data-theme='light'] .idt-account-security-page .idt-btn-primary,
+html[data-theme='light'] .idt-app-shell-screen .idt-btn-primary,
+html[data-theme='light'] .idt-executive-report-shell .idt-btn-primary {
+  border-color: rgba(139, 124, 255, 0.92);
+  background: linear-gradient(180deg, #8173ff 0%, #5d50ef 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 30px rgba(93, 80, 239, 0.26);
+}
+
+.idt-app-console-layout .idt-btn-primary:hover,
+.idt-app-console-layout .idt-btn-primary:focus-visible,
+.idt-account-security-page .idt-btn-primary:hover,
+.idt-account-security-page .idt-btn-primary:focus-visible,
+.idt-app-shell-screen .idt-btn-primary:hover,
+.idt-app-shell-screen .idt-btn-primary:focus-visible,
+.idt-executive-report-shell .idt-btn-primary:hover,
+.idt-executive-report-shell .idt-btn-primary:focus-visible {
+  border-color: rgba(172, 162, 255, 1);
+  background: linear-gradient(180deg, #9286ff 0%, #6d60f7 100%);
+}
+
+.idt-app-console-layout .idt-btn-ghost,
+.idt-app-console-layout .idt-btn-dark,
+.idt-account-security-page .idt-btn-ghost,
+.idt-account-security-page .idt-btn-dark,
+.idt-app-shell-screen .idt-btn-ghost,
+.idt-app-shell-screen .idt-btn-dark,
+.idt-executive-report-shell .idt-btn-ghost,
+.idt-executive-report-shell .idt-btn-dark,
+html[data-theme='light'] .idt-app-console-layout .idt-btn-ghost,
+html[data-theme='light'] .idt-app-console-layout .idt-btn-dark,
+html[data-theme='light'] .idt-account-security-page .idt-btn-ghost,
+html[data-theme='light'] .idt-account-security-page .idt-btn-dark,
+html[data-theme='light'] .idt-app-shell-screen .idt-btn-ghost,
+html[data-theme='light'] .idt-app-shell-screen .idt-btn-dark,
+html[data-theme='light'] .idt-executive-report-shell .idt-btn-ghost,
+html[data-theme='light'] .idt-executive-report-shell .idt-btn-dark {
+  border-color: var(--app-border);
+  background: var(--idt-console-surface-quiet);
+  color: #f4f7fa;
+}
+
+.idt-app-console-layout input,
+.idt-app-console-layout select,
+.idt-app-console-layout textarea,
+.idt-account-security-page input,
+.idt-account-security-page select,
+.idt-account-security-page textarea,
+.idt-executive-report-shell input,
+.idt-executive-report-shell select,
+.idt-executive-report-shell textarea,
+.idt-app-shell-screen input,
+.idt-app-shell-screen select,
+.idt-app-shell-screen textarea,
+html[data-theme='light'] .idt-app-console-layout input,
+html[data-theme='light'] .idt-app-console-layout select,
+html[data-theme='light'] .idt-app-console-layout textarea,
+html[data-theme='light'] .idt-account-security-page input,
+html[data-theme='light'] .idt-account-security-page select,
+html[data-theme='light'] .idt-account-security-page textarea,
+html[data-theme='light'] .idt-executive-report-shell input,
+html[data-theme='light'] .idt-executive-report-shell select,
+html[data-theme='light'] .idt-executive-report-shell textarea {
+  border-color: var(--app-border);
+  background-color: var(--idt-console-surface-deep);
+  color: #ffffff;
+}
+
+.idt-app-console-layout input:focus-visible,
+.idt-app-console-layout select:focus-visible,
+.idt-app-console-layout textarea:focus-visible,
+.idt-account-security-page input:focus-visible,
+.idt-account-security-page select:focus-visible,
+.idt-account-security-page textarea:focus-visible,
+.idt-executive-report-shell input:focus-visible,
+.idt-executive-report-shell select:focus-visible,
+.idt-executive-report-shell textarea:focus-visible {
+  border-color: rgba(145, 132, 255, 0.86);
+  outline-color: rgba(145, 132, 255, 0.86);
+}
+
+.idt-app-console-layout {
+  --repo-disclosure-column: 1.7rem;
+  --repo-disclosure-size: 1.16rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary::after,
+.idt-app-console-layout .idt-repo-filter-panel > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary::after,
+.idt-app-console-layout .idt-repo-analysis-panel > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary::after {
+  border-color: #3b424c;
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7L9 11L13 7' stroke='%23CAD1DA' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.76rem 0.76rem no-repeat,
+    #232931;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket[open] > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket[open] > summary::after,
+.idt-app-console-layout .idt-repo-filter-panel[open] > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel[open] > summary::after,
+.idt-app-console-layout .idt-repo-analysis-panel[open] > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel[open] > summary::after {
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 11L9 7L13 11' stroke='%23CAD1DA' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.76rem 0.76rem no-repeat,
+    #232931;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket > summary:hover::after,
+.idt-app-console-layout .idt-repo-finding-bucket > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-filter-panel > summary:hover::after,
+.idt-app-console-layout .idt-repo-filter-panel > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-analysis-panel > summary:hover::after,
+.idt-app-console-layout .idt-repo-analysis-panel > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary:focus-visible::after {
+  border-color: #596272;
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7L9 11L13 7' stroke='%23FFFFFF' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.76rem 0.76rem no-repeat,
+    #2e3640;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket[open] > summary:hover::after,
+.idt-app-console-layout .idt-repo-finding-bucket[open] > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-filter-panel[open] > summary:hover::after,
+.idt-app-console-layout .idt-repo-filter-panel[open] > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-analysis-panel[open] > summary:hover::after,
+.idt-app-console-layout .idt-repo-analysis-panel[open] > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket[open] > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket[open] > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel[open] > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel[open] > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel[open] > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel[open] > summary:focus-visible::after {
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 11L9 7L13 11' stroke='%23FFFFFF' stroke-width='1.65' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.76rem 0.76rem no-repeat,
+    #2e3640;
+}
+
+@media (max-width: 960px) {
+  .idt-app-console-layout .idt-app-sidebar {
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.035);
+  }
+}
+
 /* Pricing and product graph polish. */
 .idt-product-page .idt-product-hero-window,
 html[data-theme='light'] .idt-product-page .idt-product-hero-window {
