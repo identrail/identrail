@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Stopped GitHub App webhooks from queueing repository scans unless the project
+  has an enabled `event` or `hybrid` scan policy. Manual projects still record
+  webhook deliveries without starting scans, low-value pull-request metadata
+  events are ignored, and explicit `@identrail review` / `/identrail review`
+  commands continue to queue scans.
 - Fixed WorkOS MFA enrollment so the browser keeps the pending challenge after
   showing the authenticator QR code, preventing valid setup codes from failing
   with "mfa challenge has not started".

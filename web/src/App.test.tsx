@@ -1553,7 +1553,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /AI Risks/i })).toBeInTheDocument();
     const summary = await screen.findByLabelText(/AI Risks summary/i);
     const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
@@ -1570,6 +1570,9 @@ describe('App', () => {
     expect((await screen.findAllByText(/AI workflow prompt injection can reach Claude/i)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/Repository hotspots/i)).toBeInTheDocument();
     expect((await screen.findAllByText(/owner\/repo/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Scan health/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Success rate/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/3 high priority/i)).length).toBeGreaterThan(0);
   });
 
   it('keeps the AI Risks dashboard usable when trend loading fails', async () => {
