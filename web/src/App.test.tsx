@@ -1553,7 +1553,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /AI Risks/i })).toBeInTheDocument();
     const summary = await screen.findByLabelText(/AI Risks summary/i);
     const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;

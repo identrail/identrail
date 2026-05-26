@@ -600,6 +600,16 @@ function isFailedScanStatus(status: string): boolean {
   return normalized === 'failed';
 }
 
+function scanCompletionSortValue(scan: RepoScanRecord): number {
+  const finishedAt = new Date(scan.finished_at ?? '');
+  if (!Number.isNaN(finishedAt.getTime())) {
+    return finishedAt.getTime();
+  }
+
+  const startedAt = new Date(scan.started_at ?? '');
+  return Number.isNaN(startedAt.getTime()) ? -Infinity : startedAt.getTime();
+}
+
 function repoScanStatusTone(status: string): 'success' | 'warning' | 'error' | 'neutral' {
   const normalized = normalizeValue(status).toLowerCase();
   if (normalized === 'succeeded' || normalized === 'completed') {
@@ -5993,15 +6003,17 @@ export function ProductAIRisksPage() {
   const scansByRecency = [...repoScans].sort(
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
+  const scansByCompletion = [...repoScans].sort(
+    (left, right) => scanCompletionSortValue(right) - scanCompletionSortValue(left)
+  );
   const latestScan = scansByRecency[0] ?? null;
-  const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
-  const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
+  const latestScanTone = latestScan ? repoScanStatusTone(latestScan.status) : 'neutral';
   const activeScanCount = repoScans.filter((scan) => isActiveScanStatus(scan.status)).length;
   const failedScanCount = repoScans.filter((scan) => isFailedScanStatus(scan.status)).length;
   const completedScanCount = scansByRecency.filter((scan) => isCompletedScanStatus(scan.status)).length;
   const successfulScanCount = scansByRecency.filter((scan) => repoScanStatusTone(scan.status) === 'success').length;
-  const latestCompletedScan = scansByRecency.find((scan) => isCompletedScanStatus(scan.status)) ?? null;
-  const latestSuccessfulScan = scansByRecency.find((scan) => repoScanStatusTone(scan.status) === 'success') ?? null;
+  const latestCompletedScan = scansByCompletion.find((scan) => isCompletedScanStatus(scan.status)) ?? null;
+  const latestSuccessfulScan = scansByCompletion.find((scan) => repoScanStatusTone(scan.status) === 'success') ?? null;
   const scanSuccessRate = completedScanCount > 0 ? Math.round((successfulScanCount / completedScanCount) * 100) : null;
   const totalFilesScanned = scansByRecency.reduce((acc, scan) => acc + (scan.files_scanned ?? 0), 0);
   const totalScanFindings = scansByRecency.reduce((acc, scan) => acc + (scan.finding_count ?? 0), 0);
@@ -6016,11 +6028,11 @@ export function ProductAIRisksPage() {
   const latestScanLabel = latestScan
     ? `${canonicalGitHubRepositoryDisplay(latestScan.repository) || latestScan.repository} · ${formatTokenLabel(latestScan.status)}`
     : 'No repository scans yet';
-  const scanHealthTone = latestScanFailed
+  const scanHealthTone = latestScanTone === 'error'
     ? 'error'
     : activeScanCount > 0
       ? 'warning'
-      : latestScanSucceeded
+      : latestScanTone === 'success'
         ? 'success'
         : 'neutral';
   const scanHealthStatusLabel =
