@@ -54,6 +54,38 @@ func githubPushWebhookPayload(repository string, installationID int64) []byte {
 	return []byte(fmt.Sprintf(`{"before":"1111111111111111111111111111111111111111","after":"2222222222222222222222222222222222222222","commits":[{"id":"2222222222222222222222222222222222222222","added":["app.env"],"modified":[".github/workflows/build.yml"],"removed":[]}],"repository":{"full_name":%q},"installation":{"id":%d}}`, repository, installationID))
 }
 
+func seedGitHubWebhookEventScanPolicy(t *testing.T, store db.Store, ctx context.Context, projectID string) {
+	t.Helper()
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		t.Fatalf("resolve scope: %v", err)
+	}
+	if err := store.UpsertTenancyScanPolicy(ctx, db.TenancyScanPolicy{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        scope.WorkspaceID,
+		ProjectID:          projectID,
+		PolicyID:           "github-event-scans",
+		Name:               "GitHub event scans",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeEvent,
+		MaxConcurrentScans: 1,
+	}); err != nil {
+		t.Fatalf("seed github event scan policy: %v", err)
+	}
+}
+
+type githubWebhookPolicyListErrorStore struct {
+	db.Store
+	err error
+}
+
+func (s githubWebhookPolicyListErrorStore) ListTenancyScanPolicies(context.Context, string, string, domain.ScanTriggerMode, *bool, string, bool, int) ([]db.TenancyScanPolicy, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return nil, errors.New("scan policy list failed")
+}
+
 func TestGitHubWebhookTriggersScan(t *testing.T) {
 	scanEvents := []string{"push", "pull_request", "repository_dispatch", "workflow_dispatch", "PUSH", " Pull_Request "}
 	for _, event := range scanEvents {
@@ -82,6 +114,12 @@ func TestGitHubWebhookTriggersScan(t *testing.T) {
 	reviewCommand.Issue.PullRequest.URL = ""
 	if githubWebhookTriggersScan("issue_comment", reviewCommand) {
 		t.Fatal("expected issue comment outside a PR not to trigger a scan")
+	}
+
+	var metadataOnlyPR githubWebhookEnvelope
+	metadataOnlyPR.Action = "labeled"
+	if githubWebhookTriggersScan("pull_request", metadataOnlyPR) {
+		t.Fatal("expected pull_request labeled event not to trigger a scan")
 	}
 }
 
@@ -435,6 +473,134 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	}
 }
 
+func TestHandleGitHubWebhookRequiresEventScanPolicyForAutomaticEvents(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	seedDefaultProject(t, store, ctx, "project-1")
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
+	signature := githubWebhookSignature("persisted-secret", webhookPayload)
+	result, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle webhook without event policy: %v", err)
+	}
+	if result.QueuedScans != 0 || result.SkippedScans != 1 {
+		t.Fatalf("expected automatic webhook scan to skip without event policy, got %+v", result)
+	}
+	scans, err := svc.ListRepoScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(scans) != 0 {
+		t.Fatalf("expected no queued repo scans without event policy, got %+v", scans)
+	}
+}
+
+func TestHandleGitHubWebhookPolicyLookupFailureReturnsRetryableError(t *testing.T) {
+	baseStore := db.NewMemoryStore()
+	policyErr := errors.New("policy database unavailable")
+	svc := NewService(githubWebhookPolicyListErrorStore{Store: baseStore, err: policyErr}, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	seedDefaultProject(t, baseStore, ctx, "project-1")
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
+	signature := githubWebhookSignature("persisted-secret", webhookPayload)
+	if _, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload); !errors.Is(err, policyErr) {
+		t.Fatalf("expected policy lookup error, got %v", err)
+	}
+
+	seedGitHubWebhookEventScanPolicy(t, baseStore, ctx, "project-1")
+	svc.Store = baseStore
+	result, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-1", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("expected failed policy lookup delivery to be retryable, got %v", err)
+	}
+	if result.QueuedScans != 1 || result.SkippedScans != 0 {
+		t.Fatalf("expected retried delivery to queue after policy lookup recovery, got %+v", result)
+	}
+}
+
+func TestHandleGitHubWebhookReviewCommandBypassesEventPolicyGate(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+
+	ctx := db.WithScope(context.Background(), db.Scope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+	})
+	seedDefaultProject(t, store, ctx, "project-1")
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+		State:                  start.State,
+		InstallationID:         77,
+		AccountLogin:           "identrail",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "persisted-secret",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}); err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+
+	webhookPayload := []byte(`{"action":"created","repository":{"full_name":"owner/repo"},"installation":{"id":77},"issue":{"pull_request":{"url":"https://api.github.com/repos/owner/repo/pulls/7"}},"comment":{"body":"/identrail review"}}`)
+	signature := githubWebhookSignature("persisted-secret", webhookPayload)
+	result, err := svc.HandleGitHubWebhook(ctx, "issue_comment", "delivery-review", signature, webhookPayload)
+	if err != nil {
+		t.Fatalf("handle review command webhook: %v", err)
+	}
+	if result.QueuedScans != 1 || result.SkippedScans != 0 {
+		t.Fatalf("expected explicit review command to queue without event policy, got %+v", result)
+	}
+}
+
 func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
@@ -484,6 +650,7 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete github connection: %v", err)
 	}
+	seedGitHubWebhookEventScanPolicy(t, store, ctx, "project-1")
 
 	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
@@ -582,6 +749,7 @@ func TestHandleGitHubWebhookReplayWindowExpiresPersistedDeliveryID(t *testing.T)
 	}); err != nil {
 		t.Fatalf("complete github connection: %v", err)
 	}
+	seedGitHubWebhookEventScanPolicy(t, store, ctx, "project-1")
 
 	connectionKey := githubConnectionKey("tenant-a", "workspace-a", "project-1")
 	oldEventAt := now.Add(-2 * time.Minute)
@@ -753,6 +921,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterTransientEnqueueFailure(t *testing
 	}); err != nil {
 		t.Fatalf("complete github connection: %v", err)
 	}
+	seedGitHubWebhookEventScanPolicy(t, store, ctx, "project-1")
 
 	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
@@ -837,6 +1006,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterQueueFull(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete github connection: %v", err)
 	}
+	seedGitHubWebhookEventScanPolicy(t, store, ctx, "project-1")
 
 	webhookPayload := githubPushWebhookPayload("owner/repo", 77)
 	signature := githubWebhookSignature("persisted-secret", webhookPayload)
@@ -922,6 +1092,7 @@ func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete github connection: %v", err)
 	}
+	seedGitHubWebhookEventScanPolicy(t, store, ctx, "project-1")
 
 	webhookPayload := githubPushWebhookPayload("owner/repo", 88)
 	signature := githubWebhookSignature("burst-secret", webhookPayload)
