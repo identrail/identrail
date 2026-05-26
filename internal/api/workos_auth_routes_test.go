@@ -656,6 +656,8 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
 	sink := &recordingAuditSink{}
+	secret := strings.Repeat("a", 64)
+	largeQRCode := "data:image/png;base64," + strings.Repeat("A", 6000)
 	workOS := &fakeWorkOSClient{
 		err: &sessionauth.WorkOSMFARequired{
 			Mode:                       sessionauth.WorkOSMFAModeEnrollment,
@@ -674,6 +676,14 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 			},
 			AuthenticationMethod: "GitHubOAuth",
 		},
+		enrollResponse: sessionauth.WorkOSMFAEnrollResponse{
+			FactorID:    "auth_factor_1",
+			FactorType:  "totp",
+			ChallengeID: "auth_challenge_1",
+			TOTPQRCode:  largeQRCode,
+			TOTPSecret:  "secret",
+			TOTPURI:     "otpauth://totp/Identrail:mfa@example.com",
+		},
 	}
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
 		FeatureNewAuth:     true,
@@ -681,7 +691,7 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 		PublicBaseURL:      "https://api.identrail.test",
 		CORSAllowedOrigins: []string{"https://app.identrail.test"},
 		AuditSink:          sink,
-		SessionKey:         strings.Repeat("a", 64),
+		SessionKey:         secret,
 		WorkOSClientID:     "client_123",
 		WorkOSAuthClient:   workOS,
 		RateLimitRPM:       1000,
@@ -722,12 +732,40 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 	enrollReq.AddCookie(pendingCookie)
 	enrollResp := httptest.NewRecorder()
 	router.ServeHTTP(enrollResp, enrollReq)
-	if enrollResp.Code != http.StatusOK || !strings.Contains(enrollResp.Body.String(), `"qr_code":"data:image/png;base64,qr"`) {
+	if enrollResp.Code != http.StatusOK {
 		t.Fatalf("unexpected enroll response: code=%d body=%s", enrollResp.Code, enrollResp.Body.String())
+	}
+	var enrollPayload struct {
+		ChallengeStarted bool `json:"challenge_started"`
+		TOTP             struct {
+			FactorID string `json:"factor_id"`
+			QRCode   string `json:"qr_code"`
+			Secret   string `json:"secret"`
+			URI      string `json:"uri"`
+		} `json:"totp"`
+	}
+	if err := json.NewDecoder(enrollResp.Body).Decode(&enrollPayload); err != nil {
+		t.Fatalf("decode enroll payload: %v", err)
+	}
+	if !enrollPayload.ChallengeStarted || enrollPayload.TOTP.QRCode != largeQRCode || enrollPayload.TOTP.Secret != "secret" {
+		t.Fatalf("unexpected enroll payload: %+v", enrollPayload)
 	}
 	updatedPendingCookie := findTestCookie(enrollResp.Result().Cookies(), sessionauth.PendingMFACookieName)
 	if updatedPendingCookie == nil || updatedPendingCookie.Value == "" {
 		t.Fatalf("expected refreshed pending mfa cookie, got %+v", enrollResp.Result().Cookies())
+	}
+	if got := len(updatedPendingCookie.Value); got >= 4096 {
+		t.Fatalf("pending mfa cookie should stay below browser cookie limits, got %d bytes", got)
+	}
+	openedPending, err := sessionauth.NewMFAPendingStateManager(secret, nil).Open(updatedPendingCookie.Value)
+	if err != nil {
+		t.Fatalf("open refreshed pending cookie: %v", err)
+	}
+	if openedPending.ChallengeID != "auth_challenge_1" {
+		t.Fatalf("expected challenge id in refreshed pending cookie, got %q", openedPending.ChallengeID)
+	}
+	if openedPending.TOTP != nil {
+		t.Fatalf("pending mfa cookie should not persist qr material, got %+v", openedPending.TOTP)
 	}
 
 	verifyReq := httptest.NewRequest(http.MethodPost, "/auth/mfa/verify", strings.NewReader(`{"code":"123456"}`))
@@ -737,6 +775,9 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 	router.ServeHTTP(verifyResp, verifyReq)
 	if verifyResp.Code != http.StatusOK || !strings.Contains(verifyResp.Body.String(), `"redirect_to":"https://app.identrail.test/app"`) {
 		t.Fatalf("unexpected verify response: code=%d body=%s", verifyResp.Code, verifyResp.Body.String())
+	}
+	if workOS.verifyInput.AuthenticationChallengeID != "auth_challenge_1" {
+		t.Fatalf("expected verify to use refreshed challenge id, got %q", workOS.verifyInput.AuthenticationChallengeID)
 	}
 	if workOS.verifyInput.PendingAuthenticationToken != "pending-token" || workOS.verifyInput.AuthenticationChallengeID != "auth_challenge_1" || workOS.verifyInput.Code != "123456" {
 		t.Fatalf("unexpected verify input: %+v", workOS.verifyInput)
