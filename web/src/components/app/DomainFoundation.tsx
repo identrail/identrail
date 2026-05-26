@@ -351,7 +351,7 @@ export function DomainFilterBar({
   onSubmit
 }: {
   label?: string;
-  children: ReactNode;
+  children?: ReactNode;
   actions?: ReactNode;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
 }) {
