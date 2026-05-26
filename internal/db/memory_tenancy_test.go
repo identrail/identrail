@@ -465,7 +465,6 @@ func TestMemoryStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 		LastObservedErrorCode:    "access_denied",
 		LastObservedErrorMessage: "AssumeRole denied for this account.",
 		ScanCursor:               map[string]any{"cursor": "blocked"},
-		Unreachable:              true,
 	}); err != nil {
 		t.Fatalf("upsert errored coverage: %v", err)
 	}
@@ -484,7 +483,8 @@ func TestMemoryStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update coverage: %v", err)
 	}
-	if updated.LastObservedErrorCode != "timeout" || updated.ScanCursor["retry_after"] == "" {
+	retryAfter, retryAfterOK := updated.ScanCursor["retry_after"].(string)
+	if updated.LastObservedErrorCode != "timeout" || !retryAfterOK || retryAfter == "" {
 		t.Fatalf("expected clean last-observed update, got %+v", updated)
 	}
 	if _, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{

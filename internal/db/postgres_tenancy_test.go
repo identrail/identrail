@@ -214,6 +214,10 @@ func TestPostgresStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
 
+	mock.ExpectQuery(`SELECT type FROM tenancy_connectors`).
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod").
+		WillReturnRows(sqlmock.NewRows([]string{"type"}).AddRow("aws"))
+
 	upsertRows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "connector_id", "account_id", "account_alias",
 		"organization_id", "ou_path", "partition", "region", "role_arn", "coverage_status",

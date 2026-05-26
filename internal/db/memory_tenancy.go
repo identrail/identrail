@@ -101,6 +101,11 @@ func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 			delete(m.connSecrets, secretKey)
 		}
 	}
+	for coverageKey, coverage := range m.awsCoverages {
+		if coverage.TenantID == scope.TenantID {
+			delete(m.awsCoverages, coverageKey)
+		}
+	}
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -243,6 +248,11 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 	for secretKey, secret := range m.connSecrets {
 		if secret.TenantID == scope.TenantID && secret.WorkspaceID == normalizedWorkspaceID {
 			delete(m.connSecrets, secretKey)
+		}
+	}
+	for coverageKey, coverage := range m.awsCoverages {
+		if coverage.TenantID == scope.TenantID && coverage.WorkspaceID == normalizedWorkspaceID {
+			delete(m.awsCoverages, coverageKey)
 		}
 	}
 	m.mu.Unlock()
@@ -604,6 +614,11 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 	for secretKey, secret := range m.connSecrets {
 		if secret.TenantID == scope.TenantID && secret.WorkspaceID == resolvedWorkspaceID && secret.ProjectID == projectID {
 			delete(m.connSecrets, secretKey)
+		}
+	}
+	for coverageKey, coverage := range m.awsCoverages {
+		if coverage.TenantID == scope.TenantID && coverage.WorkspaceID == resolvedWorkspaceID && coverage.ProjectID == projectID {
+			delete(m.awsCoverages, coverageKey)
 		}
 	}
 	m.mu.Unlock()
@@ -1101,7 +1116,6 @@ func (m *MemoryStore) UpsertAWSAccountRegionCoverage(ctx context.Context, covera
 		return AWSAccountRegionCoverage{}, err
 	}
 	coverage.WorkspaceID = resolvedWorkspaceID
-	createdAtWasZero := coverage.CreatedAt.IsZero()
 	normalized, err := NormalizeAWSAccountRegionCoverageForWrite(coverage)
 	if err != nil {
 		return AWSAccountRegionCoverage{}, err
@@ -1111,7 +1125,7 @@ func (m *MemoryStore) UpsertAWSAccountRegionCoverage(ctx context.Context, covera
 		return AWSAccountRegionCoverage{}, ErrNotFound
 	}
 	key := awsAccountRegionCoverageKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, normalized.AccountID, normalized.Region)
-	if existing, exists := m.awsCoverages[key]; exists && createdAtWasZero {
+	if existing, exists := m.awsCoverages[key]; exists {
 		normalized.CreatedAt = existing.CreatedAt
 	}
 	m.awsCoverages[key] = normalized

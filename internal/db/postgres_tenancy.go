@@ -1492,6 +1492,24 @@ func (p *PostgresStore) UpsertAWSAccountRegionCoverage(ctx context.Context, cove
 	if err != nil {
 		return AWSAccountRegionCoverage{}, err
 	}
+	var connectorType string
+	if err := p.queryRowContext(
+		ctx,
+		`SELECT type FROM tenancy_connectors
+		 WHERE tenant_id = $1 AND workspace_id = $2 AND project_id = $3 AND connector_id = $4`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+	).Scan(&connectorType); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return AWSAccountRegionCoverage{}, ErrNotFound
+		}
+		return AWSAccountRegionCoverage{}, fmt.Errorf("lookup connector for aws coverage: %w", err)
+	}
+	if domain.ConnectorType(connectorType) != domain.ConnectorTypeAWS {
+		return AWSAccountRegionCoverage{}, ErrNotFound
+	}
 	cursorPayload, err := json.Marshal(normalized.ScanCursor)
 	if err != nil {
 		return AWSAccountRegionCoverage{}, fmt.Errorf("marshal aws coverage scan cursor: %w", err)

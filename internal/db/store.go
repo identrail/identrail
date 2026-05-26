@@ -2067,6 +2067,24 @@ func NormalizeAWSAccountRegionCoverageForWrite(coverage AWSAccountRegionCoverage
 	default:
 		return AWSAccountRegionCoverage{}, fmt.Errorf("invalid aws coverage status")
 	}
+	switch normalized.CoverageStatus {
+	case AWSAccountRegionCoverageSuspended:
+		if !normalized.Suspended || normalized.Disabled || normalized.Unreachable {
+			return AWSAccountRegionCoverage{}, fmt.Errorf("aws coverage status %q requires only the suspended flag", normalized.CoverageStatus)
+		}
+	case AWSAccountRegionCoverageDisabled:
+		if !normalized.Disabled || normalized.Suspended || normalized.Unreachable {
+			return AWSAccountRegionCoverage{}, fmt.Errorf("aws coverage status %q requires only the disabled flag", normalized.CoverageStatus)
+		}
+	case AWSAccountRegionCoverageUnreachable:
+		if !normalized.Unreachable || normalized.Suspended || normalized.Disabled {
+			return AWSAccountRegionCoverage{}, fmt.Errorf("aws coverage status %q requires only the unreachable flag", normalized.CoverageStatus)
+		}
+	default:
+		if normalized.Suspended || normalized.Disabled || normalized.Unreachable {
+			return AWSAccountRegionCoverage{}, fmt.Errorf("aws coverage status %q must not set blocked-state flags", normalized.CoverageStatus)
+		}
+	}
 	if normalized.LastSuccessfulScanAt != nil {
 		scanned := normalized.LastSuccessfulScanAt.UTC()
 		normalized.LastSuccessfulScanAt = &scanned
