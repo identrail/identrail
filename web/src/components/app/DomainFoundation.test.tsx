@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -106,6 +106,25 @@ describe('DomainFoundation', () => {
     expect(screen.getByText('AI / Agentic Risk')).toBeInTheDocument();
   });
 
+  it('auto-opens parent subnav when a nested child is active', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <DomainSubnav
+          label="GitHub sections"
+          items={[
+            {
+              id: 'agentic-risk',
+              label: 'AI / Agentic Risk',
+              children: [{ id: 'tools', label: 'MCP / tools / secrets', to: '/github/agentic-risk/tools', active: true }]
+            }
+          ]}
+        />
+      </MemoryRouter>
+    );
+
+    expect(container.querySelector('details.idt-domain-subnav-group')).toHaveAttribute('open');
+  });
+
   it('covers operational states, dense tables, filters, evidence, and action footers', () => {
     render(
       <MemoryRouter>
@@ -159,5 +178,18 @@ describe('DomainFoundation', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading GitHub repositories');
     expect(screen.getByText('{"Effect":"Allow"}')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve plan' })).toBeInTheDocument();
+  });
+
+  it('always prevents native submit in filter bar handlers', () => {
+    let eventWasPrevented = false;
+    const handleSubmit = vi.fn((event: { defaultPrevented: boolean }) => {
+      eventWasPrevented = event.defaultPrevented;
+    });
+
+    render(<DomainFilterBar onSubmit={handleSubmit} />);
+
+    fireEvent.submit(screen.getByRole('search', { name: 'Filter domain data' }));
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(eventWasPrevented).toBe(true);
   });
 });

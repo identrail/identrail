@@ -19242,18 +19242,6 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
 .idt-account-security-page,
 .idt-app-shell-screen,
 .idt-executive-report-shell {
-  --app-bg: #0d1117;
-  --app-panel: #080809;
-  --app-panel-strong: #0b0b0d;
-  --app-border: #30363d;
-  --app-border-soft: #21262d;
-  --app-text: #f0f6fc;
-  --app-muted: #c9d1d9;
-  --app-dim: #8b949e;
-  --app-accent: #58a6ff;
-  --app-success: #58d68d;
-  --app-warning: #f5c451;
-  --app-danger: #ff6b6b;
   color: var(--app-text);
   font-size: 1rem;
   line-height: 1.5;

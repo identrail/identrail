@@ -169,7 +169,7 @@ export function DomainHeader({
         {status ? <div className={classNames(['idt-domain-status-summary', `is-${statusTone}`])}>{status}</div> : null}
         {actions.length > 0 ? (
           <div className="idt-domain-header-actions">
-            {actions.map((action) => renderDomainAction(action, action.id ?? action.label))}
+            {actions.map((action, index) => renderDomainAction(action, action.id ?? `${action.label}-${index}`))}
           </div>
         ) : null}
       </div>
@@ -198,9 +198,14 @@ function renderSubnavLabel(item: DomainSubnavItem) {
   );
 }
 
+function hasActiveDescendant(item: DomainSubnavItem): boolean {
+  return item.children?.some((child) => child.active || hasActiveDescendant(child)) ?? false;
+}
+
 function renderSubnavItem(item: DomainSubnavItem): ReactNode {
   if (item.children?.length) {
-    const detailsOpenProps = item.defaultOpen ?? item.active ? { open: true } : {};
+    const shouldOpen = item.defaultOpen || item.active || hasActiveDescendant(item);
+    const detailsOpenProps = shouldOpen ? { open: true } : {};
     return (
       <details key={item.id} className="idt-domain-subnav-group" {...detailsOpenProps}>
         <summary>{renderSubnavLabel(item)}</summary>
@@ -301,7 +306,9 @@ export function DomainStatusPanel({
         {status ? <span>{status}</span> : null}
       </header>
       <div className="idt-domain-panel-body">{children}</div>
-      {actions?.length ? <footer>{actions.map((action) => renderDomainAction(action, action.id ?? action.label))}</footer> : null}
+      {actions?.length ? (
+        <footer>{actions.map((action, index) => renderDomainAction(action, action.id ?? `${action.label}-${index}`))}</footer>
+      ) : null}
     </article>
   );
 }
@@ -354,11 +361,10 @@ export function DomainFilterBar({
       role="search"
       aria-label={label}
       onSubmit={(event) => {
+        event.preventDefault();
         if (onSubmit) {
           onSubmit(event);
-          return;
         }
-        event.preventDefault();
       }}
     >
       <div className="idt-domain-filter-fields">{children}</div>
