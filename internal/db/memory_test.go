@@ -1959,3 +1959,40 @@ func TestMemoryStoreAuthzPolicyLifecycleReadAndErrorPaths(t *testing.T) {
 		t.Fatalf("unexpected limited policy events: %+v", events)
 	}
 }
+
+func TestMemoryStoreScanQueuePreservesSourceMetadataAcrossAnyScopeClaim(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+	source := ScanSource{ProjectID: "project-a", ConnectorID: "aws-project-a"}
+
+	queued, err := store.CreateQueuedScanIfNoPendingWithSource(defaultScopeContext(), "aws", source, now)
+	if err != nil {
+		t.Fatalf("create source-bound queued scan: %v", err)
+	}
+	if queued.ProjectID != source.ProjectID || queued.ConnectorID != source.ConnectorID {
+		t.Fatalf("expected queued scan source %+v, got project=%q connector=%q", source, queued.ProjectID, queued.ConnectorID)
+	}
+
+	claimed, err := store.ClaimNextQueuedScanAnyScope(context.Background(), "aws")
+	if err != nil {
+		t.Fatalf("claim source-bound queued scan: %v", err)
+	}
+	if claimed.ID != queued.ID || claimed.ProjectID != source.ProjectID || claimed.ConnectorID != source.ConnectorID {
+		t.Fatalf("expected claimed scan to preserve source metadata, got %+v", claimed)
+	}
+}
+
+func TestMemoryStoreSourceBoundPendingGuardIsProjectScoped(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+
+	if _, err := store.CreateQueuedScanIfNoPendingWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: "project-a"}, now); err != nil {
+		t.Fatalf("create first source-bound scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScanIfNoPendingWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: "project-b"}, now.Add(time.Minute)); err != nil {
+		t.Fatalf("expected different project to enqueue independently, got %v", err)
+	}
+	if _, err := store.CreateQueuedScanIfNoPendingWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: "project-a"}, now.Add(2*time.Minute)); !errors.Is(err, ErrPendingScanExists) {
+		t.Fatalf("expected duplicate source-bound scan to be rejected, got %v", err)
+	}
+}

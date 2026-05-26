@@ -247,6 +247,8 @@ export type RepoRiskGraph = {
 
 export type ScanRecord = {
   id: string;
+  project_id?: string;
+  connector_id?: string;
   provider: string;
   status: string;
   started_at: string;
@@ -254,6 +256,11 @@ export type ScanRecord = {
   asset_count: number;
   finding_count: number;
   error_message?: string;
+};
+
+export type ScanRequest = {
+  project_id?: string;
+  connector_id?: string;
 };
 
 export type TrendPoint = {
@@ -996,6 +1003,13 @@ function trimOrUndefined(value?: string): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function isRequestAuthContext(value?: ScanRequest | RequestAuthContext): value is RequestAuthContext {
+  return Boolean(
+    value &&
+      ('apiKey' in value || 'tenantID' in value || 'workspaceID' in value || 'bearerToken' in value)
+  );
+}
+
 function currentBrowserHostname(): string | undefined {
   if (typeof window === 'undefined') {
     return undefined;
@@ -1382,9 +1396,16 @@ export const apiClient = {
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
   },
-  startScan(auth?: RequestAuthContext) {
+  startScan(payloadOrAuth?: ScanRequest | RequestAuthContext, maybeAuth?: RequestAuthContext) {
+    // A second argument means the first is unambiguously the scan payload. With a single
+    // argument, treat it as auth only when it carries auth fields, so an empty or
+    // conditionally-built payload (e.g. startScan({}, auth)) does not swallow the auth context.
+    const firstIsPayload = maybeAuth !== undefined || !isRequestAuthContext(payloadOrAuth);
+    const payload = firstIsPayload ? (payloadOrAuth as ScanRequest | undefined) : undefined;
+    const auth = firstIsPayload ? maybeAuth : (payloadOrAuth as RequestAuthContext | undefined);
     return request<{ scan: ScanRecord }>('/v1/scans', auth, {
-      method: 'POST'
+      method: 'POST',
+      body: payload && (payload.project_id || payload.connector_id) ? JSON.stringify(payload) : undefined
     });
   },
   startOnboarding(auth?: RequestAuthContext) {

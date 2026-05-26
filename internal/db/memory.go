@@ -215,11 +215,16 @@ func (m *MemoryStore) CreateScan(ctx context.Context, provider string, startedAt
 	if err != nil {
 		return ScanRecord{}, err
 	}
-	return m.createScanLocked(scope, provider, "running", startedAt), nil
+	return m.createScanLocked(scope, provider, ScanSource{}, "running", startedAt), nil
 }
 
 // CreateQueuedScan persists one queued scan request.
 func (m *MemoryStore) CreateQueuedScan(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error) {
+	return m.CreateQueuedScanWithSource(ctx, provider, ScanSource{}, queuedAt)
+}
+
+// CreateQueuedScanWithSource persists one queued scan request with project/connector source metadata.
+func (m *MemoryStore) CreateQueuedScanWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time) (ScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -227,7 +232,7 @@ func (m *MemoryStore) CreateQueuedScan(ctx context.Context, provider string, que
 	if err != nil {
 		return ScanRecord{}, err
 	}
-	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record := m.createScanLocked(scope, provider, source, "queued", queuedAt)
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	m.scans[record.ID] = record
 	return record, nil
@@ -235,6 +240,11 @@ func (m *MemoryStore) CreateQueuedScan(ctx context.Context, provider string, que
 
 // CreateQueuedScanWithinLimit persists one queued scan request only when pending capacity remains.
 func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider string, queuedAt time.Time, maxPending int) (ScanRecord, error) {
+	return m.CreateQueuedScanWithinLimitWithSource(ctx, provider, ScanSource{}, queuedAt, maxPending)
+}
+
+// CreateQueuedScanWithinLimitWithSource persists one queued scan request for a source only when pending capacity remains.
+func (m *MemoryStore) CreateQueuedScanWithinLimitWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time, maxPending int) (ScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -246,6 +256,7 @@ func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider 
 		maxPending = 1
 	}
 	normalizedProvider := strings.TrimSpace(provider)
+	normalizedSource := source.Normalize()
 	queued := 0
 	for _, record := range m.scans {
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
@@ -257,12 +268,15 @@ func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider 
 		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
 			continue
 		}
+		if !scanSourceMatches(record, normalizedSource) {
+			continue
+		}
 		queued++
 	}
 	if queued >= maxPending {
 		return ScanRecord{}, ErrQueueLimitReached
 	}
-	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record := m.createScanLocked(scope, provider, normalizedSource, "queued", queuedAt)
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	m.scans[record.ID] = record
 	return record, nil
@@ -270,6 +284,11 @@ func (m *MemoryStore) CreateQueuedScanWithinLimit(ctx context.Context, provider 
 
 // CreateQueuedScanIfNoPending persists one queued scan only when no queued/running scan exists.
 func (m *MemoryStore) CreateQueuedScanIfNoPending(ctx context.Context, provider string, queuedAt time.Time) (ScanRecord, error) {
+	return m.CreateQueuedScanIfNoPendingWithSource(ctx, provider, ScanSource{}, queuedAt)
+}
+
+// CreateQueuedScanIfNoPendingWithSource persists one source-bound queued scan only when no matching queued/running scan exists.
+func (m *MemoryStore) CreateQueuedScanIfNoPendingWithSource(ctx context.Context, provider string, source ScanSource, queuedAt time.Time) (ScanRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -278,6 +297,7 @@ func (m *MemoryStore) CreateQueuedScanIfNoPending(ctx context.Context, provider 
 		return ScanRecord{}, err
 	}
 	normalizedProvider := strings.TrimSpace(provider)
+	normalizedSource := source.Normalize()
 	for _, record := range m.scans {
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
 			continue
@@ -288,11 +308,14 @@ func (m *MemoryStore) CreateQueuedScanIfNoPending(ctx context.Context, provider 
 		if record.DeadLettered {
 			continue
 		}
+		if !scanSourceMatches(record, normalizedSource) {
+			continue
+		}
 		if record.Status == "queued" || record.Status == "running" {
 			return ScanRecord{}, ErrPendingScanExists
 		}
 	}
-	record := m.createScanLocked(scope, provider, "queued", queuedAt)
+	record := m.createScanLocked(scope, provider, normalizedSource, "queued", queuedAt)
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	m.scans[record.ID] = record
 	return record, nil
@@ -398,12 +421,15 @@ func (m *MemoryStore) CountQueuedScansAnyScope(_ context.Context, provider strin
 	return count, nil
 }
 
-func (m *MemoryStore) createScanLocked(scope Scope, provider string, status string, startedAt time.Time) ScanRecord {
+func (m *MemoryStore) createScanLocked(scope Scope, provider string, source ScanSource, status string, startedAt time.Time) ScanRecord {
 	normalizedScope := scope.Normalize()
+	normalizedSource := source.Normalize()
 	record := ScanRecord{
 		ID:            uuid.NewString(),
 		TenantID:      normalizedScope.TenantID,
 		WorkspaceID:   normalizedScope.WorkspaceID,
+		ProjectID:     normalizedSource.ProjectID,
+		ConnectorID:   normalizedSource.ConnectorID,
 		Provider:      strings.TrimSpace(provider),
 		Status:        strings.TrimSpace(status),
 		StartedAt:     startedAt.UTC(),
@@ -412,6 +438,17 @@ func (m *MemoryStore) createScanLocked(scope Scope, provider string, status stri
 	m.scans[record.ID] = record
 	m.scanIDs = append(m.scanIDs, record.ID)
 	return record
+}
+
+func scanSourceMatches(record ScanRecord, source ScanSource) bool {
+	normalized := source.Normalize()
+	if normalized.ProjectID != "" && strings.TrimSpace(record.ProjectID) != normalized.ProjectID {
+		return false
+	}
+	if normalized.ConnectorID != "" && strings.TrimSpace(record.ConnectorID) != normalized.ConnectorID {
+		return false
+	}
+	return true
 }
 
 // GetScan returns one persisted scan by id.

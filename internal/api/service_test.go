@@ -5456,3 +5456,154 @@ func TestServiceLockKeyNamespace(t *testing.T) {
 		t.Fatalf("unexpected lock key without namespace %q", got)
 	}
 }
+
+func seedAWSConnectorForScanTest(t *testing.T, store db.Store, ctx context.Context, projectID string, connectorID string, status domain.ConnectorStatus, health string, updatedAt time.Time) {
+	t.Helper()
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		WorkspaceID: "default",
+		ProjectID:   projectID,
+		ConnectorID: connectorID,
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "AWS " + connectorID,
+		Status:      status,
+		CreatedAt:   updatedAt,
+		UpdatedAt:   updatedAt,
+	}, db.TenancyConnectorState{
+		WorkspaceID:  "default",
+		ProjectID:    projectID,
+		ConnectorID:  connectorID,
+		HealthStatus: health,
+		Metadata: map[string]any{
+			"role_arn":          "arn:aws:iam::123456789012:role/" + connectorID,
+			"region":            "us-east-1",
+			"permission_checks": []AWSConnectionPermissionCheck{},
+			"diagnostics":       []AWSConnectionDiagnostic{},
+		},
+		ObservedAt: updatedAt,
+		UpdatedAt:  updatedAt,
+	}); err != nil {
+		t.Fatalf("seed aws connector %s: %v", connectorID, err)
+	}
+}
+
+func TestServiceQueuedAWSScanUsesProjectScopedConnector(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedDefaultProject(t, store, ctx, "project-b")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-project-a", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSConnectorForScanTest(t, store, ctx, "project-b", "aws-project-b", domain.ConnectorStatusActive, "healthy", now.Add(time.Hour))
+
+	svc := NewService(store, fakeScanner{err: errors.New("default scanner should not run")}, "aws")
+	svc.Now = func() time.Time { return now }
+	var connectorID string
+	svc.AWSScannerFactory = func(_ context.Context, connection AWSConnectionStatus) (ScannerRunner, error) {
+		connectorID = connection.ConnectorID
+		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
+	}
+
+	record, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"})
+	if err != nil {
+		t.Fatalf("enqueue project-scoped scan: %v", err)
+	}
+	if record.ProjectID != "project-a" || record.ConnectorID != "" {
+		t.Fatalf("unexpected scan source metadata: %+v", record)
+	}
+	processed, err := svc.ProcessNextQueuedScan(ctx)
+	if err != nil {
+		t.Fatalf("process project-scoped scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+	if connectorID != "aws-project-a" {
+		t.Fatalf("expected project-a connector, got %q", connectorID)
+	}
+}
+
+func TestServiceQueuedAWSScanUsesExplicitConnectorOnly(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-primary", domain.ConnectorStatusActive, "healthy", now.Add(time.Hour))
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-requested", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{err: errors.New("default scanner should not run")}, "aws")
+	svc.Now = func() time.Time { return now }
+	var connectorID string
+	svc.AWSScannerFactory = func(_ context.Context, connection AWSConnectionStatus) (ScannerRunner, error) {
+		connectorID = connection.ConnectorID
+		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
+	}
+
+	record, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a", ConnectorID: "aws-requested"})
+	if err != nil {
+		t.Fatalf("enqueue explicit connector scan: %v", err)
+	}
+	if record.ProjectID != "project-a" || record.ConnectorID != "aws-requested" {
+		t.Fatalf("unexpected explicit scan source metadata: %+v", record)
+	}
+	processed, err := svc.ProcessNextQueuedScan(ctx)
+	if err != nil {
+		t.Fatalf("process explicit connector scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+	if connectorID != "aws-requested" {
+		t.Fatalf("expected requested connector only, got %q", connectorID)
+	}
+}
+
+func TestServiceProjectScopedAWSScanWithoutConnectorDoesNotUseOtherProjectConnector(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedDefaultProject(t, store, ctx, "project-b")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-b", "aws-project-b", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{result: app.ScanResult{Assets: 1}}, "aws")
+	svc.Now = func() time.Time { return now }
+	factoryCalled := false
+	svc.AWSScannerFactory = func(_ context.Context, connection AWSConnectionStatus) (ScannerRunner, error) {
+		factoryCalled = true
+		return fakeScanner{err: fmt.Errorf("unexpected connector %s", connection.ConnectorID)}, nil
+	}
+
+	if _, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"}); err != nil {
+		t.Fatalf("enqueue project without connector: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedScan(ctx)
+	if err != nil {
+		t.Fatalf("process project without connector: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued scan to be processed")
+	}
+	if factoryCalled {
+		t.Fatal("expected project-a scan not to hydrate project-b connector")
+	}
+}
+
+func TestServiceNonAWSProviderIgnoresScanSourceScope(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{result: app.ScanResult{Assets: 1}}, "kubernetes")
+	svc.ScanQueueMaxPending = 1
+	ctx := defaultScopeContext()
+
+	first, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"})
+	if err != nil {
+		t.Fatalf("enqueue first non-aws scan: %v", err)
+	}
+	if first.ProjectID != "" || first.ConnectorID != "" {
+		t.Fatalf("expected non-aws scan to drop source scope, got %+v", first)
+	}
+
+	// A scan scoped to a different project must still hit the single pending-scan
+	// guard, proving the source scope did not partition the queue for non-AWS providers.
+	if _, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-b"}); !errors.Is(err, ErrScanInProgress) {
+		t.Fatalf("expected ErrScanInProgress for non-aws provider, got %v", err)
+	}
+}

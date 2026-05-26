@@ -3502,6 +3502,12 @@ paths:
       tags: [Scans]
       summary: Trigger scan
       operationId: runScan
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanRequest"
       responses:
         "202":
           description: Scan enqueued
@@ -6633,10 +6639,21 @@ components:
           type: object
           additionalProperties:
             type: integer
+    ScanRequest:
+      type: object
+      properties:
+        project_id:
+          type: string
+          description: Project whose AWS connector scope should be used for the scan.
+        connector_id:
+          type: string
+          description: Optional AWS connector id to use inside the requested project.
     ScanRecord:
       type: object
       properties:
         id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
         provider: { type: string }
         status: { type: string }
         started_at:

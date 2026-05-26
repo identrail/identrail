@@ -434,8 +434,17 @@ type OwnershipFilter struct {
 	ScanID string
 }
 
+// ScanRequest narrows an AWS scan to one project and optional connector.
+type ScanRequest struct {
+	ProjectID   string `json:"project_id,omitempty"`
+	ConnectorID string `json:"connector_id,omitempty"`
+}
+
 // ErrScanInProgress is returned when a scan for the same provider is already running.
 var ErrScanInProgress = errors.New("scan already in progress")
+
+// ErrInvalidScanRequest indicates invalid cloud scan request input.
+var ErrInvalidScanRequest = errors.New("invalid scan request")
 
 // ErrScanQueueFull is returned when queued scan requests exceed configured capacity.
 var ErrScanQueueFull = errors.New("scan queue is full")
@@ -536,9 +545,17 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 }
 
 // EnqueueScan stores one queued scan request for asynchronous worker execution.
-func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
+func (s *Service) EnqueueScan(ctx context.Context, requests ...ScanRequest) (db.ScanRecord, error) {
 	ctx = s.scopeContext(ctx)
 	ctx = withQueueTraceContext(ctx)
+	request := ScanRequest{}
+	if len(requests) > 0 {
+		request = requests[0]
+	}
+	source, err := s.resolveScanSource(ctx, request)
+	if err != nil {
+		return db.ScanRecord{}, err
+	}
 	maxPending := s.ScanQueueMaxPending
 	if maxPending <= 0 {
 		maxPending = 1
@@ -546,15 +563,14 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 
 	var (
 		record db.ScanRecord
-		err    error
 	)
 	if maxPending == 1 {
-		record, err = s.Store.CreateQueuedScanIfNoPending(ctx, s.Provider, s.Now().UTC())
+		record, err = s.Store.CreateQueuedScanIfNoPendingWithSource(ctx, s.Provider, source, s.Now().UTC())
 		if errors.Is(err, db.ErrPendingScanExists) {
 			return db.ScanRecord{}, ErrScanInProgress
 		}
 	} else {
-		record, err = s.Store.CreateQueuedScanWithinLimit(ctx, s.Provider, s.Now().UTC(), maxPending)
+		record, err = s.Store.CreateQueuedScanWithinLimitWithSource(ctx, s.Provider, source, s.Now().UTC(), maxPending)
 		if errors.Is(err, db.ErrQueueLimitReached) {
 			return db.ScanRecord{}, ErrScanQueueFull
 		}
@@ -563,14 +579,61 @@ func (s *Service) EnqueueScan(ctx context.Context) (db.ScanRecord, error) {
 		return db.ScanRecord{}, fmt.Errorf("enqueue scan: %w", err)
 	}
 	queuedCount := s.countQueuedScansForDepth(ctx, s.Provider)
-	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{"provider": s.Provider})
+	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleQueued, map[string]any{
+		"provider":     s.Provider,
+		"project_id":   record.ProjectID,
+		"connector_id": record.ConnectorID,
+	})
 	s.recordQueueDepth("scan", queuedCount)
 	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan queued for worker execution", map[string]any{
-		"provider":    s.Provider,
-		"queue_depth": queuedCount,
-		"queue_limit": maxPending,
+		"provider":     s.Provider,
+		"project_id":   record.ProjectID,
+		"connector_id": record.ConnectorID,
+		"queue_depth":  queuedCount,
+		"queue_limit":  maxPending,
 	})
 	return record, nil
+}
+
+func (s *Service) resolveScanSource(ctx context.Context, request ScanRequest) (db.ScanSource, error) {
+	source := db.ScanSource{
+		ProjectID:   request.ProjectID,
+		ConnectorID: request.ConnectorID,
+	}.Normalize()
+	if source.Empty() {
+		return db.ScanSource{}, nil
+	}
+	// Source scoping is AWS-only. For other providers, ignore any project/connector
+	// hints so pending-scan guards keep their single-queue semantics rather than
+	// partitioning by project.
+	if strings.ToLower(strings.TrimSpace(s.Provider)) != string(domain.ConnectorTypeAWS) {
+		return db.ScanSource{}, nil
+	}
+	if source.ProjectID == "" {
+		return db.ScanSource{}, ErrInvalidScanRequest
+	}
+	project, _, err := s.requireScopedProject(ctx, "", source.ProjectID)
+	if err != nil {
+		if errors.Is(err, ErrInvalidGitHubConnectionRequest) || errors.Is(err, db.ErrNotFound) {
+			return db.ScanSource{}, ErrInvalidScanRequest
+		}
+		return db.ScanSource{}, err
+	}
+	source.ProjectID = project.ProjectID
+	if source.ConnectorID == "" {
+		return source, nil
+	}
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, source.ConnectorID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return db.ScanSource{}, ErrInvalidScanRequest
+		}
+		return db.ScanSource{}, err
+	}
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return db.ScanSource{}, ErrInvalidScanRequest
+	}
+	return source, nil
 }
 
 // ReplayScan re-enqueues one failed or dead-lettered scan as a fresh queued scan.
@@ -590,13 +653,17 @@ func (s *Service) ReplayScan(ctx context.Context, scanID string) (db.ScanRecord,
 	}
 
 	var replay db.ScanRecord
+	sourceContext := db.ScanSource{
+		ProjectID:   source.ProjectID,
+		ConnectorID: source.ConnectorID,
+	}
 	if maxPending == 1 {
-		replay, err = s.Store.CreateQueuedScanIfNoPending(ctx, source.Provider, s.Now().UTC())
+		replay, err = s.Store.CreateQueuedScanIfNoPendingWithSource(ctx, source.Provider, sourceContext, s.Now().UTC())
 		if errors.Is(err, db.ErrPendingScanExists) {
 			return db.ScanRecord{}, ErrScanInProgress
 		}
 	} else {
-		replay, err = s.Store.CreateQueuedScanWithinLimit(ctx, source.Provider, s.Now().UTC(), maxPending)
+		replay, err = s.Store.CreateQueuedScanWithinLimitWithSource(ctx, source.Provider, sourceContext, s.Now().UTC(), maxPending)
 		if errors.Is(err, db.ErrQueueLimitReached) {
 			return db.ScanRecord{}, ErrScanQueueFull
 		}
@@ -963,7 +1030,7 @@ func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (Sca
 	if provider != "aws" || s.AWSScannerFactory == nil {
 		return s.Scanner, nil
 	}
-	connection, ok, err := s.activeAWSConnectionForScan(ctx)
+	connection, ok, err := s.activeAWSConnectionForScan(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -992,11 +1059,58 @@ func (s *Service) recordServiceAuthzDenial(ctx context.Context, action string, r
 	})
 }
 
-func (s *Service) activeAWSConnectionForScan(ctx context.Context) (AWSConnectionStatus, bool, error) {
+func (s *Service) activeAWSConnectionForScan(ctx context.Context, record db.ScanRecord) (AWSConnectionStatus, bool, error) {
+	source := db.ScanSource{
+		ProjectID:   record.ProjectID,
+		ConnectorID: record.ConnectorID,
+	}.Normalize()
+	if source.ProjectID != "" {
+		project, _, err := s.requireScopedProject(ctx, "", source.ProjectID)
+		if err != nil {
+			if errors.Is(err, ErrInvalidGitHubConnectionRequest) || errors.Is(err, db.ErrNotFound) {
+				return AWSConnectionStatus{}, false, ErrInvalidScanRequest
+			}
+			return AWSConnectionStatus{}, false, err
+		}
+		if source.ConnectorID != "" {
+			stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, source.ConnectorID)
+			if err != nil {
+				if errors.Is(err, db.ErrNotFound) {
+					return AWSConnectionStatus{}, false, ErrInvalidScanRequest
+				}
+				return AWSConnectionStatus{}, false, err
+			}
+			if stored.Connector.Type != domain.ConnectorTypeAWS {
+				return AWSConnectionStatus{}, false, ErrInvalidScanRequest
+			}
+			status := s.awsConnectionStatusFromStored(ctx, stored)
+			if !status.Connected {
+				return AWSConnectionStatus{}, false, fmt.Errorf("aws connector %q is not active in project %q", source.ConnectorID, project.ProjectID)
+			}
+			return status, true, nil
+		}
+		items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeAWS, 25)
+		if err != nil {
+			return AWSConnectionStatus{}, false, fmt.Errorf("list scoped aws connectors: %w", err)
+		}
+		return s.firstActiveAWSConnection(ctx, items)
+	}
 	items, err := s.Store.ListTenancyConnectors(ctx, "", "", domain.ConnectorTypeAWS, 25)
 	if err != nil {
 		return AWSConnectionStatus{}, false, fmt.Errorf("list aws connectors: %w", err)
 	}
+	return s.firstActiveAWSConnection(ctx, items)
+}
+
+func (s *Service) firstActiveAWSConnection(ctx context.Context, items []db.TenancyConnectorWithState) (AWSConnectionStatus, bool, error) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i].Connector
+		right := items[j].Connector
+		if left.UpdatedAt.Equal(right.UpdatedAt) {
+			return left.ConnectorID < right.ConnectorID
+		}
+		return left.UpdatedAt.After(right.UpdatedAt)
+	})
 	for _, item := range items {
 		status := s.awsConnectionStatusFromStored(ctx, item)
 		if status.Connected {

@@ -1141,9 +1141,20 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			metrics.ScanEnqueueDurationMS.Observe(float64(time.Since(start).Milliseconds()))
 		}()
 
-		scan, err := svc.EnqueueScan(c.Request.Context())
+		var request ScanRequest
+		if c.Request.Body != nil && c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+		}
+		scan, err := svc.EnqueueScan(c.Request.Context(), request)
 		if err != nil {
 			metrics.ScanEnqueueFailureTotal.Inc()
+			if errors.Is(err, ErrInvalidScanRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan request"})
+				return
+			}
 			if errors.Is(err, ErrScanInProgress) {
 				c.JSON(http.StatusConflict, gin.H{"error": "scan already in progress"})
 				return
