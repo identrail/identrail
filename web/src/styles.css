@@ -4286,6 +4286,13 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   font-size: 0.95rem;
 }
 
+.idt-form-note {
+  margin: -0.15rem 0 0;
+  color: #9fb0c9;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .idt-app-form input {
   border: 1px solid rgba(126, 157, 211, 0.35);
   border-radius: 0.55rem;

@@ -1059,7 +1059,8 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 
 	scanContext, scanContextOK := githubWebhookRepoScanContext(normalizedEventType, envelope)
 	scanTriggerEvent := githubWebhookTriggersScan(normalizedEventType, envelope)
-	result, err := s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, scanTriggerEvent, validConnections)
+	explicitScanCommand := githubWebhookExplicitScanCommand(normalizedEventType, envelope)
+	result, err := s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, scanTriggerEvent, explicitScanCommand, validConnections)
 	if err != nil {
 		return GitHubWebhookResult{}, err
 	}
@@ -1110,10 +1111,11 @@ func (s *Service) HandleGitHubAppWebhook(ctx context.Context, eventType string, 
 	defer span.End()
 	scanContext, scanContextOK := githubWebhookRepoScanContext(normalizedEventType, envelope)
 	scanTriggerEvent := githubWebhookTriggersScan(normalizedEventType, envelope)
-	return s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, scanTriggerEvent, candidates)
+	explicitScanCommand := githubWebhookExplicitScanCommand(normalizedEventType, envelope)
+	return s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, scanContext, scanContextOK, scanTriggerEvent, explicitScanCommand, candidates)
 }
 
-func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trace.Span, eventType string, deliveryID string, repository string, scanContext db.RepoScanContext, scanContextOK bool, scanTriggerEvent bool, connections []githubProjectConnection) (GitHubWebhookResult, error) {
+func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trace.Span, eventType string, deliveryID string, repository string, scanContext db.RepoScanContext, scanContextOK bool, scanTriggerEvent bool, explicitScanCommand bool, connections []githubProjectConnection) (GitHubWebhookResult, error) {
 	result := GitHubWebhookResult{
 		EventType:       eventType,
 		Repository:      repository,
@@ -1141,6 +1143,20 @@ func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trac
 			s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 			continue
 		}
+		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: connection.TenantID, WorkspaceID: connection.WorkspaceID})
+		if !explicitScanCommand {
+			eventScanAllowed, err := s.githubWebhookEventScanAllowed(scopedCtx, connection)
+			if err != nil {
+				return result, err
+			}
+			if !eventScanAllowed {
+				result.SkippedScans++
+				s.recordAutomationRun("event", "github", "skipped")
+				s.recordRepoScanSkipped(scanContext.ScanMode, "event_policy_disabled")
+				s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
+				continue
+			}
+		}
 		if s.shouldThrottleGitHubWebhookScan(connection, repository, now) {
 			result.SkippedScans++
 			s.recordAutomationRun("event", "github", "skipped")
@@ -1149,7 +1165,6 @@ func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trac
 			continue
 		}
 
-		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: connection.TenantID, WorkspaceID: connection.WorkspaceID})
 		_, err := s.EnqueueRepoScan(scopedCtx, RepoScanRequest{
 			Repository:   repository,
 			ProjectID:    connection.ProjectID,
@@ -1194,6 +1209,24 @@ func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trac
 		attribute.Int("automation.skipped_scans", result.SkippedScans),
 	)
 	return result, nil
+}
+
+func (s *Service) githubWebhookEventScanAllowed(ctx context.Context, connection githubProjectConnection) (bool, error) {
+	store, err := s.resolveScanPolicyStore()
+	if err != nil {
+		return false, fmt.Errorf("resolve scan policy store: %w", err)
+	}
+	enabled := true
+	for _, triggerMode := range []domain.ScanTriggerMode{domain.ScanTriggerModeEvent, domain.ScanTriggerModeHybrid} {
+		policies, err := store.ListTenancyScanPolicies(ctx, connection.WorkspaceID, connection.ProjectID, triggerMode, &enabled, "updated_at", true, 1)
+		if err != nil {
+			return false, fmt.Errorf("list github webhook scan policies: %w", err)
+		}
+		if len(policies) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) verifyGitHubWebhookSignatureForInstallation(installationID int64, payload []byte, signature string) bool {
@@ -2113,12 +2146,34 @@ func validateGitHubWebhookSignature(secret string, payload []byte, signature str
 
 func githubWebhookTriggersScan(eventType string, envelope githubWebhookEnvelope) bool {
 	switch strings.ToLower(strings.TrimSpace(eventType)) {
-	case "push", "pull_request", "repository_dispatch", "workflow_dispatch":
+	case "push", "repository_dispatch", "workflow_dispatch":
 		return true
+	case "pull_request":
+		return githubWebhookPullRequestActionTriggersScan(envelope.Action)
 	case "issue_comment":
 		return githubWebhookIssueCommentOnPullRequest(envelope) && githubWebhookReviewCommand(envelope)
 	case "pull_request_review_comment":
 		return githubWebhookReviewCommand(envelope)
+	default:
+		return false
+	}
+}
+
+func githubWebhookExplicitScanCommand(eventType string, envelope githubWebhookEnvelope) bool {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "issue_comment":
+		return githubWebhookIssueCommentOnPullRequest(envelope) && githubWebhookReviewCommand(envelope)
+	case "pull_request_review_comment":
+		return githubWebhookReviewCommand(envelope)
+	default:
+		return false
+	}
+}
+
+func githubWebhookPullRequestActionTriggersScan(action string) bool {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "", "opened", "reopened", "synchronize", "ready_for_review":
+		return true
 	default:
 		return false
 	}

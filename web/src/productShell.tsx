@@ -5599,6 +5599,9 @@ export function ProductProjectDetailPage() {
               </select>
             </label>
           </div>
+          <p className="idt-form-note">
+            Manual keeps GitHub events from starting scans. Event and hybrid modes allow selected-repository webhooks to queue scans.
+          </p>
           {policyForm.triggerMode === 'scheduled' || policyForm.triggerMode === 'hybrid' ? (
             <label>
               Cron schedule
