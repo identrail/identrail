@@ -15478,7 +15478,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-shell {
   min-height: 100vh;
-  background: linear-gradient(180deg, #14181d 0%, #101317 52%, #0c0f12 100%);
+  background: #000000;
   color: #f5f7fb;
   padding: 24px clamp(16px, 4vw, 56px) 56px;
   font-family: 'Geist', 'Inter', sans-serif;
@@ -15518,7 +15518,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 }
 
 .idt-onboarding-brand-copy span {
-  color: #8f99a8;
+  color: #8a8a8a;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -15528,10 +15528,10 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   gap: 8px;
   min-height: 36px;
   padding: 0 13px;
-  border: 1px solid #252b33;
+  border: 1px solid #242424;
   border-radius: 999px;
-  background: rgba(5, 6, 7, 0.72);
-  color: #aeb6c4;
+  background: #050505;
+  color: #b4b4b4;
   font-size: 0.82rem;
   font-weight: 800;
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
@@ -15539,8 +15539,8 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-signout:hover,
 .idt-onboarding-signout:focus-visible {
-  border-color: #3a424d;
-  background: #050607;
+  border-color: #3a3a3a;
+  background: #0a0a0a;
   color: #ffffff;
 }
 
@@ -15575,10 +15575,10 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 .idt-onboarding-rail,
 .idt-onboarding-panel {
   min-width: 0;
-  border: 1px solid #222832;
-  background: #050607;
+  border: 1px solid #1f1f1f;
+  background: #000000;
   border-radius: 8px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.26);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
 }
 
 .idt-onboarding-rail {
@@ -15597,6 +15597,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 .idt-onboarding-panel-main {
   min-width: 0;
   padding: clamp(34px, 5vw, 64px);
+  background: #000000;
 }
 
 .idt-onboarding-rail-intro {
@@ -15611,15 +15612,15 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid #26303b;
+  border: 1px solid #242424;
   border-radius: 8px;
-  background: #090d12;
+  background: #050505;
   color: #8fb6ff;
 }
 
 .idt-onboarding-rail-label {
   margin: 0;
-  color: #8f8f95;
+  color: #8a8a8a;
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.07em;
@@ -15629,7 +15630,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 .idt-onboarding-rail-intro strong {
   display: block;
   margin-top: 2px;
-  color: #f8fafc;
+  color: #ffffff;
   font-size: 1.02rem;
 }
 
@@ -15654,7 +15655,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 .idt-onboarding-panel-main > p {
   max-width: 650px;
   margin: 18px 0 0;
-  color: #b8c0cc;
+  color: #b4b4b4;
   font-size: 1.02rem;
   line-height: 1.72;
 }
@@ -15680,15 +15681,15 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   max-width: 720px;
   margin-top: 28px;
   padding: 18px 0;
-  border-top: 1px solid #1e252d;
-  border-bottom: 1px solid #1e252d;
+  border-top: 1px solid #1f1f1f;
+  border-bottom: 1px solid #1f1f1f;
 }
 
 .idt-onboarding-guarantee {
   display: flex;
   gap: 11px;
   min-width: 0;
-  color: #8fa0b4;
+  color: #a1a1aa;
 }
 
 .idt-onboarding-guarantee svg {
@@ -15703,7 +15704,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 }
 
 .idt-onboarding-guarantee strong {
-  color: #f8fafc;
+  color: #ffffff;
   font-size: 0.9rem;
 }
 
@@ -15726,7 +15727,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   padding: 9px 8px;
   border: 1px solid transparent;
   border-radius: 7px;
-  color: #8f99a8;
+  color: #8a8a8a;
 }
 
 .idt-onboarding-step-icon {
@@ -15735,9 +15736,9 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  border: 1px solid #252b33;
-  background: #0a0d11;
-  color: #647286;
+  border: 1px solid #2a2a2a;
+  background: #050505;
+  color: #737373;
 }
 
 .idt-onboarding-step-copy {
@@ -15748,12 +15749,12 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 
 .idt-onboarding-step strong {
   font-size: 0.92rem;
-  color: #cbd5e1;
+  color: #d4d4d4;
 }
 
 .idt-onboarding-step small {
   overflow: hidden;
-  color: #707b8b;
+  color: #737373;
   font-size: 0.76rem;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -15761,13 +15762,13 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 }
 
 .idt-onboarding-step.is-current {
-  border-color: #303947;
-  background: #111822;
+  border-color: #333333;
+  background: #0a0a0a;
 }
 
 .idt-onboarding-step.is-current .idt-onboarding-step-icon {
   border-color: #8ea7ff;
-  background: #151f31;
+  background: #050505;
   color: #ffffff;
 }
 
@@ -15786,8 +15787,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   gap: 8px;
   margin-top: 22px;
   padding-top: 18px;
-  border-top: 1px solid #1f252d;
-  color: #95a1b0;
+  border-top: 1px solid #1f1f1f;
+  color: #a1a1aa;
   line-height: 1.55;
 }
 
@@ -15804,12 +15805,12 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   gap: 6px;
   margin-top: 22px;
   padding-top: 18px;
-  border-top: 1px solid #1f252d;
+  border-top: 1px solid #1f1f1f;
 }
 
 .idt-onboarding-rail-note span,
 .idt-onboarding-outcome-label {
-  color: #788395;
+  color: #737373;
   font-size: 0.72rem;
   font-weight: 900;
   letter-spacing: 0.1em;
@@ -15817,7 +15818,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 }
 
 .idt-onboarding-rail-note strong {
-  color: #d7dde8;
+  color: #e5e5e5;
   font-size: 0.9rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -15842,7 +15843,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 
 .idt-onboarding-field p {
   margin: 0;
-  color: #8d98a9;
+  color: #8a8a8a;
   font-size: 0.86rem;
   line-height: 1.5;
 }
@@ -15850,12 +15851,12 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 .idt-onboarding-form input,
 .idt-onboarding-form textarea {
   width: 100%;
-  border: 1px solid #2a313b;
+  border: 1px solid #2a2a2a;
   border-radius: 8px;
   padding: 14px 16px;
   font: inherit;
   color: #ffffff;
-  background: #090c10;
+  background: #050505;
   box-shadow: none;
 }
 
@@ -15900,8 +15901,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
 
 .idt-onboarding-shell .idt-btn-secondary,
 .idt-onboarding-shell .idt-btn-ghost {
-  border-color: #2b333e;
-  background: #0d1117;
+  border-color: #2a2a2a;
+  background: #050505;
   color: #e5e7eb;
 }
 
@@ -15918,10 +15919,10 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   gap: 10px;
   align-content: start;
   text-align: left;
-  border: 1px solid #26262a;
+  border: 1px solid #2a2a2a;
   border-radius: 8px;
   padding: 18px;
-  background: #090c10;
+  background: #050505;
   color: #f5f5f5;
   cursor: pointer;
 }
@@ -15929,7 +15930,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
 .idt-onboarding-provider:hover,
 .idt-onboarding-provider.is-selected {
   border-color: #ffffff;
-  background: #111720;
+  background: #0a0a0a;
   box-shadow: none;
 }
 
@@ -15961,8 +15962,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   margin-top: 32px;
   padding: 20px;
   border-radius: 8px;
-  border: 1px solid #2a313b;
-  background: #090c10;
+  border: 1px solid #2a2a2a;
+  background: #050505;
 }
 
 .idt-onboarding-scan-status span {
@@ -15984,8 +15985,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   align-content: start;
   gap: 22px;
   min-width: 0;
-  border-left: 1px solid #202731;
-  background: #07090c;
+  border-left: 1px solid #1f1f1f;
+  background: #050505;
   padding: clamp(28px, 4vw, 40px);
 }
 
@@ -16003,26 +16004,26 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   justify-content: space-between;
   gap: 14px;
   padding: 13px 0;
-  border-bottom: 1px solid #1d232b;
-  color: #d7dde8;
+  border-bottom: 1px solid #1f1f1f;
+  color: #e5e5e5;
   font-size: 0.9rem;
   font-weight: 750;
 }
 
 .idt-onboarding-outcome li:first-child {
-  border-top: 1px solid #1d232b;
+  border-top: 1px solid #1f1f1f;
 }
 
 .idt-onboarding-outcome li svg {
   flex: 0 0 auto;
-  color: #7f8ea3;
+  color: #8a8a8a;
 }
 
 .idt-onboarding-outcome-note {
   display: grid;
   gap: 8px;
   margin-top: 4px;
-  color: #95a1b0;
+  color: #a1a1aa;
   font-size: 0.88rem;
   line-height: 1.55;
 }
