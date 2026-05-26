@@ -24393,23 +24393,23 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 .idt-app-shell-screen,
 .idt-executive-report-shell {
   --app-bg: #121518;
-  --app-panel: #181b1f;
-  --app-panel-strong: #111417;
+  --app-panel: #090b0e;
+  --app-panel-strong: #050607;
   --app-border: #2b3037;
-  --app-border-soft: #23282e;
+  --app-border-soft: #20252b;
   --app-text: #f5f7f8;
   --app-muted: #adb5bf;
   --app-dim: #7f8792;
-  --app-ink: #101317;
-  --app-paper: #171a1e;
+  --app-ink: #050607;
+  --app-paper: #090b0e;
   --app-paper-muted: #aeb6c0;
-  --app-blueprint: #111827;
-  --idt-console-rail: #191d21;
-  --idt-console-rail-hover: #23282e;
-  --idt-console-surface: #181b1f;
-  --idt-console-surface-raised: #1b1f24;
-  --idt-console-surface-quiet: #15191d;
-  --idt-console-surface-deep: #101317;
+  --app-blueprint: #070c14;
+  --idt-console-rail: #050607;
+  --idt-console-rail-hover: #101318;
+  --idt-console-surface: #090b0e;
+  --idt-console-surface-raised: #0f1217;
+  --idt-console-surface-quiet: #07090c;
+  --idt-console-surface-deep: #030405;
   --idt-console-focus: #7c6dff;
   --idt-console-shadow: 0 18px 48px rgba(0, 0, 0, 0.26);
 }
@@ -24474,7 +24474,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:focus-visi
 
 .idt-app-console-layout .idt-app-shell-nav a.active,
 html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
-  background: #293039;
+  background: #171b22;
   color: #ffffff;
 }
 
@@ -24499,7 +24499,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-sidebar-account-menu {
 .idt-app-sidebar-account-menu a:focus-visible,
 .idt-app-sidebar-account-menu button:hover,
 .idt-app-sidebar-account-menu button:focus-visible {
-  background: #252b32;
+  background: #171b22;
 }
 
 .idt-app-console-layout .idt-overview-header,
@@ -24663,7 +24663,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row:hover,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row:focus-visible,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row.is-selected {
   border-color: #4c5664;
-  background: #161b21;
+  background: #0f141a;
 }
 
 .idt-app-console-layout .idt-btn-primary,
