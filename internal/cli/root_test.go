@@ -15,6 +15,7 @@ import (
 
 	"github.com/identrail/identrail/internal/config"
 	"github.com/identrail/identrail/internal/domain"
+	awsprovider "github.com/identrail/identrail/internal/providers/aws"
 )
 
 func TestExecuteScanAndFindingsTable(t *testing.T) {
@@ -469,6 +470,28 @@ func TestExecuteAWSUnsupportedSource(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported aws source") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildScannerForProviderAWSUsesCompositeCollector(t *testing.T) {
+	cfg := config.Config{
+		Provider:     "aws",
+		AWSSource:    "sdk",
+		AWSRegion:    "eu-west-2",
+		AWSAccountID: "123456789012",
+	}
+	t.Setenv("AWS_ACCESS_KEY_ID", "ASIAXXXXXXXXXXXXXXXX")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "example-secret-key-replace-me")
+	scanner, err := buildScannerForProvider(cfg, nil, 3)
+	if err != nil {
+		t.Fatalf("build scanner for provider failed: %v", err)
+	}
+	composite, ok := scanner.Collector.(*awsprovider.AWSCompositeCollector)
+	if !ok {
+		t.Fatalf("expected aws composite collector, got %T", scanner.Collector)
+	}
+	if composite.AccountID() != cfg.AWSAccountID || composite.Region() != cfg.AWSRegion {
+		t.Fatalf("unexpected composite scope account=%q region=%q", composite.AccountID(), composite.Region())
 	}
 }
 

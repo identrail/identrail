@@ -594,13 +594,9 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws sdk collector: %w", err)
 			}
-			return app.Scanner{
-				Collector:            awsprovider.NewCollector(iamAPI),
-				Normalizer:           awsprovider.NewRoleNormalizer(),
-				PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
-				RelationshipResolver: awsprovider.NewRelationshipBuilder(),
-				RiskRuleSet:          awsprovider.NewRuleSet(awsprovider.WithStaleAfter(time.Duration(staleAfterDays) * 24 * time.Hour)),
-			}, nil
+			return awsprovider.NewAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, awsprovider.NewRuleSet(
+				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),
+			)), nil
 		default:
 			return app.Scanner{}, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)
 		}
