@@ -6286,6 +6286,7 @@ export function ProductFindingsPage() {
   const remediationPublishRequestRef = useRef(0);
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
   const findingDetailModalRef = useRef<HTMLElement | null>(null);
+  const findingDetailOpenerRef = useRef<HTMLElement | null>(null);
 
   const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
 
@@ -6311,7 +6312,7 @@ export function ProductFindingsPage() {
   const handleFindingDetailModalKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      setFindingDetailOpen(false);
+      closeFindingDetail();
       return;
     }
 
@@ -6712,11 +6713,19 @@ export function ProductFindingsPage() {
   // itself, so a slow response cannot land on a newly selected finding. Bumping
   // the guards here closes the race window that exists if invalidation is left
   // to a post-render effect.
-  const selectRepoFinding = (key: string, openDetail = true) => {
+  const selectRepoFinding = (key: string, openDetail = true, opener: HTMLElement | null = null) => {
     remediationPreviewRequestRef.current += 1;
     remediationPublishRequestRef.current += 1;
+    const willOpenDialog = Boolean(key) && openDetail;
+    if (willOpenDialog) {
+      findingDetailOpenerRef.current =
+        opener ??
+        (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+    }
     setSelectedFindingKey(key);
-    setFindingDetailOpen(Boolean(key) && openDetail);
+    setFindingDetailOpen(willOpenDialog);
   };
 
   const handlePublishRemediation = async () => {
@@ -6881,6 +6890,18 @@ export function ProductFindingsPage() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [findingDetailOpen, selectedFindingKey]);
+
+  const closeFindingDetail = () => {
+    setFindingDetailOpen(false);
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const opener = findingDetailOpenerRef.current;
+    findingDetailOpenerRef.current = null;
+    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+      opener.focus();
+    }
+  };
 
   if (!scope) {
     return (
@@ -7353,7 +7374,7 @@ export function ProductFindingsPage() {
                                         role="listitem"
                                         aria-haspopup="dialog"
                                         className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
-                                        onClick={() => selectRepoFinding(selectionKey)}
+                                        onClick={(event) => selectRepoFinding(selectionKey, true, event.currentTarget)}
                                       >
                                         <SourceLogoMark provider="github" className="is-row" />
                                         <div className="idt-repo-finding-row-copy">
@@ -7401,7 +7422,7 @@ export function ProductFindingsPage() {
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              setFindingDetailOpen(false);
+              closeFindingDetail();
             }
           }}
         >
@@ -7430,7 +7451,7 @@ export function ProductFindingsPage() {
                 type="button"
                 aria-label="Close finding detail"
                 autoFocus
-                onClick={() => setFindingDetailOpen(false)}
+                onClick={() => closeFindingDetail()}
               >
                 <X size={16} strokeWidth={2} aria-hidden="true" />
               </button>
