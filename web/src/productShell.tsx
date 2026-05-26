@@ -60,6 +60,8 @@ import {
   type WorkspaceMemberStatus
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
+import { DomainLogoMark, DomainLogoStack } from './components/app/DomainFoundation';
+import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
 import { clearMeCache, primeMeCache, useMe } from './hooks/useMe';
 import { isFeatureAvailable, useBackendFeatures } from './hooks/useBackendFeatures';
 import {
@@ -88,7 +90,7 @@ type ScopeRouteParams = {
   projectID?: string;
 };
 
-type SourceProvider = 'github' | 'aws' | 'kubernetes';
+type SourceProvider = DomainAssetKey;
 
 type SourceConnectionMap = {
   github?: GitHubConnectionStatus;
@@ -103,7 +105,6 @@ type SourceProfile = {
   summary: string;
   primarySignal: string;
   requiredAccess: string;
-  logo: string;
 };
 
 type SourceAvailability = {
@@ -159,30 +160,27 @@ const MEMBER_STATUS_OPTIONS: WorkspaceMemberStatus[] = ['invited', 'active', 'su
 const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
   github: {
     provider: 'github',
-    name: 'GitHub',
+    name: getDomainAsset('github').label,
     eyebrow: 'Repositories and workflows',
     summary: 'Install Identrail on selected repositories so scans can read repository, workflow, and review signals.',
     primarySignal: 'Repository, workflow, and pull request signals',
-    requiredAccess: 'GitHub App with selected repository access',
-    logo: '/brand-logos/github.svg'
+    requiredAccess: 'GitHub App with selected repository access'
   },
   aws: {
     provider: 'aws',
-    name: 'AWS',
+    name: getDomainAsset('aws').label,
     eyebrow: 'Cloud IAM identity',
     summary: 'Connect a read-only IAM role so Identrail can inspect roles, trust policies, and account context.',
     primarySignal: 'IAM roles, trust policies, and account context',
-    requiredAccess: 'Read-only IAM role ARN',
-    logo: '/brand-logos/aws.svg'
+    requiredAccess: 'Read-only IAM role ARN'
   },
   kubernetes: {
     provider: 'kubernetes',
-    name: 'Kubernetes',
+    name: getDomainAsset('kubernetes').label,
     eyebrow: 'Cluster identity',
     summary: 'Enroll a read-only agent or kubeconfig fallback for service account and RBAC signals.',
     primarySignal: 'Service accounts, RBAC bindings, and pods',
-    requiredAccess: 'Read-only ClusterRole through the Identrail agent',
-    logo: '/brand-logos/kubernetes.svg'
+    requiredAccess: 'Read-only ClusterRole through the Identrail agent'
   }
 };
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
@@ -260,13 +258,7 @@ export function SourceLogoMark({ provider, className = '' }: { provider: SourceP
     return null;
   }
 
-  const profile = SOURCE_PROFILES[enabledProvider];
-  const classes = ['idt-source-logo-mark', `is-${enabledProvider}`, className].filter(Boolean).join(' ');
-  return (
-    <span className={classes} role="img" aria-label={profile.name}>
-      <img src={profile.logo} alt="" aria-hidden="true" loading="lazy" />
-    </span>
-  );
+  return <DomainLogoMark domain={enabledProvider} className={className} />;
 }
 
 function SourceLogoStack({
@@ -278,14 +270,7 @@ function SourceLogoStack({
   label?: string;
   className?: string;
 }) {
-  const classes = ['idt-source-logo-stack', className].filter(Boolean).join(' ');
-  return (
-    <div className={classes} role="group" aria-label={label}>
-      {providers.map((provider) => (
-        <SourceLogoMark key={provider} provider={provider} />
-      ))}
-    </div>
-  );
+  return <DomainLogoStack domains={providers} label={label} className={className} />;
 }
 
 function formatSourceNameList(providers: SourceProvider[]): string {
