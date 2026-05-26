@@ -1570,6 +1570,9 @@ describe('App', () => {
     expect((await screen.findAllByText(/AI workflow prompt injection can reach Claude/i)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/Repository hotspots/i)).toBeInTheDocument();
     expect((await screen.findAllByText(/owner\/repo/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Scan health/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Success rate/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/3 high priority/i)).length).toBeGreaterThan(0);
   });
 
   it('keeps the AI Risks dashboard usable when trend loading fails', async () => {

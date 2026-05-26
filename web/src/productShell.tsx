@@ -5894,16 +5894,15 @@ export function ProductAIRisksPage() {
     const maxTotal = Math.max(...trendPoints.map((point) => point.total), 0);
     return trendPoints.slice(-6).map((point, index) => {
       const startedAt = new Date(point.started_at);
+      const priority = (point.by_severity?.critical ?? 0) + (point.by_severity?.high ?? 0);
       return {
         key: `${point.started_at}-${index}`,
         label: Number.isNaN(startedAt.getTime())
           ? 'Unknown'
-          : startedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          : startedAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
         total: point.total,
         percentage: maxTotal > 0 ? Math.round((point.total / maxTotal) * 100) : 0,
-        high:
-          (point.by_severity?.critical ?? 0) +
-          (point.by_severity?.high ?? 0)
+        priority
       };
     });
   }, [trendPoints]);
@@ -5995,8 +5994,17 @@ export function ProductAIRisksPage() {
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
   const latestScan = scansByRecency[0] ?? null;
+  const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
+  const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
   const activeScanCount = repoScans.filter((scan) => isActiveScanStatus(scan.status)).length;
   const failedScanCount = repoScans.filter((scan) => isFailedScanStatus(scan.status)).length;
+  const completedScanCount = scansByRecency.filter((scan) => isCompletedScanStatus(scan.status)).length;
+  const successfulScanCount = scansByRecency.filter((scan) => repoScanStatusTone(scan.status) === 'success').length;
+  const latestCompletedScan = scansByRecency.find((scan) => isCompletedScanStatus(scan.status)) ?? null;
+  const latestSuccessfulScan = scansByRecency.find((scan) => repoScanStatusTone(scan.status) === 'success') ?? null;
+  const scanSuccessRate = completedScanCount > 0 ? Math.round((successfulScanCount / completedScanCount) * 100) : null;
+  const totalFilesScanned = scansByRecency.reduce((acc, scan) => acc + (scan.files_scanned ?? 0), 0);
+  const totalScanFindings = scansByRecency.reduce((acc, scan) => acc + (scan.finding_count ?? 0), 0);
   const openFindingCount = openFindings.length;
   const highPriorityCount = openFindings.filter((finding) => {
     const severity = normalizeValue(finding.severity).toLowerCase();
@@ -6008,6 +6016,29 @@ export function ProductAIRisksPage() {
   const latestScanLabel = latestScan
     ? `${canonicalGitHubRepositoryDisplay(latestScan.repository) || latestScan.repository} · ${formatTokenLabel(latestScan.status)}`
     : 'No repository scans yet';
+  const scanHealthTone = latestScanFailed
+    ? 'error'
+    : activeScanCount > 0
+      ? 'warning'
+      : latestScanSucceeded
+        ? 'success'
+        : 'neutral';
+  const scanHealthStatusLabel =
+    scanHealthTone === 'error'
+      ? 'Action needed'
+      : scanHealthTone === 'warning'
+        ? 'Running'
+        : scanHealthTone === 'success'
+          ? 'Healthy'
+          : 'No completed scan';
+  const scanHealthSummary =
+    scanHealthTone === 'error'
+      ? latestScan?.error_message || 'Latest scan needs operator attention.'
+      : scanHealthTone === 'warning'
+        ? 'A repository scan is currently queued or running.'
+        : latestSuccessfulScan
+          ? `Latest successful scan finished ${formatRelativeTime(latestSuccessfulScan.finished_at || latestSuccessfulScan.started_at)}.`
+          : 'Waiting for a completed repository scan.';
 
   return (
     <section className="idt-app-panel idt-github-intelligence-page">
@@ -6157,22 +6188,63 @@ export function ProductAIRisksPage() {
       </div>
 
       <div className="idt-github-intelligence-main">
-        <section className="idt-github-intelligence-panel">
-          <div className="idt-github-intelligence-panel-head">
-            <h3>Scan health</h3>
-            <Link to={projectsPath}>Manage scans</Link>
+        <section className="idt-github-intelligence-panel idt-repo-scan-health-panel" aria-label="Repository scan health">
+          <div className="idt-repo-scan-health-head">
+            <div>
+              <h3>Scan health</h3>
+              <p>{scanHealthSummary}</p>
+            </div>
+            <div className="idt-repo-scan-health-actions">
+              <span className={`idt-repo-scan-health-status is-${scanHealthTone}`}>
+                {scanHealthStatusLabel}
+              </span>
+              <Link to={projectsPath}>Manage scans</Link>
+            </div>
           </div>
           {latestScan ? (
-            <div className="idt-github-intelligence-scan">
-              <span className={`idt-source-status-pill is-${repoScanStatusTone(latestScan.status)}`}>
-                {formatTokenLabel(latestScan.status)}
-              </span>
-              <strong>{canonicalGitHubRepositoryDisplay(latestScan.repository) || latestScan.repository}</strong>
-              <p>
-                {formatCountLabel(latestScan.finding_count, 'finding')} · {formatCountLabel(latestScan.files_scanned, 'file')} · {formatDateLabel(latestScan.started_at)}
-              </p>
-              {latestScan.error_message ? <p>{latestScan.error_message}</p> : null}
-            </div>
+            <>
+              <div className="idt-repo-scan-health-grid">
+                <div>
+                  <span>Success rate</span>
+                  <strong>{scanSuccessRate === null ? 'N/A' : `${scanSuccessRate}%`}</strong>
+                  <small>{formatCountLabel(completedScanCount, 'completed scan')}</small>
+                </div>
+                <div>
+                  <span>Last completed</span>
+                  <strong>{latestCompletedScan ? formatRelativeTime(latestCompletedScan.finished_at || latestCompletedScan.started_at) : 'N/A'}</strong>
+                  <small>{latestCompletedScan ? formatTokenLabel(latestCompletedScan.status) : 'No finished scan'}</small>
+                </div>
+                <div>
+                  <span>Files covered</span>
+                  <strong>{totalFilesScanned.toLocaleString()}</strong>
+                  <small>{formatCountLabel(scansByRecency.length, 'recent scan')}</small>
+                </div>
+                <div>
+                  <span>Findings surfaced</span>
+                  <strong>{totalScanFindings.toLocaleString()}</strong>
+                  <small>{formatCountLabel(highPriorityCount, 'high priority', 'high priority')}</small>
+                </div>
+              </div>
+              <div className="idt-repo-scan-health-timeline" aria-label="Recent repository scan events">
+                {scansByRecency.slice(0, 4).map((scan) => {
+                  const tone = repoScanStatusTone(scan.status);
+                  const repositoryLabel = canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository || 'Repository unavailable';
+                  const scanTime = scan.finished_at || scan.started_at;
+                  return (
+                    <article key={scan.id} className={`idt-repo-scan-health-event is-${tone}`}>
+                      <span className="idt-repo-scan-health-dot" aria-hidden="true" />
+                      <div>
+                        <strong>{repositoryLabel}</strong>
+                        <span>
+                          {formatTokenLabel(scan.status)} · {formatCountLabel(scan.finding_count, 'finding')} · {formatCountLabel(scan.files_scanned, 'file')}
+                        </span>
+                      </div>
+                      <time dateTime={scanTime}>{formatRelativeTime(scanTime)}</time>
+                    </article>
+                  );
+                })}
+              </div>
+            </>
           ) : (
             <AppShellEmptyState
               title="No scans yet"
@@ -6207,7 +6279,7 @@ export function ProductAIRisksPage() {
                   <div className="idt-repo-finding-trend-bar-track" role="img" aria-label={`AI Risks trend ${row.label}`}>
                     <div className="idt-repo-finding-trend-bar" style={{ width: `${row.percentage}%` }} />
                   </div>
-                  <small>{formatCountLabel(row.high, 'high priority', 'high priority')}</small>
+                  <small>{formatCountLabel(row.priority, 'high priority', 'high priority')}</small>
                 </article>
               ))}
             </div>

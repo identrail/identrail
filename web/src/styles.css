@@ -4914,6 +4914,16 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   gap: 0.45rem;
 }
 
+.idt-github-intelligence-trend .idt-repo-finding-trend-bar-track {
+  height: 0.42rem;
+  border: 0;
+  background: rgba(126, 157, 211, 0.16);
+}
+
+.idt-github-intelligence-trend .idt-repo-finding-trend-bar {
+  background: rgba(244, 248, 255, 0.88);
+}
+
 .idt-repo-finding-stat-note {
   margin-top: 0.1rem;
   color: var(--app-dim, #6f86ad);
@@ -4934,6 +4944,229 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-repo-scan-health a {
   white-space: nowrap;
   font-weight: 600;
+}
+
+.idt-repo-scan-health-panel {
+  gap: 0.9rem;
+}
+
+.idt-repo-scan-health-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.idt-repo-scan-health-head h3 {
+  margin: 0;
+}
+
+.idt-repo-scan-health-head p {
+  margin: 0.22rem 0 0;
+  color: #9fb5d8;
+  font-size: 0.88rem;
+}
+
+.idt-repo-scan-health-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.idt-repo-scan-health-actions a {
+  color: #f4f8ff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.idt-repo-scan-health-actions a:hover,
+.idt-repo-scan-health-actions a:focus-visible {
+  text-decoration: underline;
+}
+
+.idt-repo-scan-health-status {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(126, 157, 211, 0.26);
+  border-radius: 999px;
+  padding: 0.22rem 0.58rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce9ff;
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.idt-repo-scan-health-status.is-success {
+  border-color: rgba(88, 214, 141, 0.42);
+  background: rgba(88, 214, 141, 0.11);
+  color: #b9f6ce;
+}
+
+.idt-repo-scan-health-status.is-warning {
+  border-color: rgba(245, 196, 81, 0.42);
+  background: rgba(245, 196, 81, 0.11);
+  color: #ffe5a3;
+}
+
+.idt-repo-scan-health-status.is-error {
+  border-color: rgba(255, 107, 107, 0.5);
+  background: rgba(255, 107, 107, 0.12);
+  color: #ffc3c3;
+}
+
+.idt-repo-scan-health-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid rgba(126, 157, 211, 0.18);
+  border-radius: 8px;
+  background: rgba(6, 11, 20, 0.6);
+  overflow: hidden;
+}
+
+.idt-repo-scan-health-grid div {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem 0.85rem;
+  border-right: 1px solid rgba(126, 157, 211, 0.18);
+}
+
+.idt-repo-scan-health-grid div:last-child {
+  border-right: 0;
+}
+
+.idt-repo-scan-health-grid span,
+.idt-repo-scan-health-grid small {
+  color: #9fb5d8;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.idt-repo-scan-health-grid span {
+  text-transform: uppercase;
+}
+
+.idt-repo-scan-health-grid strong {
+  color: #f4f8ff;
+  font-size: 1.18rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.idt-repo-scan-health-timeline {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.idt-repo-scan-health-event {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid rgba(126, 157, 211, 0.18);
+  border-radius: 8px;
+  padding: 0.56rem 0.65rem;
+  background: rgba(6, 11, 20, 0.42);
+}
+
+.idt-repo-scan-health-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: #9fb5d8;
+  box-shadow: 0 0 0 0.22rem rgba(159, 181, 216, 0.12);
+}
+
+.idt-repo-scan-health-event.is-success .idt-repo-scan-health-dot {
+  background: #58d68d;
+  box-shadow: 0 0 0 0.22rem rgba(88, 214, 141, 0.12);
+}
+
+.idt-repo-scan-health-event.is-warning .idt-repo-scan-health-dot {
+  background: #f5c451;
+  box-shadow: 0 0 0 0.22rem rgba(245, 196, 81, 0.12);
+}
+
+.idt-repo-scan-health-event.is-error .idt-repo-scan-health-dot {
+  background: #ff6b6b;
+  box-shadow: 0 0 0 0.22rem rgba(255, 107, 107, 0.12);
+}
+
+.idt-repo-scan-health-event div {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.idt-repo-scan-health-event strong {
+  color: #f4f8ff;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.idt-repo-scan-health-event span:not(.idt-repo-scan-health-dot),
+.idt-repo-scan-health-event time {
+  color: #9fb5d8;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.idt-repo-scan-health-event time {
+  justify-self: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 980px) {
+  .idt-repo-scan-health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .idt-repo-scan-health-grid div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .idt-repo-scan-health-grid div:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(126, 157, 211, 0.18);
+  }
+}
+
+@media (max-width: 640px) {
+  .idt-repo-scan-health-head {
+    display: grid;
+  }
+
+  .idt-repo-scan-health-actions {
+    justify-content: flex-start;
+  }
+
+  .idt-repo-scan-health-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .idt-repo-scan-health-grid div,
+  .idt-repo-scan-health-grid div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .idt-repo-scan-health-grid div:not(:last-child) {
+    border-bottom: 1px solid rgba(126, 157, 211, 0.18);
+  }
+
+  .idt-repo-scan-health-event {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .idt-repo-scan-health-event time {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 
 .idt-repo-scan-failure-state .idt-inline-actions {
@@ -20374,6 +20607,58 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-bar-tra
   background: #ffffff;
 }
 
+.idt-app-console-layout .idt-repo-scan-health-head h3,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-head h3 {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-scan-health-head p,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-head p,
+.idt-app-console-layout .idt-repo-scan-health-grid span,
+.idt-app-console-layout .idt-repo-scan-health-grid small,
+.idt-app-console-layout .idt-repo-scan-health-event span:not(.idt-repo-scan-health-dot),
+.idt-app-console-layout .idt-repo-scan-health-event time,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-grid span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-grid small,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-event span:not(.idt-repo-scan-health-dot),
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-event time {
+  color: var(--app-dim);
+}
+
+.idt-app-console-layout .idt-repo-scan-health-actions a,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-actions a,
+.idt-app-console-layout .idt-repo-scan-health-grid strong,
+.idt-app-console-layout .idt-repo-scan-health-event strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-grid strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-event strong {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-scan-health-grid,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-grid,
+.idt-app-console-layout .idt-repo-scan-health-event,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-event {
+  border-color: var(--app-border);
+  background: #050505;
+}
+
+.idt-app-console-layout .idt-repo-scan-health-grid div,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-health-grid div {
+  border-color: var(--app-border);
+}
+
+.idt-app-console-layout .idt-github-intelligence-trend .idt-repo-finding-trend-bar-track,
+html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-trend .idt-repo-finding-trend-bar-track {
+  height: 0.42rem;
+  border: 0;
+  background: #1b1b1f;
+}
+
+.idt-app-console-layout .idt-github-intelligence-trend .idt-repo-finding-trend-bar,
+html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-trend .idt-repo-finding-trend-bar {
+  background: rgba(255, 255, 255, 0.86);
+}
+
 .idt-app-console-layout .idt-executive-bar,
 .idt-executive-report-shell .idt-executive-bar {
   background: #151515;
@@ -23555,8 +23840,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout .idt-overview-header {
-  align-items: center;
-  padding: 0.5rem 0 0.75rem;
+  align-items: flex-start;
+  padding: clamp(0.85rem, 1.4vw, 1.05rem) 0 clamp(0.95rem, 1.6vw, 1.2rem);
   border: none;
   border-radius: 0;
   background: transparent;
@@ -23575,13 +23860,13 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-family: var(--idt-display);
   font-size: clamp(1.55rem, 2vw, 1.95rem);
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   color: #ffffff;
   line-height: 1.1;
 }
 
 .idt-app-console-layout .idt-overview-header p {
-  margin: 0.35rem 0 0;
+  margin: 0.48rem 0 0;
   color: var(--app-muted);
   font-size: 0.92rem;
 }
