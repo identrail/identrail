@@ -9,6 +9,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
   FolderKanban,
   HelpCircle,
   LayoutDashboard,
@@ -18,7 +19,8 @@ import {
   Search,
   Settings as SettingsIcon,
   Shield,
-  Users
+  Users,
+  X
 } from 'lucide-react';
 import {
   ApiError,
@@ -70,7 +72,7 @@ import { OnboardingUnavailableNotice, useOnboardingAvailable } from './component
 import {
   buildRepoFindingSelectionKey,
   findRepoFindingBySelectionKey,
-  groupRepoFindingsForDisplay,
+  groupRepoFindingsByRepositoryDateSeverity,
   mergeUpdatedRepoFinding
 } from './repoFindingDisplay';
 
@@ -209,6 +211,8 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
   type: 'Finding type',
   title: 'Finding title'
 };
+const MODAL_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const TREND_POINTS = 10;
 const PRODUCT_AUTH_SESSION_SCOPE_KEY = '__product_session__';
@@ -540,6 +544,30 @@ function repoFindingLocationLabel(finding: ApiFinding): string {
     return finding.file_path;
   }
   return 'Location unavailable';
+}
+
+function repoFindingScanTimestamp(finding: ApiFinding, repoScansByID: Record<string, RepoScanRecord>): number {
+  const scan = repoScansByID[finding.scan_id];
+  const timestamp =
+    normalizeValue(scan?.finished_at) ||
+    normalizeValue(scan?.started_at) ||
+    normalizeValue(finding.last_seen_at) ||
+    normalizeValue(finding.first_seen_at) ||
+    normalizeValue(finding.created_at);
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function repoFindingScanDateLabel(finding: ApiFinding, repoScansByID: Record<string, RepoScanRecord>): string {
+  const timestamp = repoFindingScanTimestamp(finding, repoScansByID);
+  if (!timestamp) {
+    return 'Scan date unavailable';
+  }
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
 }
 
 function repoFindingSeverityClass(severity: string): string {
@@ -6217,7 +6245,20 @@ export function ProductFindingsPage() {
   const [minConfidenceFilter, setMinConfidenceFilter] = useState('');
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [hierarchyOpenState, setHierarchyOpenState] = useState<{
+    repositories: Set<string>;
+    scans: Set<string>;
+    severities: Set<string>;
+    initialized: boolean;
+  }>({
+    repositories: new Set(),
+    scans: new Set(),
+    severities: new Set(),
+    initialized: false
+  });
   const [selectedFindingKey, setSelectedFindingKey] = useState('');
+  const [findingDetailOpen, setFindingDetailOpen] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<FindingLifecycleStatus>('open');
   const [workflowAssignee, setWorkflowAssignee] = useState('');
   const [workflowComment, setWorkflowComment] = useState('');
@@ -6243,8 +6284,74 @@ export function ProductFindingsPage() {
   const signalRequestRef = useRef(0);
   const remediationPreviewRequestRef = useRef(0);
   const remediationPublishRequestRef = useRef(0);
+  const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
+  const findingDetailModalRef = useRef<HTMLElement | null>(null);
+  const findingDetailOpenerRef = useRef<HTMLElement | null>(null);
 
   const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
+
+  const updateHierarchyOpenState = (
+    level: 'repositories' | 'scans' | 'severities',
+    key: string,
+    open: boolean
+  ) => {
+    setHierarchyOpenState((current) => {
+      if (current[level].has(key) === open) {
+        return current;
+      }
+      const nextKeys = new Set(current[level]);
+      if (open) {
+        nextKeys.add(key);
+      } else {
+        nextKeys.delete(key);
+      }
+      return { ...current, [level]: nextKeys, initialized: true };
+    });
+  };
+
+  const handleFindingDetailModalKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeFindingDetail();
+      return;
+    }
+
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const modal = findingDetailModalRef.current;
+    if (!modal) {
+      return;
+    }
+
+    const focusableElements = Array.from(modal.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE_SELECTOR)).filter(
+      (element) => element.getAttribute('aria-hidden') !== 'true'
+    );
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      modal.focus();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusIsOutsideModal = !activeElement || !modal.contains(activeElement);
+
+    if (event.shiftKey) {
+      if (focusIsOutsideModal || activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      }
+      return;
+    }
+
+    if (focusIsOutsideModal || activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
 
   const trendMaxTotal = useMemo(() => {
     const totals = trendPoints.map((point) => point.total);
@@ -6272,13 +6379,42 @@ export function ProductFindingsPage() {
     });
   }, [repoFindings, statusFilter, assigneeFilter]);
 
-  const findingGroups = useMemo(
-    () => groupRepoFindingsForDisplay(filteredFindings, sortBy, sortOrder),
-    [filteredFindings, sortBy, sortOrder]
+  const findingHierarchy = useMemo(
+    () =>
+      groupRepoFindingsByRepositoryDateSeverity(filteredFindings, {
+        repositoryForFinding: (finding) =>
+          canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(finding, repoScansByID)) ||
+          'Repository unavailable',
+        scanDateForFinding: (finding) => repoFindingScanDateLabel(finding, repoScansByID),
+        scanSortValueForFinding: (finding) => repoFindingScanTimestamp(finding, repoScansByID),
+        sortBy,
+        sortOrder
+      }),
+    [filteredFindings, repoScansByID, sortBy, sortOrder]
   );
 
+  useEffect(() => {
+    if (findingHierarchy.length === 0) {
+      return;
+    }
+    setHierarchyOpenState((current) => {
+      if (current.initialized) {
+        return current;
+      }
+      const firstRepository = findingHierarchy[0];
+      const firstScan = firstRepository.scanGroups[0];
+      const firstSeverity = firstScan?.severityGroups[0];
+      return {
+        repositories: new Set(firstRepository ? [firstRepository.key] : []),
+        scans: new Set(firstScan ? [firstScan.key] : []),
+        severities: new Set(firstSeverity ? [firstSeverity.key] : []),
+        initialized: true
+      };
+    });
+  }, [findingHierarchy]);
+
   const selectedFinding = useMemo(
-    () => findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey) ?? filteredFindings[0] ?? null,
+    () => findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey),
     [filteredFindings, selectedFindingKey]
   );
 
@@ -6577,10 +6713,19 @@ export function ProductFindingsPage() {
   // itself, so a slow response cannot land on a newly selected finding. Bumping
   // the guards here closes the race window that exists if invalidation is left
   // to a post-render effect.
-  const selectRepoFinding = (key: string) => {
+  const selectRepoFinding = (key: string, openDetail = true, opener: HTMLElement | null = null) => {
     remediationPreviewRequestRef.current += 1;
     remediationPublishRequestRef.current += 1;
+    const willOpenDialog = Boolean(key) && openDetail;
+    if (willOpenDialog) {
+      findingDetailOpenerRef.current =
+        opener ??
+        (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+    }
     setSelectedFindingKey(key);
+    setFindingDetailOpen(willOpenDialog);
   };
 
   const handlePublishRemediation = async () => {
@@ -6715,14 +6860,48 @@ export function ProductFindingsPage() {
   useEffect(() => {
     if (filteredFindings.length === 0) {
       if (selectedFindingKey) {
-        selectRepoFinding('');
+        selectRepoFinding('', false);
       }
       return;
     }
-    if (!findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey)) {
-      selectRepoFinding(buildRepoFindingSelectionKey(filteredFindings[0]));
+    if (selectedFindingKey && !findRepoFindingBySelectionKey(filteredFindings, selectedFindingKey)) {
+      selectRepoFinding('', false);
     }
   }, [filteredFindings, selectedFindingKey]);
+
+  useEffect(() => {
+    if (!findingDetailOpen || typeof document === 'undefined') {
+      return undefined;
+    }
+    const root = document.documentElement;
+    const previousOverflow = root.style.overflow;
+    root.style.overflow = 'hidden';
+    return () => {
+      root.style.overflow = previousOverflow;
+    };
+  }, [findingDetailOpen]);
+
+  useEffect(() => {
+    if (!findingDetailOpen || typeof window === 'undefined') {
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      findingDetailCloseRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [findingDetailOpen, selectedFindingKey]);
+
+  const closeFindingDetail = () => {
+    setFindingDetailOpen(false);
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const opener = findingDetailOpenerRef.current;
+    findingDetailOpenerRef.current = null;
+    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+      opener.focus();
+    }
+  };
 
   if (!scope) {
     return (
@@ -6913,11 +7092,6 @@ export function ProductFindingsPage() {
           >
             {refreshing || signalsRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
-          {selectedFinding?.source_url ? (
-            <a className="idt-btn idt-btn-primary" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
-              Open in GitHub
-            </a>
-          ) : null}
         </div>
       </div>
 
@@ -6961,114 +7135,123 @@ export function ProductFindingsPage() {
       </div>
 
       {filteredFindings.length > 0 || filtersActive ? (
-      <details className="idt-repo-filter-panel">
-        <summary>
-          <span>Filters and sorting</span>
-          <small>{filteredFindings.length ? `${filteredFindings.length} findings shown` : 'No findings in scope'}</small>
-        </summary>
-        <div className="idt-repo-finding-filters">
-          <label>
-            Repository scan
-            <select value={repoScanFilter} onChange={(event) => setRepoScanFilter(event.target.value)}>
-              <option value="">All repository scans</option>
-              {repoScans.map((scan) => (
-                <option key={scan.id} value={scan.id}>
-                  {canonicalGitHubRepositoryDisplay(scan.repository)} · {formatTokenLabel(scan.status)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Severity
-            <select
-              value={severityFilter}
-              onChange={(event) => setSeverityFilter(event.target.value as (typeof REPO_FINDING_SEVERITY_FILTERS)[number])}
-            >
-              {REPO_FINDING_SEVERITY_FILTERS.map((value) => (
-                <option key={value} value={value}>
-                  {value === 'all' ? 'All severities' : formatTokenLabel(value)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Type
-            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as (typeof REPO_FINDING_TYPE_FILTERS)[number])}>
-              {REPO_FINDING_TYPE_FILTERS.map((value) => (
-                <option key={value} value={value}>
-                  {value === 'all' ? 'All finding types' : formatTokenLabel(value)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Sort by
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as (typeof REPO_FINDING_SORT_FIELDS)[number])}>
-              {REPO_FINDING_SORT_FIELDS.map((value) => (
-                <option key={value} value={value}>
-                  {SORT_LABEL_BY_FIELD[value]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Sort order
-            <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as 'asc' | 'desc')}>
-              <option value="asc">Ascending</option>
-              <option value="desc">Descending</option>
-            </select>
-          </label>
-          <label>
-            Lifecycle status
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof REPO_FINDING_STATUS_FILTERS)[number])}>
-              {REPO_FINDING_STATUS_FILTERS.map((value) => (
-                <option key={value} value={value}>
-                  {formatTokenLabel(value)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Assignee
-            <input
-              type="text"
-              placeholder="Filter by assignee"
-              value={assigneeFilter}
-              onChange={(event) => setAssigneeFilter(event.target.value)}
-            />
-          </label>
-          <label>
-            Source
-            <input
-              type="text"
-              placeholder="Filter by source (for example github_secret_scanning)"
-              value={sourceFilter}
-              onChange={(event) => setSourceFilter(event.target.value)}
-            />
-          </label>
-          <label>
-            Min confidence
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              placeholder="e.g. 0.7"
-              value={minConfidenceFilter}
-              onChange={(event) => setMinConfidenceFilter(event.target.value)}
-            />
-          </label>
-        </div>
-      </details>
+        <details
+          className="idt-repo-filter-panel"
+          aria-label="Repository finding filters and sorting"
+          open={filtersExpanded}
+          onToggle={(event) => setFiltersExpanded(event.currentTarget.open)}
+        >
+          <summary className="idt-repo-filter-panel-header">
+            <span>Filters and sorting</span>
+            <small>{filteredFindings.length ? `${filteredFindings.length} findings shown` : 'No findings in scope'}</small>
+          </summary>
+          <div className="idt-repo-finding-filters">
+            <label>
+              Repository scan
+              <select value={repoScanFilter} onChange={(event) => setRepoScanFilter(event.target.value)}>
+                <option value="">All repository scans</option>
+                {repoScans.map((scan) => (
+                  <option key={scan.id} value={scan.id}>
+                    {canonicalGitHubRepositoryDisplay(scan.repository)} · {formatTokenLabel(scan.status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Severity
+              <select
+                value={severityFilter}
+                onChange={(event) => setSeverityFilter(event.target.value as (typeof REPO_FINDING_SEVERITY_FILTERS)[number])}
+              >
+                {REPO_FINDING_SEVERITY_FILTERS.map((value) => (
+                  <option key={value} value={value}>
+                    {value === 'all' ? 'All severities' : formatTokenLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Type
+              <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as (typeof REPO_FINDING_TYPE_FILTERS)[number])}>
+                {REPO_FINDING_TYPE_FILTERS.map((value) => (
+                  <option key={value} value={value}>
+                    {value === 'all' ? 'All finding types' : formatTokenLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Sort by
+              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as (typeof REPO_FINDING_SORT_FIELDS)[number])}>
+                {REPO_FINDING_SORT_FIELDS.map((value) => (
+                  <option key={value} value={value}>
+                    {SORT_LABEL_BY_FIELD[value]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Sort order
+              <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as 'asc' | 'desc')}>
+                <option value="asc">Ascending</option>
+                <option value="desc">Descending</option>
+              </select>
+            </label>
+            <label>
+              Lifecycle status
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof REPO_FINDING_STATUS_FILTERS)[number])}>
+                {REPO_FINDING_STATUS_FILTERS.map((value) => (
+                  <option key={value} value={value}>
+                    {formatTokenLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Assignee
+              <input
+                type="text"
+                placeholder="Filter by assignee"
+                value={assigneeFilter}
+                onChange={(event) => setAssigneeFilter(event.target.value)}
+              />
+            </label>
+            <label>
+              Source
+              <input
+                type="text"
+                placeholder="Source name"
+                value={sourceFilter}
+                onChange={(event) => setSourceFilter(event.target.value)}
+              />
+            </label>
+            <label>
+              Min confidence
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                placeholder="e.g. 0.7"
+                value={minConfidenceFilter}
+                onChange={(event) => setMinConfidenceFilter(event.target.value)}
+              />
+            </label>
+          </div>
+        </details>
       ) : null}
 
       <div className="idt-repo-finding-layout">
         <div className="idt-repo-finding-list">
           <div className="idt-repo-finding-list-header">
             <h3>Repository findings</h3>
-            <p>{filteredFindings.length ? `${filteredFindings.length} findings in scope` : 'No findings match the current filters.'}</p>
+            <p>
+              {filteredFindings.length
+                ? `${findingHierarchy.length} repositories grouped by scan date and severity`
+                : 'No findings match the current filters.'}
+            </p>
           </div>
-          {findingGroups.length === 0 ? (
+          {findingHierarchy.length === 0 ? (
             filtersActive ? (
               <AppShellEmptyState
                 title="No findings match these filters"
@@ -7086,81 +7269,203 @@ export function ProductFindingsPage() {
               />
             )
           ) : (
-            <div>
-              {findingGroups.map((group) => {
-                const items = (
-                  <div className="idt-repo-finding-items" role="list">
-                    {group.findings.map((finding) => {
-                      const repositoryValue = repoFindingRepositoryValue(finding, repoScansByID);
-                      const repositoryLabel = canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
-                      const selectionKey = buildRepoFindingSelectionKey(finding);
-                      const isSelected = selectedFindingKey === selectionKey;
-                      const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
-                      const triageStatus = normalizeFindingStatus(finding.triage?.status);
-                      return (
-                        <button
-                          key={selectionKey}
-                          type="button"
-                          role="listitem"
-                          className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
-                          onClick={() => selectRepoFinding(selectionKey)}
-                        >
-                          <SourceLogoMark provider="github" className="is-row" />
-                          <div className="idt-repo-finding-row-copy">
-                            <div className="idt-repo-finding-row-top">
-                              <strong>{finding.title}</strong>
-                              <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
-                            </div>
-                            <p>{finding.human_summary}</p>
-                            <div className="idt-repo-finding-row-meta">
-                              <span>{repositoryLabel}</span>
-                              <span>{repoFindingLocationLabel(finding)}</span>
-                              <span>{formatTokenLabel(finding.type)}</span>
-                              <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
-                            </div>
-                            <div className="idt-repo-finding-row-meta">
-                              <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
-                              <span>{`Source ${finding.adapter_source || 'native'}`}</span>
-                              <span>{`Owner ${finding.owner || finding.triage?.assignee || 'Unassigned'}`}</span>
-                              <span>{`Triage ${formatTokenLabel(triageStatus)}`}</span>
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-
-                if (!group.label) {
-                  return <div key={group.key}>{items}</div>;
-                }
+            <div className="idt-repo-finding-hierarchy">
+              {findingHierarchy.map((repositoryGroup, repositoryIndex) => {
+                const criticalCount = repositoryGroup.findings.filter(
+                  (finding) => normalizeValue(finding.severity).toLowerCase() === 'critical'
+                ).length;
+                const highCount = repositoryGroup.findings.filter(
+                  (finding) => normalizeValue(finding.severity).toLowerCase() === 'high'
+                ).length;
+                const latestScanLabel =
+                  [...repositoryGroup.scanGroups].sort((left, right) => right.sortValue - left.sortValue)[0]?.label ??
+                  'Scan date unavailable';
 
                 return (
-                  <section className="idt-repo-finding-group" key={group.key}>
-                    <h4>
-                      {formatTokenLabel(group.label)} · {group.findings.length}
-                    </h4>
-                    {items}
-                  </section>
+                  <details
+                    className="idt-repo-finding-bucket idt-repo-finding-repository"
+                    key={repositoryGroup.key}
+                    open={hierarchyOpenState.repositories.has(repositoryGroup.key)}
+                    onToggle={(event) =>
+                      updateHierarchyOpenState('repositories', repositoryGroup.key, event.currentTarget.open)
+                    }
+                  >
+                    <summary className="idt-repo-repository-summary">
+                      <span className="idt-repo-summary-main">
+                        <span className="idt-repo-summary-icon" aria-hidden="true">
+                          <FolderKanban size={18} strokeWidth={2} />
+                        </span>
+                        <span>
+                          <span className="idt-repo-summary-label">Repository</span>
+                          <strong>{repositoryGroup.label}</strong>
+                        </span>
+                      </span>
+                      <span className="idt-repo-summary-metrics" aria-label="Repository finding summary">
+                        <span>
+                          <strong>{repositoryGroup.findings.length}</strong>
+                          <small>Findings</small>
+                        </span>
+                        <span>
+                          <strong>{criticalCount + highCount}</strong>
+                          <small>High risk</small>
+                        </span>
+                        <span>
+                          <strong>{latestScanLabel}</strong>
+                          <small>Latest scan</small>
+                        </span>
+                      </span>
+                    </summary>
+                    <div className="idt-repo-finding-bucket-body idt-repo-scan-timeline">
+                      {repositoryGroup.scanGroups.map((scanGroup, scanIndex) => (
+                        <details
+                          className="idt-repo-finding-bucket idt-repo-finding-scan"
+                          key={scanGroup.key}
+                          open={hierarchyOpenState.scans.has(scanGroup.key)}
+                          onToggle={(event) =>
+                            updateHierarchyOpenState('scans', scanGroup.key, event.currentTarget.open)
+                          }
+                        >
+                          <summary className="idt-repo-scan-summary">
+                            <span className="idt-repo-scan-node" aria-hidden="true" />
+                            <span className="idt-repo-scan-copy">
+                              <span>Scan date</span>
+                              <strong>{scanGroup.label}</strong>
+                            </span>
+                            <span className="idt-repo-scan-meta">
+                              <span>{scanGroup.findings.length} findings</span>
+                              <span>{scanGroup.severityGroups.length} severity groups</span>
+                            </span>
+                          </summary>
+                          <div className="idt-repo-finding-bucket-body idt-repo-severity-lanes">
+                            {scanGroup.severityGroups.map((severityGroup, severityIndex) => (
+                              <details
+                                className={`idt-repo-finding-bucket idt-repo-finding-severity-group is-${severityGroup.label}`}
+                                key={severityGroup.key}
+                                open={hierarchyOpenState.severities.has(severityGroup.key)}
+                                onToggle={(event) =>
+                                  updateHierarchyOpenState('severities', severityGroup.key, event.currentTarget.open)
+                                }
+                              >
+                                <summary className="idt-repo-severity-summary">
+                                  <span className="idt-repo-severity-copy">
+                                    <span className={repoFindingSeverityClass(severityGroup.label)}>
+                                      {formatTokenLabel(severityGroup.label)}
+                                    </span>
+                                    <strong>{severityGroup.label === 'critical' ? 'Immediate attention' : `${formatTokenLabel(severityGroup.label)} risk`}</strong>
+                                  </span>
+                                  <span className="idt-repo-severity-count">
+                                    <strong>{severityGroup.findings.length}</strong>
+                                    <small>findings</small>
+                                  </span>
+                                </summary>
+                                <div className="idt-repo-finding-items" role="list">
+                                  {severityGroup.findings.map((finding) => {
+                                    const repositoryValue = repoFindingRepositoryValue(finding, repoScansByID);
+                                    const repositoryLabel =
+                                      canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
+                                    const selectionKey = buildRepoFindingSelectionKey(finding);
+                                    const isSelected = selectedFindingKey === selectionKey;
+                                    const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+                                    const triageStatus = normalizeFindingStatus(finding.triage?.status);
+                                    return (
+                                      <button
+                                        key={selectionKey}
+                                        type="button"
+                                        role="listitem"
+                                        aria-haspopup="dialog"
+                                        className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
+                                        onClick={(event) => selectRepoFinding(selectionKey, true, event.currentTarget)}
+                                      >
+                                        <SourceLogoMark provider="github" className="is-row" />
+                                        <div className="idt-repo-finding-row-copy">
+                                          <div className="idt-repo-finding-row-top">
+                                            <strong>{finding.title}</strong>
+                                            <span className={repoFindingSeverityClass(finding.severity)}>
+                                              {formatTokenLabel(finding.severity)}
+                                            </span>
+                                          </div>
+                                          <p>{finding.human_summary}</p>
+                                          <div className="idt-repo-finding-row-meta">
+                                            <span>{repositoryLabel}</span>
+                                            <span>{repoFindingLocationLabel(finding)}</span>
+                                            <span>{formatTokenLabel(finding.type)}</span>
+                                            <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
+                                          </div>
+                                          <div className="idt-repo-finding-row-meta">
+                                            <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
+                                            <span>{`Source ${finding.adapter_source || 'native'}`}</span>
+                                            <span>{`Owner ${finding.owner || finding.triage?.assignee || 'Unassigned'}`}</span>
+                                            <span>{`Triage ${formatTokenLabel(triageStatus)}`}</span>
+                                          </div>
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </details>
+                            ))}
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </details>
                 );
               })}
             </div>
           )}
         </div>
+      </div>
 
-        {findingGroups.length > 0 || filtersActive ? (
-        <aside className="idt-repo-finding-detail">
-          {selectedFinding ? (
-            <>
-              <div className="idt-repo-finding-detail-copy">
-                <div className="idt-source-config-title">
-                  <SourceLogoMark provider="github" className="is-hero" />
-                  <div>
-                    <p className="idt-app-kicker">Finding detail</p>
-                    <h3>{selectedFinding.title}</h3>
-                    <p>{selectedFinding.human_summary}</p>
-                  </div>
+      {findingDetailOpen && selectedFinding ? (
+        <div
+          className="idt-modal-backdrop idt-repo-finding-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeFindingDetail();
+            }
+          }}
+        >
+          <section
+            aria-modal="true"
+            aria-labelledby="repo-finding-detail-title"
+            className="idt-repo-finding-detail-modal"
+            ref={findingDetailModalRef}
+            role="dialog"
+            tabIndex={-1}
+            onKeyDown={handleFindingDetailModalKeyDown}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="idt-repo-finding-detail-modal-header">
+              <div className="idt-source-config-title">
+                <SourceLogoMark provider="github" className="is-hero" />
+                <div>
+                  <p className="idt-app-kicker">Finding detail</p>
+                  <h3 id="repo-finding-detail-title">{selectedFinding.title}</h3>
+                  <p>{selectedFinding.human_summary}</p>
                 </div>
+              </div>
+              <button
+                ref={findingDetailCloseRef}
+                className="idt-icon-btn idt-repo-finding-modal-close"
+                type="button"
+                aria-label="Close finding detail"
+                autoFocus
+                onClick={() => closeFindingDetail()}
+              >
+                <X size={16} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </header>
+
+            <div className="idt-repo-finding-detail-modal-body">
+              <div className="idt-repo-finding-detail-pills" aria-label="Finding status summary">
+                <span className={repoFindingSeverityClass(selectedFinding.severity)}>
+                  {formatTokenLabel(selectedFinding.severity)}
+                </span>
+                <span className={repoFindingStatusClass(normalizeRepoFindingLifecycleStatus(selectedFinding.lifecycle_status))}>
+                  {formatTokenLabel(normalizeRepoFindingLifecycleStatus(selectedFinding.lifecycle_status))}
+                </span>
+                <span>{`Confidence ${formatConfidenceScore(selectedFinding.confidence_score)}`}</span>
               </div>
 
               <dl className="idt-repo-finding-facts">
@@ -7169,8 +7474,8 @@ export function ProductFindingsPage() {
                   <dd>{canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(selectedFinding, repoScansByID)) || 'Unavailable'}</dd>
                 </div>
                 <div>
-                  <dt>Confidence</dt>
-                  <dd>{formatConfidenceScore(selectedFinding.confidence_score)}</dd>
+                  <dt>Scan date</dt>
+                  <dd>{repoFindingScanDateLabel(selectedFinding, repoScansByID)}</dd>
                 </div>
                 <div>
                   <dt>Location</dt>
@@ -7181,12 +7486,12 @@ export function ProductFindingsPage() {
                   <dd>{selectedFinding.commit || 'Unavailable'}</dd>
                 </div>
                 <div>
-                  <dt>Lifecycle status</dt>
-                  <dd>{formatTokenLabel(normalizeRepoFindingLifecycleStatus(selectedFinding.lifecycle_status))}</dd>
-                </div>
-                <div>
                   <dt>Owner</dt>
                   <dd>{selectedFinding.owner || selectedFinding.triage?.assignee || 'Unassigned'}</dd>
+                </div>
+                <div>
+                  <dt>Triage status</dt>
+                  <dd>{formatTokenLabel(normalizeFindingStatus(selectedFinding.triage?.status))}</dd>
                 </div>
                 <div>
                   <dt>First seen</dt>
@@ -7201,10 +7506,6 @@ export function ProductFindingsPage() {
                   <dd>{selectedFinding.fixed_at ? formatDateLabel(selectedFinding.fixed_at) : 'Not fixed yet'}</dd>
                 </div>
                 <div>
-                  <dt>Triage status</dt>
-                  <dd>{formatTokenLabel(normalizeFindingStatus(selectedFinding.triage?.status))}</dd>
-                </div>
-                <div>
                   <dt>Detector</dt>
                   <dd>{selectedFinding.detector ? formatTokenLabel(selectedFinding.detector) : 'Unavailable'}</dd>
                 </div>
@@ -7212,26 +7513,43 @@ export function ProductFindingsPage() {
                   <dt>Last triage update</dt>
                   <dd>{selectedFinding.triage?.updated_at ? formatDateLabel(selectedFinding.triage.updated_at) : 'Never'}</dd>
                 </div>
+                <div>
+                  <dt>Source</dt>
+                  <dd>{selectedFinding.adapter_source || 'native'}</dd>
+                </div>
               </dl>
 
-              {selectedFinding.source_url ? (
-                <a className="idt-repo-finding-link" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
-                  {selectedFinding.source_url}
-                </a>
-              ) : (
-                <div className="idt-app-alert">GitHub line link unavailable for this finding. Rescan the repository to refresh line-link metadata.</div>
-              )}
-
-              {selectedFinding.line_snippet ? (
-                <div className="idt-repo-finding-code">
-                  <span>Evidence line</span>
-                  <pre>
-                    <code>{selectedFinding.line_snippet}</code>
-                  </pre>
+              <section className="idt-repo-finding-detail-section">
+                <div className="idt-repo-finding-section-head">
+                  <div>
+                    <h4>Evidence</h4>
+                    <p>{repoFindingLocationLabel(selectedFinding)}</p>
+                  </div>
+                  {selectedFinding.source_url ? (
+                    <a className="idt-btn idt-btn-primary" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={14} strokeWidth={2} aria-hidden="true" />
+                      Open in GitHub
+                    </a>
+                  ) : null}
                 </div>
-              ) : null}
+                {selectedFinding.source_url ? (
+                  <a className="idt-repo-finding-link" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
+                    {selectedFinding.source_url}
+                  </a>
+                ) : (
+                  <div className="idt-app-alert">GitHub line link unavailable for this finding. Rescan the repository to refresh line-link metadata.</div>
+                )}
+                {selectedFinding.line_snippet ? (
+                  <div className="idt-repo-finding-code">
+                    <span>Evidence line</span>
+                    <pre>
+                      <code>{selectedFinding.line_snippet}</code>
+                    </pre>
+                  </div>
+                ) : null}
+              </section>
 
-              <div className="idt-repo-finding-remediation">
+              <section className="idt-repo-finding-detail-section idt-repo-finding-remediation">
                 <h4>Remediation</h4>
                 <p>{selectedFinding.remediation}</p>
                 <button
@@ -7357,9 +7675,9 @@ export function ProductFindingsPage() {
                     ) : null}
                   </div>
                 ) : null}
-              </div>
+              </section>
 
-              <div className="idt-repo-finding-triage-form">
+              <section className="idt-repo-finding-detail-section idt-repo-finding-triage-form">
                 <h4>Workflow controls</h4>
                 {workflowError ? <div className="idt-app-alert idt-app-alert-error">{workflowError}</div> : null}
                 {workflowSuccess ? <div className="idt-app-alert idt-app-alert-success">{workflowSuccess}</div> : null}
@@ -7430,20 +7748,14 @@ export function ProductFindingsPage() {
                 >
                   {workflowLoading ? 'Saving...' : 'Apply workflow'}
                 </button>
-              </div>
-            </>
-          ) : (
-            <AppShellEmptyState
-              title="Select a finding"
-              body="Choose one repository finding to inspect commit, detector, and GitHub line-link context."
-            />
-          )}
-        </aside>
-        ) : null}
-      </div>
+              </section>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
-      <div className="idt-repo-finding-trend" aria-label="Repository risk graph summary">
-        <div className="idt-repo-finding-trend-head">
+      <details className="idt-repo-finding-trend idt-repo-analysis-panel" aria-label="Repository risk graph summary">
+        <summary className="idt-repo-finding-trend-head">
           <h3>Risk graph</h3>
           {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading graph</span> : null}
           <span className="idt-repo-finding-trend-subtitle">
@@ -7451,7 +7763,7 @@ export function ProductFindingsPage() {
               ? `${repoRiskGraph.nodes.length} nodes · ${repoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(repoRiskGraph.repository) || repoRiskGraph.repository || 'repository scope'}`
               : 'No graph loaded yet'}
           </span>
-        </div>
+        </summary>
         {riskGraphSummary ? (
           <div className="idt-repo-finding-trend-rows">
             <article className="idt-repo-finding-trend-row">
@@ -7494,14 +7806,14 @@ export function ProductFindingsPage() {
             body="Run a repository exposure scan so machine-identity paths and finding risk scores can appear here."
           />
         )}
-      </div>
+      </details>
 
-      <div className="idt-repo-finding-trend">
-        <div className="idt-repo-finding-trend-head">
+      <details className="idt-repo-finding-trend idt-repo-analysis-panel">
+        <summary className="idt-repo-finding-trend-head">
           <h3>Finding trend</h3>
           {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading trend</span> : null}
           <span className="idt-repo-finding-trend-subtitle">{totalTrendItems > 0 ? `${totalTrendItems} total events in window` : 'No trend items yet'}</span>
-        </div>
+        </summary>
         <div className="idt-repo-finding-trend-rows">
           {totalTrendItems === 0 ? (
             <AppShellEmptyState
@@ -7525,7 +7837,7 @@ export function ProductFindingsPage() {
             ))
           )}
         </div>
-      </div>
+      </details>
     </section>
   );
 }

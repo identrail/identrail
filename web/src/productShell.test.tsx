@@ -919,7 +919,7 @@ describe('ProductFindingsPage states', () => {
 
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
     expect(await screen.findByText('Completed scans')).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Legacy finding' })).toBeInTheDocument();
+    expect(await screen.findByText('Legacy finding')).toBeInTheDocument();
   });
 
   it('does not report cancellation as a failed scan', async () => {
@@ -937,7 +937,48 @@ describe('ProductFindingsPage states', () => {
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
   });
 
-  it('keeps the finding detail pane visible when filters are active but no findings match', async () => {
+  it('restores focus to the triggering row when the finding detail dialog closes', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-findings',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-1',
+      scan_id: scan.id,
+      type: 'aws_access_key',
+      severity: 'critical',
+      title: 'IAM role with wildcard trust',
+      human_summary: 'AssumeRole trust policy allows any principal.',
+      remediation: 'Tighten trust policy principals.',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    await renderFindings({ repoScans: [scan], repoFindings: [finding] });
+
+    const rowButton = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('IAM role with wildcard trust')
+    ) as HTMLButtonElement | undefined;
+    expect(rowButton).toBeDefined();
+    if (!rowButton) return;
+    rowButton.focus();
+    fireEvent.click(rowButton);
+
+    const closeButton = await screen.findByRole('button', { name: /Close finding detail/i });
+    fireEvent.click(closeButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Close finding detail/i })).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(rowButton);
+    });
+  });
+
+  it('keeps visible filters when active filters match no findings', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-with-findings',
@@ -964,13 +1005,13 @@ describe('ProductFindingsPage states', () => {
 
     expect((await screen.findAllByText('IAM role with wildcard trust')).length).toBeGreaterThan(0);
 
-    const filtersSummary = await screen.findByText('Filters and sorting');
-    fireEvent.click(filtersSummary);
+    expect(await screen.findByText('Filters and sorting')).toBeInTheDocument();
 
     const severityFilter = screen.getByLabelText('Severity');
     fireEvent.change(severityFilter, { target: { value: 'high' } });
 
     expect(await screen.findByText('No findings match the current filters.')).toBeInTheDocument();
-    expect(screen.getByText('Select a finding')).toBeInTheDocument();
+    expect(screen.getByLabelText('Repository finding filters and sorting')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /IAM role with wildcard trust/i })).not.toBeInTheDocument();
   });
 });

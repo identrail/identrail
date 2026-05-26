@@ -4991,6 +4991,16 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   gap: 0.58rem;
 }
 
+.idt-repo-analysis-panel summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.idt-repo-analysis-panel[open] summary {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(126, 157, 211, 0.2);
+}
+
 .idt-repo-finding-trend-head h3 {
   margin: 0;
 }
@@ -5055,6 +5065,49 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   text-transform: uppercase;
 }
 
+.idt-repo-finding-hierarchy {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-repo-finding-bucket {
+  border: 1px solid rgba(126, 157, 211, 0.24);
+  border-radius: 0.75rem;
+  background: rgba(8, 13, 22, 0.72);
+  overflow: hidden;
+}
+
+.idt-repo-finding-bucket summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  color: #f4f8ff;
+  cursor: pointer;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.idt-repo-finding-bucket summary small {
+  color: #9fb5d8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.idt-repo-finding-bucket-body {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid rgba(126, 157, 211, 0.18);
+  padding: 0.85rem;
+}
+
+.idt-repo-finding-scan,
+.idt-repo-finding-severity-group {
+  background: rgba(5, 9, 17, 0.58);
+}
+
 .idt-repo-finding-status {
   display: inline-flex;
   align-items: center;
@@ -5117,7 +5170,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-repo-finding-layout {
   margin-top: 1rem;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
 }
@@ -5298,6 +5351,85 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-repo-finding-remediation {
   display: grid;
   gap: 0.35rem;
+}
+
+.idt-repo-finding-modal-backdrop {
+  align-items: start;
+  overflow-y: auto;
+}
+
+.idt-repo-finding-detail-modal {
+  width: min(100%, 74rem);
+  max-height: calc(100dvh - 2rem);
+  margin: auto 0;
+  border: 1px solid rgba(126, 157, 211, 0.32);
+  border-radius: 0.9rem;
+  background: #080d16;
+  color: #f4f8ff;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
+  overflow: hidden;
+}
+
+.idt-repo-finding-detail-modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(126, 157, 211, 0.24);
+  padding: 1rem;
+}
+
+.idt-repo-finding-modal-close {
+  flex: 0 0 auto;
+}
+
+.idt-repo-finding-detail-modal-body {
+  max-height: calc(100dvh - 9rem);
+  overflow-y: auto;
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.idt-repo-finding-detail-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.idt-repo-finding-detail-pills > span:not(.idt-repo-finding-severity):not(.idt-repo-finding-status) {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(126, 157, 211, 0.24);
+  border-radius: 999px;
+  padding: 0.24rem 0.58rem;
+  color: #dce9ff;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.idt-repo-finding-detail-section {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid rgba(126, 157, 211, 0.2);
+  border-radius: 0.8rem;
+  background: rgba(5, 9, 17, 0.56);
+  padding: 1rem;
+}
+
+.idt-repo-finding-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.idt-repo-finding-section-head h4 {
+  margin: 0;
+}
+
+.idt-repo-finding-section-head p {
+  margin: 0.2rem 0 0;
 }
 
 .idt-repo-remediation-preview {
@@ -19744,7 +19876,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metri
 
 .idt-app-console-layout .idt-repo-finding-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.72fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
@@ -19760,6 +19892,9 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metri
 .idt-app-console-layout .idt-repo-finding-list,
 .idt-app-console-layout .idt-repo-finding-detail,
 .idt-app-console-layout .idt-repo-finding-trend,
+.idt-app-console-layout .idt-repo-finding-bucket,
+.idt-app-console-layout .idt-repo-finding-detail-section,
+.idt-app-console-layout .idt-repo-finding-detail-modal,
 .idt-app-console-layout .idt-repo-finding-row,
 .idt-app-console-layout .idt-github-intelligence-card,
 .idt-app-console-layout .idt-github-intelligence-panel,
@@ -19784,6 +19919,9 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics article
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-list,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-section,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-modal,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row,
 html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-card,
 html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-panel,
@@ -20025,7 +20163,8 @@ html[data-theme='light'] .idt-account-security-page label {
 
 .idt-workspace-member-details summary,
 .idt-project-card-details summary,
-.idt-repo-filter-panel summary {
+.idt-repo-filter-panel summary,
+.idt-repo-filter-panel-header {
   cursor: pointer;
   color: #ffffff;
   font-weight: 900;
@@ -20097,15 +20236,17 @@ html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
   padding: 0;
 }
 
-.idt-repo-filter-panel summary {
-  display: flex;
+.idt-repo-filter-panel summary,
+.idt-repo-filter-panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--repo-disclosure-column);
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
   padding: 0.85rem 1rem;
 }
 
-.idt-repo-filter-panel[open] summary {
+.idt-repo-filter-panel[open] summary,
+.idt-repo-filter-panel[open] .idt-repo-filter-panel-header {
   border-bottom: 1px solid var(--app-border);
 }
 
@@ -20151,6 +20292,40 @@ html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
 .idt-app-console-layout .idt-source-status-pill {
   border-radius: 999px;
   letter-spacing: 0;
+}
+
+.idt-app-console-layout .idt-repo-finding-status,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-status {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-weight: 900;
+}
+
+.idt-app-console-layout .idt-repo-finding-status.is-open,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-status.is-open {
+  border-color: rgba(125, 186, 255, 0.62);
+  background: rgba(59, 130, 246, 0.24);
+  color: #dbeafe;
+}
+
+.idt-app-console-layout .idt-repo-finding-status.is-ack,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-status.is-ack {
+  border-color: rgba(251, 191, 36, 0.58);
+  background: rgba(180, 83, 9, 0.28);
+  color: #fde68a;
+}
+
+.idt-app-console-layout .idt-repo-finding-status.is-suppressed,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-status.is-suppressed {
+  border-color: rgba(203, 213, 225, 0.42);
+  background: rgba(71, 85, 105, 0.34);
+  color: #e2e8f0;
+}
+
+.idt-app-console-layout .idt-repo-finding-status.is-resolved,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-status.is-resolved {
+  border-color: rgba(74, 222, 128, 0.52);
+  background: rgba(22, 101, 52, 0.3);
+  color: #bbf7d0;
 }
 
 .idt-app-console-layout .idt-source-status-pill.is-success {
@@ -20566,6 +20741,9 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics article
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-list,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-section,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-modal,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row,
 html[data-theme='light'] .idt-app-console-layout .idt-overview-risk-row,
 html[data-theme='light'] .idt-app-console-layout .idt-overview-scan-row,
@@ -21289,6 +21467,27 @@ html[data-theme='light'] .idt-source-policy-panel details {
   text-align: left;
 }
 
+.idt-app-console-layout .idt-repo-finding-bucket {
+  background: #080809;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket summary {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket summary small {
+  color: var(--app-muted);
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket-body {
+  border-top-color: var(--app-border);
+}
+
+.idt-app-console-layout .idt-repo-finding-scan,
+.idt-app-console-layout .idt-repo-finding-severity-group {
+  background: #050505;
+}
+
 .idt-app-console-layout .idt-repo-finding-row.is-selected {
   border-color: #ffffff;
   background: #111113;
@@ -21303,8 +21502,665 @@ html[data-theme='light'] .idt-source-policy-panel details {
   background: var(--app-panel);
 }
 
+.idt-app-console-layout .idt-repo-analysis-panel summary {
+  cursor: pointer;
+}
+
+.idt-app-console-layout .idt-repo-analysis-panel[open] summary {
+  border-bottom-color: var(--app-border);
+}
+
 .idt-app-console-layout .idt-repo-finding-trend-bar {
   background: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-finding-detail-modal {
+  width: min(100%, 74rem);
+  background: #080809;
+}
+
+.idt-app-console-layout .idt-repo-finding-detail-modal-header,
+.idt-app-console-layout .idt-repo-finding-detail-section {
+  border-color: var(--app-border);
+}
+
+.idt-app-console-layout .idt-repo-finding-detail-section {
+  background: #050505;
+}
+
+.idt-app-console-layout .idt-repo-finding-detail-modal .idt-btn-primary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-modal .idt-btn-primary {
+  border-color: rgba(147, 197, 253, 0.78);
+  background: linear-gradient(180deg, #2f6fed 0%, #1d4ed8 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(29, 78, 216, 0.28);
+}
+
+.idt-app-console-layout .idt-repo-finding-detail-modal .idt-btn-primary:hover,
+.idt-app-console-layout .idt-repo-finding-detail-modal .idt-btn-primary:focus-visible,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-modal .idt-btn-primary:hover,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-modal .idt-btn-primary:focus-visible {
+  border-color: rgba(191, 219, 254, 0.95);
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.idt-app-console-layout .idt-repo-finding-modal-close,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-modal-close {
+  border-color: var(--app-border);
+  background: #111113;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-finding-detail-pills > span:not(.idt-repo-finding-severity):not(.idt-repo-finding-status) {
+  border-color: var(--app-border);
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-finding-section-head {
+  flex-wrap: wrap;
+}
+
+.idt-app-console-layout {
+  --repo-disclosure-column: 2rem;
+  --repo-disclosure-size: 1.35rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket > summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary,
+.idt-app-console-layout .idt-repo-filter-panel > summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary,
+.idt-app-console-layout .idt-repo-analysis-panel > summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary {
+  list-style: none;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket > summary::-webkit-details-marker,
+.idt-app-console-layout .idt-repo-filter-panel > summary::-webkit-details-marker,
+.idt-app-console-layout .idt-repo-analysis-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary::after,
+.idt-app-console-layout .idt-repo-filter-panel > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary::after,
+.idt-app-console-layout .idt-repo-analysis-panel > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary::after {
+  content: "";
+  display: inline-grid;
+  place-items: center;
+  grid-column: -1;
+  justify-self: end;
+  align-self: center;
+  flex: 0 0 var(--repo-disclosure-size);
+  width: var(--repo-disclosure-size);
+  height: var(--repo-disclosure-size);
+  border: 1px solid #34343a;
+  border-radius: 999px;
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7L9 11L13 7' stroke='%23E5E7EB' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.86rem 0.86rem no-repeat,
+    #141416;
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket:not([open]) > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket:not([open]) > summary::after,
+.idt-app-console-layout .idt-repo-filter-panel:not([open]) > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel:not([open]) > summary::after,
+.idt-app-console-layout .idt-repo-analysis-panel:not([open]) > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel:not([open]) > summary::after {
+  transform: rotate(0deg);
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket[open] > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket[open] > summary::after,
+.idt-app-console-layout .idt-repo-filter-panel[open] > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel[open] > summary::after,
+.idt-app-console-layout .idt-repo-analysis-panel[open] > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel[open] > summary::after {
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 11L9 7L13 11' stroke='%23E5E7EB' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.86rem 0.86rem no-repeat,
+    #141416;
+  transform: rotate(0deg);
+}
+
+.idt-app-console-layout .idt-repo-filter-panel:not([open]) .idt-repo-finding-filters,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel:not([open]) .idt-repo-finding-filters {
+  display: none;
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket > summary:hover::after,
+.idt-app-console-layout .idt-repo-finding-bucket > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-filter-panel > summary:hover::after,
+.idt-app-console-layout .idt-repo-filter-panel > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-analysis-panel > summary:hover::after,
+.idt-app-console-layout .idt-repo-analysis-panel > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary:focus-visible::after {
+  border-color: #52525b;
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7L9 11L13 7' stroke='%23FFFFFF' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.86rem 0.86rem no-repeat,
+    #1c1c20;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 3px rgba(255, 255, 255, 0.04);
+}
+
+.idt-app-console-layout .idt-repo-finding-bucket[open] > summary:hover::after,
+.idt-app-console-layout .idt-repo-finding-bucket[open] > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-filter-panel[open] > summary:hover::after,
+.idt-app-console-layout .idt-repo-filter-panel[open] > summary:focus-visible::after,
+.idt-app-console-layout .idt-repo-analysis-panel[open] > summary:hover::after,
+.idt-app-console-layout .idt-repo-analysis-panel[open] > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket[open] > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket[open] > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel[open] > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel[open] > summary:focus-visible::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel[open] > summary:hover::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel[open] > summary:focus-visible::after {
+  background:
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 11L9 7L13 11' stroke='%23FFFFFF' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 0.86rem 0.86rem no-repeat,
+    #1c1c20;
+}
+
+.idt-app-console-layout .idt-repo-analysis-panel > summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--repo-disclosure-column);
+  align-items: center;
+  gap: 0.22rem 0.75rem;
+}
+
+.idt-app-console-layout .idt-repo-analysis-panel > summary::after,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary::after {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.idt-app-console-layout .idt-repo-analysis-panel > summary h3,
+.idt-app-console-layout .idt-repo-analysis-panel > summary .idt-repo-finding-trend-subtitle,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary h3,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-analysis-panel > summary .idt-repo-finding-trend-subtitle {
+  grid-column: 1;
+}
+
+.idt-app-console-layout .idt-repo-finding-hierarchy {
+  gap: 1rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-repository,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-repository {
+  border-color: #303036;
+  background: #09090a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.idt-app-console-layout .idt-repo-repository-summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-repository-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(21rem, auto) var(--repo-disclosure-column);
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0)),
+    #0c0c0e;
+}
+
+.idt-app-console-layout .idt-repo-summary-main,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-repo-summary-icon,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid #303036;
+  border-radius: 8px;
+  background: #050505;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-summary-main > span:last-child {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-repo-summary-label,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-label {
+  color: #a3a3a3;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.idt-app-console-layout .idt-repo-summary-main strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-main strong {
+  color: #ffffff;
+  font-size: 1.08rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.idt-app-console-layout .idt-repo-summary-metrics,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.idt-app-console-layout .idt-repo-summary-metrics > span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics > span {
+  min-width: 5.5rem;
+  border: 1px solid #242429;
+  border-radius: 8px;
+  padding: 0.58rem 0.7rem;
+  background: #050505;
+}
+
+.idt-app-console-layout .idt-repo-summary-metrics strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics strong {
+  display: block;
+  color: #ffffff;
+  font-size: 1rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.idt-app-console-layout .idt-repo-summary-metrics small,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics small {
+  display: block;
+  margin-top: 0.2rem;
+  color: #a3a3a3;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-app-console-layout .idt-repo-scan-timeline,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-timeline {
+  gap: 0;
+  padding: 0.25rem 0 0;
+  border-top-color: #242429;
+}
+
+.idt-app-console-layout .idt-repo-finding-scan,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-scan {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.idt-app-console-layout .idt-repo-finding-scan::before,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-scan::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2rem;
+  width: 1px;
+  background: #2b2b30;
+}
+
+.idt-app-console-layout .idt-repo-scan-summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-summary {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto var(--repo-disclosure-column);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem 0.75rem 1.55rem;
+  background: #09090a;
+}
+
+.idt-app-console-layout .idt-repo-scan-node,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-node {
+  position: relative;
+  z-index: 1;
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid #93c5fd;
+  border-radius: 999px;
+  background: #1d4ed8;
+  box-shadow: 0 0 0 0.35rem #09090a;
+}
+
+.idt-app-console-layout .idt-repo-scan-copy,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-copy {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-repo-scan-copy > span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-copy > span {
+  color: #a3a3a3;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.idt-app-console-layout .idt-repo-scan-copy strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-copy strong {
+  color: #ffffff;
+  font-size: 0.98rem;
+}
+
+.idt-app-console-layout .idt-repo-scan-meta,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.idt-app-console-layout .idt-repo-scan-meta span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-meta span {
+  border: 1px solid #242429;
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  background: #050505;
+  color: #d4d4d8;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.idt-app-console-layout .idt-repo-severity-lanes,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-lanes {
+  gap: 0.7rem;
+  border-top: 0;
+  padding: 0.2rem 0 1rem 3.15rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity-group,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group {
+  border-color: #242429;
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: #070708;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity-group.is-critical,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group.is-critical {
+  border-left-color: #ef4444;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity-group.is-high,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group.is-high {
+  border-left-color: #f97316;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity-group.is-medium,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group.is-medium {
+  border-left-color: #eab308;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity-group.is-low,
+.idt-app-console-layout .idt-repo-finding-severity-group.is-info,
+.idt-app-console-layout .idt-repo-finding-severity-group.is-unknown,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group.is-low,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group.is-info,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group.is-unknown {
+  border-left-color: #60a5fa;
+}
+
+.idt-app-console-layout .idt-repo-severity-summary,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--repo-disclosure-column);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.72rem 1rem 0.72rem 0.85rem;
+  background: #0b0b0d;
+}
+
+.idt-app-console-layout .idt-repo-severity-copy,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-repo-severity-copy strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-copy strong {
+  color: #ffffff;
+  font-size: 0.9rem;
+}
+
+.idt-app-console-layout .idt-repo-severity-count,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-count {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  color: #d4d4d8;
+  white-space: nowrap;
+}
+
+.idt-app-console-layout .idt-repo-severity-count strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-count strong {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-severity-count small,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-count small {
+  color: #a3a3a3;
+  font-weight: 800;
+}
+
+.idt-app-console-layout .idt-repo-finding-severity-group > .idt-repo-finding-items,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-group > .idt-repo-finding-items {
+  padding: 0 0.75rem 0.75rem;
+}
+
+@media (max-width: 940px) {
+  .idt-app-console-layout .idt-repo-repository-summary,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-repository-summary {
+    grid-template-columns: minmax(0, 1fr) var(--repo-disclosure-column);
+  }
+
+  .idt-app-console-layout .idt-repo-summary-metrics,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics {
+    grid-column: 1 / -1;
+  }
+
+  .idt-app-console-layout .idt-repo-scan-summary,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-summary {
+    grid-template-columns: auto minmax(0, 1fr) var(--repo-disclosure-column);
+  }
+
+  .idt-app-console-layout .idt-repo-severity-summary,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-summary {
+    grid-template-columns: minmax(0, 1fr) auto var(--repo-disclosure-column);
+  }
+
+  .idt-app-console-layout .idt-repo-scan-meta,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-meta {
+    grid-column: 2 / -2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .idt-app-console-layout {
+    overflow-x: hidden;
+  }
+
+  .idt-app-console-layout .idt-app-sidebar {
+    padding: 0.8rem 0.75rem 0.65rem;
+    gap: 0.55rem;
+  }
+
+  .idt-app-console-layout .idt-repo-findings-header {
+    padding: 1rem;
+  }
+
+  .idt-app-console-layout .idt-repo-findings-header > div:first-child,
+  .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip,
+  .idt-app-console-layout .idt-repo-findings-header .idt-inline-actions {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip > span,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip > span {
+    max-width: 100%;
+    border-radius: 8px;
+    white-space: normal;
+  }
+
+  .idt-app-console-layout .idt-repo-filter-panel summary,
+  .idt-app-console-layout .idt-repo-filter-panel-header,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel summary,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel-header {
+    grid-template-columns: minmax(0, 1fr) var(--repo-disclosure-column);
+    gap: 0.35rem 0.75rem;
+  }
+
+  .idt-app-console-layout .idt-repo-filter-panel small,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel small {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .idt-app-console-layout .idt-repo-summary-metrics,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-app-console-layout .idt-repo-summary-metrics > span,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics > span {
+    min-width: 0;
+  }
+
+  .idt-app-console-layout .idt-repo-summary-metrics strong,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-summary-metrics strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .idt-app-console-layout .idt-repo-scan-summary,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-summary {
+    grid-template-columns: auto minmax(0, 1fr) var(--repo-disclosure-column);
+    gap: 0.55rem 0.65rem;
+    padding-left: 1rem;
+  }
+
+  .idt-app-console-layout .idt-repo-scan-node,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-node {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .idt-app-console-layout .idt-repo-scan-copy,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-copy {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .idt-app-console-layout .idt-repo-scan-meta,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-meta {
+    grid-column: 2;
+    grid-row: 2;
+    padding-left: 0;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-scan > summary::after,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-scan > summary::after {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .idt-app-console-layout .idt-repo-scan-meta span,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-scan-meta span {
+    white-space: normal;
+  }
+
+  .idt-app-console-layout .idt-repo-severity-summary,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-summary {
+    grid-template-columns: minmax(0, 1fr) var(--repo-disclosure-column);
+    gap: 0.4rem 0.65rem;
+  }
+
+  .idt-app-console-layout .idt-repo-severity-copy,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-copy {
+    min-width: 0;
+  }
+
+  .idt-app-console-layout .idt-repo-severity-copy strong,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-copy strong {
+    overflow-wrap: anywhere;
+  }
+
+  .idt-app-console-layout .idt-repo-severity-count,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-count {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-bucket > summary::after,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-bucket > summary::after,
+  .idt-app-console-layout .idt-repo-filter-panel > summary::after,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel > summary::after {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .idt-app-console-layout .idt-repo-severity-lanes,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-severity-lanes {
+    padding-left: 1rem;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-row {
+    gap: 0.7rem;
+    padding: 0.85rem;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-row-copy,
+  .idt-app-console-layout .idt-repo-finding-row-top,
+  .idt-app-console-layout .idt-repo-finding-row-meta,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row-copy,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row-top,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row-meta {
+    min-width: 0;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-row-meta span,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row-meta span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-scan::before,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-scan::before {
+    display: none;
+  }
 }
 
 @media (max-width: 700px) {
@@ -24443,5 +25299,56 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   .idt-docs-page .idt-booking-prompt-shell,
   html[data-theme='light'] .idt-docs-page .idt-booking-prompt-shell {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .idt-app-console-layout .idt-app-sidebar {
+    grid-template-rows: auto auto auto;
+    overflow: hidden;
+  }
+
+  .idt-app-console-layout .idt-app-shell-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.18rem;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .idt-app-console-layout .idt-app-shell-nav a {
+    min-width: 0;
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0.52rem 0.6rem;
+  }
+
+  .idt-app-console-layout .idt-app-nav-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .idt-app-console-layout .idt-app-shell-main {
+    padding: 1.15rem 1.15rem 2.5rem;
+  }
+
+  .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip > span,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip > span {
+    display: block;
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .idt-app-console-layout .idt-app-sidebar-footer,
+  .idt-app-console-layout .idt-app-sidebar-collapse,
+  .idt-app-console-layout .idt-app-sidebar-resize-handle {
+    display: none;
   }
 }
