@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Added an internal AWS account and region coverage registry for tenant-scoped connector estate coverage, including migration, store methods, service helpers, tests, and documentation.
 - Added typed AWS connector capability modes (`discovery`, `runtime_evidence`,
   `remediation_plan`, `approved_remediation`, `authorization_advisory`,
   `authorization_enforcement`). Connector status now reports requested,

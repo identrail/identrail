@@ -203,6 +203,105 @@ func TestPostgresStoreListTenancyConnectors(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+
+	upsertRows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "account_id", "account_alias",
+		"organization_id", "ou_path", "partition", "region", "role_arn", "coverage_status",
+		"last_successful_scan_at", "last_observed_error_code", "last_observed_error_message",
+		"scan_cursor", "suspended", "disabled", "unreachable", "created_at", "updated_at",
+	}).AddRow(
+		"tenant-a", "workspace-a", "project-1", "aws-prod", "123456789012", "Production",
+		"o-example", "/Root/Prod", "aws", "us-west-2", "arn:aws:iam::123456789012:role/IdentrailReadOnly", "covered",
+		now, "", "", []byte(`{"next_token":"abc"}`), false, false, false, now, now,
+	)
+	mock.ExpectQuery("INSERT INTO aws_account_region_coverages").
+		WithArgs(
+			"tenant-a",
+			"workspace-a",
+			"project-1",
+			"aws-prod",
+			"123456789012",
+			"Production",
+			"o-example",
+			"/Root/Prod",
+			"aws",
+			"us-west-2",
+			"arn:aws:iam::123456789012:role/IdentrailReadOnly",
+			"covered",
+			sqlmock.AnyArg(),
+			"",
+			"",
+			sqlmock.AnyArg(),
+			false,
+			false,
+			false,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnRows(upsertRows)
+
+	coverage, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{
+		WorkspaceID:          "workspace-a",
+		ProjectID:            "project-1",
+		ConnectorID:          "aws-prod",
+		AccountID:            "123456789012",
+		AccountAlias:         "Production",
+		OrganizationID:       "o-example",
+		OUPath:               "/Root/Prod",
+		Region:               "us-west-2",
+		RoleARN:              "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		CoverageStatus:       AWSAccountRegionCoverageCovered,
+		LastSuccessfulScanAt: &now,
+		ScanCursor:           map[string]any{"next_token": "abc"},
+	})
+	if err != nil {
+		t.Fatalf("upsert aws coverage: %v", err)
+	}
+	if coverage.AccountID != "123456789012" || coverage.ScanCursor["next_token"] != "abc" {
+		t.Fatalf("unexpected upserted coverage: %+v", coverage)
+	}
+
+	listRows := sqlmock.NewRows([]string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "account_id", "account_alias",
+		"organization_id", "ou_path", "partition", "region", "role_arn", "coverage_status",
+		"last_successful_scan_at", "last_observed_error_code", "last_observed_error_message",
+		"scan_cursor", "suspended", "disabled", "unreachable", "created_at", "updated_at",
+	}).AddRow(
+		"tenant-a", "workspace-a", "project-1", "aws-prod", "123456789012", "Production",
+		"o-example", "/Root/Prod", "aws", "us-west-2", "arn:aws:iam::123456789012:role/IdentrailReadOnly", "covered",
+		now, "", "", []byte(`{"next_token":"abc"}`), false, false, false, now, now,
+	)
+	mock.ExpectQuery(`(?s)SELECT.*FROM aws_account_region_coverages.*connector_id = \$4.*ORDER BY connector_id ASC, account_id ASC, region ASC LIMIT \$5`).
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod", 10).
+		WillReturnRows(listRows)
+
+	records, err := store.ListAWSAccountRegionCoverages(ctx, AWSAccountRegionCoverageFilter{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("list aws coverage: %v", err)
+	}
+	if len(records) != 1 || records[0].AccountID != "123456789012" {
+		t.Fatalf("unexpected coverage rows: %+v", records)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreKubernetesEnrollmentTokenClaim(t *testing.T) {
 	rawDB, mock, err := sqlmock.New()
 	if err != nil {

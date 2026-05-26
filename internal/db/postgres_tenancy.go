@@ -1476,6 +1476,189 @@ func (p *PostgresStore) ListAllTenancyConnectorsByType(ctx context.Context, conn
 	return p.ListTenancyConnectorsUnscoped(ctx, connectorType, limit)
 }
 
+// UpsertAWSAccountRegionCoverage persists one account/region coverage row for a scoped AWS connector.
+func (p *PostgresStore) UpsertAWSAccountRegionCoverage(ctx context.Context, coverage AWSAccountRegionCoverage) (AWSAccountRegionCoverage, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, err
+	}
+	coverage.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, coverage.WorkspaceID)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, err
+	}
+	coverage.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeAWSAccountRegionCoverageForWrite(coverage)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, err
+	}
+	cursorPayload, err := json.Marshal(normalized.ScanCursor)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("marshal aws coverage scan cursor: %w", err)
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`INSERT INTO aws_account_region_coverages (
+		     tenant_id, workspace_id, project_id, connector_id, account_id, account_alias,
+		     organization_id, ou_path, partition, region, role_arn, coverage_status,
+		     last_successful_scan_at, last_observed_error_code, last_observed_error_message,
+		     scan_cursor, suspended, disabled, unreachable, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, NULLIF($11, ''), $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17, $18, $19, $20, $21)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, account_id, region) DO UPDATE
+		 SET account_alias = EXCLUDED.account_alias,
+		     organization_id = EXCLUDED.organization_id,
+		     ou_path = EXCLUDED.ou_path,
+		     partition = EXCLUDED.partition,
+		     role_arn = EXCLUDED.role_arn,
+		     coverage_status = EXCLUDED.coverage_status,
+		     last_successful_scan_at = EXCLUDED.last_successful_scan_at,
+		     last_observed_error_code = EXCLUDED.last_observed_error_code,
+		     last_observed_error_message = EXCLUDED.last_observed_error_message,
+		     scan_cursor = EXCLUDED.scan_cursor,
+		     suspended = EXCLUDED.suspended,
+		     disabled = EXCLUDED.disabled,
+		     unreachable = EXCLUDED.unreachable,
+		     updated_at = EXCLUDED.updated_at
+		 RETURNING tenant_id, workspace_id, project_id, connector_id, account_id, COALESCE(account_alias, ''), COALESCE(organization_id, ''), COALESCE(ou_path, ''), partition, region, COALESCE(role_arn, ''), coverage_status, last_successful_scan_at, COALESCE(last_observed_error_code, ''), COALESCE(last_observed_error_message, ''), scan_cursor, suspended, disabled, unreachable, created_at, updated_at`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.AccountID,
+		normalized.AccountAlias,
+		normalized.OrganizationID,
+		normalized.OUPath,
+		normalized.Partition,
+		normalized.Region,
+		normalized.RoleARN,
+		normalized.CoverageStatus,
+		normalized.LastSuccessfulScanAt,
+		normalized.LastObservedErrorCode,
+		normalized.LastObservedErrorMessage,
+		cursorPayload,
+		normalized.Suspended,
+		normalized.Disabled,
+		normalized.Unreachable,
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+	)
+	if isTenancyFKViolation(err) {
+		return AWSAccountRegionCoverage{}, ErrNotFound
+	}
+	if err != nil {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("upsert aws account region coverage: %w", err)
+	}
+	defer rows.Close()
+	records, err := scanAWSAccountRegionCoverageRows(rows)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, err
+	}
+	if len(records) == 0 {
+		return AWSAccountRegionCoverage{}, ErrNotFound
+	}
+	return records[0], nil
+}
+
+// ListAWSAccountRegionCoverages returns deterministic scoped AWS account/region coverage rows.
+func (p *PostgresStore) ListAWSAccountRegionCoverages(ctx context.Context, filter AWSAccountRegionCoverageFilter) ([]AWSAccountRegionCoverage, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, filter.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	projectID := strings.TrimSpace(filter.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project id is required")
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `SELECT tenant_id, workspace_id, project_id, connector_id, account_id, COALESCE(account_alias, ''), COALESCE(organization_id, ''), COALESCE(ou_path, ''), partition, region, COALESCE(role_arn, ''), coverage_status, last_successful_scan_at, COALESCE(last_observed_error_code, ''), COALESCE(last_observed_error_message, ''), scan_cursor, suspended, disabled, unreachable, created_at, updated_at
+		 FROM aws_account_region_coverages
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3`
+	args := []any{scope.TenantID, resolvedWorkspaceID, projectID}
+	nextArg := 4
+	if connectorID := strings.TrimSpace(filter.ConnectorID); connectorID != "" {
+		query += fmt.Sprintf(" AND connector_id = $%d", nextArg)
+		args = append(args, connectorID)
+		nextArg++
+	}
+	if accountID := strings.TrimSpace(filter.AccountID); accountID != "" {
+		query += fmt.Sprintf(" AND account_id = $%d", nextArg)
+		args = append(args, accountID)
+		nextArg++
+	}
+	if region := strings.ToLower(strings.TrimSpace(filter.Region)); region != "" {
+		query += fmt.Sprintf(" AND region = $%d", nextArg)
+		args = append(args, region)
+		nextArg++
+	}
+	query += fmt.Sprintf(" ORDER BY connector_id ASC, account_id ASC, region ASC LIMIT $%d", nextArg)
+	args = append(args, limit)
+
+	rows, err := p.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query aws account region coverages: %w", err)
+	}
+	defer rows.Close()
+	return scanAWSAccountRegionCoverageRows(rows)
+}
+
+func scanAWSAccountRegionCoverageRows(rows rowsScanner) ([]AWSAccountRegionCoverage, error) {
+	results := []AWSAccountRegionCoverage{}
+	for rows.Next() {
+		var item AWSAccountRegionCoverage
+		var lastSuccessfulScanAt sql.NullTime
+		var cursorPayload []byte
+		if err := rows.Scan(
+			&item.TenantID,
+			&item.WorkspaceID,
+			&item.ProjectID,
+			&item.ConnectorID,
+			&item.AccountID,
+			&item.AccountAlias,
+			&item.OrganizationID,
+			&item.OUPath,
+			&item.Partition,
+			&item.Region,
+			&item.RoleARN,
+			&item.CoverageStatus,
+			&lastSuccessfulScanAt,
+			&item.LastObservedErrorCode,
+			&item.LastObservedErrorMessage,
+			&cursorPayload,
+			&item.Suspended,
+			&item.Disabled,
+			&item.Unreachable,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan aws account region coverage row: %w", err)
+		}
+		if lastSuccessfulScanAt.Valid {
+			value := lastSuccessfulScanAt.Time.UTC()
+			item.LastSuccessfulScanAt = &value
+		}
+		if len(cursorPayload) > 0 {
+			if err := json.Unmarshal(cursorPayload, &item.ScanCursor); err != nil {
+				return nil, fmt.Errorf("decode aws coverage scan cursor: %w", err)
+			}
+		}
+		if item.ScanCursor == nil {
+			item.ScanCursor = map[string]any{}
+		}
+		results = append(results, item)
+	}
+	return results, rows.Err()
+}
+
 func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int) ([]TenancyConnectorWithState, error) {
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,

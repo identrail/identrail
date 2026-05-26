@@ -219,6 +219,72 @@ func TestNormalizeTenancyConnectorStateForWrite(t *testing.T) {
 	}
 }
 
+func TestNormalizeAWSAccountRegionCoverageForWrite(t *testing.T) {
+	scanned := time.Date(2026, 5, 10, 12, 0, 0, 0, time.FixedZone("WAT", 60*60))
+	normalized, err := NormalizeAWSAccountRegionCoverageForWrite(AWSAccountRegionCoverage{
+		TenantID:                 " tenant-a ",
+		WorkspaceID:              " workspace-a ",
+		ProjectID:                " project-1 ",
+		ConnectorID:              " aws-prod ",
+		AccountID:                " 123456789012 ",
+		AccountAlias:             " Production ",
+		OrganizationID:           " o-example ",
+		OUPath:                   " /Root/Prod ",
+		Partition:                " AWS ",
+		Region:                   " US-WEST-2 ",
+		RoleARN:                  " arn:aws:iam::123456789012:role/IdentrailReadOnly ",
+		CoverageStatus:           " COVERED ",
+		LastSuccessfulScanAt:     &scanned,
+		LastObservedErrorCode:    " ",
+		LastObservedErrorMessage: " ",
+		ScanCursor:               map[string]any{"next_token": "abc"},
+	})
+	if err != nil {
+		t.Fatalf("normalize aws coverage: %v", err)
+	}
+	if normalized.Partition != "aws" || normalized.Region != "us-west-2" || normalized.CoverageStatus != AWSAccountRegionCoverageCovered {
+		t.Fatalf("unexpected normalized coverage: %+v", normalized)
+	}
+	if normalized.LastSuccessfulScanAt == nil || normalized.LastSuccessfulScanAt.Location() != time.UTC {
+		t.Fatalf("expected scan time in UTC, got %+v", normalized.LastSuccessfulScanAt)
+	}
+	normalized.ScanCursor["next_token"] = "changed"
+	if got := normalized.ScanCursor["next_token"]; got != "changed" {
+		t.Fatalf("expected mutable copied cursor, got %v", got)
+	}
+
+	errored, err := NormalizeAWSAccountRegionCoverageForWrite(AWSAccountRegionCoverage{
+		TenantID:              "tenant-a",
+		WorkspaceID:           "workspace-a",
+		ProjectID:             "project-1",
+		ConnectorID:           "aws-prod",
+		AccountID:             "123456789012",
+		Region:                "us-east-1",
+		LastObservedErrorCode: "access_denied",
+	})
+	if err != nil {
+		t.Fatalf("normalize errored coverage: %v", err)
+	}
+	if errored.CoverageStatus != AWSAccountRegionCoverageError || errored.Partition != "aws" || errored.ScanCursor == nil {
+		t.Fatalf("expected defaults for errored coverage, got %+v", errored)
+	}
+
+	invalids := []AWSAccountRegionCoverage{
+		{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", AccountID: "123456789012", Region: "us-east-1"},
+		{TenantID: "tenant-a", ProjectID: "project-1", ConnectorID: "aws", AccountID: "123456789012", Region: "us-east-1"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ConnectorID: "aws", AccountID: "123456789012", Region: "us-east-1"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", AccountID: "123456789012", Region: "us-east-1"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", AccountID: "not-account", Region: "us-east-1"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", AccountID: "123456789012"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws", AccountID: "123456789012", Region: "us-east-1", CoverageStatus: "bad"},
+	}
+	for _, invalid := range invalids {
+		if _, err := NormalizeAWSAccountRegionCoverageForWrite(invalid); err == nil {
+			t.Fatalf("expected invalid aws coverage error for %+v", invalid)
+		}
+	}
+}
+
 func TestNormalizeAuthzEntityAttributesForWrite(t *testing.T) {
 	normalized, err := NormalizeAuthzEntityAttributesForWrite(AuthzEntityAttributes{
 		EntityKind:     "RESOURCE",

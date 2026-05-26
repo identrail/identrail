@@ -574,6 +574,35 @@ func TestFourteenthMigrationContainsConnectorSecretEnvelopeSchema(t *testing.T) 
 	}
 }
 
+func TestThirtyFourthMigrationContainsAWSCoverageRegistry(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "000034_aws_account_region_coverage.up.sql")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	sql := string(content)
+	required := []string{
+		"CREATE TABLE IF NOT EXISTS aws_account_region_coverages",
+		"account_id TEXT NOT NULL",
+		"region TEXT NOT NULL",
+		"organization_id TEXT",
+		"ou_path TEXT",
+		"coverage_status TEXT NOT NULL DEFAULT 'unknown'",
+		"last_successful_scan_at TIMESTAMPTZ",
+		"scan_cursor JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"FOREIGN KEY (tenant_id, workspace_id, project_id, connector_id)",
+		"ALTER TABLE aws_account_region_coverages ENABLE ROW LEVEL SECURITY",
+		"identrail_rls_scope_matches(tenant_id, workspace_id)",
+		"CREATE INDEX IF NOT EXISTS idx_aws_account_region_coverages_account_region",
+		"CREATE INDEX IF NOT EXISTS idx_aws_account_region_coverages_scope_status",
+	}
+	for _, item := range required {
+		if !strings.Contains(sql, item) {
+			t.Fatalf("expected AWS coverage registry migration item %q", item)
+		}
+	}
+}
+
 func TestFifteenthMigrationContainsDatabaseConstraintGuardrails(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000015_db_constraints_guardrails.up.sql")
 	content, err := os.ReadFile(path)

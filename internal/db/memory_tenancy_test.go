@@ -381,6 +381,169 @@ func TestMemoryStoreConnectorSecretEnvelopeCRUD(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	tenantB := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	for _, projectID := range []string{"project-1", "project-2"} {
+		if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: projectID, Name: projectID, Slug: projectID}); err != nil {
+			t.Fatalf("upsert project %s: %v", projectID, err)
+		}
+	}
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", HealthStatus: "healthy"}); err != nil {
+		t.Fatalf("upsert connector: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-2",
+		ConnectorID: "aws-prod",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Other AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{WorkspaceID: "workspace-a", ProjectID: "project-2", ConnectorID: "aws-prod", HealthStatus: "healthy"}); err != nil {
+		t.Fatalf("upsert project-2 connector: %v", err)
+	}
+	if err := store.UpsertOrganization(tenantB, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("upsert tenant-b organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantB, TenancyWorkspace{WorkspaceID: "workspace-b", DisplayName: "Workspace B", Slug: "workspace-b"}); err != nil {
+		t.Fatalf("upsert tenant-b workspace: %v", err)
+	}
+	if err := store.UpsertProject(tenantB, TenancyProject{WorkspaceID: "workspace-b", ProjectID: "project-1", Name: "Project B", Slug: "project-b"}); err != nil {
+		t.Fatalf("upsert tenant-b project: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(tenantB, TenancyConnector{
+		WorkspaceID: "workspace-b",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Tenant B AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{WorkspaceID: "workspace-b", ProjectID: "project-1", ConnectorID: "aws-prod", HealthStatus: "healthy"}); err != nil {
+		t.Fatalf("upsert tenant-b connector: %v", err)
+	}
+
+	if _, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{
+		WorkspaceID:          "workspace-a",
+		ProjectID:            "project-1",
+		ConnectorID:          "aws-prod",
+		AccountID:            "222222222222",
+		AccountAlias:         "Analytics",
+		OrganizationID:       "o-example",
+		OUPath:               "/Root/Prod",
+		Partition:            "aws",
+		Region:               "us-east-1",
+		RoleARN:              "arn:aws:iam::222222222222:role/IdentrailReadOnly",
+		CoverageStatus:       AWSAccountRegionCoverageCovered,
+		LastSuccessfulScanAt: &now,
+		ScanCursor:           map[string]any{"cursor": "one"},
+	}); err != nil {
+		t.Fatalf("upsert coverage: %v", err)
+	}
+	if _, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{
+		WorkspaceID:              "workspace-a",
+		ProjectID:                "project-1",
+		ConnectorID:              "aws-prod",
+		AccountID:                "111111111111",
+		Region:                   "us-west-2",
+		CoverageStatus:           AWSAccountRegionCoverageError,
+		LastObservedErrorCode:    "access_denied",
+		LastObservedErrorMessage: "AssumeRole denied for this account.",
+		ScanCursor:               map[string]any{"cursor": "blocked"},
+		Unreachable:              true,
+	}); err != nil {
+		t.Fatalf("upsert errored coverage: %v", err)
+	}
+	updated, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{
+		WorkspaceID:              "workspace-a",
+		ProjectID:                "project-1",
+		ConnectorID:              "aws-prod",
+		AccountID:                "111111111111",
+		Region:                   "us-west-2",
+		CoverageStatus:           AWSAccountRegionCoverageUnreachable,
+		LastObservedErrorCode:    "timeout",
+		LastObservedErrorMessage: "Timed out listing IAM roles.",
+		ScanCursor:               map[string]any{"retry_after": "2026-05-12T12:05:00Z"},
+		Unreachable:              true,
+	})
+	if err != nil {
+		t.Fatalf("update coverage: %v", err)
+	}
+	if updated.LastObservedErrorCode != "timeout" || updated.ScanCursor["retry_after"] == "" {
+		t.Fatalf("expected clean last-observed update, got %+v", updated)
+	}
+	if _, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{
+		WorkspaceID:    "workspace-a",
+		ProjectID:      "project-2",
+		ConnectorID:    "aws-prod",
+		AccountID:      "333333333333",
+		Region:         "eu-west-1",
+		CoverageStatus: AWSAccountRegionCoverageCovered,
+	}); err != nil {
+		t.Fatalf("upsert project-2 coverage: %v", err)
+	}
+	if _, err := store.UpsertAWSAccountRegionCoverage(tenantB, AWSAccountRegionCoverage{
+		WorkspaceID:    "workspace-b",
+		ProjectID:      "project-1",
+		ConnectorID:    "aws-prod",
+		AccountID:      "444444444444",
+		Region:         "us-east-1",
+		CoverageStatus: AWSAccountRegionCoverageCovered,
+	}); err != nil {
+		t.Fatalf("upsert tenant-b coverage: %v", err)
+	}
+
+	records, err := store.ListAWSAccountRegionCoverages(ctx, AWSAccountRegionCoverageFilter{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", Limit: 10})
+	if err != nil {
+		t.Fatalf("list coverage: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected two project-scoped records, got %+v", records)
+	}
+	if records[0].AccountID != "111111111111" || records[1].AccountID != "222222222222" {
+		t.Fatalf("expected deterministic account ordering, got %+v", records)
+	}
+	if records[0].CoverageStatus != AWSAccountRegionCoverageUnreachable {
+		t.Fatalf("expected idempotent update to replace status, got %+v", records[0])
+	}
+	records[0].ScanCursor["retry_after"] = "mutated"
+	reloaded, err := store.ListAWSAccountRegionCoverages(ctx, AWSAccountRegionCoverageFilter{WorkspaceID: "workspace-a", ProjectID: "project-1", AccountID: "111111111111"})
+	if err != nil {
+		t.Fatalf("reload coverage: %v", err)
+	}
+	if reloaded[0].ScanCursor["retry_after"] == "mutated" {
+		t.Fatalf("expected scan cursor to be copied defensively")
+	}
+	if other, err := store.ListAWSAccountRegionCoverages(ctx, AWSAccountRegionCoverageFilter{WorkspaceID: "workspace-a", ProjectID: "project-2"}); err != nil || len(other) != 1 || other[0].AccountID != "333333333333" {
+		t.Fatalf("expected project isolation, got records=%+v err=%v", other, err)
+	}
+	if tenantBRecords, err := store.ListAWSAccountRegionCoverages(tenantB, AWSAccountRegionCoverageFilter{WorkspaceID: "workspace-b", ProjectID: "project-1"}); err != nil || len(tenantBRecords) != 1 || tenantBRecords[0].AccountID != "444444444444" {
+		t.Fatalf("expected tenant isolation, got records=%+v err=%v", tenantBRecords, err)
+	}
+	connector, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("reload connector: %v", err)
+	}
+	if connector.Connector.Status != domain.ConnectorStatusActive || connector.State.HealthStatus != "healthy" {
+		t.Fatalf("account-level coverage error should not disconnect connector, got %+v", connector)
+	}
+}
+
 func TestMemoryStoreTenancyScopeIsolation(t *testing.T) {
 	store := NewMemoryStore()
 	tenantA := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

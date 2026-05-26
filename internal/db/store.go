@@ -848,6 +848,56 @@ type TenancyConnectorWithState struct {
 	State     TenancyConnectorState `json:"state"`
 }
 
+const (
+	AWSAccountRegionCoverageUnknown     = "unknown"
+	AWSAccountRegionCoveragePending     = "pending"
+	AWSAccountRegionCoverageCovered     = "covered"
+	AWSAccountRegionCoverageGap         = "gap"
+	AWSAccountRegionCoverageError       = "error"
+	AWSAccountRegionCoverageSuspended   = "suspended"
+	AWSAccountRegionCoverageDisabled    = "disabled"
+	AWSAccountRegionCoverageUnreachable = "unreachable"
+)
+
+// AWSAccountRegionCoverage stores account/region inventory and scan readiness
+// for one project-scoped AWS connector. Connector health describes whether
+// Identrail can use the connector role; coverage describes each target account
+// and region reachable through that connector.
+type AWSAccountRegionCoverage struct {
+	TenantID                 string         `json:"tenant_id"`
+	WorkspaceID              string         `json:"workspace_id"`
+	ProjectID                string         `json:"project_id"`
+	ConnectorID              string         `json:"connector_id"`
+	AccountID                string         `json:"account_id"`
+	AccountAlias             string         `json:"account_alias,omitempty"`
+	OrganizationID           string         `json:"organization_id,omitempty"`
+	OUPath                   string         `json:"ou_path,omitempty"`
+	Partition                string         `json:"partition"`
+	Region                   string         `json:"region"`
+	RoleARN                  string         `json:"role_arn,omitempty"`
+	CoverageStatus           string         `json:"coverage_status"`
+	LastSuccessfulScanAt     *time.Time     `json:"last_successful_scan_at,omitempty"`
+	LastObservedErrorCode    string         `json:"last_observed_error_code,omitempty"`
+	LastObservedErrorMessage string         `json:"last_observed_error_message,omitempty"`
+	ScanCursor               map[string]any `json:"scan_cursor"`
+	Suspended                bool           `json:"suspended"`
+	Disabled                 bool           `json:"disabled"`
+	Unreachable              bool           `json:"unreachable"`
+	CreatedAt                time.Time      `json:"created_at"`
+	UpdatedAt                time.Time      `json:"updated_at"`
+}
+
+// AWSAccountRegionCoverageFilter constrains account/region coverage reads to a
+// scoped project and optionally one connector, account, or region.
+type AWSAccountRegionCoverageFilter struct {
+	WorkspaceID string
+	ProjectID   string
+	ConnectorID string
+	AccountID   string
+	Region      string
+	Limit       int
+}
+
 // TenancyConnectorSecretEnvelope stores one encrypted connector secret envelope.
 type TenancyConnectorSecretEnvelope struct {
 	TenantID        string               `json:"tenant_id"`
@@ -1954,6 +2004,105 @@ func NormalizeTenancyConnectorStateForWrite(state TenancyConnectorState) (Tenanc
 	return normalized, nil
 }
 
+// NormalizeAWSAccountRegionCoverageForWrite validates and canonicalizes one AWS
+// account/region coverage record before persistence.
+func NormalizeAWSAccountRegionCoverageForWrite(coverage AWSAccountRegionCoverage) (AWSAccountRegionCoverage, error) {
+	normalized := coverage
+	normalized.TenantID = strings.TrimSpace(coverage.TenantID)
+	if normalized.TenantID == "" {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(coverage.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.ProjectID = strings.TrimSpace(coverage.ProjectID)
+	if normalized.ProjectID == "" {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("project id is required")
+	}
+	normalized.ConnectorID = strings.TrimSpace(coverage.ConnectorID)
+	if normalized.ConnectorID == "" {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("connector id is required")
+	}
+	normalized.AccountID = strings.TrimSpace(coverage.AccountID)
+	if !validAWSAccountID(normalized.AccountID) {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("aws account id must be 12 digits")
+	}
+	normalized.AccountAlias = strings.TrimSpace(coverage.AccountAlias)
+	normalized.OrganizationID = strings.TrimSpace(coverage.OrganizationID)
+	normalized.OUPath = strings.TrimSpace(coverage.OUPath)
+	normalized.Partition = strings.ToLower(strings.TrimSpace(coverage.Partition))
+	if normalized.Partition == "" {
+		normalized.Partition = "aws"
+	}
+	normalized.Region = strings.ToLower(strings.TrimSpace(coverage.Region))
+	if normalized.Region == "" {
+		return AWSAccountRegionCoverage{}, fmt.Errorf("region is required")
+	}
+	normalized.RoleARN = strings.TrimSpace(coverage.RoleARN)
+	normalized.CoverageStatus = strings.ToLower(strings.TrimSpace(coverage.CoverageStatus))
+	if normalized.CoverageStatus == "" {
+		switch {
+		case normalized.Suspended:
+			normalized.CoverageStatus = AWSAccountRegionCoverageSuspended
+		case normalized.Disabled:
+			normalized.CoverageStatus = AWSAccountRegionCoverageDisabled
+		case normalized.Unreachable:
+			normalized.CoverageStatus = AWSAccountRegionCoverageUnreachable
+		case strings.TrimSpace(coverage.LastObservedErrorCode) != "" || strings.TrimSpace(coverage.LastObservedErrorMessage) != "":
+			normalized.CoverageStatus = AWSAccountRegionCoverageError
+		default:
+			normalized.CoverageStatus = AWSAccountRegionCoverageUnknown
+		}
+	}
+	switch normalized.CoverageStatus {
+	case AWSAccountRegionCoverageUnknown,
+		AWSAccountRegionCoveragePending,
+		AWSAccountRegionCoverageCovered,
+		AWSAccountRegionCoverageGap,
+		AWSAccountRegionCoverageError,
+		AWSAccountRegionCoverageSuspended,
+		AWSAccountRegionCoverageDisabled,
+		AWSAccountRegionCoverageUnreachable:
+	default:
+		return AWSAccountRegionCoverage{}, fmt.Errorf("invalid aws coverage status")
+	}
+	if normalized.LastSuccessfulScanAt != nil {
+		scanned := normalized.LastSuccessfulScanAt.UTC()
+		normalized.LastSuccessfulScanAt = &scanned
+	}
+	normalized.LastObservedErrorCode = strings.TrimSpace(coverage.LastObservedErrorCode)
+	normalized.LastObservedErrorMessage = strings.TrimSpace(coverage.LastObservedErrorMessage)
+	if normalized.ScanCursor == nil {
+		normalized.ScanCursor = map[string]any{}
+	} else {
+		normalized.ScanCursor = cloneMetadataMap(normalized.ScanCursor)
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = time.Now().UTC()
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.CreatedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+func validAWSAccountID(accountID string) bool {
+	if len(accountID) != 12 {
+		return false
+	}
+	for _, char := range accountID {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // NormalizeTenancyConnectorSecretEnvelopeForWrite validates one connector secret envelope record.
 func NormalizeTenancyConnectorSecretEnvelopeForWrite(secret TenancyConnectorSecretEnvelope) (TenancyConnectorSecretEnvelope, error) {
 	normalized := secret
@@ -2403,6 +2552,8 @@ type Store interface {
 	GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error)
 	ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
 	ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
+	UpsertAWSAccountRegionCoverage(ctx context.Context, coverage AWSAccountRegionCoverage) (AWSAccountRegionCoverage, error)
+	ListAWSAccountRegionCoverages(ctx context.Context, filter AWSAccountRegionCoverageFilter) ([]AWSAccountRegionCoverage, error)
 	ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, status domain.ConnectorStatus, health string, lastErrorCode string, lastErrorMessage string, observedAt time.Time, updatedAt time.Time) (bool, error)
 	UpsertTenancyScanPolicy(ctx context.Context, policy TenancyScanPolicy) error
 	GetTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (TenancyScanPolicy, error)

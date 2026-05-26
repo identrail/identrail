@@ -37,3 +37,19 @@ When a persistent database is configured and AWS connector setup is enabled, `ID
 5. The API uses the stored External ID, assumes the role with STS, verifies caller identity, checks scanner-critical IAM read access, and marks the connector active or degraded.
 
 The read-only policy and rationale live together under `deploy/connectors/aws/policies/`.
+
+## Account and Region Coverage Registry
+
+AWS connector health answers whether Identrail can assume the configured connector role. The account and region coverage registry answers a separate product question: which AWS accounts and regions are currently in scope, covered, pending, or blocked.
+
+The registry is intentionally internal for now because the UI flow is not ready. Services can write coverage rows through the AWS service layer after discovering organization accounts, selected regions, or scan outcomes. Each row is scoped by tenant, workspace, project, connector, account ID, and region, and can store organization metadata, the connector role ARN, coverage status, the last successful scan time, the last scan error, a scan cursor, and account/region availability flags.
+
+Use the registry when a scanner, connector workflow, or future UI needs to distinguish these states:
+
+- `covered`: Identrail has successfully scanned the account and region.
+- `pending`: the account and region are known but not scanned yet.
+- `gap`: the account and region should be covered but are not currently covered.
+- `error`: the latest scan failed and `last_scan_error` should explain why.
+- `suspended`, `disabled`, or `unreachable`: AWS reported the account or region cannot currently be scanned.
+
+See [AWS account and region coverage](../aws-account-region-coverage.md) for the storage contract and operating notes.

@@ -504,6 +504,32 @@ func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, proj
 	return s.awsConnectionStatusFromStored(ctx, items[0]), nil
 }
 
+// UpsertAWSAccountRegionCoverage stores account/region coverage for future AWS fan-out.
+func (s *Service) UpsertAWSAccountRegionCoverage(ctx context.Context, workspaceID string, projectID string, coverage db.AWSAccountRegionCoverage) (db.AWSAccountRegionCoverage, error) {
+	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	if err != nil {
+		return db.AWSAccountRegionCoverage{}, err
+	}
+	coverage.TenantID = scope.TenantID
+	coverage.WorkspaceID = project.WorkspaceID
+	coverage.ProjectID = project.ProjectID
+	if strings.TrimSpace(coverage.ConnectorID) == "" {
+		return db.AWSAccountRegionCoverage{}, ErrInvalidAWSConnectionRequest
+	}
+	return s.Store.UpsertAWSAccountRegionCoverage(ctx, coverage)
+}
+
+// ListAWSAccountRegionCoverages lists project-scoped account/region targets for future AWS fan-out.
+func (s *Service) ListAWSAccountRegionCoverages(ctx context.Context, workspaceID string, projectID string, filter db.AWSAccountRegionCoverageFilter) ([]db.AWSAccountRegionCoverage, error) {
+	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	filter.WorkspaceID = project.WorkspaceID
+	filter.ProjectID = project.ProjectID
+	return s.Store.ListAWSAccountRegionCoverages(ctx, filter)
+}
+
 func normalizeAWSConnectionRequest(request AWSConnectionUpsertRequest) (AWSConnectionUpsertRequest, error) {
 	normalized := request
 	normalized.RoleARN = strings.TrimSpace(request.RoleARN)

@@ -186,6 +186,83 @@ func TestAWSConnectionClearsPersistedExternalID(t *testing.T) {
 	}
 }
 
+func TestAWSAccountRegionCoverageServiceMethods(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	svc := NewService(store, routerScanner{}, "aws")
+	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, db.TenancyConnectorState{
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "aws-prod",
+		HealthStatus: "healthy",
+	}); err != nil {
+		t.Fatalf("seed connector: %v", err)
+	}
+
+	coverage, err := svc.UpsertAWSAccountRegionCoverage(ctx, "workspace-a", "project-1", db.AWSAccountRegionCoverage{
+		ConnectorID:          "aws-prod",
+		AccountID:            "123456789012",
+		AccountAlias:         "Production",
+		OrganizationID:       "o-example",
+		OUPath:               "root/prod",
+		Partition:            "aws",
+		Region:               "us-east-1",
+		RoleARN:              "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		CoverageStatus:       db.AWSAccountRegionCoverageCovered,
+		LastSuccessfulScanAt: &now,
+		ScanCursor: map[string]any{
+			"next_token": "abc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert coverage: %v", err)
+	}
+	if got, want := coverage.TenantID, "tenant-a"; got != want {
+		t.Fatalf("tenant id = %q, want %q", got, want)
+	}
+	if got, want := coverage.WorkspaceID, "workspace-a"; got != want {
+		t.Fatalf("workspace id = %q, want %q", got, want)
+	}
+	if got, want := coverage.ProjectID, "project-1"; got != want {
+		t.Fatalf("project id = %q, want %q", got, want)
+	}
+	if got, want := coverage.CoverageStatus, db.AWSAccountRegionCoverageCovered; got != want {
+		t.Fatalf("coverage status = %q, want %q", got, want)
+	}
+
+	records, err := svc.ListAWSAccountRegionCoverages(ctx, "workspace-a", "project-1", db.AWSAccountRegionCoverageFilter{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("list coverage: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records len = %d, want 1", len(records))
+	}
+	if got, want := records[0].AccountID, "123456789012"; got != want {
+		t.Fatalf("account id = %q, want %q", got, want)
+	}
+	if got, want := records[0].Region, "us-east-1"; got != want {
+		t.Fatalf("region = %q, want %q", got, want)
+	}
+
+	_, err = svc.UpsertAWSAccountRegionCoverage(ctx, "workspace-a", "project-1", db.AWSAccountRegionCoverage{
+		AccountID: "123456789012",
+		Region:    "us-west-2",
+	})
+	if !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("missing connector err = %v, want ErrInvalidAWSConnectionRequest", err)
+	}
+}
+
 func TestRouterAWSConnectionOnboardingReturnsTrustRemediation(t *testing.T) {
 	validator := &fakeAWSConnectorValidator{
 		result: AWSConnectionValidationResult{

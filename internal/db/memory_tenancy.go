@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -885,6 +886,10 @@ func tenancyScanPolicyKey(tenantID string, workspaceID string, projectID string,
 	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID), strings.TrimSpace(policyID))
 }
 
+func awsAccountRegionCoverageKey(tenantID string, workspaceID string, projectID string, connectorID string, accountID string, region string) string {
+	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID), strings.TrimSpace(connectorID), strings.TrimSpace(accountID), strings.ToLower(strings.TrimSpace(region)))
+}
+
 // UpsertTenancyConnector persists one connector and its latest state atomically.
 func (m *MemoryStore) UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error {
 	m.mu.Lock()
@@ -1079,6 +1084,103 @@ func (m *MemoryStore) ListTenancyConnectorsUnscoped(_ context.Context, connector
 // ListAllTenancyConnectorsByType returns connectors across all scopes for internal runtime matching.
 func (m *MemoryStore) ListAllTenancyConnectorsByType(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
 	return m.ListTenancyConnectorsUnscoped(ctx, connectorType, limit)
+}
+
+// UpsertAWSAccountRegionCoverage persists one account/region coverage row for a scoped AWS connector.
+func (m *MemoryStore) UpsertAWSAccountRegionCoverage(ctx context.Context, coverage AWSAccountRegionCoverage) (AWSAccountRegionCoverage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, err
+	}
+	coverage.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, coverage.WorkspaceID)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, err
+	}
+	coverage.WorkspaceID = resolvedWorkspaceID
+	createdAtWasZero := coverage.CreatedAt.IsZero()
+	normalized, err := NormalizeAWSAccountRegionCoverageForWrite(coverage)
+	if err != nil {
+		return AWSAccountRegionCoverage{}, err
+	}
+	connectorKey := tenancyConnectorKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID)
+	if connector, exists := m.connectors[connectorKey]; !exists || connector.Type != domain.ConnectorTypeAWS {
+		return AWSAccountRegionCoverage{}, ErrNotFound
+	}
+	key := awsAccountRegionCoverageKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, normalized.AccountID, normalized.Region)
+	if existing, exists := m.awsCoverages[key]; exists && createdAtWasZero {
+		normalized.CreatedAt = existing.CreatedAt
+	}
+	m.awsCoverages[key] = normalized
+	return cloneAWSAccountRegionCoverage(normalized), nil
+}
+
+// ListAWSAccountRegionCoverages returns deterministic scoped AWS account/region coverage rows.
+func (m *MemoryStore) ListAWSAccountRegionCoverages(ctx context.Context, filter AWSAccountRegionCoverageFilter) ([]AWSAccountRegionCoverage, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, filter.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	projectID := strings.TrimSpace(filter.ProjectID)
+	if projectID == "" {
+		return nil, fmt.Errorf("project id is required")
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	connectorID := strings.TrimSpace(filter.ConnectorID)
+	accountID := strings.TrimSpace(filter.AccountID)
+	region := strings.ToLower(strings.TrimSpace(filter.Region))
+	results := make([]AWSAccountRegionCoverage, 0, limit)
+	for _, coverage := range m.awsCoverages {
+		if coverage.TenantID != scope.TenantID || coverage.WorkspaceID != resolvedWorkspaceID || coverage.ProjectID != projectID {
+			continue
+		}
+		if connectorID != "" && coverage.ConnectorID != connectorID {
+			continue
+		}
+		if accountID != "" && coverage.AccountID != accountID {
+			continue
+		}
+		if region != "" && coverage.Region != region {
+			continue
+		}
+		results = append(results, cloneAWSAccountRegionCoverage(coverage))
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].ConnectorID != results[j].ConnectorID {
+			return results[i].ConnectorID < results[j].ConnectorID
+		}
+		if results[i].AccountID != results[j].AccountID {
+			return results[i].AccountID < results[j].AccountID
+		}
+		return results[i].Region < results[j].Region
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+func cloneAWSAccountRegionCoverage(coverage AWSAccountRegionCoverage) AWSAccountRegionCoverage {
+	cloned := coverage
+	cloned.ScanCursor = cloneMetadataMap(coverage.ScanCursor)
+	if coverage.LastSuccessfulScanAt != nil {
+		scanned := coverage.LastSuccessfulScanAt.UTC()
+		cloned.LastSuccessfulScanAt = &scanned
+	}
+	return cloned
 }
 
 // UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.
