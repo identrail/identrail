@@ -4949,7 +4949,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 
 .idt-github-intelligence-hotspot-identity strong {
   overflow: hidden;
-  color: #f6f8ff;
+  color: var(--app-text);
   font-size: 0.96rem;
   line-height: 1.25;
   text-overflow: ellipsis;
