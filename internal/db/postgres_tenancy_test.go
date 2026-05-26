@@ -214,10 +214,6 @@ func TestPostgresStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
 
-	mock.ExpectQuery(`SELECT type FROM tenancy_connectors`).
-		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod").
-		WillReturnRows(sqlmock.NewRows([]string{"type"}).AddRow("aws"))
-
 	upsertRows := sqlmock.NewRows([]string{
 		"tenant_id", "workspace_id", "project_id", "connector_id", "account_id", "account_alias",
 		"organization_id", "ou_path", "partition", "region", "role_arn", "coverage_status",
@@ -228,7 +224,7 @@ func TestPostgresStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 		"o-example", "/Root/Prod", "aws", "us-west-2", "arn:aws:iam::123456789012:role/IdentrailReadOnly", "covered",
 		now, "", "", []byte(`{"next_token":"abc"}`), false, false, false, now, now,
 	)
-	mock.ExpectQuery("INSERT INTO aws_account_region_coverages").
+	mock.ExpectQuery(`(?s)INSERT INTO aws_account_region_coverages.*FROM tenancy_connectors c.*c\.type = \$22.*ON CONFLICT.*RETURNING`).
 		WithArgs(
 			"tenant-a",
 			"workspace-a",
@@ -251,6 +247,7 @@ func TestPostgresStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 			false,
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
+			string(domain.ConnectorTypeAWS),
 		).
 		WillReturnRows(upsertRows)
 

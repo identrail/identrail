@@ -1492,28 +1492,13 @@ func (p *PostgresStore) UpsertAWSAccountRegionCoverage(ctx context.Context, cove
 	if err != nil {
 		return AWSAccountRegionCoverage{}, err
 	}
-	var connectorType string
-	if err := p.queryRowContext(
-		ctx,
-		`SELECT type FROM tenancy_connectors
-		 WHERE tenant_id = $1 AND workspace_id = $2 AND project_id = $3 AND connector_id = $4`,
-		normalized.TenantID,
-		normalized.WorkspaceID,
-		normalized.ProjectID,
-		normalized.ConnectorID,
-	).Scan(&connectorType); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return AWSAccountRegionCoverage{}, ErrNotFound
-		}
-		return AWSAccountRegionCoverage{}, fmt.Errorf("lookup connector for aws coverage: %w", err)
-	}
-	if domain.ConnectorType(connectorType) != domain.ConnectorTypeAWS {
-		return AWSAccountRegionCoverage{}, ErrNotFound
-	}
 	cursorPayload, err := json.Marshal(normalized.ScanCursor)
 	if err != nil {
 		return AWSAccountRegionCoverage{}, fmt.Errorf("marshal aws coverage scan cursor: %w", err)
 	}
+	// The INSERT ... SELECT ... WHERE c.type = 'aws' keeps the connector-type
+	// guard and the upsert atomic within one statement so a concurrent
+	// connector type change cannot race the type check.
 	rows, err := p.queryContext(
 		ctx,
 		`INSERT INTO aws_account_region_coverages (
@@ -1522,7 +1507,13 @@ func (p *PostgresStore) UpsertAWSAccountRegionCoverage(ctx context.Context, cove
 		     last_successful_scan_at, last_observed_error_code, last_observed_error_message,
 		     scan_cursor, suspended, disabled, unreachable, created_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, NULLIF($11, ''), $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17, $18, $19, $20, $21)
+		 SELECT $1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, NULLIF($11, ''), $12, $13, NULLIF($14, ''), NULLIF($15, ''), $16::jsonb, $17, $18, $19, $20, $21
+		 FROM tenancy_connectors c
+		 WHERE c.tenant_id = $1
+		   AND c.workspace_id = $2
+		   AND c.project_id = $3
+		   AND c.connector_id = $4
+		   AND c.type = $22
 		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, account_id, region) DO UPDATE
 		 SET account_alias = EXCLUDED.account_alias,
 		     organization_id = EXCLUDED.organization_id,
@@ -1560,6 +1551,7 @@ func (p *PostgresStore) UpsertAWSAccountRegionCoverage(ctx context.Context, cove
 		normalized.Unreachable,
 		normalized.CreatedAt,
 		normalized.UpdatedAt,
+		string(domain.ConnectorTypeAWS),
 	)
 	if isTenancyFKViolation(err) {
 		return AWSAccountRegionCoverage{}, ErrNotFound
