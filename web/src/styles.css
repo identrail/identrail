@@ -24593,6 +24593,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-config,
 html[data-theme='light'] .idt-app-console-layout .idt-source-install-card,
 html[data-theme='light'] .idt-app-console-layout .idt-source-advanced,
 html[data-theme='light'] .idt-app-console-layout .idt-source-diagnostics article,
+html[data-theme='light'] .idt-app-console-layout .idt-source-next-action,
+html[data-theme='light'] .idt-app-console-layout .idt-source-compact-stats,
+html[data-theme='light'] .idt-app-console-layout .idt-source-recovery-card,
+html[data-theme='light'] .idt-app-console-layout .idt-source-policy-panel details,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-filter-panel,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-list,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail,
@@ -24729,7 +24733,10 @@ html[data-theme='light'] .idt-account-security-page select,
 html[data-theme='light'] .idt-account-security-page textarea,
 html[data-theme='light'] .idt-executive-report-shell input,
 html[data-theme='light'] .idt-executive-report-shell select,
-html[data-theme='light'] .idt-executive-report-shell textarea {
+html[data-theme='light'] .idt-executive-report-shell textarea,
+html[data-theme='light'] .idt-app-shell-screen input,
+html[data-theme='light'] .idt-app-shell-screen select,
+html[data-theme='light'] .idt-app-shell-screen textarea {
   border-color: var(--app-border);
   background-color: var(--idt-console-surface-deep);
   color: #ffffff;
