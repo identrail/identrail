@@ -125,6 +125,7 @@ export function WorkOSMFAPage() {
 
   const isEnrollment = pending?.mode === 'enrollment';
   const needsChallengeStart = pending?.mode === 'challenge' && !pending.challenge_started;
+  const enrollmentChallengeStarted = Boolean(isEnrollment && pending?.challenge_started && !pending.totp);
   const canEnterCode = Boolean(pending?.challenge_started || pending?.totp);
 
   return (
@@ -145,10 +146,16 @@ export function WorkOSMFAPage() {
         {error ? <p className="idt-app-alert idt-app-alert-error">{error}</p> : null}
         {loading ? <p className="idt-auth-mfa-subtitle">Loading verification...</p> : null}
 
-        {!loading && pending && isEnrollment && !pending.totp ? (
+        {!loading && pending && isEnrollment && !pending.totp && !pending.challenge_started ? (
           <button className="idt-btn idt-btn-primary idt-auth-mfa-full" type="button" onClick={startEnrollment} disabled={busy}>
             {busy ? 'Starting setup...' : 'Set up authenticator app'}
           </button>
+        ) : null}
+
+        {!loading && pending && enrollmentChallengeStarted ? (
+          <p className="idt-auth-mfa-subtitle">
+            Enter the code from the authenticator app you just added. Start sign-in again if you need a fresh QR code.
+          </p>
         ) : null}
 
         {!loading && pending?.totp ? (
