@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { apiClient, type OnboardingState } from '../../api/client';
+import { apiClient } from '../../api/client';
 import {
   FEATURE_ONBOARDING_WIZARD,
   OnboardingFrame,
@@ -11,7 +11,6 @@ import {
 
 export function WorkspacePage() {
   const navigate = useNavigate();
-  const [state, setState] = useState<OnboardingState | null>(null);
   const [workspaceName, setWorkspaceName] = useState('Production');
   const [projectName, setProjectName] = useState('Production');
   const [loading, setLoading] = useState(true);
@@ -32,7 +31,6 @@ export function WorkspacePage() {
         if (!mounted) {
           return;
         }
-        setState(nextState);
         if (!nextState.org_id) {
           navigate('/onboarding/org', { replace: true });
           return;
@@ -75,7 +73,6 @@ export function WorkspacePage() {
         workspace_name: workspaceName.trim(),
         project_name: projectName.trim() || workspaceName.trim()
       });
-      setState(response.state);
       routeAfterOnboardingResponse(navigate, response.redirect_path, '/onboarding/connect');
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to save workspace.');
@@ -88,12 +85,12 @@ export function WorkspacePage() {
     <OnboardingFrame
       step="workspace"
       eyebrow="Workspace"
-      title="Name the environment you will secure first"
-      description="A workspace keeps scans, connectors, projects, members, and findings inside one operating boundary."
+      title="Create your first workspace"
+      description="Keep sources, scans, projects, members, and findings grouped around the environment you want to secure first."
       aside={
         <div className="idt-onboarding-assurance">
           <strong>Default project included</strong>
-          <span>Identrail creates the first project automatically so connector setup has a safe scope immediately.</span>
+          <span>We create a first project so connector setup has a clear scope immediately.</span>
         </div>
       }
     >
@@ -122,7 +119,7 @@ export function WorkspacePage() {
         />
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading || !workspaceName.trim()}>
-            {saving ? 'Creating...' : state?.workspace_id ? 'Continue' : 'Create workspace'}
+            {saving ? 'Saving...' : 'Continue'}
           </button>
         </div>
       </form>

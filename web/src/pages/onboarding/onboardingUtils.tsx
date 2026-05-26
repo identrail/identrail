@@ -140,19 +140,16 @@ export function OnboardingFrame({
   return (
     <section className="idt-onboarding-shell">
       <header className="idt-onboarding-topbar">
-        <Link to="/" className="idt-logo-link" aria-label="Identrail home">
-          <span className="idt-onboarding-logo-mark">
-            <img src="/identrail-logo.png" alt="" aria-hidden="true" />
-          </span>
-          <span>Identrail</span>
+        <Link to="/" className="idt-onboarding-brand" aria-label="Identrail home">
+          <span className="idt-onboarding-brand-mark" aria-hidden="true" />
+          <span className="idt-onboarding-brand-name">Identrail</span>
         </Link>
-        <Link to="/app/logout" className="idt-btn idt-btn-ghost">
+        <Link to="/app/logout" className="idt-onboarding-signout">
           Sign out
         </Link>
       </header>
       <div className="idt-onboarding-grid">
         <aside className="idt-onboarding-rail">
-          <p className="idt-onboarding-rail-label">Setup progress</p>
           <OnboardingStepper currentStep={step} />
           {aside}
         </aside>

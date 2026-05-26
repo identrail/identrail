@@ -127,7 +127,7 @@ export function InvitePage() {
     <OnboardingFrame
       step="invite"
       eyebrow="Team"
-      title="Invite the first reviewers"
+      title="Invite reviewers"
       description="Bring platform, security, or IAM teammates into the workspace so findings have owners from day one."
       aside={
         <div className="idt-onboarding-assurance">

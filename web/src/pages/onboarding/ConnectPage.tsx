@@ -21,27 +21,31 @@ const PROVIDER_META: Array<{
   name: string;
   signal: string;
   detail: string;
+  logo: string;
   viteFlag: boolean;
 }> = [
   {
     id: 'aws',
     name: 'AWS',
-    signal: 'IAM roles, trust policies, account paths',
-    detail: 'Best first source for cloud identity blast-radius discovery.',
+    signal: 'IAM roles and trust policies',
+    detail: 'Best first source for AWS access paths and blast-radius discovery.',
+    logo: '/brand-logos/aws.svg',
     viteFlag: FEATURE_ONBOARDING_CONNECTOR_AWS
   },
   {
     id: 'kubernetes',
     name: 'Kubernetes',
-    signal: 'Service accounts, RBAC, workload identity',
-    detail: 'Use when cluster access and service account paths matter most.',
+    signal: 'Service accounts and RBAC',
+    detail: 'Use when cluster access and workload identity paths matter most.',
+    logo: '/brand-logos/kubernetes.svg',
     viteFlag: FEATURE_ONBOARDING_CONNECTOR_K8S
   },
   {
     id: 'github',
     name: 'GitHub',
-    signal: 'Repositories, workflow identity, webhook scans',
-    detail: 'Use when code and OIDC workflow access are the first security boundary.',
+    signal: 'Repositories and workflow access',
+    detail: 'Use when code, reviews, and OIDC workflows are the first boundary.',
+    logo: '/brand-logos/github.svg',
     viteFlag: FEATURE_ONBOARDING_CONNECTOR_GITHUB
   }
 ];
@@ -184,12 +188,12 @@ export function ConnectPage() {
     <OnboardingFrame
       step="connect"
       eyebrow="Connect source"
-      title="Choose the first identity source"
-      description="Start with one read-only source. You can add the rest after the first scan proves the workflow."
+      title="Connect your first source"
+      description="Start with one read-only source. You can add more once the first scan proves the workflow."
       aside={
         <div className="idt-onboarding-assurance">
           <strong>Least privilege first</strong>
-          <span>Connector setup uses the same project-scoped AWS, Kubernetes, and GitHub flows already reviewed in the product.</span>
+          <span>Connector setup uses project-scoped AWS, Kubernetes, and GitHub flows already reviewed in the product.</span>
         </div>
       }
     >
@@ -208,7 +212,12 @@ export function ConnectPage() {
             disabled={!provider.enabled || saving || loading}
             onClick={() => setSelectedProvider(provider.id)}
           >
-            <span>{provider.name}</span>
+            <span className="idt-onboarding-provider-head">
+              <span className="idt-onboarding-provider-mark">
+                <img src={provider.logo} alt="" aria-hidden="true" loading="lazy" />
+              </span>
+              <span>{provider.name}</span>
+            </span>
             <strong>{provider.signal}</strong>
             <small>
               {provider.enabled

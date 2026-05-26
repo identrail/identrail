@@ -130,12 +130,12 @@ export function ScanPage() {
     <OnboardingFrame
       step="scan"
       eyebrow="First scan"
-      title="Run the first identity scan"
-      description="The first scan proves that the workspace, connector boundary, queue, and findings path are connected end to end."
+      title="Run your first scan"
+      description="Confirm Identrail can turn source access into findings before you invite the team."
       aside={
         <div className="idt-onboarding-assurance">
-          <strong>Queue backed</strong>
-          <span>Scan creation uses the same authenticated scan endpoint as the dashboard and API clients.</span>
+          <strong>Production path</strong>
+          <span>The first scan uses the same authenticated workflow as the dashboard and API clients.</span>
         </div>
       }
     >

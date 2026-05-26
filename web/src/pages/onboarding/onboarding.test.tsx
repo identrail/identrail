@@ -125,7 +125,7 @@ describe('onboarding pages', () => {
 
     const input = await screen.findByLabelText('Organization name');
     fireEvent.change(input, { target: { value: 'Aurelius Security' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => {
       expect(update).toHaveBeenCalledWith({ current_step: 'org', org_name: 'Aurelius Security' });
@@ -145,10 +145,10 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<WorkspacePage />, '/onboarding/workspace');
 
-    expect(await screen.findByRole('heading', { name: 'Name the environment you will secure first' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Create your first workspace' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Workspace name'), { target: { value: 'Production' } });
     fireEvent.change(screen.getByLabelText('First project'), { target: { value: 'Identity Control Plane' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => {
       expect(update).toHaveBeenCalledWith({
@@ -183,7 +183,7 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<ConnectPage />, '/onboarding/connect');
 
-    fireEvent.click(await screen.findByRole('button', { name: /GitHubRepositories/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /GitHub.*Repositories and workflow access/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => {
