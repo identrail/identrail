@@ -99,7 +99,7 @@ jobs:
 
       - name: Install Vercel CLI
         if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
-        run: npm install -g vercel@54.5.0
+        run: npm install -g https://registry.npmjs.org/vercel/-/vercel-54.5.0.tgz --integrity sha512-9NANKCdLqfpUQu7fGWelmPFJvnNK73PBH/4oGL4OMAfjLjrS8vDShFXm5lKQJ+01sgziLVjWek8rldOrpe7Dqg==
 
       - name: Verify Vercel token
         id: verify-token
