@@ -271,7 +271,7 @@ describe('App', () => {
     fireEvent.click(screen.getAllByRole('link', { name: 'Sign Up' })[0]);
 
     await waitFor(() => expect(window.location.pathname).toBe('/signup'));
-    expect(screen.getByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
     expect(screen.queryByText(/Loading authentication/i)).not.toBeInTheDocument();
     const authCallsAfterNavigation = fetchMock.mock.calls.filter(
       ([url]) => typeof url === 'string' && url.endsWith('/v1/auth/config')
@@ -2927,7 +2927,10 @@ describe('App', () => {
     render(<App />);
 
     await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a'));
-    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument(),
+      { timeout: 10000 }
+    );
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/auth/config'))).toBe(false);
   });

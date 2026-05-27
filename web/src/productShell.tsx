@@ -1583,6 +1583,13 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
     const validateSession = async (options: { silent?: boolean } = {}) => {
       const silent = options.silent === true;
       const requestSessionVersion = productAuthSessionVersion;
+      const retryIfSessionChanged = () => {
+        if (requestSessionVersion === productAuthSessionVersion) {
+          return false;
+        }
+        void validateSession(options);
+        return true;
+      };
       if (!silent) {
         setStatus('checking');
       }
@@ -1594,7 +1601,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
         const currentScopeKey =
           currentTenantID && currentWorkspaceID ? `${currentTenantID}::${currentWorkspaceID}` : PRODUCT_AUTH_SESSION_SCOPE_KEY;
         let validatedRouteScopeKey = routeScopeKey;
-        if (!mounted || requestSessionVersion !== productAuthSessionVersion) {
+        if (!mounted || retryIfSessionChanged()) {
           return;
         }
         primeMeCache(current.me);
@@ -1629,7 +1636,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
         setValidatedScopeKey(routeScopeKey);
         setStatus('authenticated');
       } catch (requestError) {
-        if (!mounted || requestSessionVersion !== productAuthSessionVersion) {
+        if (!mounted || retryIfSessionChanged()) {
           return;
         }
         if (requestError instanceof ApiError && requestError.status === 401) {
