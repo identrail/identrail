@@ -8072,6 +8072,26 @@ html[data-theme='light'] .idt-auth-manual-form.idt-auth-mfa-form input::placehol
   justify-content: center;
 }
 
+.idt-auth-mfa-form input[data-input-otp] {
+  padding: 0 !important;
+  min-height: 0 !important;
+  border: 0 !important;
+  caret-color: transparent !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.idt-auth-mfa-form input[data-input-otp]::selection {
+  background: transparent !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+.idt-auth-mfa-form input[data-input-otp]::-moz-selection {
+  background: transparent !important;
+  color: transparent !important;
+}
+
 .idt-auth-otp-group {
   display: flex;
   gap: 0.5rem;
