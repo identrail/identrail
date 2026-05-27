@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Refined the WorkOS MFA verification copy: the heading is now "Enter
+  verification code" (replacing the redundant "Verify your sign-in"), the code
+  input placeholder reads "6-digit code" instead of a greyed-out "000000", and
+  the submit button reads "Continue" instead of "Verify and continue".
 - Tightened the WorkOS MFA verification screen: the authenticator code entry now
   appears immediately without the intermediate "Preparing your authenticator
   challenge..." flash (the challenge starts silently in the background, with the
