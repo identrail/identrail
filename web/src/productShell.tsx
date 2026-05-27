@@ -2,12 +2,14 @@ import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState }
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
+  MutableRefObject,
   PointerEvent as ReactPointerEvent
 } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   ExternalLink,
   FolderKanban,
@@ -64,8 +66,7 @@ import {
   DomainLogoMark,
   DomainLogoStack,
   DomainPageShell,
-  DomainStatusPanel,
-  type DomainSubnavItem
+  DomainStatusPanel
 } from './components/app/DomainFoundation';
 import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
 import { clearMeCache, primeMeCache, useMe } from './hooks/useMe';
@@ -286,7 +287,7 @@ function productDomainRoute(
       options.metrics ?? [
         { label: 'Route', value: 'Live', detail: 'Scoped workspace entry point is registered.', tone: 'success' },
         { label: 'Data', value: 'Next', detail: 'Domain APIs will attach in sequenced PRs.' },
-        { label: 'UX', value: 'Premium', detail: 'Page shell, subnav, and actions are in place.' }
+        { label: 'UX', value: 'Premium', detail: 'Page shell, launcher, and actions are in place.' }
       ],
     plannedWork:
       options.plannedWork ?? [
@@ -1857,33 +1858,220 @@ function flattenDomainRoutes(routes: ProductDomainRoute[]): ProductDomainRoute[]
   return routes.flatMap((route) => [route, ...(route.children ? flattenDomainRoutes(route.children) : [])]);
 }
 
+function routeMatchesPath(scope: ProductSession, domain: SourceProvider, route: ProductDomainRoute, pathname: string): boolean {
+  return pathname === domainRoutePath(scope, domain, route);
+}
+
 function findDomainRoute(domain: SourceProvider, routeID: ProductDomainRouteID): ProductDomainRoute {
   const config = PRODUCT_DOMAIN_CONFIGS[domain];
   return flattenDomainRoutes(config.routes).find((route) => route.id === routeID) ?? config.routes[0];
 }
 
-function buildDomainSubnav(
+function findActiveDomain(scope: ProductSession, pathname: string): SourceProvider | null {
+  return (Object.keys(PRODUCT_DOMAIN_CONFIGS) as SourceProvider[]).find((domain) => {
+    const base = buildScopedPath(scope, PRODUCT_DOMAIN_CONFIGS[domain].routePrefix);
+    return pathname === base || pathname.startsWith(`${base}/`);
+  }) ?? null;
+}
+
+function findActiveDomainRouteID(
   scope: ProductSession,
   domain: SourceProvider,
-  activeRouteID: ProductDomainRouteID
-): DomainSubnavItem[] {
-  return PRODUCT_DOMAIN_CONFIGS[domain].routes.map((route) => ({
-    id: route.id,
-    label: route.label,
-    to: domainRoutePath(scope, domain, route),
-    active: route.id === activeRouteID,
-    children: route.children?.map((child) => ({
-      id: child.id,
-      label: child.label,
-      to: domainRoutePath(scope, domain, child),
-      active: child.id === activeRouteID
-    }))
-  }));
+  pathname: string
+): ProductDomainRouteID | null {
+  const routes = flattenDomainRoutes(PRODUCT_DOMAIN_CONFIGS[domain].routes);
+  const active = routes.find((route) => routeMatchesPath(scope, domain, route, pathname));
+  return active?.id ?? null;
 }
 
 function SidebarDomainIcon({ domain }: { domain: SourceProvider }) {
   const asset = getDomainAsset(domain);
   return <img src={asset.logoSrc} alt="" aria-hidden="true" loading="lazy" decoding="async" />;
+}
+
+function ProductDomainFlyoutRouteLink({
+  scope,
+  domain,
+  route,
+  activeRouteID,
+  child = false,
+  onClose
+}: {
+  scope: ProductSession;
+  domain: SourceProvider;
+  route: ProductDomainRoute;
+  activeRouteID: ProductDomainRouteID | null;
+  child?: boolean;
+  onClose: () => void;
+}) {
+  const active = activeRouteID === route.id;
+  const config = PRODUCT_DOMAIN_CONFIGS[domain];
+  const routeLabel = route.label.includes(config.navLabel) ? route.label : `${config.navLabel} ${route.label}`;
+  const linkLabel = child ? `${config.navLabel} AI / Agentic Risk ${route.label}` : routeLabel;
+  return (
+    <Link
+      className={`idt-domain-flyout-link${active ? ' is-active' : ''}${child ? ' is-child' : ''}`}
+      to={domainRoutePath(scope, domain, route)}
+      aria-label={linkLabel}
+      aria-current={active ? 'page' : undefined}
+      onClick={onClose}
+    >
+      <span className="idt-domain-flyout-link-copy">
+        <strong>{route.label}</strong>
+        <span>{route.eyebrow}</span>
+      </span>
+      <span className="idt-domain-flyout-link-meta">
+        {route.id === 'connect' ? 'Connect / scan' : route.id.includes('findings') ? 'Findings' : route.phase}
+      </span>
+      <ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
+    </Link>
+  );
+}
+
+function ProductDomainFlyout({
+  domain,
+  scope,
+  activeRouteID,
+  labelledBy,
+  panelRef,
+  onClose
+}: {
+  domain: SourceProvider;
+  scope: ProductSession;
+  activeRouteID: ProductDomainRouteID | null;
+  labelledBy: string;
+  panelRef: MutableRefObject<HTMLDivElement | null>;
+  onClose: () => void;
+}) {
+  const config = PRODUCT_DOMAIN_CONFIGS[domain];
+  const asset = getDomainAsset(domain);
+  const startRoutes = config.routes.filter((route) => route.id === 'overview' || route.id === 'connect');
+  const nestedRoutes = config.routes.filter((route) => route.children?.length);
+  const riskRoutes = config.routes.filter((route) => ['findings', 'remediation', 'governance'].includes(route.id));
+  const surfaceRoutes = config.routes.filter(
+    (route) => !startRoutes.includes(route) && !nestedRoutes.includes(route) && !riskRoutes.includes(route)
+  );
+  const domainHome = domainRoutePath(scope, domain, config.routes[0]);
+  const connectRoute = findDomainRoute(domain, config.connectRouteID);
+  const connectPath = domainRoutePath(scope, domain, connectRoute);
+
+  return (
+    <div
+      id={`idt-${domain}-domain-flyout`}
+      ref={panelRef}
+      className={`idt-domain-flyout is-${domain}`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={labelledBy}
+    >
+      <header className="idt-domain-flyout-header">
+        <span className="idt-domain-flyout-logo" aria-hidden="true">
+          <img src={asset.logoSrc} alt="" loading="lazy" decoding="async" />
+        </span>
+        <div>
+          <p>{config.navLabel} section</p>
+          <h2>{config.navLabel}</h2>
+          <span>{config.description}</span>
+        </div>
+      </header>
+
+      <div className="idt-domain-flyout-actions">
+        <Link data-domain-flyout-primary="true" to={domainHome} onClick={onClose}>
+          Open {config.navLabel} Control Center
+        </Link>
+        <Link to={connectPath} onClick={onClose}>
+          Connect / scan
+        </Link>
+      </div>
+
+      <div className="idt-domain-flyout-section">
+        <span className="idt-domain-flyout-section-label">Start here</span>
+        <div className="idt-domain-flyout-list">
+          {startRoutes.map((route) => (
+            <ProductDomainFlyoutRouteLink
+              key={route.id}
+              scope={scope}
+              domain={domain}
+              route={route}
+              activeRouteID={activeRouteID}
+              onClose={onClose}
+            />
+          ))}
+        </div>
+      </div>
+
+      {surfaceRoutes.length ? (
+        <div className="idt-domain-flyout-section">
+          <span className="idt-domain-flyout-section-label">Inventory and evidence</span>
+          <div className="idt-domain-flyout-list">
+            {surfaceRoutes.map((route) => (
+              <ProductDomainFlyoutRouteLink
+                key={route.id}
+                scope={scope}
+                domain={domain}
+                route={route}
+                activeRouteID={activeRouteID}
+                onClose={onClose}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {nestedRoutes.map((route) => {
+        const childActive = route.children?.some((child) => child.id === activeRouteID) ?? false;
+        return (
+          <details key={route.id} className="idt-domain-flyout-nested" open={route.id === activeRouteID || childActive}>
+            <summary>
+              <span>
+                <strong>{route.label}</strong>
+                <small>{route.eyebrow}</small>
+              </span>
+              <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
+            </summary>
+            <div className="idt-domain-flyout-nested-body">
+              <ProductDomainFlyoutRouteLink
+                scope={scope}
+                domain={domain}
+                route={route}
+                activeRouteID={activeRouteID}
+                onClose={onClose}
+              />
+              {route.children?.map((child) => (
+                <ProductDomainFlyoutRouteLink
+                  key={child.id}
+                  scope={scope}
+                  domain={domain}
+                  route={child}
+                  activeRouteID={activeRouteID}
+                  child
+                  onClose={onClose}
+                />
+              ))}
+            </div>
+          </details>
+        );
+      })}
+
+      {riskRoutes.length ? (
+        <div className="idt-domain-flyout-section">
+          <span className="idt-domain-flyout-section-label">Findings and action</span>
+          <div className="idt-domain-flyout-list">
+            {riskRoutes.map((route) => (
+              <ProductDomainFlyoutRouteLink
+                key={route.id}
+                scope={scope}
+                domain={domain}
+                route={route}
+                activeRouteID={activeRouteID}
+                onClose={onClose}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ProductRouteReadinessList({ route }: { route: ProductDomainRoute }) {
@@ -1952,8 +2140,6 @@ export function ProductDomainRoutePage({
           : { label: `Connect ${config.navLabel}`, to: connectPath, variant: 'primary' }
       }
       secondaryActions={route.id === 'findings' ? [] : [{ label: `${config.navLabel} findings`, to: buildScopedPath(scope, `${config.routePrefix}/findings`) }]}
-      subnavLabel={`${config.navLabel} sections`}
-      subnav={buildDomainSubnav(scope, domain, route.id)}
       aside={
         <DomainDetailPanel title="Route contract" eyebrow={config.navLabel}>
           <dl className="idt-domain-route-facts">
@@ -2174,11 +2360,13 @@ function isMacPlatform(): boolean {
 
 export function ProductShellLayout() {
   const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
   const navigate = useNavigate();
   const scope = resolveScopeFromParams(params);
   const [commandOpen, setCommandOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [openDomainFlyout, setOpenDomainFlyout] = useState<SourceProvider | null>(null);
   const [sidebarCollapsedPref, setSidebarCollapsedPref] = useState<boolean>(() => readSidebarCollapsed());
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth());
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
@@ -2200,8 +2388,17 @@ export function ProductShellLayout() {
       : sidebarWidth;
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+  const domainFlyoutRef = useRef<HTMLDivElement | null>(null);
+  const domainTriggerRefs = useRef<Record<SourceProvider, HTMLButtonElement | null>>({
+    aws: null,
+    github: null,
+    kubernetes: null
+  });
   const sidebarRef = useRef<HTMLElement | null>(null);
   const basePath = scope ? buildScopedPath(scope) : '/app';
+  const activeDomain = scope ? findActiveDomain(scope, location.pathname) : null;
+  const activeDomainRouteID =
+    scope && openDomainFlyout ? findActiveDomainRouteID(scope, openDomainFlyout, location.pathname) : null;
   const commandItems = useMemo<CommandPaletteItem[]>(() => {
     if (!scope) {
       return [];
@@ -2324,6 +2521,65 @@ export function ProductShellLayout() {
     ];
     return items;
   }, [basePath, navigate, scope]);
+
+  useEffect(() => {
+    setOpenDomainFlyout(null);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!openDomainFlyout) {
+      return;
+    }
+    setAccountMenuOpen(false);
+    setWorkspaceMenuOpen(false);
+    const focusFrame = window.requestAnimationFrame(() => {
+      const firstAction = domainFlyoutRef.current?.querySelector<HTMLElement>(
+        '[data-domain-flyout-primary="true"], a[href], button:not([disabled]), summary'
+      );
+      firstAction?.focus();
+    });
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        const trigger = domainTriggerRefs.current[openDomainFlyout];
+        setOpenDomainFlyout(null);
+        window.requestAnimationFrame(() => trigger?.focus());
+        return;
+      }
+      if (event.key === 'Tab' && domainFlyoutRef.current) {
+        const focusable = Array.from(
+          domainFlyoutRef.current.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((element) => element.offsetParent !== null || element.tagName === 'SUMMARY');
+        if (!focusable.length) {
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+          return;
+        }
+        if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [openDomainFlyout]);
+
+  useEffect(() => {
+    if (commandOpen) {
+      setOpenDomainFlyout(null);
+    }
+  }, [commandOpen]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2527,17 +2783,25 @@ export function ProductShellLayout() {
   const collapseHint = `${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar (${collapseShortcut})`;
   const runCommand = (item: CommandPaletteItem) => {
     setCommandOpen(false);
+    setOpenDomainFlyout(null);
     if (item.path) {
       navigate(item.path);
       return;
     }
     item.action?.();
   };
+  const closeDomainFlyout = () => setOpenDomainFlyout(null);
+  const toggleDomainFlyout = (domain: SourceProvider) => {
+    setAccountMenuOpen(false);
+    setWorkspaceMenuOpen(false);
+    setCommandOpen(false);
+    setOpenDomainFlyout((current) => (current === domain ? null : domain));
+  };
 
   return (
     <ProductErrorBoundary>
       <div
-        className={`idt-app-shell idt-app-console-layout${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}${isDraggingSidebar ? ' is-sidebar-dragging' : ''}`}
+        className={`idt-app-shell idt-app-console-layout${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}${isDraggingSidebar ? ' is-sidebar-dragging' : ''}${openDomainFlyout ? ' is-domain-flyout-open' : ''}`}
         data-tenant={scope.tenantID}
         data-workspace={scope.workspaceID}
         style={
@@ -2570,7 +2834,10 @@ export function ProductShellLayout() {
               aria-haspopup="menu"
               aria-expanded={workspaceMenuOpen}
               aria-label={`Workspace: ${workspaceDisplayName}. Open switcher.`}
-              onClick={() => setWorkspaceMenuOpen((value) => !value)}
+              onClick={() => {
+                setOpenDomainFlyout(null);
+                setWorkspaceMenuOpen((value) => !value);
+              }}
               title={sidebarCollapsed ? workspaceDisplayName : undefined}
             >
               <span className="idt-app-sidebar-mark" aria-hidden="true">
@@ -2631,37 +2898,58 @@ export function ProductShellLayout() {
 
           <nav className="idt-app-shell-nav" aria-label="App sections">
             <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Control plane</div>
-            <NavLink to={basePath} end aria-label="Overview" title={sidebarCollapsed ? 'Overview' : undefined}>
+            <NavLink to={basePath} end aria-label="Overview" title={sidebarCollapsed ? 'Overview' : undefined} onClick={closeDomainFlyout}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <LayoutDashboard size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Overview</span>
             </NavLink>
-            <NavLink to={`${basePath}/aws`} aria-label="AWS" title={sidebarCollapsed ? 'AWS' : undefined}>
-              <span className="idt-app-nav-icon" aria-hidden="true">
-                <SidebarDomainIcon domain="aws" />
-              </span>
-              <span className="idt-app-nav-label">AWS</span>
-            </NavLink>
-            <NavLink to={`${basePath}/github`} aria-label="GitHub" title={sidebarCollapsed ? 'GitHub' : undefined}>
-              <span className="idt-app-nav-icon" aria-hidden="true">
-                <SidebarDomainIcon domain="github" />
-              </span>
-              <span className="idt-app-nav-label">GitHub</span>
-            </NavLink>
-            <NavLink to={`${basePath}/kubernetes`} aria-label="Kubernetes" title={sidebarCollapsed ? 'Kubernetes' : undefined}>
-              <span className="idt-app-nav-icon" aria-hidden="true">
-                <SidebarDomainIcon domain="kubernetes" />
-              </span>
-              <span className="idt-app-nav-label">Kubernetes</span>
-            </NavLink>
-            <NavLink to={`${basePath}/reports`} aria-label="Reports" title={sidebarCollapsed ? 'Reports' : undefined}>
+            {(['aws', 'github', 'kubernetes'] as SourceProvider[]).map((domain) => {
+              const config = PRODUCT_DOMAIN_CONFIGS[domain];
+              const isActive = activeDomain === domain;
+              const isOpen = openDomainFlyout === domain;
+              const triggerID = `idt-${domain}-domain-trigger`;
+              return (
+                <div key={domain} className="idt-app-domain-nav-item">
+                  <button
+                    id={triggerID}
+                    ref={(node) => {
+                      domainTriggerRefs.current[domain] = node;
+                    }}
+                    type="button"
+                    className={`idt-app-nav-domain-trigger${isActive ? ' is-active' : ''}${isOpen ? ' is-open' : ''}`}
+                    aria-haspopup="dialog"
+                    aria-expanded={isOpen}
+                    aria-controls={isOpen ? `idt-${domain}-domain-flyout` : undefined}
+                    title={sidebarCollapsed ? config.navLabel : undefined}
+                    onClick={() => toggleDomainFlyout(domain)}
+                  >
+                    <span className="idt-app-nav-icon" aria-hidden="true">
+                      <SidebarDomainIcon domain={domain} />
+                    </span>
+                    <span className="idt-app-nav-label">{config.navLabel}</span>
+                    <ChevronDown className="idt-app-nav-disclosure" size={13} strokeWidth={1.8} aria-hidden="true" />
+                  </button>
+                  {isOpen ? (
+                    <ProductDomainFlyout
+                      domain={domain}
+                      scope={scope}
+                      activeRouteID={activeDomainRouteID}
+                      labelledBy={triggerID}
+                      panelRef={domainFlyoutRef}
+                      onClose={closeDomainFlyout}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+            <NavLink to={`${basePath}/reports`} aria-label="Reports" title={sidebarCollapsed ? 'Reports' : undefined} onClick={closeDomainFlyout}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <BarChart3 size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Reports</span>
             </NavLink>
-            <NavLink to={`${basePath}/settings`} aria-label="Settings" title={sidebarCollapsed ? 'Settings' : undefined}>
+            <NavLink to={`${basePath}/settings`} aria-label="Settings" title={sidebarCollapsed ? 'Settings' : undefined} onClick={closeDomainFlyout}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <SettingsIcon size={16} strokeWidth={1.75} />
               </span>
@@ -2677,7 +2965,10 @@ export function ProductShellLayout() {
                 aria-haspopup="menu"
                 aria-expanded={accountMenuOpen}
                 aria-label={`Account menu for ${userDisplayName}`}
-                onClick={() => setAccountMenuOpen((current) => !current)}
+                onClick={() => {
+                  setOpenDomainFlyout(null);
+                  setAccountMenuOpen((current) => !current);
+                }}
                 title={sidebarCollapsed ? userDisplayName : undefined}
               >
                 <span className="idt-app-sidebar-account-avatar" aria-hidden="true">
@@ -2748,6 +3039,15 @@ export function ProductShellLayout() {
             </button>
           </div>
         </aside>
+
+        {openDomainFlyout ? (
+          <button
+            type="button"
+            className="idt-domain-flyout-backdrop"
+            aria-label="Close domain section menu"
+            onClick={closeDomainFlyout}
+          />
+        ) : null}
 
         <div className="idt-app-console">
           <main className="idt-app-shell-main">

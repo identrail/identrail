@@ -813,7 +813,8 @@ describe('App', () => {
     );
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
-    fireEvent.click(screen.getByRole('link', { name: 'AWS' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+    fireEvent.click(await screen.findByRole('link', { name: /Open AWS Control Center/i }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
@@ -913,7 +914,8 @@ describe('App', () => {
       expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('link', { name: 'AWS' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+    fireEvent.click(await screen.findByRole('link', { name: /Open AWS Control Center/i }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
@@ -1278,7 +1280,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /AWS machine identities/i })).toBeInTheDocument();
-    expect(await screen.findByRole('navigation', { name: /AWS sections/i })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: /AWS sections/i })).not.toBeInTheDocument();
   });
 
   it('keeps legacy project callback routes hidden but working', async () => {
@@ -2884,6 +2886,7 @@ describe('App', () => {
         .fn()
         .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
         .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
+        .mockResolvedValue(okJSON({ items: [] }))
     );
 
     setCurrentPath('/auth/callback');

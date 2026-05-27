@@ -373,11 +373,17 @@ describe('ProductShellLayout', () => {
     );
 
     expect(screen.getByRole('button', { name: /Open workspace finder/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'AWS' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'GitHub' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Kubernetes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'AWS' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Kubernetes' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Findings' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
+    const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
+    expect(within(githubFlyout).getByRole('link', { name: /Open GitHub Control Center/i })).toBeInTheDocument();
+    expect(within(githubFlyout).getByRole('link', { name: 'GitHub Findings' })).toBeInTheDocument();
+    expect(within(githubFlyout).getAllByText('AI / Agentic Risk').length).toBeGreaterThan(0);
 
     fireEvent.keyDown(window, { key: '/' });
     expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
@@ -441,10 +447,10 @@ describe('Domain-first app routes', () => {
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/findings');
   });
 
-  it('renders premium domain route shells with provider marks and nested agentic-risk navigation', async () => {
+  it('renders premium domain route shells with provider marks without an in-page subsection rail', async () => {
     const { ProductDomainRoutePage } = await import('./productShell');
 
-    const { container } = render(
+    render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/agentic-risk/mcp-tools']}>
         <Routes>
           <Route
@@ -457,9 +463,33 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /MCP tools/i })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'GitHub' })).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: /GitHub sections/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /MCP \/ tools/i })).toHaveAttribute('aria-current', 'page');
-    expect(container.querySelector('details.idt-domain-subnav-group')).toHaveAttribute('open');
+    expect(screen.queryByRole('navigation', { name: /GitHub sections/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Route contract')).toBeInTheDocument();
+  });
+
+  it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
+    const { ProductShellLayout } = await import('./productShell');
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/agentic-risk/mcp-tools']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route path="github/agentic-risk/mcp-tools" element={<h2>MCP tools content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: /MCP tools content/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
+
+    const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
+    expect(within(githubFlyout).getAllByText('AI / Agentic Risk').length).toBeGreaterThan(0);
+    expect(within(githubFlyout).getByRole('link', { name: 'GitHub AI / Agentic Risk MCP / tools' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
+    expect(container.querySelector('details.idt-domain-flyout-nested')).toHaveAttribute('open');
   });
 });
 
