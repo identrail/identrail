@@ -10,6 +10,7 @@ export function OrgPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [orgNameError, setOrgNameError] = useState('');
 
   useEffect(() => {
     if (!FEATURE_ONBOARDING_WIZARD) {
@@ -51,13 +52,14 @@ export function OrgPage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setOrgNameError('');
     const name = orgName.trim();
     if (!name) {
-      setError('Please enter an organization name to continue.');
+      setOrgNameError('Enter an organization name');
       return;
     }
     setSaving(true);
-    setError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'org',
@@ -75,9 +77,7 @@ export function OrgPage() {
   return (
     <OnboardingFrame
       step="org"
-      eyebrow="Secure onboarding"
       title="Set up your organization"
-      description="Create one boundary for workspaces, sources, scans, findings, and access."
     >
       {loading ? <p className="idt-muted-strong">Preparing your account...</p> : null}
       {error ? (
@@ -89,13 +89,26 @@ export function OrgPage() {
         <div className="idt-onboarding-field">
           <label htmlFor="org-name">Organization name</label>
           <p id="org-name-hint">Use a recognizable company or program name.</p>
-          <input
-            id="org-name"
-            value={orgName}
-            onChange={(event) => setOrgName(event.target.value)}
-            autoComplete="organization"
-            aria-describedby="org-name-hint"
-          />
+          <div className={orgNameError ? 'idt-onboarding-input-wrap has-error' : 'idt-onboarding-input-wrap'}>
+            <input
+              id="org-name"
+              value={orgName}
+              onChange={(event) => {
+                setOrgName(event.target.value);
+                if (orgNameError) {
+                  setOrgNameError('');
+                }
+              }}
+              autoComplete="organization"
+              aria-invalid={orgNameError ? 'true' : undefined}
+              aria-describedby={orgNameError ? 'org-name-hint org-name-error' : 'org-name-hint'}
+            />
+            {orgNameError ? (
+              <span id="org-name-error" className="idt-onboarding-input-error" role="alert">
+                {orgNameError}
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>

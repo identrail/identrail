@@ -15813,7 +15813,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-panel-main {
   min-width: 0;
-  padding: clamp(28px, 3.4vw, 40px);
+  padding: clamp(24px, 3vw, 34px) clamp(28px, 3.4vw, 40px) clamp(28px, 3.4vw, 40px);
   background: #000000;
 }
 
@@ -16032,6 +16032,57 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   color: #ffffff;
   background: #050505;
   box-shadow: none;
+}
+
+.idt-onboarding-input-wrap {
+  position: relative;
+}
+
+.idt-onboarding-input-wrap input,
+.idt-onboarding-input-wrap textarea {
+  display: block;
+}
+
+.idt-onboarding-input-wrap.has-error input,
+.idt-onboarding-input-wrap.has-error textarea {
+  border-color: #ef4444;
+}
+
+.idt-onboarding-input-error {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 15px;
+  color: #ff5a5f;
+  font-size: 0.78rem;
+  font-style: italic;
+  font-weight: 650;
+  line-height: 1.25;
+  pointer-events: none;
+}
+
+.idt-onboarding-input-wrap textarea + .idt-onboarding-input-error {
+  position: static;
+  display: block;
+  margin-top: 7px;
+  padding: 0 1px;
+}
+
+.idt-onboarding-inline-error {
+  margin: 10px 0 0;
+  color: #ff5a5f;
+  font-size: 0.78rem;
+  font-style: italic;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.idt-onboarding-panel-main > .idt-onboarding-inline-error {
+  color: #ff5a5f;
+  font-size: 0.78rem;
+  line-height: 1.25;
 }
 
 .idt-onboarding-form input:focus-visible,

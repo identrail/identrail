@@ -146,9 +146,9 @@ export function OnboardingFrame({
   children
 }: {
   step: OnboardingStep;
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
 }) {
   return (
@@ -180,9 +180,9 @@ export function OnboardingFrame({
         </aside>
         <article className="idt-onboarding-panel">
           <div className="idt-onboarding-panel-main">
-            <p className="idt-app-kicker">{eyebrow}</p>
+            {eyebrow ? <p className="idt-app-kicker">{eyebrow}</p> : null}
             <h1>{title}</h1>
-            <p>{description}</p>
+            {description ? <p>{description}</p> : null}
             <div className="idt-onboarding-guarantees" aria-label="Setup guarantees">
               {SETUP_GUARANTEES.map((item) => {
                 const Icon = item.icon;
