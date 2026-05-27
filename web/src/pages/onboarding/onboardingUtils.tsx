@@ -133,7 +133,10 @@ const NEXT_STEPS: Array<{ id: OnboardingStep; label: string }> = [
 
 function nextStepsFor(step: OnboardingStep): Array<{ id: OnboardingStep | 'dashboard'; label: string }> {
   const currentIndex = NEXT_STEPS.findIndex((item) => item.id === step);
-  const remaining = currentIndex >= 0 ? NEXT_STEPS.slice(currentIndex + 1) : NEXT_STEPS;
+  if (currentIndex < 0) {
+    return [{ id: 'dashboard', label: 'Open dashboard' }];
+  }
+  const remaining = NEXT_STEPS.slice(currentIndex + 1);
   return remaining.length > 0 ? remaining : [{ id: 'dashboard', label: 'Open dashboard' }];
 }
 

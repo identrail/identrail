@@ -100,6 +100,21 @@ describe('onboarding pages', () => {
     setFeatureFlagEnv(false);
   });
 
+  it('shows dashboard as the terminal next step after onboarding is complete', async () => {
+    vi.resetModules();
+    const { OnboardingFrame } = await import('./onboardingUtils');
+
+    renderOnboarding(
+      <OnboardingFrame step="complete" title="Ready">
+        <div />
+      </OnboardingFrame>,
+      '/onboarding/complete'
+    );
+
+    expect(screen.getByLabelText('Next steps')).toHaveTextContent('Open dashboard');
+    expect(screen.queryByText('Create boundary')).not.toBeInTheDocument();
+  });
+
   it('creates an organization and routes to workspace setup', async () => {
     const { apiClient, OrgPage } = await loadOnboardingModules();
     const startState = state({ current_step: 'org' });
