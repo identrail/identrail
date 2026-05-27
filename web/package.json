@@ -14,6 +14,7 @@
     "perf:bundle": "vite build --mode production"
   },
   "dependencies": {
+    "input-otp": "^1.4.2",
     "lucide-react": "^1.16.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

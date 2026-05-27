@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Replaced the single-field WorkOS MFA code input with a six-slot segmented
+  OTP input (`input-otp`), matching the pattern now standard across premium
+  auth flows. Each slot has its own focus ring, the active slot shows a
+  blinking caret, filled slots get a brighter border, and the Continue button
+  stays disabled until all six digits are entered. The hidden underlying
+  input keeps `aria-label="Authentication code"` and
+  `autocomplete="one-time-code"` so screen readers and iOS SMS autofill still
+  work, and the password-manager push-out strategy is disabled because an
+  authenticator code field shouldn't surface a password-manager fill icon.
 - Refined the WorkOS MFA verification copy: the heading is now "Enter
   verification code" (replacing the redundant "Verify your sign-in"), the code
   input placeholder reads "6-digit code" instead of a greyed-out "000000", and

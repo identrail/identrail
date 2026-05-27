@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { OTPInput, REGEXP_ONLY_DIGITS } from 'input-otp';
 import { ApiError, apiClient, type WorkOSMFAPendingResponse } from '../api/client';
 
 function sameOriginPath(value: string | null | undefined, fallback: string, pathPrefix?: string): string {
@@ -254,19 +255,39 @@ export function WorkOSMFAPage() {
 
         {!loading && pending && (canEnterCode || (autoChallengeFactorID && !error)) ? (
           <form className="idt-auth-manual-form idt-auth-mfa-form" onSubmit={submitCode}>
-            <input
+            <OTPInput
               aria-label="Authentication code"
-              autoFocus
               autoComplete="one-time-code"
+              autoFocus
+              containerClassName="idt-auth-otp"
               inputMode="numeric"
               maxLength={6}
-              onChange={(event) => setCode(event.target.value)}
-              pattern="[0-9]*"
-              placeholder="6-digit code"
-              required
+              onChange={setCode}
+              pattern={REGEXP_ONLY_DIGITS}
+              pushPasswordManagerStrategy="none"
               value={code}
+              render={({ slots }) => (
+                <div className="idt-auth-otp-group">
+                  {slots.map((slot, index) => (
+                    <div
+                      aria-hidden="true"
+                      className={[
+                        'idt-auth-otp-slot',
+                        slot.isActive ? 'is-active' : '',
+                        slot.char ? 'is-filled' : ''
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      key={index}
+                    >
+                      {slot.char ?? ''}
+                      {slot.hasFakeCaret ? <span className="idt-auth-otp-caret" /> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             />
-            <button className="idt-btn idt-btn-primary" type="submit" disabled={busy || !canEnterCode}>
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={busy || !canEnterCode || code.length < 6}>
               {busy ? 'Verifying...' : 'Continue'}
             </button>
           </form>
