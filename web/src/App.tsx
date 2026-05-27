@@ -30,9 +30,11 @@ import {
   ProductAuthCallbackRedirectPage,
   ProductAIRisksPage,
   ProductDomainRoutePage,
+  ProductAWSConnectPage,
   ProductExecutiveReportPage,
   ProductFindingsPage,
   ProductGitHubCallbackPage,
+  ProductKubernetesConnectPage,
   ProductGitHubConnectPage,
   ProductLoginPage,
   ProductLogoutPage,
@@ -4770,7 +4772,7 @@ export function RoutedSite() {
             <Route path="findings" element={<LegacyScopedAppRedirect target="github/findings" />} />
             <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
             <Route path="aws" element={<ProductDomainRoutePage domain="aws" />} />
-            <Route path="aws/connect" element={<ProductDomainRoutePage domain="aws" routeID="connect" />} />
+            <Route path="aws/connect" element={<ProductAWSConnectPage />} />
             <Route path="aws/accounts" element={<ProductDomainRoutePage domain="aws" routeID="accounts" />} />
             <Route path="aws/identities" element={<ProductDomainRoutePage domain="aws" routeID="identities" />} />
             <Route path="aws/agents" element={<ProductDomainRoutePage domain="aws" routeID="agents" />} />
@@ -4797,7 +4799,7 @@ export function RoutedSite() {
             />
             <Route path="github/agentic-risk/findings" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-findings" />} />
             <Route path="kubernetes" element={<ProductDomainRoutePage domain="kubernetes" />} />
-            <Route path="kubernetes/connect" element={<ProductDomainRoutePage domain="kubernetes" routeID="connect" />} />
+            <Route path="kubernetes/connect" element={<ProductKubernetesConnectPage />} />
             <Route path="kubernetes/clusters" element={<ProductDomainRoutePage domain="kubernetes" routeID="clusters" />} />
             <Route path="kubernetes/workloads" element={<ProductDomainRoutePage domain="kubernetes" routeID="workloads" />} />
             <Route path="kubernetes/service-accounts" element={<ProductDomainRoutePage domain="kubernetes" routeID="service-accounts" />} />

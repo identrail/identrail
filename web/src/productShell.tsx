@@ -1990,7 +1990,12 @@ export function ProductDomainRoutePage({
   );
 }
 
-export function ProductGitHubConnectPage() {
+type ConnectorConnectPageProps = {
+  provider: SourceProvider;
+  providerLabel: string;
+};
+
+function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConnectPageProps) {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const [targetPath, setTargetPath] = useState('');
@@ -2023,12 +2028,12 @@ export function ProductGitHubConnectPage() {
           return;
         }
         const projectID = normalizeValue(response.items[0]?.project_id ?? '');
-        setTargetPath(projectID ? buildProjectPath(scope, projectID) : buildProjectsPath(scope));
+        setTargetPath(projectID ? `${buildProjectPath(scope, projectID)}?source=${provider}` : buildProjectsPath(scope));
       } catch (requestError) {
         if (!active) {
           return;
         }
-        setError(formatAPIError(requestError, 'Unable to resolve GitHub connector setup.'));
+        setError(formatAPIError(requestError, `Unable to resolve ${providerLabel} connector setup.`));
       }
     };
 
@@ -2037,7 +2042,7 @@ export function ProductGitHubConnectPage() {
     return () => {
       active = false;
     };
-  }, [scope?.tenantID, scope?.workspaceID]);
+  }, [scope?.tenantID, scope?.workspaceID, provider, providerLabel]);
 
   if (targetPath) {
     return <Navigate to={targetPath} replace />;
@@ -2046,8 +2051,8 @@ export function ProductGitHubConnectPage() {
   if (error) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
-        <p className="idt-app-kicker">Connect GitHub</p>
-        <h2>Unable to open GitHub setup</h2>
+        <p className="idt-app-kicker">Connect {providerLabel}</p>
+        <h2>Unable to open {providerLabel} setup</h2>
         <p>{error}</p>
       </section>
     );
@@ -2055,10 +2060,22 @@ export function ProductGitHubConnectPage() {
 
   return (
     <AppRouteLoadingState
-      title="Opening GitHub setup"
+      title={`Opening ${providerLabel} setup`}
       body="Routing this domain entry point to the working connector setup for this workspace."
     />
   );
+}
+
+export function ProductGitHubConnectPage() {
+  return <ProductConnectorConnectPage provider="github" providerLabel="GitHub" />;
+}
+
+export function ProductAWSConnectPage() {
+  return <ProductConnectorConnectPage provider="aws" providerLabel="AWS" />;
+}
+
+export function ProductKubernetesConnectPage() {
+  return <ProductConnectorConnectPage provider="kubernetes" providerLabel="Kubernetes" />;
 }
 
 export function ProductReportsPage() {
@@ -4508,6 +4525,7 @@ export function ProductProjectDetailPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const projectID = normalizeValue(params.projectID ?? '');
+  const location = useLocation();
   const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures();
   const refreshSequenceRef = useRef(0);
   const repoScanSubmitSequenceRef = useRef(0);
@@ -4548,6 +4566,13 @@ export function ProductProjectDetailPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState<SourceProvider | ''>('');
   const [selectedSource, setSelectedSource] = useState<SourceProvider>(SOURCE_ORDER[0] ?? 'aws');
+  const selectedSourceFromConnect = useMemo(() => {
+    const requestedSource = new URLSearchParams(location.search).get('source');
+    if (requestedSource === 'aws' || requestedSource === 'github' || requestedSource === 'kubernetes') {
+      return requestedSource;
+    }
+    return null;
+  }, [location.search]);
   const [successMessage, setSuccessMessage] = useState('');
   const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);
   const [githubAppForm, setGitHubAppForm] = useState({
@@ -4881,6 +4906,16 @@ export function ProductProjectDetailPage() {
     }
     setSelectedSource(actionableSourceOrder[0] ?? 'aws');
   }, [actionableSourceOrder, backendFeaturesLoading, selectedSource, sourceAvailability]);
+
+  useEffect(() => {
+    if (!selectedSourceFromConnect || backendFeaturesLoading) {
+      return;
+    }
+
+    if (sourceAvailability[selectedSourceFromConnect]?.available) {
+      setSelectedSource(selectedSourceFromConnect);
+    }
+  }, [backendFeaturesLoading, selectedSourceFromConnect, sourceAvailability]);
 
   useEffect(() => {
     if (!connections.github?.connected) {
