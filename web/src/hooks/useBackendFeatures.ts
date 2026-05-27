@@ -98,11 +98,21 @@ type UseBackendFeaturesResult = {
   loading: boolean;
 };
 
-export function useBackendFeatures(): UseBackendFeaturesResult {
-  const [features, setFeatures] = useState<BackendFeatures>(resolvedFeatures ?? UNKNOWN_FEATURES);
-  const [loading, setLoading] = useState(resolvedFeatures === null);
+type UseBackendFeaturesOptions = {
+  enabled?: boolean;
+};
+
+export function useBackendFeatures(options: UseBackendFeaturesOptions = {}): UseBackendFeaturesResult {
+  const enabled = options.enabled !== false;
+  const [features, setFeatures] = useState<BackendFeatures>(enabled ? (resolvedFeatures ?? UNKNOWN_FEATURES) : UNKNOWN_FEATURES);
+  const [loading, setLoading] = useState(enabled && resolvedFeatures === null);
 
   useEffect(() => {
+    if (!enabled) {
+      setFeatures(UNKNOWN_FEATURES);
+      setLoading(false);
+      return;
+    }
     if (resolvedFeatures) {
       // Cache is already warm: serve it without a loading flash on remount.
       setFeatures(resolvedFeatures);
@@ -125,7 +135,7 @@ export function useBackendFeatures(): UseBackendFeaturesResult {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [enabled]);
 
   return { features, loading };
 }

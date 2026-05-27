@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { clearAuthConfigCacheForTests } from './authConfigCache';
+import { resetBackendFeaturesCacheForTests } from './hooks/useBackendFeatures';
 import { clearMeCacheForTests } from './hooks/useMe';
 import { clearProductAuthSessionCacheForTests } from './productShell';
 
@@ -176,6 +177,7 @@ describe('App', () => {
     cleanup();
     resetBrowserState();
     clearAuthConfigCacheForTests();
+    resetBackendFeaturesCacheForTests();
     clearMeCacheForTests();
     clearProductAuthSessionCacheForTests();
     vi.unstubAllEnvs();
@@ -187,6 +189,7 @@ describe('App', () => {
     cleanup();
     resetBrowserState();
     clearAuthConfigCacheForTests();
+    resetBackendFeaturesCacheForTests();
     clearMeCacheForTests();
     clearProductAuthSessionCacheForTests();
     vi.unstubAllEnvs();
@@ -268,7 +271,7 @@ describe('App', () => {
     fireEvent.click(screen.getAllByRole('link', { name: 'Sign Up' })[0]);
 
     await waitFor(() => expect(window.location.pathname).toBe('/signup'));
-    expect(screen.getByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Continue with GitHub/i })).toBeInTheDocument();
     expect(screen.queryByText(/Loading authentication/i)).not.toBeInTheDocument();
     const authCallsAfterNavigation = fetchMock.mock.calls.filter(
       ([url]) => typeof url === 'string' && url.endsWith('/v1/auth/config')
@@ -804,13 +807,18 @@ describe('App', () => {
 
     await screen.findByRole('region', { name: /Get started/i });
     expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Production GitHub/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects/project-1'
+    );
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
-    fireEvent.click(screen.getByRole('link', { name: 'Projects' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+    fireEvent.click(await screen.findByRole('link', { name: /Open AWS Control Center/i }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
     await waitFor(() => {
       const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
       expect(meCallsAfterNavigation).toBeGreaterThan(meCallsBeforeNavigation);
@@ -906,12 +914,13 @@ describe('App', () => {
       expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('link', { name: 'Projects' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+    fireEvent.click(await screen.findByRole('link', { name: /Open AWS Control Center/i }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/signin');
-    expect(window.location.search).toContain('return_to=%2Fapp%2Ftenant-a%2Fworkspace-a%2Fprojects');
+    expect(window.location.search).toContain('return_to=%2Fapp%2Ftenant-a%2Fworkspace-a%2Faws');
   });
 
   it('keeps mismatched scoped routes loading until tenant redirects complete', async () => {
@@ -1005,19 +1014,19 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
 
     act(() => {
-      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/aws');
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     });
 
     expect(await screen.findByText(/Validating session/i)).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 2, name: 'Projects' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'AWS Control Center' })).not.toBeInTheDocument();
 
     await act(async () => {
       resolveScopedMe(okJSON(currentMePayload('tenant-a', 'workspace-a')));
       await scopedMeResponse;
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {
@@ -1052,11 +1061,11 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Unable to validate account session/i);
 
     act(() => {
-      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/aws');
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(meCalls).toBe(2);
   });
@@ -1157,13 +1166,20 @@ describe('App', () => {
     render(<App />);
 
     const checklistRegion = await screen.findByRole('region', { name: /Get started/i }, { timeout: 10000 });
-    const sourceChecklistItem = within(checklistRegion).getByText('Connect a source').closest('li');
+    const sourceChecklistItem = within(checklistRegion).getByText('Connect a domain source').closest('li');
     expect(sourceChecklistItem).not.toBeNull();
     if (!sourceChecklistItem) {
       throw new Error('missing source checklist item');
     }
     expect(sourceChecklistItem).toHaveAttribute('data-complete', 'false');
-    expect(within(sourceChecklistItem).getByRole('link', { name: 'Connect' })).toBeInTheDocument();
+    expect(within(sourceChecklistItem).getByRole('link', { name: 'Connect' })).toHaveAttribute(
+      'href',
+      '/app/tenant-b/workspace-b/aws/connect'
+    );
+    expect(screen.getByRole('link', { name: 'Connect AWS' })).toHaveAttribute(
+      'href',
+      '/app/tenant-b/workspace-b/aws/connect'
+    );
   });
 
   it('hides manual workspace entry when auth config disables manual mode', async () => {
@@ -1265,13 +1281,368 @@ describe('App', () => {
     expect(await screen.findByText(/Identrail API is not reachable yet/i)).toBeInTheDocument();
   });
 
-  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
+  it('renders tenancy-scoped AWS identity route inside app shell', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a'))));
+    setCurrentPath('/app/tenant-a/workspace-a/aws/identities');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /AWS machine identities/i })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: /AWS sections/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps legacy project callback routes hidden but working', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.includes('/v1/connectors/github')) {
+        return okJSON({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            connector_id: 'github-app',
+            display_name: 'Identrail',
+            status: 'disconnected',
+            health_status: 'unknown',
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: [],
+            capabilities: { requested: [], validated: [], effective: [], unavailable: [] }
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/scan-policies')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
     setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
-    expect(await screen.findByText('Project sources')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+  });
+
+  it('gates the GitHub connect domain entry when the connector is not enabled in the bundle', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects?')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/connectors/github')) {
+        return okJSON({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            connector_id: 'github-app',
+            display_name: 'Identrail',
+            status: 'disconnected',
+            health_status: 'unknown',
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: [],
+            capabilities: { requested: [], validated: [], effective: [], unavailable: [] }
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/scan-policies')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/github/connect');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open GitHub setup/i })).toBeInTheDocument();
+    expect(screen.getByText(/GitHub connector is not available in this build/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/connect');
+    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+  });
+
+  it('routes the AWS connect domain entry to the working connector setup', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects?')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/connectors/github')) {
+        return okJSON({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            connector_id: 'github-app',
+            display_name: 'Identrail',
+            status: 'disconnected',
+            health_status: 'unknown',
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: [],
+            capabilities: { requested: [], validated: [], effective: [], unavailable: [] }
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/kubernetes/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            diagnostics: [],
+            selected_context: ''
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/scan-policies')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/aws/connect');
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/projects/project-1'));
+    expect(window.location.search).toBe('?source=aws');
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+  });
+
+  it('gates the Kubernetes connect domain entry when the connector is not enabled in the bundle', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects?')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/connectors/github')) {
+        return okJSON({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            connector_id: 'github-app',
+            display_name: 'Identrail',
+            status: 'disconnected',
+            health_status: 'unknown',
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: [],
+            capabilities: { requested: [], validated: [], effective: [], unavailable: [] }
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/kubernetes/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'kubernetes',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            diagnostics: [],
+            selected_context: ''
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/scan-policies')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/kubernetes/connect');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open Kubernetes setup/i })).toBeInTheDocument();
+    expect(screen.getByText(/Kubernetes connector is not available in this build/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/kubernetes/connect');
+    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+  });
+
+  it('redirects legacy findings and AI risk deep links to GitHub-owned routes', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({
+          summary: {
+            total_open: 0,
+            fixed_count: 0,
+            reopened_count: 0,
+            suppressed_count: 0,
+            sla_aged_count: 0,
+            mttr_ready_resolved_count: 0,
+            by_owner: {},
+            by_detector: {},
+            by_severity: {}
+          },
+          items: []
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/findings'));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true);
+    });
+    const repoFindingCallsBeforeAIRiskRedirect = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/v1/repo-findings')
+    ).length;
+
+    cleanup();
+    resetBrowserState();
+    clearAuthConfigCacheForTests();
+    resetBackendFeaturesCacheForTests();
+    clearMeCacheForTests();
+    clearProductAuthSessionCacheForTests();
+
+    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/agentic-risk'));
+    await waitFor(() => {
+      const repoFindingCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes('/v1/repo-findings')).length;
+      expect(repoFindingCalls).toBeGreaterThan(repoFindingCallsBeforeAIRiskRedirect);
+    });
   });
 
   it('renders repository findings with direct GitHub line links inside the app shell', async () => {
@@ -1359,10 +1730,10 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    setCurrentPath('/app/tenant-a/workspace-a/github/findings');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Findings/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^GitHub findings$/i })).toBeInTheDocument();
     expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
     expect(await screen.findByText(/Risk graph/i)).toBeInTheDocument();
     expect(await screen.findByText(/High-risk findings/i)).toBeInTheDocument();
@@ -1400,7 +1771,7 @@ describe('App', () => {
     expect(await screen.findByText(/Secret rotation required/i)).toBeInTheDocument();
   });
 
-  it('renders the AI Risks dashboard inside the app shell', async () => {
+  it('renders the GitHub AI / Agentic Risk dashboard inside the app shell', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -1550,11 +1921,11 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    setCurrentPath('/app/tenant-a/workspace-a/github/agentic-risk');
     render(<App />);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
-    const summary = await screen.findByLabelText(/AI Risks summary/i);
+    expect(await screen.findByRole('heading', { level: 2, name: /^AI \/ Agentic Risk$/i })).toBeInTheDocument();
+    const summary = await screen.findByLabelText(/^AI \/ Agentic Risk summary$/i);
     const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
     expect(within(openMetric).getByText('10')).toBeInTheDocument();
@@ -1575,7 +1946,7 @@ describe('App', () => {
     expect((await screen.findAllByText(/3 high priority/i)).length).toBeGreaterThan(0);
   });
 
-  it('keeps the AI Risks dashboard usable when trend loading fails', async () => {
+  it('keeps the GitHub AI / Agentic Risk dashboard usable when trend loading fails', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -1635,15 +2006,15 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    setCurrentPath('/app/tenant-a/workspace-a/github/agentic-risk');
     render(<App />);
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true));
-    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
+    expect(await screen.findByRole('heading', { level: 2, name: /^AI \/ Agentic Risk$/i })).toBeInTheDocument();
     expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
     expect(await screen.findByText(/Trend unavailable/i)).toBeInTheDocument();
-    expect(screen.queryByText(/No AI Risks yet/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Failed to load AI Risks/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No AI \/ Agentic Risk yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Failed to load AI \/ Agentic Risk/i)).not.toBeInTheDocument();
   });
 
   it('allows suppressed repository finding assignee edits without a new suppression reason', async () => {
@@ -1718,7 +2089,7 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    setCurrentPath('/app/tenant-a/workspace-a/github/findings');
     render(<App />);
 
     const findingRow = (await screen.findByText(/Potential AWS access key exposed in commit history/i)).closest('button');
@@ -2517,19 +2888,51 @@ describe('App', () => {
   });
 
   it('finishes frontend auth callback by resolving the server session', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
-        .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
-    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/onboarding/state')) {
+        return okJSON({
+          state: {
+            user_id: 'user-1',
+            current_step: 'connect',
+            org_id: 'tenant-a',
+            workspace_id: 'workspace-a',
+            connector_skipped: false,
+            scan_skipped: false,
+            started_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z'
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
 
     setCurrentPath('/auth/callback');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a'));
+    await waitFor(
+      () => expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument(),
+      { timeout: 10000 }
+    );
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/auth/config'))).toBe(false);
   });
 
   it('redirects failed frontend auth callback checks back to sign-in', async () => {

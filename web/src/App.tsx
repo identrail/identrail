@@ -1,5 +1,5 @@
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HeroOpenSourceProofPills } from './components/home/HeroOpenSourceProofPills';
@@ -29,14 +29,19 @@ import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
   ProductAIRisksPage,
+  ProductDomainRoutePage,
+  ProductAWSConnectPage,
   ProductExecutiveReportPage,
   ProductFindingsPage,
   ProductGitHubCallbackPage,
+  ProductKubernetesConnectPage,
+  ProductGitHubConnectPage,
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
   ProductProjectDetailPage,
   ProductProjectsPage,
+  ProductReportsPage,
   RequireProductAuth,
   ProductSettingsPage,
   ProductShellLayout,
@@ -68,6 +73,18 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const SUPPORT_EMAIL = siteEmails.support;
 const SECURITY_EMAIL = siteEmails.security;
+
+function LegacyScopedAppRedirect({ target }: { target: string }) {
+  const params = useParams<{ tenantID?: string; workspaceID?: string }>();
+  const tenantID = params.tenantID?.trim();
+  const workspaceID = params.workspaceID?.trim();
+
+  if (!tenantID || !workspaceID) {
+    return <Navigate to="/app" replace />;
+  }
+
+  return <Navigate to={`/app/${encodeURIComponent(tenantID)}/${encodeURIComponent(workspaceID)}/${target}`} replace />;
+}
 const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
@@ -4619,6 +4636,7 @@ export function RoutedSite() {
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
+  const isAuthShellRoute = isAuthChoiceRoute || normalizedPath === '/auth/callback';
   useEffect(() => {
     document.documentElement.dataset.theme = 'light';
     try {
@@ -4629,21 +4647,21 @@ export function RoutedSite() {
   }, []);
 
   useEffect(() => {
-    if (isProductShellRoute || isOnboardingRoute || isAuthChoiceRoute) {
+    if (isProductShellRoute || isOnboardingRoute || isAuthShellRoute) {
       return;
     }
     const preloadTimer = window.setTimeout(preloadAuthConfig, 50);
     return () => window.clearTimeout(preloadTimer);
-  }, [isAuthChoiceRoute, isOnboardingRoute, isProductShellRoute]);
+  }, [isAuthShellRoute, isOnboardingRoute, isProductShellRoute]);
 
   return (
-    <div className={`idt-site ${isAuthChoiceRoute ? 'idt-site-auth' : ''}`}>
-      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? <RouteScrollReset /> : null}
+    <div className={`idt-site ${isAuthShellRoute ? 'idt-site-auth' : ''}`}>
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthShellRoute ? <RouteScrollReset /> : null}
       <a className="idt-skip" href="#main-content">
         Skip to content
       </a>
 
-      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? (
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthShellRoute ? (
         <Header navLinks={NAV_LINKS} githubRepo={GITHUB_REPO} />
       ) : null}
 
@@ -4749,10 +4767,46 @@ export function RoutedSite() {
           >
             <Route index element={<ProductOverviewPage />} />
             <Route path="workspaces" element={<ProductWorkspacesPage />} />
+            {/* Hidden aliases for pre-domain onboarding and callback URLs. */}
             <Route path="projects" element={<ProductProjectsPage />} />
             <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
-            <Route path="findings" element={<ProductFindingsPage />} />
-            <Route path="ai-risks" element={<ProductAIRisksPage />} />
+            <Route path="findings" element={<LegacyScopedAppRedirect target="github/findings" />} />
+            <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
+            <Route path="aws" element={<ProductDomainRoutePage domain="aws" />} />
+            <Route path="aws/connect" element={<ProductAWSConnectPage />} />
+            <Route path="aws/accounts" element={<ProductDomainRoutePage domain="aws" routeID="accounts" />} />
+            <Route path="aws/identities" element={<ProductDomainRoutePage domain="aws" routeID="identities" />} />
+            <Route path="aws/agents" element={<ProductDomainRoutePage domain="aws" routeID="agents" />} />
+            <Route path="aws/resources" element={<ProductDomainRoutePage domain="aws" routeID="resources" />} />
+            <Route path="aws/runtime" element={<ProductDomainRoutePage domain="aws" routeID="runtime" />} />
+            <Route path="aws/graph" element={<ProductDomainRoutePage domain="aws" routeID="graph" />} />
+            <Route path="aws/findings" element={<ProductDomainRoutePage domain="aws" routeID="findings" />} />
+            <Route path="aws/remediation" element={<ProductDomainRoutePage domain="aws" routeID="remediation" />} />
+            <Route path="aws/governance" element={<ProductDomainRoutePage domain="aws" routeID="governance" />} />
+            <Route path="github" element={<ProductDomainRoutePage domain="github" />} />
+            <Route path="github/connect" element={<ProductGitHubConnectPage />} />
+            <Route path="github/repositories" element={<ProductDomainRoutePage domain="github" routeID="repositories" />} />
+            <Route path="github/actions" element={<ProductDomainRoutePage domain="github" routeID="actions" />} />
+            <Route path="github/findings" element={<ProductFindingsPage />} />
+            <Route path="github/remediation" element={<ProductDomainRoutePage domain="github" routeID="remediation" />} />
+            <Route path="github/agentic-risk" element={<ProductAIRisksPage />} />
+            <Route path="github/agentic-risk/configs" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-configs" />} />
+            <Route path="github/agentic-risk/mcp-tools" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-mcp-tools" />} />
+            <Route path="github/agentic-risk/prompts" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-prompts" />} />
+            <Route path="github/agentic-risk/secrets" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-secrets" />} />
+            <Route
+              path="github/agentic-risk/workflow-trust-paths"
+              element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-workflow-trust-paths" />}
+            />
+            <Route path="github/agentic-risk/findings" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-findings" />} />
+            <Route path="kubernetes" element={<ProductDomainRoutePage domain="kubernetes" />} />
+            <Route path="kubernetes/connect" element={<ProductKubernetesConnectPage />} />
+            <Route path="kubernetes/clusters" element={<ProductDomainRoutePage domain="kubernetes" routeID="clusters" />} />
+            <Route path="kubernetes/workloads" element={<ProductDomainRoutePage domain="kubernetes" routeID="workloads" />} />
+            <Route path="kubernetes/service-accounts" element={<ProductDomainRoutePage domain="kubernetes" routeID="service-accounts" />} />
+            <Route path="kubernetes/findings" element={<ProductDomainRoutePage domain="kubernetes" routeID="findings" />} />
+            <Route path="kubernetes/remediation" element={<ProductDomainRoutePage domain="kubernetes" routeID="remediation" />} />
+            <Route path="reports" element={<ProductReportsPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
           </Route>
           <Route path="/" element={<HomePage />} />
@@ -4785,7 +4839,7 @@ export function RoutedSite() {
         </Routes>
       </main>
 
-      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? (
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthShellRoute ? (
         <>
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
         </>

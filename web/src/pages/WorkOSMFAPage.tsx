@@ -195,7 +195,6 @@ export function WorkOSMFAPage() {
     });
     challengeRequestRef.current = { promise, resolve: resolveDeferred };
   }
-
   useEffect(() => {
     if (!autoChallengeFactorIDCandidate || autoChallengeFactorID === autoChallengeFactorIDCandidate) {
       return;

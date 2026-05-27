@@ -22403,6 +22403,66 @@ html[data-theme='light'] .idt-app-shell-screen select {
   padding-top: 0.8rem;
 }
 
+.idt-domain-route-facts {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.idt-domain-route-facts div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.idt-domain-route-facts dt {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-domain-route-facts dd {
+  min-width: 0;
+  margin: 0;
+  color: #ffffff;
+  font-family: var(--idt-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.idt-domain-readiness-items {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-domain-readiness-items article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.78rem;
+  background: #050505;
+}
+
+.idt-domain-readiness-items strong {
+  color: #ffffff;
+}
+
+.idt-domain-readiness-items p {
+  margin-top: 0.18rem;
+}
+
+.idt-domain-readiness-items article > span {
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.14rem 0.5rem;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
 .idt-domain-evidence-panel {
   margin: 0;
   overflow: hidden;
@@ -24833,6 +24893,374 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   white-space: nowrap;
 }
 
+.idt-app-domain-nav-item {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger {
+  appearance: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 2.15rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #a3a3ac;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger:hover,
+.idt-app-console-layout .idt-app-nav-domain-trigger:focus-visible {
+  border-color: transparent;
+  background: #131318;
+  color: #ffffff;
+  outline: none;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-unavailable,
+.idt-app-console-layout .idt-app-nav-domain-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-unavailable:hover,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-unavailable:focus-visible,
+.idt-app-console-layout .idt-app-nav-domain-trigger:disabled:hover,
+.idt-app-console-layout .idt-app-nav-domain-trigger:disabled:focus-visible {
+  background: transparent;
+  color: #a3a3ac;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-active,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-open {
+  background: #1c1c22;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--idt-console-focus, #7c6dff);
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger:hover .idt-app-nav-icon,
+.idt-app-console-layout .idt-app-nav-domain-trigger:focus-visible .idt-app-nav-icon,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-active .idt-app-nav-icon,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-open .idt-app-nav-icon {
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger:hover .idt-app-nav-icon img,
+.idt-app-console-layout .idt-app-nav-domain-trigger:focus-visible .idt-app-nav-icon img,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-active .idt-app-nav-icon img,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-open .idt-app-nav-icon img {
+  filter: invert(1);
+  opacity: 1;
+}
+
+.idt-app-nav-disclosure {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: #7f8792;
+  transition: transform 0.14s ease, color 0.14s ease;
+}
+
+.idt-app-nav-domain-trigger.is-open .idt-app-nav-disclosure {
+  transform: rotate(180deg);
+  color: #ffffff;
+}
+
+.idt-domain-flyout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  padding: 0;
+  background: rgba(5, 7, 10, 0.58);
+  -webkit-backdrop-filter: blur(22px) saturate(0.84) brightness(0.72);
+  backdrop-filter: blur(22px) saturate(0.84) brightness(0.72);
+  cursor: default;
+}
+
+.idt-app-console-layout.is-domain-flyout-open .idt-app-sidebar {
+  z-index: 35;
+}
+
+.idt-app-console-layout.is-domain-flyout-open .idt-app-shell-nav {
+  overflow: visible;
+}
+
+.idt-domain-flyout {
+  position: absolute;
+  top: -0.45rem;
+  left: calc(100% + 0.72rem);
+  z-index: 50;
+  display: grid;
+  gap: 0.75rem;
+  width: min(34rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
+  max-height: min(82vh, 46rem);
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  padding: 0.78rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 12rem),
+    #050607;
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.idt-domain-flyout::before {
+  content: '';
+  position: absolute;
+  top: 1.25rem;
+  left: -0.45rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.13);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+  background: #050607;
+  transform: rotate(45deg);
+}
+
+.idt-domain-flyout-header {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  padding: 0.72rem;
+  background: #080a0d;
+}
+
+.idt-domain-flyout-logo {
+  display: grid;
+  width: 2.45rem;
+  height: 2.45rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.idt-domain-flyout-logo img {
+  display: block;
+  max-width: 1.45rem;
+  max-height: 1.45rem;
+}
+
+.idt-domain-flyout-header p,
+.idt-domain-flyout-section-label {
+  margin: 0;
+  color: #8d96a3;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.idt-domain-flyout-header h2 {
+  margin: 0.12rem 0 0.12rem;
+  color: #ffffff;
+  font-size: 1.02rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.idt-domain-flyout-header span {
+  display: block;
+  color: #b6bec8;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.idt-domain-flyout-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.idt-domain-flyout-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  padding: 0.44rem 0.7rem;
+  background: #11151b;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+}
+
+.idt-domain-flyout-actions a[data-domain-flyout-primary='true'] {
+  background: #ffffff;
+  color: #050607;
+}
+
+.idt-domain-flyout-actions a:hover,
+.idt-domain-flyout-actions a:focus-visible {
+  border-color: rgba(255, 255, 255, 0.34);
+  outline: none;
+}
+
+.idt-domain-flyout-section,
+.idt-domain-flyout-list,
+.idt-domain-flyout-nested-body {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.idt-domain-flyout-section {
+  gap: 0.48rem;
+}
+
+.idt-domain-flyout-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.6rem;
+  align-items: center;
+  min-height: 2.7rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.58rem 0.62rem;
+  color: #d5dbe3;
+  text-decoration: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.idt-domain-flyout-link:hover,
+.idt-domain-flyout-link:focus-visible,
+.idt-domain-flyout-link.is-active {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #10141a;
+  color: #ffffff;
+  outline: none;
+}
+
+.idt-domain-flyout-link.is-child {
+  margin-left: 0.55rem;
+  padding-left: 0.72rem;
+  border-left-color: rgba(255, 255, 255, 0.12);
+}
+
+.idt-domain-flyout-link-copy {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.idt-domain-flyout-link-copy strong {
+  color: inherit;
+  font-size: 0.88rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.idt-domain-flyout-link-copy span,
+.idt-domain-flyout-link-meta,
+.idt-domain-flyout-nested small {
+  color: #8f98a4;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.idt-domain-flyout-link-meta {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  padding: 0.16rem 0.42rem;
+  white-space: nowrap;
+}
+
+.idt-domain-flyout-nested {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  padding: 0.42rem;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.idt-domain-flyout-nested summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: 7px;
+  padding: 0.45rem 0.5rem;
+  color: #f3f5f7;
+  cursor: pointer;
+  list-style: none;
+}
+
+.idt-domain-flyout-nested summary::-webkit-details-marker {
+  display: none;
+}
+
+.idt-domain-flyout-nested summary > span {
+  display: grid;
+  gap: 0.1rem;
+  flex: 1 1 auto;
+}
+
+.idt-domain-flyout-nested summary strong {
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.idt-domain-flyout-nested summary svg {
+  color: #8f98a4;
+  transition: transform 0.14s ease;
+}
+
+.idt-domain-flyout-nested[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.idt-domain-flyout-nested summary:hover,
+.idt-domain-flyout-nested summary:focus-visible {
+  background: #10141a;
+  outline: none;
+}
+
+.idt-domain-flyout-nested-body {
+  margin-top: 0.34rem;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-domain-trigger {
+  justify-content: center;
+  padding: 0.55rem 0;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-domain-trigger.is-active::before {
+  top: 4px;
+  bottom: 4px;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-disclosure {
+  display: none;
+}
+
 .idt-app-console-layout .idt-app-sidebar-footer {
   align-self: end;
   display: grid;
@@ -25425,6 +25853,20 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
    * top bar, where "collapsed" has no useful meaning). The toggle button is
    * still rendered so a user who resizes back to desktop has an obvious path
    * out of any previously-persisted collapsed preference. */
+
+  .idt-domain-flyout {
+    position: fixed;
+    top: auto;
+    right: 1rem;
+    bottom: 1rem;
+    left: 1rem;
+    width: auto;
+    max-height: min(76vh, 42rem);
+  }
+
+  .idt-domain-flyout::before {
+    display: none;
+  }
 }
 
 /* === Workspace overview polish (preview-driven) === */
@@ -27267,7 +27709,8 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
     padding-bottom: 0;
   }
 
-  .idt-app-console-layout .idt-app-shell-nav a {
+  .idt-app-console-layout .idt-app-shell-nav a,
+  .idt-app-console-layout .idt-app-nav-domain-trigger {
     min-width: 0;
     width: 100%;
     justify-content: flex-start;
