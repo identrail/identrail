@@ -5771,10 +5771,21 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 }
 
 .idt-auth-mfa-subtitle {
+  max-width: 25rem;
   margin: -0.45rem 0 0.35rem;
   color: var(--auth-muted, #525252);
   font-size: 0.95rem;
   line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.idt-auth-mfa-note {
+  max-width: 25rem;
+  margin: -0.15rem 0 0.15rem;
+  color: var(--auth-muted, #525252);
+  font-size: 0.92rem;
+  line-height: 1.45;
   text-align: center;
   overflow-wrap: anywhere;
 }
@@ -5813,13 +5824,43 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 
 .idt-auth-mfa-form {
   display: grid;
-  gap: 0.85rem;
+  width: 100%;
+  gap: 0.9rem;
+  margin-top: 0;
+  border: 1px solid var(--auth-line);
+  border-radius: 12px;
+  background: var(--auth-surface);
+  padding: 1rem;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
 }
 
-.idt-auth-mfa-form input {
+.idt-auth-mfa-form label,
+html[data-theme='light'] .idt-auth-mfa-form label {
+  display: grid;
+  gap: 0.48rem;
+  color: var(--auth-muted);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.idt-auth-page[data-auth-theme='light'] .idt-auth-mfa-form,
+html[data-theme='light'] .idt-auth-page[data-auth-theme='light'] .idt-auth-mfa-form {
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.08);
+}
+
+.idt-auth-mfa-form input,
+html[data-theme='light'] .idt-auth-mfa-form input {
+  min-height: 3.45rem;
+  border-radius: 8px;
   text-align: center;
-  font-size: 1.18rem;
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0;
+}
+
+.idt-auth-mfa-form .idt-btn {
+  min-height: 3.35rem;
 }
 
 .idt-dev-mode-banner {
@@ -7392,7 +7433,8 @@ html[data-theme='light'] .idt-auth-panel {
 
 .idt-auth-mfa-panel,
 html[data-theme='light'] .idt-auth-mfa-panel {
-  width: min(100%, 25rem);
+  width: min(100%, 26.5rem);
+  gap: 0.95rem;
 }
 
 .idt-auth-panel-signup,
@@ -7703,6 +7745,30 @@ html[data-theme='light'] .idt-auth-manual-form input {
   background: var(--auth-button-muted);
   color: var(--auth-text);
   padding: 0.7rem 0.85rem;
+}
+
+.idt-auth-manual-form.idt-auth-mfa-form,
+html[data-theme='light'] .idt-auth-manual-form.idt-auth-mfa-form {
+  margin-top: 0;
+  border: 1px solid var(--auth-line);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.idt-auth-manual-form.idt-auth-mfa-form label,
+html[data-theme='light'] .idt-auth-manual-form.idt-auth-mfa-form label {
+  gap: 0.48rem;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.idt-auth-manual-form.idt-auth-mfa-form input,
+html[data-theme='light'] .idt-auth-manual-form.idt-auth-mfa-form input {
+  min-height: 3.45rem;
+  text-align: center;
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .idt-auth-page .idt-auth-footer-line,

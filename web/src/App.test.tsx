@@ -2593,6 +2593,50 @@ describe('App', () => {
     );
   });
 
+  it('starts a WorkOS MFA authenticator challenge before asking for the code', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          mode: 'challenge',
+          user_email: 'owner@example.com',
+          challenge_started: false,
+          factors: [{ id: 'auth_factor_1', type: 'totp' }]
+        })
+      )
+      .mockResolvedValueOnce(okJSON({ challenge_started: true, factor_id: 'auth_factor_1' }))
+      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
+      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/auth/mfa?return_to=%2Fapp');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Verify your sign-in/i })).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Authentication code/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use authenticator app/i })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /Verify and continue/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8080/auth/mfa/challenge',
+        expect.objectContaining({
+          body: JSON.stringify({ factor_id: 'auth_factor_1' }),
+          credentials: 'include',
+          method: 'POST'
+        })
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.objectContaining({ body: JSON.stringify({ code: '123456' }), credentials: 'include', method: 'POST' })
+    );
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+  });
+
   it('lists account security sessions and revokes other browsers', async () => {
     const fetchMock = vi
       .fn()

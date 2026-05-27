@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, apiClient, type WorkOSMFAPendingResponse } from '../api/client';
 
@@ -46,6 +46,10 @@ export function mfaErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to continue verification.';
 }
 
+function totpFactors(pending: WorkOSMFAPendingResponse | null) {
+  return pending?.factors.filter((factor) => factor.type === 'totp') ?? [];
+}
+
 export function WorkOSMFAPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -56,6 +60,7 @@ export function WorkOSMFAPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
+  const [autoChallengeFactorID, setAutoChallengeFactorID] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -96,7 +101,7 @@ export function WorkOSMFAPage() {
     }
   };
 
-  const startChallenge = async (factorID: string) => {
+  const startChallenge = useCallback(async (factorID: string) => {
     setBusy(true);
     setError('');
     try {
@@ -107,7 +112,7 @@ export function WorkOSMFAPage() {
     } finally {
       setBusy(false);
     }
-  };
+  }, []);
 
   const submitCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -127,6 +132,21 @@ export function WorkOSMFAPage() {
   const needsChallengeStart = pending?.mode === 'challenge' && !pending.challenge_started;
   const enrollmentChallengeStarted = Boolean(isEnrollment && pending?.challenge_started && !pending.totp);
   const canEnterCode = Boolean(pending?.challenge_started || pending?.totp);
+  const availableTOTPFactors = totpFactors(pending);
+  const autoChallengeFactorIDCandidate =
+    !loading && needsChallengeStart && availableTOTPFactors.length === 1 ? availableTOTPFactors[0].id : '';
+  const autoChallengeStarting = Boolean(autoChallengeFactorIDCandidate && !error && !canEnterCode);
+  const showChallengePicker = Boolean(
+    !loading && pending && needsChallengeStart && (!autoChallengeFactorIDCandidate || error)
+  );
+
+  useEffect(() => {
+    if (!autoChallengeFactorIDCandidate || autoChallengeFactorID === autoChallengeFactorIDCandidate) {
+      return;
+    }
+    setAutoChallengeFactorID(autoChallengeFactorIDCandidate);
+    void startChallenge(autoChallengeFactorIDCandidate);
+  }, [autoChallengeFactorID, autoChallengeFactorIDCandidate, startChallenge]);
 
   return (
     <section className="idt-auth-page idt-auth-page-login">
@@ -145,6 +165,11 @@ export function WorkOSMFAPage() {
         {pending?.user_email ? <p className="idt-auth-mfa-subtitle">{pending.user_email}</p> : null}
         {error ? <p className="idt-app-alert idt-app-alert-error">{error}</p> : null}
         {loading ? <p className="idt-auth-mfa-subtitle">Loading verification...</p> : null}
+        {!loading && autoChallengeStarting ? (
+          <p className="idt-auth-mfa-note" role="status">
+            Preparing your authenticator challenge...
+          </p>
+        ) : null}
 
         {!loading && pending && isEnrollment && !pending.totp && !pending.challenge_started ? (
           <button className="idt-btn idt-btn-primary idt-auth-mfa-full" type="button" onClick={startEnrollment} disabled={busy}>
@@ -165,21 +190,23 @@ export function WorkOSMFAPage() {
           </div>
         ) : null}
 
-        {!loading && pending && needsChallengeStart ? (
+        {!loading && pending && !isEnrollment && canEnterCode ? (
+          <p className="idt-auth-mfa-note">Enter the code from your authenticator app to finish signing in.</p>
+        ) : null}
+
+        {showChallengePicker ? (
           <div className="idt-auth-provider-stack">
-            {pending.factors
-              .filter((factor) => factor.type === 'totp')
-              .map((factor) => (
-                <button
-                  className="idt-auth-provider idt-auth-provider-plain"
-                  key={factor.id}
-                  type="button"
-                  onClick={() => startChallenge(factor.id)}
-                  disabled={busy}
-                >
-                  Use authenticator app
-                </button>
-              ))}
+            {availableTOTPFactors.map((factor) => (
+              <button
+                className="idt-auth-provider idt-auth-provider-plain"
+                key={factor.id}
+                type="button"
+                onClick={() => startChallenge(factor.id)}
+                disabled={busy}
+              >
+                {busy ? 'Preparing challenge...' : 'Use authenticator app'}
+              </button>
+            ))}
           </div>
         ) : null}
 
@@ -188,10 +215,14 @@ export function WorkOSMFAPage() {
             <label>
               Authentication code
               <input
+                aria-label="Authentication code"
+                autoFocus
                 autoComplete="one-time-code"
                 inputMode="numeric"
-                maxLength={10}
+                maxLength={6}
                 onChange={(event) => setCode(event.target.value)}
+                pattern="[0-9]*"
+                placeholder="000000"
                 required
                 value={code}
               />
