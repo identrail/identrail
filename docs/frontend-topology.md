@@ -14,7 +14,7 @@ the public website routes and the authenticated product dashboard.
 - API URL input: `VITE_IDENTRAIL_API_URL`
 - Self-serve onboarding input: `VITE_FEATURE_ONBOARDING_WIZARD=true`
 - Vercel (marketing/demo deploy): Identrail Cloud domains default to `https://api.identrail.com`; custom domains should set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables or as a GitHub Actions variable so the deploy workflow upserts it. Identrail Cloud production deploys also upsert `VITE_FEATURE_ONBOARDING_WIZARD`, defaulting to `true`, and the connector build flags (`VITE_FEATURE_CONNECTOR_AWS`, `VITE_FEATURE_CONNECTOR_GITHUB_V2`, `VITE_FEATURE_CONNECTOR_K8S`), defaulting to `false`, so the web bundle cannot drift from the intended connector launch state.
-- Production deploys should be triggered from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
+- Production deploys should be triggered for merged, approved PRs into `dev`, or manually from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
 
 ### `VITE_IDENTRAIL_API_URL` value source
 
@@ -66,6 +66,18 @@ VITE_FEATURE_CONNECTOR_K8S=false
 The Vercel production deploy workflow validates these values as `true`/`false` and upserts them into the Vercel project before building. Missing connector variables default to `false`.
 
 For token-based Vercel deployments, if the GitHub Actions variable is missing, the production deploy workflow uses the Identrail Cloud default and upserts `VITE_IDENTRAIL_API_URL=https://api.identrail.com` into Vercel. Hook-only fallback deployments cannot upsert or inspect Vercel project env values from GitHub Actions, so the runtime fallback still protects the canonical Identrail Cloud domains while custom domains must keep `VITE_IDENTRAIL_API_URL` configured directly in Vercel.
+
+### Vercel queue protection
+
+To avoid long queued backlogs, keep only the newest queued deployment per branch target.
+
+- `Vercel Production Deploy` now prunes stale queued deploys before each production deploy via `scripts/vercel_cleanup_queued_deployments.sh`.
+- A scheduled `Vercel Deployment Queue Gardener` workflow runs every 15 minutes to trim stale queued deploys as a fallback.
+- You can also run cleanup manually when needed:
+
+```bash
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... KEEP_QUEUED_PER_REF=1 make vercel-queued-cleanup
+```
 
 ### Production API preflight
 
