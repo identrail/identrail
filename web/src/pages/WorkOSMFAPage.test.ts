@@ -27,8 +27,6 @@ describe('WorkOSMFAPage helpers', () => {
 
   it('preserves API verification errors instead of rewriting every unauthorized response', () => {
     expect(mfaErrorMessage(new ApiError('invalid verification code', 401))).toBe('invalid verification code');
-    expect(mfaErrorMessage(new ApiError('mfa session expired', 401))).toBe(
-      'This verification session expired. Start sign-in again.'
-    );
+    expect(mfaErrorMessage(new ApiError('mfa session expired', 401))).toBe('This verification session expired.');
   });
 });

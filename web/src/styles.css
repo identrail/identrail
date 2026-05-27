@@ -16190,17 +16190,35 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   line-height: 1.1;
 }
 
+.idt-btn:has(.idt-btn-enter-cue) {
+  padding-right: 1.14rem;
+}
+
+.idt-btn:has(.idt-btn-enter-cue)::after {
+  content: none;
+}
+
 .idt-btn-enter-cue {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
+  width: 1em;
+  height: 1em;
   margin-left: 0;
   color: currentColor;
-  font-size: 0.95em;
+  font-size: 1em;
   font-weight: 900;
   line-height: 1;
-  opacity: 0.52;
-  transform: translateY(0.07em);
+  opacity: 1;
+  transform: translateY(0.02em);
+}
+
+.idt-btn-enter-cue svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
 }
 
 .idt-onboarding-shell .idt-btn-primary {

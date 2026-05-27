@@ -39,11 +39,11 @@ export function mfaErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) {
     if (error.message && error.message !== `Request failed (${error.status})`) {
       if (error.message === 'mfa session expired') {
-        return 'This verification session expired. Start sign-in again.';
+        return 'This verification session expired.';
       }
       return error.message;
     }
-    return 'This verification session expired. Start sign-in again.';
+    return 'This verification session expired.';
   }
   return error instanceof Error ? error.message : 'Unable to continue verification.';
 }
@@ -231,7 +231,7 @@ export function WorkOSMFAPage() {
 
         {!loading && pending && enrollmentChallengeStarted ? (
           <p className="idt-auth-mfa-subtitle">
-            Enter the code from the authenticator app you just added. Start sign-in again if you need a fresh QR code.
+            Enter the code from the authenticator app you just added.
           </p>
         ) : null}
 
@@ -305,9 +305,6 @@ export function WorkOSMFAPage() {
           </form>
         ) : null}
 
-        <p className="idt-auth-footer-line">
-          <Link to="/signin">Start sign-in again</Link>
-        </p>
       </article>
     </section>
   );
