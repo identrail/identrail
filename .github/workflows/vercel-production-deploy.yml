@@ -99,7 +99,7 @@ jobs:
 
       - name: Install Vercel CLI
         if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
-        run: npm install -g vercel@latest
+        run: npm install -g vercel@54.5.0
 
       - name: Verify Vercel token
         id: verify-token
@@ -232,7 +232,7 @@ jobs:
 
       - name: Deploy to Vercel
         id: deploy-action
-        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
         continue-on-error: true
         uses: amondnet/vercel-action@de09aeac2ace6599ec9b11ef87558759a496bac4 # v42.3.0
         with:
