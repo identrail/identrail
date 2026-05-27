@@ -3466,6 +3466,8 @@ export function ProductOverviewPage() {
   const connectSourcesProvider = DOMAIN_NAV_ORDER.find((provider) => sourceAvailability[provider].available) ?? 'aws';
   const connectSourcesPath = scope ? buildScopedPath(scope, `${connectSourcesProvider}/connect`) : '/app';
   const connectSourcesLabel = `Connect ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
+  const coverageSourcePath = scope ? buildScopedPath(scope, connectSourcesProvider) : '/app';
+  const coverageSourceLabel = `Open ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
   const hasAnySuccessfulScan = succeededScanCount > 0;
   // A source counts as connected when either (a) onboarding records a connector
   // configuration on the workspace, or (b) any scan has run (you can't scan
@@ -3734,7 +3736,7 @@ export function ProductOverviewPage() {
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
               <h3>Domain coverage</h3>
-              <Link to={githubPath}>Open GitHub</Link>
+              <Link to={coverageSourcePath}>{coverageSourceLabel}</Link>
             </div>
             {activeProjects.length > 0 ? (
               <div className="idt-overview-projects">
