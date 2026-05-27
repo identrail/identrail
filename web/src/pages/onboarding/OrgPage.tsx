@@ -20,10 +20,7 @@ export function OrgPage() {
       setLoading(true);
       setError('');
       try {
-        const [started, current] = await Promise.all([
-          apiClient.startOnboarding(),
-          apiClient.getMe({ redirectOnUnauthorized: false })
-        ]);
+        const started = await apiClient.startOnboarding();
         if (!mounted) {
           return;
         }
@@ -31,8 +28,6 @@ export function OrgPage() {
           return;
         }
         setState(started.state);
-        const displayName = current.me.user.display_name || current.me.user.primary_email?.split('@')[0] || '';
-        setOrgName(displayName ? `${displayName} Security` : 'Production Security');
       } catch (requestError) {
         if (!mounted) {
           return;
@@ -58,7 +53,7 @@ export function OrgPage() {
     event.preventDefault();
     const name = orgName.trim();
     if (!name) {
-      setError('Organization name is required.');
+      setError('Please enter an organization name to continue.');
       return;
     }
     setSaving(true);
@@ -81,14 +76,8 @@ export function OrgPage() {
     <OnboardingFrame
       step="org"
       eyebrow="Secure onboarding"
-      title="Create your organization"
-      description="This is the security boundary for your workspaces, repositories, scans, findings, and team access."
-      aside={
-        <div className="idt-onboarding-assurance">
-          <strong>Enterprise-ready setup</strong>
-          <span>Progress is saved in Identrail, so refreshes and second devices continue from the same place.</span>
-        </div>
-      }
+      title="Set up your organization"
+      description="Create one boundary for workspaces, sources, scans, findings, and access."
     >
       {loading ? <p className="idt-muted-strong">Preparing your account...</p> : null}
       {error ? (
@@ -99,18 +88,17 @@ export function OrgPage() {
       <form className="idt-onboarding-form" onSubmit={submit}>
         <div className="idt-onboarding-field">
           <label htmlFor="org-name">Organization name</label>
-          <p id="org-name-hint">Use the company or security program name your team will recognize.</p>
+          <p id="org-name-hint">Use a recognizable company or program name.</p>
           <input
             id="org-name"
             value={orgName}
             onChange={(event) => setOrgName(event.target.value)}
-            placeholder="Acme Security"
             autoComplete="organization"
             aria-describedby="org-name-hint"
           />
         </div>
         <div className="idt-onboarding-actions">
-          <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading || !orgName.trim()}>
+          <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>
             {saving ? 'Saving...' : state?.org_id ? 'Continue' : 'Create organization'}
           </button>
         </div>

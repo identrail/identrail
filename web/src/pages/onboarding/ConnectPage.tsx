@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { apiClient, type OnboardingState } from '../../api/client';
+import { apiClient } from '../../api/client';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';
 import { isFeatureAvailable, useBackendFeatures } from '../../hooks/useBackendFeatures';
 import {
@@ -26,22 +26,22 @@ const PROVIDER_META: Array<{
   {
     id: 'aws',
     name: 'AWS',
-    signal: 'IAM roles, trust policies, account paths',
-    detail: 'Best first source for cloud identity blast-radius discovery.',
+    signal: 'IAM roles and trust policies',
+    detail: 'Best for cloud identity paths.',
     viteFlag: FEATURE_ONBOARDING_CONNECTOR_AWS
   },
   {
     id: 'kubernetes',
     name: 'Kubernetes',
-    signal: 'Service accounts, RBAC, workload identity',
-    detail: 'Use when cluster access and service account paths matter most.',
+    signal: 'Service accounts and RBAC',
+    detail: 'Best for workload identity.',
     viteFlag: FEATURE_ONBOARDING_CONNECTOR_K8S
   },
   {
     id: 'github',
     name: 'GitHub',
-    signal: 'Repositories, workflow identity, webhook scans',
-    detail: 'Use when code and OIDC workflow access are the first security boundary.',
+    signal: 'Repos and workflow identity',
+    detail: 'Best for code-to-cloud paths.',
     viteFlag: FEATURE_ONBOARDING_CONNECTOR_GITHUB
   }
 ];
@@ -58,8 +58,7 @@ export function ConnectPage() {
     [features]
   );
   const enabledProviders = useMemo(() => providers.filter((provider) => provider.enabled), [providers]);
-  const [state, setState] = useState<OnboardingState | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState<OnboardingProvider>('aws');
+  const [selectedProvider, setSelectedProvider] = useState<OnboardingProvider | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -67,11 +66,9 @@ export function ConnectPage() {
   const enabledProviderIdsRef = useRef<OnboardingProvider[]>([]);
   enabledProviderIdsRef.current = enabledProviders.map((provider) => provider.id);
 
-  // Keep the selection on an actionable connector once API-discovered
-  // availability resolves (the bundle may ship a connector the API lacks).
   useEffect(() => {
-    if (enabledProviders.length && !enabledProviders.some((provider) => provider.id === selectedProvider)) {
-      setSelectedProvider(enabledProviders[0].id);
+    if (selectedProvider && !enabledProviders.some((provider) => provider.id === selectedProvider)) {
+      setSelectedProvider(null);
     }
   }, [enabledProviders, selectedProvider]);
 
@@ -89,7 +86,6 @@ export function ConnectPage() {
         if (!mounted) {
           return;
         }
-        setState(nextState);
         if (!nextState.org_id || !nextState.workspace_id || !nextState.project_id) {
           navigate('/onboarding/workspace', { replace: true });
           return;
@@ -123,17 +119,22 @@ export function ConnectPage() {
 
   const continueToScan = async () => {
     if (!enabledProviders.length) {
-      return skipConnector();
+      setError('No sources are available. Skip for now to continue.');
+      return;
+    }
+    const provider = selectedProvider;
+    if (!provider || !enabledProviders.some((enabledProvider) => enabledProvider.id === provider)) {
+      setError('Please choose an available source to continue.');
+      return;
     }
     setSaving(true);
     setError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',
-        connector_type: selectedProvider,
+        connector_type: provider,
         connector_skipped: false
       });
-      setState(response.state);
       routeAfterOnboardingResponse(navigate, response.redirect_path, '/onboarding/scan');
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to save connector choice.');
@@ -144,6 +145,12 @@ export function ConnectPage() {
 
   const openConnectorSetup = async () => {
     if (!enabledProviders.length) {
+      setError('No sources are available. Skip for now to continue.');
+      return;
+    }
+    const provider = selectedProvider;
+    if (!provider || !enabledProviders.some((enabledProvider) => enabledProvider.id === provider)) {
+      setError('Please choose an available source to open setup.');
       return;
     }
     setSaving(true);
@@ -151,10 +158,9 @@ export function ConnectPage() {
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',
-        connector_type: selectedProvider,
+        connector_type: provider,
         connector_skipped: false
       });
-      setState(response.state);
       navigate(onboardingProjectPath(response.state));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to open connector setup.');
@@ -171,7 +177,6 @@ export function ConnectPage() {
         current_step: 'connect',
         connector_skipped: true
       });
-      setState(response.state);
       routeAfterOnboardingResponse(navigate, response.redirect_path, '/onboarding/scan');
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to skip connector setup.');
@@ -183,15 +188,9 @@ export function ConnectPage() {
   return (
     <OnboardingFrame
       step="connect"
-      eyebrow="Connect source"
-      title="Choose the first identity source"
-      description="Start with one read-only source. You can add the rest after the first scan proves the workflow."
-      aside={
-        <div className="idt-onboarding-assurance">
-          <strong>Least privilege first</strong>
-          <span>Connector setup uses the same project-scoped AWS, Kubernetes, and GitHub flows already reviewed in the product.</span>
-        </div>
-      }
+      eyebrow="Source"
+      title="Connect one source"
+      description="Start read-only. Add more sources later."
     >
       {loading ? <p className="idt-muted-strong">Checking available connectors...</p> : null}
       {error ? (
@@ -221,17 +220,14 @@ export function ConnectPage() {
         ))}
       </div>
       <div className="idt-onboarding-actions">
-        <button type="button" className="idt-btn idt-btn-primary" disabled={saving || loading || !enabledProviders.length} onClick={continueToScan}>
+        <button type="button" className="idt-btn idt-btn-primary" disabled={saving || loading} onClick={continueToScan}>
           {saving ? 'Saving...' : 'Continue'}
         </button>
-        <button type="button" className="idt-btn idt-btn-secondary" disabled={saving || loading || !enabledProviders.length} onClick={openConnectorSetup}>
+        <button type="button" className="idt-btn idt-btn-secondary" disabled={saving || loading} onClick={openConnectorSetup}>
           Open setup
         </button>
         <SkipForNow disabled={saving || loading} onSkip={skipConnector} />
       </div>
-      {state?.project_id ? (
-        <p className="idt-muted-strong">Setup target: {state.workspace_id}/{state.project_id}</p>
-      ) : null}
     </OnboardingFrame>
   );
 }

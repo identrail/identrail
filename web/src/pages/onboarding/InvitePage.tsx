@@ -95,6 +95,10 @@ export function InvitePage() {
       setError('Workspace context is required before inviting teammates.');
       return;
     }
+    if (!invitees.length) {
+      setError('Please enter at least one valid email address, or finish without invites.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -127,14 +131,8 @@ export function InvitePage() {
     <OnboardingFrame
       step="invite"
       eyebrow="Team"
-      title="Invite the first reviewers"
-      description="Bring platform, security, or IAM teammates into the workspace so findings have owners from day one."
-      aside={
-        <div className="idt-onboarding-assurance">
-          <strong>Least access</strong>
-          <span>New teammates start as invited viewers; owners can adjust roles in workspace settings later.</span>
-        </div>
-      }
+      title="Invite reviewers"
+      description="Add teammates who will own findings."
     >
       {loading ? <p className="idt-muted-strong">Preparing invite controls...</p> : null}
       {error ? (
@@ -148,12 +146,10 @@ export function InvitePage() {
           id="invite-emails"
           value={emails}
           onChange={(event) => setEmails(event.target.value)}
-          placeholder="analyst@example.com, platform@example.com"
           rows={5}
         />
-        <p className="idt-muted-strong">{invitees.length ? `${invitees.length} valid invitee${invitees.length === 1 ? '' : 's'} ready` : 'You can skip this and invite teammates later.'}</p>
         <div className="idt-onboarding-actions">
-          <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading || invitees.length === 0}>
+          <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>
             {saving ? 'Finishing...' : 'Invite and finish'}
           </button>
           <SkipForNow disabled={saving || loading} onSkip={complete} label="Finish without invites" />
