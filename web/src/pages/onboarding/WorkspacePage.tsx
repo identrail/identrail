@@ -12,8 +12,8 @@ import {
 export function WorkspacePage() {
   const navigate = useNavigate();
   const [state, setState] = useState<OnboardingState | null>(null);
-  const [workspaceName, setWorkspaceName] = useState('Production');
-  const [projectName, setProjectName] = useState('Production');
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [projectName, setProjectName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -64,7 +64,11 @@ export function WorkspacePage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!workspaceName.trim()) {
-      setError('Workspace name is required.');
+      setError('Please enter a workspace name to continue.');
+      return;
+    }
+    if (!projectName.trim()) {
+      setError('Please enter a project name to continue.');
       return;
     }
     setSaving(true);
@@ -73,7 +77,7 @@ export function WorkspacePage() {
       const response = await apiClient.updateOnboardingState({
         current_step: 'workspace',
         workspace_name: workspaceName.trim(),
-        project_name: projectName.trim() || workspaceName.trim()
+        project_name: projectName.trim()
       });
       setState(response.state);
       routeAfterOnboardingResponse(navigate, response.redirect_path, '/onboarding/connect');
@@ -88,14 +92,8 @@ export function WorkspacePage() {
     <OnboardingFrame
       step="workspace"
       eyebrow="Workspace"
-      title="Name the environment you will secure first"
-      description="A workspace keeps scans, connectors, projects, members, and findings inside one operating boundary."
-      aside={
-        <div className="idt-onboarding-assurance">
-          <strong>Default project included</strong>
-          <span>Identrail creates the first project automatically so connector setup has a safe scope immediately.</span>
-        </div>
-      }
+      title="Name your first workspace"
+      description="Keep scans, sources, projects, and members in one scope."
     >
       {loading ? <p className="idt-muted-strong">Loading workspace setup...</p> : null}
       {error ? (
@@ -109,7 +107,6 @@ export function WorkspacePage() {
           id="workspace-name"
           value={workspaceName}
           onChange={(event) => setWorkspaceName(event.target.value)}
-          placeholder="Production"
           autoComplete="off"
         />
         <label htmlFor="project-name">First project</label>
@@ -117,11 +114,10 @@ export function WorkspacePage() {
           id="project-name"
           value={projectName}
           onChange={(event) => setProjectName(event.target.value)}
-          placeholder="Production"
           autoComplete="off"
         />
         <div className="idt-onboarding-actions">
-          <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading || !workspaceName.trim()}>
+          <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>
             {saving ? 'Creating...' : state?.workspace_id ? 'Continue' : 'Create workspace'}
           </button>
         </div>
