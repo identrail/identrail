@@ -2744,7 +2744,7 @@ describe('App', () => {
     expect(screen.queryByText(/Signed out successfully/i)).not.toBeInTheDocument();
   });
 
-  it('renders the printable executive report from the API response', async () => {
+  it('renders the downloadable executive report from the API response', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -2774,15 +2774,17 @@ describe('App', () => {
     setCurrentPath('/reports/executive');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Board-ready risk posture/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Risk posture summary/i })).toBeInTheDocument();
     expect(screen.getByText('tenant-a')).toBeInTheDocument();
     expect(screen.getByText('7')).toBeInTheDocument();
-    expect(screen.getByText('5 critical or high priority')).toBeInTheDocument();
+    expect(screen.getByText('5 critical or high')).toBeInTheDocument();
     expect(screen.getAllByText('30m').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Secret Exposure').length).toBeGreaterThan(0);
-    expect(screen.getByText('Authorized workspaces')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Severity composition/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Top finding types/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Notes for leadership/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Review findings/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Print report/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Download report/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/v1/enterprise/reports/executive',
       expect.objectContaining({

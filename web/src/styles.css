@@ -4537,189 +4537,414 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 
 .idt-executive-report-shell {
   align-items: start;
-  padding: clamp(1rem, 3vw, 2.5rem);
+  padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1rem, 3vw, 2.5rem);
 }
 
-.idt-executive-report-page {
+html[data-theme] .idt-executive-report-shell .idt-exec-report {
+  width: min(100%, 1080px);
+  margin: 0 auto;
   display: grid;
-  gap: 1rem;
-  width: min(100%, 1180px);
+  gap: clamp(2rem, 3.2vw, 2.75rem);
 }
 
-.idt-executive-report-header,
-.idt-executive-report-section-header,
-.idt-executive-narrative article,
-.idt-executive-severity-list article,
-.idt-executive-type-list article {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.idt-executive-report-header {
-  align-items: flex-start;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid rgba(130, 160, 214, 0.24);
-}
-
-.idt-executive-report-header h1,
-.idt-executive-report-section h2 {
-  margin-bottom: 0.35rem;
-}
-
-.idt-executive-report-header p,
-.idt-executive-report-section p,
-.idt-executive-narrative p {
-  margin: 0;
-  color: #c9d8ee;
-}
-
-.idt-executive-report-actions,
-.idt-executive-report-metrics,
-.idt-executive-report-grid,
-.idt-executive-severity-list,
-.idt-executive-type-list,
-.idt-executive-narrative {
+html[data-theme] .idt-executive-report-shell .idt-exec-report__header {
   display: grid;
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 1.5rem 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.idt-executive-report-actions {
-  grid-auto-flow: column;
-  justify-content: end;
-  align-items: center;
-}
-
-.idt-executive-report-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.idt-executive-report-metrics article,
-.idt-executive-report-section,
-.idt-executive-severity-list article,
-.idt-executive-type-list article,
-.idt-executive-narrative article {
-  border: 1px solid rgba(130, 160, 214, 0.28);
-  border-radius: 0.65rem;
-  background: rgba(8, 14, 25, 0.52);
-}
-
-.idt-executive-report-metrics article,
-.idt-executive-report-section {
-  padding: 1rem;
-}
-
-.idt-executive-report-metrics span,
-.idt-executive-severity-list span,
-.idt-executive-type-list span {
-  color: #9fb8de;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
+html[data-theme] .idt-executive-report-shell .idt-exec-report__eyebrow {
+  margin: 0 0 0.55rem;
+  color: rgba(245, 247, 248, 0.45);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
-.idt-executive-report-metrics strong {
-  display: block;
-  margin-top: 0.25rem;
-  color: #f2f7ff;
+html[data-theme] .idt-executive-report-shell .idt-exec-report__header h1 {
+  margin: 0 0 0.7rem;
   font-family: var(--idt-display);
-  font-size: 1.55rem;
+  font-size: clamp(1.85rem, 3.4vw, 2.4rem);
+  font-weight: 600;
+  letter-spacing: -0.014em;
   line-height: 1.1;
+  color: rgba(245, 247, 248, 0.97);
+  text-transform: none;
 }
 
-.idt-executive-report-metrics p {
-  margin: 0.25rem 0 0;
-  color: #c2d4f0;
+html[data-theme] .idt-executive-report-shell .idt-exec-report__meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+  color: rgba(245, 247, 248, 0.5);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
-.idt-executive-report-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
+html[data-theme] .idt-executive-report-shell .idt-exec-report__meta strong {
+  color: rgba(245, 247, 248, 0.82);
+  font-weight: 500;
 }
 
-.idt-executive-report-section {
-  display: grid;
-  gap: 0.9rem;
+html[data-theme] .idt-executive-report-shell .idt-exec-report__meta span[aria-hidden='true'] {
+  color: rgba(245, 247, 248, 0.25);
 }
 
-.idt-executive-report-wide {
-  grid-column: 1 / -1;
-}
-
-.idt-executive-report-section-header {
-  align-items: flex-start;
-}
-
-.idt-executive-report-section-header a {
-  color: #b8cef0;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.idt-executive-report-scope {
-  color: #9fb8de;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.idt-executive-report-section-header a:hover,
-.idt-executive-report-section-header a:focus-visible {
-  color: #e8f2ff;
-  text-decoration: underline;
-}
-
-.idt-executive-severity-list article,
-.idt-executive-type-list article,
-.idt-executive-narrative article {
+html[data-theme] .idt-executive-report-shell .idt-exec-report__actions {
+  display: flex;
+  gap: 0.6rem;
   align-items: center;
-  padding: 0.75rem;
+  justify-self: end;
 }
 
-.idt-executive-severity-list strong,
-.idt-executive-type-list strong,
-.idt-executive-narrative strong {
-  color: #eef5ff;
+html[data-theme] .idt-executive-report-shell .idt-exec-report__download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
-.idt-executive-severity-list article > div:first-child,
-.idt-executive-type-list article > div:first-child {
-  min-width: 8rem;
+html[data-theme] .idt-executive-report-shell .idt-exec-report__download svg {
+  flex: none;
 }
 
-.idt-executive-severity-list span,
-.idt-executive-type-list span {
-  display: block;
-  margin-top: 0.15rem;
+html[data-theme] .idt-executive-report-shell .idt-exec-kpis {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.idt-executive-bar {
-  flex: 1;
-  height: 0.55rem;
-  min-width: 8rem;
-  overflow: hidden;
+html[data-theme] .idt-executive-report-shell .idt-exec-kpi {
+  padding: 1.55rem 1.5rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-kpi:first-child {
+  padding-left: 0;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-kpi:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-kpi dt {
+  margin: 0 0 0.55rem;
+  color: rgba(245, 247, 248, 0.48);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-kpi dd {
+  margin: 0 0 0.45rem;
+  font-family: var(--idt-display);
+  font-size: clamp(1.65rem, 2.6vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  line-height: 1.05;
+  color: rgba(245, 247, 248, 0.98);
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-kpi p {
+  margin: 0;
+  color: rgba(245, 247, 248, 0.52);
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-section {
+  display: grid;
+  gap: 0.95rem;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-section h2 {
+  margin: 0;
+  font-family: var(--idt-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: rgba(245, 247, 248, 0.94);
+  text-transform: none;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-section__lede {
+  margin: -0.5rem 0 0.2rem;
+  color: rgba(245, 247, 248, 0.5);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-section__empty {
+  margin: 0;
+  color: rgba(245, 247, 248, 0.45);
+  font-size: 0.9rem;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-stack {
+  display: flex;
+  width: 100%;
+  height: 0.65rem;
   border-radius: 999px;
-  background: rgba(130, 160, 214, 0.18);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.idt-executive-bar span {
+html[data-theme] .idt-executive-report-shell .idt-exec-stack__seg {
   display: block;
   height: 100%;
-  min-width: 0.35rem;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #8fd8ff, #b8f3d6);
+  min-width: 2px;
 }
 
-.idt-executive-narrative {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+html[data-theme] .idt-executive-report-shell .idt-exec-stack__seg.is-critical {
+  background: #e26b6b;
 }
 
-.idt-executive-narrative article {
+html[data-theme] .idt-executive-report-shell .idt-exec-stack__seg.is-high {
+  background: #e0995b;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-stack__seg.is-medium {
+  background: #d8c074;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-stack__seg.is-low {
+  background: #7fb5a6;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-stack__seg.is-info {
+  background: #7fa2d8;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-legend {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
   display: grid;
-  align-content: start;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.05rem 1.75rem;
 }
+
+html[data-theme] .idt-executive-report-shell .idt-exec-legend li {
+  display: grid;
+  grid-template-columns: 0.6rem 1fr auto auto;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.35rem 0;
+  font-size: 0.9rem;
+  color: rgba(245, 247, 248, 0.82);
+  line-height: 1.3;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-legend li.is-empty {
+  opacity: 0.45;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-legend__label {
+  color: rgba(245, 247, 248, 0.82);
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-legend__count {
+  color: rgba(245, 247, 248, 0.96);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-legend__share {
+  color: rgba(245, 247, 248, 0.5);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 3rem;
+  text-align: right;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-dot.is-critical {
+  background: #e26b6b;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-dot.is-high {
+  background: #e0995b;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-dot.is-medium {
+  background: #d8c074;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-dot.is-low {
+  background: #7fb5a6;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-dot.is-info {
+  background: #7fa2d8;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-rank {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-rank li {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.94rem;
+  color: rgba(245, 247, 248, 0.92);
+  line-height: 1.3;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-rank li:last-child {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-rank__index {
+  color: rgba(245, 247, 248, 0.38);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-rank__label {
+  color: rgba(245, 247, 248, 0.92);
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-rank__share {
+  color: rgba(245, 247, 248, 0.5);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-rank__count {
+  color: rgba(245, 247, 248, 0.96);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-notes li {
+  position: relative;
+  padding-left: 1.1rem;
+  color: rgba(245, 247, 248, 0.8);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-notes li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.78em;
+  width: 0.55rem;
+  border-top: 1px solid rgba(245, 247, 248, 0.32);
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-notes strong {
+  color: rgba(245, 247, 248, 0.95);
+  font-weight: 600;
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-report__footer {
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
+  margin: 0;
+  color: rgba(245, 247, 248, 0.38);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+@media (max-width: 960px) {
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpi {
+    padding: 1.3rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpi:nth-child(odd) {
+    padding-left: 0;
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpi:nth-child(even) {
+    border-right: 0;
+    padding-right: 0;
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpi:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-theme] .idt-executive-report-shell .idt-exec-report__header {
+    grid-template-columns: 1fr;
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-report__actions {
+    justify-self: start;
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpi {
+    padding: 1.1rem 0;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-kpi:last-child {
+    border-bottom: 0;
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-rank li {
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+    gap: 0.75rem;
+  }
+
+  html[data-theme] .idt-executive-report-shell .idt-exec-rank__share {
+    display: none;
+  }
+}
+
+/* Executive shell is rendered on a dark surface regardless of app theme
+   (see product shell depth-palette rules), so text colors stay light. */
 
 .idt-repo-findings-header {
   display: flex;

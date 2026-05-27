@@ -406,6 +406,254 @@ function countHighPriorityExecutiveFindings(report: ExecutiveReport): number {
   return (report.open_by_severity.critical ?? 0) + (report.open_by_severity.high ?? 0);
 }
 
+const EXECUTIVE_SEVERITY_PALETTE: Record<(typeof EXECUTIVE_REPORT_SEVERITY_ORDER)[number], string> = {
+  critical: '#e26b6b',
+  high: '#e0995b',
+  medium: '#d8c074',
+  low: '#7fb5a6',
+  info: '#7fa2d8'
+};
+
+function escapeReportHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      default:
+        return '&#39;';
+    }
+  });
+}
+
+function buildExecutiveReportHtml(report: ExecutiveReport, highPriorityFindings: number): string {
+  const weekDelta = report.week_over_week.delta;
+  const topFindingTypes = report.top_finding_types ?? [];
+  const severityRows = EXECUTIVE_REPORT_SEVERITY_ORDER.map((severity) => ({
+    severity,
+    count: report.open_by_severity[severity] ?? 0
+  }));
+  const totalOpen = report.total_open_findings;
+  const sharePct = (count: number) =>
+    totalOpen > 0 ? Math.round((count / totalOpen) * 100) : 0;
+
+  const stackSegments = severityRows
+    .filter((row) => row.count > 0)
+    .map(
+      (row) =>
+        `<span style="display:inline-block;height:100%;width:${sharePct(row.count)}%;background:${EXECUTIVE_SEVERITY_PALETTE[row.severity]};"></span>`
+    )
+    .join('');
+
+  const legendRows = severityRows
+    .map((row) => {
+      const dim = row.count === 0 ? 'opacity:0.5;' : '';
+      return `<li style="display:flex;align-items:center;gap:0.65rem;padding:0.35rem 0;font-size:0.92rem;${dim}">
+            <span style="display:inline-block;width:0.55rem;height:0.55rem;border-radius:999px;background:${EXECUTIVE_SEVERITY_PALETTE[row.severity]};"></span>
+            <span style="flex:1;color:#2a2f37;">${escapeReportHtml(formatTokenLabel(row.severity))}</span>
+            <span style="font-variant-numeric:tabular-nums;font-weight:600;color:#10141a;">${row.count}</span>
+            <span style="font-variant-numeric:tabular-nums;color:#5e6776;min-width:3rem;text-align:right;">${sharePct(row.count)}%</span>
+          </li>`;
+    })
+    .join('');
+
+  const themeRows =
+    topFindingTypes.length === 0
+      ? `<p style="color:#5e6776;font-size:0.92rem;">No dominant finding types in this window.</p>`
+      : `<ol style="list-style:none;margin:0;padding:0;">
+          ${topFindingTypes
+            .map(
+              (item, index) =>
+                `<li style="display:grid;grid-template-columns:1.5rem 1fr auto auto;gap:1rem;align-items:center;padding:0.75rem 0;border-top:1px solid #e6e9ee;font-size:0.95rem;${index === topFindingTypes.length - 1 ? 'border-bottom:1px solid #e6e9ee;' : ''}">
+                  <span style="color:#9aa3b2;font-variant-numeric:tabular-nums;font-size:0.82rem;">${String(index + 1).padStart(2, '0')}</span>
+                  <span style="color:#10141a;">${escapeReportHtml(formatTokenLabel(item.type))}</span>
+                  <span style="color:#5e6776;font-variant-numeric:tabular-nums;font-size:0.85rem;">${sharePct(item.count)}%</span>
+                  <span style="color:#10141a;font-variant-numeric:tabular-nums;font-weight:600;min-width:2.5rem;text-align:right;">${item.count}</span>
+                </li>`
+            )
+            .join('')}
+        </ol>`;
+
+  const trendNote =
+    weekDelta > 0
+      ? `Open finding volume grew by <strong>${weekDelta}</strong> compared with the prior 7-day window.`
+      : weekDelta < 0
+        ? `Open finding volume fell by <strong>${Math.abs(weekDelta)}</strong> compared with the prior 7-day window.`
+        : 'Open finding volume held steady against the prior 7-day window.';
+
+  const mttrNote = report.mean_time_to_resolve
+    ? `Mean time to resolve is <strong>${escapeReportHtml(formatExecutiveDuration(report.mean_time_to_resolve.seconds))}</strong> across ${report.mean_time_to_resolve.resolved_count} resolved findings with reliable timestamps.`
+    : 'Mean time to resolve will be reported once resolved findings accumulate reliable timestamps.';
+
+  const topThemeNote = topFindingTypes[0]
+    ? `Largest theme is <strong>${escapeReportHtml(formatTokenLabel(topFindingTypes[0].type))}</strong>, representing ${sharePct(topFindingTypes[0].count)}% of open findings.`
+    : '';
+
+  const kpis = [
+    {
+      label: 'Open findings',
+      value: totalOpen.toLocaleString(),
+      detail: `${highPriorityFindings} critical or high`
+    },
+    {
+      label: 'Net change · 7 days',
+      value: weekDelta > 0 ? `+${weekDelta}` : String(weekDelta),
+      detail: `${report.week_over_week.current_count} new · ${report.week_over_week.previous_count} previous`
+    },
+    {
+      label: 'Mean time to resolve',
+      value: formatExecutiveDuration(report.mean_time_to_resolve?.seconds),
+      detail: report.mean_time_to_resolve
+        ? `${report.mean_time_to_resolve.resolved_count} resolved samples`
+        : 'Awaiting reliable resolution data'
+    },
+    {
+      label: 'Top risk type',
+      value: topFindingTypes[0] ? formatTokenLabel(topFindingTypes[0].type) : '—',
+      detail: topFindingTypes[0]
+        ? `${topFindingTypes[0].count} of ${totalOpen} open`
+        : 'No open findings in scope'
+    }
+  ];
+
+  const kpiCells = kpis
+    .map(
+      (kpi, index) => `<td style="padding:1.25rem 1.25rem 1.25rem ${index === 0 ? '0' : '1.25rem'};border-right:${index === kpis.length - 1 ? '0' : '1px solid #e6e9ee'};vertical-align:top;width:25%;">
+        <div style="color:#5e6776;font-size:0.72rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.5rem;">${escapeReportHtml(kpi.label)}</div>
+        <div style="font-family:'Georgia','Times New Roman',serif;font-size:1.85rem;font-weight:600;color:#10141a;line-height:1.05;margin-bottom:0.45rem;">${escapeReportHtml(kpi.value)}</div>
+        <div style="color:#5e6776;font-size:0.84rem;">${escapeReportHtml(kpi.detail)}</div>
+      </td>`
+    )
+    .join('');
+
+  const generatedLabel = formatDateLabel(report.generated_at);
+  const windowLabel = `${formatShortDateLabel(report.window_start)} – ${formatShortDateLabel(report.window_end)}`;
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Identrail · Executive Report · ${escapeReportHtml(report.organization_id)}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      @page { size: A4; margin: 1.6cm; }
+      * { box-sizing: border-box; }
+      html, body { background: #f7f8fa; }
+      body {
+        margin: 0;
+        font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        color: #10141a;
+        line-height: 1.5;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .sheet {
+        max-width: 820px;
+        margin: 32px auto;
+        padding: 56px 56px 48px;
+        background: #ffffff;
+        border: 1px solid #e6e9ee;
+        border-radius: 4px;
+      }
+      h1 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 0.55rem; font-size: 1.95rem; color: #10141a; }
+      h2 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; font-size: 1.05rem; margin: 0 0 0.65rem; color: #10141a; }
+      p { margin: 0; }
+      .eyebrow { color: #5e6776; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 0.55rem; }
+      .meta { color: #5e6776; font-size: 0.84rem; margin-top: 0.4rem; }
+      .meta strong { color: #2a2f37; font-weight: 500; }
+      .hr { border: 0; border-top: 1px solid #e6e9ee; margin: 2.25rem 0; }
+      .lede { color: #5e6776; font-size: 0.9rem; margin-top: -0.25rem; }
+      .kpi-row { width: 100%; border-collapse: collapse; border-top: 1px solid #e6e9ee; border-bottom: 1px solid #e6e9ee; margin: 1.5rem 0 2.25rem; }
+      .section { margin-bottom: 2rem; }
+      .section:last-child { margin-bottom: 0; }
+      .stack { width: 100%; height: 0.6rem; border-radius: 999px; background: #eef0f3; overflow: hidden; display: flex; margin: 0.9rem 0 1rem; }
+      .legend { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.05rem 1.5rem; }
+      .notes { list-style: none; margin: 0; padding: 0; }
+      .notes li { padding: 0.45rem 0 0.45rem 1rem; position: relative; color: #2a2f37; font-size: 0.95rem; }
+      .notes li::before { content: ''; position: absolute; left: 0; top: 1rem; width: 0.45rem; border-top: 1px solid #5e6776; }
+      .notes strong { color: #10141a; font-weight: 600; }
+      footer { margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid #e6e9ee; color: #8b94a3; font-size: 0.78rem; }
+      @media print {
+        html, body { background: #ffffff; }
+        .sheet { margin: 0; border: 0; border-radius: 0; padding: 0; max-width: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="sheet">
+      <header>
+        <p class="eyebrow">Executive Report</p>
+        <h1>Risk posture summary</h1>
+        <p class="meta">Organization <strong>${escapeReportHtml(report.organization_id)}</strong> · Window ${escapeReportHtml(windowLabel)} · Generated ${escapeReportHtml(generatedLabel)}</p>
+      </header>
+
+      <table class="kpi-row" role="presentation">
+        <tbody><tr>${kpiCells}</tr></tbody>
+      </table>
+
+      <section class="section">
+        <h2>Severity composition</h2>
+        <p class="lede">How the ${totalOpen.toLocaleString()} open findings break down today.</p>
+        <div class="stack" role="img" aria-label="Open findings by severity">${stackSegments || '<span style="width:100%;background:#eef0f3;"></span>'}</div>
+        <ul class="legend">${legendRows}</ul>
+      </section>
+
+      <hr class="hr" />
+
+      <section class="section">
+        <h2>Top finding types</h2>
+        <p class="lede">Themes driving open risk this window.</p>
+        ${themeRows}
+      </section>
+
+      <hr class="hr" />
+
+      <section class="section">
+        <h2>Notes for leadership</h2>
+        <ul class="notes">
+          <li>${trendNote}</li>
+          <li>${mttrNote}</li>
+          ${topThemeNote ? `<li>${topThemeNote}</li>` : ''}
+        </ul>
+      </section>
+
+      <footer>
+        <p>Scope: organization ${escapeReportHtml(report.organization_id)}, window ${escapeReportHtml(windowLabel)}.</p>
+        <p>Generated by Identrail on ${escapeReportHtml(generatedLabel)}.</p>
+      </footer>
+    </main>
+  </body>
+</html>`;
+}
+
+function executiveReportFileSlug(report: ExecutiveReport): string {
+  const orgSlug = report.organization_id.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'org';
+  const windowEnd = report.window_end.slice(0, 10).replace(/-/g, '');
+  return `identrail-executive-report-${orgSlug}-${windowEnd}.html`;
+}
+
+function downloadExecutiveReport(report: ExecutiveReport, highPriorityFindings: number): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+  const html = buildExecutiveReportHtml(report, highPriorityFindings);
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = executiveReportFileSlug(report);
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function toLocalDateTimeInputValue(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -2719,153 +2967,186 @@ export function ProductExecutiveReportPage() {
     severity,
     count: report.open_by_severity[severity] ?? 0
   }));
-  const maxSeverityCount = Math.max(1, ...severityRows.map((row) => row.count));
-  const maxTypeCount = Math.max(1, ...topFindingTypes.map((item) => item.count));
   const appPath = buildCurrentUserAppPath(me);
+
+  const totalOpen = report.total_open_findings;
+  const sharePct = (count: number) => (totalOpen > 0 ? Math.round((count / totalOpen) * 100) : 0);
+  const visibleSeverity = severityRows.filter((row) => row.count > 0);
+  const windowLabel = `${formatShortDateLabel(report.window_start)} – ${formatShortDateLabel(report.window_end)}`;
 
   return (
     <section className="idt-app-shell-screen idt-executive-report-shell">
-      <article className="idt-app-panel idt-executive-report-page">
-        <header className="idt-executive-report-header">
-          <div>
-            <p className="idt-app-kicker">Executive report</p>
-            <h1>Board-ready risk posture</h1>
-            <p>
-              Organization <strong>{report.organization_id}</strong> · {formatShortDateLabel(report.window_start)} to{' '}
-              {formatShortDateLabel(report.window_end)} · Generated {formatDateLabel(report.generated_at)}
+      <article className="idt-exec-report">
+        <header className="idt-exec-report__header">
+          <div className="idt-exec-report__title">
+            <p className="idt-exec-report__eyebrow">Executive report</p>
+            <h1>Risk posture summary</h1>
+            <p className="idt-exec-report__meta">
+              <span>
+                Organization <strong>{report.organization_id}</strong>
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>{windowLabel}</span>
+              <span aria-hidden="true">·</span>
+              <span>Generated {formatDateLabel(report.generated_at)}</span>
             </p>
           </div>
-          <div className="idt-executive-report-actions">
+          <div className="idt-exec-report__actions">
             <Link className="idt-btn idt-btn-ghost" to={appPath}>
-              Workspace
+              Back to workspace
             </Link>
-            <button className="idt-btn idt-btn-primary" type="button" onClick={() => window.print()}>
-              Print report
+            <button
+              className="idt-btn idt-btn-primary idt-exec-report__download"
+              type="button"
+              onClick={() => downloadExecutiveReport(report, highPriorityFindings)}
+            >
+              <svg
+                aria-hidden="true"
+                focusable="false"
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M8 2v8.5" />
+                <path d="M4.5 7L8 10.5 11.5 7" />
+                <path d="M2.5 13.5h11" />
+              </svg>
+              Download report
             </button>
           </div>
         </header>
 
-        <div className="idt-executive-report-metrics" aria-label="Executive report summary">
-          <article>
-            <span>Open findings</span>
-            <strong>{report.total_open_findings}</strong>
-            <p>{highPriorityFindings} critical or high priority</p>
-          </article>
-          <article>
-            <span>Week trend</span>
-            <strong>{weekDelta > 0 ? `+${weekDelta}` : weekDelta}</strong>
+        <dl className="idt-exec-kpis" aria-label="Executive report summary">
+          <div className="idt-exec-kpi">
+            <dt>Open findings</dt>
+            <dd>{totalOpen.toLocaleString()}</dd>
+            <p>{highPriorityFindings} critical or high</p>
+          </div>
+          <div className="idt-exec-kpi">
+            <dt>Net change · 7 days</dt>
+            <dd>{weekDelta > 0 ? `+${weekDelta}` : weekDelta}</dd>
             <p>
-              {report.week_over_week.current_count} current · {report.week_over_week.previous_count} previous
+              {report.week_over_week.current_count} new · {report.week_over_week.previous_count} previous
             </p>
-          </article>
-          <article>
-            <span>Mean time to resolve</span>
-            <strong>{formatExecutiveDuration(report.mean_time_to_resolve?.seconds)}</strong>
+          </div>
+          <div className="idt-exec-kpi">
+            <dt>Mean time to resolve</dt>
+            <dd>{formatExecutiveDuration(report.mean_time_to_resolve?.seconds)}</dd>
             <p>
               {report.mean_time_to_resolve
-                ? `${report.mean_time_to_resolve.resolved_count} resolved findings`
-                : 'No reliable resolved sample yet'}
+                ? `${report.mean_time_to_resolve.resolved_count} resolved samples`
+                : 'Awaiting reliable resolution data'}
             </p>
-          </article>
-          <article>
-            <span>Top risk type</span>
-            <strong>{topFindingTypes[0] ? formatTokenLabel(topFindingTypes[0].type) : 'None'}</strong>
-            <p>{topFindingTypes[0] ? `${topFindingTypes[0].count} open findings` : 'No open findings in scope'}</p>
-          </article>
-        </div>
+          </div>
+          <div className="idt-exec-kpi">
+            <dt>Top risk type</dt>
+            <dd>{topFindingTypes[0] ? formatTokenLabel(topFindingTypes[0].type) : '—'}</dd>
+            <p>
+              {topFindingTypes[0]
+                ? `${topFindingTypes[0].count} of ${totalOpen} open`
+                : 'No open findings in scope'}
+            </p>
+          </div>
+        </dl>
 
-        {report.total_open_findings === 0 ? (
+        {totalOpen === 0 ? (
           <AppShellEmptyState
             title="No open findings in this report window"
             body="The current organization report has no open findings to prioritize."
           />
         ) : (
-          <div className="idt-executive-report-grid">
-            <section className="idt-executive-report-section">
-              <div className="idt-executive-report-section-header">
-                <div>
-                  <p className="idt-app-kicker">Current posture</p>
-                  <h2>Open findings by severity</h2>
-                </div>
-                <span className="idt-executive-report-scope">Authorized workspaces</span>
-              </div>
-              <div className="idt-executive-severity-list">
-                {severityRows.map((row) => (
-                  <article key={row.severity}>
-                    <div>
-                      <strong>{formatTokenLabel(row.severity)}</strong>
-                      <span>{row.count}</span>
-                    </div>
-                    <div className="idt-executive-bar" aria-hidden="true">
-                      <span style={{ width: `${Math.round((row.count / maxSeverityCount) * 100)}%` }} />
-                    </div>
-                  </article>
+          <>
+            <section className="idt-exec-section">
+              <h2>Severity composition</h2>
+              <p className="idt-exec-section__lede">
+                How the {totalOpen.toLocaleString()} open findings break down today.
+              </p>
+              <div
+                className="idt-exec-stack"
+                role="img"
+                aria-label={`Open findings by severity: ${severityRows
+                  .filter((row) => row.count > 0)
+                  .map((row) => `${formatTokenLabel(row.severity)} ${row.count}`)
+                  .join(', ')}`}
+              >
+                {visibleSeverity.map((row) => (
+                  <span
+                    key={row.severity}
+                    className={`idt-exec-stack__seg is-${row.severity}`}
+                    style={{ width: `${sharePct(row.count)}%` }}
+                  />
                 ))}
               </div>
+              <ul className="idt-exec-legend">
+                {severityRows.map((row) => (
+                  <li key={row.severity} className={row.count === 0 ? 'is-empty' : undefined}>
+                    <span className={`idt-exec-dot is-${row.severity}`} aria-hidden="true" />
+                    <span className="idt-exec-legend__label">{formatTokenLabel(row.severity)}</span>
+                    <span className="idt-exec-legend__count">{row.count}</span>
+                    <span className="idt-exec-legend__share">{sharePct(row.count)}%</span>
+                  </li>
+                ))}
+              </ul>
             </section>
 
-            <section className="idt-executive-report-section">
-              <div className="idt-executive-report-section-header">
-                <div>
-                  <p className="idt-app-kicker">Prioritized themes</p>
-                  <h2>Top finding types</h2>
-                </div>
-              </div>
+            <section className="idt-exec-section">
+              <h2>Top finding types</h2>
+              <p className="idt-exec-section__lede">Themes driving open risk this window.</p>
               {topFindingTypes.length > 0 ? (
-                <div className="idt-executive-type-list">
-                  {topFindingTypes.map((item) => (
-                    <article key={item.type}>
-                      <div>
-                        <strong>{formatTokenLabel(item.type)}</strong>
-                        <span>{item.count}</span>
-                      </div>
-                      <div className="idt-executive-bar" aria-hidden="true">
-                        <span style={{ width: `${Math.round((item.count / maxTypeCount) * 100)}%` }} />
-                      </div>
-                    </article>
+                <ol className="idt-exec-rank">
+                  {topFindingTypes.map((item, index) => (
+                    <li key={item.type}>
+                      <span className="idt-exec-rank__index">{String(index + 1).padStart(2, '0')}</span>
+                      <span className="idt-exec-rank__label">{formatTokenLabel(item.type)}</span>
+                      <span className="idt-exec-rank__share">{sharePct(item.count)}%</span>
+                      <span className="idt-exec-rank__count">{item.count}</span>
+                    </li>
                   ))}
-                </div>
+                </ol>
               ) : (
-                <AppShellEmptyState
-                  title="No dominant finding types"
-                  body="Finding type priorities will appear after open findings are present."
-                />
+                <p className="idt-exec-section__empty">
+                  Finding type breakdown will appear once findings are present.
+                </p>
               )}
             </section>
 
-            <section className="idt-executive-report-section idt-executive-report-wide">
-              <div className="idt-executive-report-section-header">
-                <div>
-                  <p className="idt-app-kicker">Leadership interpretation</p>
-                  <h2>Trend and response signal</h2>
-                </div>
-              </div>
-              <div className="idt-executive-narrative">
-                <article>
-                  <strong>
-                    {weekDelta > 0
-                      ? 'Risk creation increased'
-                      : weekDelta < 0
-                        ? 'Risk creation decreased'
-                        : 'Risk creation is flat'}
-                  </strong>
-                  <p>
-                    The current seven-day window has {report.week_over_week.current_count} new findings versus{' '}
-                    {report.week_over_week.previous_count} in the prior window.
-                  </p>
-                </article>
-                <article>
-                  <strong>{report.mean_time_to_resolve ? 'Resolution sample is available' : 'Resolution sample is not available'}</strong>
-                  <p>
-                    {report.mean_time_to_resolve
-                      ? `Mean time to resolve is ${formatExecutiveDuration(report.mean_time_to_resolve.seconds)} across ${report.mean_time_to_resolve.resolved_count} findings with trustworthy resolved timestamps.`
-                      : 'MTTR is intentionally omitted until resolved findings carry trustworthy resolved timestamps.'}
-                  </p>
-                </article>
-              </div>
+            <section className="idt-exec-section">
+              <h2>Notes for leadership</h2>
+              <ul className="idt-exec-notes">
+                <li>
+                  {weekDelta > 0
+                    ? `Open finding volume grew by ${weekDelta} compared with the prior 7-day window.`
+                    : weekDelta < 0
+                      ? `Open finding volume fell by ${Math.abs(weekDelta)} compared with the prior 7-day window.`
+                      : 'Open finding volume held steady against the prior 7-day window.'}
+                </li>
+                <li>
+                  {report.mean_time_to_resolve
+                    ? `Mean time to resolve is ${formatExecutiveDuration(report.mean_time_to_resolve.seconds)} across ${report.mean_time_to_resolve.resolved_count} resolved findings with reliable timestamps.`
+                    : 'Mean time to resolve will be reported once resolved findings accumulate reliable timestamps.'}
+                </li>
+                {topFindingTypes[0] ? (
+                  <li>
+                    Largest theme is <strong>{formatTokenLabel(topFindingTypes[0].type)}</strong>, representing{' '}
+                    {sharePct(topFindingTypes[0].count)}% of open findings.
+                  </li>
+                ) : null}
+              </ul>
             </section>
-          </div>
+          </>
         )}
+
+        <footer className="idt-exec-report__footer">
+          <p>
+            Scope: organization {report.organization_id}, window {windowLabel}.
+          </p>
+          <p>Generated by Identrail on {formatDateLabel(report.generated_at)}.</p>
+        </footer>
       </article>
     </section>
   );
