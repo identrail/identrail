@@ -212,7 +212,7 @@ export function WorkOSMFAPage() {
       </div>
 
       <article className="idt-auth-panel idt-auth-panel-login idt-auth-mfa-panel">
-        <h1>{isEnrollment ? 'Set up two-factor authentication' : 'Verify your sign-in'}</h1>
+        <h1>{isEnrollment ? 'Set up two-factor authentication' : 'Enter verification code'}</h1>
         {pending?.user_email ? <p className="idt-auth-mfa-subtitle">{pending.user_email}</p> : null}
         {error ? <p className="idt-app-alert idt-app-alert-error">{error}</p> : null}
         {loading ? <p className="idt-auth-mfa-subtitle">Loading verification...</p> : null}
@@ -262,12 +262,12 @@ export function WorkOSMFAPage() {
               maxLength={6}
               onChange={(event) => setCode(event.target.value)}
               pattern="[0-9]*"
-              placeholder="000000"
+              placeholder="6-digit code"
               required
               value={code}
             />
             <button className="idt-btn idt-btn-primary" type="submit" disabled={busy || !canEnterCode}>
-              {busy ? 'Verifying...' : 'Verify and continue'}
+              {busy ? 'Verifying...' : 'Continue'}
             </button>
           </form>
         ) : null}
