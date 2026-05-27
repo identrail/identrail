@@ -478,4 +478,29 @@ describe('onboarding pages', () => {
     expect(invite).toHaveBeenCalledTimes(1);
     expect(complete).not.toHaveBeenCalled();
   });
+
+  it('clears stale email validation before finishing without invites', async () => {
+    const { apiClient, InvitePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'invite',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/invite'
+    });
+    const complete = vi.spyOn(apiClient, 'completeOnboarding').mockRejectedValue(new Error('Unable to finish'));
+
+    renderOnboarding(<InvitePage />, '/onboarding/invite');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Invite and finish' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish without invites' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to finish');
+    expect(screen.queryByText('Enter a valid email')).not.toBeInTheDocument();
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
 });

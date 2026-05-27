@@ -79,6 +79,7 @@ export function InvitePage() {
   const complete = async () => {
     setSaving(true);
     setError('');
+    setEmailsError('');
     try {
       const response = await apiClient.completeOnboarding();
       setState(response.state);
