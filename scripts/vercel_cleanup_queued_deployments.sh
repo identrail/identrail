@@ -56,7 +56,7 @@ declare -A kept_by_ref
 prune_ids=()
 
 while :; do
-  ls_args=(ls "${project_ref}" --status QUEUED -F json)
+  ls_args=(ls "${project_ref}" --status QUEUED -F json "${scope_args[@]}")
   if [ -n "${next_token}" ]; then
     ls_args+=(--next "${next_token}")
   fi
