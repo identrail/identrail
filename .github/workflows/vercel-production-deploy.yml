@@ -48,7 +48,7 @@ jobs:
           review_decision="$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }} -q '.review_decision // empty')"
           if [ "${review_decision}" != "APPROVED" ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "Pull request review state is '${review_decision}', not APPRROVED; skipping production deploy."
+            echo "Pull request review state is '${review_decision}', not APPROVED; skipping production deploy."
             exit 0
           fi
 
