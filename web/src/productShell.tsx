@@ -432,7 +432,6 @@ function hasValidatedProductAuthScope(routeScopeKey: string): boolean {
 }
 
 function setValidatedProductAuthScope(routeScopeKey: string) {
-  productAuthSessionVersion += 1;
   validatedProductAuthSession = true;
   if (routeScopeKey !== PRODUCT_AUTH_SESSION_SCOPE_KEY) {
     validatedProductAuthScopeKey = routeScopeKey;
@@ -3302,6 +3301,8 @@ function persistInviteSkipped(tenantID: string | undefined, workspaceID: string 
 export function ProductOverviewPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
+  const { features: backendFeatures } = useBackendFeatures({ enabled: SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES });
+  const sourceAvailability = useMemo(() => buildSourceAvailability(backendFeatures), [backendFeatures]);
   const [showTour, setShowTour] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -3453,10 +3454,11 @@ export function ProductOverviewPage() {
   const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
   const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
   const githubPath = scope ? buildScopedPath(scope, 'github') : '/app';
-  const githubConnectPath = scope ? buildScopedPath(scope, 'github/connect') : '/app';
   const findingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
-  const connectSourcesPath = githubConnectPath;
+  const connectSourcesProvider = DOMAIN_NAV_ORDER.find((provider) => sourceAvailability[provider].available) ?? 'aws';
+  const connectSourcesPath = scope ? buildScopedPath(scope, `${connectSourcesProvider}/connect`) : '/app';
+  const connectSourcesLabel = `Connect ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
   const hasAnySuccessfulScan = succeededScanCount > 0;
   // A source counts as connected when either (a) onboarding records a connector
   // configuration on the workspace, or (b) any scan has run (you can't scan
@@ -3744,7 +3746,7 @@ export function ProductOverviewPage() {
               <AppShellEmptyState
                 title="No configured scopes"
                 body="Open a domain section to connect telemetry and start building coverage."
-                action={{ label: 'Connect GitHub', to: githubConnectPath }}
+                action={{ label: connectSourcesLabel, to: connectSourcesPath }}
               />
             )}
           </section>

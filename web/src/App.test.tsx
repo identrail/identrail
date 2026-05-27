@@ -1172,7 +1172,14 @@ describe('App', () => {
       throw new Error('missing source checklist item');
     }
     expect(sourceChecklistItem).toHaveAttribute('data-complete', 'false');
-    expect(within(sourceChecklistItem).getByRole('link', { name: 'Connect' })).toBeInTheDocument();
+    expect(within(sourceChecklistItem).getByRole('link', { name: 'Connect' })).toHaveAttribute(
+      'href',
+      '/app/tenant-b/workspace-b/aws/connect'
+    );
+    expect(screen.getByRole('link', { name: 'Connect AWS' })).toHaveAttribute(
+      'href',
+      '/app/tenant-b/workspace-b/aws/connect'
+    );
   });
 
   it('hides manual workspace entry when auth config disables manual mode', async () => {
