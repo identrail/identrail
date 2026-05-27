@@ -97,22 +97,6 @@ jobs:
             echo "token=$token"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Install Vercel CLI
-        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
-        env:
-          VERCEL_CLI_VERSION: "54.5.0"
-          VERCEL_CLI_INTEGRITY: "sha512-9NANKCdLqfpUQu7fGWelmPFJvnNK73PBH/4oGL4OMAfjLjrS8vDShFXm5lKQJ+01sgziLVjWek8rldOrpe7Dqg=="
-        run: |
-          set -euo pipefail
-          tarball="/tmp/vercel-${VERCEL_CLI_VERSION}.tgz"
-          curl -fsSL "https://registry.npmjs.org/vercel/-/vercel-${VERCEL_CLI_VERSION}.tgz" -o "${tarball}"
-          actual_integrity="sha512-$(openssl dgst -sha512 -binary "${tarball}" | openssl base64 -A)"
-          if [ "${actual_integrity}" != "${VERCEL_CLI_INTEGRITY}" ]; then
-            echo "Vercel CLI integrity mismatch: expected ${VERCEL_CLI_INTEGRITY}, got ${actual_integrity}."
-            exit 1
-          fi
-          npm install -g "${tarball}"
-
       - name: Verify Vercel token
         id: verify-token
         if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
