@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, apiClient, type WorkOSMFAPendingResponse } from '../api/client';
 
@@ -61,6 +61,7 @@ export function WorkOSMFAPage() {
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
   const [autoChallengeFactorID, setAutoChallengeFactorID] = useState('');
+  const challengeRequestRef = useRef<Promise<boolean> | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -107,13 +108,25 @@ export function WorkOSMFAPage() {
       setBusy(true);
     }
     setError('');
+    const task: Promise<boolean> = (async () => {
+      try {
+        await apiClient.challengeWorkOSMFA(factorID);
+        setPending((current) => (current ? { ...current, challenge_started: true } : current));
+        return true;
+      } catch (challengeError) {
+        setError(mfaErrorMessage(challengeError));
+        return false;
+      }
+    })();
+    if (silent) {
+      challengeRequestRef.current = task;
+    }
     try {
-      await apiClient.challengeWorkOSMFA(factorID);
-      setPending((current) => (current ? { ...current, challenge_started: true } : current));
-    } catch (challengeError) {
-      setError(mfaErrorMessage(challengeError));
+      await task;
     } finally {
-      if (!silent) {
+      if (silent) {
+        challengeRequestRef.current = null;
+      } else {
         setBusy(false);
       }
     }
@@ -121,9 +134,24 @@ export function WorkOSMFAPage() {
 
   const submitCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) {
+      return;
+    }
     setBusy(true);
     setError('');
     try {
+      // If the auto-challenge POST is still in flight (rare: an OTP autofill
+      // helper, assistive tech, or Enter in the single-input form may submit
+      // before challenge_started flips), wait for it before verifying so the
+      // backend does not reject with "mfa challenge has not started".
+      const inFlightChallenge = challengeRequestRef.current;
+      if (inFlightChallenge) {
+        const challengeOk = await inFlightChallenge;
+        if (!challengeOk) {
+          // startChallenge already surfaced the error to state; abort verify.
+          return;
+        }
+      }
       const response = await apiClient.verifyWorkOSMFA(code);
       redirectToCompletedSession(response.redirect_to || returnTo, navigate);
     } catch (verifyError) {
