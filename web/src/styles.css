@@ -8066,6 +8066,17 @@ html[data-theme='light'] .idt-auth-manual-form.idt-auth-mfa-form input::placehol
   letter-spacing: 0.32em;
 }
 
+.idt-auth-manual-form.idt-auth-mfa-form .idt-btn,
+html[data-theme='light'] .idt-auth-manual-form.idt-auth-mfa-form .idt-btn {
+  justify-self: center;
+  width: fit-content;
+  min-width: 0;
+  min-height: 3.1rem;
+  gap: 0.38rem;
+  padding: 0.72rem 1.34rem;
+  line-height: 1.1;
+}
+
 .idt-auth-otp {
   width: 100%;
   display: flex;
@@ -15901,25 +15912,27 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   margin-bottom: 16px;
 }
 
-.idt-onboarding-rail-label {
+.idt-onboarding-rail-label,
+.idt-onboarding-outcome-label {
   margin: 0;
-  color: #8a8a8a;
+  color: #858585;
   font-size: 0.72rem;
   font-weight: 800;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .idt-onboarding-panel h1 {
   width: 100%;
-  max-width: 540px;
+  max-width: min(100%, 620px);
   margin: 0;
   color: #ffffff;
-  font-size: clamp(2.05rem, 3.2vw, 2.85rem);
-  line-height: 1.05;
+  font-size: clamp(2rem, 2.75vw, 2.55rem);
+  line-height: 1.04;
   letter-spacing: 0;
   overflow-wrap: normal;
-  text-wrap: balance;
+  text-wrap: normal;
+  white-space: nowrap;
   word-break: normal;
 }
 
@@ -16059,15 +16072,6 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   color: var(--step-accent);
 }
 
-.idt-onboarding-outcome-label {
-  margin: 0;
-  color: #737373;
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
 .idt-onboarding-form {
   display: grid;
   gap: 14px;
@@ -16176,16 +16180,27 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   margin-top: 12px;
 }
 
+.idt-onboarding-actions .idt-btn {
+  flex: 0 0 auto;
+  width: fit-content;
+  min-width: 0;
+  min-height: 44px;
+  gap: 0.38rem;
+  padding: 0.68rem 1.06rem;
+  line-height: 1.1;
+}
+
 .idt-btn-enter-cue {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 8px;
+  margin-left: 0;
   color: currentColor;
-  font-size: 0.98em;
+  font-size: 0.95em;
   font-weight: 900;
   line-height: 1;
   opacity: 0.52;
+  transform: translateY(0.07em);
 }
 
 .idt-onboarding-shell .idt-btn-primary {
@@ -16405,6 +16420,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   .idt-onboarding-panel h1 {
     max-width: 100%;
     font-size: 2rem;
+    white-space: normal;
   }
 
   .idt-onboarding-form {
