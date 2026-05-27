@@ -40,13 +40,13 @@ export VERCEL_TOKEN="${token}"
 team_id="${VERCEL_ORG_ID:-}"
 readonly team_id
 
-scope_args=()
+team_args=()
 if [ -n "${team_id}" ]; then
-  scope_args+=(--scope "${team_id}")
+  team_args+=(--team "${team_id}")
 fi
 
 declare -a ls_args
-ls_args=(ls "${project_ref}" --status QUEUED -F json "${scope_args[@]}")
+ls_args=(ls "${project_ref}" --status QUEUED -F json "${team_args[@]}")
 
 next_token=""
 queued_count=0
@@ -56,7 +56,7 @@ declare -A kept_by_ref
 prune_ids=()
 
 while :; do
-  ls_args=(ls "${project_ref}" --status QUEUED -F json "${scope_args[@]}")
+  ls_args=(ls "${project_ref}" --status QUEUED -F json "${team_args[@]}")
   if [ -n "${next_token}" ]; then
     ls_args+=(--next "${next_token}")
   fi
@@ -105,7 +105,7 @@ echo "Queued deploys: ${queued_count}; keeping latest ${keep_per_ref} per branch
 echo "Pruning deployment IDs: ${prune_ids[*]}"
 
 for deployment_id in "${prune_ids[@]}"; do
-  if vercel rm "${deployment_id}" --safe --yes "${scope_args[@]}"; then
+  if vercel rm "${deployment_id}" --safe --yes "${team_args[@]}"; then
     echo "Removed ${deployment_id}"
   else
     echo "Could not remove ${deployment_id}; skipping."
