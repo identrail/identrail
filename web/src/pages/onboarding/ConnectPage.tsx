@@ -62,6 +62,7 @@ export function ConnectPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [providerError, setProviderError] = useState('');
 
   const enabledProviderIdsRef = useRef<OnboardingProvider[]>([]);
   enabledProviderIdsRef.current = enabledProviders.map((provider) => provider.id);
@@ -118,17 +119,18 @@ export function ConnectPage() {
   }
 
   const continueToScan = async () => {
+    setError('');
+    setProviderError('');
     if (!enabledProviders.length) {
       setError('No sources are available. Skip for now to continue.');
       return;
     }
     const provider = selectedProvider;
     if (!provider || !enabledProviders.some((enabledProvider) => enabledProvider.id === provider)) {
-      setError('Please choose an available source to continue.');
+      setProviderError('Choose a source');
       return;
     }
     setSaving(true);
-    setError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',
@@ -144,17 +146,18 @@ export function ConnectPage() {
   };
 
   const openConnectorSetup = async () => {
+    setError('');
+    setProviderError('');
     if (!enabledProviders.length) {
       setError('No sources are available. Skip for now to continue.');
       return;
     }
     const provider = selectedProvider;
     if (!provider || !enabledProviders.some((enabledProvider) => enabledProvider.id === provider)) {
-      setError('Please choose an available source to open setup.');
+      setProviderError('Choose a source');
       return;
     }
     setSaving(true);
-    setError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',
@@ -172,6 +175,7 @@ export function ConnectPage() {
   const skipConnector = async () => {
     setSaving(true);
     setError('');
+    setProviderError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',
@@ -205,7 +209,12 @@ export function ConnectPage() {
             key={provider.id}
             className={`idt-onboarding-provider ${selectedProvider === provider.id ? 'is-selected' : ''}`}
             disabled={!provider.enabled || saving || loading}
-            onClick={() => setSelectedProvider(provider.id)}
+            onClick={() => {
+              setSelectedProvider(provider.id);
+              if (providerError) {
+                setProviderError('');
+              }
+            }}
           >
             <span>{provider.name}</span>
             <strong>{provider.signal}</strong>
@@ -219,6 +228,11 @@ export function ConnectPage() {
           </button>
         ))}
       </div>
+      {providerError ? (
+        <p className="idt-onboarding-inline-error" role="alert">
+          {providerError}
+        </p>
+      ) : null}
       <div className="idt-onboarding-actions">
         <button type="button" className="idt-btn idt-btn-primary" disabled={saving || loading} onClick={continueToScan}>
           {saving ? 'Saving...' : 'Continue'}

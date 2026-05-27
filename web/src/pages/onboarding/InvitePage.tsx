@@ -30,6 +30,7 @@ export function InvitePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [emailsError, setEmailsError] = useState('');
   const invitees = useMemo(() => parseInviteEmails(emails), [emails]);
 
   useEffect(() => {
@@ -78,6 +79,7 @@ export function InvitePage() {
   const complete = async () => {
     setSaving(true);
     setError('');
+    setEmailsError('');
     try {
       const response = await apiClient.completeOnboarding();
       setState(response.state);
@@ -91,16 +93,17 @@ export function InvitePage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setEmailsError('');
     if (!state?.workspace_id) {
       setError('Workspace context is required before inviting teammates.');
       return;
     }
     if (!invitees.length) {
-      setError('Please enter at least one valid email address, or finish without invites.');
+      setEmailsError('Enter a valid email');
       return;
     }
     setSaving(true);
-    setError('');
     try {
       const auth = onboardingAuth(state);
       for (const email of invitees) {
@@ -141,13 +144,29 @@ export function InvitePage() {
         </div>
       ) : null}
       <form className="idt-onboarding-form" onSubmit={submit}>
-        <label htmlFor="invite-emails">Email addresses</label>
-        <textarea
-          id="invite-emails"
-          value={emails}
-          onChange={(event) => setEmails(event.target.value)}
-          rows={5}
-        />
+        <div className="idt-onboarding-field">
+          <label htmlFor="invite-emails">Email addresses</label>
+          <div className={emailsError ? 'idt-onboarding-input-wrap has-error' : 'idt-onboarding-input-wrap'}>
+            <textarea
+              id="invite-emails"
+              value={emails}
+              onChange={(event) => {
+                setEmails(event.target.value);
+                if (emailsError) {
+                  setEmailsError('');
+                }
+              }}
+              rows={5}
+              aria-invalid={emailsError ? 'true' : undefined}
+              aria-describedby={emailsError ? 'invite-emails-error' : undefined}
+            />
+            {emailsError ? (
+              <span id="invite-emails-error" className="idt-onboarding-input-error" role="alert">
+                {emailsError}
+              </span>
+            ) : null}
+          </div>
+        </div>
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>
             {saving ? 'Finishing...' : 'Invite and finish'}

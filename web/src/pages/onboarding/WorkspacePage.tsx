@@ -17,6 +17,8 @@ export function WorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [workspaceNameError, setWorkspaceNameError] = useState('');
+  const [projectNameError, setProjectNameError] = useState('');
 
   useEffect(() => {
     if (!FEATURE_ONBOARDING_WIZARD) {
@@ -63,16 +65,18 @@ export function WorkspacePage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setWorkspaceNameError('');
+    setProjectNameError('');
     if (!workspaceName.trim()) {
-      setError('Please enter a workspace name to continue.');
+      setWorkspaceNameError('Enter a workspace name');
       return;
     }
     if (!projectName.trim()) {
-      setError('Please enter a project name to continue.');
+      setProjectNameError('Enter a project name');
       return;
     }
     setSaving(true);
-    setError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'workspace',
@@ -102,20 +106,52 @@ export function WorkspacePage() {
         </div>
       ) : null}
       <form className="idt-onboarding-form" onSubmit={submit}>
-        <label htmlFor="workspace-name">Workspace name</label>
-        <input
-          id="workspace-name"
-          value={workspaceName}
-          onChange={(event) => setWorkspaceName(event.target.value)}
-          autoComplete="off"
-        />
-        <label htmlFor="project-name">First project</label>
-        <input
-          id="project-name"
-          value={projectName}
-          onChange={(event) => setProjectName(event.target.value)}
-          autoComplete="off"
-        />
+        <div className="idt-onboarding-field">
+          <label htmlFor="workspace-name">Workspace name</label>
+          <div className={workspaceNameError ? 'idt-onboarding-input-wrap has-error' : 'idt-onboarding-input-wrap'}>
+            <input
+              id="workspace-name"
+              value={workspaceName}
+              onChange={(event) => {
+                setWorkspaceName(event.target.value);
+                if (workspaceNameError) {
+                  setWorkspaceNameError('');
+                }
+              }}
+              autoComplete="off"
+              aria-invalid={workspaceNameError ? 'true' : undefined}
+              aria-describedby={workspaceNameError ? 'workspace-name-error' : undefined}
+            />
+            {workspaceNameError ? (
+              <span id="workspace-name-error" className="idt-onboarding-input-error" role="alert">
+                {workspaceNameError}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="idt-onboarding-field">
+          <label htmlFor="project-name">First project</label>
+          <div className={projectNameError ? 'idt-onboarding-input-wrap has-error' : 'idt-onboarding-input-wrap'}>
+            <input
+              id="project-name"
+              value={projectName}
+              onChange={(event) => {
+                setProjectName(event.target.value);
+                if (projectNameError) {
+                  setProjectNameError('');
+                }
+              }}
+              autoComplete="off"
+              aria-invalid={projectNameError ? 'true' : undefined}
+              aria-describedby={projectNameError ? 'project-name-error' : undefined}
+            />
+            {projectNameError ? (
+              <span id="project-name-error" className="idt-onboarding-input-error" role="alert">
+                {projectNameError}
+              </span>
+            ) : null}
+          </div>
+        </div>
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>
             {saving ? 'Creating...' : state?.workspace_id ? 'Continue' : 'Create workspace'}
