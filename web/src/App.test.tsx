@@ -3040,6 +3040,70 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
   });
 
+  it('defers WorkOS MFA verify until the silent challenge completes when the form is programmatically submitted', async () => {
+    // tsc -b (incremental build) can't track that the executor assigns
+    // `resolveChallenge` synchronously, so initialize with a no-op default
+    // to keep the type callable instead of narrowing to `never`. Use the
+    // okJSON return type so the resolved value matches what the fetch mock
+    // returns elsewhere in this file.
+    type MockedFetchResponse = ReturnType<typeof okJSON>;
+    let resolveChallenge: (value: MockedFetchResponse) => void = () => {};
+    const challengeResponse = okJSON({ challenge_started: true, factor_id: 'auth_factor_1' });
+    const pendingChallenge = new Promise<MockedFetchResponse>((resolve) => {
+      resolveChallenge = resolve;
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          mode: 'challenge',
+          user_email: 'owner@example.com',
+          challenge_started: false,
+          factors: [{ id: 'auth_factor_1', type: 'totp' }]
+        })
+      )
+      .mockReturnValueOnce(pendingChallenge)
+      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
+      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/auth/mfa?return_to=%2Fapp');
+    render(<App />);
+
+    const input = await screen.findByLabelText(/Authentication code/i);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8080/auth/mfa/challenge',
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+
+    fireEvent.change(input, { target: { value: '123456' } });
+    // Simulate an OTP autofill helper or programmatic submit (Enter / form.requestSubmit)
+    // that bypasses the disabled submit button while the challenge is in flight.
+    const form = input.closest('form');
+    expect(form).not.toBeNull();
+    fireEvent.submit(form as HTMLFormElement);
+
+    // Verify must not fire yet — the silent challenge is still pending.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.anything()
+    );
+
+    // Resolve the challenge; verify should then proceed and the app should land.
+    resolveChallenge(challengeResponse);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.objectContaining({ body: JSON.stringify({ code: '123456' }), credentials: 'include', method: 'POST' })
+    );
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+  });
+
   it('lists account security sessions and revokes other browsers', async () => {
     const fetchMock = vi
       .fn()

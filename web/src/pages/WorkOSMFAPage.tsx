@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, apiClient, type WorkOSMFAPendingResponse } from '../api/client';
 
@@ -61,6 +61,18 @@ export function WorkOSMFAPage() {
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
   const [autoChallengeFactorID, setAutoChallengeFactorID] = useState('');
+  // Holds a deferred promise that resolves with the outcome of the silent
+  // auto-challenge POST. Stored as a ref so we can populate it *during render*
+  // — before the submittable form is committed to the DOM — and resolve it
+  // later from the useEffect that actually fires the API call. This closes
+  // the race where a programmatic submit (autofill helper hooked on
+  // MutationObserver, `form.requestSubmit()`, or `Enter` on the autofocus
+  // input) fired between commit and effect would otherwise see a null ref
+  // and call /auth/mfa/verify before /auth/mfa/challenge had started.
+  const challengeRequestRef = useRef<{
+    promise: Promise<boolean>;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -101,24 +113,52 @@ export function WorkOSMFAPage() {
     }
   };
 
-  const startChallenge = useCallback(async (factorID: string) => {
-    setBusy(true);
+  const startChallenge = useCallback(async (factorID: string, options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) {
+      setBusy(true);
+    }
     setError('');
+    // For silent (auto) challenges, the effect that mounted the form also
+    // initializes the deferred promise in `challengeRequestRef`; resolve that
+    // deferred when the API call
+    // settles. For user-initiated (picker) challenges there is no deferred —
+    // submitCode is gated on canEnterCode for that flow.
+    const deferred = silent ? challengeRequestRef.current : null;
     try {
       await apiClient.challengeWorkOSMFA(factorID);
       setPending((current) => (current ? { ...current, challenge_started: true } : current));
+      deferred?.resolve(true);
     } catch (challengeError) {
       setError(mfaErrorMessage(challengeError));
+      deferred?.resolve(false);
     } finally {
-      setBusy(false);
+      if (!silent) {
+        setBusy(false);
+      }
     }
   }, []);
 
   const submitCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) {
+      return;
+    }
     setBusy(true);
     setError('');
     try {
+      // If the auto-challenge POST is still in flight, wait for the deferred
+      // outcome before verifying. This keeps the submit path aligned with
+      // challenge setup so a programmatic submit cannot race ahead of
+      // `/auth/mfa/challenge`.
+      const inFlightChallenge = challengeRequestRef.current;
+      if (inFlightChallenge && !canEnterCode) {
+        const challengeOk = await inFlightChallenge.promise;
+        if (!challengeOk) {
+          // startChallenge already surfaced the error to state; abort verify.
+          return;
+        }
+      }
       const response = await apiClient.verifyWorkOSMFA(code);
       redirectToCompletedSession(response.redirect_to || returnTo, navigate);
     } catch (verifyError) {
@@ -135,17 +175,28 @@ export function WorkOSMFAPage() {
   const availableTOTPFactors = totpFactors(pending);
   const autoChallengeFactorIDCandidate =
     !loading && needsChallengeStart && availableTOTPFactors.length === 1 ? availableTOTPFactors[0].id : '';
-  const autoChallengeStarting = Boolean(autoChallengeFactorIDCandidate && !error && !canEnterCode);
   const showChallengePicker = Boolean(
     !loading && pending && needsChallengeStart && (!autoChallengeFactorIDCandidate || error)
   );
 
+  // Start the auto-challenge in the same effect cycle that also prepares the
+  // deferred verifier. This keeps the challenge in flight before the manual
+  // code form is ever mounted, avoiding programmatic submit races.
   useEffect(() => {
     if (!autoChallengeFactorIDCandidate || autoChallengeFactorID === autoChallengeFactorIDCandidate) {
       return;
     }
+
+    if (challengeRequestRef.current === null) {
+      let resolveDeferred: (ok: boolean) => void = () => {};
+      const promise = new Promise<boolean>((resolve) => {
+        resolveDeferred = resolve;
+      });
+      challengeRequestRef.current = { promise, resolve: resolveDeferred };
+    }
+
     setAutoChallengeFactorID(autoChallengeFactorIDCandidate);
-    void startChallenge(autoChallengeFactorIDCandidate);
+    void startChallenge(autoChallengeFactorIDCandidate, { silent: true });
   }, [autoChallengeFactorID, autoChallengeFactorIDCandidate, startChallenge]);
 
   return (
@@ -165,11 +216,6 @@ export function WorkOSMFAPage() {
         {pending?.user_email ? <p className="idt-auth-mfa-subtitle">{pending.user_email}</p> : null}
         {error ? <p className="idt-app-alert idt-app-alert-error">{error}</p> : null}
         {loading ? <p className="idt-auth-mfa-subtitle">Loading verification...</p> : null}
-        {!loading && autoChallengeStarting ? (
-          <p className="idt-auth-mfa-note" role="status">
-            Preparing your authenticator challenge...
-          </p>
-        ) : null}
 
         {!loading && pending && isEnrollment && !pending.totp && !pending.challenge_started ? (
           <button className="idt-btn idt-btn-primary idt-auth-mfa-full" type="button" onClick={startEnrollment} disabled={busy}>
@@ -190,10 +236,6 @@ export function WorkOSMFAPage() {
           </div>
         ) : null}
 
-        {!loading && pending && !isEnrollment && canEnterCode ? (
-          <p className="idt-auth-mfa-note">Enter the code from your authenticator app to finish signing in.</p>
-        ) : null}
-
         {showChallengePicker ? (
           <div className="idt-auth-provider-stack">
             {availableTOTPFactors.map((factor) => (
@@ -210,24 +252,21 @@ export function WorkOSMFAPage() {
           </div>
         ) : null}
 
-        {!loading && pending && canEnterCode ? (
+        {!loading && pending && (canEnterCode || (autoChallengeFactorID && !error)) ? (
           <form className="idt-auth-manual-form idt-auth-mfa-form" onSubmit={submitCode}>
-            <label>
-              Authentication code
-              <input
-                aria-label="Authentication code"
-                autoFocus
-                autoComplete="one-time-code"
-                inputMode="numeric"
-                maxLength={6}
-                onChange={(event) => setCode(event.target.value)}
-                pattern="[0-9]*"
-                placeholder="000000"
-                required
-                value={code}
-              />
-            </label>
-            <button className="idt-btn idt-btn-primary" type="submit" disabled={busy}>
+            <input
+              aria-label="Authentication code"
+              autoFocus
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              maxLength={6}
+              onChange={(event) => setCode(event.target.value)}
+              pattern="[0-9]*"
+              placeholder="000000"
+              required
+              value={code}
+            />
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={busy || !canEnterCode}>
               {busy ? 'Verifying...' : 'Verify and continue'}
             </button>
           </form>

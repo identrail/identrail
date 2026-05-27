@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Tightened the WorkOS MFA verification screen: the authenticator code entry now
+  appears immediately without the intermediate "Preparing your authenticator
+  challenge..." flash (the challenge starts silently in the background, with the
+  verify button held disabled for the brief window until it is ready), and the
+  layout was simplified to a single centered code input — removing the
+  redundant "Enter the code..." helper line, the visible "Authentication code"
+  label, and the nested bordered form container that previously sat on top of
+  the auth panel.
 - Stopped GitHub App webhooks from queueing repository scans unless the project
   has an enabled `event` or `hybrid` scan policy. Manual projects still record
   webhook deliveries without starting scans, low-value pull-request metadata
