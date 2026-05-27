@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: vercel-production-deploy-${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref_name }}
@@ -45,7 +46,18 @@ jobs:
             exit 0
           fi
 
-          review_decision="$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }} -q '.review_decision // empty')"
+          review_decision="$(gh api graphql \
+            -F owner="${{ github.repository_owner }}" \
+            -F repo="${{ github.event.repository.name }}" \
+            -F number="${{ github.event.pull_request.number }}" \
+            -f query='query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                  reviewDecision
+                }
+              }
+            }' \
+            -q '.data.repository.pullRequest.reviewDecision // empty')"
           if [ "${review_decision}" != "APPROVED" ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
             echo "Pull request review state is '${review_decision}', not APPROVED; skipping production deploy."
@@ -85,13 +97,9 @@ jobs:
             echo "token=$token"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Prune stale queued deployments
+      - name: Install Vercel CLI
         if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
-        env:
-          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          KEEP_QUEUED_PER_REF: "1"
-        run: ./scripts/vercel_cleanup_queued_deployments.sh
+        run: npm install -g vercel@latest
 
       - name: Verify Vercel token
         id: verify-token
@@ -101,9 +109,24 @@ jobs:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
         run: |
           set -euo pipefail
-          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" https://api.vercel.com/v2/user > /tmp/vercel-user.json
-          echo "Token verified for Vercel user:"
-          jq -r '.user.username // .username // "unknown"' /tmp/vercel-user.json
+          if curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" https://api.vercel.com/v2/user > /tmp/vercel-user.json; then
+            echo "token_verified=true" >> "$GITHUB_OUTPUT"
+            echo "Token verified for Vercel user:"
+            jq -r '.user.username // .username // "unknown"' /tmp/vercel-user.json
+          else
+            echo "token_verified=false" >> "$GITHUB_OUTPUT"
+            echo "Token verification failed; continuing with hook fallback."
+          fi
+
+      - name: Prune stale queued deployments
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          KEEP_QUEUED_PER_REF: "1"
+        run: |
+          ./scripts/vercel_cleanup_queued_deployments.sh
 
       - name: Check VITE_IDENTRAIL_API_URL variable
         id: check-api-url
@@ -209,7 +232,7 @@ jobs:
 
       - name: Deploy to Vercel
         id: deploy-action
-        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true' && steps.verify-token.outputs.token_verified == 'true'
         continue-on-error: true
         uses: amondnet/vercel-action@de09aeac2ace6599ec9b11ef87558759a496bac4 # v42.3.0
         with:

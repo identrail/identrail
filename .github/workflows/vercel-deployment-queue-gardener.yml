@@ -25,5 +25,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
       - name: Prune stale queued deployments
         run: ./scripts/vercel_cleanup_queued_deployments.sh
