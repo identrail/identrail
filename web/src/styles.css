@@ -15484,7 +15484,6 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   color: #f5f7fb;
   padding: 24px clamp(16px, 4vw, 56px) 56px;
   font-family: 'Geist', 'Inter', sans-serif;
-  overflow-x: hidden;
 }
 
 .idt-onboarding-topbar {
@@ -16057,7 +16056,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   color: #c8c8ce;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1180px) {
   .idt-onboarding-grid,
   .idt-onboarding-panel,
   .idt-onboarding-provider-grid {
