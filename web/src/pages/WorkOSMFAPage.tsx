@@ -101,8 +101,11 @@ export function WorkOSMFAPage() {
     }
   };
 
-  const startChallenge = useCallback(async (factorID: string) => {
-    setBusy(true);
+  const startChallenge = useCallback(async (factorID: string, options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) {
+      setBusy(true);
+    }
     setError('');
     try {
       await apiClient.challengeWorkOSMFA(factorID);
@@ -110,7 +113,9 @@ export function WorkOSMFAPage() {
     } catch (challengeError) {
       setError(mfaErrorMessage(challengeError));
     } finally {
-      setBusy(false);
+      if (!silent) {
+        setBusy(false);
+      }
     }
   }, []);
 
@@ -145,7 +150,7 @@ export function WorkOSMFAPage() {
       return;
     }
     setAutoChallengeFactorID(autoChallengeFactorIDCandidate);
-    void startChallenge(autoChallengeFactorIDCandidate);
+    void startChallenge(autoChallengeFactorIDCandidate, { silent: true });
   }, [autoChallengeFactorID, autoChallengeFactorIDCandidate, startChallenge]);
 
   return (
@@ -165,11 +170,6 @@ export function WorkOSMFAPage() {
         {pending?.user_email ? <p className="idt-auth-mfa-subtitle">{pending.user_email}</p> : null}
         {error ? <p className="idt-app-alert idt-app-alert-error">{error}</p> : null}
         {loading ? <p className="idt-auth-mfa-subtitle">Loading verification...</p> : null}
-        {!loading && autoChallengeStarting ? (
-          <p className="idt-auth-mfa-note" role="status">
-            Preparing your authenticator challenge...
-          </p>
-        ) : null}
 
         {!loading && pending && isEnrollment && !pending.totp && !pending.challenge_started ? (
           <button className="idt-btn idt-btn-primary idt-auth-mfa-full" type="button" onClick={startEnrollment} disabled={busy}>
@@ -190,10 +190,6 @@ export function WorkOSMFAPage() {
           </div>
         ) : null}
 
-        {!loading && pending && !isEnrollment && canEnterCode ? (
-          <p className="idt-auth-mfa-note">Enter the code from your authenticator app to finish signing in.</p>
-        ) : null}
-
         {showChallengePicker ? (
           <div className="idt-auth-provider-stack">
             {availableTOTPFactors.map((factor) => (
@@ -210,24 +206,21 @@ export function WorkOSMFAPage() {
           </div>
         ) : null}
 
-        {!loading && pending && canEnterCode ? (
+        {!loading && pending && (canEnterCode || autoChallengeStarting) ? (
           <form className="idt-auth-manual-form idt-auth-mfa-form" onSubmit={submitCode}>
-            <label>
-              Authentication code
-              <input
-                aria-label="Authentication code"
-                autoFocus
-                autoComplete="one-time-code"
-                inputMode="numeric"
-                maxLength={6}
-                onChange={(event) => setCode(event.target.value)}
-                pattern="[0-9]*"
-                placeholder="000000"
-                required
-                value={code}
-              />
-            </label>
-            <button className="idt-btn idt-btn-primary" type="submit" disabled={busy}>
+            <input
+              aria-label="Authentication code"
+              autoFocus
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              maxLength={6}
+              onChange={(event) => setCode(event.target.value)}
+              pattern="[0-9]*"
+              placeholder="000000"
+              required
+              value={code}
+            />
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={busy || !canEnterCode}>
               {busy ? 'Verifying...' : 'Verify and continue'}
             </button>
           </form>
