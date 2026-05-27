@@ -127,31 +127,29 @@ const SETUP_GUARANTEES = [
   {
     icon: Eye,
     title: 'Read-only first',
-    detail: 'Connectors begin with discovery paths before any enforcement workflow.'
+    detail: 'Discovery before enforcement.'
   },
   {
     icon: Network,
     title: 'Scoped by design',
-    detail: 'Workspaces, projects, scans, and findings stay inside one tenant boundary.'
+    detail: 'One boundary for every asset.'
   }
 ];
 
-const NEXT_STEPS = ['Create the security boundary', 'Name the first workspace', 'Connect a source', 'Run the first scan'];
+const NEXT_STEPS = ['Create boundary', 'Name workspace', 'Connect source', 'Run scan'];
 
 export function OnboardingFrame({
   step,
   eyebrow,
   title,
   description,
-  children,
-  aside
+  children
 }: {
   step: OnboardingStep;
   eyebrow: string;
   title: string;
   description: string;
   children: ReactNode;
-  aside?: ReactNode;
 }) {
   return (
     <section className="idt-onboarding-shell">
@@ -179,11 +177,6 @@ export function OnboardingFrame({
             </div>
           </div>
           <OnboardingStepper currentStep={step} />
-          {aside}
-          <div className="idt-onboarding-rail-note">
-            <span>Setup model</span>
-            <strong>Server-saved progress with read-only security checks first.</strong>
-          </div>
         </aside>
         <article className="idt-onboarding-panel">
           <div className="idt-onboarding-panel-main">
@@ -216,10 +209,6 @@ export function OnboardingFrame({
                 </li>
               ))}
             </ol>
-            <div className="idt-onboarding-outcome-note">
-              <strong>Designed for security teams</strong>
-              <span>Short setup, explicit scope, and a findings dashboard ready after the first scan.</span>
-            </div>
           </aside>
         </article>
       </div>
