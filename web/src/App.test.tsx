@@ -2638,9 +2638,15 @@ describe('App', () => {
   });
 
   it('defers WorkOS MFA verify until the silent challenge completes when the form is programmatically submitted', async () => {
-    let resolveChallenge: ((value: Response) => void) | null = null;
+    // tsc -b (incremental build) can't track that the executor assigns
+    // `resolveChallenge` synchronously, so initialize with a no-op default
+    // to keep the type callable instead of narrowing to `never`. Use the
+    // okJSON return type so the resolved value matches what the fetch mock
+    // returns elsewhere in this file.
+    type MockedFetchResponse = ReturnType<typeof okJSON>;
+    let resolveChallenge: (value: MockedFetchResponse) => void = () => {};
     const challengeResponse = okJSON({ challenge_started: true, factor_id: 'auth_factor_1' });
-    const pendingChallenge = new Promise<Response>((resolve) => {
+    const pendingChallenge = new Promise<MockedFetchResponse>((resolve) => {
       resolveChallenge = resolve;
     });
 
@@ -2685,7 +2691,7 @@ describe('App', () => {
     );
 
     // Resolve the challenge; verify should then proceed and the app should land.
-    resolveChallenge?.(challengeResponse);
+    resolveChallenge(challengeResponse);
 
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
