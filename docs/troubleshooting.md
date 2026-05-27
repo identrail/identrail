@@ -15,6 +15,19 @@ Checks:
 2. Check provider rate limits and transient API failures.
 3. Confirm collector retry/backoff settings are active.
 
+## Vercel Deployments Stuck Queued
+
+Checks:
+1. Open the Vercel deployment list and confirm whether many deploys are in `QUEUED`.
+2. Confirm they were triggered from branch activity (for example by repeated `push` events or merge churn).
+3. Run the queue-pruning workflow (`Vercel Deployment Queue Gardener`) from Actions to keep the latest queued build per branch.
+4. Check your Vercel Integration branch filters so preview branches are not continuously redeploying with no production intent.
+
+Recovery:
+```bash
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... KEEP_QUEUED_PER_REF=1 make vercel-queued-cleanup
+```
+
 ## API scan trigger rejected (`429 scan queue is full`)
 
 Checks:

@@ -53,6 +53,14 @@ jobs:
             echo "token=$token"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Prune stale queued deployments
+        if: steps.normalize-token.outputs.has_token == 'true'
+        env:
+          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          KEEP_QUEUED_PER_REF: "1"
+        run: ./scripts/vercel_cleanup_queued_deployments.sh
+
       - name: Verify Vercel token
         id: verify-token
         if: steps.normalize-token.outputs.has_token == 'true'
