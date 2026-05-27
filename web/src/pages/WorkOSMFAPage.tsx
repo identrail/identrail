@@ -119,9 +119,9 @@ export function WorkOSMFAPage() {
       setBusy(true);
     }
     setError('');
-    // For silent (auto) challenges, the form has already mounted by the time
-    // this effect-driven callback runs, so the render-phase lazy init below
-    // populated challengeRequestRef. Resolve that deferred when the API call
+    // For silent (auto) challenges, the effect that mounted the form also
+    // initializes the deferred promise in `challengeRequestRef`; resolve that
+    // deferred when the API call
     // settles. For user-initiated (picker) challenges there is no deferred —
     // submitCode is gated on canEnterCode for that flow.
     const deferred = silent ? challengeRequestRef.current : null;
@@ -147,13 +147,10 @@ export function WorkOSMFAPage() {
     setBusy(true);
     setError('');
     try {
-      // If the auto-challenge POST is still in flight — or has not even been
-      // dispatched yet, in the narrow window between the form being committed
-      // to the DOM and the useEffect firing — wait for the deferred to settle
-      // before verifying. The deferred is set up in render (see below) so it
-      // is always non-null while the form is mounted in auto-challenge mode,
-      // closing the gap where a programmatic submit could otherwise race
-      // /auth/mfa/verify against a not-yet-started challenge.
+      // If the auto-challenge POST is still in flight, wait for the deferred
+      // outcome before verifying. This keeps the submit path aligned with
+      // challenge setup so a programmatic submit cannot race ahead of
+      // `/auth/mfa/challenge`.
       const inFlightChallenge = challengeRequestRef.current;
       if (inFlightChallenge && !canEnterCode) {
         const challengeOk = await inFlightChallenge.promise;
@@ -178,28 +175,26 @@ export function WorkOSMFAPage() {
   const availableTOTPFactors = totpFactors(pending);
   const autoChallengeFactorIDCandidate =
     !loading && needsChallengeStart && availableTOTPFactors.length === 1 ? availableTOTPFactors[0].id : '';
-  const autoChallengeStarting = Boolean(autoChallengeFactorIDCandidate && !error && !canEnterCode);
   const showChallengePicker = Boolean(
     !loading && pending && needsChallengeStart && (!autoChallengeFactorIDCandidate || error)
   );
 
-  // Lazy-initialize the silent-challenge deferred in the same render that
-  // decides to mount the submittable form, so the ref is non-null *before*
-  // the form is committed to the DOM. Writing to a ref during render is an
-  // explicitly blessed React pattern for one-time lazy init (see the React
-  // docs on avoiding recreating ref contents).
-  if (autoChallengeStarting && challengeRequestRef.current === null) {
-    let resolveDeferred: (ok: boolean) => void = () => {};
-    const promise = new Promise<boolean>((resolve) => {
-      resolveDeferred = resolve;
-    });
-    challengeRequestRef.current = { promise, resolve: resolveDeferred };
-  }
-
+  // Start the auto-challenge in the same effect cycle that also prepares the
+  // deferred verifier. This keeps the challenge in flight before the manual
+  // code form is ever mounted, avoiding programmatic submit races.
   useEffect(() => {
     if (!autoChallengeFactorIDCandidate || autoChallengeFactorID === autoChallengeFactorIDCandidate) {
       return;
     }
+
+    if (challengeRequestRef.current === null) {
+      let resolveDeferred: (ok: boolean) => void = () => {};
+      const promise = new Promise<boolean>((resolve) => {
+        resolveDeferred = resolve;
+      });
+      challengeRequestRef.current = { promise, resolve: resolveDeferred };
+    }
+
     setAutoChallengeFactorID(autoChallengeFactorIDCandidate);
     void startChallenge(autoChallengeFactorIDCandidate, { silent: true });
   }, [autoChallengeFactorID, autoChallengeFactorIDCandidate, startChallenge]);
@@ -257,7 +252,7 @@ export function WorkOSMFAPage() {
           </div>
         ) : null}
 
-        {!loading && pending && (canEnterCode || autoChallengeStarting) ? (
+        {!loading && pending && (canEnterCode || (autoChallengeFactorID && !error)) ? (
           <form className="idt-auth-manual-form idt-auth-mfa-form" onSubmit={submitCode}>
             <input
               aria-label="Authentication code"
