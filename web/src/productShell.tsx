@@ -70,7 +70,7 @@ import {
 } from './components/app/DomainFoundation';
 import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
 import { clearMeCache, primeMeCache, useMe } from './hooks/useMe';
-import { isFeatureAvailable, useBackendFeatures } from './hooks/useBackendFeatures';
+import { isFeatureAvailable, type BackendFeatures, useBackendFeatures } from './hooks/useBackendFeatures';
 import {
   FEATURE_ONBOARDING_CONNECTOR_AWS as FEATURE_CONNECTOR_AWS,
   FEATURE_ONBOARDING_CONNECTOR_GITHUB as FEATURE_CONNECTOR_GITHUB_V2,
@@ -155,6 +155,18 @@ function buildProjectPath(scope: ProductSession, projectID: string): string {
   return `${buildProjectsPath(scope)}/${encodeURIComponent(projectID)}`;
 }
 
+function normalizeSourceProvider(value: unknown): SourceProvider | null {
+  const normalized = normalizeValue(value);
+  if (normalized === 'aws' || normalized === 'github' || normalized === 'kubernetes') {
+    return normalized;
+  }
+  return null;
+}
+
+function appendSourceQuery(path: string, provider: SourceProvider | null): string {
+  return provider ? `${path}${path.includes('?') ? '&' : '?'}source=${encodeURIComponent(provider)}` : path;
+}
+
 function buildCurrentUserAppPath(me: CurrentUserContext | null): string {
   if (me?.org_id && me.workspace_id) {
     return buildTenantWorkspacePath(me.org_id, me.workspace_id);
@@ -197,6 +209,8 @@ const SOURCE_ORDER: SourceProvider[] = [
   'aws',
   ...(FEATURE_CONNECTOR_K8S ? (['kubernetes'] as SourceProvider[]) : [])
 ];
+const DOMAIN_NAV_ORDER: SourceProvider[] = ['aws', 'github', 'kubernetes'];
+const SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES = FEATURE_CONNECTOR_GITHUB_V2 || FEATURE_CONNECTOR_K8S;
 const SOURCE_STACK: SourceProvider[] = [...SOURCE_ORDER];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
@@ -1127,6 +1141,25 @@ function sourceConnection(connections: SourceConnectionMap, provider: SourceProv
     : provider === 'aws'
       ? connections.aws
       : connections.kubernetes;
+}
+
+function buildSourceAvailability(backendFeatures: BackendFeatures): Record<SourceProvider, SourceAvailability> {
+  return {
+    github: {
+      visible: FEATURE_CONNECTOR_GITHUB_V2,
+      available: isFeatureAvailable(FEATURE_CONNECTOR_GITHUB_V2, backendFeatures.connectors.github),
+      unavailableMessage: backendFeatures.connectors.github === false ? 'Not available on this API server.' : undefined
+    },
+    aws: {
+      visible: true,
+      available: true
+    },
+    kubernetes: {
+      visible: FEATURE_CONNECTOR_K8S,
+      available: isFeatureAvailable(FEATURE_CONNECTOR_K8S, backendFeatures.connectors.kubernetes),
+      unavailableMessage: backendFeatures.connectors.kubernetes === false ? 'Not available on this API server.' : undefined
+    }
+  };
 }
 
 function connectionHealth(status?: GitHubConnectionStatus | AWSConnectionStatus | KubernetesConnectionStatus): string {
@@ -2184,10 +2217,27 @@ type ConnectorConnectPageProps = {
 function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConnectPageProps) {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
+  const shouldLoadBackendFeatures =
+    provider === 'github' ? FEATURE_CONNECTOR_GITHUB_V2 : provider === 'kubernetes' ? FEATURE_CONNECTOR_K8S : false;
+  const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures({
+    enabled: shouldLoadBackendFeatures
+  });
+  const sourceAvailability = useMemo(() => buildSourceAvailability(backendFeatures), [backendFeatures]);
+  const providerAvailability = sourceAvailability[provider];
   const [targetPath, setTargetPath] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (backendFeaturesLoading) {
+      setTargetPath('');
+      setError('');
+      return;
+    }
+    if (!providerAvailability.visible || !providerAvailability.available) {
+      setTargetPath('');
+      setError(providerAvailability.unavailableMessage ?? `${providerLabel} connector is not available in this build.`);
+      return;
+    }
     if (!scope) {
       setTargetPath('/app');
       setError('');
@@ -2214,7 +2264,11 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
           return;
         }
         const projectID = normalizeValue(response.items[0]?.project_id ?? '');
-        setTargetPath(projectID ? `${buildProjectPath(scope, projectID)}?source=${provider}` : buildProjectsPath(scope));
+        setTargetPath(
+          projectID
+            ? appendSourceQuery(buildProjectPath(scope, projectID), provider)
+            : appendSourceQuery(buildProjectsPath(scope), provider)
+        );
       } catch (requestError) {
         if (!active) {
           return;
@@ -2228,7 +2282,16 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
     return () => {
       active = false;
     };
-  }, [scope?.tenantID, scope?.workspaceID, provider, providerLabel]);
+  }, [
+    backendFeaturesLoading,
+    provider,
+    providerAvailability.available,
+    providerAvailability.unavailableMessage,
+    providerAvailability.visible,
+    providerLabel,
+    scope?.tenantID,
+    scope?.workspaceID
+  ]);
 
   if (targetPath) {
     return <Navigate to={targetPath} replace />;
@@ -2363,6 +2426,12 @@ export function ProductShellLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const scope = resolveScopeFromParams(params);
+  const { features: backendFeatures } = useBackendFeatures({ enabled: SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES });
+  const sourceAvailability = useMemo(() => buildSourceAvailability(backendFeatures), [backendFeatures]);
+  const visibleDomainOrder = useMemo(
+    () => DOMAIN_NAV_ORDER.filter((domain) => sourceAvailability[domain].visible),
+    [sourceAvailability]
+  );
   const [commandOpen, setCommandOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -2411,78 +2480,90 @@ export function ProductShellLayout() {
         keywords: ['home', 'dashboard', 'workspace', 'domains'],
         shortcut: 'O',
         path: basePath
-      },
-      {
+      }
+    ];
+
+    if (sourceAvailability.aws.available) {
+      items.push({
         id: 'aws',
         label: 'AWS',
         description: 'AWS machine identity control center',
         keywords: ['aws', 'cloud', 'iam', 'identity'],
         path: `${basePath}/aws`
-      },
-      {
+      });
+      items.push({
         id: 'aws-connect',
         label: 'Connect AWS',
         description: 'Start AWS account and identity onboarding',
         keywords: ['aws', 'connect', 'account', 'role'],
         path: `${basePath}/aws/connect`
-      },
-      {
+      });
+      items.push({
         id: 'aws-findings',
         label: 'AWS findings',
         description: 'Domain-scoped AWS risk queue',
         keywords: ['aws', 'findings', 'risk', 'iam'],
         path: `${basePath}/aws/findings`
-      },
-      {
+      });
+    }
+
+    if (sourceAvailability.github.available) {
+      items.push({
         id: 'github',
         label: 'GitHub',
         description: 'Repositories, Actions/OIDC, and agentic risk',
         keywords: ['github', 'repositories', 'actions', 'oidc'],
         path: `${basePath}/github`
-      },
-      {
+      });
+      items.push({
         id: 'github-connect',
         label: 'Connect GitHub',
         description: 'Start GitHub App onboarding',
         keywords: ['github', 'connect', 'app', 'install'],
         path: `${basePath}/github/connect`
-      },
-      {
+      });
+      items.push({
         id: 'github-findings',
         label: 'GitHub findings',
         description: 'Repository risk inside the GitHub section',
         keywords: ['github', 'findings', 'repository', 'triage'],
         shortcut: 'F',
         path: `${basePath}/github/findings`
-      },
-      {
+      });
+      items.push({
         id: 'github-agentic-risk',
         label: 'GitHub AI / Agentic Risk',
         description: 'Agent identities, MCP tools, prompts, secrets, and workflow trust paths',
         keywords: ['github', 'agentic', 'ai', 'mcp', 'tools', 'prompts', 'secrets', 'workflow'],
         path: `${basePath}/github/agentic-risk`
-      },
-      {
+      });
+    }
+
+    if (sourceAvailability.kubernetes.available) {
+      items.push({
         id: 'kubernetes',
         label: 'Kubernetes',
         description: 'Clusters, workloads, service accounts, and RBAC',
         keywords: ['kubernetes', 'k8s', 'clusters', 'rbac'],
         path: `${basePath}/kubernetes`
-      },
-      {
+      });
+      items.push({
         id: 'kubernetes-connect',
         label: 'Connect Kubernetes',
         description: 'Start cluster onboarding',
         keywords: ['kubernetes', 'k8s', 'connect', 'cluster'],
         path: `${basePath}/kubernetes/connect`
-      },
-      {
+      });
+      items.push({
         id: 'kubernetes-findings',
         label: 'Kubernetes findings',
         description: 'Cluster and service-account risk queue',
         keywords: ['kubernetes', 'k8s', 'findings', 'rbac'],
         path: `${basePath}/kubernetes/findings`
-      },
+      });
+    }
+
+    items.push(
       {
         id: 'reports',
         label: 'Reports',
@@ -2518,9 +2599,9 @@ export function ProductShellLayout() {
         keywords: ['logout', 'session'],
         action: () => navigate('/app/logout', { replace: true })
       }
-    ];
+    );
     return items;
-  }, [basePath, navigate, scope]);
+  }, [basePath, navigate, scope, sourceAvailability]);
 
   useEffect(() => {
     setOpenDomainFlyout(null);
@@ -2580,6 +2661,12 @@ export function ProductShellLayout() {
       setOpenDomainFlyout(null);
     }
   }, [commandOpen]);
+
+  useEffect(() => {
+    if (openDomainFlyout && !sourceAvailability[openDomainFlyout].available) {
+      setOpenDomainFlyout(null);
+    }
+  }, [openDomainFlyout, sourceAvailability]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2904,8 +2991,10 @@ export function ProductShellLayout() {
               </span>
               <span className="idt-app-nav-label">Overview</span>
             </NavLink>
-            {(['aws', 'github', 'kubernetes'] as SourceProvider[]).map((domain) => {
+            {visibleDomainOrder.map((domain) => {
               const config = PRODUCT_DOMAIN_CONFIGS[domain];
+              const availability = sourceAvailability[domain];
+              const isAvailable = availability.available;
               const isActive = activeDomain === domain;
               const isOpen = openDomainFlyout === domain;
               const triggerID = `idt-${domain}-domain-trigger`;
@@ -2917,11 +3006,23 @@ export function ProductShellLayout() {
                       domainTriggerRefs.current[domain] = node;
                     }}
                     type="button"
-                    className={`idt-app-nav-domain-trigger${isActive ? ' is-active' : ''}${isOpen ? ' is-open' : ''}`}
+                    className={`idt-app-nav-domain-trigger${isActive ? ' is-active' : ''}${isOpen ? ' is-open' : ''}${isAvailable ? '' : ' is-unavailable'}`}
+                    disabled={!isAvailable}
                     aria-haspopup="dialog"
                     aria-expanded={isOpen}
                     aria-controls={isOpen ? `idt-${domain}-domain-flyout` : undefined}
-                    title={sidebarCollapsed ? config.navLabel : undefined}
+                    aria-label={
+                      isAvailable
+                        ? config.navLabel
+                        : `${config.navLabel}: ${availability.unavailableMessage ?? 'Unavailable'}`
+                    }
+                    title={
+                      sidebarCollapsed
+                        ? config.navLabel
+                        : !isAvailable
+                          ? availability.unavailableMessage ?? 'Unavailable'
+                          : undefined
+                    }
                     onClick={() => toggleDomainFlyout(domain)}
                   >
                     <span className="idt-app-nav-icon" aria-hidden="true">
@@ -4508,7 +4609,12 @@ export function ProductWorkspacesPage() {
 export function ProductProjectsPage() {
   const params = useParams<ScopeRouteParams>();
   const navigate = useNavigate();
+  const location = useLocation();
   const scope = resolveScopeFromParams(params);
+  const requestedSource = useMemo(
+    () => normalizeSourceProvider(new URLSearchParams(location.search).get('source')),
+    [location.search]
+  );
 
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4645,7 +4751,7 @@ export function ProductProjectsPage() {
       setDraftDescription('');
       setProjectIDEdited(false);
       setSlugEdited(false);
-      navigate(buildProjectPath(scope, response.project.project_id));
+      navigate(appendSourceQuery(buildProjectPath(scope, response.project.project_id), requestedSource));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Unable to save project.');
     } finally {
@@ -4748,7 +4854,10 @@ export function ProductProjectsPage() {
                     </details>
 
                     <div className="idt-inline-actions">
-                      <Link className="idt-btn idt-btn-primary" to={buildProjectPath(scope, project.project_id)}>
+                      <Link
+                        className="idt-btn idt-btn-primary"
+                        to={appendSourceQuery(buildProjectPath(scope, project.project_id), requestedSource)}
+                      >
                         Open project
                       </Link>
                     </div>
@@ -4826,31 +4935,13 @@ export function ProductProjectDetailPage() {
   const scope = resolveScopeFromParams(params);
   const projectID = normalizeValue(params.projectID ?? '');
   const location = useLocation();
-  const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures();
+  const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures({
+    enabled: SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES
+  });
   const refreshSequenceRef = useRef(0);
   const repoScanSubmitSequenceRef = useRef(0);
   const githubPostureRequestRef = useRef(0);
-  const sourceAvailability = useMemo<Record<SourceProvider, SourceAvailability>>(
-    () => ({
-      github: {
-        visible: FEATURE_CONNECTOR_GITHUB_V2,
-        available: isFeatureAvailable(FEATURE_CONNECTOR_GITHUB_V2, backendFeatures.connectors.github),
-        unavailableMessage:
-          backendFeatures.connectors.github === false ? 'Not available on this API server.' : undefined
-      },
-      aws: {
-        visible: true,
-        available: true
-      },
-      kubernetes: {
-        visible: FEATURE_CONNECTOR_K8S,
-        available: isFeatureAvailable(FEATURE_CONNECTOR_K8S, backendFeatures.connectors.kubernetes),
-        unavailableMessage:
-          backendFeatures.connectors.kubernetes === false ? 'Not available on this API server.' : undefined
-      }
-    }),
-    [backendFeatures.connectors.github, backendFeatures.connectors.kubernetes]
-  );
+  const sourceAvailability = useMemo(() => buildSourceAvailability(backendFeatures), [backendFeatures]);
   const sourceOrder = useMemo(
     () => SOURCE_ORDER.filter((provider) => sourceAvailability[provider].visible),
     [sourceAvailability]
@@ -4867,11 +4958,7 @@ export function ProductProjectDetailPage() {
   const [submitting, setSubmitting] = useState<SourceProvider | ''>('');
   const [selectedSource, setSelectedSource] = useState<SourceProvider>(SOURCE_ORDER[0] ?? 'aws');
   const selectedSourceFromConnect = useMemo(() => {
-    const requestedSource = new URLSearchParams(location.search).get('source');
-    if (requestedSource === 'aws' || requestedSource === 'github' || requestedSource === 'kubernetes') {
-      return requestedSource;
-    }
-    return null;
+    return normalizeSourceProvider(new URLSearchParams(location.search).get('source'));
   }, [location.search]);
   const [successMessage, setSuccessMessage] = useState('');
   const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);

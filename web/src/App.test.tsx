@@ -1338,7 +1338,7 @@ describe('App', () => {
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
 
-  it('routes the GitHub connect domain entry to the working connector setup', async () => {
+  it('gates the GitHub connect domain entry when the connector is not enabled in the bundle', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -1404,8 +1404,9 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/github/connect');
     render(<App />);
 
-    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/projects/project-1'));
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open GitHub setup/i })).toBeInTheDocument();
+    expect(screen.getByText(/GitHub connector is not available in this build/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/connect');
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
 
@@ -1493,7 +1494,7 @@ describe('App', () => {
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
 
-  it('routes the Kubernetes connect domain entry to the working connector setup', async () => {
+  it('gates the Kubernetes connect domain entry when the connector is not enabled in the bundle', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -1571,9 +1572,9 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/kubernetes/connect');
     render(<App />);
 
-    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/projects/project-1'));
-    expect(window.location.search).toBe('?source=kubernetes');
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open Kubernetes setup/i })).toBeInTheDocument();
+    expect(screen.getByText(/Kubernetes connector is not available in this build/i)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/kubernetes/connect');
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
 
@@ -2918,6 +2919,7 @@ describe('App', () => {
     setCurrentPath('/auth/callback');
     render(<App />);
 
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a'));
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/auth/config'))).toBe(false);

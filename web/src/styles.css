@@ -24988,6 +24988,20 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   outline: none;
 }
 
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-unavailable,
+.idt-app-console-layout .idt-app-nav-domain-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-unavailable:hover,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-unavailable:focus-visible,
+.idt-app-console-layout .idt-app-nav-domain-trigger:disabled:hover,
+.idt-app-console-layout .idt-app-nav-domain-trigger:disabled:focus-visible {
+  background: transparent;
+  color: #a3a3ac;
+}
+
 .idt-app-console-layout .idt-app-nav-domain-trigger.is-active,
 .idt-app-console-layout .idt-app-nav-domain-trigger.is-open {
   background: #1c1c22;

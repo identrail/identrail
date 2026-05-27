@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   AWSConnectionStatus,
@@ -123,6 +123,51 @@ function deferred<T>() {
     reject = promiseReject;
   });
   return { promise, resolve, reject };
+}
+
+function mockBackendFeatures(connectors: {
+  github?: BackendFeatureState;
+  aws?: BackendFeatureState;
+  kubernetes?: BackendFeatureState;
+} = {}) {
+  vi.doMock('./hooks/useBackendFeatures', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./hooks/useBackendFeatures')>();
+    return {
+      ...actual,
+      useBackendFeatures: () => ({
+        features: {
+          onboardingWizard: undefined,
+          connectors: {
+            github: connectors.github,
+            aws: connectors.aws,
+            kubernetes: connectors.kubernetes
+          },
+          configReachable: true
+        },
+        loading: false
+      })
+    };
+  });
+}
+
+function mockConnectorFeatureFlags({
+  aws = true,
+  github = true,
+  kubernetes = true
+}: {
+  aws?: boolean;
+  github?: boolean;
+  kubernetes?: boolean;
+} = {}) {
+  vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
+    return {
+      ...actual,
+      FEATURE_ONBOARDING_CONNECTOR_AWS: aws,
+      FEATURE_ONBOARDING_CONNECTOR_GITHUB: github,
+      FEATURE_ONBOARDING_CONNECTOR_K8S: kubernetes
+    };
+  });
 }
 
 async function renderProjectDetail(
@@ -309,6 +354,7 @@ describe('ProductShellLayout', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.doUnmock('./hooks/useBackendFeatures');
     vi.resetModules();
   });
 
@@ -322,6 +368,7 @@ describe('ProductShellLayout', () => {
         FEATURE_ONBOARDING_CONNECTOR_K8S: false
       };
     });
+    mockBackendFeatures();
 
     const { ProductShellLayout, SourceLogoMark } = await import('./productShell');
 
@@ -348,17 +395,23 @@ describe('ProductShellLayout', () => {
     expect(screen.getAllByRole('img', { name: 'AWS' }).length).toBeGreaterThan(0);
     expect(screen.queryByRole('img', { name: 'GitHub' })).not.toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Kubernetes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Kubernetes' })).not.toBeInTheDocument();
   });
 });
 
 describe('ProductShellLayout', () => {
   afterEach(() => {
     vi.doUnmock('./hooks/useMe');
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
     vi.restoreAllMocks();
     vi.resetModules();
   });
 
   it('opens the workspace finder from keyboard shortcuts and routes to a selected section', async () => {
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
 
     render(
@@ -396,11 +449,48 @@ describe('ProductShellLayout', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings content/i })).toBeInTheDocument();
   });
+
+  it('disables GitHub domain navigation when the API does not advertise the connector', async () => {
+    vi.resetModules();
+    vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
+      return {
+        ...actual,
+        FEATURE_ONBOARDING_CONNECTOR_GITHUB: true,
+        FEATURE_ONBOARDING_CONNECTOR_K8S: false
+      };
+    });
+    mockBackendFeatures({ github: false });
+
+    const { ProductShellLayout } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route index element={<h2>Overview content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const githubButton = screen.getByRole('button', { name: /GitHub: Not available on this API server/i });
+    expect(githubButton).toBeDisabled();
+    fireEvent.click(githubButton);
+    expect(screen.queryByRole('dialog', { name: 'GitHub' })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '/' });
+    expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'github' } });
+    expect(screen.queryByRole('option', { name: /Connect GitHub/i })).not.toBeInTheDocument();
+  });
 });
 
 describe('Domain-first app routes', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
     vi.resetModules();
   });
 
@@ -467,7 +557,67 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText('Route contract')).toBeInTheDocument();
   });
 
+  it('preserves the requested domain source when creating the first project from connect', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const project = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production-platform',
+      name: 'Production Platform',
+      slug: 'production-platform',
+      description: 'Production identity boundary.',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    };
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'upsertProject').mockResolvedValue({ project });
+
+    const { ProductAWSConnectPage, ProductProjectsPage } = await import('./productShell');
+    function LocationProbe() {
+      const location = useLocation();
+      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+          <Route
+            path="/app/:tenantID/:workspaceID/projects"
+            element={
+              <>
+                <LocationProbe />
+                <ProductProjectsPage />
+              </>
+            }
+          />
+          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/projects?source=aws');
+
+    fireEvent.change(screen.getByLabelText(/Project name/i), { target: { value: 'Production Platform' } });
+    fireEvent.click(screen.getByRole('button', { name: /Create project/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/app/tenant-a/workspace-a/projects/production-platform?source=aws'
+      )
+    );
+    expect(api.apiClient.upsertProject).toHaveBeenCalledWith(
+      'workspace-a',
+      expect.objectContaining({ project_id: 'production-platform' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+  });
+
   it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
 
     const { container } = render(
