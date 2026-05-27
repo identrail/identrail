@@ -3312,7 +3312,7 @@ export function ProductOverviewPage() {
             {activeProjects.length > 0 ? (
               <div className="idt-overview-projects">
                 {activeProjects.slice(0, 6).map((project) => (
-                  <Link key={project.project_id} to={githubPath}>
+                  <Link key={project.project_id} to={scope ? buildProjectPath(scope, project.project_id) : '/app'}>
                     <div className="idt-overview-project-title">
                       <strong>{project.name}</strong>
                       <SourceLogoStack label={`${project.name} domain stack`} />

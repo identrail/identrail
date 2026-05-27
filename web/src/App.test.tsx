@@ -807,6 +807,10 @@ describe('App', () => {
 
     await screen.findByRole('region', { name: /Get started/i });
     expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Production GitHub/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects/project-1'
+    );
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
     fireEvent.click(screen.getByRole('link', { name: 'AWS' }));
