@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, NavigateFunction } from 'react-router-dom';
+import { ArrowRight, Eye, LogOut, Network } from 'lucide-react';
 import {
   apiClient,
   ApiError,
@@ -122,6 +123,21 @@ export async function loadOrStartOnboarding(): Promise<OnboardingState> {
   return (await loadOrStartOnboardingResponse()).state;
 }
 
+const SETUP_GUARANTEES = [
+  {
+    icon: Eye,
+    title: 'Read-only first',
+    detail: 'Connectors begin with discovery paths before any enforcement workflow.'
+  },
+  {
+    icon: Network,
+    title: 'Scoped by design',
+    detail: 'Workspaces, projects, scans, and findings stay inside one tenant boundary.'
+  }
+];
+
+const NEXT_STEPS = ['Create the security boundary', 'Name the first workspace', 'Connect a source', 'Run the first scan'];
+
 export function OnboardingFrame({
   step,
   eyebrow,
@@ -140,27 +156,71 @@ export function OnboardingFrame({
   return (
     <section className="idt-onboarding-shell">
       <header className="idt-onboarding-topbar">
-        <Link to="/" className="idt-logo-link" aria-label="Identrail home">
+        <Link to="/" className="idt-onboarding-brand" aria-label="Identrail home">
           <span className="idt-onboarding-logo-mark">
             <img src="/identrail-logo.png" alt="" aria-hidden="true" />
           </span>
-          <span>Identrail</span>
+          <span className="idt-onboarding-brand-copy">
+            <strong>Identrail</strong>
+            <span>Secure setup</span>
+          </span>
         </Link>
-        <Link to="/app/logout" className="idt-btn idt-btn-ghost">
-          Sign out
+        <Link to="/app/logout" className="idt-onboarding-signout" aria-label="Sign out">
+          <LogOut size={15} strokeWidth={2.1} aria-hidden="true" />
+          <span>Sign out</span>
         </Link>
       </header>
       <div className="idt-onboarding-grid">
         <aside className="idt-onboarding-rail">
-          <p className="idt-onboarding-rail-label">Setup progress</p>
+          <div className="idt-onboarding-rail-intro">
+            <div>
+              <p className="idt-onboarding-rail-label">Setup progress</p>
+              <strong>Launch path</strong>
+            </div>
+          </div>
           <OnboardingStepper currentStep={step} />
           {aside}
+          <div className="idt-onboarding-rail-note">
+            <span>Setup model</span>
+            <strong>Server-saved progress with read-only security checks first.</strong>
+          </div>
         </aside>
         <article className="idt-onboarding-panel">
-          <p className="idt-app-kicker">{eyebrow}</p>
-          <h1>{title}</h1>
-          <p>{description}</p>
-          {children}
+          <div className="idt-onboarding-panel-main">
+            <p className="idt-app-kicker">{eyebrow}</p>
+            <h1>{title}</h1>
+            <p>{description}</p>
+            <div className="idt-onboarding-guarantees" aria-label="Setup guarantees">
+              {SETUP_GUARANTEES.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div className="idt-onboarding-guarantee" key={item.title}>
+                    <Icon size={16} strokeWidth={2.1} aria-hidden="true" />
+                    <div>
+                      <strong>{item.title}</strong>
+                      <span>{item.detail}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {children}
+          </div>
+          <aside className="idt-onboarding-outcome" aria-label="What happens next">
+            <p className="idt-onboarding-outcome-label">What happens next</p>
+            <ol>
+              {NEXT_STEPS.map((item) => (
+                <li key={item}>
+                  <span>{item}</span>
+                  <ArrowRight size={14} strokeWidth={2.2} aria-hidden="true" />
+                </li>
+              ))}
+            </ol>
+            <div className="idt-onboarding-outcome-note">
+              <strong>Designed for security teams</strong>
+              <span>Short setup, explicit scope, and a findings dashboard ready after the first scan.</span>
+            </div>
+          </aside>
         </article>
       </div>
     </section>

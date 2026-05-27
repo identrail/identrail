@@ -80,13 +80,13 @@ export function OrgPage() {
   return (
     <OnboardingFrame
       step="org"
-      eyebrow="Account setup"
-      title="Create your organization boundary"
-      description="This becomes the tenant root for every workspace, connector, scan, policy, and teammate you add later."
+      eyebrow="Secure onboarding"
+      title="Create your organization"
+      description="This is the security boundary for your workspaces, repositories, scans, findings, and team access."
       aside={
         <div className="idt-onboarding-assurance">
-          <strong>Server-owned setup</strong>
-          <span>Progress is stored in Identrail, so refreshes and second devices resume safely.</span>
+          <strong>Enterprise-ready setup</strong>
+          <span>Progress is saved in Identrail, so refreshes and second devices continue from the same place.</span>
         </div>
       }
     >
@@ -97,14 +97,18 @@ export function OrgPage() {
         </div>
       ) : null}
       <form className="idt-onboarding-form" onSubmit={submit}>
-        <label htmlFor="org-name">Organization name</label>
-        <input
-          id="org-name"
-          value={orgName}
-          onChange={(event) => setOrgName(event.target.value)}
-          placeholder="Acme Security"
-          autoComplete="organization"
-        />
+        <div className="idt-onboarding-field">
+          <label htmlFor="org-name">Organization name</label>
+          <p id="org-name-hint">Use the company or security program name your team will recognize.</p>
+          <input
+            id="org-name"
+            value={orgName}
+            onChange={(event) => setOrgName(event.target.value)}
+            placeholder="Acme Security"
+            autoComplete="organization"
+            aria-describedby="org-name-hint"
+          />
+        </div>
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading || !orgName.trim()}>
             {saving ? 'Saving...' : state?.org_id ? 'Continue' : 'Create organization'}

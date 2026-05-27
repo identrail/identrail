@@ -1553,7 +1553,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
     const summary = await screen.findByLabelText(/AI Risks summary/i);
     const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
@@ -1570,6 +1570,9 @@ describe('App', () => {
     expect((await screen.findAllByText(/AI workflow prompt injection can reach Claude/i)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/Repository hotspots/i)).toBeInTheDocument();
     expect((await screen.findAllByText(/owner\/repo/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Scan health/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Success rate/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/3 high priority/i)).length).toBeGreaterThan(0);
   });
 
   it('keeps the AI Risks dashboard usable when trend loading fails', async () => {
@@ -1635,7 +1638,8 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true));
+    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
     expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
     expect(await screen.findByText(/Trend unavailable/i)).toBeInTheDocument();
     expect(screen.queryByText(/No AI Risks yet/i)).not.toBeInTheDocument();
@@ -2589,6 +2593,50 @@ describe('App', () => {
     );
   });
 
+  it('starts a WorkOS MFA authenticator challenge before asking for the code', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          mode: 'challenge',
+          user_email: 'owner@example.com',
+          challenge_started: false,
+          factors: [{ id: 'auth_factor_1', type: 'totp' }]
+        })
+      )
+      .mockResolvedValueOnce(okJSON({ challenge_started: true, factor_id: 'auth_factor_1' }))
+      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
+      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/auth/mfa?return_to=%2Fapp');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Verify your sign-in/i })).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Authentication code/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Use authenticator app/i })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: /Verify and continue/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8080/auth/mfa/challenge',
+        expect.objectContaining({
+          body: JSON.stringify({ factor_id: 'auth_factor_1' }),
+          credentials: 'include',
+          method: 'POST'
+        })
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.objectContaining({ body: JSON.stringify({ code: '123456' }), credentials: 'include', method: 'POST' })
+    );
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+  });
+
   it('lists account security sessions and revokes other browsers', async () => {
     const fetchMock = vi
       .fn()
@@ -2696,7 +2744,7 @@ describe('App', () => {
     expect(screen.queryByText(/Signed out successfully/i)).not.toBeInTheDocument();
   });
 
-  it('renders the printable executive report from the API response', async () => {
+  it('renders the downloadable executive report from the API response', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -2726,15 +2774,17 @@ describe('App', () => {
     setCurrentPath('/reports/executive');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Board-ready risk posture/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Risk posture summary/i })).toBeInTheDocument();
     expect(screen.getByText('tenant-a')).toBeInTheDocument();
     expect(screen.getByText('7')).toBeInTheDocument();
-    expect(screen.getByText('5 critical or high priority')).toBeInTheDocument();
+    expect(screen.getByText('5 critical or high')).toBeInTheDocument();
     expect(screen.getAllByText('30m').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Secret Exposure').length).toBeGreaterThan(0);
-    expect(screen.getByText('Authorized workspaces')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Severity composition/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Top finding types/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /Notes for leadership/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Review findings/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Print report/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Download report/i })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/v1/enterprise/reports/executive',
       expect.objectContaining({

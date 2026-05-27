@@ -26,8 +26,9 @@ Scan modes:
 - `deep`: bounded full-history scan plus HEAD configuration inspection. Manual
   API requests default to this mode and scheduled policies enqueue this mode.
 - `delta`: commit-range scan scoped by `base_revision`, `head_revision`, and
-  optional `changed_paths`. GitHub push and pull-request webhooks enqueue this
-  mode when revision metadata is present.
+  optional `changed_paths`. GitHub push and pull-request webhooks can enqueue
+  this mode when an enabled `event` or `hybrid` scan policy allows automatic
+  event scans and revision metadata is present.
 - `quick`: HEAD-focused scan mode for lightweight event refreshes.
 
 API behavior:

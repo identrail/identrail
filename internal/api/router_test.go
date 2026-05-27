@@ -3924,6 +3924,10 @@ func TestRouterGitHubConnectionAndWebhookFlow(t *testing.T) {
 	if reposResp.Code != http.StatusOK {
 		t.Fatalf("update github repositories expected 200, got %d body=%s", reposResp.Code, reposResp.Body.String())
 	}
+	policyResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/scan-policies", `{"policy_id":"github-event-scans","name":"GitHub event scans","trigger_mode":"event","enabled":true}`)
+	if policyResp.Code != http.StatusOK {
+		t.Fatalf("enable github event scan policy expected 200, got %d body=%s", policyResp.Code, policyResp.Body.String())
+	}
 
 	statusResp := doAPI(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/github/connection", "")
 	if statusResp.Code != http.StatusOK {

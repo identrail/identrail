@@ -529,7 +529,7 @@ func workOSMFAEnrollHandler(logger *zap.Logger, opts authSessionRouteOptions) gi
 			c.JSON(http.StatusBadRequest, gin.H{"error": "mfa enrollment is not pending"})
 			return
 		}
-		if state.TOTP != nil && state.ChallengeID != "" {
+		if strings.TrimSpace(state.ChallengeID) != "" {
 			c.JSON(http.StatusOK, workOSMFAEnrollResponse(state))
 			return
 		}
@@ -556,16 +556,21 @@ func workOSMFAEnrollHandler(logger *zap.Logger, opts authSessionRouteOptions) gi
 			ID:   enrolled.FactorID,
 			Type: enrolled.FactorType,
 		}}
-		state.TOTP = &sessionauth.WorkOSPendingTOTP{
+		state.ExpiresAt = 0
+		responseState := state
+		responseState.TOTP = &sessionauth.WorkOSPendingTOTP{
 			FactorID: enrolled.FactorID,
 			QRCode:   enrolled.TOTPQRCode,
 			Secret:   enrolled.TOTPSecret,
 			URI:      enrolled.TOTPURI,
 		}
+		// Real WorkOS QR payloads can exceed browser cookie limits once sealed.
+		// Keep the bulky setup material in the immediate response only; the
+		// cookie only needs the challenge id to verify the code.
 		if !writeWorkOSMFAPendingState(c, logger, opts, state) {
 			return
 		}
-		c.JSON(http.StatusOK, workOSMFAEnrollResponse(state))
+		c.JSON(http.StatusOK, workOSMFAEnrollResponse(responseState))
 	}
 }
 
@@ -602,6 +607,7 @@ func workOSMFAChallengeHandler(logger *zap.Logger, opts authSessionRouteOptions)
 		}
 		state.ChallengeID = challenge.ChallengeID
 		state.ChallengeExpiresAt = challenge.ExpiresAt
+		state.ExpiresAt = 0
 		if !writeWorkOSMFAPendingState(c, logger, opts, state) {
 			return
 		}
