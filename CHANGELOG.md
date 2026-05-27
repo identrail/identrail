@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Suppressed the macOS-Chrome selection-anchor bar that briefly appeared next
+  to the first OTP slot on the WorkOS MFA verification screen after typing or
+  pasting the code. The hidden underlying input was inheriting padding from a
+  generic auth-form input rule, which positioned the browser-painted selection
+  anchor visibly to the left of the slot row; the fix resets that padding and
+  hardens text/caret/selection colors to transparent (including
+  `-webkit-text-fill-color` so macOS Chrome stops painting the anchor through).
 - Replaced the single-field WorkOS MFA code input with a six-slot segmented
   OTP input (`input-otp`), matching the pattern now standard across premium
   auth flows. Each slot has its own focus ring, the active slot shows a
