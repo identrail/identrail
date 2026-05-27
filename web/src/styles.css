@@ -15707,7 +15707,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   max-width: 100vw;
   background: #000000;
   color: #f5f7fb;
-  padding: 24px clamp(16px, 4vw, 56px) 56px;
+  padding: 22px clamp(16px, 3vw, 40px) 48px;
   font-family: 'Geist', 'Inter', sans-serif;
 }
 
@@ -15718,8 +15718,8 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   gap: 16px;
   min-width: 0;
   width: 100%;
-  max-width: 1320px;
-  margin: 0 auto 30px;
+  max-width: 1180px;
+  margin: 0 auto 22px;
 }
 
 .idt-onboarding-brand,
@@ -15793,12 +15793,12 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(248px, 280px) minmax(0, 880px);
+  gap: 18px;
   width: 100%;
-  max-width: min(1320px, 100%);
+  max-width: min(1180px, 100%);
   margin: 0 auto;
-  align-items: start;
+  align-items: stretch;
 }
 
 .idt-onboarding-rail,
@@ -15807,11 +15807,14 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   border: 1px solid #1f1f1f;
   background: #000000;
   border-radius: 8px;
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+  box-shadow: 0 22px 62px rgba(0, 0, 0, 0.36);
 }
 
 .idt-onboarding-rail {
-  padding: 22px;
+  display: grid;
+  align-content: start;
+  align-self: stretch;
+  padding: 24px 20px;
   position: sticky;
   top: 24px;
   width: 100%;
@@ -15820,8 +15823,8 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  min-height: 35rem;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 270px);
+  min-height: 30rem;
   width: 100%;
   max-width: 100%;
   overflow: hidden;
@@ -15829,12 +15832,12 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-panel-main {
   min-width: 0;
-  padding: clamp(34px, 5vw, 64px);
+  padding: clamp(28px, 3.4vw, 40px);
   background: #000000;
 }
 
 .idt-onboarding-rail-intro {
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .idt-onboarding-rail-label {
@@ -15855,13 +15858,15 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-panel h1 {
   width: 100%;
-  max-width: 640px;
+  max-width: 540px;
   margin: 0;
   color: #ffffff;
-  font-size: clamp(2.4rem, 5vw, 4.35rem);
-  line-height: 1;
+  font-size: clamp(2.05rem, 3.2vw, 2.85rem);
+  line-height: 1.05;
   letter-spacing: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  text-wrap: balance;
+  word-break: normal;
 }
 
 .idt-onboarding-panel > p {
@@ -15873,11 +15878,11 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 }
 
 .idt-onboarding-panel-main > p {
-  max-width: 650px;
-  margin: 18px 0 0;
+  max-width: 520px;
+  margin: 12px 0 0;
   color: #b4b4b4;
-  font-size: 1.02rem;
-  line-height: 1.72;
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
 .idt-onboarding-shell .idt-app-kicker {
@@ -15897,17 +15902,17 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 .idt-onboarding-guarantees {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  max-width: 720px;
-  margin-top: 28px;
-  padding: 18px 0;
+  gap: 12px;
+  max-width: 520px;
+  margin-top: 20px;
+  padding: 14px 0;
   border-top: 1px solid #1f1f1f;
   border-bottom: 1px solid #1f1f1f;
 }
 
 .idt-onboarding-guarantee {
   display: flex;
-  gap: 11px;
+  gap: 10px;
   min-width: 0;
   color: #a1a1aa;
 }
@@ -15925,17 +15930,17 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 
 .idt-onboarding-guarantee strong {
   color: #ffffff;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
 .idt-onboarding-guarantee span {
-  font-size: 0.84rem;
-  line-height: 1.55;
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .idt-onboarding-stepper {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 
 .idt-onboarding-step {
@@ -15943,8 +15948,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   grid-template-columns: 34px 1fr;
   align-items: center;
   gap: 10px;
-  min-height: 54px;
-  padding: 9px 8px;
+  min-height: 48px;
+  padding: 8px;
   border: 1px solid transparent;
   border-radius: 7px;
   color: #8a8a8a;
@@ -15968,7 +15973,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 }
 
 .idt-onboarding-step strong {
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   color: #d4d4d4;
 }
 
@@ -16002,34 +16007,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   color: #d4d4d4;
 }
 
-.idt-onboarding-assurance {
-  display: grid;
-  gap: 8px;
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid #1f1f1f;
-  color: #a1a1aa;
-  line-height: 1.55;
-}
-
-.idt-onboarding-assurance strong {
-  color: #ffffff;
-}
-
-.idt-onboarding-assurance span {
-  font-size: 0.9rem;
-}
-
-.idt-onboarding-rail-note {
-  display: grid;
-  gap: 6px;
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid #1f1f1f;
-}
-
-.idt-onboarding-rail-note span,
 .idt-onboarding-outcome-label {
+  margin: 0;
   color: #737373;
   font-size: 0.72rem;
   font-weight: 900;
@@ -16037,24 +16016,17 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   text-transform: uppercase;
 }
 
-.idt-onboarding-rail-note strong {
-  color: #e5e5e5;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
 .idt-onboarding-form {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   width: 100%;
-  max-width: 560px;
-  margin-top: 32px;
+  max-width: 480px;
+  margin-top: 22px;
 }
 
 .idt-onboarding-field {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .idt-onboarding-form label {
@@ -16074,7 +16046,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   width: 100%;
   border: 1px solid #2a2a2a;
   border-radius: 8px;
-  padding: 14px 16px;
+  padding: 13px 15px;
   font: inherit;
   color: #ffffff;
   background: #050505;
@@ -16097,7 +16069,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin-top: 24px;
+  margin-top: 12px;
 }
 
 .idt-onboarding-shell .idt-btn-primary {
@@ -16130,12 +16102,12 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
 .idt-onboarding-provider-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 32px;
+  gap: 12px;
+  margin-top: 24px;
 }
 
 .idt-onboarding-provider {
-  min-height: 180px;
+  min-height: 160px;
   display: grid;
   gap: 10px;
   align-content: start;
@@ -16179,8 +16151,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
 .idt-onboarding-scan-status {
   display: grid;
   gap: 8px;
-  max-width: 560px;
-  margin-top: 32px;
+  max-width: 520px;
+  margin-top: 24px;
   padding: 20px;
   border-radius: 8px;
   border: 1px solid #2a2a2a;
@@ -16204,11 +16176,11 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
 .idt-onboarding-outcome {
   display: grid;
   align-content: start;
-  gap: 22px;
+  gap: 16px;
   min-width: 0;
   border-left: 1px solid #1f1f1f;
   background: #050505;
-  padding: clamp(28px, 4vw, 40px);
+  padding: 24px 26px;
 }
 
 .idt-onboarding-outcome ol {
@@ -16224,10 +16196,10 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 13px 0;
+  padding: 10px 0;
   border-bottom: 1px solid #1f1f1f;
   color: #e5e5e5;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   font-weight: 750;
 }
 
@@ -16238,19 +16210,6 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
 .idt-onboarding-outcome li svg {
   flex: 0 0 auto;
   color: #8a8a8a;
-}
-
-.idt-onboarding-outcome-note {
-  display: grid;
-  gap: 8px;
-  margin-top: 4px;
-  color: #a1a1aa;
-  font-size: 0.88rem;
-  line-height: 1.55;
-}
-
-.idt-onboarding-outcome-note strong {
-  color: #ffffff;
 }
 
 .idt-onboarding-tour {

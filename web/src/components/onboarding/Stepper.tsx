@@ -2,11 +2,11 @@ import type { OnboardingStep } from '../../api/client';
 import { Building2, PanelsTopLeft, PlugZap, ScanSearch, UserPlus, type LucideIcon } from 'lucide-react';
 
 const STEP_ITEMS: Array<{ id: Exclude<OnboardingStep, 'complete'>; label: string; detail: string; icon: LucideIcon }> = [
-  { id: 'org', label: 'Organization', detail: 'Tenant root', icon: Building2 },
-  { id: 'workspace', label: 'Workspace', detail: 'Project scope', icon: PanelsTopLeft },
-  { id: 'connect', label: 'Connect source', detail: 'GitHub, AWS, K8s', icon: PlugZap },
-  { id: 'scan', label: 'First scan', detail: 'Evidence baseline', icon: ScanSearch },
-  { id: 'invite', label: 'Invite team', detail: 'Reviewer access', icon: UserPlus }
+  { id: 'org', label: 'Organization', detail: 'Boundary', icon: Building2 },
+  { id: 'workspace', label: 'Workspace', detail: 'Scope', icon: PanelsTopLeft },
+  { id: 'connect', label: 'Source', detail: 'AWS, GitHub, K8s', icon: PlugZap },
+  { id: 'scan', label: 'Scan', detail: 'Baseline', icon: ScanSearch },
+  { id: 'invite', label: 'Team', detail: 'Access', icon: UserPlus }
 ];
 
 export function OnboardingStepper({ currentStep }: { currentStep: OnboardingStep }) {

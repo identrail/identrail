@@ -130,14 +130,8 @@ export function ScanPage() {
     <OnboardingFrame
       step="scan"
       eyebrow="First scan"
-      title="Run the first identity scan"
-      description="The first scan proves that the workspace, connector boundary, queue, and findings path are connected end to end."
-      aside={
-        <div className="idt-onboarding-assurance">
-          <strong>Queue backed</strong>
-          <span>Scan creation uses the same authenticated scan endpoint as the dashboard and API clients.</span>
-        </div>
-      }
+      title="Run a baseline scan"
+      description="Confirm the source, queue, and findings path."
     >
       {loading ? <p className="idt-muted-strong">Loading scan readiness...</p> : null}
       {error ? (

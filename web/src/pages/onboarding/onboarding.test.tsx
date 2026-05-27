@@ -104,18 +104,6 @@ describe('onboarding pages', () => {
     const { apiClient, OrgPage } = await loadOnboardingModules();
     const startState = state({ current_step: 'org' });
     vi.spyOn(apiClient, 'startOnboarding').mockResolvedValue({ state: startState, redirect_path: '/onboarding/org' });
-    vi.spyOn(apiClient, 'getMe').mockResolvedValue({
-      me: {
-        user: {
-          id: 'user-1',
-          primary_email: 'owner@example.com',
-          display_name: 'Owner User',
-          status: 'active',
-          created_at: '2026-05-14T10:00:00Z',
-          updated_at: '2026-05-14T10:00:00Z'
-        }
-      }
-    });
     const update = vi.spyOn(apiClient, 'updateOnboardingState').mockResolvedValue({
       state: state({ current_step: 'workspace', org_id: 'owner-user-security' }),
       redirect_path: '/onboarding/workspace'
@@ -124,6 +112,11 @@ describe('onboarding pages', () => {
     renderOnboarding(<OrgPage />, '/onboarding/org');
 
     const input = await screen.findByLabelText('Organization name');
+    expect(input).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please enter an organization name to continue.');
+    expect(update).not.toHaveBeenCalled();
+
     fireEvent.change(input, { target: { value: 'Aurelius Security' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
 
@@ -145,9 +138,17 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<WorkspacePage />, '/onboarding/workspace');
 
-    expect(await screen.findByRole('heading', { name: 'Name the environment you will secure first' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Workspace name'), { target: { value: 'Production' } });
-    fireEvent.change(screen.getByLabelText('First project'), { target: { value: 'Identity Control Plane' } });
+    expect(await screen.findByRole('heading', { name: 'Name your first workspace' })).toBeInTheDocument();
+    const workspaceInput = screen.getByLabelText('Workspace name');
+    const projectInput = screen.getByLabelText('First project');
+    expect(workspaceInput).toHaveValue('');
+    expect(projectInput).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please enter a workspace name to continue.');
+    expect(update).not.toHaveBeenCalled();
+
+    fireEvent.change(workspaceInput, { target: { value: 'Production' } });
+    fireEvent.change(projectInput, { target: { value: 'Identity Control Plane' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
 
     await waitFor(() => {
@@ -183,7 +184,11 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<ConnectPage />, '/onboarding/connect');
 
-    fireEvent.click(await screen.findByRole('button', { name: /GitHubRepositories/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please choose an available source to continue.');
+    expect(update).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole('button', { name: /GitHubRepos/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => {
@@ -227,6 +232,57 @@ describe('onboarding pages', () => {
 
     const awsButton = screen.getByRole('button', { name: /AWS/i });
     expect(awsButton).toBeEnabled();
+  });
+
+  it('clears a selected connector when backend availability removes it', async () => {
+    const { apiClient, ConnectPage } = await loadOnboardingModules();
+    const { resetBackendFeaturesCacheForTests } = await import('../../hooks/useBackendFeatures');
+    resetBackendFeaturesCacheForTests();
+
+    let resolveConfig: (value: Awaited<ReturnType<typeof apiClient.getAuthConfig>>) => void = () => {};
+    const configPromise = new Promise<Awaited<ReturnType<typeof apiClient.getAuthConfig>>>((resolve) => {
+      resolveConfig = resolve;
+    });
+    vi.spyOn(apiClient, 'getAuthConfig').mockReturnValue(configPromise);
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'connect',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/connect'
+    });
+    const update = vi.spyOn(apiClient, 'updateOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'scan',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/scan'
+    });
+
+    renderOnboarding(<ConnectPage />, '/onboarding/connect');
+
+    const githubButton = await screen.findByRole('button', { name: /GitHubRepos/i });
+    fireEvent.click(githubButton);
+
+    resolveConfig({
+      auth: { manual_mode: false, workos_login_enabled: true, native_saml_enabled: false, providers: [] },
+      features: {
+        onboarding_wizard: true,
+        connectors: { github: false, aws: true, kubernetes: false }
+      }
+    });
+
+    await waitFor(() => {
+      expect(githubButton).toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please choose an available source to continue.');
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('continues after a successful first scan', async () => {
@@ -299,6 +355,11 @@ describe('onboarding pages', () => {
     });
 
     renderOnboarding(<InvitePage />, '/onboarding/invite');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Invite and finish' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please enter at least one valid email address');
+    expect(invite).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
 
     fireEvent.change(await screen.findByLabelText('Email addresses'), { target: { value: 'analyst@example.com' } });
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
