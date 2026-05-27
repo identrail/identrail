@@ -14,7 +14,7 @@ the public website routes and the authenticated product dashboard.
 - API URL input: `VITE_IDENTRAIL_API_URL`
 - Self-serve onboarding input: `VITE_FEATURE_ONBOARDING_WIZARD=true`
 - Vercel (marketing/demo deploy): Identrail Cloud domains default to `https://api.identrail.com`; custom domains should set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables or as a GitHub Actions variable so the deploy workflow upserts it. Identrail Cloud production deploys also upsert `VITE_FEATURE_ONBOARDING_WIZARD`, defaulting to `true`, and the connector build flags (`VITE_FEATURE_CONNECTOR_AWS`, `VITE_FEATURE_CONNECTOR_GITHUB_V2`, `VITE_FEATURE_CONNECTOR_K8S`), defaulting to `false`, so the web bundle cannot drift from the intended connector launch state.
-- Production deploys should be triggered from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
+- Production deploys should be triggered for merged, approved PRs into `dev`, or manually from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
 
 ### `VITE_IDENTRAIL_API_URL` value source
 
