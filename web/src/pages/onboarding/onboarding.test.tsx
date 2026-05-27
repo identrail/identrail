@@ -114,10 +114,11 @@ describe('onboarding pages', () => {
     const input = await screen.findByLabelText('Organization name');
     expect(input).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Please enter an organization name to continue.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter an organization name');
     expect(update).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: 'Aurelius Security' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
 
     await waitFor(() => {
@@ -144,11 +145,17 @@ describe('onboarding pages', () => {
     expect(workspaceInput).toHaveValue('');
     expect(projectInput).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Please enter a workspace name to continue.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a workspace name');
     expect(update).not.toHaveBeenCalled();
 
     fireEvent.change(workspaceInput, { target: { value: 'Production' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a project name');
+    expect(update).not.toHaveBeenCalled();
+
     fireEvent.change(projectInput, { target: { value: 'Identity Control Plane' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
 
     await waitFor(() => {
@@ -185,10 +192,11 @@ describe('onboarding pages', () => {
     renderOnboarding(<ConnectPage />, '/onboarding/connect');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Please choose an available source to continue.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a source');
     expect(update).not.toHaveBeenCalled();
 
     fireEvent.click(await screen.findByRole('button', { name: /GitHubRepos/i }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => {
@@ -281,7 +289,7 @@ describe('onboarding pages', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Please choose an available source to continue.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a source');
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -357,11 +365,12 @@ describe('onboarding pages', () => {
     renderOnboarding(<InvitePage />, '/onboarding/invite');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Invite and finish' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Please enter at least one valid email address');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email');
     expect(invite).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
 
     fireEvent.change(await screen.findByLabelText('Email addresses'), { target: { value: 'analyst@example.com' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
 
     await waitFor(() => {
