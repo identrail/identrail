@@ -16064,8 +16064,10 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 }
 
 .idt-onboarding-input-wrap textarea + .idt-onboarding-input-error {
-  align-items: flex-start;
-  padding-top: 13px;
+  position: static;
+  display: block;
+  margin-top: 7px;
+  padding: 0 1px;
 }
 
 .idt-onboarding-inline-error {
