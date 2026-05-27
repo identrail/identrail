@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { apiClient, type OnboardingState, type ScanRecord, type ScanRequest } from '../../api/client';
+import { EnterSubmitHint } from '../../components/common/EnterSubmitHint';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';
 import {
   FEATURE_ONBOARDING_WIZARD,
@@ -152,6 +153,7 @@ export function ScanPage() {
         ) : null}
         <button type="button" className="idt-btn idt-btn-secondary" disabled={saving || loading || !canContinue} onClick={continueToInvite}>
           Continue
+          <EnterSubmitHint />
         </button>
         {canSkip ? <SkipForNow disabled={saving || loading} onSkip={skipScan} label="Skip scan" /> : null}
       </div>

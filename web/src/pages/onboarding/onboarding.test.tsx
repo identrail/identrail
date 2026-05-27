@@ -113,13 +113,13 @@ describe('onboarding pages', () => {
 
     const input = await screen.findByLabelText('Organization name');
     expect(input).toHaveValue('');
-    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create boundary' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter an organization name');
     expect(update).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: 'Aurelius Security' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create boundary' }));
 
     await waitFor(() => {
       expect(update).toHaveBeenCalledWith({ current_step: 'org', org_name: 'Aurelius Security' });
@@ -138,12 +138,12 @@ describe('onboarding pages', () => {
 
     const input = await screen.findByLabelText('Organization name');
     fireEvent.change(input, { target: { value: 'Aurelius Security' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create boundary' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Organization save failed');
 
     fireEvent.change(input, { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create boundary' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter an organization name');
     expect(screen.queryByText('Organization save failed')).not.toBeInTheDocument();

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { apiClient, type OnboardingState } from '../../api/client';
+import { EnterSubmitHint } from '../../components/common/EnterSubmitHint';
 import { FEATURE_ONBOARDING_WIZARD, OnboardingFrame, routeAfterOnboardingResponse, routeToOnboardingStep } from './onboardingUtils';
 
 export function OrgPage() {
@@ -77,7 +78,7 @@ export function OrgPage() {
   return (
     <OnboardingFrame
       step="org"
-      title="Set up your organization"
+      title="Define your boundary"
     >
       {loading ? <p className="idt-muted-strong">Preparing your account...</p> : null}
       {error ? (
@@ -112,7 +113,14 @@ export function OrgPage() {
         </div>
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>
-            {saving ? 'Saving...' : state?.org_id ? 'Continue' : 'Create organization'}
+            {saving ? (
+              'Saving...'
+            ) : (
+              <>
+                {state?.org_id ? 'Continue' : 'Create boundary'}
+                <EnterSubmitHint />
+              </>
+            )}
           </button>
         </div>
       </form>

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { apiClient, type OnboardingState } from '../../api/client';
+import { EnterSubmitHint } from '../../components/common/EnterSubmitHint';
 import {
   FEATURE_ONBOARDING_WIZARD,
   OnboardingFrame,
@@ -154,7 +155,14 @@ export function WorkspacePage() {
         </div>
         <div className="idt-onboarding-actions">
           <button type="submit" className="idt-btn idt-btn-primary" disabled={saving || loading}>
-            {saving ? 'Creating...' : state?.workspace_id ? 'Continue' : 'Create workspace'}
+            {saving ? (
+              'Creating...'
+            ) : (
+              <>
+                {state?.workspace_id ? 'Continue' : 'Create workspace'}
+                <EnterSubmitHint />
+              </>
+            )}
           </button>
         </div>
       </form>

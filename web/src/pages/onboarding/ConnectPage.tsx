@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { apiClient } from '../../api/client';
+import { EnterSubmitHint } from '../../components/common/EnterSubmitHint';
 import { SkipForNow } from '../../components/onboarding/SkipForNow';
 import { isFeatureAvailable, useBackendFeatures } from '../../hooks/useBackendFeatures';
 import {
@@ -235,7 +236,14 @@ export function ConnectPage() {
       ) : null}
       <div className="idt-onboarding-actions">
         <button type="button" className="idt-btn idt-btn-primary" disabled={saving || loading} onClick={continueToScan}>
-          {saving ? 'Saving...' : 'Continue'}
+          {saving ? (
+            'Saving...'
+          ) : (
+            <>
+              Continue
+              <EnterSubmitHint />
+            </>
+          )}
         </button>
         <button type="button" className="idt-btn idt-btn-secondary" disabled={saving || loading} onClick={openConnectorSetup}>
           Open setup

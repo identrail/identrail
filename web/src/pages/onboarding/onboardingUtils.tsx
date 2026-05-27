@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, NavigateFunction } from 'react-router-dom';
-import { ArrowRight, Eye, LogOut, Network } from 'lucide-react';
+import { ArrowRight, LogOut } from 'lucide-react';
 import {
   apiClient,
   ApiError,
@@ -123,19 +123,6 @@ export async function loadOrStartOnboarding(): Promise<OnboardingState> {
   return (await loadOrStartOnboardingResponse()).state;
 }
 
-const SETUP_GUARANTEES = [
-  {
-    icon: Eye,
-    title: 'Read-only first',
-    detail: 'Discovery before enforcement.'
-  },
-  {
-    icon: Network,
-    title: 'Scoped by design',
-    detail: 'One boundary for every asset.'
-  }
-];
-
 const NEXT_STEPS = ['Create boundary', 'Name workspace', 'Connect source', 'Run scan'];
 
 export function OnboardingFrame({
@@ -160,7 +147,6 @@ export function OnboardingFrame({
           </span>
           <span className="idt-onboarding-brand-copy">
             <strong>Identrail</strong>
-            <span>Secure setup</span>
           </span>
         </Link>
         <Link to="/app/logout" className="idt-onboarding-signout" aria-label="Sign out">
@@ -171,10 +157,7 @@ export function OnboardingFrame({
       <div className="idt-onboarding-grid">
         <aside className="idt-onboarding-rail">
           <div className="idt-onboarding-rail-intro">
-            <div>
-              <p className="idt-onboarding-rail-label">Setup progress</p>
-              <strong>Launch path</strong>
-            </div>
+            <p className="idt-onboarding-rail-label">Setup progress</p>
           </div>
           <OnboardingStepper currentStep={step} />
         </aside>
@@ -183,20 +166,6 @@ export function OnboardingFrame({
             {eyebrow ? <p className="idt-app-kicker">{eyebrow}</p> : null}
             <h1>{title}</h1>
             {description ? <p>{description}</p> : null}
-            <div className="idt-onboarding-guarantees" aria-label="Setup guarantees">
-              {SETUP_GUARANTEES.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div className="idt-onboarding-guarantee" key={item.title}>
-                    <Icon size={16} strokeWidth={2.1} aria-hidden="true" />
-                    <div>
-                      <strong>{item.title}</strong>
-                      <span>{item.detail}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
             {children}
           </div>
           <aside className="idt-onboarding-outcome" aria-label="What happens next">

@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { OTPInput, REGEXP_ONLY_DIGITS } from 'input-otp';
 import { ApiError, apiClient, type WorkOSMFAPendingResponse } from '../api/client';
+import { EnterSubmitHint } from '../components/common/EnterSubmitHint';
 
 function sameOriginPath(value: string | null | undefined, fallback: string, pathPrefix?: string): string {
   const candidate = value?.trim();
@@ -292,7 +293,14 @@ export function WorkOSMFAPage() {
               )}
             />
             <button className="idt-btn idt-btn-primary" type="submit" disabled={busy || !canEnterCode || code.length < 6}>
-              {busy ? 'Verifying...' : 'Continue'}
+              {busy ? (
+                'Verifying...'
+              ) : (
+                <>
+                  Continue
+                  <EnterSubmitHint />
+                </>
+              )}
             </button>
           </form>
         ) : null}
