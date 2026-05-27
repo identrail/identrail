@@ -1553,7 +1553,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: /AI Risks/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
     const summary = await screen.findByLabelText(/AI Risks summary/i);
     const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
@@ -1639,7 +1639,7 @@ describe('App', () => {
     render(<App />);
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true));
-    expect(await screen.findByRole('heading', { level: 2, name: /AI Risks/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
     expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
     expect(await screen.findByText(/Trend unavailable/i)).toBeInTheDocument();
     expect(screen.queryByText(/No AI Risks yet/i)).not.toBeInTheDocument();

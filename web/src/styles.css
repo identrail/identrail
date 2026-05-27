@@ -4875,6 +4875,10 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   gap: 0.75rem;
 }
 
+.idt-github-intelligence-hotspot-panel {
+  align-self: start;
+}
+
 .idt-github-intelligence-panel-head h3 {
   margin: 0;
 }
@@ -4898,7 +4902,6 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   margin: 0;
 }
 
-.idt-github-intelligence-hotspots article,
 .idt-github-intelligence-trend article {
   border: 1px solid rgba(126, 157, 211, 0.18);
   border-radius: 8px;
@@ -4906,14 +4909,100 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.idt-github-intelligence-hotspots b {
+.idt-github-intelligence-hotspot-row {
+  display: grid;
+  gap: 0.58rem;
+  border: 1px solid rgba(126, 157, 211, 0.2);
+  border-radius: 8px;
+  padding: 0.72rem;
+  background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+
+.idt-github-intelligence-hotspot-row:hover,
+.idt-github-intelligence-hotspot-row:focus-visible {
+  border-color: rgba(177, 191, 255, 0.42);
+  background: rgba(255, 255, 255, 0.055);
+  transform: translateY(-1px);
+}
+
+.idt-github-intelligence-hotspot-row-top,
+.idt-github-intelligence-hotspot-identity,
+.idt-github-intelligence-hotspot-meta {
+  display: flex;
+  align-items: center;
+}
+
+.idt-github-intelligence-hotspot-row-top {
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.idt-github-intelligence-hotspot-identity {
+  min-width: 0;
+  gap: 0.62rem;
+}
+
+.idt-github-intelligence-hotspot-identity > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.14rem;
+}
+
+.idt-github-intelligence-hotspot-identity strong {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 0.96rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idt-github-intelligence-hotspot-identity span,
+.idt-github-intelligence-hotspot-meta span {
+  color: #9da8ba;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.idt-github-intelligence-hotspots .idt-github-intelligence-hotspot-score {
   display: inline-grid;
-  min-width: 2rem;
-  height: 2rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  flex: 0 0 auto;
   place-items: center;
   border-radius: 999px;
-  background: rgba(255, 107, 107, 0.14);
+  border: 1px solid rgba(255, 160, 160, 0.2);
+  background: rgba(255, 107, 107, 0.18);
   color: #ffc3c3;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.idt-github-intelligence-hotspot-meta {
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.idt-github-intelligence-hotspot-meter {
+  overflow: hidden;
+  height: 0.28rem;
+  border-radius: 999px;
+  background: rgba(126, 157, 211, 0.16);
+}
+
+.idt-github-intelligence-hotspot-meter span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255, 196, 135, 0.82), rgba(255, 107, 107, 0.9));
 }
 
 .idt-github-intelligence-trend article {
@@ -21333,6 +21422,37 @@ html[data-theme='light'] .idt-app-shell-screen select {
   height: 2rem;
 }
 
+.idt-source-logo-mark.is-ai-risk-source,
+.idt-source-logo-mark.is-hotspot {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.32),
+    0 8px 18px rgba(0, 0, 0, 0.28);
+}
+
+.idt-source-logo-mark.is-ai-risk-source img,
+.idt-source-logo-mark.is-hotspot img {
+  opacity: 1;
+  filter: none;
+}
+
+.idt-source-logo-mark.is-ai-risk-source {
+  width: 1.95rem;
+  height: 1.95rem;
+}
+
+.idt-source-logo-mark.is-hotspot {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 7px;
+}
+
+.idt-source-logo-mark.is-hotspot img {
+  width: 0.98rem;
+  height: 0.98rem;
+}
+
 .idt-source-logo-stack {
   display: flex;
   align-items: center;
@@ -26699,11 +26819,29 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .idt-app-console-layout .idt-repo-findings-header.idt-github-intelligence-header .idt-overview-source-strip {
+    display: flex;
+    align-items: center;
+  }
+
   .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip > span,
   html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header .idt-overview-source-strip > span {
     display: block;
     width: 100%;
     overflow-wrap: anywhere;
+  }
+
+  .idt-app-console-layout .idt-repo-findings-header.idt-github-intelligence-header .idt-overview-source-strip > .idt-source-logo-mark.is-ai-risk-source {
+    display: inline-grid;
+    width: 1.95rem;
+    max-width: 1.95rem;
+  }
+
+  .idt-app-console-layout .idt-repo-findings-header.idt-github-intelligence-header .idt-overview-source-strip > span:not(.idt-source-logo-mark),
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header.idt-github-intelligence-header .idt-overview-source-strip > span:not(.idt-source-logo-mark) {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .idt-app-console-layout .idt-app-sidebar-footer,

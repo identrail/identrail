@@ -6048,7 +6048,7 @@ export function ProductAIRisksPage() {
           <h2>AI Risks</h2>
           <p>AI, MCP, workflow, runner, GitHub alert, and fix-ready signals.</p>
           <div className="idt-overview-source-strip">
-            <SourceLogoMark provider="github" />
+            <SourceLogoMark provider="github" className="is-ai-risk-source" />
             <span>{latestScanLabel}</span>
           </div>
         </div>
@@ -6161,7 +6161,7 @@ export function ProductAIRisksPage() {
           )}
         </section>
 
-        <aside className="idt-github-intelligence-panel">
+        <aside className="idt-github-intelligence-panel idt-github-intelligence-hotspot-panel">
           <div className="idt-github-intelligence-panel-head">
             <h3>Repository hotspots</h3>
             <span>{repositoryRows.length ? formatCountLabel(repositoryRows.length, 'repo') : 'No hotspots'}</span>
@@ -6173,15 +6173,30 @@ export function ProductAIRisksPage() {
             />
           ) : (
             <div className="idt-github-intelligence-hotspots">
-              {repositoryRows.map((row) => (
-                <article key={row.repository}>
-                  <div>
-                    <strong>{row.repository}</strong>
-                    <span>{row.open} open · {row.total} total</span>
-                  </div>
-                  <b>{row.criticalHigh}</b>
-                </article>
-              ))}
+              {repositoryRows.map((row) => {
+                const priorityShare = Math.round((row.criticalHigh / Math.max(row.total, 1)) * 100);
+                return (
+                  <Link className="idt-github-intelligence-hotspot-row" to={findingsPath} key={row.repository}>
+                    <div className="idt-github-intelligence-hotspot-row-top">
+                      <div className="idt-github-intelligence-hotspot-identity">
+                        <SourceLogoMark provider="github" className="is-hotspot" />
+                        <div>
+                          <strong>{row.repository}</strong>
+                          <span>{formatCountLabel(row.open, 'open finding')}</span>
+                        </div>
+                      </div>
+                      <span className="idt-github-intelligence-hotspot-score">{row.criticalHigh}</span>
+                    </div>
+                    <div className="idt-github-intelligence-hotspot-meta">
+                      <span>{formatCountLabel(row.total, 'total signal')}</span>
+                      <span>{formatCountLabel(row.criticalHigh, 'high-priority signal')}</span>
+                    </div>
+                    <div className="idt-github-intelligence-hotspot-meter" aria-hidden="true">
+                      <span style={{ width: `${priorityShare}%` }} />
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </aside>
