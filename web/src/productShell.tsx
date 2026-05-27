@@ -3460,7 +3460,6 @@ export function ProductOverviewPage() {
   const previousTrend = trendPoints[trendPoints.length - 2];
   const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
   const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
-  const githubPath = scope ? buildScopedPath(scope, 'github') : '/app';
   const findingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const connectSourcesProvider = DOMAIN_NAV_ORDER.find((provider) => sourceAvailability[provider].available) ?? 'aws';
