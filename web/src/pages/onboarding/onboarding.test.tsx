@@ -126,6 +126,30 @@ describe('onboarding pages', () => {
     });
   });
 
+  it('clears stale organization save errors before inline validation', async () => {
+    const { apiClient, OrgPage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'startOnboarding').mockResolvedValue({
+      state: state({ current_step: 'org' }),
+      redirect_path: '/onboarding/org'
+    });
+    const update = vi.spyOn(apiClient, 'updateOnboardingState').mockRejectedValue(new Error('Organization save failed'));
+
+    renderOnboarding(<OrgPage />, '/onboarding/org');
+
+    const input = await screen.findByLabelText('Organization name');
+    fireEvent.change(input, { target: { value: 'Aurelius Security' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Organization save failed');
+
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter an organization name');
+    expect(screen.queryByText('Organization save failed')).not.toBeInTheDocument();
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
   it('creates the workspace and default project', async () => {
     const { apiClient, WorkspacePage } = await loadOnboardingModules();
     vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
@@ -165,6 +189,44 @@ describe('onboarding pages', () => {
         project_name: 'Identity Control Plane'
       });
     });
+  });
+
+  it('clears stale workspace save errors before inline validation', async () => {
+    const { apiClient, WorkspacePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({ current_step: 'workspace', org_id: 'tenant-a' }),
+      redirect_path: '/onboarding/workspace'
+    });
+    const update = vi.spyOn(apiClient, 'updateOnboardingState').mockRejectedValue(new Error('Workspace save failed'));
+
+    renderOnboarding(<WorkspacePage />, '/onboarding/workspace');
+
+    const workspaceInput = await screen.findByLabelText('Workspace name');
+    const projectInput = screen.getByLabelText('First project');
+    fireEvent.change(workspaceInput, { target: { value: 'Production' } });
+    fireEvent.change(projectInput, { target: { value: 'Identity Control Plane' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Workspace save failed');
+
+    fireEvent.change(workspaceInput, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a workspace name');
+    expect(screen.queryByText('Workspace save failed')).not.toBeInTheDocument();
+    expect(update).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(workspaceInput, { target: { value: 'Production' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Workspace save failed');
+
+    fireEvent.change(projectInput, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a project name');
+    expect(screen.queryByText('Workspace save failed')).not.toBeInTheDocument();
+    expect(update).toHaveBeenCalledTimes(2);
   });
 
   it('records the selected connector source', async () => {
@@ -381,5 +443,39 @@ describe('onboarding pages', () => {
       );
       expect(complete).toHaveBeenCalled();
     });
+  });
+
+  it('clears stale invite errors before inline email validation', async () => {
+    const { apiClient, InvitePage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'invite',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/invite'
+    });
+    const invite = vi.spyOn(apiClient, 'upsertWorkspaceMember').mockRejectedValue(new Error('Invite failed'));
+    const complete = vi.spyOn(apiClient, 'completeOnboarding').mockResolvedValue({
+      state: state({ current_step: 'complete', org_id: 'tenant-a', workspace_id: 'production' }),
+      redirect_path: '/app/tenant-a/production'
+    });
+
+    renderOnboarding(<InvitePage />, '/onboarding/invite');
+
+    const emailInput = await screen.findByLabelText('Email addresses');
+    fireEvent.change(emailInput, { target: { value: 'analyst@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invite failed');
+
+    fireEvent.change(emailInput, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Invite and finish' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid email');
+    expect(screen.queryByText('Invite failed')).not.toBeInTheDocument();
+    expect(invite).toHaveBeenCalledTimes(1);
+    expect(complete).not.toHaveBeenCalled();
   });
 });

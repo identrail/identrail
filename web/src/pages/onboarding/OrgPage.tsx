@@ -52,14 +52,14 @@ export function OrgPage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setOrgNameError('');
     const name = orgName.trim();
     if (!name) {
       setOrgNameError('Enter an organization name');
       return;
     }
     setSaving(true);
-    setError('');
-    setOrgNameError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'org',

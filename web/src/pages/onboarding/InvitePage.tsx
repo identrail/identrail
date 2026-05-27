@@ -92,6 +92,8 @@ export function InvitePage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setEmailsError('');
     if (!state?.workspace_id) {
       setError('Workspace context is required before inviting teammates.');
       return;
@@ -101,8 +103,6 @@ export function InvitePage() {
       return;
     }
     setSaving(true);
-    setError('');
-    setEmailsError('');
     try {
       const auth = onboardingAuth(state);
       for (const email of invitees) {

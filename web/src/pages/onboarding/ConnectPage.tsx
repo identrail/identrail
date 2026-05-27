@@ -119,6 +119,8 @@ export function ConnectPage() {
   }
 
   const continueToScan = async () => {
+    setError('');
+    setProviderError('');
     if (!enabledProviders.length) {
       setError('No sources are available. Skip for now to continue.');
       return;
@@ -129,8 +131,6 @@ export function ConnectPage() {
       return;
     }
     setSaving(true);
-    setError('');
-    setProviderError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',
@@ -146,6 +146,8 @@ export function ConnectPage() {
   };
 
   const openConnectorSetup = async () => {
+    setError('');
+    setProviderError('');
     if (!enabledProviders.length) {
       setError('No sources are available. Skip for now to continue.');
       return;
@@ -156,8 +158,6 @@ export function ConnectPage() {
       return;
     }
     setSaving(true);
-    setError('');
-    setProviderError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',
@@ -175,6 +175,7 @@ export function ConnectPage() {
   const skipConnector = async () => {
     setSaving(true);
     setError('');
+    setProviderError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'connect',

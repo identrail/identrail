@@ -65,6 +65,9 @@ export function WorkspacePage() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setWorkspaceNameError('');
+    setProjectNameError('');
     if (!workspaceName.trim()) {
       setWorkspaceNameError('Enter a workspace name');
       return;
@@ -74,9 +77,6 @@ export function WorkspacePage() {
       return;
     }
     setSaving(true);
-    setError('');
-    setWorkspaceNameError('');
-    setProjectNameError('');
     try {
       const response = await apiClient.updateOnboardingState({
         current_step: 'workspace',
