@@ -1,5 +1,5 @@
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HeroOpenSourceProofPills } from './components/home/HeroOpenSourceProofPills';
@@ -36,6 +36,8 @@ import {
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
+  ProductProjectDetailPage,
+  ProductProjectsPage,
   ProductReportsPage,
   RequireProductAuth,
   ProductSettingsPage,
@@ -68,6 +70,18 @@ const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const SUPPORT_EMAIL = siteEmails.support;
 const SECURITY_EMAIL = siteEmails.security;
+
+function LegacyScopedAppRedirect({ target }: { target: string }) {
+  const params = useParams<{ tenantID?: string; workspaceID?: string }>();
+  const tenantID = params.tenantID?.trim();
+  const workspaceID = params.workspaceID?.trim();
+
+  if (!tenantID || !workspaceID) {
+    return <Navigate to="/app" replace />;
+  }
+
+  return <Navigate to={`/app/${encodeURIComponent(tenantID)}/${encodeURIComponent(workspaceID)}/${target}`} replace />;
+}
 const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
@@ -4749,6 +4763,11 @@ export function RoutedSite() {
           >
             <Route index element={<ProductOverviewPage />} />
             <Route path="workspaces" element={<ProductWorkspacesPage />} />
+            {/* Hidden aliases for pre-domain onboarding and callback URLs. */}
+            <Route path="projects" element={<ProductProjectsPage />} />
+            <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
+            <Route path="findings" element={<LegacyScopedAppRedirect target="github/findings" />} />
+            <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
             <Route path="aws" element={<ProductDomainRoutePage domain="aws" />} />
             <Route path="aws/connect" element={<ProductDomainRoutePage domain="aws" routeID="connect" />} />
             <Route path="aws/accounts" element={<ProductDomainRoutePage domain="aws" routeID="accounts" />} />

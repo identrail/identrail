@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { clearAuthConfigCacheForTests } from './authConfigCache';
+import { resetBackendFeaturesCacheForTests } from './hooks/useBackendFeatures';
 import { clearMeCacheForTests } from './hooks/useMe';
 import { clearProductAuthSessionCacheForTests } from './productShell';
 
@@ -176,6 +177,7 @@ describe('App', () => {
     cleanup();
     resetBrowserState();
     clearAuthConfigCacheForTests();
+    resetBackendFeaturesCacheForTests();
     clearMeCacheForTests();
     clearProductAuthSessionCacheForTests();
     vi.unstubAllEnvs();
@@ -187,6 +189,7 @@ describe('App', () => {
     cleanup();
     resetBrowserState();
     clearAuthConfigCacheForTests();
+    resetBackendFeaturesCacheForTests();
     clearMeCacheForTests();
     clearProductAuthSessionCacheForTests();
     vi.unstubAllEnvs();
@@ -1274,6 +1277,121 @@ describe('App', () => {
     expect(await screen.findByRole('navigation', { name: /AWS sections/i })).toBeInTheDocument();
   });
 
+  it('keeps legacy project callback routes hidden but working', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.includes('/v1/connectors/github')) {
+        return okJSON({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            connector_id: 'github-app',
+            display_name: 'Identrail',
+            status: 'disconnected',
+            health_status: 'unknown',
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: [],
+            capabilities: { requested: [], validated: [], effective: [], unavailable: [] }
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/scan-policies')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+  });
+
+  it('redirects legacy findings and AI risk deep links to GitHub-owned routes', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({
+          summary: {
+            total_open: 0,
+            fixed_count: 0,
+            reopened_count: 0,
+            suppressed_count: 0,
+            sla_aged_count: 0,
+            mttr_ready_resolved_count: 0,
+            by_owner: {},
+            by_detector: {},
+            by_severity: {}
+          },
+          items: []
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/findings'));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true);
+    });
+    const repoFindingCallsBeforeAIRiskRedirect = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/v1/repo-findings')
+    ).length;
+
+    cleanup();
+    resetBrowserState();
+    clearAuthConfigCacheForTests();
+    resetBackendFeaturesCacheForTests();
+    clearMeCacheForTests();
+    clearProductAuthSessionCacheForTests();
+
+    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/agentic-risk'));
+    await waitFor(() => {
+      const repoFindingCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes('/v1/repo-findings')).length;
+      expect(repoFindingCalls).toBeGreaterThan(repoFindingCallsBeforeAIRiskRedirect);
+    });
+  });
+
   it('renders repository findings with direct GitHub line links inside the app shell', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -1362,7 +1480,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/github/findings');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^GitHub findings$/i })).toBeInTheDocument();
     expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
     expect(await screen.findByText(/Risk graph/i)).toBeInTheDocument();
     expect(await screen.findByText(/High-risk findings/i)).toBeInTheDocument();
@@ -1553,8 +1671,8 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/github/agentic-risk');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: /AI \/ Agentic Risk/i })).toBeInTheDocument();
-    const summary = await screen.findByLabelText(/AI \/ Agentic Risk summary/i);
+    expect(await screen.findByRole('heading', { level: 2, name: /^AI \/ Agentic Risk$/i })).toBeInTheDocument();
+    const summary = await screen.findByLabelText(/^AI \/ Agentic Risk summary$/i);
     const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
     expect(within(openMetric).getByText('10')).toBeInTheDocument();
@@ -1639,7 +1757,7 @@ describe('App', () => {
     render(<App />);
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true));
-    expect(await screen.findByRole('heading', { level: 2, name: /AI \/ Agentic Risk/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^AI \/ Agentic Risk$/i })).toBeInTheDocument();
     expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
     expect(await screen.findByText(/Trend unavailable/i)).toBeInTheDocument();
     expect(screen.queryByText(/No AI \/ Agentic Risk yet/i)).not.toBeInTheDocument();
