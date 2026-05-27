@@ -61,7 +61,18 @@ export function WorkOSMFAPage() {
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
   const [autoChallengeFactorID, setAutoChallengeFactorID] = useState('');
-  const challengeRequestRef = useRef<Promise<boolean> | null>(null);
+  // Holds a deferred promise that resolves with the outcome of the silent
+  // auto-challenge POST. Stored as a ref so we can populate it *during render*
+  // — before the submittable form is committed to the DOM — and resolve it
+  // later from the useEffect that actually fires the API call. This closes
+  // the race where a programmatic submit (autofill helper hooked on
+  // MutationObserver, `form.requestSubmit()`, or `Enter` on the autofocus
+  // input) fired between commit and effect would otherwise see a null ref
+  // and call /auth/mfa/verify before /auth/mfa/challenge had started.
+  const challengeRequestRef = useRef<{
+    promise: Promise<boolean>;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -108,25 +119,21 @@ export function WorkOSMFAPage() {
       setBusy(true);
     }
     setError('');
-    const task: Promise<boolean> = (async () => {
-      try {
-        await apiClient.challengeWorkOSMFA(factorID);
-        setPending((current) => (current ? { ...current, challenge_started: true } : current));
-        return true;
-      } catch (challengeError) {
-        setError(mfaErrorMessage(challengeError));
-        return false;
-      }
-    })();
-    if (silent) {
-      challengeRequestRef.current = task;
-    }
+    // For silent (auto) challenges, the form has already mounted by the time
+    // this effect-driven callback runs, so the render-phase lazy init below
+    // populated challengeRequestRef. Resolve that deferred when the API call
+    // settles. For user-initiated (picker) challenges there is no deferred —
+    // submitCode is gated on canEnterCode for that flow.
+    const deferred = silent ? challengeRequestRef.current : null;
     try {
-      await task;
+      await apiClient.challengeWorkOSMFA(factorID);
+      setPending((current) => (current ? { ...current, challenge_started: true } : current));
+      deferred?.resolve(true);
+    } catch (challengeError) {
+      setError(mfaErrorMessage(challengeError));
+      deferred?.resolve(false);
     } finally {
-      if (silent) {
-        challengeRequestRef.current = null;
-      } else {
+      if (!silent) {
         setBusy(false);
       }
     }
@@ -140,13 +147,16 @@ export function WorkOSMFAPage() {
     setBusy(true);
     setError('');
     try {
-      // If the auto-challenge POST is still in flight (rare: an OTP autofill
-      // helper, assistive tech, or Enter in the single-input form may submit
-      // before challenge_started flips), wait for it before verifying so the
-      // backend does not reject with "mfa challenge has not started".
+      // If the auto-challenge POST is still in flight — or has not even been
+      // dispatched yet, in the narrow window between the form being committed
+      // to the DOM and the useEffect firing — wait for the deferred to settle
+      // before verifying. The deferred is set up in render (see below) so it
+      // is always non-null while the form is mounted in auto-challenge mode,
+      // closing the gap where a programmatic submit could otherwise race
+      // /auth/mfa/verify against a not-yet-started challenge.
       const inFlightChallenge = challengeRequestRef.current;
-      if (inFlightChallenge) {
-        const challengeOk = await inFlightChallenge;
+      if (inFlightChallenge && !canEnterCode) {
+        const challengeOk = await inFlightChallenge.promise;
         if (!challengeOk) {
           // startChallenge already surfaced the error to state; abort verify.
           return;
@@ -172,6 +182,19 @@ export function WorkOSMFAPage() {
   const showChallengePicker = Boolean(
     !loading && pending && needsChallengeStart && (!autoChallengeFactorIDCandidate || error)
   );
+
+  // Lazy-initialize the silent-challenge deferred in the same render that
+  // decides to mount the submittable form, so the ref is non-null *before*
+  // the form is committed to the DOM. Writing to a ref during render is an
+  // explicitly blessed React pattern for one-time lazy init (see the React
+  // docs on avoiding recreating ref contents).
+  if (autoChallengeStarting && challengeRequestRef.current === null) {
+    let resolveDeferred: (ok: boolean) => void = () => {};
+    const promise = new Promise<boolean>((resolve) => {
+      resolveDeferred = resolve;
+    });
+    challengeRequestRef.current = { promise, resolve: resolveDeferred };
+  }
 
   useEffect(() => {
     if (!autoChallengeFactorIDCandidate || autoChallengeFactorID === autoChallengeFactorIDCandidate) {
