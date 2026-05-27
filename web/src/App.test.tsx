@@ -1332,6 +1332,77 @@ describe('App', () => {
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
 
+  it('routes the GitHub connect domain entry to the working connector setup', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects?')) {
+        return okJSON({
+          items: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              project_id: 'project-1',
+              name: 'Production GitHub',
+              slug: 'production-github',
+              description: 'Repositories that feed production identity risk.',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-02T00:00:00Z'
+            }
+          ]
+        });
+      }
+      if (url.includes('/v1/connectors/github')) {
+        return okJSON({
+          connection: {
+            provider: 'github_app',
+            connected: false,
+            connector_id: 'github-app',
+            display_name: 'Identrail',
+            status: 'disconnected',
+            health_status: 'unknown',
+            webhook_secret_rotation_required: false,
+            selected_repositories: []
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')) {
+        return okJSON({
+          connection: {
+            provider: 'aws',
+            connected: false,
+            status: 'disconnected',
+            health_status: 'unknown',
+            external_id_configured: false,
+            permission_checks: [],
+            diagnostics: [],
+            capabilities: { requested: [], validated: [], effective: [], unavailable: [] }
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects/project-1/scan-policies')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/github/connect');
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/projects/project-1'));
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+  });
+
   it('redirects legacy findings and AI risk deep links to GitHub-owned routes', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();

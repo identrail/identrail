@@ -1990,6 +1990,77 @@ export function ProductDomainRoutePage({
   );
 }
 
+export function ProductGitHubConnectPage() {
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const [targetPath, setTargetPath] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!scope) {
+      setTargetPath('/app');
+      setError('');
+      return;
+    }
+
+    let active = true;
+    setTargetPath('');
+    setError('');
+
+    const resolveConnectorSetup = async () => {
+      try {
+        const response = await apiClient.listProjects(
+          scope.workspaceID,
+          {
+            limit: 1,
+            sort_by: 'updated_at',
+            sort_order: 'desc',
+            include_archived: false
+          },
+          buildProductAuthContext(scope)
+        );
+        if (!active) {
+          return;
+        }
+        const projectID = normalizeValue(response.items[0]?.project_id ?? '');
+        setTargetPath(projectID ? buildProjectPath(scope, projectID) : buildProjectsPath(scope));
+      } catch (requestError) {
+        if (!active) {
+          return;
+        }
+        setError(formatAPIError(requestError, 'Unable to resolve GitHub connector setup.'));
+      }
+    };
+
+    void resolveConnectorSetup();
+
+    return () => {
+      active = false;
+    };
+  }, [scope?.tenantID, scope?.workspaceID]);
+
+  if (targetPath) {
+    return <Navigate to={targetPath} replace />;
+  }
+
+  if (error) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Connect GitHub</p>
+        <h2>Unable to open GitHub setup</h2>
+        <p>{error}</p>
+      </section>
+    );
+  }
+
+  return (
+    <AppRouteLoadingState
+      title="Opening GitHub setup"
+      body="Routing this domain entry point to the working connector setup for this workspace."
+    />
+  );
+}
+
 export function ProductReportsPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);

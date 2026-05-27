@@ -33,6 +33,7 @@ import {
   ProductExecutiveReportPage,
   ProductFindingsPage,
   ProductGitHubCallbackPage,
+  ProductGitHubConnectPage,
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
@@ -4780,7 +4781,7 @@ export function RoutedSite() {
             <Route path="aws/remediation" element={<ProductDomainRoutePage domain="aws" routeID="remediation" />} />
             <Route path="aws/governance" element={<ProductDomainRoutePage domain="aws" routeID="governance" />} />
             <Route path="github" element={<ProductDomainRoutePage domain="github" />} />
-            <Route path="github/connect" element={<ProductDomainRoutePage domain="github" routeID="connect" />} />
+            <Route path="github/connect" element={<ProductGitHubConnectPage />} />
             <Route path="github/repositories" element={<ProductDomainRoutePage domain="github" routeID="repositories" />} />
             <Route path="github/actions" element={<ProductDomainRoutePage domain="github" routeID="actions" />} />
             <Route path="github/findings" element={<ProductFindingsPage />} />
