@@ -22463,6 +22463,66 @@ html[data-theme='light'] .idt-app-shell-screen select {
   padding-top: 0.8rem;
 }
 
+.idt-domain-route-facts {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.idt-domain-route-facts div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.idt-domain-route-facts dt {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-domain-route-facts dd {
+  min-width: 0;
+  margin: 0;
+  color: #ffffff;
+  font-family: var(--idt-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.idt-domain-readiness-items {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-domain-readiness-items article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.78rem;
+  background: #050505;
+}
+
+.idt-domain-readiness-items strong {
+  color: #ffffff;
+}
+
+.idt-domain-readiness-items p {
+  margin-top: 0.18rem;
+}
+
+.idt-domain-readiness-items article > span {
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.14rem 0.5rem;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
 .idt-domain-evidence-panel {
   margin: 0;
   overflow: hidden;

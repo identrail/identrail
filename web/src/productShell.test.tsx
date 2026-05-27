@@ -366,21 +366,100 @@ describe('ProductShellLayout', () => {
         <Routes>
           <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
             <Route index element={<h2>Overview content</h2>} />
-            <Route path="findings" element={<h2>Findings content</h2>} />
+            <Route path="github/findings" element={<h2>GitHub findings content</h2>} />
           </Route>
         </Routes>
       </MemoryRouter>
     );
 
     expect(screen.getByRole('button', { name: /Open workspace finder/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'AWS' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Kubernetes' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Findings' })).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '/' });
     expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'findings' } });
+    expect(screen.queryByRole('option', { name: /^Projects\b/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /^Findings\b/i })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'github findings' } });
     fireEvent.keyDown(screen.getByLabelText(/Search workspace commands/i), { key: 'Enter' });
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Findings content/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings content/i })).toBeInTheDocument();
+  });
+});
+
+describe('Domain-first app routes', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('publishes the full route manifest required for the new app IA', async () => {
+    const { DOMAIN_APP_ROUTE_MANIFEST } = await import('./productDomainRoutes');
+
+    expect(DOMAIN_APP_ROUTE_MANIFEST).toEqual([
+      '/app/:tenantID/:workspaceID',
+      '/app/:tenantID/:workspaceID/aws',
+      '/app/:tenantID/:workspaceID/aws/connect',
+      '/app/:tenantID/:workspaceID/aws/accounts',
+      '/app/:tenantID/:workspaceID/aws/identities',
+      '/app/:tenantID/:workspaceID/aws/agents',
+      '/app/:tenantID/:workspaceID/aws/resources',
+      '/app/:tenantID/:workspaceID/aws/runtime',
+      '/app/:tenantID/:workspaceID/aws/graph',
+      '/app/:tenantID/:workspaceID/aws/findings',
+      '/app/:tenantID/:workspaceID/aws/remediation',
+      '/app/:tenantID/:workspaceID/aws/governance',
+      '/app/:tenantID/:workspaceID/github',
+      '/app/:tenantID/:workspaceID/github/connect',
+      '/app/:tenantID/:workspaceID/github/repositories',
+      '/app/:tenantID/:workspaceID/github/actions',
+      '/app/:tenantID/:workspaceID/github/findings',
+      '/app/:tenantID/:workspaceID/github/remediation',
+      '/app/:tenantID/:workspaceID/github/agentic-risk',
+      '/app/:tenantID/:workspaceID/github/agentic-risk/configs',
+      '/app/:tenantID/:workspaceID/github/agentic-risk/mcp-tools',
+      '/app/:tenantID/:workspaceID/github/agentic-risk/prompts',
+      '/app/:tenantID/:workspaceID/github/agentic-risk/secrets',
+      '/app/:tenantID/:workspaceID/github/agentic-risk/workflow-trust-paths',
+      '/app/:tenantID/:workspaceID/github/agentic-risk/findings',
+      '/app/:tenantID/:workspaceID/kubernetes',
+      '/app/:tenantID/:workspaceID/kubernetes/connect',
+      '/app/:tenantID/:workspaceID/kubernetes/clusters',
+      '/app/:tenantID/:workspaceID/kubernetes/workloads',
+      '/app/:tenantID/:workspaceID/kubernetes/service-accounts',
+      '/app/:tenantID/:workspaceID/kubernetes/findings',
+      '/app/:tenantID/:workspaceID/kubernetes/remediation',
+      '/app/:tenantID/:workspaceID/reports',
+      '/app/:tenantID/:workspaceID/settings'
+    ]);
+    expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/projects');
+    expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/findings');
+  });
+
+  it('renders premium domain route shells with provider marks and nested agentic-risk navigation', async () => {
+    const { ProductDomainRoutePage } = await import('./productShell');
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/agentic-risk/mcp-tools']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/agentic-risk/mcp-tools"
+            element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-mcp-tools" />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: /MCP tools/i })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: /GitHub sections/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /MCP \/ tools/i })).toHaveAttribute('aria-current', 'page');
+    expect(container.querySelector('details.idt-domain-subnav-group')).toHaveAttribute('open');
   });
 });
 
@@ -505,7 +584,7 @@ describe('ProductProjectDetailPage', () => {
     expect(await screen.findByText(/Repository scan queued for identrail\/identrail/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /View findings/i })).toHaveAttribute(
       'href',
-      '/app/tenant-a/workspace-a/findings'
+      '/app/tenant-a/workspace-a/github/findings'
     );
     expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('Queued');
   });
@@ -779,9 +858,9 @@ async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindi
 
   const { ProductFindingsPage } = await import('./productShell');
   render(
-    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/findings']}>
+    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/findings']}>
       <Routes>
-        <Route path="/app/:tenantID/:workspaceID/findings" element={<ProductFindingsPage />} />
+        <Route path="/app/:tenantID/:workspaceID/github/findings" element={<ProductFindingsPage />} />
       </Routes>
     </MemoryRouter>
   );

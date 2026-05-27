@@ -29,14 +29,14 @@ import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
   ProductAIRisksPage,
+  ProductDomainRoutePage,
   ProductExecutiveReportPage,
   ProductFindingsPage,
   ProductGitHubCallbackPage,
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
-  ProductProjectDetailPage,
-  ProductProjectsPage,
+  ProductReportsPage,
   RequireProductAuth,
   ProductSettingsPage,
   ProductShellLayout,
@@ -4749,10 +4749,41 @@ export function RoutedSite() {
           >
             <Route index element={<ProductOverviewPage />} />
             <Route path="workspaces" element={<ProductWorkspacesPage />} />
-            <Route path="projects" element={<ProductProjectsPage />} />
-            <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
-            <Route path="findings" element={<ProductFindingsPage />} />
-            <Route path="ai-risks" element={<ProductAIRisksPage />} />
+            <Route path="aws" element={<ProductDomainRoutePage domain="aws" />} />
+            <Route path="aws/connect" element={<ProductDomainRoutePage domain="aws" routeID="connect" />} />
+            <Route path="aws/accounts" element={<ProductDomainRoutePage domain="aws" routeID="accounts" />} />
+            <Route path="aws/identities" element={<ProductDomainRoutePage domain="aws" routeID="identities" />} />
+            <Route path="aws/agents" element={<ProductDomainRoutePage domain="aws" routeID="agents" />} />
+            <Route path="aws/resources" element={<ProductDomainRoutePage domain="aws" routeID="resources" />} />
+            <Route path="aws/runtime" element={<ProductDomainRoutePage domain="aws" routeID="runtime" />} />
+            <Route path="aws/graph" element={<ProductDomainRoutePage domain="aws" routeID="graph" />} />
+            <Route path="aws/findings" element={<ProductDomainRoutePage domain="aws" routeID="findings" />} />
+            <Route path="aws/remediation" element={<ProductDomainRoutePage domain="aws" routeID="remediation" />} />
+            <Route path="aws/governance" element={<ProductDomainRoutePage domain="aws" routeID="governance" />} />
+            <Route path="github" element={<ProductDomainRoutePage domain="github" />} />
+            <Route path="github/connect" element={<ProductDomainRoutePage domain="github" routeID="connect" />} />
+            <Route path="github/repositories" element={<ProductDomainRoutePage domain="github" routeID="repositories" />} />
+            <Route path="github/actions" element={<ProductDomainRoutePage domain="github" routeID="actions" />} />
+            <Route path="github/findings" element={<ProductFindingsPage />} />
+            <Route path="github/remediation" element={<ProductDomainRoutePage domain="github" routeID="remediation" />} />
+            <Route path="github/agentic-risk" element={<ProductAIRisksPage />} />
+            <Route path="github/agentic-risk/configs" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-configs" />} />
+            <Route path="github/agentic-risk/mcp-tools" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-mcp-tools" />} />
+            <Route path="github/agentic-risk/prompts" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-prompts" />} />
+            <Route path="github/agentic-risk/secrets" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-secrets" />} />
+            <Route
+              path="github/agentic-risk/workflow-trust-paths"
+              element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-workflow-trust-paths" />}
+            />
+            <Route path="github/agentic-risk/findings" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-findings" />} />
+            <Route path="kubernetes" element={<ProductDomainRoutePage domain="kubernetes" />} />
+            <Route path="kubernetes/connect" element={<ProductDomainRoutePage domain="kubernetes" routeID="connect" />} />
+            <Route path="kubernetes/clusters" element={<ProductDomainRoutePage domain="kubernetes" routeID="clusters" />} />
+            <Route path="kubernetes/workloads" element={<ProductDomainRoutePage domain="kubernetes" routeID="workloads" />} />
+            <Route path="kubernetes/service-accounts" element={<ProductDomainRoutePage domain="kubernetes" routeID="service-accounts" />} />
+            <Route path="kubernetes/findings" element={<ProductDomainRoutePage domain="kubernetes" routeID="findings" />} />
+            <Route path="kubernetes/remediation" element={<ProductDomainRoutePage domain="kubernetes" routeID="remediation" />} />
+            <Route path="reports" element={<ProductReportsPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
           </Route>
           <Route path="/" element={<HomePage />} />

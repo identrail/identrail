@@ -806,11 +806,11 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
-    fireEvent.click(screen.getByRole('link', { name: 'Projects' }));
+    fireEvent.click(screen.getByRole('link', { name: 'AWS' }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
     await waitFor(() => {
       const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
       expect(meCallsAfterNavigation).toBeGreaterThan(meCallsBeforeNavigation);
@@ -906,12 +906,12 @@ describe('App', () => {
       expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('link', { name: 'Projects' }));
+    fireEvent.click(screen.getByRole('link', { name: 'AWS' }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/signin');
-    expect(window.location.search).toContain('return_to=%2Fapp%2Ftenant-a%2Fworkspace-a%2Fprojects');
+    expect(window.location.search).toContain('return_to=%2Fapp%2Ftenant-a%2Fworkspace-a%2Faws');
   });
 
   it('keeps mismatched scoped routes loading until tenant redirects complete', async () => {
@@ -1005,19 +1005,19 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
 
     act(() => {
-      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/aws');
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     });
 
     expect(await screen.findByText(/Validating session/i)).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 2, name: 'Projects' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'AWS Control Center' })).not.toBeInTheDocument();
 
     await act(async () => {
       resolveScopedMe(okJSON(currentMePayload('tenant-a', 'workspace-a')));
       await scopedMeResponse;
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
   });
 
   it('revalidates session after same-workspace navigation from an auth error', async () => {
@@ -1052,11 +1052,11 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Unable to validate account session/i);
 
     act(() => {
-      window.history.pushState({}, '', '/app/tenant-a/workspace-a/projects');
+      window.history.pushState({}, '', '/app/tenant-a/workspace-a/aws');
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(meCalls).toBe(2);
   });
@@ -1157,7 +1157,7 @@ describe('App', () => {
     render(<App />);
 
     const checklistRegion = await screen.findByRole('region', { name: /Get started/i }, { timeout: 10000 });
-    const sourceChecklistItem = within(checklistRegion).getByText('Connect a source').closest('li');
+    const sourceChecklistItem = within(checklistRegion).getByText('Connect a domain source').closest('li');
     expect(sourceChecklistItem).not.toBeNull();
     if (!sourceChecklistItem) {
       throw new Error('missing source checklist item');
@@ -1265,13 +1265,13 @@ describe('App', () => {
     expect(await screen.findByText(/Identrail API is not reachable yet/i)).toBeInTheDocument();
   });
 
-  it('renders tenancy-scoped project detail placeholder route inside app shell', async () => {
+  it('renders tenancy-scoped AWS identity route inside app shell', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a'))));
-    setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
+    setCurrentPath('/app/tenant-a/workspace-a/aws/identities');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
-    expect(await screen.findByText('Project sources')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /AWS machine identities/i })).toBeInTheDocument();
+    expect(await screen.findByRole('navigation', { name: /AWS sections/i })).toBeInTheDocument();
   });
 
   it('renders repository findings with direct GitHub line links inside the app shell', async () => {
@@ -1359,10 +1359,10 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    setCurrentPath('/app/tenant-a/workspace-a/github/findings');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Findings/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings/i })).toBeInTheDocument();
     expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
     expect(await screen.findByText(/Risk graph/i)).toBeInTheDocument();
     expect(await screen.findByText(/High-risk findings/i)).toBeInTheDocument();
@@ -1400,7 +1400,7 @@ describe('App', () => {
     expect(await screen.findByText(/Secret rotation required/i)).toBeInTheDocument();
   });
 
-  it('renders the AI Risks dashboard inside the app shell', async () => {
+  it('renders the GitHub AI / Agentic Risk dashboard inside the app shell', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -1550,11 +1550,11 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    setCurrentPath('/app/tenant-a/workspace-a/github/agentic-risk');
     render(<App />);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
-    const summary = await screen.findByLabelText(/AI Risks summary/i);
+    expect(await screen.findByRole('heading', { name: /AI \/ Agentic Risk/i })).toBeInTheDocument();
+    const summary = await screen.findByLabelText(/AI \/ Agentic Risk summary/i);
     const openMetric = within(summary).getByText('Open').closest('article') as HTMLElement;
     const repoMetric = within(summary).getByText('Repos').closest('article') as HTMLElement;
     expect(within(openMetric).getByText('10')).toBeInTheDocument();
@@ -1575,7 +1575,7 @@ describe('App', () => {
     expect((await screen.findAllByText(/3 high priority/i)).length).toBeGreaterThan(0);
   });
 
-  it('keeps the AI Risks dashboard usable when trend loading fails', async () => {
+  it('keeps the GitHub AI / Agentic Risk dashboard usable when trend loading fails', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -1635,15 +1635,15 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/ai-risks');
+    setCurrentPath('/app/tenant-a/workspace-a/github/agentic-risk');
     render(<App />);
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/repo-findings'))).toBe(true));
-    await waitFor(() => expect(screen.getByRole('heading', { name: /AI Risks/i })).toBeInTheDocument());
+    expect(await screen.findByRole('heading', { level: 2, name: /AI \/ Agentic Risk/i })).toBeInTheDocument();
     expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
     expect(await screen.findByText(/Trend unavailable/i)).toBeInTheDocument();
-    expect(screen.queryByText(/No AI Risks yet/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Failed to load AI Risks/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No AI \/ Agentic Risk yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Failed to load AI \/ Agentic Risk/i)).not.toBeInTheDocument();
   });
 
   it('allows suppressed repository finding assignee edits without a new suppression reason', async () => {
@@ -1718,7 +1718,7 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/tenant-a/workspace-a/findings');
+    setCurrentPath('/app/tenant-a/workspace-a/github/findings');
     render(<App />);
 
     const findingRow = (await screen.findByText(/Potential AWS access key exposed in commit history/i)).closest('button');

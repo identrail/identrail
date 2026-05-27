@@ -18,8 +18,6 @@ import {
   PanelLeftOpen,
   Search,
   Settings as SettingsIcon,
-  Shield,
-  Users,
   X
 } from 'lucide-react';
 import {
@@ -60,7 +58,15 @@ import {
   type WorkspaceMemberStatus
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
-import { DomainLogoMark, DomainLogoStack } from './components/app/DomainFoundation';
+import {
+  DomainDetailPanel,
+  DomainKpiStrip,
+  DomainLogoMark,
+  DomainLogoStack,
+  DomainPageShell,
+  DomainStatusPanel,
+  type DomainSubnavItem
+} from './components/app/DomainFoundation';
 import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
 import { clearMeCache, primeMeCache, useMe } from './hooks/useMe';
 import { isFeatureAvailable, useBackendFeatures } from './hooks/useBackendFeatures';
@@ -202,6 +208,191 @@ const OVERVIEW_SCAN_LIMIT = 5;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
 const AI_RISKS_REPO_FINDINGS_PAGE_LIMIT = 100;
 const EXECUTIVE_REPORT_SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
+
+type ProductDomainRouteID =
+  | 'overview'
+  | 'connect'
+  | 'accounts'
+  | 'identities'
+  | 'agents'
+  | 'resources'
+  | 'runtime'
+  | 'graph'
+  | 'findings'
+  | 'remediation'
+  | 'governance'
+  | 'repositories'
+  | 'actions'
+  | 'agentic-risk'
+  | 'agentic-risk-configs'
+  | 'agentic-risk-mcp-tools'
+  | 'agentic-risk-prompts'
+  | 'agentic-risk-secrets'
+  | 'agentic-risk-workflow-trust-paths'
+  | 'agentic-risk-findings'
+  | 'clusters'
+  | 'workloads'
+  | 'service-accounts';
+
+type ProductDomainRoute = {
+  id: ProductDomainRouteID;
+  label: string;
+  path: string;
+  title: string;
+  eyebrow: string;
+  description: string;
+  phase: string;
+  status: string;
+  metrics: Array<{ label: string; value: string; detail: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' }>;
+  plannedWork: Array<{ capability: string; route: string; readiness: string }>;
+  children?: ProductDomainRoute[];
+};
+
+type ProductDomainConfig = {
+  key: SourceProvider;
+  label: string;
+  navLabel: string;
+  description: string;
+  routePrefix: string;
+  connectRouteID: ProductDomainRouteID;
+  routes: ProductDomainRoute[];
+};
+
+function productDomainRoute(
+  id: ProductDomainRouteID,
+  label: string,
+  path: string,
+  title: string,
+  eyebrow: string,
+  description: string,
+  options: {
+    phase?: string;
+    status?: string;
+    metrics?: ProductDomainRoute['metrics'];
+    plannedWork?: ProductDomainRoute['plannedWork'];
+    children?: ProductDomainRoute[];
+  } = {}
+): ProductDomainRoute {
+  return {
+    id,
+    label,
+    path,
+    title,
+    eyebrow,
+    description,
+    phase: options.phase ?? 'Route foundation',
+    status: options.status ?? 'Shell ready',
+    metrics:
+      options.metrics ?? [
+        { label: 'Route', value: 'Live', detail: 'Scoped workspace entry point is registered.', tone: 'success' },
+        { label: 'Data', value: 'Next', detail: 'Domain APIs will attach in sequenced PRs.' },
+        { label: 'UX', value: 'Premium', detail: 'Page shell, subnav, and actions are in place.' }
+      ],
+    plannedWork:
+      options.plannedWork ?? [
+        { capability: 'Connection flow', route: 'Domain-owned onboarding and health', readiness: 'planned' },
+        { capability: 'Inventory and graph', route: 'Collected identities and resources', readiness: 'planned' },
+        { capability: 'Findings and remediation', route: 'Domain-scoped risk workflow', readiness: 'planned' }
+      ],
+    children: options.children
+  };
+}
+
+const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
+  aws: {
+    key: 'aws',
+    label: 'AWS',
+    navLabel: 'AWS',
+    description: 'Machine identities, accounts, resources, runtime evidence, remediation, and governance for AWS.',
+    routePrefix: 'aws',
+    connectRouteID: 'connect',
+    routes: [
+      productDomainRoute(
+        'overview',
+        'Control center',
+        '',
+        'AWS Control Center',
+        'AWS machine identity',
+        'Operate AWS identity coverage by account, region, workload, resource reachability, findings, and approved governance.'
+      ),
+      productDomainRoute(
+        'connect',
+        'Connect AWS',
+        'connect',
+        'Connect AWS',
+        'Read-only account onboarding',
+        'Prepare the AWS-owned connection entry point for account and region discovery without moving connector internals yet.',
+        {
+          metrics: [
+            { label: 'Access model', value: 'Read-only', detail: 'No secret value reads by default.', tone: 'success' },
+            { label: 'Scopes', value: 'Account', detail: 'Account and region targeting arrives in a later PR.' },
+            { label: 'Status', value: 'Shell', detail: 'Connector wiring remains in its existing flow.' }
+          ]
+        }
+      ),
+      productDomainRoute('accounts', 'Accounts', 'accounts', 'AWS accounts and regions', 'Coverage planning', 'Track account, organization, and region coverage before the scale planner lands.'),
+      productDomainRoute('identities', 'Machine identities', 'identities', 'AWS machine identities', 'Identity inventory', 'Inventory IAM roles, EC2 instance profiles, ECS task roles, Lambda execution roles, EKS identities, and CI/CD roles.'),
+      productDomainRoute('agents', 'Agent identities', 'agents', 'AWS agent identities', 'AI agent discovery', 'Prepare Bedrock, AgentCore, tool, MCP, key, and agent-to-role mapping as first-class machine identity routes.'),
+      productDomainRoute('resources', 'Resources', 'resources', 'AWS resources and credentials', 'Reachability mapping', 'Map what AWS identities can touch across secrets metadata, SSM parameters, KMS, S3, and sensitive control-plane resources.'),
+      productDomainRoute('runtime', 'Runtime', 'runtime', 'AWS runtime evidence', 'Behavior timeline', 'Reserve the runtime evidence surface for CloudTrail, STS session resolution, secret reads, KMS decrypts, and agent tool activity.'),
+      productDomainRoute('graph', 'Graph', 'graph', 'AWS graph explorer', 'Identity graph', 'Give AWS identity, resource, agent, secret, and user edges a durable graph entry point.'),
+      productDomainRoute('findings', 'Findings', 'findings', 'AWS findings', 'Domain-scoped findings', 'Keep AWS findings inside the AWS section so risk triage stays attached to the identity system that produced it.'),
+      productDomainRoute('remediation', 'Remediation', 'remediation', 'AWS remediation', 'Approved fix planning', 'Stage IAM diffs, trust policy hardening, secret rotation planning, IaC PR plans, and verification evidence.'),
+      productDomainRoute('governance', 'Governance', 'governance', 'AWS governance', 'Runtime authorization', 'Reserve advisory and limited enforcement surfaces for session policy, permission boundary, and AgentCore gateway decisions.')
+    ]
+  },
+  github: {
+    key: 'github',
+    label: 'GitHub',
+    navLabel: 'GitHub',
+    description: 'Repositories, Actions/OIDC, agentic risk surfaces, findings, and remediation for GitHub.',
+    routePrefix: 'github',
+    connectRouteID: 'connect',
+    routes: [
+      productDomainRoute('overview', 'Control center', '', 'GitHub Control Center', 'Repository identity', 'Operate repository, workflow, OIDC, code, and agentic risk coverage from the GitHub section.'),
+      productDomainRoute('connect', 'Connect GitHub', 'connect', 'Connect GitHub', 'GitHub App onboarding', 'Prepare the GitHub-owned connection route while existing installation and selected-repository internals stay intact.'),
+      productDomainRoute('repositories', 'Repositories', 'repositories', 'GitHub repositories', 'Repository inventory', 'Route repository posture, selected installation scope, exposure signals, and scan health into a domain-owned page.'),
+      productDomainRoute('actions', 'Actions / OIDC', 'actions', 'GitHub Actions / OIDC', 'Workflow trust', 'Reserve the workflow identity page for OIDC roles, deploy trust paths, Actions permissions, and runner posture.'),
+      productDomainRoute('findings', 'Findings', 'findings', 'GitHub findings', 'Domain-scoped findings', 'Keep repository findings in the GitHub section instead of a global queue.'),
+      productDomainRoute('remediation', 'Remediation', 'remediation', 'GitHub remediation', 'Repository fixes', 'Stage remediation PR planning, review workflow, lifecycle state, and verification from the GitHub section.'),
+      productDomainRoute(
+        'agentic-risk',
+        'AI / Agentic Risk',
+        'agentic-risk',
+        'GitHub AI / Agentic Risk',
+        'Agent and tool surfaces',
+        'Make GitHub-hosted agent identities, MCP tools, prompts, secrets, and workflow trust paths visible without making AI risk a separate top-level product.',
+        {
+          children: [
+            productDomainRoute('agentic-risk-configs', 'Agent identities', 'agentic-risk/configs', 'Agent identities', 'AI configuration inventory', 'Track repository agent definitions, assistant configuration files, and automation identities.'),
+            productDomainRoute('agentic-risk-mcp-tools', 'MCP / tools', 'agentic-risk/mcp-tools', 'MCP tools', 'Tool reachability', 'Map MCP servers, tool grants, command surfaces, and repository-controlled execution paths.'),
+            productDomainRoute('agentic-risk-prompts', 'Prompt surfaces', 'agentic-risk/prompts', 'Prompt surfaces', 'Prompt exposure', 'Inventory prompts, instruction files, workflow prompt assembly, and untrusted input paths.'),
+            productDomainRoute('agentic-risk-secrets', 'Secrets', 'agentic-risk/secrets', 'Agentic secrets', 'Secret references', 'Track token, environment, and secret references used by AI workflows without exposing secret values.'),
+            productDomainRoute('agentic-risk-workflow-trust-paths', 'Workflow trust paths', 'agentic-risk/workflow-trust-paths', 'Workflow trust paths', 'Trust path analysis', 'Prepare the route for pull request, workflow, runner, OIDC, and tool escalation paths.'),
+            productDomainRoute('agentic-risk-findings', 'Findings', 'agentic-risk/findings', 'Agentic risk findings', 'AI finding queue', 'Keep AI and agentic findings nested under GitHub where the surfaces originate.')
+          ]
+        }
+      )
+    ]
+  },
+  kubernetes: {
+    key: 'kubernetes',
+    label: 'Kubernetes',
+    navLabel: 'Kubernetes',
+    description: 'Clusters, workloads, service accounts, RBAC, findings, and remediation for Kubernetes.',
+    routePrefix: 'kubernetes',
+    connectRouteID: 'connect',
+    routes: [
+      productDomainRoute('overview', 'Control center', '', 'Kubernetes Control Center', 'Cluster identity', 'Operate Kubernetes identity coverage across clusters, workloads, service accounts, RBAC, findings, and remediation.'),
+      productDomainRoute('connect', 'Connect Kubernetes', 'connect', 'Connect Kubernetes', 'Cluster onboarding', 'Prepare the Kubernetes-owned connector route for agent and kubeconfig-backed discovery.'),
+      productDomainRoute('clusters', 'Clusters', 'clusters', 'Kubernetes clusters', 'Cluster coverage', 'Track cluster inventory, version posture, environment labels, and control-plane reachability.'),
+      productDomainRoute('workloads', 'Workloads', 'workloads', 'Kubernetes workloads', 'Runtime workloads', 'Route workload identity evidence for deployments, pods, namespaces, labels, and workload ownership.'),
+      productDomainRoute('service-accounts', 'Service accounts / RBAC', 'service-accounts', 'Service accounts / RBAC', 'Kubernetes machine identity', 'Map service accounts, roles, role bindings, cluster roles, and privilege paths.'),
+      productDomainRoute('findings', 'Findings', 'findings', 'Kubernetes findings', 'Domain-scoped findings', 'Keep Kubernetes findings attached to cluster and service account context.'),
+      productDomainRoute('remediation', 'Remediation', 'remediation', 'Kubernetes remediation', 'Manifest and policy fixes', 'Stage RBAC reduction, workload identity hardening, and verification plans.')
+    ]
+  }
+};
 
 const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], string> = {
   severity: 'Risk (high → low)',
@@ -1657,6 +1848,197 @@ function resolveScopeFromParams(params: ScopeRouteParams): ProductSession | null
   return { tenantID, workspaceID, projectID };
 }
 
+function domainRoutePath(scope: ProductSession, domain: SourceProvider, route: ProductDomainRoute): string {
+  const config = PRODUCT_DOMAIN_CONFIGS[domain];
+  return buildScopedPath(scope, [config.routePrefix, route.path].filter(Boolean).join('/'));
+}
+
+function flattenDomainRoutes(routes: ProductDomainRoute[]): ProductDomainRoute[] {
+  return routes.flatMap((route) => [route, ...(route.children ? flattenDomainRoutes(route.children) : [])]);
+}
+
+function findDomainRoute(domain: SourceProvider, routeID: ProductDomainRouteID): ProductDomainRoute {
+  const config = PRODUCT_DOMAIN_CONFIGS[domain];
+  return flattenDomainRoutes(config.routes).find((route) => route.id === routeID) ?? config.routes[0];
+}
+
+function buildDomainSubnav(
+  scope: ProductSession,
+  domain: SourceProvider,
+  activeRouteID: ProductDomainRouteID
+): DomainSubnavItem[] {
+  return PRODUCT_DOMAIN_CONFIGS[domain].routes.map((route) => ({
+    id: route.id,
+    label: route.label,
+    to: domainRoutePath(scope, domain, route),
+    active: route.id === activeRouteID,
+    children: route.children?.map((child) => ({
+      id: child.id,
+      label: child.label,
+      to: domainRoutePath(scope, domain, child),
+      active: child.id === activeRouteID
+    }))
+  }));
+}
+
+function SidebarDomainIcon({ domain }: { domain: SourceProvider }) {
+  const asset = getDomainAsset(domain);
+  return <img src={asset.logoSrc} alt="" aria-hidden="true" loading="lazy" decoding="async" />;
+}
+
+function ProductRouteReadinessList({ route }: { route: ProductDomainRoute }) {
+  return (
+    <section className="idt-domain-status-panel idt-domain-readiness-list" aria-label={`${route.title} route readiness`}>
+      <header>
+        <div>
+          <p className="idt-app-kicker">Sequenced delivery</p>
+          <h3>What lands here next</h3>
+        </div>
+        <span>Planned</span>
+      </header>
+      <div className="idt-domain-readiness-items">
+        {route.plannedWork.map((row) => (
+          <article key={row.capability}>
+            <div>
+              <strong>{row.capability}</strong>
+              <p>{row.route}</p>
+            </div>
+            <span>{formatTokenLabel(row.readiness)}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function ProductDomainRoutePage({
+  domain,
+  routeID = 'overview'
+}: {
+  domain: SourceProvider;
+  routeID?: ProductDomainRouteID;
+}) {
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Domain route</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading this domain section.</p>
+      </section>
+    );
+  }
+
+  const config = PRODUCT_DOMAIN_CONFIGS[domain];
+  const route = findDomainRoute(domain, routeID);
+  const domainBasePath = buildScopedPath(scope, config.routePrefix);
+  const connectPath = domainRoutePath(scope, domain, findDomainRoute(domain, config.connectRouteID));
+  const sectionPath = domainRoutePath(scope, domain, route);
+
+  return (
+    <DomainPageShell
+      domain={domain}
+      eyebrow={route.eyebrow}
+      title={route.title}
+      description={route.description}
+      scope={`${formatScopeDisplay(scope.tenantID)} / ${formatScopeDisplay(scope.workspaceID)}`}
+      status={route.status}
+      statusTone="success"
+      primaryAction={
+        route.id === config.connectRouteID
+          ? { label: `${config.navLabel} home`, to: domainBasePath, variant: 'secondary' }
+          : { label: `Connect ${config.navLabel}`, to: connectPath, variant: 'primary' }
+      }
+      secondaryActions={route.id === 'findings' ? [] : [{ label: `${config.navLabel} findings`, to: buildScopedPath(scope, `${config.routePrefix}/findings`) }]}
+      subnavLabel={`${config.navLabel} sections`}
+      subnav={buildDomainSubnav(scope, domain, route.id)}
+      aside={
+        <DomainDetailPanel title="Route contract" eyebrow={config.navLabel}>
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Path</dt>
+              <dd>{sectionPath}</dd>
+            </div>
+            <div>
+              <dt>Owner</dt>
+              <dd>{config.navLabel}</dd>
+            </div>
+            <div>
+              <dt>Phase</dt>
+              <dd>{route.phase}</dd>
+            </div>
+          </dl>
+        </DomainDetailPanel>
+      }
+    >
+      <DomainKpiStrip label={`${route.title} readiness`} items={route.metrics} />
+      <DomainStatusPanel
+        eyebrow="Route foundation"
+        title="Domain-owned entry point is ready"
+        status="No legacy nav"
+        tone="success"
+      >
+        <p>
+          This page establishes the scoped route, provider mark, active subsection navigation, and premium placeholder
+          state that later collector, graph, runtime, reasoning, remediation, and governance PRs can fill in order.
+        </p>
+      </DomainStatusPanel>
+      <ProductRouteReadinessList route={route} />
+    </DomainPageShell>
+  );
+}
+
+export function ProductReportsPage() {
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const reportPath = scope ? buildScopedPath(scope, 'reports') : '/app';
+
+  return (
+    <section className="idt-app-panel idt-reports-page">
+      <header className="idt-settings-header">
+        <div>
+          <p className="idt-app-kicker">Reports</p>
+          <h2>Reports</h2>
+          <p>
+            Executive posture, trend narratives, and domain outcome reporting now live inside the scoped app instead of
+            being treated as a detached workspace artifact.
+          </p>
+        </div>
+        <div className="idt-inline-actions">
+          <Link className="idt-btn idt-btn-primary" to="/reports/executive">
+            Open executive report
+          </Link>
+        </div>
+      </header>
+      <div className="idt-domain-kpi-strip" aria-label="Report route readiness">
+        <article className="idt-domain-kpi is-success">
+          <span>Route</span>
+          <strong>Live</strong>
+          <p>{reportPath}</p>
+        </article>
+        <article className="idt-domain-kpi">
+          <span>Scope</span>
+          <strong>Domain</strong>
+          <p>AWS, GitHub, Kubernetes, and executive reporting can land here in later PRs.</p>
+        </article>
+        <article className="idt-domain-kpi">
+          <span>Output</span>
+          <strong>Board</strong>
+          <p>Designed for executive posture and remediation outcome summaries.</p>
+        </article>
+      </div>
+      <DomainStatusPanel eyebrow="Reporting foundation" title="Outcome views are staged" status="Shell ready" tone="success">
+        <p>
+          This route keeps the IA complete while the deeper executive outcome, domain coverage, and remediation reporting
+          experiences arrive in their planned sequence.
+        </p>
+      </DomainStatusPanel>
+    </section>
+  );
+}
+
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'idt:sidebar:collapsed';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'idt:sidebar:width';
 const SIDEBAR_DEFAULT_WIDTH = 248; // matches the prior 15.5rem
@@ -1740,40 +2122,88 @@ export function ProductShellLayout() {
       {
         id: 'overview',
         label: 'Overview',
-        description: 'Project coverage, recent scans, and next actions',
-        keywords: ['home', 'dashboard', 'workspace'],
+        description: 'Domain coverage, recent scans, and next actions',
+        keywords: ['home', 'dashboard', 'workspace', 'domains'],
         shortcut: 'O',
         path: basePath
       },
       {
-        id: 'projects',
-        label: 'Projects',
-        description: 'Choose or create a project boundary',
-        keywords: ['project', 'registry', 'source'],
-        shortcut: 'P',
-        path: `${basePath}/projects`
+        id: 'aws',
+        label: 'AWS',
+        description: 'AWS machine identity control center',
+        keywords: ['aws', 'cloud', 'iam', 'identity'],
+        path: `${basePath}/aws`
       },
       {
-        id: 'findings',
-        label: 'Findings',
-        description: 'Review repository exposure and triage work',
-        keywords: ['risk', 'repository', 'triage'],
+        id: 'aws-connect',
+        label: 'Connect AWS',
+        description: 'Start AWS account and identity onboarding',
+        keywords: ['aws', 'connect', 'account', 'role'],
+        path: `${basePath}/aws/connect`
+      },
+      {
+        id: 'aws-findings',
+        label: 'AWS findings',
+        description: 'Domain-scoped AWS risk queue',
+        keywords: ['aws', 'findings', 'risk', 'iam'],
+        path: `${basePath}/aws/findings`
+      },
+      {
+        id: 'github',
+        label: 'GitHub',
+        description: 'Repositories, Actions/OIDC, and agentic risk',
+        keywords: ['github', 'repositories', 'actions', 'oidc'],
+        path: `${basePath}/github`
+      },
+      {
+        id: 'github-connect',
+        label: 'Connect GitHub',
+        description: 'Start GitHub App onboarding',
+        keywords: ['github', 'connect', 'app', 'install'],
+        path: `${basePath}/github/connect`
+      },
+      {
+        id: 'github-findings',
+        label: 'GitHub findings',
+        description: 'Repository risk inside the GitHub section',
+        keywords: ['github', 'findings', 'repository', 'triage'],
         shortcut: 'F',
-        path: `${basePath}/findings`
+        path: `${basePath}/github/findings`
       },
       {
-        id: 'ai-risks',
-        label: 'AI Risks',
-        description: 'AI, MCP, workflow, runner, and GitHub alerts',
-        keywords: ['github', 'intelligence', 'mcp', 'ai', 'workflow', 'runner', 'dependabot'],
-        path: `${basePath}/ai-risks`
+        id: 'github-agentic-risk',
+        label: 'GitHub AI / Agentic Risk',
+        description: 'Agent identities, MCP tools, prompts, secrets, and workflow trust paths',
+        keywords: ['github', 'agentic', 'ai', 'mcp', 'tools', 'prompts', 'secrets', 'workflow'],
+        path: `${basePath}/github/agentic-risk`
       },
       {
-        id: 'workspaces',
-        label: 'Workspaces',
-        description: 'Members, roles, and active workspace scope',
-        keywords: ['members', 'roles', 'invite'],
-        path: `${basePath}/workspaces`
+        id: 'kubernetes',
+        label: 'Kubernetes',
+        description: 'Clusters, workloads, service accounts, and RBAC',
+        keywords: ['kubernetes', 'k8s', 'clusters', 'rbac'],
+        path: `${basePath}/kubernetes`
+      },
+      {
+        id: 'kubernetes-connect',
+        label: 'Connect Kubernetes',
+        description: 'Start cluster onboarding',
+        keywords: ['kubernetes', 'k8s', 'connect', 'cluster'],
+        path: `${basePath}/kubernetes/connect`
+      },
+      {
+        id: 'kubernetes-findings',
+        label: 'Kubernetes findings',
+        description: 'Cluster and service-account risk queue',
+        keywords: ['kubernetes', 'k8s', 'findings', 'rbac'],
+        path: `${basePath}/kubernetes/findings`
+      },
+      {
+        id: 'reports',
+        label: 'Reports',
+        description: 'Executive posture and domain outcome views',
+        keywords: ['report', 'board', 'risk', 'executive'],
+        path: `${basePath}/reports`
       },
       {
         id: 'settings',
@@ -1781,13 +2211,6 @@ export function ProductShellLayout() {
         description: 'Workspace identity, access model, and routes',
         keywords: ['identity', 'access', 'authentication'],
         path: `${basePath}/settings`
-      },
-      {
-        id: 'executive-report',
-        label: 'Executive report',
-        description: 'Board-ready risk posture for this workspace',
-        keywords: ['report', 'board', 'risk'],
-        path: '/reports/executive'
       },
       {
         id: 'security',
@@ -1811,15 +2234,6 @@ export function ProductShellLayout() {
         action: () => navigate('/app/logout', { replace: true })
       }
     ];
-    if (scope.projectID) {
-      items.splice(2, 0, {
-        id: 'current-project-sources',
-        label: 'Current project sources',
-        description: `Connect and review sources for ${formatScopeDisplay(scope.projectID)}`,
-        keywords: ['source', 'connector', 'github', 'aws', 'kubernetes'],
-        path: buildProjectPath(scope, scope.projectID)
-      });
-    }
     return items;
   }, [basePath, navigate, scope]);
 
@@ -2128,44 +2542,36 @@ export function ProductShellLayout() {
           </button>
 
           <nav className="idt-app-shell-nav" aria-label="App sections">
-            <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Workspace</div>
+            <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Control plane</div>
             <NavLink to={basePath} end aria-label="Overview" title={sidebarCollapsed ? 'Overview' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <LayoutDashboard size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Overview</span>
             </NavLink>
-            <NavLink to={`${basePath}/projects`} aria-label="Projects" title={sidebarCollapsed ? 'Projects' : undefined}>
+            <NavLink to={`${basePath}/aws`} aria-label="AWS" title={sidebarCollapsed ? 'AWS' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <FolderKanban size={16} strokeWidth={1.75} />
+                <SidebarDomainIcon domain="aws" />
               </span>
-              <span className="idt-app-nav-label">Projects</span>
+              <span className="idt-app-nav-label">AWS</span>
             </NavLink>
-            <NavLink to={`${basePath}/findings`} aria-label="Findings" title={sidebarCollapsed ? 'Findings' : undefined}>
+            <NavLink to={`${basePath}/github`} aria-label="GitHub" title={sidebarCollapsed ? 'GitHub' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <Shield size={16} strokeWidth={1.75} />
+                <SidebarDomainIcon domain="github" />
               </span>
-              <span className="idt-app-nav-label">Findings</span>
+              <span className="idt-app-nav-label">GitHub</span>
             </NavLink>
-            <NavLink to={`${basePath}/ai-risks`} aria-label="AI Risks" title={sidebarCollapsed ? 'AI Risks' : undefined}>
+            <NavLink to={`${basePath}/kubernetes`} aria-label="Kubernetes" title={sidebarCollapsed ? 'Kubernetes' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
-                <img src="/brand-logos/github.svg" alt="" aria-hidden="true" />
+                <SidebarDomainIcon domain="kubernetes" />
               </span>
-              <span className="idt-app-nav-label">AI Risks</span>
+              <span className="idt-app-nav-label">Kubernetes</span>
             </NavLink>
-            <NavLink to="/reports/executive" aria-label="Executive report" title={sidebarCollapsed ? 'Executive report' : undefined}>
+            <NavLink to={`${basePath}/reports`} aria-label="Reports" title={sidebarCollapsed ? 'Reports' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <BarChart3 size={16} strokeWidth={1.75} />
               </span>
-              <span className="idt-app-nav-label">Executive report</span>
-            </NavLink>
-
-            <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Organization</div>
-            <NavLink to={`${basePath}/workspaces`} aria-label="Workspaces" title={sidebarCollapsed ? 'Workspaces' : undefined}>
-              <span className="idt-app-nav-icon" aria-hidden="true">
-                <Users size={16} strokeWidth={1.75} />
-              </span>
-              <span className="idt-app-nav-label">Workspaces</span>
+              <span className="idt-app-nav-label">Reports</span>
             </NavLink>
             <NavLink to={`${basePath}/settings`} aria-label="Settings" title={sidebarCollapsed ? 'Settings' : undefined}>
               <span className="idt-app-nav-icon" aria-hidden="true">
@@ -2556,10 +2962,12 @@ export function ProductOverviewPage() {
   const latestTrend = trendPoints[trendPoints.length - 1];
   const previousTrend = trendPoints[trendPoints.length - 2];
   const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
-  const projectsPath = scope ? buildProjectsPath(scope) : '/app';
-  const findingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
+  const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
+  const githubPath = scope ? buildScopedPath(scope, 'github') : '/app';
+  const githubConnectPath = scope ? buildScopedPath(scope, 'github/connect') : '/app';
+  const findingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
-  const connectSourcesPath = scope?.projectID ? buildProjectPath(scope, scope.projectID) : projectsPath;
+  const connectSourcesPath = githubConnectPath;
   const hasAnySuccessfulScan = succeededScanCount > 0;
   // A source counts as connected when either (a) onboarding records a connector
   // configuration on the workspace, or (b) any scan has run (you can't scan
@@ -2577,17 +2985,17 @@ export function ProductOverviewPage() {
     skippable?: boolean;
   }> = [
     {
-      id: 'project',
-      label: 'Create your first project',
-      description: 'Define the scope that connectors and scan policies attach to.',
+      id: 'domain',
+      label: 'Choose your first domain',
+      description: 'Start from AWS, GitHub, or Kubernetes based on the machine identity surface you want to cover.',
       complete: activeProjects.length > 0,
-      actionLabel: activeProjects.length > 0 ? undefined : 'Create',
-      to: projectsPath
+      actionLabel: activeProjects.length > 0 ? undefined : 'Open',
+      to: awsPath
     },
     {
       id: 'source',
-      label: 'Connect a source',
-      description: 'Attach GitHub, AWS, or Kubernetes telemetry to a project.',
+      label: 'Connect a domain source',
+      description: 'Attach GitHub, AWS, or Kubernetes telemetry to this workspace.',
       complete: hasConnectedSource,
       actionLabel: hasConnectedSource ? undefined : 'Connect',
       to: connectSourcesPath
@@ -2595,7 +3003,7 @@ export function ProductOverviewPage() {
     {
       id: 'scan',
       label: 'Run your first scan',
-      description: 'Produce evidence the workspace can triage.',
+      description: 'Produce evidence that can feed the right domain findings page.',
       complete: hasAnySuccessfulScan,
       actionLabel: hasAnySuccessfulScan ? undefined : 'Run scan',
       to: connectSourcesPath
@@ -2618,7 +3026,7 @@ export function ProductOverviewPage() {
       <section className="idt-app-panel idt-overview-page" aria-busy="true" aria-live="polite">
         <header className="idt-overview-header">
           <h2>Overview</h2>
-          <p>Loading workspace activity, project coverage, scans, and open findings.</p>
+          <p>Loading workspace activity, domain coverage, scans, and open findings.</p>
         </header>
       </section>
     );
@@ -2643,7 +3051,7 @@ export function ProductOverviewPage() {
         <header className="idt-overview-header">
           <div>
             <h2>Overview</h2>
-            <p className="idt-overview-header-sub">Latest activity</p>
+            <p className="idt-overview-header-sub">Domain control plane activity</p>
           </div>
         </header>
 
@@ -2695,9 +3103,9 @@ export function ProductOverviewPage() {
 
         <div className="idt-overview-metrics" aria-label="Workspace health metrics">
           <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Active projects</span>
+            <span className="idt-overview-metric-label">Configured scopes</span>
             <strong>{activeProjects.length}</strong>
-            <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : activeProjects.length === 0 ? 'None yet' : activeProjects.length === 1 ? '1 project active' : `${activeProjects.length} projects active`}</p>
+            <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : activeProjects.length === 0 ? 'None yet' : activeProjects.length === 1 ? '1 scope active' : `${activeProjects.length} scopes active`}</p>
           </article>
           <article className="idt-overview-metric-card">
             <span className="idt-overview-metric-label">Priority findings</span>
@@ -2747,7 +3155,7 @@ export function ProductOverviewPage() {
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
               <h3>Open risk</h3>
-              <Link to={findingsPath}>View all</Link>
+              <Link to={findingsPath}>View GitHub findings</Link>
             </div>
             {repoFindings.length > 0 ? (
               <div className="idt-overview-list">
@@ -2781,7 +3189,7 @@ export function ProductOverviewPage() {
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
               <h3>Recent scans</h3>
-              <Link to={findingsPath}>View all</Link>
+              <Link to={findingsPath}>View GitHub findings</Link>
             </div>
             {scanGroups.length > 0 ? (
               <div className="idt-overview-list">
@@ -2817,7 +3225,7 @@ export function ProductOverviewPage() {
             ) : (
               <AppShellEmptyState
                 title="No scans yet"
-                body="Connect a project source and run the first scan to populate activity."
+                body="Connect a domain source and run the first scan to populate activity."
                 action={{ label: 'Connect a source', to: connectSourcesPath }}
               />
             )}
@@ -2827,16 +3235,16 @@ export function ProductOverviewPage() {
         <div className="idt-overview-grid idt-overview-grid-single">
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
-              <h3>Project coverage</h3>
-              <Link to={projectsPath}>Manage</Link>
+              <h3>Domain coverage</h3>
+              <Link to={githubPath}>Open GitHub</Link>
             </div>
             {activeProjects.length > 0 ? (
               <div className="idt-overview-projects">
                 {activeProjects.slice(0, 6).map((project) => (
-                  <Link key={project.project_id} to={scope ? buildProjectPath(scope, project.project_id) : projectsPath}>
+                  <Link key={project.project_id} to={githubPath}>
                     <div className="idt-overview-project-title">
                       <strong>{project.name}</strong>
-                      <SourceLogoStack label={`${project.name} source stack`} />
+                      <SourceLogoStack label={`${project.name} domain stack`} />
                     </div>
                     <span>{project.description || 'No description'}</span>
                     <small>Updated {formatRelativeTime(project.updated_at)}</small>
@@ -2845,9 +3253,9 @@ export function ProductOverviewPage() {
               </div>
             ) : (
               <AppShellEmptyState
-                title="No active projects"
-                body="Create the first project to connect source telemetry and scan policies."
-                action={{ label: 'Create project', to: projectsPath }}
+                title="No configured scopes"
+                body="Open a domain section to connect telemetry and start building coverage."
+                action={{ label: 'Connect GitHub', to: githubConnectPath }}
               />
             )}
           </section>
@@ -4188,7 +4596,7 @@ export function ProductProjectDetailPage() {
         isActiveScanStatus(scan.status) &&
         canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() === effectiveRepoScanRepositoryKey
     );
-  const repoScanFindingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
+  const repoScanFindingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
 
   const nextRequestSequence = () => {
     const nextSequence = refreshSequenceRef.current + 1;
@@ -6223,7 +6631,7 @@ export function ProductAIRisksPage() {
       if (requestID !== requestRef.current) {
         return;
       }
-      setError(formatAPIError(requestError, 'Failed to load AI Risks.'));
+      setError(formatAPIError(requestError, 'Failed to load AI / Agentic Risk.'));
       setRepoScans([]);
       setRepoFindings([]);
       setTrendPoints([]);
@@ -6251,8 +6659,8 @@ export function ProductAIRisksPage() {
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error">
-        <p className="idt-app-kicker">AI Risks</p>
-        <h2>Dashboard unavailable</h2>
+        <p className="idt-app-kicker">GitHub</p>
+        <h2>AI / Agentic Risk unavailable</h2>
         <p>Workspace route context is missing.</p>
       </section>
     );
@@ -6261,14 +6669,14 @@ export function ProductAIRisksPage() {
   if (loading) {
     return (
       <AppRouteLoadingState
-        title="Preparing AI Risks"
+        title="Preparing AI / Agentic Risk"
         body="Loading repository scans, GitHub alerts, and AI workflow signals."
       />
     );
   }
 
-  const findingsPath = buildScopedPath(scope, 'findings');
-  const projectsPath = buildProjectsPath(scope);
+  const findingsPath = buildScopedPath(scope, 'github/findings');
+  const connectPath = buildScopedPath(scope, 'github/connect');
   const scansByRecency = [...repoScans].sort(
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
@@ -6325,8 +6733,8 @@ export function ProductAIRisksPage() {
     <section className="idt-app-panel idt-github-intelligence-page">
       <div className="idt-repo-findings-header idt-github-intelligence-header">
         <div>
-          <p className="idt-app-kicker">AI Risks</p>
-          <h2>AI Risks</h2>
+          <p className="idt-app-kicker">GitHub</p>
+          <h2>AI / Agentic Risk</h2>
           <p>AI, MCP, workflow, runner, GitHub alert, and fix-ready signals.</p>
           <div className="idt-overview-source-strip">
             <SourceLogoMark provider="github" className="is-ai-risk-source" />
@@ -6350,7 +6758,7 @@ export function ProductAIRisksPage() {
 
       {error ? <div className="idt-app-alert idt-app-alert-error">{error}</div> : null}
 
-      <div className="idt-repo-finding-stats idt-github-intelligence-stats" aria-label="AI Risks summary">
+      <div className="idt-repo-finding-stats idt-github-intelligence-stats" aria-label="AI / Agentic Risk summary">
         <article className="idt-repo-finding-stat">
           <span>Open</span>
           <strong>{openFindingCount}</strong>
@@ -6379,9 +6787,9 @@ export function ProductAIRisksPage() {
 
       {!error && repoScans.length === 0 && findingsInScope.length === 0 ? (
         <AppShellEmptyState
-          title="No AI Risks yet"
+          title="No AI / Agentic Risk yet"
           body="Connect GitHub and run a repository scan to populate AI, MCP, workflow, runner, alert, and fix-ready signals."
-          action={{ label: 'Go to projects', to: projectsPath }}
+          action={{ label: 'Connect GitHub', to: connectPath }}
         />
       ) : null}
 
@@ -6494,7 +6902,7 @@ export function ProductAIRisksPage() {
               <span className={`idt-repo-scan-health-status is-${scanHealthTone}`}>
                 {scanHealthStatusLabel}
               </span>
-              <Link to={projectsPath}>Manage scans</Link>
+              <Link to={connectPath}>Manage scans</Link>
             </div>
           </div>
           {latestScan ? (
@@ -6544,7 +6952,7 @@ export function ProductAIRisksPage() {
           ) : (
             <AppShellEmptyState
               title="No scans yet"
-              body="AI Risks needs at least one repository scan."
+              body="AI / Agentic Risk needs at least one repository scan."
             />
           )}
         </section>
@@ -6572,7 +6980,7 @@ export function ProductAIRisksPage() {
                     <span>{row.label}</span>
                     <strong>{row.total}</strong>
                   </div>
-                  <div className="idt-repo-finding-trend-bar-track" role="img" aria-label={`AI Risks trend ${row.label}`}>
+                  <div className="idt-repo-finding-trend-bar-track" role="img" aria-label={`AI / Agentic Risk trend ${row.label}`}>
                     <div className="idt-repo-finding-trend-bar" style={{ width: `${row.percentage}%` }} />
                   </div>
                   <small>{formatCountLabel(row.priority, 'high priority', 'high priority')}</small>
@@ -7274,8 +7682,8 @@ export function ProductFindingsPage() {
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error">
-        <p className="idt-app-kicker">Findings</p>
-        <h2>Repository findings</h2>
+        <p className="idt-app-kicker">GitHub findings</p>
+        <h2>GitHub findings</h2>
         <p>Workspace route context is missing.</p>
       </section>
     );
@@ -7284,7 +7692,7 @@ export function ProductFindingsPage() {
   if (loading) {
     return (
       <AppRouteLoadingState
-        title="Preparing repository findings"
+        title="Preparing GitHub findings"
         body="Keeping the workspace shell ready while finding and trend data refresh."
       />
     );
@@ -7295,7 +7703,7 @@ export function ProductFindingsPage() {
     void loadTrendSignals(scope, 'refresh');
   };
 
-  const projectsPath = buildProjectsPath(scope);
+  const connectPath = buildScopedPath(scope, 'github/connect');
   const scansByRecency = [...repoScans].sort(
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
@@ -7365,8 +7773,8 @@ export function ProductFindingsPage() {
       <section className="idt-app-panel idt-repo-findings-page">
         <div className="idt-repo-findings-header">
           <div>
-            <p className="idt-app-kicker">Repository Exposure</p>
-            <h2>Findings</h2>
+            <p className="idt-app-kicker">GitHub findings</p>
+            <h2>GitHub findings</h2>
             <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
           </div>
           <div className="idt-inline-actions">
@@ -7387,14 +7795,14 @@ export function ProductFindingsPage() {
           <AppShellEmptyState
             title="Run your first repository scan"
             body="Scan a connected repository to surface risky trust paths, exposed secrets, and authorization gaps — then jump straight to the exact GitHub line."
-            action={{ label: 'Go to projects', to: projectsPath }}
+            action={{ label: 'Connect GitHub', to: connectPath }}
           />
         ) : (
           <article className="idt-app-empty-state idt-repo-scan-failure-state">
             <h2>Your last repository scan failed</h2>
             <p>{describeScanFailure(latestFailedScan)}</p>
             <div className="idt-inline-actions">
-              <Link className="idt-app-empty-state-action" to={projectsPath}>
+              <Link className="idt-app-empty-state-action" to={connectPath}>
                 Review &amp; re-run scan
               </Link>
               <button
@@ -7443,8 +7851,8 @@ export function ProductFindingsPage() {
     <section className="idt-app-panel idt-repo-findings-page">
       <div className="idt-repo-findings-header">
         <div>
-          <p className="idt-app-kicker">Repository Exposure</p>
-          <h2>Findings</h2>
+          <p className="idt-app-kicker">GitHub findings</p>
+          <h2>GitHub findings</h2>
           <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
           <div className="idt-overview-source-strip">
             <SourceLogoMark provider="github" />
@@ -7471,7 +7879,7 @@ export function ProductFindingsPage() {
       {latestScanFailed ? (
         <div className="idt-app-alert idt-app-alert-error idt-repo-scan-health">
           <span>Last scan failed: {describeScanFailure(latestFailedScan)}</span>
-          <Link to={projectsPath}>Review &amp; re-run</Link>
+          <Link to={connectPath}>Review &amp; re-run</Link>
         </div>
       ) : null}
 
@@ -8279,8 +8687,9 @@ export function ProductSettingsPage() {
       ? 'Manual development login'
       : 'Session-only';
   const scopes = Array.isArray(whoAmI?.scopes) ? whoAmI.scopes : [];
-  const projectsPath = scope ? buildProjectsPath(scope) : '/app';
-  const findingsPath = scope ? buildScopedPath(scope, 'findings') : '/app';
+  const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
+  const githubFindingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
+  const kubernetesPath = scope ? buildScopedPath(scope, 'kubernetes') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
 
   if (loading) {
@@ -8339,8 +8748,8 @@ export function ProductSettingsPage() {
               <dd>{scope?.workspaceID ?? 'Unavailable'}</dd>
             </div>
             <div>
-              <dt>Project context</dt>
-              <dd>{scope?.projectID ?? me?.project_id ?? 'All projects'}</dd>
+              <dt>Scope context</dt>
+              <dd>{scope?.projectID ?? me?.project_id ?? 'All scopes'}</dd>
             </div>
             <div>
               <dt>Updated</dt>
@@ -8439,13 +8848,17 @@ export function ProductSettingsPage() {
           <h3>Where changes happen</h3>
         </div>
         <div className="idt-settings-route-grid">
-          <Link to={projectsPath}>
-            <strong>Projects and source setup</strong>
-            <span>Create projects, connect GitHub/AWS/Kubernetes, and manage scan policies.</span>
+          <Link to={awsPath}>
+            <strong>AWS control center</strong>
+            <span>Connect accounts, expand identity inventory, and prepare AWS findings and remediation.</span>
           </Link>
-          <Link to={findingsPath}>
-            <strong>Findings workflow</strong>
-            <span>Inspect repository risk, open GitHub line links, and apply triage status.</span>
+          <Link to={githubFindingsPath}>
+            <strong>GitHub findings</strong>
+            <span>Inspect repository risk, open line evidence, and keep triage inside the GitHub section.</span>
+          </Link>
+          <Link to={kubernetesPath}>
+            <strong>Kubernetes control center</strong>
+            <span>Prepare cluster, workload, service-account, RBAC, and remediation routes.</span>
           </Link>
           <Link to={workspacesPath}>
             <strong>Workspace members</strong>
