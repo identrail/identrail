@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap quickstart quickstart-down clean-local fmt fmt-check vet test test-integration web-install web-test web-build web-route-integrity-check api-example-contract-check production-api-url-check production-api-preflight vercel-prod-deploy helm-lint tfmt-check ci pre-commit
+.PHONY: help bootstrap quickstart quickstart-down clean-local fmt fmt-check vet test test-integration web-install web-test web-build web-route-integrity-check api-example-contract-check production-api-url-check production-api-preflight vercel-prod-deploy vercel-queued-cleanup helm-lint tfmt-check ci pre-commit
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -73,6 +73,9 @@ production-api-preflight: ## Validate and probe the public API URL before wiring
 
 vercel-prod-deploy: ## Trigger Vercel production deploy (always uses origin/dev)
 	./scripts/vercel_prod_deploy.sh
+
+vercel-queued-cleanup: ## Prune stale queued Vercel deployments
+	KEEP_QUEUED_PER_REF=1 ./scripts/vercel_cleanup_queued_deployments.sh
 
 helm-lint: ## Lint Helm chart
 	helm lint deploy/helm/identrail

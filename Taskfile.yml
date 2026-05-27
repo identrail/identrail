@@ -71,6 +71,11 @@ tasks:
     cmds:
       - make vercel-prod-deploy
 
+  vercel-queued-cleanup:
+    desc: Prune stale queued Vercel deployments
+    cmds:
+      - make vercel-queued-cleanup
+
   ci:
     desc: Run core local CI checks
     cmds:

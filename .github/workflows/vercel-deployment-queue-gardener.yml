@@ -1,0 +1,30 @@
+name: Vercel Deployment Queue Gardener
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-deployment-queue-gardener
+  cancel-in-progress: true
+
+jobs:
+  trim-queued-deployments:
+    name: Trim queued Vercel deploys
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      KEEP_QUEUED_PER_REF: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Prune stale queued deployments
+        run: ./scripts/vercel_cleanup_queued_deployments.sh

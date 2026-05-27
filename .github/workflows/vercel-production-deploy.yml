@@ -1,16 +1,19 @@
 name: Vercel Production Deploy
 
 on:
-  push:
+  pull_request_target:
     branches:
       - dev
+    types:
+      - closed
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: vercel-production-deploy-${{ github.ref }}
+  group: vercel-production-deploy-${{ github.event_name != 'workflow_dispatch' && github.event.pull_request.base.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -25,7 +28,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Gate deployment by PR approval
+        id: deploy-gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "can_deploy=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch; no PR approval gate required."
+            exit 0
+          fi
+
+          if [ "${{ github.event.pull_request.merged }}" != "true" ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request was not merged; skipping production deploy."
+            exit 0
+          fi
+
+          review_decision="$(gh api graphql \
+            -F owner="${{ github.repository_owner }}" \
+            -F repo="${{ github.event.repository.name }}" \
+            -F number="${{ github.event.pull_request.number }}" \
+            -f query='query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                  reviewDecision
+                }
+              }
+            }' \
+            -q '.data.repository.pullRequest.reviewDecision // empty')"
+          if [ "${review_decision}" != "APPROVED" ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request review state is '${review_decision}', not APPROVED; skipping production deploy."
+            exit 0
+          fi
+
+          echo "can_deploy=true" >> "$GITHUB_OUTPUT"
+          echo "PR #${{ github.event.pull_request.number }} is approved; continuing deploy."
+
       - name: Validate required Vercel identifiers
+        if: steps.deploy-gate.outputs.can_deploy == 'true'
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -38,6 +81,7 @@ jobs:
 
       - name: Normalize Vercel token secret
         id: normalize-token
+        if: steps.deploy-gate.outputs.can_deploy == 'true'
         env:
           RAW_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -55,19 +99,35 @@ jobs:
 
       - name: Verify Vercel token
         id: verify-token
-        if: steps.normalize-token.outputs.has_token == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
         run: |
           set -euo pipefail
-          curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" https://api.vercel.com/v2/user > /tmp/vercel-user.json
-          echo "Token verified for Vercel user:"
-          jq -r '.user.username // .username // "unknown"' /tmp/vercel-user.json
+          if curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" https://api.vercel.com/v2/user > /tmp/vercel-user.json; then
+            echo "token_verified=true" >> "$GITHUB_OUTPUT"
+            echo "Token verified for Vercel user:"
+            jq -r '.user.username // .username // "unknown"' /tmp/vercel-user.json
+          else
+            echo "token_verified=false" >> "$GITHUB_OUTPUT"
+            echo "Token verification failed; continuing with hook fallback."
+          fi
+
+      - name: Prune stale queued deployments
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        continue-on-error: true
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          KEEP_QUEUED_PER_REF: "1"
+        run: |
+          ./scripts/vercel_cleanup_queued_deployments.sh
 
       - name: Check VITE_IDENTRAIL_API_URL variable
         id: check-api-url
-        if: steps.normalize-token.outputs.has_token == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
         env:
           VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
           IDENTRAIL_CLOUD_API_URL: https://api.identrail.com
@@ -85,7 +145,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upsert Vercel production web env
-        if: steps.normalize-token.outputs.has_token == 'true' && steps.check-api-url.outputs.has_api_url == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true' && steps.check-api-url.outputs.has_api_url == 'true'
         env:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -169,7 +229,7 @@ jobs:
 
       - name: Deploy to Vercel
         id: deploy-action
-        if: steps.normalize-token.outputs.has_token == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true'
         continue-on-error: true
         uses: amondnet/vercel-action@de09aeac2ace6599ec9b11ef87558759a496bac4 # v42.3.0
         with:
@@ -185,14 +245,14 @@ jobs:
 
       - name: Fallback deploy via hook
         id: deploy-hook
-        if: (steps.normalize-token.outputs.has_token != 'true' || steps.deploy-action.outcome != 'success') && env.VERCEL_DEPLOY_HOOK_URL != ''
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && (steps.normalize-token.outputs.has_token != 'true' || steps.deploy-action.outcome != 'success') && env.VERCEL_DEPLOY_HOOK_URL != ''
         run: |
           set -euo pipefail
           curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL" > /tmp/vercel-hook-response.json
           echo "Triggered Vercel deploy hook successfully."
 
       - name: Fail if no deployment path succeeded
-        if: steps.deploy-action.outcome != 'success' && steps.deploy-hook.outcome != 'success'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.deploy-action.outcome != 'success' && steps.deploy-hook.outcome != 'success'
         run: |
           echo "Vercel deployment failed."
           echo "Root cause is usually an invalid/stale VERCEL_TOKEN."
