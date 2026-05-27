@@ -2880,20 +2880,47 @@ describe('App', () => {
   });
 
   it('finishes frontend auth callback by resolving the server session', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
-        .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')))
-        .mockResolvedValue(okJSON({ items: [] }))
-    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.includes('/v1/onboarding/state')) {
+        return okJSON({
+          state: {
+            user_id: 'user-1',
+            current_step: 'connect',
+            org_id: 'tenant-a',
+            workspace_id: 'workspace-a',
+            connector_skipped: false,
+            scan_skipped: false,
+            started_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z'
+          }
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/projects')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-scans')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings/trends')) {
+        return okJSON({ items: [] });
+      }
+      if (url.includes('/v1/repo-findings')) {
+        return okJSON({ items: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
 
     setCurrentPath('/auth/callback');
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/auth/config'))).toBe(false);
   });
 
   it('redirects failed frontend auth callback checks back to sign-in', async () => {

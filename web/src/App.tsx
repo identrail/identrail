@@ -4636,6 +4636,7 @@ export function RoutedSite() {
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
+  const isAuthShellRoute = isAuthChoiceRoute || normalizedPath === '/auth/callback';
   useEffect(() => {
     document.documentElement.dataset.theme = 'light';
     try {
@@ -4646,21 +4647,21 @@ export function RoutedSite() {
   }, []);
 
   useEffect(() => {
-    if (isProductShellRoute || isOnboardingRoute || isAuthChoiceRoute) {
+    if (isProductShellRoute || isOnboardingRoute || isAuthShellRoute) {
       return;
     }
     const preloadTimer = window.setTimeout(preloadAuthConfig, 50);
     return () => window.clearTimeout(preloadTimer);
-  }, [isAuthChoiceRoute, isOnboardingRoute, isProductShellRoute]);
+  }, [isAuthShellRoute, isOnboardingRoute, isProductShellRoute]);
 
   return (
-    <div className={`idt-site ${isAuthChoiceRoute ? 'idt-site-auth' : ''}`}>
-      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? <RouteScrollReset /> : null}
+    <div className={`idt-site ${isAuthShellRoute ? 'idt-site-auth' : ''}`}>
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthShellRoute ? <RouteScrollReset /> : null}
       <a className="idt-skip" href="#main-content">
         Skip to content
       </a>
 
-      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? (
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthShellRoute ? (
         <Header navLinks={NAV_LINKS} githubRepo={GITHUB_REPO} />
       ) : null}
 
@@ -4838,7 +4839,7 @@ export function RoutedSite() {
         </Routes>
       </main>
 
-      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? (
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthShellRoute ? (
         <>
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
         </>
