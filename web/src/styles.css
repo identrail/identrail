@@ -16162,9 +16162,9 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 
 .idt-onboarding-form input:focus-visible,
 .idt-onboarding-form textarea:focus-visible {
-  outline: 2px solid #ffffff;
-  outline-offset: 2px;
-  border-color: #ffffff;
+  outline: 0;
+  border-color: rgba(142, 167, 255, 0.78);
+  box-shadow: 0 0 0 3px rgba(142, 167, 255, 0.14);
 }
 
 .idt-onboarding-form textarea {
@@ -16207,22 +16207,20 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 1em;
-  height: 1em;
+  min-width: 1.3rem;
+  height: 1.16rem;
+  padding: 0 0.28rem;
   margin-left: 0;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
   color: currentColor;
-  font-size: 1em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
   font-weight: 900;
   line-height: 1;
   opacity: 1;
-  transform: translateY(0.02em);
-}
-
-.idt-btn-enter-cue svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  stroke: currentColor;
+  transform: translateY(0.01em);
 }
 
 .idt-onboarding-shell .idt-btn-primary {

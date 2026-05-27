@@ -130,9 +130,7 @@ export function ScanPage() {
   return (
     <OnboardingFrame
       step="scan"
-      eyebrow="First scan"
-      title="Run a baseline scan"
-      description="Confirm the source, queue, and findings path."
+      title="Run scan"
     >
       {loading ? <p className="idt-muted-strong">Loading scan readiness...</p> : null}
       {error ? (

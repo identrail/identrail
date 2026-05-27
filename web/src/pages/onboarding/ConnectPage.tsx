@@ -193,9 +193,7 @@ export function ConnectPage() {
   return (
     <OnboardingFrame
       step="connect"
-      eyebrow="Source"
-      title="Connect one source"
-      description="Start read-only. Add more sources later."
+      title="Connect source"
     >
       {loading ? <p className="idt-muted-strong">Checking available connectors...</p> : null}
       {error ? (

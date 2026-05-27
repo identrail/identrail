@@ -133,9 +133,7 @@ export function InvitePage() {
   return (
     <OnboardingFrame
       step="invite"
-      eyebrow="Team"
-      title="Invite reviewers"
-      description="Add teammates who will own findings."
+      title="Invite team"
     >
       {loading ? <p className="idt-muted-strong">Preparing invite controls...</p> : null}
       {error ? (

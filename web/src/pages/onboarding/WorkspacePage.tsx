@@ -96,9 +96,7 @@ export function WorkspacePage() {
   return (
     <OnboardingFrame
       step="workspace"
-      eyebrow="Workspace"
-      title="Name your first workspace"
-      description="Keep scans, sources, projects, and members in one scope."
+      title="Name workspace"
     >
       {loading ? <p className="idt-muted-strong">Loading workspace setup...</p> : null}
       {error ? (
@@ -131,7 +129,7 @@ export function WorkspacePage() {
           </div>
         </div>
         <div className="idt-onboarding-field">
-          <label htmlFor="project-name">First project</label>
+          <label htmlFor="project-name">Project name</label>
           <div className={projectNameError ? 'idt-onboarding-input-wrap has-error' : 'idt-onboarding-input-wrap'}>
             <input
               id="project-name"

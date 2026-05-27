@@ -163,9 +163,9 @@ describe('onboarding pages', () => {
 
     renderOnboarding(<WorkspacePage />, '/onboarding/workspace');
 
-    expect(await screen.findByRole('heading', { name: 'Name your first workspace' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Name workspace' })).toBeInTheDocument();
     const workspaceInput = screen.getByLabelText('Workspace name');
-    const projectInput = screen.getByLabelText('First project');
+    const projectInput = screen.getByLabelText('Project name');
     expect(workspaceInput).toHaveValue('');
     expect(projectInput).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
@@ -202,7 +202,7 @@ describe('onboarding pages', () => {
     renderOnboarding(<WorkspacePage />, '/onboarding/workspace');
 
     const workspaceInput = await screen.findByLabelText('Workspace name');
-    const projectInput = screen.getByLabelText('First project');
+    const projectInput = screen.getByLabelText('Project name');
     fireEvent.change(workspaceInput, { target: { value: 'Production' } });
     fireEvent.change(projectInput, { target: { value: 'Identity Control Plane' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
