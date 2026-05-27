@@ -16190,6 +16190,10 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   line-height: 1.1;
 }
 
+.idt-onboarding-actions .idt-btn::after {
+  content: none;
+}
+
 .idt-btn:has(.idt-btn-enter-cue) {
   padding-right: 1.14rem;
 }
