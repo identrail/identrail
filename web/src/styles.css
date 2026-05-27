@@ -15478,6 +15478,8 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-shell {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
   background: #000000;
   color: #f5f7fb;
   padding: 24px clamp(16px, 4vw, 56px) 56px;
@@ -15490,6 +15492,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
   width: 100%;
   max-width: 1320px;
   margin: 0 auto 30px;
@@ -15504,12 +15507,14 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 
 .idt-onboarding-brand {
   gap: 12px;
+  min-width: 0;
   color: #f8fafc;
 }
 
 .idt-onboarding-brand-copy {
   display: grid;
   gap: 2px;
+  min-width: 0;
 }
 
 .idt-onboarding-brand-copy strong {
@@ -15567,7 +15572,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: 24px;
   width: 100%;
-  max-width: 1320px;
+  max-width: min(1320px, 100%);
   margin: 0 auto;
   align-items: start;
 }
@@ -15585,12 +15590,16 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
   padding: 22px;
   position: sticky;
   top: 24px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .idt-onboarding-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   min-height: 35rem;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
 }
 
@@ -15601,21 +15610,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 }
 
 .idt-onboarding-rail-intro {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin-bottom: 22px;
-}
-
-.idt-onboarding-rail-icon {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border: 1px solid #242424;
-  border-radius: 8px;
-  background: #050505;
-  color: #8fb6ff;
 }
 
 .idt-onboarding-rail-label {
@@ -15635,6 +15630,7 @@ html[data-theme='light'] .idt-hero-proof-pill:focus-visible::after {
 }
 
 .idt-onboarding-panel h1 {
+  width: 100%;
   max-width: 640px;
   margin: 0;
   color: #ffffff;
@@ -15695,7 +15691,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 .idt-onboarding-guarantee svg {
   flex: 0 0 auto;
   margin-top: 3px;
-  color: #86efac;
+  color: #a3a3a3;
 }
 
 .idt-onboarding-guarantee div {
@@ -15733,12 +15729,12 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 .idt-onboarding-step-icon {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
   border: 1px solid #2a2a2a;
-  background: #050505;
-  color: #737373;
+  background: #000000;
+  color: #8a8a8a;
 }
 
 .idt-onboarding-step-copy {
@@ -15767,8 +15763,8 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 }
 
 .idt-onboarding-step.is-current .idt-onboarding-step-icon {
-  border-color: #8ea7ff;
-  background: #050505;
+  border-color: #4b5563;
+  background: #080808;
   color: #ffffff;
 }
 
@@ -15777,9 +15773,9 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 }
 
 .idt-onboarding-step.is-complete .idt-onboarding-step-icon {
-  border-color: rgba(134, 239, 172, 0.35);
-  background: rgba(34, 197, 94, 0.1);
-  color: #86efac;
+  border-color: #3a3a3a;
+  background: #050505;
+  color: #d4d4d4;
 }
 
 .idt-onboarding-assurance {
@@ -15827,6 +15823,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 .idt-onboarding-form {
   display: grid;
   gap: 16px;
+  width: 100%;
   max-width: 560px;
   margin-top: 32px;
 }
@@ -16078,7 +16075,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   }
 
   .idt-onboarding-step {
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .idt-onboarding-outcome {
@@ -16093,7 +16090,12 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   }
 
   .idt-onboarding-topbar {
+    gap: 12px;
     margin-bottom: 18px;
+  }
+
+  .idt-onboarding-signout span {
+    display: none;
   }
 
   .idt-onboarding-panel-main,
@@ -16102,7 +16104,17 @@ html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary:focus-visible {
   }
 
   .idt-onboarding-panel h1 {
-    font-size: 2.2rem;
+    max-width: 100%;
+    font-size: 2rem;
+  }
+
+  .idt-onboarding-form {
+    max-width: 100%;
+  }
+
+  .idt-onboarding-actions .idt-btn {
+    justify-content: center;
+    width: 100%;
   }
 
   .idt-onboarding-guarantees {

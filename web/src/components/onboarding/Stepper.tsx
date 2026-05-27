@@ -1,12 +1,12 @@
 import type { OnboardingStep } from '../../api/client';
-import { CheckCircle2, Circle, CircleDot } from 'lucide-react';
+import { Building2, PanelsTopLeft, PlugZap, ScanSearch, UserPlus, type LucideIcon } from 'lucide-react';
 
-const STEP_ITEMS: Array<{ id: Exclude<OnboardingStep, 'complete'>; label: string; detail: string }> = [
-  { id: 'org', label: 'Organization', detail: 'Security boundary' },
-  { id: 'workspace', label: 'Workspace', detail: 'First environment' },
-  { id: 'connect', label: 'Connect source', detail: 'Read-only signal' },
-  { id: 'scan', label: 'First scan', detail: 'Findings baseline' },
-  { id: 'invite', label: 'Invite team', detail: 'Reviewer access' }
+const STEP_ITEMS: Array<{ id: Exclude<OnboardingStep, 'complete'>; label: string; detail: string; icon: LucideIcon }> = [
+  { id: 'org', label: 'Organization', detail: 'Tenant root', icon: Building2 },
+  { id: 'workspace', label: 'Workspace', detail: 'Project scope', icon: PanelsTopLeft },
+  { id: 'connect', label: 'Connect source', detail: 'GitHub, AWS, K8s', icon: PlugZap },
+  { id: 'scan', label: 'First scan', detail: 'Evidence baseline', icon: ScanSearch },
+  { id: 'invite', label: 'Invite team', detail: 'Reviewer access', icon: UserPlus }
 ];
 
 export function OnboardingStepper({ currentStep }: { currentStep: OnboardingStep }) {
@@ -17,7 +17,7 @@ export function OnboardingStepper({ currentStep }: { currentStep: OnboardingStep
     <nav className="idt-onboarding-stepper" aria-label="Onboarding progress">
       {STEP_ITEMS.map((step, index) => {
         const state = index < activeIndex ? 'complete' : index === activeIndex ? 'current' : 'pending';
-        const StepIcon = state === 'complete' ? CheckCircle2 : state === 'current' ? CircleDot : Circle;
+        const StepIcon = step.icon;
         return (
           <div className={`idt-onboarding-step is-${state}`} key={step.id} aria-current={state === 'current' ? 'step' : undefined}>
             <span className="idt-onboarding-step-icon" aria-hidden="true">

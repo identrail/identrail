@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, NavigateFunction } from 'react-router-dom';
-import { ArrowRight, GitBranch, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Eye, LogOut, Network } from 'lucide-react';
 import {
   apiClient,
   ApiError,
@@ -125,12 +125,12 @@ export async function loadOrStartOnboarding(): Promise<OnboardingState> {
 
 const SETUP_GUARANTEES = [
   {
-    icon: LockKeyhole,
+    icon: Eye,
     title: 'Read-only first',
     detail: 'Connectors begin with discovery paths before any enforcement workflow.'
   },
   {
-    icon: GitBranch,
+    icon: Network,
     title: 'Scoped by design',
     detail: 'Workspaces, projects, scans, and findings stay inside one tenant boundary.'
   }
@@ -165,7 +165,7 @@ export function OnboardingFrame({
             <span>Secure setup</span>
           </span>
         </Link>
-        <Link to="/app/logout" className="idt-onboarding-signout">
+        <Link to="/app/logout" className="idt-onboarding-signout" aria-label="Sign out">
           <LogOut size={15} strokeWidth={2.1} aria-hidden="true" />
           <span>Sign out</span>
         </Link>
@@ -173,9 +173,6 @@ export function OnboardingFrame({
       <div className="idt-onboarding-grid">
         <aside className="idt-onboarding-rail">
           <div className="idt-onboarding-rail-intro">
-            <span className="idt-onboarding-rail-icon">
-              <ShieldCheck size={18} strokeWidth={2.2} aria-hidden="true" />
-            </span>
             <div>
               <p className="idt-onboarding-rail-label">Setup progress</p>
               <strong>Launch path</strong>
