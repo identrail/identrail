@@ -841,6 +841,75 @@ describe('Domain-first app routes', () => {
     expect(listProjects).not.toHaveBeenCalled();
   });
 
+  it('keeps requested environment selected when getProject check fails for a transient error', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: Array.from({ length: 50 }, (_, index) => ({
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: `recent-environment-${index + 1}`,
+        name: `Recent Environment ${index + 1}`,
+        slug: `recent-environment-${index + 1}`,
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }))
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
+
+    const { ProductDomainRoutePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=older-production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<ProductDomainRoutePage domain="github" routeID="repositories" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    expect(screen.getByRole('link', { name: /Connect GitHub/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github/connect?environment=older-production'
+    );
+    expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
+  });
+
+  it('does not silently route AWS connect to fallback environment when getProject check fails transiently', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'active-production',
+          name: 'Active Production',
+          slug: 'active-production',
+          description: 'Active production boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=older-production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open AWS setup/i })).toBeInTheDocument();
+    expect(screen.getByText(/temporary outage/i)).toBeInTheDocument();
+    expect(listProjects).not.toHaveBeenCalled();
+  });
+
   it('falls back to an active environment when the requested environment is archived', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

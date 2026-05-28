@@ -989,6 +989,10 @@ function isProjectArchived(project: ProjectRecord): boolean {
   return Boolean(normalizeValue(project.archived_at ?? ''));
 }
 
+function isTransientProjectLookupError(error: unknown): boolean {
+  return !(error instanceof ApiError) || error.status !== 404;
+}
+
 function environmentFallbackLabel(projectID: string | undefined): string {
   const normalized = normalizeValue(projectID ?? '');
   if (!normalized || /^project(?:[-_]\d+)?$/i.test(normalized) || /^legacy[-_]project$/i.test(normalized)) {
@@ -2230,11 +2234,15 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
             } else {
               nextItems = [requestedResponse.project, ...nextItems];
             }
-          } catch {
+          } catch (requestError) {
             if (!active) {
               return;
             }
-            rejectedID = requestedID;
+            if (isTransientProjectLookupError(requestError)) {
+              setError(formatAPIError(requestError, `Unable to verify selected environment ${requestedID}.`));
+            } else {
+              rejectedID = requestedID;
+            }
           }
         }
         setRejectedRequestedID(rejectedID);
@@ -2480,8 +2488,12 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
               setTargetPath(appendSourceQuery(buildProjectPath(scope, requestedProjectID), provider));
               return;
             }
-          } catch {
+          } catch (requestError) {
             if (!active) {
+              return;
+            }
+            if (isTransientProjectLookupError(requestError)) {
+              setError(formatAPIError(requestError, `Unable to resolve ${providerLabel} connector setup.`));
               return;
             }
           }
