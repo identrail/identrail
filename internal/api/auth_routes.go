@@ -317,6 +317,8 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 }
 
 const (
+	authFailureReasonAccountDeactivated  = "account_deactivated"
+	authFailureReasonAccountDeleted      = "account_pending_deletion"
 	authFailureReasonAccountNotFound     = "account_not_found"
 	authFailureReasonCallbackError       = "callback_error"
 	authFailureReasonIdentityConflict    = "identity_conflict"
@@ -938,6 +940,10 @@ func manualLoginHandler(logger *zap.Logger, svc *Service, manager sessionauth.Ma
 				c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
 				return
 			}
+			if errors.Is(err, ErrAuthReactivationRequired) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "account reactivation requires signup", "code": authFailureReasonAccountDeactivated})
+				return
+			}
 			if logger != nil {
 				logger.Error("manual login", telemetry.ZapError(err))
 			}
@@ -1302,5 +1308,91 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"revoked": count})
+	})
+
+	v1.POST("/me/deactivate", func(c *gin.Context) {
+		current, ok := sessionauth.CurrentFromGin(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session required"})
+			return
+		}
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		user, err := svc.Store.GetUser(c.Request.Context(), current.Session.UserID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+				return
+			}
+			if logger != nil {
+				logger.Error("deactivate get user", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+			return
+		}
+		if user.Status == "deleted" {
+			c.JSON(http.StatusConflict, gin.H{"error": "account is pending deletion", "code": authFailureReasonAccountDeleted})
+			return
+		}
+		if user.Status != "deactivated" {
+			if _, err := svc.Store.SetUserStatus(c.Request.Context(), user.ID, "deactivated", now); err != nil {
+				if logger != nil {
+					logger.Error("deactivate set status", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+				return
+			}
+		}
+		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+			if logger != nil {
+				logger.Error("deactivate revoke sessions", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+			return
+		}
+		auditAuthAction(c.Request.Context(), "auth.account.deactivate", user.ID, "success")
+		http.SetCookie(c.Writer, manager.ClearCookie())
+		c.JSON(http.StatusOK, gin.H{"status": "deactivated"})
+	})
+
+	v1.POST("/me/reactivate", func(c *gin.Context) {
+		current, ok := sessionauth.CurrentFromGin(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session required"})
+			return
+		}
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		user, err := svc.Store.GetUser(c.Request.Context(), current.Session.UserID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+				return
+			}
+			if logger != nil {
+				logger.Error("reactivate get user", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reactivate account"})
+			return
+		}
+		if user.Status == "deleted" {
+			c.JSON(http.StatusConflict, gin.H{"error": "account is pending deletion", "code": authFailureReasonAccountDeleted})
+			return
+		}
+		if user.Status != "active" {
+			if _, err := svc.Store.SetUserStatus(c.Request.Context(), user.ID, "active", now); err != nil {
+				if logger != nil {
+					logger.Error("reactivate set status", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reactivate account"})
+				return
+			}
+		}
+		auditAuthAction(c.Request.Context(), "auth.account.reactivate", user.ID, "success")
+		c.JSON(http.StatusOK, gin.H{"status": "active"})
 	})
 }

@@ -3114,6 +3114,8 @@ func isScopelessSessionRoute(path string) bool {
 		"/v1/me/sessions",
 		"/v1/me/sessions/:session_id",
 		"/v1/me/sessions/revoke-others",
+		"/v1/me/deactivate",
+		"/v1/me/reactivate",
 		"/v1/onboarding/start",
 		"/v1/onboarding/state",
 		"/v1/onboarding/complete":

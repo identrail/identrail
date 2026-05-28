@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added self-serve account-lifecycle endpoints. `POST /v1/me/deactivate`
+  transitions the authenticated user from `active` to `deactivated`, revokes
+  every active session, and clears the session cookie. `POST /v1/me/reactivate`
+  flips the status back. Both are idempotent and emit `auth.account.deactivate`
+  / `auth.account.reactivate` audit actions. Returning deactivated users who
+  attempt to sign in (WorkOS login intent or manual mode) now receive
+  `ErrAuthReactivationRequired` instead of being silently auto-reactivated, so
+  the frontend can offer the explicit reactivation affordance.
 - Replaced the single-field WorkOS MFA code input with a six-slot segmented
   OTP input (`input-otp`), matching the pattern now standard across premium
   auth flows. Each slot has its own focus ring, the active slot shows a

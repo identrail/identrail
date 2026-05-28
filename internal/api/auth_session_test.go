@@ -618,3 +618,99 @@ func TestCurrentUserContextLoadsUserAndHandlesMissingScopeObjects(t *testing.T) 
 		t.Fatal("expected nil service session list to fail")
 	}
 }
+
+// deactivateRequest issues POST /v1/me/deactivate with the supplied session
+// cookie and the Origin header expected by the CSRF middleware.
+func deactivateRequest(cookieValue string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/v1/me/deactivate", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	return req
+}
+
+// reactivateRequest is the reactivate-account counterpart of deactivateRequest.
+func reactivateRequest(cookieValue string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/v1/me/reactivate", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	return req
+}
+
+func TestCurrentSessionDeactivateRevokesSessionsAndClearsCookie(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deactivateRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected deactivate 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"status":"deactivated"`) {
+		t.Fatalf("expected deactivated status in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Set-Cookie"), sessionauth.CookieName+"=;") {
+		t.Fatalf("expected deactivate to clear session cookie, got %q", w.Header().Get("Set-Cookie"))
+	}
+
+	// Cookie is now revoked at the store layer; /v1/me must reject it.
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meW := httptest.NewRecorder()
+	harness.router.ServeHTTP(meW, meReq)
+	if meW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected /v1/me to be unauthorized after deactivate, got %d body=%s", meW.Code, meW.Body.String())
+	}
+}
+
+func TestCurrentSessionReactivateIsIdempotentForActiveAccount(t *testing.T) {
+	// Once a user is deactivated, TouchSession rejects every browser cookie
+	// (memory_auth.go:260). The reachable contract for POST /v1/me/reactivate
+	// is therefore "200 OK + status:active" against an account that is
+	// already active, so it is safe for the frontend to call optimistically.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, reactivateRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected reactivate 200 for active account, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"status":"active"`) {
+		t.Fatalf("expected active status in body, got %s", w.Body.String())
+	}
+}
+
+func TestCurrentSessionAccountLifecycleRoutesRequireSession(t *testing.T) {
+	harness, _, _ := setupSessionRouter(t)
+	for _, path := range []string{"/v1/me/deactivate", "/v1/me/reactivate"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Origin", "http://localhost:8080")
+		w := httptest.NewRecorder()
+		harness.router.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected unauthenticated %s 401, got %d body=%s", path, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestCurrentSessionDeactivatedUserCannotReuseCookie(t *testing.T) {
+	// The deactivate handler revokes every session and clears the cookie, but
+	// even if the cookie were replayed before that completes, TouchSession
+	// rejects sessions for non-active users. This regression test pins that
+	// behavior so a future refactor cannot silently relax the gate.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if _, err := store.SetUserStatus(context.Background(), user.ID, "deactivated", time.Now().UTC()); err != nil {
+		t.Fatalf("force deactivated: %v", err)
+	}
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meW := httptest.NewRecorder()
+	harness.router.ServeHTTP(meW, meReq)
+	if meW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected deactivated cookie 401, got %d body=%s", meW.Code, meW.Body.String())
+	}
+}

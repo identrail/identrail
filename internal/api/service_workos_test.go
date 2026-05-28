@@ -317,3 +317,75 @@ func TestUpdateWorkOSUserEmailRejectsConflictingEmail(t *testing.T) {
 		t.Fatalf("expected identity conflict, got %v", err)
 	}
 }
+
+func TestUpsertWorkOSUserLoginIntentRefusesReturningDeactivatedIdentity(t *testing.T) {
+	// A user with an existing WorkOS identity who has been deactivated must
+	// not be auto-reactivated on a subsequent login-intent sign-in. The
+	// frontend uses ErrAuthReactivationRequired to surface the dedicated
+	// reactivation affordance instead.
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "returning@example.com",
+		DisplayName:  "Returning User",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_returning",
+		Email:               "returning@example.com",
+		LastAuthenticatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+
+	_, err = svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:            "user_workos_returning",
+		Email:         "returning@example.com",
+		EmailVerified: true,
+	}, "login")
+	if !errors.Is(err, ErrAuthReactivationRequired) {
+		t.Fatalf("expected reactivation required, got %v", err)
+	}
+	unchanged, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	if unchanged.Status != "deactivated" {
+		t.Fatalf("login intent must not auto-reactivate, got %q", unchanged.Status)
+	}
+}
+
+func TestUpsertManualUserSessionContextRefusesDeactivatedAccount(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "manual@example.com",
+		DisplayName:  "Manual",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	_, err = svc.UpsertManualUserSessionContext(ctx, ManualLoginInput{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		Email:       "manual@example.com",
+	})
+	if !errors.Is(err, ErrAuthReactivationRequired) {
+		t.Fatalf("expected reactivation required, got %v", err)
+	}
+	unchanged, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	if unchanged.Status != "deactivated" {
+		t.Fatalf("manual login must not auto-reactivate, got %q", unchanged.Status)
+	}
+}

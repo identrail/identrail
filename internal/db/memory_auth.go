@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -65,6 +66,34 @@ func (m *MemoryStore) GetUserByPrimaryEmail(ctx context.Context, email string) (
 		}
 	}
 	return User{}, ErrNotFound
+}
+
+// SetUserStatus transitions one account between lifecycle states. Calling with
+// the user's current status is a no-op write and still returns the row, so the
+// API layer can treat double-clicks as idempotent successes.
+func (m *MemoryStore) SetUserStatus(ctx context.Context, userID string, status string, now time.Time) (User, error) {
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if _, ok := validUserStatuses[normalizedStatus]; !ok {
+		return User{}, fmt.Errorf("invalid user status")
+	}
+	id := strings.TrimSpace(userID)
+	m.mu.Lock()
+	user, exists := m.users[id]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	user.Status = normalizedStatus
+	user.UpdatedAt = now.UTC()
+	m.users[id] = user
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.status.update",
+		ResourceType: "user",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return user, nil
 }
 
 // UpsertUserIdentity persists one provider identity mapping.

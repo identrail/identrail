@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -110,6 +111,37 @@ func (p *PostgresStore) GetUserByPrimaryEmail(ctx context.Context, email string)
 		 WHERE primary_email = NULLIF($1, '')::citext`,
 		strings.ToLower(strings.TrimSpace(email)),
 	))
+}
+
+// SetUserStatus transitions one account between lifecycle states. Setting the
+// status the row already has is allowed so the API layer can treat repeated
+// requests as idempotent successes.
+func (p *PostgresStore) SetUserStatus(ctx context.Context, userID string, status string, now time.Time) (User, error) {
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if _, ok := validUserStatuses[normalizedStatus]; !ok {
+		return User{}, fmt.Errorf("invalid user status")
+	}
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE users
+		 SET status = $2, updated_at = $3::timestamptz
+		 WHERE id = NULLIF($1, '')::uuid
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
+		strings.TrimSpace(userID),
+		normalizedStatus,
+		now.UTC(),
+	)
+	saved, err := scanUser(row)
+	if err != nil {
+		return User{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.status.update",
+		ResourceType: "user",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
 }
 
 // UpsertUserIdentity persists one provider identity mapping.

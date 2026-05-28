@@ -168,6 +168,14 @@ x-identrail-route-authorizations:
     action: me.write
     resource_type: session
   - method: POST
+    path: /v1/me/deactivate
+    action: me.write
+    resource_type: user
+  - method: POST
+    path: /v1/me/reactivate
+    action: me.write
+    resource_type: user
+  - method: POST
     path: /v1/onboarding/start
     action: onboarding.write
     resource_type: onboarding_state
@@ -1616,6 +1624,87 @@ paths:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/me/deactivate:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Authorization]
+      summary: Suspend the current user account
+      description: |
+        Transitions the authenticated user from `active` to `deactivated`,
+        revokes every active session, and clears the session cookie. Idempotent
+        when the account is already deactivated. Returns 409 if the account is
+        pending deletion (use the account deletion endpoints instead).
+      operationId: deactivateCurrentUser
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Account suspended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [deactivated]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Account is pending deletion
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                    enum: [account_pending_deletion]
+  /v1/me/reactivate:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Authorization]
+      summary: Reactivate a deactivated current user account
+      description: |
+        Transitions the authenticated user from `deactivated` back to `active`.
+        Idempotent when the account is already active. Returns 409 if the
+        account is pending deletion. Requires an existing session; the typical
+        flow for a signed-out deactivated user is to re-authenticate through
+        the signup intent path which auto-reactivates.
+      operationId: reactivateCurrentUser
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Account reactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [active]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Account is pending deletion
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                    enum: [account_pending_deletion]
   /v1/invitations:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

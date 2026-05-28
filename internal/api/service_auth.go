@@ -119,6 +119,10 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		} else if emailErr != nil && !errors.Is(emailErr, db.ErrNotFound) {
 			return WorkOSLoginResult{}, emailErr
 		}
+		if workOSUserCanBeReactivated(user) && intent != workOSAuthIntentSignup {
+			auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
+			return WorkOSLoginResult{}, ErrAuthReactivationRequired
+		}
 		user.PrimaryEmail = email
 		user.DisplayName = displayName
 		user.AvatarURL = strings.TrimSpace(profile.ProfilePictureURL)
@@ -545,6 +549,10 @@ func (s *Service) UpsertManualUserSessionContext(ctx context.Context, input Manu
 			UpdatedAt:    now,
 		}
 	} else {
+		if workOSUserCanBeReactivated(user) {
+			auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
+			return ManualLoginResult{}, ErrAuthReactivationRequired
+		}
 		user.DisplayName = displayName
 		user.Status = "active"
 		user.UpdatedAt = now
