@@ -704,6 +704,77 @@ func TestCurrentSessionDeactivateRevokesSessionsBeforeStatusFlip(t *testing.T) {
 	}
 }
 
+func TestCurrentSessionDeactivateRevokesSessionsCreatedDuringStatusFlipGap(t *testing.T) {
+	// Regression: even with the revoke-then-flip ordering, a concurrent
+	// sign-in (different tab/device) could land a fresh session row in the
+	// window between the first revoke and the status flip. The first revoke
+	// already ran, so the new row survives; TouchSession blocks it while
+	// status is deactivated, but a later signup-intent reactivation would
+	// flip status back to active and resurrect it.
+	//
+	// The handler closes the window with a second revoke after the status
+	// flip. This test races a concurrent CreateSession against the deactivate
+	// handler. After the handler returns we simulate the reactivation by
+	// flipping the row back to active and assert the racing cookie is
+	// nonetheless refused by TouchSession.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+
+	racingCookie := make(chan string, 1)
+	go func() {
+		// Spin briefly to maximise the chance of landing inside the
+		// revoke/status-flip gap. The handler itself takes a handful of
+		// microseconds; bursting CreateSession in parallel is sufficient on
+		// the in-memory store to occasionally land between the two calls.
+		// Even if we miss the gap, the second revoke still catches us.
+		var inserted string
+		for i := 0; i < 50; i++ {
+			cookie, _, err := harness.manager.CreateSession(context.Background(), db.Session{
+				UserID:             user.ID,
+				CurrentOrgID:       "tenant-a",
+				CurrentWorkspaceID: "workspace-a",
+				AuthMethod:         "manual",
+			})
+			if err == nil {
+				inserted = cookie
+				break
+			}
+		}
+		racingCookie <- inserted
+	}()
+
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deactivateRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected deactivate 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	racing := <-racingCookie
+	if racing == "" {
+		t.Skip("racing CreateSession could not insert before status flipped to deactivated; skipping")
+	}
+
+	// Simulate a signup-intent reactivation: flip the row back to active.
+	if _, err := store.SetUserStatus(context.Background(), user.ID, "active", time.Now().UTC()); err != nil {
+		t.Fatalf("simulate reactivation: %v", err)
+	}
+
+	racingReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	racingReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: racing})
+	racingW := httptest.NewRecorder()
+	harness.router.ServeHTTP(racingW, racingReq)
+	if racingW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected racing cookie 401 after simulated reactivation, got %d body=%s", racingW.Code, racingW.Body.String())
+	}
+}
+
 func TestCurrentSessionReactivateIsIdempotentForActiveAccount(t *testing.T) {
 	// Once a user is deactivated, TouchSession rejects every browser cookie
 	// (memory_auth.go:260). The reachable contract for POST /v1/me/reactivate
