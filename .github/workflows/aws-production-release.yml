@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       api_container_image: ${{ steps.release.outputs.api_container_image }}
+      worker_container_image: ${{ steps.release.outputs.worker_container_image }}
       api_base_url: ${{ steps.release.outputs.api_base_url }}
       migrations_dir: ${{ steps.release.outputs.migrations_dir }}
     steps:
@@ -153,6 +154,7 @@ jobs:
       operation: apply
       confirm_apply: apply-api.identrail.com
       api_container_image: ${{ needs.resolve.outputs.api_container_image }}
+      worker_container_image: ${{ needs.resolve.outputs.worker_container_image }}
       api_vpc_id: ''
       api_public_subnet_ids_json: ''
       api_task_subnet_ids_json: ''
