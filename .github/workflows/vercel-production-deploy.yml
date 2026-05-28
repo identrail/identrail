@@ -61,27 +61,58 @@ jobs:
             exit 0
           fi
 
-          review_decision="$(jq -r '.reviewDecision // empty' <<< "${pr_json}")"
+          # Review state must come from GraphQL: reviewDecision is not on the
+          # REST pull request payload, and latestReviews returns one record per
+          # reviewer (latest state) so a "changes requested" later upgraded to
+          # "approved" on the same commit no longer permanently blocks the
+          # deploy. This single query also avoids the multi-page jq breakage
+          # that --paginate without --slurp causes when a PR has >100 reviews.
+          review_state_json="$(gh api graphql \
+            -F owner="${{ github.repository_owner }}" \
+            -F name="${{ github.event.repository.name }}" \
+            -F number="${{ github.event.pull_request.number }}" \
+            -f query='query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  reviewDecision
+                  latestReviews(first: 100) {
+                    nodes {
+                      state
+                      authorAssociation
+                      commit { oid }
+                    }
+                  }
+                }
+              }
+            }')"
+
+          review_decision="$(jq -r '.data.repository.pullRequest.reviewDecision // empty' <<< "${review_state_json}")"
           if [ "${review_decision}" = "REVIEW_REQUIRED" ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
             echo "Pull request is review required; skipping production deploy."
             exit 0
           fi
+          if [ "${review_decision}" = "CHANGES_REQUESTED" ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request has unresolved change requests; skipping production deploy."
+            exit 0
+          fi
 
-          reviews_json="$(gh api "/repos/${{ github.repository_owner }}/${{ github.event.repository.name }}/pulls/${{ github.event.pull_request.number }}/reviews?per_page=100" \
-            --paginate \
-            --jq '.')"
-          approved_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "APPROVED" and .commit_id == $head_sha and (.author_association == "MEMBER" or .author_association == "OWNER" or .author_association == "COLLABORATOR")) ] | length' <<< "${reviews_json}")"
+          latest_reviews="$(jq -c '.data.repository.pullRequest.latestReviews.nodes' <<< "${review_state_json}")"
+
+          approved_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "APPROVED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR")) ] | length' <<< "${latest_reviews}")"
           if [ "${approved_on_head}" -lt 1 ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
             echo "No approved review from a member/owner/collaborator was found for the merged commit ${head_sha}; skipping production deploy."
             exit 0
           fi
 
-          requested_changes_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "CHANGES_REQUESTED" and .commit_id == $head_sha) ] | length' <<< "${reviews_json}")"
+          # Apply the same trusted-author filter to CHANGES_REQUESTED so a
+          # non-trusted reviewer cannot permanently block production deploys.
+          requested_changes_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "CHANGES_REQUESTED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR")) ] | length' <<< "${latest_reviews}")"
           if [ "${requested_changes_on_head}" -gt 0 ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "There is a request for changes on the merged commit ${head_sha}; skipping production deploy."
+            echo "A trusted reviewer has an unresolved change request on the merged commit ${head_sha}; skipping production deploy."
             exit 0
           fi
 
