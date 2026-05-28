@@ -218,10 +218,12 @@ const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
 const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolved'] as const;
+const ENVIRONMENT_QUERY_PARAM = 'environment';
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
+const ENVIRONMENT_SELECTOR_LIMIT = 50;
 const AI_RISKS_REPO_FINDINGS_PAGE_LIMIT = 100;
 const EXECUTIVE_REPORT_SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
@@ -297,7 +299,7 @@ function productDomainRoute(
     eyebrow,
     description,
     phase: options.phase ?? 'Route foundation',
-    status: options.status ?? 'Shell ready',
+    status: options.status ?? 'Route live',
     metrics:
       options.metrics ?? [
         { label: 'Route', value: 'Live', detail: 'Scoped workspace entry point is registered.', tone: 'success' },
@@ -521,7 +523,7 @@ async function listOverviewProjects(
       break;
     }
     if (seenCursors.has(nextCursor)) {
-      throw new Error('Project pagination returned a repeated cursor');
+      throw new Error('Environment pagination returned a repeated cursor');
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
@@ -926,8 +928,37 @@ function normalizeProjectToken(value: string): string {
     .slice(0, 64);
 }
 
-function deriveProjectToken(value: string, fallback = 'project'): string {
-  return normalizeProjectToken(value) || fallback;
+function tokenWithNumericSuffix(base: string, suffix: number): string {
+  const suffixToken = `-${suffix}`;
+  return `${base.slice(0, Math.max(1, 64 - suffixToken.length))}${suffixToken}`;
+}
+
+function stableEnvironmentTokenHash(value: string): string {
+  let hash = 2166136261;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    hash ^= codePoint;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function uniqueEnvironmentToken(name: string, existingProjects: ProjectRecord[]): string {
+  const existingIDs = new Set(existingProjects.map((project) => normalizeValue(project.project_id)).filter(Boolean));
+  const base = normalizeProjectToken(name) || `environment-${stableEnvironmentTokenHash(name)}`;
+
+  if (base && !existingIDs.has(base)) {
+    return base;
+  }
+
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = tokenWithNumericSuffix(base, suffix);
+    if (!existingIDs.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  return tokenWithNumericSuffix(base, Date.now());
 }
 
 function formatTokenLabel(value: string): string {
@@ -941,6 +972,59 @@ function formatTokenLabel(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function projectEnvironmentLabel(project: ProjectRecord): string {
+  const name = normalizeValue(project.name);
+  if (name) {
+    return name;
+  }
+  const slug = normalizeValue(project.slug);
+  if (slug) {
+    return formatTokenLabel(slug);
+  }
+  return environmentFallbackLabel(project.project_id);
+}
+
+function isProjectArchived(project: ProjectRecord): boolean {
+  return Boolean(normalizeValue(project.archived_at ?? ''));
+}
+
+function isTransientProjectLookupError(error: unknown): boolean {
+  return !(error instanceof ApiError) || error.status !== 404;
+}
+
+function environmentFallbackLabel(projectID: string | undefined): string {
+  const normalized = normalizeValue(projectID ?? '');
+  if (!normalized || /^project(?:[-_]\d+)?$/i.test(normalized) || /^legacy[-_]project$/i.test(normalized)) {
+    return 'Default environment';
+  }
+  return formatTokenLabel(normalized);
+}
+
+function environmentIDFromSearch(search: string): string {
+  return normalizeValue(new URLSearchParams(search).get(ENVIRONMENT_QUERY_PARAM));
+}
+
+function environmentSearch(search: string, environmentID: string): string {
+  const params = new URLSearchParams(search);
+  const normalized = normalizeValue(environmentID);
+  if (normalized) {
+    params.set(ENVIRONMENT_QUERY_PARAM, normalized);
+  } else {
+    params.delete(ENVIRONMENT_QUERY_PARAM);
+  }
+  const next = params.toString();
+  return next ? `?${next}` : '';
+}
+
+function appendEnvironmentQuery(path: string, environmentID: string | undefined): string {
+  const normalized = normalizeValue(environmentID ?? '');
+  if (!normalized) {
+    return path;
+  }
+  const [pathname, rawSearch = ''] = path.split('?');
+  return `${pathname}${environmentSearch(rawSearch, normalized)}`;
 }
 
 function canonicalGitHubRepositoryDisplay(value: string): string {
@@ -2091,6 +2175,144 @@ function ProductDomainFlyout({
   );
 }
 
+type EnvironmentScopeState = {
+  items: ProjectRecord[];
+  selectedID: string;
+  loading: boolean;
+  error: string;
+};
+
+function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentID: string): EnvironmentScopeState {
+  const [items, setItems] = useState<ProjectRecord[]>([]);
+  const [loading, setLoading] = useState(Boolean(scope));
+  const [error, setError] = useState('');
+  const [rejectedRequestedID, setRejectedRequestedID] = useState('');
+
+  useEffect(() => {
+    if (!scope) {
+      setItems([]);
+      setLoading(false);
+      setError('');
+      setRejectedRequestedID('');
+      return undefined;
+    }
+
+    let active = true;
+    setLoading(true);
+    setError('');
+    setRejectedRequestedID('');
+
+    const loadEnvironments = async () => {
+      try {
+        const requestedID = normalizeValue(requestedEnvironmentID);
+        const response = await apiClient.listProjects(
+          scope.workspaceID,
+          {
+            limit: ENVIRONMENT_SELECTOR_LIMIT,
+            sort_by: 'updated_at',
+            sort_order: 'desc',
+            include_archived: false
+          },
+          buildProductAuthContext(scope)
+        );
+        if (!active) {
+          return;
+        }
+        let nextItems = response.items ?? [];
+        let rejectedID = '';
+        if (requestedID && !nextItems.some((item) => item.project_id === requestedID)) {
+          try {
+            const requestedResponse = await apiClient.getProject(
+              scope.workspaceID,
+              requestedID,
+              buildProductAuthContext(scope)
+            );
+            if (!active) {
+              return;
+            }
+            if (isProjectArchived(requestedResponse.project)) {
+              rejectedID = requestedID;
+            } else {
+              nextItems = [requestedResponse.project, ...nextItems];
+            }
+          } catch (requestError) {
+            if (!active) {
+              return;
+            }
+            if (isTransientProjectLookupError(requestError)) {
+              const requestedErrorMessage = normalizeValue(formatAPIError(requestError, ''));
+              const fallbackMessage = `Unable to verify selected environment ${requestedID}.`;
+              setError(requestedErrorMessage ? `${fallbackMessage} ${requestedErrorMessage}` : fallbackMessage);
+            } else {
+              rejectedID = requestedID;
+            }
+          }
+        }
+        setRejectedRequestedID(rejectedID);
+        setItems(nextItems);
+      } catch (loadError) {
+        if (!active) {
+          return;
+        }
+        setItems([]);
+        setRejectedRequestedID('');
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load environments.');
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadEnvironments();
+
+    return () => {
+      active = false;
+    };
+  }, [requestedEnvironmentID, scope?.tenantID, scope?.workspaceID]);
+
+  const requestedID = normalizeValue(requestedEnvironmentID);
+  const selectedID = requestedID && rejectedRequestedID !== requestedID ? requestedID : items[0]?.project_id || '';
+
+  return { items, selectedID, loading, error };
+}
+
+function ProductEnvironmentSelector({
+  state,
+  onChange
+}: {
+  state: EnvironmentScopeState;
+  onChange: (environmentID: string) => void;
+}) {
+  const hasEnvironments = state.items.length > 0;
+  const selectedID = normalizeValue(state.selectedID);
+  const selectedIsLoaded = state.items.some((item) => item.project_id === selectedID);
+
+  return (
+    <label className="idt-environment-selector">
+      <span>Environment</span>
+      <select
+        aria-label="Environment"
+        value={selectedID}
+        disabled={state.loading || (!hasEnvironments && !selectedID)}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {selectedID && !selectedIsLoaded ? <option value={selectedID}>{environmentFallbackLabel(selectedID)}</option> : null}
+        {hasEnvironments ? (
+          state.items.map((item) => (
+            <option key={item.project_id} value={item.project_id}>
+              {projectEnvironmentLabel(item)}
+            </option>
+          ))
+        ) : (
+          <option value="">Default environment</option>
+        )}
+      </select>
+      <small>{state.loading ? 'Loading...' : state.error ? state.error : selectedID ? 'Active scope' : 'Default environment'}</small>
+    </label>
+  );
+}
+
 function ProductRouteReadinessList({ route }: { route: ProductDomainRoute }) {
   return (
     <section className="idt-domain-status-panel idt-domain-readiness-list" aria-label={`${route.title} route readiness`}>
@@ -2124,7 +2346,11 @@ export function ProductDomainRoutePage({
   routeID?: ProductDomainRouteID;
 }) {
   const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
+  const navigate = useNavigate();
   const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
+  const environmentScope = useEnvironmentScope(scope, requestedEnvironmentID);
 
   if (!scope) {
     return (
@@ -2138,9 +2364,23 @@ export function ProductDomainRoutePage({
 
   const config = PRODUCT_DOMAIN_CONFIGS[domain];
   const route = findDomainRoute(domain, routeID);
-  const domainBasePath = buildScopedPath(scope, config.routePrefix);
-  const connectPath = domainRoutePath(scope, domain, findDomainRoute(domain, config.connectRouteID));
+  const selectedEnvironmentID = environmentScope.selectedID;
+  const domainBasePath = appendEnvironmentQuery(buildScopedPath(scope, config.routePrefix), selectedEnvironmentID);
+  const connectPath = appendEnvironmentQuery(
+    domainRoutePath(scope, domain, findDomainRoute(domain, config.connectRouteID)),
+    selectedEnvironmentID
+  );
+  const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, `${config.routePrefix}/findings`), selectedEnvironmentID);
   const sectionPath = domainRoutePath(scope, domain, route);
+  const handleEnvironmentChange = (environmentID: string) => {
+    navigate(
+      {
+        pathname: location.pathname,
+        search: environmentSearch(location.search, environmentID)
+      },
+      { replace: false }
+    );
+  };
 
   return (
     <DomainPageShell
@@ -2148,7 +2388,7 @@ export function ProductDomainRoutePage({
       eyebrow={route.eyebrow}
       title={route.title}
       description={route.description}
-      scope={`${formatScopeDisplay(scope.tenantID)} / ${formatScopeDisplay(scope.workspaceID)}`}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={handleEnvironmentChange} />}
       status={route.status}
       statusTone="success"
       primaryAction={
@@ -2156,7 +2396,7 @@ export function ProductDomainRoutePage({
           ? { label: `${config.navLabel} home`, to: domainBasePath, variant: 'secondary' }
           : { label: `Connect ${config.navLabel}`, to: connectPath, variant: 'primary' }
       }
-      secondaryActions={route.id === 'findings' ? [] : [{ label: `${config.navLabel} findings`, to: buildScopedPath(scope, `${config.routePrefix}/findings`) }]}
+      secondaryActions={route.id === 'findings' ? [] : [{ label: `${config.navLabel} findings`, to: findingsPath }]}
       aside={
         <DomainDetailPanel title="Route contract" eyebrow={config.navLabel}>
           <dl className="idt-domain-route-facts">
@@ -2200,7 +2440,9 @@ type ConnectorConnectPageProps = {
 
 function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConnectPageProps) {
   const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
   const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
   const shouldLoadBackendFeatures =
     provider === 'github' ? FEATURE_CONNECTOR_GITHUB_V2 : provider === 'kubernetes' ? FEATURE_CONNECTOR_K8S : false;
   const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures({
@@ -2234,10 +2476,35 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
 
     const resolveConnectorSetup = async () => {
       try {
+        const requestedProjectID = normalizeValue(requestedEnvironmentID);
+        if (requestedProjectID) {
+          try {
+            const requestedResponse = await apiClient.getProject(
+              scope.workspaceID,
+              requestedProjectID,
+              buildProductAuthContext(scope)
+            );
+            if (!active) {
+              return;
+            }
+            if (!isProjectArchived(requestedResponse.project)) {
+              setTargetPath(appendSourceQuery(buildProjectPath(scope, requestedProjectID), provider));
+              return;
+            }
+          } catch (requestError) {
+            if (!active) {
+              return;
+            }
+            if (isTransientProjectLookupError(requestError)) {
+              setError(formatAPIError(requestError, `Unable to resolve ${providerLabel} connector setup.`));
+              return;
+            }
+          }
+        }
         const response = await apiClient.listProjects(
           scope.workspaceID,
           {
-            limit: 1,
+            limit: ENVIRONMENT_SELECTOR_LIMIT,
             sort_by: 'updated_at',
             sort_order: 'desc',
             include_archived: false
@@ -2273,6 +2540,7 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
     providerAvailability.unavailableMessage,
     providerAvailability.visible,
     providerLabel,
+    requestedEnvironmentID,
     scope?.tenantID,
     scope?.workspaceID
   ]);
@@ -2350,7 +2618,7 @@ export function ProductReportsPage() {
           <p>Designed for executive posture and remediation outcome summaries.</p>
         </article>
       </div>
-      <DomainStatusPanel eyebrow="Reporting foundation" title="Outcome views are staged" status="Shell ready" tone="success">
+      <DomainStatusPanel eyebrow="Reporting foundation" title="Outcome views are staged" status="Staged" tone="success">
         <p>
           This route keeps the IA complete while the deeper executive outcome, domain coverage, and remediation reporting
           experiences arrive in their planned sequence.
@@ -4321,7 +4589,7 @@ export function ProductWorkspacesPage() {
     return (
       <AppRouteLoadingState
         title="Preparing workspace access"
-        body="Keeping the workspace shell ready while member access details refresh."
+        body="Refreshing member access details for this workspace."
       />
     );
   }
@@ -4637,11 +4905,7 @@ export function ProductProjectsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [draftName, setDraftName] = useState('');
-  const [draftProjectID, setDraftProjectID] = useState('');
-  const [draftSlug, setDraftSlug] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
-  const [projectIDEdited, setProjectIDEdited] = useState(false);
-  const [slugEdited, setSlugEdited] = useState(false);
 
   useEffect(() => {
     if (!scope) {
@@ -4676,7 +4940,7 @@ export function ProductProjectsPage() {
         if (!active) {
           return;
         }
-        setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace projects.');
+        setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace environments.');
       } finally {
         if (active) {
           setLoading(false);
@@ -4704,41 +4968,20 @@ export function ProductProjectsPage() {
   if (loading) {
     return (
       <AppRouteLoadingState
-        title="Preparing project registry"
-        body="Keeping the workspace shell ready while project boundaries refresh."
+        title="Preparing environments"
+        body="Keeping workspace scope ready while environment boundaries refresh."
       />
     );
   }
-
-  const handleNameChange = (value: string) => {
-    setDraftName(value);
-    const token = deriveProjectToken(value);
-    if (!projectIDEdited) {
-      setDraftProjectID(token);
-    }
-    if (!slugEdited) {
-      setDraftSlug(token);
-    }
-  };
 
   const handleCreateProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const name = normalizeValue(draftName);
-    const projectID = normalizeValue(draftProjectID) || deriveProjectToken(name);
-    const slug = normalizeValue(draftSlug) || deriveProjectToken(name);
     const description = normalizeValue(draftDescription);
 
     if (!name) {
-      setError('Project name is required.');
-      return;
-    }
-    if (!projectID) {
-      setError('Project ID is required.');
-      return;
-    }
-    if (!slug) {
-      setError('Project slug is required.');
+      setError('Environment name is required.');
       return;
     }
 
@@ -4747,6 +4990,13 @@ export function ProductProjectsPage() {
 
     try {
       const auth = buildProductAuthContext(scope);
+      const knownProjects = await listOverviewProjects(scope.workspaceID, { include_archived: true }, auth);
+      const projectID = uniqueEnvironmentToken(name, knownProjects);
+      const slug = projectID;
+      if (!projectID) {
+        setError('Enter a readable environment name.');
+        return;
+      }
       const response = await apiClient.upsertProject(
         scope.workspaceID,
         {
@@ -4762,14 +5012,10 @@ export function ProductProjectsPage() {
         return [response.project, ...remaining];
       });
       setDraftName('');
-      setDraftProjectID('');
-      setDraftSlug('');
       setDraftDescription('');
-      setProjectIDEdited(false);
-      setSlugEdited(false);
       navigate(appendSourceQuery(buildProjectPath(scope, response.project.project_id), requestedSource));
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to save project.');
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save environment.');
     } finally {
       setSaving(false);
     }
@@ -4779,9 +5025,9 @@ export function ProductProjectsPage() {
     <section className="idt-app-panel idt-projects-page">
       <div className="idt-projects-header">
         <div>
-          <p className="idt-app-kicker">Workspace registry</p>
-          <h2>Projects</h2>
-          <p>Create project boundaries for repository, workflow, and cloud identity signals.</p>
+          <p className="idt-app-kicker">Workspace scope</p>
+          <h2>Environments</h2>
+          <p>Choose the operating boundary for repository, workflow, cloud, and cluster identity signals.</p>
         </div>
         <div className="idt-inline-actions">
           <Link className="idt-btn idt-btn-ghost" to={buildScopedPath(scope)}>
@@ -4795,13 +5041,13 @@ export function ProductProjectsPage() {
           <div className="idt-overview-metric-top">
             <span>{projects.length}</span>
           </div>
-          <p>Total projects</p>
+          <p>Total environments</p>
         </article>
         <article>
           <div className="idt-overview-metric-top">
             <span>{activeProjectCount}</span>
           </div>
-          <p>Active projects</p>
+          <p>Active environments</p>
         </article>
         <article>
           <div className="idt-overview-metric-top">
@@ -4817,19 +5063,19 @@ export function ProductProjectsPage() {
         <article className="idt-projects-list">
           <div className="idt-projects-section-header">
             <div>
-              <h3>Project registry</h3>
+              <h3>Environment list</h3>
               <p>
                 {archivedProjectCount > 0
                   ? `${activeProjectCount} active, ${archivedProjectCount} archived.`
-                  : 'Open a project to manage source connections and scans.'}
+                  : 'Open an environment to manage source connections and scans.'}
               </p>
             </div>
           </div>
 
           {projects.length === 0 ? (
             <AppShellEmptyState
-              title="No projects yet"
-              body="Create the first project boundary for this workspace."
+              title="No environments yet"
+              body="Create the first workspace boundary for this source."
             />
           ) : (
             <div className="idt-project-card-list">
@@ -4842,7 +5088,7 @@ export function ProductProjectsPage() {
                         <div className="idt-project-card-title">
                           <h4>{project.name}</h4>
                         </div>
-                        <p>{project.description || 'Scope source connections, scans, and findings for this boundary.'}</p>
+                        <p>{project.description || 'Scope source connections, scans, and findings for this environment.'}</p>
                       </div>
                       <span
                         className={`idt-source-status-pill ${archived ? 'is-warning' : 'is-success'}`}
@@ -4852,10 +5098,10 @@ export function ProductProjectsPage() {
                     </div>
 
                     <details className="idt-project-card-details">
-                      <summary>Project details</summary>
+                      <summary>Environment details</summary>
                       <dl className="idt-project-card-meta">
                         <div>
-                          <dt>Project ID</dt>
+                          <dt>Internal key</dt>
                           <dd>{project.project_id}</dd>
                         </div>
                         <div>
@@ -4874,7 +5120,7 @@ export function ProductProjectsPage() {
                         className="idt-btn idt-btn-primary"
                         to={appendSourceQuery(buildProjectPath(scope, project.project_id), requestedSource)}
                       >
-                        Open project
+                        Open environment
                       </Link>
                     </div>
                   </article>
@@ -4887,47 +5133,21 @@ export function ProductProjectsPage() {
         <article className="idt-project-composer">
           <div className="idt-projects-section-header">
             <div>
-              <h3>New project</h3>
-              <p>Project ID and slug auto-fill from the name and can be adjusted before creation.</p>
+              <h3>New environment</h3>
+              <p>Name the boundary once. Identrail keeps the internal key behind the scenes.</p>
             </div>
           </div>
 
           <form className="idt-app-form" onSubmit={handleCreateProject}>
             <label>
-              Project name
+              Environment name
               <input
                 value={draftName}
-                onChange={(event) => handleNameChange(event.target.value)}
+                onChange={(event) => setDraftName(event.target.value)}
                 placeholder="Production platform"
                 required
               />
             </label>
-            <div className="idt-project-inline-fields">
-              <label>
-                Project ID
-                <input
-                  value={draftProjectID}
-                  onChange={(event) => {
-                    setProjectIDEdited(true);
-                    setDraftProjectID(normalizeProjectToken(event.target.value));
-                  }}
-                  placeholder="production-platform"
-                  required
-                />
-              </label>
-              <label>
-                Slug
-                <input
-                  value={draftSlug}
-                  onChange={(event) => {
-                    setSlugEdited(true);
-                    setDraftSlug(normalizeProjectToken(event.target.value));
-                  }}
-                  placeholder="production-platform"
-                  required
-                />
-              </label>
-            </div>
             <label>
               Description
               <textarea
@@ -4937,7 +5157,7 @@ export function ProductProjectsPage() {
               />
             </label>
             <button className="idt-btn idt-btn-primary" type="submit" disabled={saving}>
-              {saving ? 'Creating project...' : 'Create project'}
+              {saving ? 'Creating environment...' : 'Create environment'}
             </button>
           </form>
         </article>
@@ -5428,14 +5648,14 @@ export function ProductProjectDetailPage() {
   }, [githubHasActiveRepoScan, scope?.tenantID, scope?.workspaceID]);
 
   if (!scope || !projectID) {
-    return <AppShellLoading message="Resolving project scope" />;
+    return <AppShellLoading message="Resolving environment scope" />;
   }
 
   if (loading) {
     return (
       <AppRouteLoadingState
         title="Preparing source connections"
-        body="Keeping the project workspace visible while connector status refreshes."
+        body="Keeping the environment visible while connector status refreshes."
       />
     );
   }
@@ -5445,7 +5665,7 @@ export function ProductProjectDetailPage() {
   const selectedAvailability = sourceAvailability[selectedSource] ?? { visible: true, available: true };
   const selectedUnavailable = !selectedAvailability.available;
   const sourceScopeProfile = sourceScope ? SOURCE_PROFILES[sourceScope] : null;
-  const sourcePageTitle = sourceScopeProfile ? `Connect ${sourceScopeProfile.name}` : 'Connect project sources';
+  const sourcePageTitle = sourceScopeProfile ? `Connect ${sourceScopeProfile.name}` : 'Connect environment sources';
   const sourcePageBody =
     sourceScopeProfile?.summary ?? 'Install source connections to collect repository, workflow, and cloud identity signals.';
 
@@ -5954,10 +6174,10 @@ export function ProductProjectDetailPage() {
           </div>
         ) : (
           <div>
-            <p className="idt-app-kicker">Project sources</p>
+            <p className="idt-app-kicker">Environment sources</p>
             <h2>{sourcePageTitle}</h2>
             <p>
-              {sourcePageBody} Project <strong>{projectID}</strong>.
+              {sourcePageBody} Environment <strong>{environmentFallbackLabel(projectID)}</strong>.
             </p>
           </div>
         )}
@@ -8235,7 +8455,7 @@ export function ProductFindingsPage() {
     return (
       <AppRouteLoadingState
         title="Preparing GitHub findings"
-        body="Keeping the workspace shell ready while finding and trend data refresh."
+        body="Refreshing finding and trend data for this workspace."
       />
     );
   }

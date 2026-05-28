@@ -285,7 +285,7 @@ async function renderProjectDetail(
         <ProductProjectDetailPage />
         {options.withProjectSwitcher ? (
           <button type="button" onClick={() => navigate('/app/tenant-a/workspace-a/projects/project-2')}>
-            Open project 2
+            Open environment 2
           </button>
         ) : null}
       </>
@@ -612,15 +612,49 @@ describe('Domain-first app routes', () => {
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/findings');
   });
 
-  it('renders premium domain route shells with provider marks without an in-page subsection rail', async () => {
+  it('renders premium domain route shells with provider marks and environment scope', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production-platform',
+          name: 'Production Platform',
+          slug: 'production-platform',
+          description: 'Production identity boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging-platform',
+          name: 'Staging Platform',
+          slug: 'staging-platform',
+          description: 'Staging identity boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
     const { ProductDomainRoutePage } = await import('./productShell');
+    function LocationProbe() {
+      const location = useLocation();
+      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
+    }
 
     render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/agentic-risk/mcp-tools']}>
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/agentic-risk/mcp-tools?environment=staging-platform']}>
         <Routes>
           <Route
             path="/app/:tenantID/:workspaceID/github/agentic-risk/mcp-tools"
-            element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-mcp-tools" />}
+            element={
+              <>
+                <LocationProbe />
+                <ProductDomainRoutePage domain="github" routeID="agentic-risk-mcp-tools" />
+              </>
+            }
           />
         </Routes>
       </MemoryRouter>
@@ -629,10 +663,78 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /MCP tools/i })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'GitHub' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: /GitHub sections/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: 'Staging Platform' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('staging-platform');
+    expect(screen.getByRole('link', { name: /Connect GitHub/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github/connect?environment=staging-platform'
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'production-platform' }
+    });
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/app/tenant-a/workspace-a/github/agentic-risk/mcp-tools?environment=production-platform'
+    );
     expect(screen.getByText('Route contract')).toBeInTheDocument();
   });
 
-  it('preserves the requested domain source when creating the first project from connect', async () => {
+  it('keeps a requested environment selected when it is outside the first selector page', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: Array.from({ length: 50 }, (_, index) => ({
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: `recent-environment-${index + 1}`,
+        name: `Recent Environment ${index + 1}`,
+        slug: `recent-environment-${index + 1}`,
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }))
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'older-production',
+        name: 'Older Production',
+        slug: 'older-production',
+        description: 'Long-lived production boundary.',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-02T00:00:00Z'
+      }
+    });
+
+    const { ProductDomainRoutePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=older-production']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories"
+            element={<ProductDomainRoutePage domain="github" routeID="repositories" />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('older-production'));
+    expect(api.apiClient.getProject).toHaveBeenCalledWith(
+      'workspace-a',
+      'older-production',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(screen.getByRole('link', { name: /Connect GitHub/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github/connect?environment=older-production'
+    );
+    expect(screen.getByRole('link', { name: /GitHub findings/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github/findings?environment=older-production'
+    );
+  });
+
+  it('preserves the requested domain source when creating the first environment from connect', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
     const project = {
@@ -672,11 +774,11 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/projects?source=aws');
 
-    fireEvent.change(screen.getByLabelText(/Project name/i), { target: { value: 'Production Platform' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create project/i }));
+    fireEvent.change(screen.getByLabelText(/Environment name/i), { target: { value: 'Production Platform' } });
+    fireEvent.click(screen.getByRole('button', { name: /Create environment/i }));
 
     await waitFor(() =>
       expect(screen.getByTestId('location')).toHaveTextContent(
@@ -688,6 +790,312 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ project_id: 'production-platform' }),
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
+  });
+
+  it('routes connect actions to the selected environment even when it is outside the first page', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: Array.from({ length: 50 }, (_, index) => ({
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: `recent-environment-${index + 1}`,
+        name: `Recent Environment ${index + 1}`,
+        slug: `recent-environment-${index + 1}`,
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }))
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'older-production',
+        name: 'Older Production',
+        slug: 'older-production',
+        description: 'Long-lived production boundary.',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-02T00:00:00Z'
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+    function LocationProbe() {
+      const location = useLocation();
+      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=older-production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('location')).toHaveTextContent(
+      '/app/tenant-a/workspace-a/projects/older-production?source=aws'
+    );
+    expect(listProjects).not.toHaveBeenCalled();
+  });
+
+  it('keeps requested environment selected when getProject check fails for a transient error', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: Array.from({ length: 50 }, (_, index) => ({
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: `recent-environment-${index + 1}`,
+        name: `Recent Environment ${index + 1}`,
+        slug: `recent-environment-${index + 1}`,
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }))
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
+
+    const { ProductDomainRoutePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=older-production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<ProductDomainRoutePage domain="github" routeID="repositories" />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    expect(screen.getByRole('link', { name: /Connect GitHub/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github/connect?environment=older-production'
+    );
+    expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
+  });
+
+  it('does not silently route AWS connect to fallback environment when getProject check fails transiently', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'active-production',
+          name: 'Active Production',
+          slug: 'active-production',
+          description: 'Active production boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=older-production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open AWS setup/i })).toBeInTheDocument();
+    expect(screen.getByText(/temporary outage/i)).toBeInTheDocument();
+    expect(listProjects).not.toHaveBeenCalled();
+  });
+
+  it('falls back to an active environment when the requested environment is archived', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'active-production',
+          name: 'Active Production',
+          slug: 'active-production',
+          description: 'Active production boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'archived-production',
+        name: 'Archived Production',
+        slug: 'archived-production',
+        description: 'Retired boundary.',
+        archived_at: '2026-01-03T00:00:00Z',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z'
+      }
+    });
+
+    const { ProductDomainRoutePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/identities?environment=archived-production']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/identities"
+            element={<ProductDomainRoutePage domain="aws" routeID="identities" />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('active-production'));
+    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/connect?environment=active-production'
+    );
+    expect(screen.getByRole('link', { name: /AWS findings/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/findings?environment=active-production'
+    );
+  });
+
+  it('creates a new unique environment key instead of overwriting an existing environment', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const firstPageProjects = Array.from({ length: 50 }, (_, index) => ({
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: `recent-environment-${index + 1}`,
+      name: `Recent Environment ${index + 1}`,
+      slug: `recent-environment-${index + 1}`,
+      description: '',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    }));
+    const existingProject = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production-platform',
+      name: 'Production Platform',
+      slug: 'production-platform',
+      description: 'Existing production boundary.',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    };
+    vi.spyOn(api.apiClient, 'listProjects').mockImplementation(async (_workspaceID, filters: any) => {
+      if (filters?.limit === 50) {
+        return { items: firstPageProjects };
+      }
+      if (filters?.cursor === 'older-page') {
+        return { items: [existingProject] };
+      }
+      return { items: firstPageProjects, next_cursor: 'older-page' };
+    });
+    vi.spyOn(api.apiClient, 'upsertProject').mockImplementation(async (_workspaceID, payload: any) => ({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: payload.project_id,
+        name: payload.name,
+        slug: payload.slug,
+        description: payload.description ?? '',
+        created_at: '2026-01-03T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z'
+      }
+    }));
+
+    const { ProductProjectsPage } = await import('./productShell');
+    function LocationProbe() {
+      const location = useLocation();
+      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects?source=aws']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/projects"
+            element={
+              <>
+                <LocationProbe />
+                <ProductProjectsPage />
+              </>
+            }
+          />
+          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Environment name/i), { target: { value: 'Production Platform' } });
+    fireEvent.click(screen.getByRole('button', { name: /Create environment/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/app/tenant-a/workspace-a/projects/production-platform-2?source=aws'
+      )
+    );
+    expect(api.apiClient.upsertProject).toHaveBeenCalledWith(
+      'workspace-a',
+      expect.objectContaining({ project_id: 'production-platform-2', slug: 'production-platform-2' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+  });
+
+  it('creates stable hidden keys for non-ASCII environment names', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'upsertProject').mockImplementation(async (_workspaceID, payload: any) => ({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: payload.project_id,
+        name: payload.name,
+        slug: payload.slug,
+        description: payload.description ?? '',
+        created_at: '2026-01-03T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z'
+      }
+    }));
+
+    const { ProductProjectsPage } = await import('./productShell');
+    function LocationProbe() {
+      const location = useLocation();
+      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects?source=github']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/projects"
+            element={
+              <>
+                <LocationProbe />
+                <ProductProjectsPage />
+              </>
+            }
+          />
+          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Environment name/i), { target: { value: '本番環境' } });
+    fireEvent.click(screen.getByRole('button', { name: /Create environment/i }));
+
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/projects/environment-'));
+    const payload = (api.apiClient.upsertProject as any).mock.calls[0][1];
+    expect(payload.project_id).toMatch(/^environment-[a-z0-9]+$/);
+    expect(payload.project_id).not.toBe('default-environment');
   });
 
   it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
@@ -1035,8 +1443,8 @@ describe('ProductProjectDetailPage', () => {
     fireEvent.click(firstQueueButton);
     expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Open project 2/i }));
-    expect(await screen.findByRole('heading', { name: /Connect project sources/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Open environment 2/i }));
+    expect(await screen.findByRole('heading', { name: /Connect environment sources/i })).toBeInTheDocument();
     const secondQueueButton = await screen.findByRole('button', { name: /Queue first scan/i });
     await waitFor(() => expect(secondQueueButton).not.toBeDisabled());
     fireEvent.click(secondQueueButton);
