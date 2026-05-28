@@ -9454,6 +9454,11 @@ export function ProductSettingsPage() {
           setSuspendError('');
           try {
             await apiClient.deactivateCurrentUser();
+            // Reset both auth caches the way the logout handler does so that
+            // back-navigating to a previously-validated /app/... route does
+            // not transiently render the protected shell against stale state
+            // before the silent /v1/me check returns 401.
+            resetProductAuthSessionCache({ unauthenticated: true });
             clearMeCache({ unauthenticated: true });
             navigate('/signin?reason=account_deactivated', { replace: true });
           } catch (err) {
