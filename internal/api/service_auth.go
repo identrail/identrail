@@ -557,9 +557,14 @@ func (s *Service) UpsertManualUserSessionContext(ctx context.Context, input Manu
 			UpdatedAt:    now,
 		}
 	} else {
+		// Manual mode is the loopback-only dev convenience path and has no
+		// signup-intent escape hatch like the WorkOS flow. Treating every
+		// manual sign-in as a reactivation keeps a deactivate test from
+		// permanently locking a developer out of their dev tenant. The
+		// production refusal lives in the WorkOS path, which is what the
+		// account-deactivate feature is actually gating.
 		if workOSUserCanBeReactivated(user) {
-			auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
-			return ManualLoginResult{}, ErrAuthReactivationRequired
+			user.DeletedAt = nil
 		}
 		user.DisplayName = displayName
 		user.Status = "active"

@@ -317,7 +317,6 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 }
 
 const (
-	authFailureReasonAccountDeactivated  = "account_deactivated"
 	authFailureReasonAccountDeleted      = "account_pending_deletion"
 	authFailureReasonAccountNotFound     = "account_not_found"
 	authFailureReasonCallbackError       = "callback_error"
@@ -938,10 +937,6 @@ func manualLoginHandler(logger *zap.Logger, svc *Service, manager sessionauth.Ma
 			}
 			if errors.Is(err, ErrAuthIdentityConflict) {
 				c.JSON(http.StatusConflict, gin.H{"error": "identity conflict"})
-				return
-			}
-			if errors.Is(err, ErrAuthReactivationRequired) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "account reactivation requires signup", "code": authFailureReasonAccountDeactivated})
 				return
 			}
 			if logger != nil {

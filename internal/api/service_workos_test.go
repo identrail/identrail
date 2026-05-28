@@ -415,31 +415,45 @@ func TestUpsertWorkOSUserSignupIntentClearsDeletedAtOnIdentityResolvedPath(t *te
 	}
 }
 
-func TestUpsertManualUserSessionContextRefusesDeactivatedAccount(t *testing.T) {
+func TestUpsertManualUserSessionContextAutoReactivatesDeactivatedAccount(t *testing.T) {
+	// Manual mode is the loopback-only dev convenience path and has no
+	// signup-intent escape hatch like the WorkOS flow. Treating manual
+	// sign-in as an implicit reactivation keeps a deactivate test from
+	// permanently locking a developer out of their dev tenant. The
+	// production refusal lives in the WorkOS path and is covered by
+	// TestUpsertWorkOSUserLoginIntentRefusesReturningDeactivatedIdentity.
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 	ctx := context.Background()
+	deletedAt := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	user, err := store.UpsertUser(ctx, db.User{
 		PrimaryEmail: "manual@example.com",
 		DisplayName:  "Manual",
 		Status:       "deactivated",
+		DeletedAt:    &deletedAt,
 	})
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	_, err = svc.UpsertManualUserSessionContext(ctx, ManualLoginInput{
+	result, err := svc.UpsertManualUserSessionContext(ctx, ManualLoginInput{
 		TenantID:    "tenant-a",
 		WorkspaceID: "workspace-a",
 		Email:       "manual@example.com",
 	})
-	if !errors.Is(err, ErrAuthReactivationRequired) {
-		t.Fatalf("expected reactivation required, got %v", err)
-	}
-	unchanged, err := store.GetUser(ctx, user.ID)
 	if err != nil {
-		t.Fatalf("load user: %v", err)
+		t.Fatalf("manual reactivation: %v", err)
 	}
-	if unchanged.Status != "deactivated" {
-		t.Fatalf("manual login must not auto-reactivate, got %q", unchanged.Status)
+	if result.User.Status != "active" {
+		t.Fatalf("expected manual reactivation to flip status, got %q", result.User.Status)
+	}
+	if result.User.DeletedAt != nil {
+		t.Fatalf("expected manual reactivation to clear DeletedAt, got %v", result.User.DeletedAt)
+	}
+	stored, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load reactivated user: %v", err)
+	}
+	if stored.Status != "active" || stored.DeletedAt != nil {
+		t.Fatalf("expected stored row reactivated, got status=%q deleted_at=%v", stored.Status, stored.DeletedAt)
 	}
 }
