@@ -29,6 +29,14 @@ function errorJSON(status: number, error: string) {
   };
 }
 
+function getLinkByPath(path: string) {
+  const link = screen.getAllByRole('link').find((item) => item.getAttribute('href') === path);
+  if (!link) {
+    throw new Error(`Expected link with href "${path}"`);
+  }
+  return link;
+}
+
 function authConfig(manualMode = false, workOSLoginEnabled = true) {
   return okJSON({
     auth: {
@@ -814,7 +822,7 @@ describe('App', () => {
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
-    fireEvent.click(await screen.findByRole('link', { name: /AWS Control center/i }));
+    fireEvent.click(await waitFor(() => getLinkByPath('/app/tenant-a/workspace-a/aws')));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
@@ -915,7 +923,7 @@ describe('App', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
-    fireEvent.click(await screen.findByRole('link', { name: /AWS Control center/i }));
+    fireEvent.click(await waitFor(() => getLinkByPath('/app/tenant-a/workspace-a/aws')));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();
