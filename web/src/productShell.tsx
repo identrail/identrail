@@ -985,6 +985,10 @@ function projectEnvironmentLabel(project: ProjectRecord): string {
   return environmentFallbackLabel(project.project_id);
 }
 
+function isProjectArchived(project: ProjectRecord): boolean {
+  return Boolean(normalizeValue(project.archived_at ?? ''));
+}
+
 function environmentFallbackLabel(projectID: string | undefined): string {
   const normalized = normalizeValue(projectID ?? '');
   if (!normalized || /^project(?:[-_]\d+)?$/i.test(normalized) || /^legacy[-_]project$/i.test(normalized)) {
@@ -2177,18 +2181,21 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
   const [items, setItems] = useState<ProjectRecord[]>([]);
   const [loading, setLoading] = useState(Boolean(scope));
   const [error, setError] = useState('');
+  const [rejectedRequestedID, setRejectedRequestedID] = useState('');
 
   useEffect(() => {
     if (!scope) {
       setItems([]);
       setLoading(false);
       setError('');
+      setRejectedRequestedID('');
       return undefined;
     }
 
     let active = true;
     setLoading(true);
     setError('');
+    setRejectedRequestedID('');
 
     const loadEnvironments = async () => {
       try {
@@ -2207,6 +2214,7 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
           return;
         }
         let nextItems = response.items ?? [];
+        let rejectedID = '';
         if (requestedID && !nextItems.some((item) => item.project_id === requestedID)) {
           try {
             const requestedResponse = await apiClient.getProject(
@@ -2217,21 +2225,26 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
             if (!active) {
               return;
             }
-            if (!normalizeValue(requestedResponse.project.archived_at ?? '')) {
+            if (isProjectArchived(requestedResponse.project)) {
+              rejectedID = requestedID;
+            } else {
               nextItems = [requestedResponse.project, ...nextItems];
             }
           } catch {
             if (!active) {
               return;
             }
+            rejectedID = requestedID;
           }
         }
+        setRejectedRequestedID(rejectedID);
         setItems(nextItems);
       } catch (loadError) {
         if (!active) {
           return;
         }
         setItems([]);
+        setRejectedRequestedID('');
         setError(loadError instanceof Error ? loadError.message : 'Unable to load environments.');
       } finally {
         if (active) {
@@ -2247,11 +2260,8 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
     };
   }, [requestedEnvironmentID, scope?.tenantID, scope?.workspaceID]);
 
-  const selected = useMemo(() => {
-    const requested = normalizeValue(requestedEnvironmentID);
-    return items.find((item) => item.project_id === requested) ?? null;
-  }, [items, requestedEnvironmentID]);
-  const selectedID = normalizeValue(requestedEnvironmentID) || selected?.project_id || items[0]?.project_id || '';
+  const requestedID = normalizeValue(requestedEnvironmentID);
+  const selectedID = requestedID && rejectedRequestedID !== requestedID ? requestedID : items[0]?.project_id || '';
 
   return { items, selectedID, loading, error };
 }
@@ -2457,8 +2467,24 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
       try {
         const requestedProjectID = normalizeValue(requestedEnvironmentID);
         if (requestedProjectID) {
-          setTargetPath(appendSourceQuery(buildProjectPath(scope, requestedProjectID), provider));
-          return;
+          try {
+            const requestedResponse = await apiClient.getProject(
+              scope.workspaceID,
+              requestedProjectID,
+              buildProductAuthContext(scope)
+            );
+            if (!active) {
+              return;
+            }
+            if (!isProjectArchived(requestedResponse.project)) {
+              setTargetPath(appendSourceQuery(buildProjectPath(scope, requestedProjectID), provider));
+              return;
+            }
+          } catch {
+            if (!active) {
+              return;
+            }
+          }
         }
         const response = await apiClient.listProjects(
           scope.workspaceID,

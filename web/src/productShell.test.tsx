@@ -807,6 +807,18 @@ describe('Domain-first app routes', () => {
         updated_at: '2026-01-02T00:00:00Z'
       }))
     });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'older-production',
+        name: 'Older Production',
+        slug: 'older-production',
+        description: 'Long-lived production boundary.',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-02T00:00:00Z'
+      }
+    });
 
     const { ProductAWSConnectPage } = await import('./productShell');
     function LocationProbe() {
@@ -827,6 +839,60 @@ describe('Domain-first app routes', () => {
       '/app/tenant-a/workspace-a/projects/older-production?source=aws'
     );
     expect(listProjects).not.toHaveBeenCalled();
+  });
+
+  it('falls back to an active environment when the requested environment is archived', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'active-production',
+          name: 'Active Production',
+          slug: 'active-production',
+          description: 'Active production boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'archived-production',
+        name: 'Archived Production',
+        slug: 'archived-production',
+        description: 'Retired boundary.',
+        archived_at: '2026-01-03T00:00:00Z',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z'
+      }
+    });
+
+    const { ProductDomainRoutePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/identities?environment=archived-production']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/identities"
+            element={<ProductDomainRoutePage domain="aws" routeID="identities" />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('active-production'));
+    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/connect?environment=active-production'
+    );
+    expect(screen.getByRole('link', { name: /AWS findings/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/findings?environment=active-production'
+    );
   });
 
   it('creates a new unique environment key instead of overwriting an existing environment', async () => {
