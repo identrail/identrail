@@ -1340,7 +1340,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect project sources/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect environment sources/i })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });

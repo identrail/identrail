@@ -22220,6 +22220,59 @@ html[data-theme='light'] .idt-app-shell-screen select {
   font-weight: 800;
 }
 
+.idt-environment-selector {
+  position: relative;
+  display: grid;
+  gap: 0.28rem;
+  min-width: min(16rem, 100%);
+}
+
+.idt-environment-selector span {
+  color: var(--app-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.idt-environment-selector select {
+  width: 100%;
+  min-height: 1.9rem;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 1.9rem 0 0;
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, rgba(255, 255, 255, 0.74) 50%) calc(100% - 0.8rem) 50% / 0.36rem 0.36rem no-repeat,
+    linear-gradient(135deg, rgba(255, 255, 255, 0.74) 50%, transparent 50%) calc(100% - 0.58rem) 50% / 0.36rem 0.36rem no-repeat,
+    transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 850;
+  outline: none;
+}
+
+.idt-environment-selector select:focus-visible {
+  box-shadow: 0 0 0 2px rgba(124, 97, 255, 0.52);
+}
+
+.idt-environment-selector select:disabled {
+  color: rgba(255, 255, 255, 0.72);
+  cursor: default;
+}
+
+.idt-environment-selector option {
+  color: #0f1117;
+  background: #ffffff;
+}
+
+.idt-environment-selector small {
+  color: var(--app-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .idt-domain-status-summary.is-success {
   border-color: rgba(88, 214, 141, 0.5);
   color: #acf2c4;
