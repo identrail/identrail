@@ -298,7 +298,7 @@ function productDomainRoute(
     eyebrow,
     description,
     phase: options.phase ?? 'Route foundation',
-    status: options.status ?? 'Shell ready',
+    status: options.status ?? 'Route live',
     metrics:
       options.metrics ?? [
         { label: 'Route', value: 'Live', detail: 'Scoped workspace entry point is registered.', tone: 'success' },
@@ -927,8 +927,37 @@ function normalizeProjectToken(value: string): string {
     .slice(0, 64);
 }
 
-function deriveProjectToken(value: string, fallback = 'project'): string {
-  return normalizeProjectToken(value) || fallback;
+function tokenWithNumericSuffix(base: string, suffix: number): string {
+  const suffixToken = `-${suffix}`;
+  return `${base.slice(0, Math.max(1, 64 - suffixToken.length))}${suffixToken}`;
+}
+
+function stableEnvironmentTokenHash(value: string): string {
+  let hash = 2166136261;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    hash ^= codePoint;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function uniqueEnvironmentToken(name: string, existingProjects: ProjectRecord[]): string {
+  const existingIDs = new Set(existingProjects.map((project) => normalizeValue(project.project_id)).filter(Boolean));
+  const base = normalizeProjectToken(name) || `environment-${stableEnvironmentTokenHash(name)}`;
+
+  if (base && !existingIDs.has(base)) {
+    return base;
+  }
+
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = tokenWithNumericSuffix(base, suffix);
+    if (!existingIDs.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  return tokenWithNumericSuffix(base, Date.now());
 }
 
 function formatTokenLabel(value: string): string {
@@ -2402,6 +2431,11 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
 
     const resolveConnectorSetup = async () => {
       try {
+        const requestedProjectID = normalizeValue(requestedEnvironmentID);
+        if (requestedProjectID) {
+          setTargetPath(appendSourceQuery(buildProjectPath(scope, requestedProjectID), provider));
+          return;
+        }
         const response = await apiClient.listProjects(
           scope.workspaceID,
           {
@@ -2415,8 +2449,7 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
         if (!active) {
           return;
         }
-        const requestedProject = response.items.find((item) => item.project_id === requestedEnvironmentID);
-        const projectID = normalizeValue((requestedProject ?? response.items[0])?.project_id ?? '');
+        const projectID = normalizeValue(response.items[0]?.project_id ?? '');
         setTargetPath(
           projectID
             ? appendSourceQuery(buildProjectPath(scope, projectID), provider)
@@ -2520,7 +2553,7 @@ export function ProductReportsPage() {
           <p>Designed for executive posture and remediation outcome summaries.</p>
         </article>
       </div>
-      <DomainStatusPanel eyebrow="Reporting foundation" title="Outcome views are staged" status="Shell ready" tone="success">
+      <DomainStatusPanel eyebrow="Reporting foundation" title="Outcome views are staged" status="Staged" tone="success">
         <p>
           This route keeps the IA complete while the deeper executive outcome, domain coverage, and remediation reporting
           experiences arrive in their planned sequence.
@@ -4491,7 +4524,7 @@ export function ProductWorkspacesPage() {
     return (
       <AppRouteLoadingState
         title="Preparing workspace access"
-        body="Keeping the workspace shell ready while member access details refresh."
+        body="Refreshing member access details for this workspace."
       />
     );
   }
@@ -4880,7 +4913,7 @@ export function ProductProjectsPage() {
     event.preventDefault();
 
     const name = normalizeValue(draftName);
-    const projectID = deriveProjectToken(name, 'default-environment');
+    const projectID = uniqueEnvironmentToken(name, projects);
     const slug = projectID;
     const description = normalizeValue(draftDescription);
 
@@ -8356,7 +8389,7 @@ export function ProductFindingsPage() {
     return (
       <AppRouteLoadingState
         title="Preparing GitHub findings"
-        body="Keeping the workspace shell ready while finding and trend data refresh."
+        body="Refreshing finding and trend data for this workspace."
       />
     );
   }
