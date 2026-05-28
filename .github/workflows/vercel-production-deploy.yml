@@ -62,24 +62,23 @@ jobs:
           fi
 
           review_decision="$(jq -r '.reviewDecision // empty' <<< "${pr_json}")"
-          if [ "${review_decision}" != "APPROVED" ]; then
+          if [ "${review_decision}" = "REVIEW_REQUIRED" ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "Pull request review state is '${review_decision}', not APPROVED; skipping production deploy."
+            echo "Pull request is review required; skipping production deploy."
             exit 0
           fi
 
-          approved_on_head="$(gh api "/repos/${{ github.repository_owner }}/${{ github.event.repository.name }}/pulls/${{ github.event.pull_request.number }}/reviews?per_page=100" \
+          reviews_json="$(gh api "/repos/${{ github.repository_owner }}/${{ github.event.repository.name }}/pulls/${{ github.event.pull_request.number }}/reviews?per_page=100" \
             --paginate \
-            --jq --arg head_sha "${head_sha}" '[ .[] | select(.state == "APPROVED" and .commit_id == $head_sha) ] | length')"
+            --jq '.')"
+          approved_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "APPROVED" and .commit_id == $head_sha and (.author_association == "MEMBER" or .author_association == "OWNER" or .author_association == "COLLABORATOR")) ] | length' <<< "${reviews_json}")"
           if [ "${approved_on_head}" -lt 1 ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "No approved review was found for the merged commit ${head_sha}; skipping production deploy."
+            echo "No approved review from a member/owner/collaborator was found for the merged commit ${head_sha}; skipping production deploy."
             exit 0
           fi
 
-          requested_changes_on_head="$(gh api "/repos/${{ github.repository_owner }}/${{ github.event.repository.name }}/pulls/${{ github.event.pull_request.number }}/reviews?per_page=100" \
-            --paginate \
-            --jq --arg head_sha "${head_sha}" '[ .[] | select(.state == "CHANGES_REQUESTED" and .commit_id == $head_sha) ] | length')"
+          requested_changes_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "CHANGES_REQUESTED" and .commit_id == $head_sha) ] | length' <<< "${reviews_json}")"
           if [ "${requested_changes_on_head}" -gt 0 ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
             echo "There is a request for changes on the merged commit ${head_sha}; skipping production deploy."
