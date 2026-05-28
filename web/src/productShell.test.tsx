@@ -449,10 +449,19 @@ describe('ProductShellLayout', () => {
     expect(within(githubFlyout).getAllByText('AI / Agentic Risk').length).toBeGreaterThan(0);
 
     fireEvent.keyDown(window, { key: '/' });
-    expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
+    const finder = screen.getByRole('dialog', { name: /Workspace finder/i });
+    expect(finder).toBeInTheDocument();
+    expect(within(finder).queryByText('Workspace finder')).not.toBeInTheDocument();
+    expect(within(finder).queryByText('Go to anything')).not.toBeInTheDocument();
 
     expect(screen.queryByRole('option', { name: /^Projects\b/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /^Findings\b/i })).not.toBeInTheDocument();
+    expect(
+      within(within(finder).getByRole('option', { name: /^OverviewDomain/i })).queryByText('O')
+    ).not.toBeInTheDocument();
+    expect(
+      within(within(finder).getByRole('option', { name: /^GitHub findingsRepository/i })).queryByText('F')
+    ).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'github findings' } });
     fireEvent.keyDown(screen.getByLabelText(/Search workspace commands/i), { key: 'Enter' });
@@ -490,7 +499,7 @@ describe('ProductShellLayout', () => {
     expect(screen.getByRole('dialog', { name: 'GitHub' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '/' });
-    expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Workspace finder/i })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'github' } });
     expect(screen.getAllByRole('option', { name: /^GitHub\b/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole('option', { name: /Connect GitHub/i })).not.toBeInTheDocument();

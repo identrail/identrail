@@ -1502,7 +1502,7 @@ function CommandPalette({
         className="idt-command-palette"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="idt-command-palette-title"
+        aria-label="Workspace finder"
         onKeyDown={(event) => {
           if (event.defaultPrevented) {
             return;
@@ -1513,23 +1513,19 @@ function CommandPalette({
           }
         }}
       >
-        <header>
-          <div>
-            <p className="idt-app-kicker">Workspace finder</p>
-            <h2 id="idt-command-palette-title">Go to anything</h2>
-          </div>
+        <div className="idt-command-palette-search-row">
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder="Search views, reports, settings, and actions"
+            aria-label="Search workspace commands"
+          />
           <button type="button" className="idt-command-palette-close" onClick={onClose} aria-label="Close workspace finder">
             Esc
           </button>
-        </header>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={handleInputKeyDown}
-          placeholder="Search views, reports, settings, and actions"
-          aria-label="Search workspace commands"
-        />
+        </div>
         <div className="idt-command-palette-results" role="listbox" aria-label="Workspace commands">
           {filteredItems.length > 0 ? (
             filteredItems.map((item) => (
@@ -2465,7 +2461,6 @@ export function ProductShellLayout() {
         label: 'Overview',
         description: 'Domain coverage, recent scans, and next actions',
         keywords: ['home', 'dashboard', 'workspace', 'domains'],
-        shortcut: 'O',
         path: basePath
       }
     ];
@@ -2509,7 +2504,6 @@ export function ProductShellLayout() {
         label: 'GitHub findings',
         description: 'Repository risk inside the GitHub section',
         keywords: ['github', 'findings', 'repository', 'triage'],
-        shortcut: 'F',
         path: `${basePath}/github/findings`
       });
       items.push({

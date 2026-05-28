@@ -20468,7 +20468,7 @@ html[data-theme='light'] .idt-app-quick-find {
   z-index: 1100;
   display: grid;
   place-items: start center;
-  padding: min(12vh, 7rem) 1rem 1rem;
+  padding: min(8vh, 5rem) 1rem 1rem;
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(12px);
 }
@@ -20481,13 +20481,14 @@ html[data-theme='light'] .idt-app-quick-find {
   width: min(100%, 42rem);
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  padding: 0.9rem;
-  background: var(--app-panel);
+  padding: 0.72rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01) 42%, rgba(255, 255, 255, 0)),
+    var(--app-panel);
   color: #ffffff;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
 }
 
-.idt-command-palette header,
 .idt-command-palette-results button {
   display: flex;
   align-items: center;
@@ -20495,35 +20496,40 @@ html[data-theme='light'] .idt-app-quick-find {
   gap: 1rem;
 }
 
-.idt-command-palette h2 {
-  margin: 0.15rem 0 0;
-  color: #ffffff;
-  font-family: var(--idt-display);
-  font-size: 1.45rem;
-  line-height: 1.05;
-}
-
-.idt-command-palette .idt-app-kicker {
-  color: #a3a3a3;
+.idt-command-palette-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.55rem;
 }
 
 .idt-command-palette-close {
   border: 1px solid var(--app-border);
-  border-radius: 999px;
-  padding: 0.35rem 0.55rem;
-  background: #111113;
+  border-radius: 8px;
+  min-width: 3.35rem;
+  padding: 0 0.7rem;
+  background: #101012;
   color: #ffffff;
   font: inherit;
   font-size: 0.78rem;
   font-weight: 900;
+  cursor: pointer;
+}
+
+.idt-command-palette-close:hover,
+.idt-command-palette-close:focus-visible {
+  border-color: #ffffff;
+  background: #151518;
+  outline: none;
 }
 
 .idt-command-palette input {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
-  margin: 0.95rem 0 0.75rem;
+  margin: 0;
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  padding: 0.85rem 0.9rem;
+  padding: 0.82rem 0.9rem;
   background: #050505;
   color: #ffffff;
   font: inherit;
@@ -20539,6 +20545,7 @@ html[data-theme='light'] .idt-app-quick-find {
   gap: 0.35rem;
   flex: 1;
   min-height: 0;
+  margin-top: 0.68rem;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
