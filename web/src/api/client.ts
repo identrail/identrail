@@ -1184,6 +1184,16 @@ export const apiClient = {
       method: 'POST'
     });
   },
+  deactivateCurrentUser() {
+    return request<{ status: 'deactivated' }>('/v1/me/deactivate', undefined, {
+      method: 'POST'
+    });
+  },
+  reactivateCurrentUser() {
+    return request<{ status: 'active' }>('/v1/me/reactivate', undefined, {
+      method: 'POST'
+    });
+  },
   logout() {
     return request<{ ok: boolean }>('/auth/logout', undefined, {
       method: 'POST',

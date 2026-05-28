@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Added a Settings "Danger zone" with a `Suspend my account` row backed by the
+  self-serve `POST /v1/me/deactivate` endpoint. Confirming the modal revokes
+  every active session, clears the cookie, signs the user out, and redirects
+  to `/signin?reason=account_deactivated` where a banner explains the account
+  is suspended and offers a "Reactivate account" link that routes through the
+  signup flow (the existing WorkOS signup-intent path auto-reactivates the
+  account). Introduces shared `DangerZone`, `DangerZoneRow`, and
+  `ConfirmDestructiveModal` components under `web/src/components/settings/`
+  with both checkbox and type-to-confirm confirmation variants, ready to be
+  reused by the upcoming Delete-account and Workspace-deletion flows.
 - Added self-serve account-lifecycle endpoints. `POST /v1/me/deactivate`
   transitions the authenticated user from `active` to `deactivated`, revokes
   every active session, and clears the session cookie. `POST /v1/me/reactivate`
