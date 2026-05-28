@@ -98,13 +98,18 @@ Run it from the `dev` branch because the AWS OIDC deployment role trust is
 intentionally scoped to that branch.
 
 For routine hosted API releases after an immutable image for the current `dev`
-commit has been published, prefer the `AWS Production Release` workflow. It is
-still manually approved, but it runs the database migration workflow first,
-deploys the API and worker with the matching
-`ghcr.io/identrail/identrail-api:sha-<current-dev-commit>` image, and then
-checks `/healthz`, `/readyz`, and `/v1/auth/config`. This keeps hosted API
-code, worker code, and the database schema in the same release boundary instead
-of requiring operators to remember the migration and deploy order by hand.
+commit has been published, use the `Deploy to prod` workflow. Operators only
+select the `dev` branch and click **Run workflow**. The workflow resolves the
+matching `ghcr.io/identrail/identrail-api:sha-<current-dev-commit>` and
+`ghcr.io/identrail/identrail-worker:sha-<current-dev-commit>` images, verifies
+that `CI` and `Publish Container Images` passed for that exact commit, confirms
+both immutable image tags exist in GHCR, waits for the `production` GitHub
+Environment approval when environment protection is configured, runs the
+database migration workflow, deploys the API and worker, and then checks
+`/healthz`, `/readyz`, and `/v1/auth/config`. This keeps hosted API code,
+worker code, and the database schema in the same release boundary instead of
+requiring operators to remember image tags or the migration and deploy order by
+hand.
 
 Repository configuration required before the workflow can plan:
 
@@ -163,9 +168,11 @@ when GitHub App settings change:
 python3 scripts/check_github_app_manifest.py --slug "${API_GITHUB_APP_NAME}"
 ```
 
-The workflow dispatch input `api_container_image` must be immutable, such as
-`ghcr.io/identrail/identrail-api:sha-<commit>`. Do not deploy the mutable `dev`
-tag to this hosted API path.
+The `Deploy to prod` workflow always deploys an immutable current-commit image,
+such as `ghcr.io/identrail/identrail-api:sha-<commit>`. Do not deploy the
+mutable `dev` tag to this hosted API path. Use `AWS API Manual Deploy` only for
+lower-level planning, explicit rollback, or emergency overrides that require a
+specific immutable image.
 
 Worker hosting is enabled by default in this manual workflow through
 `API_WORKER_ENABLED=true`. If `API_WORKER_CONTAINER_IMAGE` is omitted, the

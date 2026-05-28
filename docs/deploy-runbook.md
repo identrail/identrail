@@ -92,11 +92,12 @@ Portable deployment profiles:
 ## 2) Deploy Sequence
 
 1. Ensure CI is green on `dev` (`Go Quality`, `Go Tests`, `Go Integration (Postgres)`, `Web Build`).
-2. For hosted AWS API releases, prefer the `AWS Production Release` workflow
-   after the immutable image for the current `dev` commit is published. It runs
-   migrations, deploys the API and worker with the matching
-   `sha-<current-dev-commit>` image, and performs hosted API smoke checks in one
-   ordered manual release.
+2. For hosted AWS API releases, use the `Deploy to prod` workflow after the
+   immutable image for the current `dev` commit is published. Operators only
+   select the `dev` branch and click **Run workflow**. The workflow resolves the
+   matching `sha-<current-dev-commit>` API and worker images, verifies CI and
+   image publishing passed for that exact commit, runs migrations, deploys the
+   API and worker, and performs hosted API smoke checks in one ordered release.
 3. For non-AWS or lower-level deployments, run migrations once using the
    dedicated migration job:
    - Kubernetes manifests: apply `deploy/kubernetes/migration-job.yaml` and wait for job completion.

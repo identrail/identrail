@@ -1,70 +1,30 @@
-name: AWS Production Release
+name: Deploy to prod
 
 on:
   workflow_dispatch:
-    inputs:
-      confirm_release:
-        description: "Required: type release-api.identrail.com"
-        required: true
-        type: string
-      api_container_image:
-        description: "Current-commit API image, for example ghcr.io/identrail/identrail-api:sha-<current-dev-commit>."
-        required: true
-        type: string
-      api_base_url:
-        description: "Public API base URL for post-deploy smoke checks."
-        required: true
-        type: string
-        default: https://api.identrail.com
-      database_url_secret_arn:
-        description: "Optional Secrets Manager ARN. Blank uses repository secret API_DATABASE_URL_SECRET_ARN."
-        required: false
-        type: string
-      migrations_dir:
-        description: "Migration directory to apply before deploying the API and worker."
-        required: true
-        type: string
-        default: migrations
-      api_vpc_id:
-        description: "VPC ID. Leave blank to use repository variable API_VPC_ID."
-        required: false
-        type: string
-      api_public_subnet_ids_json:
-        description: "JSON array of two public subnet IDs. Leave blank to use repository variable API_PUBLIC_SUBNET_IDS_JSON."
-        required: false
-        type: string
-      api_task_subnet_ids_json:
-        description: "Optional JSON array of task subnet IDs. Blank uses the public subnets for low-cost bootstrap mode."
-        required: false
-        type: string
-      api_certificate_arn:
-        description: "ACM certificate ARN. Leave blank to use repository variable API_CERTIFICATE_ARN."
-        required: false
-        type: string
-      terraform_state_bucket:
-        description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
-        required: false
-        type: string
 
 permissions:
   contents: read
+  actions: read
+  packages: read
 
 concurrency:
-  group: aws-production-release
+  group: deploy-to-prod
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Validate release inputs
+  resolve:
+    name: Resolve production release
     if: github.repository == 'identrail/identrail'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    env:
-      CONFIRM_RELEASE: ${{ inputs.confirm_release }}
-      API_CONTAINER_IMAGE: ${{ inputs.api_container_image }}
-      API_BASE_URL: ${{ inputs.api_base_url }}
+    outputs:
+      api_container_image: ${{ steps.release.outputs.api_container_image }}
+      api_base_url: ${{ steps.release.outputs.api_base_url }}
+      migrations_dir: ${{ steps.release.outputs.migrations_dir }}
     steps:
-      - name: Validate release request
+      - name: Resolve release metadata
+        id: release
         shell: bash
         run: |
           set -euo pipefail
@@ -74,53 +34,117 @@ jobs:
             exit 1
           fi
 
-          if [ "${CONFIRM_RELEASE}" != "release-api.identrail.com" ]; then
-            echo "To release the hosted API, type release-api.identrail.com in the confirmation field."
-            exit 1
-          fi
+          short_sha="${GITHUB_SHA::12}"
+          api_container_image="ghcr.io/identrail/identrail-api:sha-${short_sha}"
+          worker_container_image="ghcr.io/identrail/identrail-worker:sha-${short_sha}"
+          api_base_url="https://api.identrail.com"
+          migrations_dir="migrations"
 
-          if ! [[ "${API_CONTAINER_IMAGE}" =~ ^ghcr\.io/identrail/identrail-api:sha-([0-9a-f]{12,40})$ ]]; then
-            echo "api_container_image must be a current-commit ghcr.io/identrail/identrail-api:sha-<commit> image so migrations and deployed code come from the same source."
-            exit 1
-          fi
-
-          image_sha="${BASH_REMATCH[1]}"
-          if [[ "${GITHUB_SHA}" != "${image_sha}"* ]]; then
-            echo "api_container_image sha tag must match this workflow commit (${GITHUB_SHA}) so migrations and deployed code stay in lockstep."
-            exit 1
-          fi
-
-          api_base_url="${API_BASE_URL%/}"
           if ! [[ "${api_base_url}" =~ ^https://[^/[:space:]]+(:[0-9]+)?$ ]]; then
             echo "api_base_url must be a bare HTTPS origin such as https://api.identrail.com."
             exit 1
           fi
 
           {
-            echo "## AWS production release"
+            echo "api_container_image=${api_container_image}"
+            echo "worker_container_image=${worker_container_image}"
+            echo "api_base_url=${api_base_url}"
+            echo "migrations_dir=${migrations_dir}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Verify release gates passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runs_json="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs?branch=dev&head_sha=${GITHUB_SHA}&status=success&per_page=100"
+          )"
+
+          required_workflows=("CI" "Publish Container Images")
+          for workflow in "${required_workflows[@]}"; do
+            if ! jq -e --arg workflow "${workflow}" '.workflow_runs[] | select(.name == $workflow and .conclusion == "success")' >/dev/null <<< "${runs_json}"; then
+              echo "Required workflow ${workflow} has not completed successfully for ${GITHUB_SHA}."
+              echo "Wait for dev checks and image publishing to finish, then run Deploy to prod again."
+              exit 1
+            fi
+          done
+
+      - name: Login to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Verify release images exist
+        env:
+          API_CONTAINER_IMAGE: ${{ steps.release.outputs.api_container_image }}
+          WORKER_CONTAINER_IMAGE: ${{ steps.release.outputs.worker_container_image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker manifest inspect "${API_CONTAINER_IMAGE}" >/dev/null
+          docker manifest inspect "${WORKER_CONTAINER_IMAGE}" >/dev/null
+
+      - name: Publish release summary
+        env:
+          API_CONTAINER_IMAGE: ${{ steps.release.outputs.api_container_image }}
+          WORKER_CONTAINER_IMAGE: ${{ steps.release.outputs.worker_container_image }}
+          API_BASE_URL: ${{ steps.release.outputs.api_base_url }}
+          MIGRATIONS_DIR: ${{ steps.release.outputs.migrations_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Deploy to prod"
             echo
             echo "- API image: \`${API_CONTAINER_IMAGE}\`"
+            echo "- Worker image: \`${WORKER_CONTAINER_IMAGE}\`"
             echo "- Source commit: \`${GITHUB_SHA}\`"
-            echo "- API base URL: \`${api_base_url}\`"
+            echo "- API base URL: \`${API_BASE_URL}\`"
+            echo "- Migrations directory: \`${MIGRATIONS_DIR}\`"
+            echo "- Verified gates: \`CI\`, \`Publish Container Images\`"
             echo "- Next step: run database migrations before deploying API and worker."
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  approve:
+    name: Approve production deploy
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Record production approval
+        run: echo "Production deployment approved for ${{ github.sha }}."
+
   migrate:
     name: Run database migrations
-    needs: validate
+    needs:
+      - resolve
+      - approve
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/aws-api-database-migrations.yml
     with:
       confirm_migrations: run-api-migrations
-      database_url_secret_arn: ${{ inputs.database_url_secret_arn || '' }}
-      migrations_dir: ${{ inputs.migrations_dir }}
+      database_url_secret_arn: ''
+      migrations_dir: ${{ needs.resolve.outputs.migrations_dir }}
     secrets: inherit
 
   deploy:
     name: Deploy API and worker
-    needs: migrate
+    needs:
+      - resolve
+      - migrate
     permissions:
       contents: read
       id-token: write
@@ -128,23 +152,25 @@ jobs:
     with:
       operation: apply
       confirm_apply: apply-api.identrail.com
-      api_container_image: ${{ inputs.api_container_image }}
-      api_vpc_id: ${{ inputs.api_vpc_id }}
-      api_public_subnet_ids_json: ${{ inputs.api_public_subnet_ids_json }}
-      api_task_subnet_ids_json: ${{ inputs.api_task_subnet_ids_json }}
-      api_certificate_arn: ${{ inputs.api_certificate_arn }}
-      database_url_secret_arn: ${{ inputs.database_url_secret_arn || '' }}
-      terraform_state_bucket: ${{ inputs.terraform_state_bucket || '' }}
+      api_container_image: ${{ needs.resolve.outputs.api_container_image }}
+      api_vpc_id: ''
+      api_public_subnet_ids_json: ''
+      api_task_subnet_ids_json: ''
+      api_certificate_arn: ''
+      database_url_secret_arn: ''
+      terraform_state_bucket: ''
       terraform_state_key: ${{ vars.AWS_TERRAFORM_STATE_KEY || '' }}
     secrets: inherit
 
   smoke:
     name: Verify hosted API
-    needs: deploy
+    needs:
+      - resolve
+      - deploy
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      API_BASE_URL: ${{ inputs.api_base_url }}
+      API_BASE_URL: ${{ needs.resolve.outputs.api_base_url }}
     steps:
       - name: Run API smoke checks
         shell: bash

@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Renamed the hosted API production release workflow to `Deploy to prod` and
+  made the normal release path one-click from the `dev` branch. The workflow now
+  resolves the current commit's immutable API and worker image tags, verifies CI
+  and image publishing succeeded for that exact commit, confirms the GHCR image
+  tags exist, records a `production` environment gate, and then runs migrations,
+  deploys the API and worker, and smokes the hosted API without requiring
+  operators to type confirmation text or paste image tags.
 - Added self-serve account-lifecycle endpoints. `POST /v1/me/deactivate`
   transitions the authenticated user from `active` to `deactivated`, revokes
   every active session, and clears the session cookie. `POST /v1/me/reactivate`
