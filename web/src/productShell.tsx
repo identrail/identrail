@@ -1253,7 +1253,7 @@ function formatRepoScanSubmitError(error: unknown): string {
     }
     if (error.status === 403) {
       return appendAPIDetail(
-        'That repository is not currently allowed for this project. For GitHub App sources, select it during installation and refresh status; for PAT-backed scans, ask an operator to allow that owner/repo target.',
+        'That repository is not currently allowed for this GitHub source. Select it during installation and refresh status, or ask an operator to allow that owner/repo target for PAT-backed scans.',
         error
       );
     }
@@ -5237,7 +5237,7 @@ export function ProductProjectDetailPage() {
       setScanPolicyError(
         scanPolicyResult.reason instanceof Error
           ? scanPolicyResult.reason.message
-          : 'Unable to load scan policies for this project.'
+          : 'Unable to load scan policies for this source.'
       );
       setScanPolicies([]);
     }
@@ -5444,11 +5444,9 @@ export function ProductProjectDetailPage() {
   const selectedAvailability = sourceAvailability[selectedSource] ?? { visible: true, available: true };
   const selectedUnavailable = !selectedAvailability.available;
   const sourceScopeProfile = sourceScope ? SOURCE_PROFILES[sourceScope] : null;
-  const sourcePageKicker = sourceScopeProfile ? `${sourceScopeProfile.name} source` : 'Project sources';
   const sourcePageTitle = sourceScopeProfile ? `Connect ${sourceScopeProfile.name}` : 'Connect project sources';
-  const sourcePageBody = sourceScopeProfile
-    ? `${sourceScopeProfile.summary} This page is scoped to ${sourceScopeProfile.name}.`
-    : 'Install source connections to collect repository, workflow, and cloud identity signals.';
+  const sourcePageBody =
+    sourceScopeProfile?.summary ?? 'Install source connections to collect repository, workflow, and cloud identity signals.';
 
   const handleGitHubStart = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -5945,29 +5943,40 @@ export function ProductProjectDetailPage() {
   return (
     <section className={`idt-app-panel idt-source-onboarding${sourceScope ? ' is-source-scoped' : ''}`}>
       <div className="idt-source-onboarding-header">
-        <div>
-          <p className="idt-app-kicker">{sourcePageKicker}</p>
-          <h2>{sourcePageTitle}</h2>
-          <p>
-            {sourceScopeProfile ? (
-              sourcePageBody
-            ) : (
-              <>
-                {sourcePageBody} Project <strong>{projectID}</strong>.
-              </>
-            )}
-          </p>
+        {sourceScopeProfile ? (
+          <div className="idt-source-onboarding-title-row">
+            <SourceLogoMark provider={selectedSource} className="is-hero" />
+            <div>
+              <h1>{sourcePageTitle}</h1>
+              <p>{sourcePageBody}</p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="idt-app-kicker">Project sources</p>
+            <h2>{sourcePageTitle}</h2>
+            <p>
+              {sourcePageBody} Project <strong>{projectID}</strong>.
+            </p>
+          </div>
+        )}
+        <div className="idt-source-onboarding-actions">
+          {sourceScopeProfile ? (
+            <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
+              {selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="idt-btn idt-btn-ghost"
+            onClick={() => {
+              void refreshConnections(true);
+            }}
+            disabled={backendFeaturesLoading || refreshing || submitting !== '' || repoScanSubmitting}
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh status'}
+          </button>
         </div>
-        <button
-          type="button"
-          className="idt-btn idt-btn-ghost"
-          onClick={() => {
-            void refreshConnections(true);
-          }}
-          disabled={backendFeaturesLoading || refreshing || submitting !== '' || repoScanSubmitting}
-        >
-          {refreshing ? 'Refreshing...' : 'Refresh status'}
-        </button>
       </div>
 
       {successMessage ? (
@@ -5977,54 +5986,58 @@ export function ProductProjectDetailPage() {
       ) : null}
 
       <div className="idt-source-wizard-grid">
-        <aside className="idt-source-picker" aria-label={sourceScopeProfile ? `${sourceScopeProfile.name} source` : 'Source types'}>
-          {sourceOrder.map((provider) => {
-            const profile = SOURCE_PROFILES[provider];
-            const status = sourceConnection(connections, provider);
-            const error = sourceErrors[provider];
-            const availability = sourceAvailability[provider];
-            return (
-              <button
-                key={provider}
-                type="button"
-                className={`idt-source-card is-provider-${provider} ${selectedSource === provider ? 'is-selected' : ''} ${
-                  availability.available ? '' : 'is-unavailable'
-                }`}
-                aria-pressed={selectedSource === provider}
-                aria-disabled={!availability.available}
-                onClick={() => setSelectedSource(provider)}
-                disabled={!availability.available}
-              >
-                <span className="idt-source-card-topline">
-                  <span className="idt-source-card-identity">
-                    <SourceLogoMark provider={provider} />
-                    <span>{profile.eyebrow}</span>
+        {sourceScopeProfile ? null : (
+          <aside className="idt-source-picker" aria-label="Source types">
+            {sourceOrder.map((provider) => {
+              const profile = SOURCE_PROFILES[provider];
+              const status = sourceConnection(connections, provider);
+              const error = sourceErrors[provider];
+              const availability = sourceAvailability[provider];
+              return (
+                <button
+                  key={provider}
+                  type="button"
+                  className={`idt-source-card is-provider-${provider} ${selectedSource === provider ? 'is-selected' : ''} ${
+                    availability.available ? '' : 'is-unavailable'
+                  }`}
+                  aria-pressed={selectedSource === provider}
+                  aria-disabled={!availability.available}
+                  onClick={() => setSelectedSource(provider)}
+                  disabled={!availability.available}
+                >
+                  <span className="idt-source-card-topline">
+                    <span className="idt-source-card-identity">
+                      <SourceLogoMark provider={provider} />
+                      <span>{profile.eyebrow}</span>
+                    </span>
+                    <span className={`idt-source-status-pill is-${sourceAvailabilityTone(availability, status)}`}>
+                      {!availability.available ? 'Unavailable' : error ? 'Needs retry' : connectionLifecycle(status)}
+                    </span>
                   </span>
-                  <span className={`idt-source-status-pill is-${sourceAvailabilityTone(availability, status)}`}>
-                    {!availability.available ? 'Unavailable' : error ? 'Needs retry' : connectionLifecycle(status)}
-                  </span>
-                </span>
-                <strong>{profile.name}</strong>
-                <small>{availability.unavailableMessage ?? profile.primarySignal}</small>
-              </button>
-            );
-          })}
-        </aside>
+                  <strong>{profile.name}</strong>
+                  <small>{availability.unavailableMessage ?? profile.primarySignal}</small>
+                </button>
+              );
+            })}
+          </aside>
+        )}
 
         <div className="idt-source-config">
-          <div className="idt-source-config-header">
-            <div className="idt-source-config-title">
-              <SourceLogoMark provider={selectedSource} className="is-hero" />
-              <div>
-                <p className="idt-app-kicker">{selectedProfile.eyebrow}</p>
-                <h3>{selectedProfile.name}</h3>
-                <p>{selectedProfile.summary}</p>
+          {sourceScopeProfile ? null : (
+            <div className="idt-source-config-header">
+              <div className="idt-source-config-title">
+                <SourceLogoMark provider={selectedSource} className="is-hero" />
+                <div>
+                  <p className="idt-app-kicker">{selectedProfile.eyebrow}</p>
+                  <h3>{selectedProfile.name}</h3>
+                  <p>{selectedProfile.summary}</p>
+                </div>
               </div>
+              <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
+                {selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}
+              </span>
             </div>
-            <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
-              {selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}
-            </span>
-          </div>
+          )}
 
           <dl className="idt-source-meta">
             <div>
@@ -6059,9 +6072,9 @@ export function ProductProjectDetailPage() {
             <div className="idt-source-form-stack">
               <article className="idt-source-install-card idt-source-primary-action">
                 <div className="idt-source-primary-copy">
-                  <p className="idt-app-kicker">Recommended setup</p>
+                  <p className="idt-app-kicker">Setup</p>
                   <h4>Install Identrail on GitHub</h4>
-                  <p>Choose an account and the repositories Identrail can read.</p>
+                  <p>Choose the account and repositories to scan.</p>
                 </div>
                 <form className="idt-app-form" onSubmit={handleGitHubStart}>
                   <label>
@@ -6152,8 +6165,8 @@ export function ProductProjectDetailPage() {
                 <form className="idt-app-form idt-repo-scan-launch" onSubmit={handleRepoScanSubmit}>
                   <article className="idt-source-install-card idt-repo-scan-launch-card">
                     <div>
-                      <h4>First repository scan</h4>
-                      <p>Scan the selected repository.</p>
+                      <h4>Run scan</h4>
+                      <p>Scan a selected repository and route results to GitHub findings.</p>
                     </div>
                     <Link className="idt-btn idt-btn-ghost" to={repoScanFindingsPath}>
                       View findings
@@ -6286,8 +6299,8 @@ export function ProductProjectDetailPage() {
               {FEATURE_CONNECTOR_AWS ? (
                 <article className="idt-source-install-card idt-aws-launch-card">
                   <div>
-                    <h4>CloudFormation setup</h4>
-                    <p>{awsCloudFormationStart ? 'Stack launch generated.' : 'Generate a least-privilege stack launch.'}</p>
+                    <h4>Launch read-only stack</h4>
+                    <p>{awsCloudFormationStart ? 'Stack launch generated.' : 'Generate the read-only role and trust policy.'}</p>
                   </div>
                   <div className="idt-source-actions">
                     <button className="idt-btn idt-btn-dark" type="button" onClick={handleAWSCloudFormationStart} disabled={submitting !== ''}>
@@ -6682,8 +6695,8 @@ export function ProductProjectDetailPage() {
           <summary className="idt-source-policy-summary">
             <div>
               <p className="idt-app-kicker">Automation policies</p>
-              <h3>Scan policy editor</h3>
-              <p>Define trigger mode, schedule cadence, and scan limits for this project.</p>
+              <h3>Scan policy</h3>
+              <p>Define trigger mode, cadence, and limits for this source.</p>
             </div>
             <span className="idt-source-status-pill is-warning">Advanced</span>
           </summary>

@@ -756,11 +756,13 @@ describe('ProductProjectDetailPage', () => {
       initialEntry: '/app/tenant-a/workspace-a/projects/project-1?source=github'
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' })).toBeInTheDocument();
-    const picker = screen.getByLabelText('GitHub source');
-    expect(within(picker).getByRole('button', { name: /GitHub/i })).toBeInTheDocument();
-    expect(within(picker).queryByRole('button', { name: /AWS/i })).not.toBeInTheDocument();
-    expect(within(picker).queryByRole('button', { name: /Kubernetes/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Connect GitHub' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('GitHub source')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Source types')).not.toBeInTheDocument();
+    expect(screen.queryByText('This page is scoped to GitHub.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: 'GitHub' })).not.toBeInTheDocument();
+    expect(screen.getByText('Setup')).toBeInTheDocument();
+    expect(screen.queryByText('Recommended setup')).not.toBeInTheDocument();
   });
 
   it('opens GitHub installation in a new tab through GitHub account picker', async () => {
@@ -804,10 +806,10 @@ describe('ProductProjectDetailPage', () => {
     fireEvent.click(within(scanLimits as HTMLElement).getByText('Scan limits'));
     expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).toBeVisible();
 
-    expect(screen.getByText('Scan policy editor')).toBeInTheDocument();
+    expect(screen.getByText('Scan policy')).toBeInTheDocument();
     expect(screen.getByLabelText(/Trigger mode/i)).not.toBeVisible();
 
-    fireEvent.click(screen.getByText('Scan policy editor'));
+    fireEvent.click(screen.getByText('Scan policy'));
     expect(screen.getByLabelText(/Trigger mode/i)).toBeVisible();
   });
 

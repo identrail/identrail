@@ -1497,8 +1497,10 @@ describe('App', () => {
 
     await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/projects/project-1'));
     expect(window.location.search).toBe('?source=aws');
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect AWS/i })).toBeInTheDocument();
-    expect(within(screen.getByLabelText('AWS source')).queryByRole('button', { name: /GitHub/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /Connect AWS/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('AWS source')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Source types')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: 'AWS' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
 

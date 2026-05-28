@@ -24064,6 +24064,77 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
   padding: 0.95rem 1rem;
 }
 
+.idt-source-onboarding-title-row,
+.idt-source-onboarding-actions {
+  display: flex;
+  align-items: center;
+}
+
+.idt-source-onboarding-title-row {
+  min-width: 0;
+  gap: 0.9rem;
+}
+
+.idt-source-onboarding-title-row > div {
+  min-width: 0;
+}
+
+.idt-source-onboarding-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-onboarding-header,
+html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-onboarding-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 0;
+  padding: 0.15rem 0 0.35rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+.idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-onboarding-header h1,
+html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-onboarding-header h1 {
+  margin: 0 0 0.35rem;
+  color: #ffffff;
+  font-family: var(--idt-display);
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  text-wrap: balance;
+}
+
+.idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-onboarding-header p,
+html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-onboarding-header p {
+  max-width: 76ch;
+  color: var(--app-muted);
+}
+
+.idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-logo-mark.is-hero {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-color: var(--app-border-soft);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 36px rgba(0, 0, 0, 0.22);
+}
+
+.idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-wizard-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-config {
+  gap: 1rem;
+  width: 100%;
+  padding: 1.15rem;
+}
+
+.idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-meta {
+  grid-template-columns: minmax(0, 1.25fr) minmax(10rem, 0.45fr) minmax(13rem, 0.62fr);
+}
+
 @media (max-width: 980px) {
   .idt-app-console-layout .idt-projects-summary,
   .idt-app-console-layout .idt-projects-grid,
@@ -24084,6 +24155,19 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-meta div {
 
   .idt-app-console-layout .idt-source-card {
     min-height: 0;
+  }
+
+  .idt-source-onboarding-title-row,
+  .idt-source-onboarding-actions {
+    align-items: flex-start;
+  }
+
+  .idt-source-onboarding-actions {
+    justify-content: flex-start;
+  }
+
+  .idt-app-console-layout .idt-source-onboarding.is-source-scoped .idt-source-onboarding-header {
+    grid-template-columns: 1fr;
   }
 }
 
