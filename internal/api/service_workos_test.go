@@ -361,6 +361,60 @@ func TestUpsertWorkOSUserLoginIntentRefusesReturningDeactivatedIdentity(t *testi
 	}
 }
 
+func TestUpsertWorkOSUserSignupIntentClearsDeletedAtOnIdentityResolvedPath(t *testing.T) {
+	// Regression: when a returning user already has a WorkOS identity row and
+	// the underlying account was previously soft-deleted, signup-intent must
+	// clear DeletedAt as well as flipping status. Without that, downstream
+	// callers of workOSUserCanBeReactivated keep treating the account as
+	// reactivatable and the soft-delete sentinel survives.
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-24 * time.Hour)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "returning@example.com",
+		DisplayName:  "Returning",
+		Status:       "deleted",
+		DeletedAt:    &deletedAt,
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_returning_softdeleted",
+		Email:               "returning@example.com",
+		LastAuthenticatedAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+
+	result, err := svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:            "user_workos_returning_softdeleted",
+		Email:         "returning@example.com",
+		EmailVerified: true,
+	}, "signup")
+	if err != nil {
+		t.Fatalf("signup-intent reactivation: %v", err)
+	}
+	if result.User.Status != "active" {
+		t.Fatalf("expected status=active after reactivation, got %q", result.User.Status)
+	}
+	if result.User.DeletedAt != nil {
+		t.Fatalf("expected DeletedAt cleared after reactivation, got %v", result.User.DeletedAt)
+	}
+	stored, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load reactivated user: %v", err)
+	}
+	if stored.DeletedAt != nil {
+		t.Fatalf("expected stored DeletedAt cleared, got %v", stored.DeletedAt)
+	}
+}
+
 func TestUpsertManualUserSessionContextRefusesDeactivatedAccount(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

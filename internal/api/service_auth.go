@@ -119,9 +119,17 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		} else if emailErr != nil && !errors.Is(emailErr, db.ErrNotFound) {
 			return WorkOSLoginResult{}, emailErr
 		}
-		if workOSUserCanBeReactivated(user) && intent != workOSAuthIntentSignup {
-			auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
-			return WorkOSLoginResult{}, ErrAuthReactivationRequired
+		if workOSUserCanBeReactivated(user) {
+			if intent != workOSAuthIntentSignup {
+				auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthReactivationRequired
+			}
+			// Mirror the unbound-identity reactivation branch below: a
+			// signup-intent sign-in that revives a soft-deleted row must
+			// clear DeletedAt, otherwise workOSUserCanBeReactivated keeps
+			// returning true and downstream code that gates on DeletedAt
+			// continues to treat the account as deleted.
+			user.DeletedAt = nil
 		}
 		user.PrimaryEmail = email
 		user.DisplayName = displayName
