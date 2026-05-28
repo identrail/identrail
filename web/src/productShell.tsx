@@ -2192,6 +2192,7 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
 
     const loadEnvironments = async () => {
       try {
+        const requestedID = normalizeValue(requestedEnvironmentID);
         const response = await apiClient.listProjects(
           scope.workspaceID,
           {
@@ -2205,7 +2206,27 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
         if (!active) {
           return;
         }
-        setItems(response.items ?? []);
+        let nextItems = response.items ?? [];
+        if (requestedID && !nextItems.some((item) => item.project_id === requestedID)) {
+          try {
+            const requestedResponse = await apiClient.getProject(
+              scope.workspaceID,
+              requestedID,
+              buildProductAuthContext(scope)
+            );
+            if (!active) {
+              return;
+            }
+            if (!normalizeValue(requestedResponse.project.archived_at ?? '')) {
+              nextItems = [requestedResponse.project, ...nextItems];
+            }
+          } catch {
+            if (!active) {
+              return;
+            }
+          }
+        }
+        setItems(nextItems);
       } catch (loadError) {
         if (!active) {
           return;
@@ -2224,13 +2245,13 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
     return () => {
       active = false;
     };
-  }, [scope?.tenantID, scope?.workspaceID]);
+  }, [requestedEnvironmentID, scope?.tenantID, scope?.workspaceID]);
 
   const selected = useMemo(() => {
     const requested = normalizeValue(requestedEnvironmentID);
-    return items.find((item) => item.project_id === requested) ?? items[0] ?? null;
+    return items.find((item) => item.project_id === requested) ?? null;
   }, [items, requestedEnvironmentID]);
-  const selectedID = selected?.project_id ?? normalizeValue(requestedEnvironmentID);
+  const selectedID = normalizeValue(requestedEnvironmentID) || selected?.project_id || items[0]?.project_id || '';
 
   return { items, selectedID, loading, error };
 }
@@ -2243,16 +2264,19 @@ function ProductEnvironmentSelector({
   onChange: (environmentID: string) => void;
 }) {
   const hasEnvironments = state.items.length > 0;
+  const selectedID = normalizeValue(state.selectedID);
+  const selectedIsLoaded = state.items.some((item) => item.project_id === selectedID);
 
   return (
     <label className="idt-environment-selector">
       <span>Environment</span>
       <select
         aria-label="Environment"
-        value={hasEnvironments ? state.selectedID : ''}
-        disabled={state.loading || !hasEnvironments}
+        value={selectedID}
+        disabled={state.loading || (!hasEnvironments && !selectedID)}
         onChange={(event) => onChange(event.target.value)}
       >
+        {selectedID && !selectedIsLoaded ? <option value={selectedID}>{environmentFallbackLabel(selectedID)}</option> : null}
         {hasEnvironments ? (
           state.items.map((item) => (
             <option key={item.project_id} value={item.project_id}>
@@ -2263,7 +2287,7 @@ function ProductEnvironmentSelector({
           <option value="">Default environment</option>
         )}
       </select>
-      <small>{state.loading ? 'Loading...' : state.error || !hasEnvironments ? 'Default environment' : 'Active scope'}</small>
+      <small>{state.loading ? 'Loading...' : state.error ? state.error : selectedID ? 'Active scope' : 'Default environment'}</small>
     </label>
   );
 }
@@ -4913,16 +4937,10 @@ export function ProductProjectsPage() {
     event.preventDefault();
 
     const name = normalizeValue(draftName);
-    const projectID = uniqueEnvironmentToken(name, projects);
-    const slug = projectID;
     const description = normalizeValue(draftDescription);
 
     if (!name) {
       setError('Environment name is required.');
-      return;
-    }
-    if (!projectID) {
-      setError('Enter a readable environment name.');
       return;
     }
 
@@ -4931,6 +4949,13 @@ export function ProductProjectsPage() {
 
     try {
       const auth = buildProductAuthContext(scope);
+      const knownProjects = await listOverviewProjects(scope.workspaceID, { include_archived: true }, auth);
+      const projectID = uniqueEnvironmentToken(name, knownProjects);
+      const slug = projectID;
+      if (!projectID) {
+        setError('Enter a readable environment name.');
+        return;
+      }
       const response = await apiClient.upsertProject(
         scope.workspaceID,
         {

@@ -678,6 +678,62 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText('Route contract')).toBeInTheDocument();
   });
 
+  it('keeps a requested environment selected when it is outside the first selector page', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: Array.from({ length: 50 }, (_, index) => ({
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: `recent-environment-${index + 1}`,
+        name: `Recent Environment ${index + 1}`,
+        slug: `recent-environment-${index + 1}`,
+        description: '',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }))
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'older-production',
+        name: 'Older Production',
+        slug: 'older-production',
+        description: 'Long-lived production boundary.',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-02T00:00:00Z'
+      }
+    });
+
+    const { ProductDomainRoutePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=older-production']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories"
+            element={<ProductDomainRoutePage domain="github" routeID="repositories" />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('older-production'));
+    expect(api.apiClient.getProject).toHaveBeenCalledWith(
+      'workspace-a',
+      'older-production',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(screen.getByRole('link', { name: /Connect GitHub/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github/connect?environment=older-production'
+    );
+    expect(screen.getByRole('link', { name: /GitHub findings/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/github/findings?environment=older-production'
+    );
+  });
+
   it('preserves the requested domain source when creating the first environment from connect', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
@@ -776,6 +832,16 @@ describe('Domain-first app routes', () => {
   it('creates a new unique environment key instead of overwriting an existing environment', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
+    const firstPageProjects = Array.from({ length: 50 }, (_, index) => ({
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: `recent-environment-${index + 1}`,
+      name: `Recent Environment ${index + 1}`,
+      slug: `recent-environment-${index + 1}`,
+      description: '',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    }));
     const existingProject = {
       tenant_id: 'tenant-a',
       workspace_id: 'workspace-a',
@@ -786,7 +852,15 @@ describe('Domain-first app routes', () => {
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z'
     };
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [existingProject] });
+    vi.spyOn(api.apiClient, 'listProjects').mockImplementation(async (_workspaceID, filters: any) => {
+      if (filters?.limit === 50) {
+        return { items: firstPageProjects };
+      }
+      if (filters?.cursor === 'older-page') {
+        return { items: [existingProject] };
+      }
+      return { items: firstPageProjects, next_cursor: 'older-page' };
+    });
     vi.spyOn(api.apiClient, 'upsertProject').mockImplementation(async (_workspaceID, payload: any) => ({
       project: {
         tenant_id: 'tenant-a',
