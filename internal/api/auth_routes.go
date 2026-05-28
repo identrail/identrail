@@ -1331,6 +1331,22 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			c.JSON(http.StatusConflict, gin.H{"error": "account is pending deletion", "code": authFailureReasonAccountDeleted})
 			return
 		}
+		// Order matters: revoke sessions BEFORE persisting the deactivated
+		// status. If status flipped first and the revoke call failed (or the
+		// process died between the two), the row would sit in `deactivated`
+		// with live session rows underneath; a later signup-intent
+		// reactivation would flip status back to `active` and TouchSession
+		// would happily accept those stale cookies, violating the contract
+		// that deactivation kills every session. Reversing the order makes
+		// the failure mode "user is signed out but account stays active",
+		// which is recoverable by retrying the request.
+		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+			if logger != nil {
+				logger.Error("deactivate revoke sessions", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+			return
+		}
 		if user.Status != "deactivated" {
 			if _, err := svc.Store.SetUserStatus(c.Request.Context(), user.ID, "deactivated", now); err != nil {
 				if logger != nil {
@@ -1339,13 +1355,6 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
 				return
 			}
-		}
-		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
-			if logger != nil {
-				logger.Error("deactivate revoke sessions", telemetry.ZapError(err))
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
-			return
 		}
 		auditAuthAction(c.Request.Context(), "auth.account.deactivate", user.ID, "success")
 		http.SetCookie(c.Writer, manager.ClearCookie())

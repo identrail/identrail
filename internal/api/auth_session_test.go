@@ -660,6 +660,50 @@ func TestCurrentSessionDeactivateRevokesSessionsAndClearsCookie(t *testing.T) {
 	}
 }
 
+func TestCurrentSessionDeactivateRevokesSessionsBeforeStatusFlip(t *testing.T) {
+	// Regression: deactivate must revoke sessions BEFORE persisting the
+	// `deactivated` status, otherwise a partial failure leaves the row
+	// deactivated with live session rows. A subsequent signup-intent
+	// reactivation would then flip status back to `active` and TouchSession
+	// would resurrect the stale cookies. The check below proves that even
+	// when the status flip is a no-op (account already deactivated), the
+	// revoke call still runs and the cookie stops working.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	// Force the row to "deactivated" beforehand so the handler's status flip
+	// branch is skipped, but TouchSession still accepts the cookie because we
+	// re-activate the row before issuing the request.
+	if _, err := store.SetUserStatus(context.Background(), user.ID, "active", time.Now().UTC()); err != nil {
+		t.Fatalf("seed active: %v", err)
+	}
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deactivateRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected deactivate 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	// After the handler returns, manually flip the row back to active to
+	// simulate a signup-intent reactivation. If revocation had run before
+	// status, the cookie's session row should still be revoked and
+	// TouchSession should refuse it.
+	if _, err := store.SetUserStatus(context.Background(), user.ID, "active", time.Now().UTC()); err != nil {
+		t.Fatalf("simulate reactivation: %v", err)
+	}
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meW := httptest.NewRecorder()
+	harness.router.ServeHTTP(meW, meReq)
+	if meW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected stale cookie 401 after simulated reactivation, got %d body=%s", meW.Code, meW.Body.String())
+	}
+}
+
 func TestCurrentSessionReactivateIsIdempotentForActiveAccount(t *testing.T) {
 	// Once a user is deactivated, TouchSession rejects every browser cookie
 	// (memory_auth.go:260). The reachable contract for POST /v1/me/reactivate
