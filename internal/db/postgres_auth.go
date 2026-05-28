@@ -116,6 +116,9 @@ func (p *PostgresStore) UpdateUserProfile(ctx context.Context, user User) (User,
 	)
 	saved, err := scanUser(row)
 	if err != nil {
+		if isTenancyUniqueViolation(err) {
+			return User{}, ErrConflict
+		}
 		return User{}, err
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{

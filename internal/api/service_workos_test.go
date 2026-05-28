@@ -548,3 +548,178 @@ func TestAttachSAMLIdentityToExistingUserPreservesLifecycleStatus(t *testing.T) 
 		t.Fatalf("expected UpsertUser to not be used by SAML attach path, got %d", store.upsertUserCalls)
 	}
 }
+
+type workOSReactivationStore struct {
+	*db.MemoryStore
+	upsertUserCalls    int
+	updateProfileCalls int
+	setStatusCalls     int
+}
+
+type staleReadWorkOSStore struct {
+	*db.MemoryStore
+	getUserCalls int
+}
+
+func (s *workOSReactivationStore) UpsertUser(ctx context.Context, user db.User) (db.User, error) {
+	s.upsertUserCalls++
+	return s.MemoryStore.UpsertUser(ctx, user)
+}
+
+func (s *workOSReactivationStore) UpdateUserProfile(ctx context.Context, user db.User) (db.User, error) {
+	s.updateProfileCalls++
+	return s.MemoryStore.UpdateUserProfile(ctx, user)
+}
+
+func (s *staleReadWorkOSStore) GetUser(ctx context.Context, userID string) (db.User, error) {
+	user, err := s.MemoryStore.GetUser(ctx, userID)
+	if err != nil {
+		return db.User{}, err
+	}
+	s.getUserCalls++
+	if s.getUserCalls == 1 {
+		user.Status = "active"
+	}
+	return user, nil
+}
+
+func (s *workOSReactivationStore) SetUserStatus(ctx context.Context, userID string, status string, now time.Time) (db.User, error) {
+	s.setStatusCalls++
+	return s.MemoryStore.SetUserStatus(ctx, userID, status, now)
+}
+
+func TestUpsertWorkOSUserForIntentSignupReactivationUsesProfileUpdateThenStatusUpdate(t *testing.T) {
+	base := db.NewMemoryStore()
+	store := &workOSReactivationStore{MemoryStore: base}
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := base.UpsertUser(ctx, db.User{
+		PrimaryEmail: "reactivating@example.com",
+		DisplayName:  "Reacting",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := base.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "user_workos_reactivate_identity",
+		Email:               "reactivating@example.com",
+		EmailVerified:       true,
+		LastAuthenticatedAt: now.Add(-time.Hour),
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+
+	result, err := svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:                "user_workos_reactivate_identity",
+		Email:             "reactivating-new@example.com",
+		FirstName:         "Active",
+		LastName:          "Tester",
+		EmailVerified:     true,
+		ProfilePictureURL: "https://cdn.example/reactivated.png",
+	}, "signup")
+	if err != nil {
+		t.Fatalf("signup reactivation: %v", err)
+	}
+	if result.User.Status != "active" {
+		t.Fatalf("expected active status, got %q", result.User.Status)
+	}
+	if store.updateProfileCalls != 1 {
+		t.Fatalf("expected one profile update, got %d", store.updateProfileCalls)
+	}
+	if store.setStatusCalls != 1 {
+		t.Fatalf("expected one status update, got %d", store.setStatusCalls)
+	}
+	if store.upsertUserCalls != 0 {
+		t.Fatalf("expected no upsert during reactivation, got %d", store.upsertUserCalls)
+	}
+	if result.User.PrimaryEmail != "reactivating-new@example.com" {
+		t.Fatalf("expected refreshed primary email, got %q", result.User.PrimaryEmail)
+	}
+}
+
+func TestUpsertWorkOSUserForIntentLoginUsesFreshStateBeforeSessionFlip(t *testing.T) {
+	base := db.NewMemoryStore()
+	store := &staleReadWorkOSStore{MemoryStore: base}
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := context.Background()
+	user, err := base.UpsertUser(ctx, db.User{
+		PrimaryEmail: "stale@example.com",
+		DisplayName:  "Stale User",
+		Status:       "deactivated",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := base.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            sessionauth.WorkOSProvider,
+		Subject:             "workos-stale",
+		Email:               "stale@example.com",
+		LastAuthenticatedAt: time.Now().UTC(),
+		CreatedAt:           time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+
+	_, err = svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:            "workos-stale",
+		Email:         "stale@example.com",
+		EmailVerified: true,
+	}, "login")
+	if !errors.Is(err, ErrAuthReactivationRequired) {
+		t.Fatalf("expected reactivation required after fresh read catches deactivation, got %v", err)
+	}
+	stored, err := base.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("load stored user: %v", err)
+	}
+	if stored.Status != "deactivated" {
+		t.Fatalf("expected stored user to remain deactivated, got %q", stored.Status)
+	}
+}
+
+func TestUpsertWorkOSUserForIntentEmailResolvedReactivationUsesProfileUpdateThenStatusUpdate(t *testing.T) {
+	base := db.NewMemoryStore()
+	store := &workOSReactivationStore{MemoryStore: base}
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	if _, err := base.UpsertUser(ctx, db.User{
+		PrimaryEmail: "rea-email@example.com",
+		DisplayName:  "Email React",
+		Status:       "deactivated",
+	}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	result, err := svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:                "rea-email-subject",
+		Email:             "rea-email@example.com",
+		FirstName:         "Email",
+		LastName:          "Reactivated",
+		EmailVerified:     true,
+		ProfilePictureURL: "https://cdn.example/rea.png",
+	}, "signup")
+	if err != nil {
+		t.Fatalf("signup reactivation by email: %v", err)
+	}
+	if result.User.Status != "active" {
+		t.Fatalf("expected active status, got %q", result.User.Status)
+	}
+	if store.updateProfileCalls != 1 {
+		t.Fatalf("expected one profile update, got %d", store.updateProfileCalls)
+	}
+	if store.setStatusCalls != 1 {
+		t.Fatalf("expected one status update, got %d", store.setStatusCalls)
+	}
+	if store.upsertUserCalls != 0 {
+		t.Fatalf("expected no upsert during reactivation, got %d", store.upsertUserCalls)
+	}
+}

@@ -82,6 +82,14 @@ jobs:
                       commit { oid }
                     }
                   }
+                  reviews(first: 100, states: APPROVED) {
+                    nodes {
+                      state
+                      authorAssociation
+                      author { login }
+                      commit { oid }
+                    }
+                  }
                 }
               }
             }')"
@@ -99,14 +107,15 @@ jobs:
           fi
 
           latest_reviews="$(jq -c '.data.repository.pullRequest.latestReviews.nodes' <<< "${review_state_json}")"
+          review_approvals="$(jq -c '.data.repository.pullRequest.reviews.nodes' <<< "${review_state_json}")"
 
           approved_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "APPROVED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR")) ] | length' <<< "${latest_reviews}")"
-          if [ "${approved_on_head}" -lt 1 ]; then
+          trusted_approved_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select((.state == "APPROVED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR") and ((.author.login // "") != ""))) | .author.login ] | sort | unique | length' <<< "${review_approvals}")"
+          if [ "${approved_on_head}" -lt 1 ] && [ "${trusted_approved_on_head}" -lt 1 ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "No approved review from a member/owner/collaborator was found for the merged commit ${head_sha}; skipping production deploy."
+            echo "No trusted approval for the merged commit ${head_sha} was found; skipping production deploy."
             exit 0
           fi
-
           # Apply the same trusted-author filter to CHANGES_REQUESTED so a
           # non-trusted reviewer cannot permanently block production deploys.
           requested_changes_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "CHANGES_REQUESTED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR")) ] | length' <<< "${latest_reviews}")"
