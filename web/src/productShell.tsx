@@ -1145,7 +1145,7 @@ function sourceConnection(connections: SourceConnectionMap, provider: SourceProv
 function buildSourceAvailability(backendFeatures: BackendFeatures): Record<SourceProvider, SourceAvailability> {
   return {
     github: {
-      visible: FEATURE_CONNECTOR_GITHUB_V2,
+      visible: true,
       available: isFeatureAvailable(FEATURE_CONNECTOR_GITHUB_V2, backendFeatures.connectors.github),
       unavailableMessage: backendFeatures.connectors.github === false ? 'Not available on this API server.' : undefined
     },
@@ -1154,7 +1154,7 @@ function buildSourceAvailability(backendFeatures: BackendFeatures): Record<Sourc
       available: true
     },
     kubernetes: {
-      visible: FEATURE_CONNECTOR_K8S,
+      visible: true,
       available: isFeatureAvailable(FEATURE_CONNECTOR_K8S, backendFeatures.connectors.kubernetes),
       unavailableMessage: backendFeatures.connectors.kubernetes === false ? 'Not available on this API server.' : undefined
     }
@@ -1925,7 +1925,16 @@ function findActiveDomainRouteID(
 
 function SidebarDomainIcon({ domain }: { domain: SourceProvider }) {
   const asset = getDomainAsset(domain);
-  return <img src={asset.logoSrc} alt="" aria-hidden="true" loading="lazy" decoding="async" />;
+  return (
+    <img
+      className={`idt-sidebar-domain-logo is-${domain}`}
+      src={asset.logoSrc}
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+      decoding="async"
+    />
+  );
 }
 
 function ProductDomainFlyoutRouteLink({
@@ -1957,15 +1966,17 @@ function ProductDomainFlyoutRouteLink({
     >
       <span className="idt-domain-flyout-link-copy">
         <strong>{route.label}</strong>
-        <span>{route.eyebrow}</span>
-      </span>
-      <span className="idt-domain-flyout-link-meta">
-        {route.id === 'connect' ? 'Connect / scan' : route.id.includes('findings') ? 'Findings' : route.phase}
       </span>
       <ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
     </Link>
   );
 }
+
+const DOMAIN_FLYOUT_SUMMARIES: Record<SourceProvider, string> = {
+  aws: 'Machine identities, resources, runtime, risk.',
+  github: 'Repositories, Actions, agentic surfaces, risk.',
+  kubernetes: 'Clusters, workloads, service accounts, RBAC.'
+};
 
 function ProductDomainFlyout({
   domain,
@@ -2008,23 +2019,28 @@ function ProductDomainFlyout({
           <img src={asset.logoSrc} alt="" loading="lazy" decoding="async" />
         </span>
         <div>
-          <p>{config.navLabel} section</p>
+          <p>Section</p>
           <h2>{config.navLabel}</h2>
-          <span>{config.description}</span>
+          <span>{DOMAIN_FLYOUT_SUMMARIES[domain]}</span>
         </div>
       </header>
 
       <div className="idt-domain-flyout-actions">
-        <Link data-domain-flyout-primary="true" to={domainHome} onClick={onClose}>
-          Open {config.navLabel} Control Center
+        <Link
+          data-domain-flyout-primary="true"
+          to={domainHome}
+          aria-label={`Open ${config.navLabel} Control Center`}
+          onClick={onClose}
+        >
+          Control Center
         </Link>
-        <Link to={connectPath} onClick={onClose}>
-          Connect / scan
+        <Link to={connectPath} aria-label={`Connect ${config.navLabel}`} onClick={onClose}>
+          Connect
         </Link>
       </div>
 
       <div className="idt-domain-flyout-section">
-        <span className="idt-domain-flyout-section-label">Start here</span>
+        <span className="idt-domain-flyout-section-label">Start</span>
         <div className="idt-domain-flyout-list">
           {startRoutes.map((route) => (
             <ProductDomainFlyoutRouteLink
@@ -2041,7 +2057,7 @@ function ProductDomainFlyout({
 
       {surfaceRoutes.length ? (
         <div className="idt-domain-flyout-section">
-          <span className="idt-domain-flyout-section-label">Inventory and evidence</span>
+          <span className="idt-domain-flyout-section-label">Inventory</span>
           <div className="idt-domain-flyout-list">
             {surfaceRoutes.map((route) => (
               <ProductDomainFlyoutRouteLink
@@ -2064,7 +2080,7 @@ function ProductDomainFlyout({
             <summary>
               <span>
                 <strong>{route.label}</strong>
-                <small>{route.eyebrow}</small>
+                <small>Agent surfaces</small>
               </span>
               <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
             </summary>
@@ -2094,7 +2110,7 @@ function ProductDomainFlyout({
 
       {riskRoutes.length ? (
         <div className="idt-domain-flyout-section">
-          <span className="idt-domain-flyout-section-label">Findings and action</span>
+          <span className="idt-domain-flyout-section-label">Risk</span>
           <div className="idt-domain-flyout-list">
             {riskRoutes.map((route) => (
               <ProductDomainFlyoutRouteLink
@@ -2489,7 +2505,7 @@ export function ProductShellLayout() {
       }
     ];
 
-    if (sourceAvailability.aws.available) {
+    if (sourceAvailability.aws.visible) {
       items.push({
         id: 'aws',
         label: 'AWS',
@@ -2498,35 +2514,30 @@ export function ProductShellLayout() {
         path: `${basePath}/aws`
       });
       items.push({
-        id: 'aws-connect',
-        label: 'Connect AWS',
-        description: 'Start AWS account and identity onboarding',
-        keywords: ['aws', 'connect', 'account', 'role'],
-        path: `${basePath}/aws/connect`
-      });
-      items.push({
         id: 'aws-findings',
         label: 'AWS findings',
         description: 'Domain-scoped AWS risk queue',
         keywords: ['aws', 'findings', 'risk', 'iam'],
         path: `${basePath}/aws/findings`
       });
+      if (sourceAvailability.aws.available) {
+        items.push({
+          id: 'aws-connect',
+          label: 'Connect AWS',
+          description: 'Start AWS account and identity onboarding',
+          keywords: ['aws', 'connect', 'account', 'role'],
+          path: `${basePath}/aws/connect`
+        });
+      }
     }
 
-    if (sourceAvailability.github.available) {
+    if (sourceAvailability.github.visible) {
       items.push({
         id: 'github',
         label: 'GitHub',
         description: 'Repositories, Actions/OIDC, and agentic risk',
         keywords: ['github', 'repositories', 'actions', 'oidc'],
         path: `${basePath}/github`
-      });
-      items.push({
-        id: 'github-connect',
-        label: 'Connect GitHub',
-        description: 'Start GitHub App onboarding',
-        keywords: ['github', 'connect', 'app', 'install'],
-        path: `${basePath}/github/connect`
       });
       items.push({
         id: 'github-findings',
@@ -2543,9 +2554,18 @@ export function ProductShellLayout() {
         keywords: ['github', 'agentic', 'ai', 'mcp', 'tools', 'prompts', 'secrets', 'workflow'],
         path: `${basePath}/github/agentic-risk`
       });
+      if (sourceAvailability.github.available) {
+        items.push({
+          id: 'github-connect',
+          label: 'Connect GitHub',
+          description: 'Start GitHub App onboarding',
+          keywords: ['github', 'connect', 'app', 'install'],
+          path: `${basePath}/github/connect`
+        });
+      }
     }
 
-    if (sourceAvailability.kubernetes.available) {
+    if (sourceAvailability.kubernetes.visible) {
       items.push({
         id: 'kubernetes',
         label: 'Kubernetes',
@@ -2554,19 +2574,21 @@ export function ProductShellLayout() {
         path: `${basePath}/kubernetes`
       });
       items.push({
-        id: 'kubernetes-connect',
-        label: 'Connect Kubernetes',
-        description: 'Start cluster onboarding',
-        keywords: ['kubernetes', 'k8s', 'connect', 'cluster'],
-        path: `${basePath}/kubernetes/connect`
-      });
-      items.push({
         id: 'kubernetes-findings',
         label: 'Kubernetes findings',
         description: 'Cluster and service-account risk queue',
         keywords: ['kubernetes', 'k8s', 'findings', 'rbac'],
         path: `${basePath}/kubernetes/findings`
       });
+      if (sourceAvailability.kubernetes.available) {
+        items.push({
+          id: 'kubernetes-connect',
+          label: 'Connect Kubernetes',
+          description: 'Start cluster onboarding',
+          keywords: ['kubernetes', 'k8s', 'connect', 'cluster'],
+          path: `${basePath}/kubernetes/connect`
+        });
+      }
     }
 
     items.push(
@@ -2669,10 +2691,21 @@ export function ProductShellLayout() {
   }, [commandOpen]);
 
   useEffect(() => {
-    if (openDomainFlyout && !sourceAvailability[openDomainFlyout].available) {
-      setOpenDomainFlyout(null);
+    if (!openDomainFlyout || typeof document === 'undefined') {
+      return undefined;
     }
-  }, [openDomainFlyout, sourceAvailability]);
+
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootOverflow = root.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    root.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    return () => {
+      root.style.overflow = previousRootOverflow;
+      body.style.overflow = previousBodyOverflow;
+    };
+  }, [openDomainFlyout]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2991,7 +3024,14 @@ export function ProductShellLayout() {
 
           <nav className="idt-app-shell-nav" aria-label="App sections">
             <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Control plane</div>
-            <NavLink to={basePath} end aria-label="Overview" title={sidebarCollapsed ? 'Overview' : undefined} onClick={closeDomainFlyout}>
+            <NavLink
+              to={basePath}
+              end
+              aria-label="Overview"
+              title={sidebarCollapsed ? 'Overview' : undefined}
+              className={({ isActive }) => (isActive && !openDomainFlyout ? 'active' : undefined)}
+              onClick={closeDomainFlyout}
+            >
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <LayoutDashboard size={16} strokeWidth={1.75} />
               </span>
@@ -3000,7 +3040,6 @@ export function ProductShellLayout() {
             {visibleDomainOrder.map((domain) => {
               const config = PRODUCT_DOMAIN_CONFIGS[domain];
               const availability = sourceAvailability[domain];
-              const isAvailable = availability.available;
               const isActive = activeDomain === domain;
               const isOpen = openDomainFlyout === domain;
               const triggerID = `idt-${domain}-domain-trigger`;
@@ -3012,20 +3051,16 @@ export function ProductShellLayout() {
                       domainTriggerRefs.current[domain] = node;
                     }}
                     type="button"
-                    className={`idt-app-nav-domain-trigger${isActive ? ' is-active' : ''}${isOpen ? ' is-open' : ''}${isAvailable ? '' : ' is-unavailable'}`}
-                    disabled={!isAvailable}
+                    className={`idt-app-nav-domain-trigger${isActive ? ' is-active' : ''}${isOpen ? ' is-open' : ''}`}
+                    data-connector-available={availability.available ? 'true' : 'false'}
                     aria-haspopup="dialog"
                     aria-expanded={isOpen}
                     aria-controls={isOpen ? `idt-${domain}-domain-flyout` : undefined}
-                    aria-label={
-                      isAvailable
-                        ? config.navLabel
-                        : `${config.navLabel}: ${availability.unavailableMessage ?? 'Unavailable'}`
-                    }
+                    aria-label={config.navLabel}
                     title={
                       sidebarCollapsed
                         ? config.navLabel
-                        : !isAvailable
+                        : !availability.available
                           ? availability.unavailableMessage ?? 'Unavailable'
                           : undefined
                     }
@@ -4952,9 +4987,18 @@ export function ProductProjectDetailPage() {
   const repoScanSubmitSequenceRef = useRef(0);
   const githubPostureRequestRef = useRef(0);
   const sourceAvailability = useMemo(() => buildSourceAvailability(backendFeatures), [backendFeatures]);
+  const selectedSourceFromConnect = useMemo(() => {
+    return normalizeSourceProvider(new URLSearchParams(location.search).get('source'));
+  }, [location.search]);
+  const sourceScope = useMemo(() => {
+    if (!selectedSourceFromConnect || !sourceAvailability[selectedSourceFromConnect]?.visible) {
+      return null;
+    }
+    return selectedSourceFromConnect;
+  }, [selectedSourceFromConnect, sourceAvailability]);
   const sourceOrder = useMemo(
-    () => SOURCE_ORDER.filter((provider) => sourceAvailability[provider].visible),
-    [sourceAvailability]
+    () => (sourceScope ? [sourceScope] : SOURCE_ORDER.filter((provider) => sourceAvailability[provider].visible)),
+    [sourceAvailability, sourceScope]
   );
   const actionableSourceOrder = useMemo(
     () => sourceOrder.filter((provider) => sourceAvailability[provider].available),
@@ -4966,10 +5010,9 @@ export function ProductProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState<SourceProvider | ''>('');
-  const [selectedSource, setSelectedSource] = useState<SourceProvider>(SOURCE_ORDER[0] ?? 'aws');
-  const selectedSourceFromConnect = useMemo(() => {
-    return normalizeSourceProvider(new URLSearchParams(location.search).get('source'));
-  }, [location.search]);
+  const [selectedSource, setSelectedSource] = useState<SourceProvider>(
+    selectedSourceFromConnect ?? SOURCE_ORDER[0] ?? 'aws'
+  );
   const [successMessage, setSuccessMessage] = useState('');
   const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);
   const [githubAppForm, setGitHubAppForm] = useState({
@@ -5298,18 +5341,18 @@ export function ProductProjectDetailPage() {
   ]);
 
   useEffect(() => {
-    if (backendFeaturesLoading || sourceAvailability[selectedSource]?.available) {
+    if (backendFeaturesLoading || sourceScope || sourceAvailability[selectedSource]?.available) {
       return;
     }
     setSelectedSource(actionableSourceOrder[0] ?? 'aws');
-  }, [actionableSourceOrder, backendFeaturesLoading, selectedSource, sourceAvailability]);
+  }, [actionableSourceOrder, backendFeaturesLoading, selectedSource, sourceAvailability, sourceScope]);
 
   useEffect(() => {
     if (!selectedSourceFromConnect || backendFeaturesLoading) {
       return;
     }
 
-    if (sourceAvailability[selectedSourceFromConnect]?.available) {
+    if (sourceAvailability[selectedSourceFromConnect]?.visible) {
       setSelectedSource(selectedSourceFromConnect);
     }
   }, [backendFeaturesLoading, selectedSourceFromConnect, sourceAvailability]);
@@ -5430,6 +5473,12 @@ export function ProductProjectDetailPage() {
   const selectedProfile = SOURCE_PROFILES[selectedSource];
   const selectedAvailability = sourceAvailability[selectedSource] ?? { visible: true, available: true };
   const selectedUnavailable = !selectedAvailability.available;
+  const sourceScopeProfile = sourceScope ? SOURCE_PROFILES[sourceScope] : null;
+  const sourcePageKicker = sourceScopeProfile ? `${sourceScopeProfile.name} source` : 'Project sources';
+  const sourcePageTitle = sourceScopeProfile ? `Connect ${sourceScopeProfile.name}` : 'Connect project sources';
+  const sourcePageBody = sourceScopeProfile
+    ? `${sourceScopeProfile.summary} This page is scoped to ${sourceScopeProfile.name}.`
+    : 'Install source connections to collect repository, workflow, and cloud identity signals.';
 
   const handleGitHubStart = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -5924,13 +5973,19 @@ export function ProductProjectDetailPage() {
   };
 
   return (
-    <section className="idt-app-panel idt-source-onboarding">
+    <section className={`idt-app-panel idt-source-onboarding${sourceScope ? ' is-source-scoped' : ''}`}>
       <div className="idt-source-onboarding-header">
         <div>
-          <p className="idt-app-kicker">Project sources</p>
-          <h2>Connect project sources</h2>
+          <p className="idt-app-kicker">{sourcePageKicker}</p>
+          <h2>{sourcePageTitle}</h2>
           <p>
-            Install source connections for <strong>{projectID}</strong> to collect repository, workflow, and cloud identity signals.
+            {sourceScopeProfile ? (
+              sourcePageBody
+            ) : (
+              <>
+                {sourcePageBody} Project <strong>{projectID}</strong>.
+              </>
+            )}
           </p>
         </div>
         <button
@@ -5952,7 +6007,7 @@ export function ProductProjectDetailPage() {
       ) : null}
 
       <div className="idt-source-wizard-grid">
-        <aside className="idt-source-picker" aria-label="Source types">
+        <aside className="idt-source-picker" aria-label={sourceScopeProfile ? `${sourceScopeProfile.name} source` : 'Source types'}>
           {sourceOrder.map((provider) => {
             const profile = SOURCE_PROFILES[provider];
             const status = sourceConnection(connections, provider);

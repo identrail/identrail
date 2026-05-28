@@ -174,6 +174,7 @@ async function renderProjectDetail(
   githubBackend: BackendFeatureState,
   githubConnection = connectedGitHub,
   options: {
+    initialEntry?: string;
     repoScanError?: { message: string; status: number; code?: string; detail?: string };
     repoScans?: RepoScanRecord[];
     listRepoScans?: () => Promise<{ items: RepoScanRecord[] }>;
@@ -292,7 +293,7 @@ async function renderProjectDetail(
   }
 
   render(
-    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects/project-1']}>
+    <MemoryRouter initialEntries={[options.initialEntry ?? '/app/tenant-a/workspace-a/projects/project-1']}>
       <Routes>
         <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<ProjectDetailHarness />} />
       </Routes>
@@ -358,7 +359,7 @@ describe('ProductShellLayout', () => {
     vi.resetModules();
   });
 
-  it('limits default source logo stacks to feature-enabled connectors', async () => {
+  it('keeps source logo stacks feature-scoped while domain sections stay discoverable', async () => {
     vi.resetModules();
     vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
       const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
@@ -395,8 +396,8 @@ describe('ProductShellLayout', () => {
     expect(screen.getAllByRole('img', { name: 'AWS' }).length).toBeGreaterThan(0);
     expect(screen.queryByRole('img', { name: 'GitHub' })).not.toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Kubernetes' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'GitHub' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Kubernetes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Kubernetes' })).toBeInTheDocument();
   });
 });
 
@@ -432,6 +433,12 @@ describe('ProductShellLayout', () => {
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Findings' })).not.toBeInTheDocument();
 
+    expect(screen.getByRole('link', { name: 'Overview' })).toHaveClass('active');
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+    expect(screen.getByRole('link', { name: 'Overview' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'AWS' })).toHaveClass('is-open');
+    fireEvent.keyDown(window, { key: 'Escape' });
+
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
     const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
     expect(within(githubFlyout).getByRole('link', { name: /Open GitHub Control Center/i })).toBeInTheDocument();
@@ -450,7 +457,7 @@ describe('ProductShellLayout', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings content/i })).toBeInTheDocument();
   });
 
-  it('disables GitHub domain navigation when the API does not advertise the connector', async () => {
+  it('keeps GitHub domain navigation open when the connector is unavailable', async () => {
     vi.resetModules();
     vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
       const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
@@ -474,14 +481,15 @@ describe('ProductShellLayout', () => {
       </MemoryRouter>
     );
 
-    const githubButton = screen.getByRole('button', { name: /GitHub: Not available on this API server/i });
-    expect(githubButton).toBeDisabled();
+    const githubButton = screen.getByRole('button', { name: 'GitHub' });
+    expect(githubButton).not.toBeDisabled();
     fireEvent.click(githubButton);
-    expect(screen.queryByRole('dialog', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'GitHub' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '/' });
     expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'github' } });
+    expect(screen.getAllByRole('option', { name: /^GitHub\b/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole('option', { name: /Connect GitHub/i })).not.toBeInTheDocument();
   });
 });
@@ -674,6 +682,18 @@ describe('ProductProjectDetailPage', () => {
       'project-1',
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
+  });
+
+  it('scopes domain connect pages to the requested provider', async () => {
+    await renderProjectDetail(true, connectedGitHub, {
+      initialEntry: '/app/tenant-a/workspace-a/projects/project-1?source=github'
+    });
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' })).toBeInTheDocument();
+    const picker = screen.getByLabelText('GitHub source');
+    expect(within(picker).getByRole('button', { name: /GitHub/i })).toBeInTheDocument();
+    expect(within(picker).queryByRole('button', { name: /AWS/i })).not.toBeInTheDocument();
+    expect(within(picker).queryByRole('button', { name: /Kubernetes/i })).not.toBeInTheDocument();
   });
 
   it('opens GitHub installation in a new tab through GitHub account picker', async () => {
