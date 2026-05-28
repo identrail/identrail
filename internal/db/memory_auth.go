@@ -44,6 +44,40 @@ func (m *MemoryStore) UpsertUser(ctx context.Context, user User) (User, error) {
 	return normalized, nil
 }
 
+// UpdateUserProfile refreshes user metadata without changing account status.
+func (m *MemoryStore) UpdateUserProfile(ctx context.Context, user User) (User, error) {
+	normalized, err := NormalizeUserForWrite(user)
+	if err != nil {
+		return User{}, err
+	}
+	m.mu.Lock()
+	existing, exists := m.users[normalized.ID]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	for id, other := range m.users {
+		if other.PrimaryEmail == normalized.PrimaryEmail && id != normalized.ID {
+			m.mu.Unlock()
+			return User{}, ErrConflict
+		}
+	}
+	existing.PrimaryEmail = normalized.PrimaryEmail
+	existing.DisplayName = normalized.DisplayName
+	existing.AvatarURL = normalized.AvatarURL
+	existing.UpdatedAt = normalized.UpdatedAt
+	existing.DeletedAt = normalized.DeletedAt
+	m.users[normalized.ID] = existing
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.profile_update",
+		ResourceType: "user",
+		ResourceID:   normalized.ID,
+		Outcome:      "success",
+	})
+	return existing, nil
+}
+
 // GetUser returns one account by UUID.
 func (m *MemoryStore) GetUser(ctx context.Context, userID string) (User, error) {
 	m.mu.RLock()
@@ -223,6 +257,10 @@ func (m *MemoryStore) CreateSession(ctx context.Context, session Session) (Sessi
 	m.mu.Lock()
 	user, exists := m.users[normalized.UserID]
 	if !exists {
+		m.mu.Unlock()
+		return Session{}, ErrNotFound
+	}
+	if user.DeletedAt != nil || user.Status != "active" {
 		m.mu.Unlock()
 		return Session{}, ErrNotFound
 	}

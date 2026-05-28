@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"testing"
 	"time"
 
@@ -291,6 +292,211 @@ func TestPostgresAuthMethodsBypassScopeRLS(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if _, err := store.RevokeAllUserSessions(ctx, userID, now.Add(time.Minute)); err != nil {
 		t.Fatalf("revoke all sessions without scope under rls: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresAuthCreateSessionRejectsInactiveAndDeletedUsers(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 15, 0, 0, 0, time.UTC)
+	userID := "11111111-1111-1111-1111-111111111111"
+	sessionHash := sha256.Sum256([]byte("inactive-postgres-session"))
+
+	mock.ExpectQuery("INSERT INTO users").
+		WithArgs(userID, "inactive@example.com", "Alice", "", "active", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "inactive@example.com", "Alice", "", "active", now, now, nil))
+	_, err = store.UpsertUser(ctx, User{
+		ID:           userID,
+		PrimaryEmail: "inactive@example.com",
+		DisplayName:  "Alice",
+		Status:       "active",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+
+	mock.ExpectQuery("UPDATE users").
+		WithArgs(userID, "deactivated", now.Add(time.Minute)).
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "inactive@example.com", "Alice", "", "deactivated", now, now.Add(time.Minute), nil))
+	if _, err := store.SetUserStatus(ctx, userID, "deactivated", now.Add(time.Minute)); err != nil {
+		t.Fatalf("deactivate user: %v", err)
+	}
+
+	mock.ExpectQuery("WITH inserted AS").
+		WithArgs(
+			sessionHash[:],
+			userID,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			"manual",
+			"",
+			sqlmock.AnyArg(),
+			now.Add(15*time.Minute),
+			now.Add(24*time.Hour),
+			now,
+			sqlmock.AnyArg(),
+			now,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"user_id",
+			"current_org_id",
+			"current_workspace_id",
+			"current_project_id",
+			"auth_method",
+			"ip",
+			"user_agent",
+			"idle_expires_at",
+			"absolute_expires_at",
+			"last_seen_at",
+			"revoked_at",
+			"created_at",
+			"user_id_text",
+			"primary_email",
+			"display_name",
+			"avatar_url",
+			"status",
+			"user_created_at",
+			"user_updated_at",
+			"deleted_at",
+		}))
+	if _, err := store.CreateSession(ctx, Session{
+		ID:                sessionHash[:],
+		UserID:            userID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(24 * time.Hour),
+		LastSeenAt:        now,
+		CreatedAt:         now,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected inactive user to block session creation, got %v", err)
+	}
+
+	mock.ExpectQuery("INSERT INTO users").
+		WithArgs(userID, "inactive@example.com", "Alice", "", "deleted", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "inactive@example.com", "Alice", "", "deleted", now, now, now.Add(-time.Hour)))
+	_, err = store.UpsertUser(ctx, User{
+		ID:           userID,
+		PrimaryEmail: "inactive@example.com",
+		DisplayName:  "Alice",
+		Status:       "deleted",
+		DeletedAt:    func() *time.Time { at := now.Add(-time.Hour); return &at }(),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("mark user deleted: %v", err)
+	}
+
+	sessionHash2 := sha256.Sum256([]byte("deleted-postgres-session"))
+	mock.ExpectQuery("WITH inserted AS").
+		WithArgs(
+			sessionHash2[:],
+			userID,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			"manual",
+			"",
+			sqlmock.AnyArg(),
+			now.Add(15*time.Minute),
+			now.Add(24*time.Hour),
+			now,
+			sqlmock.AnyArg(),
+			now,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"user_id",
+			"current_org_id",
+			"current_workspace_id",
+			"current_project_id",
+			"auth_method",
+			"ip",
+			"user_agent",
+			"idle_expires_at",
+			"absolute_expires_at",
+			"last_seen_at",
+			"revoked_at",
+			"created_at",
+			"user_id_text",
+			"primary_email",
+			"display_name",
+			"avatar_url",
+			"status",
+			"user_created_at",
+			"user_updated_at",
+			"deleted_at",
+		}))
+	if _, err := store.CreateSession(ctx, Session{
+		ID:                sessionHash2[:],
+		UserID:            userID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(24 * time.Hour),
+		LastSeenAt:        now,
+		CreatedAt:         now,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted user to block session creation, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresUpdateUserProfilePreservesStatus(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 16, 0, 0, 0, time.UTC)
+	userID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery("INSERT INTO users").
+		WithArgs(userID, "active@example.com", "Alice", "", "deactivated", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "active@example.com", "Alice", "", "deactivated", now, now, nil))
+	_, err = store.UpsertUser(ctx, User{
+		ID:           userID,
+		PrimaryEmail: "active@example.com",
+		DisplayName:  "Alice",
+		Status:       "deactivated",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	mock.ExpectQuery("UPDATE users").
+		WithArgs(userID, "active@example.com", "Active Profile", "", now.Add(time.Minute), sqlmock.AnyArg()).
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "active@example.com", "Active Profile", "", "deactivated", now, now.Add(time.Minute), nil))
+	updated, err := store.UpdateUserProfile(ctx, User{
+		ID:           userID,
+		PrimaryEmail: "active@example.com",
+		DisplayName:  "Active Profile",
+		UpdatedAt:    now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("update user profile: %v", err)
+	}
+	if updated.Status != "deactivated" {
+		t.Fatalf("expected status to remain deactivated, got %q", updated.Status)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

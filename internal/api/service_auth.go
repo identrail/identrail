@@ -119,7 +119,8 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		} else if emailErr != nil && !errors.Is(emailErr, db.ErrNotFound) {
 			return WorkOSLoginResult{}, emailErr
 		}
-		if workOSUserCanBeReactivated(user) {
+		mustReactivate := workOSUserCanBeReactivated(user)
+		if mustReactivate {
 			if intent != workOSAuthIntentSignup {
 				auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthReactivationRequired
@@ -130,13 +131,19 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 			// returning true and downstream code that gates on DeletedAt
 			// continues to treat the account as deleted.
 			user.DeletedAt = nil
+			user.Status = "active"
 		}
 		user.PrimaryEmail = email
 		user.DisplayName = displayName
 		user.AvatarURL = strings.TrimSpace(profile.ProfilePictureURL)
-		user.Status = "active"
 		user.UpdatedAt = now
-		savedUser, saveErr := s.Store.UpsertUser(ctx, user)
+		var savedUser db.User
+		var saveErr error
+		if mustReactivate {
+			savedUser, saveErr = s.Store.UpsertUser(ctx, user)
+		} else {
+			savedUser, saveErr = s.Store.UpdateUserProfile(ctx, user)
+		}
 		if saveErr != nil {
 			return WorkOSLoginResult{}, saveErr
 		}

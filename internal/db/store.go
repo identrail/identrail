@@ -2583,6 +2583,7 @@ type Store interface {
 	GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error)
 	DeleteTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) error
 	UpsertUser(ctx context.Context, user User) (User, error)
+	UpdateUserProfile(ctx context.Context, user User) (User, error)
 	GetUser(ctx context.Context, userID string) (User, error)
 	GetUserByPrimaryEmail(ctx context.Context, email string) (User, error)
 	SetUserStatus(ctx context.Context, userID string, status string, now time.Time) (User, error)

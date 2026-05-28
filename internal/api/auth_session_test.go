@@ -704,19 +704,18 @@ func TestCurrentSessionDeactivateRevokesSessionsBeforeStatusFlip(t *testing.T) {
 	}
 }
 
-func TestCurrentSessionDeactivateRevokesSessionsCreatedDuringStatusFlipGap(t *testing.T) {
-	// Regression: even with the revoke-then-flip ordering, a concurrent
-	// sign-in (different tab/device) could land a fresh session row in the
-	// window between the first revoke and the status flip. The first revoke
-	// already ran, so the new row survives; TouchSession blocks it while
-	// status is deactivated, but a later signup-intent reactivation would
-	// flip status back to active and resurrect it.
+func TestCurrentSessionDeactivateRevokesEveryPreExistingSession(t *testing.T) {
+	// Regression for the deactivate three-step sandwich (revoke → flip →
+	// revoke). The contract is: every session that existed at the moment
+	// the deactivate request landed is dead after the handler returns and
+	// stays dead even if status is later flipped back to active by a
+	// signup-intent reactivation.
 	//
-	// The handler closes the window with a second revoke after the status
-	// flip. This test races a concurrent CreateSession against the deactivate
-	// handler. After the handler returns we simulate the reactivation by
-	// flipping the row back to active and assert the racing cookie is
-	// nonetheless refused by TouchSession.
+	// This is the deterministic replacement for an earlier goroutine-based
+	// race test that could silently skip when timing didn't cooperate. We
+	// pre-seed five extra sessions for the same user (simulating other tabs
+	// or devices), run the handler, then simulate a reactivation and prove
+	// none of the pre-existing cookies authenticate.
 	harness, cookieValue, _ := setupSessionRouter(t)
 	store, ok := harness.manager.Store.(*db.MemoryStore)
 	if !ok {
@@ -727,28 +726,19 @@ func TestCurrentSessionDeactivateRevokesSessionsCreatedDuringStatusFlipGap(t *te
 		t.Fatalf("get user: %v", err)
 	}
 
-	racingCookie := make(chan string, 1)
-	go func() {
-		// Spin briefly to maximise the chance of landing inside the
-		// revoke/status-flip gap. The handler itself takes a handful of
-		// microseconds; bursting CreateSession in parallel is sufficient on
-		// the in-memory store to occasionally land between the two calls.
-		// Even if we miss the gap, the second revoke still catches us.
-		var inserted string
-		for i := 0; i < 50; i++ {
-			cookie, _, err := harness.manager.CreateSession(context.Background(), db.Session{
-				UserID:             user.ID,
-				CurrentOrgID:       "tenant-a",
-				CurrentWorkspaceID: "workspace-a",
-				AuthMethod:         "manual",
-			})
-			if err == nil {
-				inserted = cookie
-				break
-			}
+	preCookies := make([]string, 5)
+	for i := range preCookies {
+		cookie, _, err := harness.manager.CreateSession(context.Background(), db.Session{
+			UserID:             user.ID,
+			CurrentOrgID:       "tenant-a",
+			CurrentWorkspaceID: "workspace-a",
+			AuthMethod:         "manual",
+		})
+		if err != nil {
+			t.Fatalf("seed extra session %d: %v", i, err)
 		}
-		racingCookie <- inserted
-	}()
+		preCookies[i] = cookie
+	}
 
 	w := httptest.NewRecorder()
 	harness.router.ServeHTTP(w, deactivateRequest(cookieValue))
@@ -756,22 +746,29 @@ func TestCurrentSessionDeactivateRevokesSessionsCreatedDuringStatusFlipGap(t *te
 		t.Fatalf("expected deactivate 200, got %d body=%s", w.Code, w.Body.String())
 	}
 
-	racing := <-racingCookie
-	if racing == "" {
-		t.Skip("racing CreateSession could not insert before status flipped to deactivated; skipping")
+	live, err := store.ListUserSessions(context.Background(), user.ID, time.Now().UTC(), 100)
+	if err != nil {
+		t.Fatalf("list sessions immediately after deactivate: %v", err)
+	}
+	if len(live) != 0 {
+		t.Fatalf("expected zero live sessions after deactivate, got %d", len(live))
 	}
 
-	// Simulate a signup-intent reactivation: flip the row back to active.
+	// Simulate a signup-intent reactivation. The pre-existing cookies must
+	// still be refused — that is what proves the revoke actually swept the
+	// session rows rather than relying on the status check.
 	if _, err := store.SetUserStatus(context.Background(), user.ID, "active", time.Now().UTC()); err != nil {
 		t.Fatalf("simulate reactivation: %v", err)
 	}
-
-	racingReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
-	racingReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: racing})
-	racingW := httptest.NewRecorder()
-	harness.router.ServeHTTP(racingW, racingReq)
-	if racingW.Code != http.StatusUnauthorized {
-		t.Fatalf("expected racing cookie 401 after simulated reactivation, got %d body=%s", racingW.Code, racingW.Body.String())
+	allCookies := append([]string{cookieValue}, preCookies...)
+	for i, cookie := range allCookies {
+		req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+		req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookie})
+		w := httptest.NewRecorder()
+		harness.router.ServeHTTP(w, req)
+		if w.Code == http.StatusOK {
+			t.Fatalf("cookie %d survived deactivate (returned 200 after simulated reactivation): %s", i, w.Body.String())
+		}
 	}
 }
 

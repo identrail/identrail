@@ -91,6 +91,42 @@ func (p *PostgresStore) UpsertUser(ctx context.Context, user User) (User, error)
 	return saved, nil
 }
 
+// UpdateUserProfile refreshes one account row without changing lifecycle status.
+func (p *PostgresStore) UpdateUserProfile(ctx context.Context, user User) (User, error) {
+	normalized, err := NormalizeUserForWrite(user)
+	if err != nil {
+		return User{}, err
+	}
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE users
+		 SET primary_email = $2,
+		     display_name = $3,
+		     avatar_url = $4,
+		     updated_at = $5,
+		     deleted_at = $6
+		 WHERE id = NULLIF($1, '')::uuid
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
+		normalized.ID,
+		normalized.PrimaryEmail,
+		normalized.DisplayName,
+		normalized.AvatarURL,
+		normalized.UpdatedAt,
+		nullTime(normalized.DeletedAt),
+	)
+	saved, err := scanUser(row)
+	if err != nil {
+		return User{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.profile_update",
+		ResourceType: "user",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
+}
+
 // GetUser returns one account by UUID.
 func (p *PostgresStore) GetUser(ctx context.Context, userID string) (User, error) {
 	return scanUser(p.queryRowContextAnyScope(
@@ -428,7 +464,11 @@ func (p *PostgresStore) CreateSession(ctx context.Context, session Session) (Ses
 		       id, user_id, current_org_id, current_workspace_id, current_project_id, auth_method,
 		       ip, user_agent, idle_expires_at, absolute_expires_at, last_seen_at, revoked_at, created_at
 		     )
-		     VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '')::inet, $8, $9, $10, $11, $12, $13)
+		     SELECT $1, $2, $3, $4, $5, $6, NULLIF($7, '')::inet, $8, $9, $10, $11, $12, $13
+		     FROM users u
+		     WHERE u.id = NULLIF($2, '')::uuid
+		       AND u.deleted_at IS NULL
+		       AND u.status = 'active'
 		     RETURNING *
 		   )
 		   SELECT `+sessionUserSelect+`
