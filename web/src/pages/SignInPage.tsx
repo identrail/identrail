@@ -112,6 +112,12 @@ function authReasonDetails(reason: string, returnTo: string): AuthReasonDetails 
         actionLabel: 'Reactivate account',
         actionHref: authPathWithReturnTo('/signup', returnTo)
       };
+    case 'account_deactivated':
+      return {
+        message: 'Your Identrail account is suspended. Sign up to reactivate it whenever you are ready.',
+        actionLabel: 'Reactivate account',
+        actionHref: authPathWithReturnTo('/signup', returnTo)
+      };
     case 'identity_conflict':
       return {
         message:

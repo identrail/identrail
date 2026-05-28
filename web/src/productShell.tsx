@@ -60,6 +60,7 @@ import {
   type WorkspaceMemberStatus
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
+import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './components/settings/DangerZone';
 import {
   DomainDetailPanel,
   DomainKpiStrip,
@@ -9163,12 +9164,16 @@ export function ProductSettingsPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const { me } = useMe();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [whoAmI, setWhoAmI] = useState<WhoAmIResponse | null>(null);
   const [members, setMembers] = useState<WorkspaceMemberRecord[]>([]);
   const [authConfig, setAuthConfig] = useState<AuthConfigResponse | null>(null);
+  const [suspendModalOpen, setSuspendModalOpen] = useState(false);
+  const [suspendPending, setSuspendPending] = useState(false);
+  const [suspendError, setSuspendError] = useState('');
 
   useEffect(() => {
     if (!scope) {
@@ -9411,6 +9416,65 @@ export function ProductSettingsPage() {
           </Link>
         </div>
       </section>
+
+      <DangerZone description="Suspending your account signs you out everywhere. Reactivate it any time by signing in through the signup flow.">
+        <DangerZoneRow
+          actionLabel="Suspend my account"
+          description="You'll be signed out of every device and session. Sign in through signup to reactivate."
+          onAction={() => {
+            setSuspendError('');
+            setSuspendModalOpen(true);
+          }}
+          pending={suspendPending}
+          testId="idt-suspend-account-row"
+          title="Suspend my account"
+        />
+      </DangerZone>
+
+      <ConfirmDestructiveModal
+        body={
+          <>
+            <p>Suspending your account immediately revokes every active session and clears the session cookie on this device.</p>
+            <p>Your workspace memberships, projects, and connector data stay intact. To reactivate, sign in again through the signup flow and Identrail will restore your account.</p>
+          </>
+        }
+        confirmation={{
+          kind: 'checkbox',
+          label: "I understand I'll be signed out of every device until I reactivate."
+        }}
+        continueLabel="Suspend my account"
+        errorMessage={suspendError || undefined}
+        onCancel={() => {
+          if (suspendPending) return;
+          setSuspendModalOpen(false);
+        }}
+        onConfirm={async () => {
+          if (suspendPending) return;
+          setSuspendPending(true);
+          setSuspendError('');
+          try {
+            await apiClient.deactivateCurrentUser();
+            // Reset both auth caches the way the logout handler does so that
+            // back-navigating to a previously-validated /app/... route does
+            // not transiently render the protected shell against stale state
+            // before the silent /v1/me check returns 401.
+            resetProductAuthSessionCache({ unauthenticated: true });
+            clearMeCache({ unauthenticated: true });
+            navigate('/signin?reason=account_deactivated', { replace: true });
+          } catch (err) {
+            setSuspendError(
+              err instanceof Error ? err.message : 'Unable to suspend your account. Please retry.'
+            );
+            setSuspendPending(false);
+            return;
+          }
+          setSuspendPending(false);
+          setSuspendModalOpen(false);
+        }}
+        open={suspendModalOpen}
+        pending={suspendPending}
+        title="Suspend your account"
+      />
     </section>
   );
 }
