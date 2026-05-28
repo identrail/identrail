@@ -2239,7 +2239,9 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
               return;
             }
             if (isTransientProjectLookupError(requestError)) {
-              setError(formatAPIError(requestError, `Unable to verify selected environment ${requestedID}.`));
+              const requestedErrorMessage = normalizeValue(formatAPIError(requestError, ''));
+              const fallbackMessage = `Unable to verify selected environment ${requestedID}.`;
+              setError(requestedErrorMessage ? `${fallbackMessage} ${requestedErrorMessage}` : fallbackMessage);
             } else {
               rejectedID = requestedID;
             }
