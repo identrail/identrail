@@ -457,3 +457,94 @@ func TestUpsertManualUserSessionContextAutoReactivatesDeactivatedAccount(t *test
 		t.Fatalf("expected stored row reactivated, got status=%q deleted_at=%v", stored.Status, stored.DeletedAt)
 	}
 }
+
+type samlProfileUpdateStore struct {
+	*db.MemoryStore
+	upsertUserCalls    int
+	updateProfileCalls int
+}
+
+func (s *samlProfileUpdateStore) UpsertUser(ctx context.Context, user db.User) (db.User, error) {
+	s.upsertUserCalls++
+	// Simulate a racing deactivation happening after stale status was read but before
+	// the write is persisted.
+	user.Status = "deactivated"
+	return s.MemoryStore.UpsertUser(ctx, user)
+}
+
+func (s *samlProfileUpdateStore) UpdateUserProfile(ctx context.Context, user db.User) (db.User, error) {
+	s.updateProfileCalls++
+	return s.MemoryStore.UpdateUserProfile(ctx, user)
+}
+
+func TestRefreshSAMLIdentityPreservesLifecycleStatus(t *testing.T) {
+	base := db.NewMemoryStore()
+	store := &samlProfileUpdateStore{MemoryStore: base}
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	user, err := base.UpsertUser(ctx, db.User{
+		PrimaryEmail: "saml-refresh@example.com",
+		DisplayName:  "SAML Refresh",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	identity, err := base.UpsertUserIdentity(ctx, db.UserIdentity{
+		UserID:              user.ID,
+		Provider:            "saml:conn-refresh",
+		Subject:             "name-id-refresh",
+		Email:               "saml-refresh@example.com",
+		EmailVerified:       true,
+		LastAuthenticatedAt: now,
+		CreatedAt:           now,
+	})
+	if err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+
+	result, err := svc.refreshSAMLIdentity(ctx, db.IdentityConnection{ID: "conn-refresh"}, identity, "saml-refresh@example.com", "SAML Refresh New", []byte("{}"), now)
+	if err != nil {
+		t.Fatalf("refresh SAML identity: %v", err)
+	}
+	if result.User.Status != "active" {
+		t.Fatalf("expected lifecycle status preserved as active, got %q", result.User.Status)
+	}
+	if store.updateProfileCalls != 1 {
+		t.Fatalf("expected UpdateUserProfile to be called, got %d", store.updateProfileCalls)
+	}
+	if store.upsertUserCalls != 0 {
+		t.Fatalf("expected UpsertUser to not be used by SAML refresh path, got %d", store.upsertUserCalls)
+	}
+}
+
+func TestAttachSAMLIdentityToExistingUserPreservesLifecycleStatus(t *testing.T) {
+	base := db.NewMemoryStore()
+	store := &samlProfileUpdateStore{MemoryStore: base}
+	svc := NewService(store, fakeScanner{}, "aws")
+	now := time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	user, err := base.UpsertUser(ctx, db.User{
+		PrimaryEmail: "saml-attach@example.com",
+		DisplayName:  "SAML Attach",
+		Status:       "active",
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	result, err := svc.attachSAMLIdentityToExistingUser(ctx, db.IdentityConnection{ID: "conn-attach"}, user.ID, "name-id-attach", "saml-attach@example.com", "SAML Attach New", []byte("{}"), now)
+	if err != nil {
+		t.Fatalf("attach SAML identity: %v", err)
+	}
+	if result.User.Status != "active" {
+		t.Fatalf("expected lifecycle status preserved as active, got %q", result.User.Status)
+	}
+	if store.updateProfileCalls != 1 {
+		t.Fatalf("expected UpdateUserProfile to be called, got %d", store.updateProfileCalls)
+	}
+	if store.upsertUserCalls != 0 {
+		t.Fatalf("expected UpsertUser to not be used by SAML attach path, got %d", store.upsertUserCalls)
+	}
+}

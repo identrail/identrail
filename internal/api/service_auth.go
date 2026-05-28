@@ -439,9 +439,8 @@ func (s *Service) refreshSAMLIdentity(ctx context.Context, conn db.IdentityConne
 	}
 	user.PrimaryEmail = email
 	user.DisplayName = displayName
-	user.Status = "active"
 	user.UpdatedAt = now
-	savedUser, err := s.Store.UpsertUser(ctx, user)
+	savedUser, err := s.Store.UpdateUserProfile(ctx, user)
 	if err != nil {
 		if errors.Is(err, db.ErrConflict) {
 			auditAuthAction(ctx, "auth.identity.conflict", user.ID, "denied")
@@ -471,9 +470,8 @@ func (s *Service) attachSAMLIdentityToExistingUser(ctx context.Context, conn db.
 	}
 	user.PrimaryEmail = email
 	user.DisplayName = displayName
-	user.Status = "active"
 	user.UpdatedAt = now
-	savedUser, err := s.Store.UpsertUser(ctx, user)
+	savedUser, err := s.Store.UpdateUserProfile(ctx, user)
 	if err != nil {
 		if errors.Is(err, db.ErrConflict) {
 			auditAuthAction(ctx, "auth.identity.conflict", user.ID, "denied")
