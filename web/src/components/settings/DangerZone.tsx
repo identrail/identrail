@@ -123,8 +123,12 @@ export function ConfirmDestructiveModal({
     return null;
   }
 
+  // Type-to-confirm intentionally compares the raw input to the expected
+  // value without trimming. Pasted leading/trailing whitespace on identifiers
+  // like emails or workspace slugs must keep the destructive action gated —
+  // trimming here would defeat the whole purpose of the friction.
   const canContinue =
-    confirmation.kind === 'checkbox' ? checked : typed.trim() === confirmation.expectedValue.trim();
+    confirmation.kind === 'checkbox' ? checked : typed === confirmation.expectedValue;
 
   return (
     <div className="idt-modal-backdrop" role="presentation" onClick={onCancel}>

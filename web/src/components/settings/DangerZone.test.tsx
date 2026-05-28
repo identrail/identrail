@@ -136,6 +136,42 @@ describe('ConfirmDestructiveModal — type-to-confirm', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
+  it('does not enable Continue when the typed value has stray whitespace', () => {
+    // Regression: pasted leading/trailing whitespace must not satisfy the
+    // type-to-confirm guard. Trimming either side would weaken irreversible
+    // delete flows (e.g. an email or workspace slug copied with a trailing
+    // space).
+    const onConfirm = vi.fn();
+    render(
+      <ConfirmDestructiveModal
+        body={null}
+        confirmation={{
+          kind: 'type-to-confirm',
+          expectedValue: 'user@example.com',
+          inputLabel: 'Type your email'
+        }}
+        continueLabel="Delete"
+        onCancel={() => undefined}
+        onConfirm={onConfirm}
+        open
+        title="Delete account"
+      />
+    );
+
+    const cont = screen.getByRole('button', { name: 'Delete' });
+    const input = screen.getByLabelText('Type your email');
+
+    fireEvent.change(input, { target: { value: 'user@example.com ' } });
+    expect(cont).toBeDisabled();
+    fireEvent.change(input, { target: { value: ' user@example.com' } });
+    expect(cont).toBeDisabled();
+    fireEvent.change(input, { target: { value: '\tuser@example.com' } });
+    expect(cont).toBeDisabled();
+
+    fireEvent.click(cont);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it('returns nothing when open=false', () => {
     const { container } = render(
       <ConfirmDestructiveModal
