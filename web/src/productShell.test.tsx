@@ -432,6 +432,7 @@ describe('ProductShellLayout', () => {
     expect(screen.getByRole('button', { name: 'Kubernetes' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Findings' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Control plane')).not.toBeInTheDocument();
 
     expect(screen.getByRole('link', { name: 'Overview' })).toHaveClass('active');
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
@@ -441,15 +442,26 @@ describe('ProductShellLayout', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
     const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
-    expect(within(githubFlyout).getByRole('link', { name: /Open GitHub Control Center/i })).toBeInTheDocument();
+    expect(within(githubFlyout).queryByText('Section')).not.toBeInTheDocument();
+    expect(within(githubFlyout).queryByRole('heading', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(within(githubFlyout).getByRole('link', { name: 'GitHub Control center' })).toBeInTheDocument();
     expect(within(githubFlyout).getByRole('link', { name: 'GitHub Findings' })).toBeInTheDocument();
     expect(within(githubFlyout).getAllByText('AI / Agentic Risk').length).toBeGreaterThan(0);
 
     fireEvent.keyDown(window, { key: '/' });
-    expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
+    const finder = screen.getByRole('dialog', { name: /Workspace finder/i });
+    expect(finder).toBeInTheDocument();
+    expect(within(finder).queryByText('Workspace finder')).not.toBeInTheDocument();
+    expect(within(finder).queryByText('Go to anything')).not.toBeInTheDocument();
 
     expect(screen.queryByRole('option', { name: /^Projects\b/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /^Findings\b/i })).not.toBeInTheDocument();
+    expect(
+      within(within(finder).getByRole('option', { name: /^OverviewDomain/i })).queryByText('O')
+    ).not.toBeInTheDocument();
+    expect(
+      within(within(finder).getByRole('option', { name: /^GitHub findingsRepository/i })).queryByText('F')
+    ).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'github findings' } });
     fireEvent.keyDown(screen.getByLabelText(/Search workspace commands/i), { key: 'Enter' });
@@ -487,10 +499,65 @@ describe('ProductShellLayout', () => {
     expect(screen.getByRole('dialog', { name: 'GitHub' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '/' });
-    expect(screen.getByRole('dialog', { name: /Go to anything/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Workspace finder/i })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Search workspace commands/i), { target: { value: 'github' } });
     expect(screen.getAllByRole('option', { name: /^GitHub\b/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole('option', { name: /Connect GitHub/i })).not.toBeInTheDocument();
+  });
+
+  it('lets an open domain flyout own the sidebar highlight over Reports routes', async () => {
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/reports']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route path="reports" element={<h2>Reports content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Reports content/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
+
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+
+    expect(screen.getByRole('link', { name: 'Reports' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'AWS' })).toHaveClass('is-open');
+    expect(screen.getByRole('button', { name: 'AWS' })).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
+
+    expect(screen.getByRole('link', { name: 'Reports' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'AWS' })).not.toHaveClass('is-active');
+    expect(screen.getByRole('button', { name: 'GitHub' })).toHaveClass('is-open');
+  });
+
+  it('removes Settings active styling while a domain flyout is open', async () => {
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/settings']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route path="settings" element={<h2>Settings content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Settings content/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveClass('active');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Kubernetes' }));
+
+    expect(screen.getByRole('link', { name: 'Settings' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'Kubernetes' })).toHaveClass('is-open');
   });
 });
 

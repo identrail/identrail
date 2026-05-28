@@ -814,7 +814,7 @@ describe('App', () => {
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
-    fireEvent.click(await screen.findByRole('link', { name: /Open AWS Control Center/i }));
+    fireEvent.click(await screen.findByRole('link', { name: /AWS Control center/i }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
@@ -915,7 +915,7 @@ describe('App', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
-    fireEvent.click(await screen.findByRole('link', { name: /Open AWS Control Center/i }));
+    fireEvent.click(await screen.findByRole('link', { name: /AWS Control center/i }));
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 1, name: /Log in to Identrail/i })).toBeInTheDocument();

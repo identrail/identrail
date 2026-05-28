@@ -1502,7 +1502,7 @@ function CommandPalette({
         className="idt-command-palette"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="idt-command-palette-title"
+        aria-label="Workspace finder"
         onKeyDown={(event) => {
           if (event.defaultPrevented) {
             return;
@@ -1513,23 +1513,19 @@ function CommandPalette({
           }
         }}
       >
-        <header>
-          <div>
-            <p className="idt-app-kicker">Workspace finder</p>
-            <h2 id="idt-command-palette-title">Go to anything</h2>
-          </div>
+        <div className="idt-command-palette-search-row">
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder="Search views, reports, settings, and actions"
+            aria-label="Search workspace commands"
+          />
           <button type="button" className="idt-command-palette-close" onClick={onClose} aria-label="Close workspace finder">
             Esc
           </button>
-        </header>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={handleInputKeyDown}
-          placeholder="Search views, reports, settings, and actions"
-          aria-label="Search workspace commands"
-        />
+        </div>
         <div className="idt-command-palette-results" role="listbox" aria-label="Workspace commands">
           {filteredItems.length > 0 ? (
             filteredItems.map((item) => (
@@ -1972,12 +1968,6 @@ function ProductDomainFlyoutRouteLink({
   );
 }
 
-const DOMAIN_FLYOUT_SUMMARIES: Record<SourceProvider, string> = {
-  aws: 'Machine identities, resources, runtime, risk.',
-  github: 'Repositories, Actions, agentic surfaces, risk.',
-  kubernetes: 'Clusters, workloads, service accounts, RBAC.'
-};
-
 function ProductDomainFlyout({
   domain,
   scope,
@@ -1994,16 +1984,12 @@ function ProductDomainFlyout({
   onClose: () => void;
 }) {
   const config = PRODUCT_DOMAIN_CONFIGS[domain];
-  const asset = getDomainAsset(domain);
   const startRoutes = config.routes.filter((route) => route.id === 'overview' || route.id === 'connect');
   const nestedRoutes = config.routes.filter((route) => route.children?.length);
   const riskRoutes = config.routes.filter((route) => ['findings', 'remediation', 'governance'].includes(route.id));
   const surfaceRoutes = config.routes.filter(
     (route) => !startRoutes.includes(route) && !nestedRoutes.includes(route) && !riskRoutes.includes(route)
   );
-  const domainHome = domainRoutePath(scope, domain, config.routes[0]);
-  const connectRoute = findDomainRoute(domain, config.connectRouteID);
-  const connectPath = domainRoutePath(scope, domain, connectRoute);
 
   return (
     <div
@@ -2014,31 +2000,6 @@ function ProductDomainFlyout({
       aria-modal="true"
       aria-labelledby={labelledBy}
     >
-      <header className="idt-domain-flyout-header">
-        <span className="idt-domain-flyout-logo" aria-hidden="true">
-          <img src={asset.logoSrc} alt="" loading="lazy" decoding="async" />
-        </span>
-        <div>
-          <p>Section</p>
-          <h2>{config.navLabel}</h2>
-          <span>{DOMAIN_FLYOUT_SUMMARIES[domain]}</span>
-        </div>
-      </header>
-
-      <div className="idt-domain-flyout-actions">
-        <Link
-          data-domain-flyout-primary="true"
-          to={domainHome}
-          aria-label={`Open ${config.navLabel} Control Center`}
-          onClick={onClose}
-        >
-          Control Center
-        </Link>
-        <Link to={connectPath} aria-label={`Connect ${config.navLabel}`} onClick={onClose}>
-          Connect
-        </Link>
-      </div>
-
       <div className="idt-domain-flyout-section">
         <span className="idt-domain-flyout-section-label">Start</span>
         <div className="idt-domain-flyout-list">
@@ -2500,7 +2461,6 @@ export function ProductShellLayout() {
         label: 'Overview',
         description: 'Domain coverage, recent scans, and next actions',
         keywords: ['home', 'dashboard', 'workspace', 'domains'],
-        shortcut: 'O',
         path: basePath
       }
     ];
@@ -2544,7 +2504,6 @@ export function ProductShellLayout() {
         label: 'GitHub findings',
         description: 'Repository risk inside the GitHub section',
         keywords: ['github', 'findings', 'repository', 'triage'],
-        shortcut: 'F',
         path: `${basePath}/github/findings`
       });
       items.push({
@@ -3023,7 +2982,6 @@ export function ProductShellLayout() {
           </button>
 
           <nav className="idt-app-shell-nav" aria-label="App sections">
-            <div className="idt-app-nav-group-label" aria-hidden={sidebarCollapsed}>Control plane</div>
             <NavLink
               to={basePath}
               end
@@ -3040,8 +2998,8 @@ export function ProductShellLayout() {
             {visibleDomainOrder.map((domain) => {
               const config = PRODUCT_DOMAIN_CONFIGS[domain];
               const availability = sourceAvailability[domain];
-              const isActive = activeDomain === domain;
               const isOpen = openDomainFlyout === domain;
+              const isActive = activeDomain === domain && (!openDomainFlyout || isOpen);
               const triggerID = `idt-${domain}-domain-trigger`;
               return (
                 <div key={domain} className="idt-app-domain-nav-item">
@@ -3085,13 +3043,25 @@ export function ProductShellLayout() {
                 </div>
               );
             })}
-            <NavLink to={`${basePath}/reports`} aria-label="Reports" title={sidebarCollapsed ? 'Reports' : undefined} onClick={closeDomainFlyout}>
+            <NavLink
+              to={`${basePath}/reports`}
+              aria-label="Reports"
+              title={sidebarCollapsed ? 'Reports' : undefined}
+              className={({ isActive }) => (isActive && !openDomainFlyout ? 'active' : undefined)}
+              onClick={closeDomainFlyout}
+            >
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <BarChart3 size={16} strokeWidth={1.75} />
               </span>
               <span className="idt-app-nav-label">Reports</span>
             </NavLink>
-            <NavLink to={`${basePath}/settings`} aria-label="Settings" title={sidebarCollapsed ? 'Settings' : undefined} onClick={closeDomainFlyout}>
+            <NavLink
+              to={`${basePath}/settings`}
+              aria-label="Settings"
+              title={sidebarCollapsed ? 'Settings' : undefined}
+              className={({ isActive }) => (isActive && !openDomainFlyout ? 'active' : undefined)}
+              onClick={closeDomainFlyout}
+            >
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <SettingsIcon size={16} strokeWidth={1.75} />
               </span>

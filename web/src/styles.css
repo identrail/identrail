@@ -20313,7 +20313,7 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
   height: 100dvh;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  gap: 1rem;
+  gap: 0.8rem;
   padding: 1rem;
   /* Sidebar must allow overflow so flyout menus (workspace switcher / account
    * menu) can render outside the rail in collapsed mode without being clipped
@@ -20468,7 +20468,7 @@ html[data-theme='light'] .idt-app-quick-find {
   z-index: 1100;
   display: grid;
   place-items: start center;
-  padding: min(12vh, 7rem) 1rem 1rem;
+  padding: min(8vh, 5rem) 1rem 1rem;
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(12px);
 }
@@ -20481,13 +20481,14 @@ html[data-theme='light'] .idt-app-quick-find {
   width: min(100%, 42rem);
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  padding: 0.9rem;
-  background: var(--app-panel);
+  padding: 0.72rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01) 42%, rgba(255, 255, 255, 0)),
+    var(--app-panel);
   color: #ffffff;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
 }
 
-.idt-command-palette header,
 .idt-command-palette-results button {
   display: flex;
   align-items: center;
@@ -20495,35 +20496,40 @@ html[data-theme='light'] .idt-app-quick-find {
   gap: 1rem;
 }
 
-.idt-command-palette h2 {
-  margin: 0.15rem 0 0;
-  color: #ffffff;
-  font-family: var(--idt-display);
-  font-size: 1.45rem;
-  line-height: 1.05;
-}
-
-.idt-command-palette .idt-app-kicker {
-  color: #a3a3a3;
+.idt-command-palette-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.55rem;
 }
 
 .idt-command-palette-close {
   border: 1px solid var(--app-border);
-  border-radius: 999px;
-  padding: 0.35rem 0.55rem;
-  background: #111113;
+  border-radius: 8px;
+  min-width: 3.35rem;
+  padding: 0 0.7rem;
+  background: #101012;
   color: #ffffff;
   font: inherit;
   font-size: 0.78rem;
   font-weight: 900;
+  cursor: pointer;
+}
+
+.idt-command-palette-close:hover,
+.idt-command-palette-close:focus-visible {
+  border-color: #ffffff;
+  background: #151518;
+  outline: none;
 }
 
 .idt-command-palette input {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
-  margin: 0.95rem 0 0.75rem;
+  margin: 0;
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  padding: 0.85rem 0.9rem;
+  padding: 0.82rem 0.9rem;
   background: #050505;
   color: #ffffff;
   font: inherit;
@@ -20539,6 +20545,7 @@ html[data-theme='light'] .idt-app-quick-find {
   gap: 0.35rem;
   flex: 1;
   min-height: 0;
+  margin-top: 0.68rem;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -25200,8 +25207,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   left: calc(100% + 0.72rem);
   z-index: 50;
   display: grid;
-  gap: 0.68rem;
-  width: min(30rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
+  gap: 0.58rem;
+  width: min(27rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
   max-height: min(78vh, 42rem);
   overflow: auto;
   overscroll-behavior: contain;
@@ -25210,7 +25217,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   border-radius: 8px;
   padding: 0.68rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 10rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 8rem),
     #050607;
   box-shadow:
     0 28px 90px rgba(0, 0, 0, 0.62),
@@ -25230,35 +25237,6 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   transform: rotate(45deg);
 }
 
-.idt-domain-flyout-header {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.68rem;
-  align-items: start;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 8px;
-  padding: 0.66rem;
-  background: #080a0d;
-}
-
-.idt-domain-flyout-logo {
-  display: grid;
-  width: 2.15rem;
-  height: 2.15rem;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.idt-domain-flyout-logo img {
-  display: block;
-  max-width: 1.32rem;
-  max-height: 1.32rem;
-}
-
-.idt-domain-flyout-header p,
 .idt-domain-flyout-section-label {
   margin: 0;
   color: #9aa4af;
@@ -25266,55 +25244,6 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   font-weight: 800;
   line-height: 1.2;
   text-transform: uppercase;
-}
-
-.idt-domain-flyout-header h2 {
-  margin: 0.12rem 0 0.12rem;
-  color: #ffffff;
-  font-size: 1.02rem;
-  font-weight: 700;
-  line-height: 1.15;
-}
-
-.idt-domain-flyout-header span {
-  display: block;
-  color: #aeb7c2;
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-
-.idt-domain-flyout-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.5rem;
-}
-
-.idt-domain-flyout-actions a {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 2.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 7px;
-  padding: 0.42rem 0.66rem;
-  background: #11151b;
-  color: #ffffff;
-  font-size: 0.82rem;
-  font-weight: 800;
-  line-height: 1.2;
-  text-align: center;
-  text-decoration: none;
-}
-
-.idt-domain-flyout-actions a[data-domain-flyout-primary='true'] {
-  background: #ffffff;
-  color: #050607;
-}
-
-.idt-domain-flyout-actions a:hover,
-.idt-domain-flyout-actions a:focus-visible {
-  border-color: rgba(255, 255, 255, 0.34);
-  outline: none;
 }
 
 .idt-domain-flyout-section,
@@ -25326,7 +25255,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 .idt-domain-flyout-section {
   gap: 0.34rem;
-  padding-top: 0.24rem;
+  padding-top: 0;
 }
 
 .idt-domain-flyout-section + .idt-domain-flyout-section,
@@ -26034,10 +25963,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   .idt-app-console-layout.is-sidebar-collapsed {
     grid-template-columns: 1fr;
   }
-  /* Section labels add no value in the horizontal mobile nav. */
-  .idt-app-console-layout .idt-app-nav-group-label {
-    display: none;
-  }
   /* Collapsed mode is forced off on narrow viewports by JS (the rail becomes a
    * top bar, where "collapsed" has no useful meaning). The toggle button is
    * still rendered so a user who resizes back to desktop has an obvious path
@@ -26112,7 +26037,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   padding: 0;
 }
 
-/* === Workspace switcher, nav groups, a11y label rescue === */
+/* === Workspace switcher, nav, a11y label rescue === */
 
 .idt-app-sidebar-workspace {
   position: relative;
@@ -26267,20 +26192,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   background: #1c1c22;
   color: #ffffff;
   outline: none;
-}
-
-/* Nav section labels */
-.idt-app-nav-group-label {
-  padding: 0.65rem 0.6rem 0.25rem;
-  color: #5a5a62;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-group-label {
-  display: none;
 }
 
 /* a11y: keep nav labels available to AT in collapsed mode */
