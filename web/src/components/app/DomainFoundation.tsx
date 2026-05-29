@@ -1,5 +1,5 @@
-import { useId } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef } from 'react';
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DOMAIN_ASSET_ORDER, getDomainAsset, type DomainAssetKey } from '../../design/domainAssets';
 
@@ -237,6 +237,64 @@ export function DomainSubnav({ label = 'Domain sections', items }: { label?: str
   );
 }
 
+export type DomainStatusVariant =
+  | 'connected'
+  | 'disconnected'
+  | 'needs-attention'
+  | 'degraded'
+  | 'running-scan'
+  | 'missing-permissions'
+  | 'coming-soon';
+
+const DOMAIN_STATUS_TONE: Record<DomainStatusVariant, Tone> = {
+  connected: 'success',
+  disconnected: 'neutral',
+  'needs-attention': 'warning',
+  degraded: 'warning',
+  'running-scan': 'info',
+  'missing-permissions': 'danger',
+  'coming-soon': 'neutral'
+};
+
+const DOMAIN_STATUS_LABEL: Record<DomainStatusVariant, string> = {
+  connected: 'Connected',
+  disconnected: 'Disconnected',
+  'needs-attention': 'Needs attention',
+  degraded: 'Degraded',
+  'running-scan': 'Running scan',
+  'missing-permissions': 'Missing permissions',
+  'coming-soon': 'Coming soon'
+};
+
+export function domainStatusTone(variant: DomainStatusVariant): Tone {
+  return DOMAIN_STATUS_TONE[variant];
+}
+
+export function DomainStatusBadge({
+  variant,
+  label,
+  detail
+}: {
+  variant: DomainStatusVariant;
+  label?: string;
+  detail?: ReactNode;
+}) {
+  const tone = DOMAIN_STATUS_TONE[variant];
+  const text = label ?? DOMAIN_STATUS_LABEL[variant];
+  return (
+    <span
+      className={classNames(['idt-domain-status-badge', `is-${variant}`, `is-${tone}`])}
+      data-variant={variant}
+      role="status"
+      aria-label={detail ? `${text}. ${typeof detail === 'string' ? detail : ''}`.trim() : text}
+    >
+      <span aria-hidden="true" className="idt-domain-status-dot" />
+      <strong>{text}</strong>
+      {detail ? <span className="idt-domain-status-detail">{detail}</span> : null}
+    </span>
+  );
+}
+
 export type DomainPageShellProps = DomainHeaderProps & {
   subnav?: DomainSubnavItem[];
   subnavLabel?: string;
@@ -313,24 +371,56 @@ export function DomainStatusPanel({
   );
 }
 
-export function DomainEmptyState({ eyebrow, title, body, children }: { eyebrow?: string; title: string; body: ReactNode; children?: ReactNode }) {
+export function DomainEmptyState({
+  eyebrow,
+  title,
+  body,
+  nextAction,
+  children
+}: {
+  eyebrow?: string;
+  title: string;
+  body: ReactNode;
+  nextAction?: DomainAction;
+  children?: ReactNode;
+}) {
   return (
     <article className="idt-domain-empty-state">
       {eyebrow ? <p className="idt-app-kicker">{eyebrow}</p> : null}
       <h3>{title}</h3>
       <p>{body}</p>
-      {children ? <div className="idt-inline-actions">{children}</div> : null}
+      {nextAction || children ? (
+        <div className="idt-inline-actions">
+          {nextAction ? renderDomainAction({ variant: 'primary', ...nextAction }, 'next-action') : null}
+          {children}
+        </div>
+      ) : null}
     </article>
   );
 }
 
-export function DomainErrorState({ title, body, children }: { title: string; body: ReactNode; children?: ReactNode }) {
+export function DomainErrorState({
+  title,
+  body,
+  retryAction,
+  children
+}: {
+  title: string;
+  body: ReactNode;
+  retryAction?: DomainAction;
+  children?: ReactNode;
+}) {
   return (
     <article className="idt-domain-error-state" role="alert">
       <p className="idt-app-kicker">Needs attention</p>
       <h3>{title}</h3>
       <p>{body}</p>
-      {children ? <div className="idt-inline-actions">{children}</div> : null}
+      {retryAction || children ? (
+        <div className="idt-inline-actions">
+          {retryAction ? renderDomainAction({ variant: 'primary', ...retryAction }, 'retry-action') : null}
+          {children}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -475,4 +565,357 @@ export function DomainEvidencePanel({
 
 export function DomainActionFooter({ children }: { children: ReactNode }) {
   return <footer className="idt-domain-action-footer">{children}</footer>;
+}
+
+export type DomainCoverageCardProps = {
+  label: string;
+  scanned: number;
+  total: number;
+  detail?: ReactNode;
+};
+
+export function DomainCoverageCard({ label, scanned, total, detail }: DomainCoverageCardProps) {
+  const pct = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
+  const tone: Tone = pct >= 90 ? 'success' : pct >= 60 ? 'info' : pct >= 30 ? 'warning' : 'danger';
+  return (
+    <article className={classNames(['idt-domain-coverage-card', `is-${tone}`])} aria-label={`${label} coverage`}>
+      <header>
+        <span>{label}</span>
+        <strong>{pct}%</strong>
+      </header>
+      <div
+        className="idt-domain-coverage-bar"
+        role="progressbar"
+        aria-label={`${label} coverage`}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={scanned}
+        aria-valuetext={`${scanned} of ${total} ${label.toLowerCase()} scanned`}
+      >
+        <span style={{ width: `${pct}%` }} aria-hidden="true" />
+      </div>
+      <p>
+        {scanned} of {total} scanned
+        {detail ? <> · {detail}</> : null}
+      </p>
+    </article>
+  );
+}
+
+export type DomainSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+const DOMAIN_SEVERITY_LABEL: Record<DomainSeverity, string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+  info: 'Info'
+};
+
+export type DomainFindingSummaryCardProps = {
+  severity: DomainSeverity;
+  count: number;
+  label?: string;
+  trend?: ReactNode;
+  to?: string;
+  onClick?: () => void;
+};
+
+export function DomainFindingSummaryCard({ severity, count, label, trend, to, onClick }: DomainFindingSummaryCardProps) {
+  const displayLabel = label ?? `${DOMAIN_SEVERITY_LABEL[severity]} findings`;
+  const body = (
+    <>
+      <header>
+        <span className={classNames(['idt-domain-severity-pill', `is-${severity}`])}>{DOMAIN_SEVERITY_LABEL[severity]}</span>
+        {trend ? <span className="idt-domain-finding-trend">{trend}</span> : null}
+      </header>
+      <strong>{count}</strong>
+      <p>{displayLabel}</p>
+    </>
+  );
+
+  const className = classNames(['idt-domain-finding-card', `is-${severity}`]);
+
+  if (to) {
+    return (
+      <Link className={className} to={to} aria-label={`${count} ${displayLabel}`}>
+        {body}
+      </Link>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <button type="button" className={className} onClick={onClick} aria-label={`${count} ${displayLabel}`}>
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <article className={className} aria-label={`${count} ${displayLabel}`}>
+      {body}
+    </article>
+  );
+}
+
+export type DomainTimelineEntry = {
+  id: string;
+  timestamp: string;
+  title: ReactNode;
+  detail?: ReactNode;
+  actor?: ReactNode;
+  tone?: Tone;
+};
+
+export function DomainTimeline({ label = 'Recent activity', entries }: { label?: string; entries: DomainTimelineEntry[] }) {
+  if (entries.length === 0) {
+    return null;
+  }
+  return (
+    <ol className="idt-domain-timeline" aria-label={label}>
+      {entries.map((entry) => (
+        <li key={entry.id} className={classNames(['idt-domain-timeline-row', entry.tone ? `is-${entry.tone}` : ''])}>
+          <time>{entry.timestamp}</time>
+          <div>
+            <p className="idt-domain-timeline-title">{entry.title}</p>
+            {entry.detail ? <p className="idt-domain-timeline-detail">{entry.detail}</p> : null}
+          </div>
+          {entry.actor ? <span className="idt-domain-timeline-actor">{entry.actor}</span> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function DomainGraphPlaceholder({
+  title,
+  description,
+  action
+}: {
+  title: string;
+  description: ReactNode;
+  action?: DomainAction;
+}) {
+  return (
+    <section className="idt-domain-graph-placeholder" aria-label={title}>
+      <div className="idt-domain-graph-canvas" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="idt-domain-graph-copy">
+        <p className="idt-app-kicker">Graph</p>
+        <h3>{title}</h3>
+        <p>{description}</p>
+        {action ? <div className="idt-inline-actions">{renderDomainAction(action, 'graph-action')}</div> : null}
+      </div>
+    </section>
+  );
+}
+
+export type DomainRemediationItem = {
+  id: string;
+  title: ReactNode;
+  detail?: ReactNode;
+  severity?: DomainSeverity;
+  owner?: ReactNode;
+  primaryAction?: DomainAction;
+  secondaryAction?: DomainAction;
+};
+
+export function DomainRemediationQueue({
+  label = 'Remediation queue',
+  items,
+  emptyState
+}: {
+  label?: string;
+  items: DomainRemediationItem[];
+  emptyState?: ReactNode;
+}) {
+  if (items.length === 0) {
+    return (
+      <section className="idt-domain-remediation-queue idt-domain-remediation-queue-empty" aria-label={label}>
+        {emptyState ?? <DomainEmptyState title="Queue is clear" body="No remediation actions are waiting." />}
+      </section>
+    );
+  }
+  return (
+    <section className="idt-domain-remediation-queue" aria-label={label}>
+      <ol>
+        {items.map((item) => (
+          <li key={item.id} className="idt-domain-remediation-item">
+            <div className="idt-domain-remediation-main">
+              {item.severity ? (
+                <span className={classNames(['idt-domain-severity-pill', `is-${item.severity}`])}>
+                  {DOMAIN_SEVERITY_LABEL[item.severity]}
+                </span>
+              ) : null}
+              <div>
+                <p className="idt-domain-remediation-title">{item.title}</p>
+                {item.detail ? <p className="idt-domain-remediation-detail">{item.detail}</p> : null}
+              </div>
+            </div>
+            <div className="idt-domain-remediation-aside">
+              {item.owner ? <span className="idt-domain-remediation-owner">{item.owner}</span> : null}
+              <div className="idt-inline-actions">
+                {item.secondaryAction ? renderDomainAction({ variant: 'ghost', ...item.secondaryAction }, `${item.id}-secondary`) : null}
+                {item.primaryAction ? renderDomainAction({ variant: 'primary', ...item.primaryAction }, `${item.id}-primary`) : null}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+export type DomainSortDirection = 'asc' | 'desc';
+export type DomainSortOption = { key: string; label: string };
+
+export function DomainSortControl({
+  label = 'Sort',
+  options,
+  value,
+  direction = 'desc',
+  onChange
+}: {
+  label?: string;
+  options: DomainSortOption[];
+  value: string;
+  direction?: DomainSortDirection;
+  onChange: (next: { key: string; direction: DomainSortDirection }) => void;
+}) {
+  const directionLabel = direction === 'asc' ? 'Ascending' : 'Descending';
+  return (
+    <div className="idt-domain-sort-control">
+      <label>
+        <span>{label}</span>
+        <select
+          value={value}
+          onChange={(event) => onChange({ key: event.target.value, direction })}
+          aria-label={`${label} field`}
+        >
+          {options.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        className="idt-domain-sort-direction"
+        aria-label={`${label} direction: ${directionLabel}. Toggle.`}
+        aria-pressed={direction === 'asc'}
+        onClick={() => onChange({ key: value, direction: direction === 'asc' ? 'desc' : 'asc' })}
+      >
+        <span aria-hidden="true">{direction === 'asc' ? '↑' : '↓'}</span>
+        <span className="idt-visually-hidden">{directionLabel}</span>
+      </button>
+    </div>
+  );
+}
+
+const DOMAIN_DRAWER_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function getDomainDrawerFocusable(root: HTMLElement | null): HTMLElement[] {
+  if (!root) {
+    return [];
+  }
+  return Array.from(root.querySelectorAll<HTMLElement>(DOMAIN_DRAWER_FOCUSABLE_SELECTOR)).filter(
+    (el) => el.getAttribute('aria-hidden') !== 'true'
+  );
+}
+
+export function DomainDetailDrawer({
+  open,
+  title,
+  eyebrow,
+  onClose,
+  closeLabel = 'Close detail drawer',
+  children,
+  footer
+}: {
+  open: boolean;
+  title: string;
+  eyebrow?: string;
+  onClose: () => void;
+  closeLabel?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    restoreFocusRef.current = (document.activeElement as HTMLElement | null) ?? null;
+    const focusables = getDomainDrawerFocusable(drawerRef.current);
+    (focusables[0] ?? drawerRef.current)?.focus();
+    return () => {
+      restoreFocusRef.current?.focus?.();
+    };
+  }, [open]);
+
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      onCloseRef.current();
+      return;
+    }
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const focusables = getDomainDrawerFocusable(drawerRef.current);
+    if (focusables.length === 0) {
+      event.preventDefault();
+      drawerRef.current?.focus();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (event.shiftKey) {
+      if (active === first || !drawerRef.current?.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+      return;
+    }
+    if (active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
+
+  if (!open) {
+    return null;
+  }
+  return (
+    <div className="idt-domain-drawer-root" role="dialog" aria-modal="true" aria-label={title} onKeyDown={handleKeyDown}>
+      <button type="button" className="idt-domain-drawer-scrim" aria-hidden="true" tabIndex={-1} onClick={onClose} />
+      <aside className="idt-domain-drawer" ref={drawerRef} tabIndex={-1}>
+        <header>
+          <div>
+            {eyebrow ? <p className="idt-app-kicker">{eyebrow}</p> : null}
+            <h3>{title}</h3>
+          </div>
+          <button type="button" className="idt-domain-drawer-close" onClick={onClose} aria-label={closeLabel}>
+            <span aria-hidden="true">×</span>
+          </button>
+        </header>
+        <div className="idt-domain-drawer-body">{children}</div>
+        {footer ? <footer>{footer}</footer> : null}
+      </aside>
+    </div>
+  );
 }

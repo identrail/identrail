@@ -1,22 +1,32 @@
+import { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import {
   DomainActionFooter,
+  DomainCoverageCard,
   DomainDataTable,
+  DomainDetailDrawer,
   DomainDetailPanel,
   DomainEmptyState,
   DomainErrorState,
   DomainEvidencePanel,
   DomainFilterBar,
+  DomainFindingSummaryCard,
+  DomainGraphPlaceholder,
   DomainHeader,
   DomainKpiStrip,
   DomainLoadingState,
   DomainLogoMark,
   DomainLogoStack,
   DomainPageShell,
+  DomainRemediationQueue,
+  DomainSortControl,
+  DomainStatusBadge,
   DomainStatusPanel,
-  DomainSubnav
+  DomainSubnav,
+  DomainTimeline,
+  domainStatusTone
 } from './DomainFoundation';
 
 describe('DomainFoundation', () => {
@@ -178,6 +188,218 @@ describe('DomainFoundation', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading GitHub repositories');
     expect(screen.getByText('{"Effect":"Allow"}')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve plan' })).toBeInTheDocument();
+  });
+
+  it('renders typed domain status badges with semantic tones', () => {
+    render(
+      <>
+        <DomainStatusBadge variant="connected" />
+        <DomainStatusBadge variant="degraded" detail="Webhook lag 8s" />
+        <DomainStatusBadge variant="missing-permissions" />
+        <DomainStatusBadge variant="running-scan" />
+        <DomainStatusBadge variant="coming-soon" />
+      </>
+    );
+
+    expect(screen.getByText('Connected').closest('.idt-domain-status-badge')).toHaveClass('is-success');
+    expect(screen.getByText('Degraded').closest('.idt-domain-status-badge')).toHaveClass('is-warning');
+    expect(screen.getByText('Missing permissions').closest('.idt-domain-status-badge')).toHaveClass('is-danger');
+    expect(screen.getByText('Running scan').closest('.idt-domain-status-badge')).toHaveClass('is-info');
+    expect(screen.getByText('Webhook lag 8s')).toBeInTheDocument();
+    expect(domainStatusTone('connected')).toBe('success');
+    expect(domainStatusTone('missing-permissions')).toBe('danger');
+  });
+
+  it('exposes empty next action and error retry action as primary controls', () => {
+    const onRetry = vi.fn();
+    const onConnect = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <DomainEmptyState
+          title="No identities yet"
+          body="Connect an AWS account to begin."
+          nextAction={{ label: 'Connect AWS', onClick: onConnect }}
+        />
+        <DomainErrorState title="Sync failed" body="Reach out if this persists." retryAction={{ label: 'Retry sync', onClick: onRetry }} />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect AWS' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry sync' }));
+    expect(onConnect).toHaveBeenCalledTimes(1);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders coverage cards with a labeled progress bar', () => {
+    render(<DomainCoverageCard label="Accounts" scanned={3} total={4} detail="us-east, us-west" />);
+
+    const progress = screen.getByRole('progressbar', { name: /accounts coverage/i });
+    expect(progress).toHaveAttribute('aria-valuenow', '3');
+    expect(progress).toHaveAttribute('aria-valuemax', '4');
+    expect(screen.getByText('75%')).toBeInTheDocument();
+    expect(screen.getByText(/3 of 4 scanned/)).toBeInTheDocument();
+  });
+
+  it('renders finding summary cards with severity, count, and navigation', () => {
+    render(
+      <MemoryRouter>
+        <DomainFindingSummaryCard severity="critical" count={4} to="/aws/findings?severity=critical" />
+        <DomainFindingSummaryCard severity="medium" count={12} trend="+3 this week" />
+      </MemoryRouter>
+    );
+
+    const link = screen.getByRole('link', { name: '4 Critical findings' });
+    expect(link).toHaveAttribute('href', '/aws/findings?severity=critical');
+    expect(screen.getByText('+3 this week')).toBeInTheDocument();
+  });
+
+  it('renders the timeline as an ordered list with semantic entries', () => {
+    render(
+      <DomainTimeline
+        label="Scan history"
+        entries={[
+          { id: 'a', timestamp: '12:01', title: 'Scan started', actor: 'collector' },
+          { id: 'b', timestamp: '12:04', title: 'Findings published', detail: '7 new', tone: 'success' }
+        ]}
+      />
+    );
+
+    const list = screen.getByRole('list', { name: 'Scan history' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(list).getByText('Findings published')).toBeInTheDocument();
+    expect(within(list).getByText('collector')).toBeInTheDocument();
+  });
+
+  it('renders a graph placeholder region with an inline call to action', () => {
+    render(
+      <MemoryRouter>
+        <DomainGraphPlaceholder
+          title="Trust graph coming soon"
+          description="Cross-account trust will appear once collectors complete."
+          action={{ label: 'See sample graph', href: '/docs/graph' }}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole('region', { name: 'Trust graph coming soon' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'See sample graph' })).toHaveAttribute('href', '/docs/graph');
+  });
+
+  it('renders the remediation queue with action affordances and an empty fallback', () => {
+    const approve = vi.fn();
+    render(
+      <MemoryRouter>
+        <DomainRemediationQueue
+          items={[
+            {
+              id: 'q1',
+              title: 'Rotate access key AKIA…',
+              detail: 'Last used 142 days ago',
+              severity: 'high',
+              owner: 'sec-platform',
+              primaryAction: { label: 'Approve', onClick: approve },
+              secondaryAction: { label: 'Defer', onClick: vi.fn() }
+            }
+          ]}
+        />
+        <DomainRemediationQueue label="Cleared queue" items={[]} />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(approve).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('sec-platform')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Cleared queue' })).toHaveTextContent('Queue is clear');
+  });
+
+  it('lets sort controls flip direction without changing the key', () => {
+    const onChange = vi.fn();
+    render(
+      <DomainSortControl
+        options={[
+          { key: 'risk', label: 'Risk' },
+          { key: 'updated', label: 'Updated' }
+        ]}
+        value="risk"
+        direction="desc"
+        onChange={onChange}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /sort direction: descending/i }));
+    expect(onChange).toHaveBeenCalledWith({ key: 'risk', direction: 'asc' });
+  });
+
+  it('focuses the drawer and closes via the explicit close affordance', () => {
+    const onClose = vi.fn();
+    render(
+      <DomainDetailDrawer open title="Identity detail" eyebrow="Inventory" onClose={onClose} footer={<button type="button">Approve</button>}>
+        <p>Identity payload</p>
+        <a href="/inventory">View inventory</a>
+      </DomainDetailDrawer>
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Identity detail' })).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close detail drawer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close detail drawer' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the drawer on Escape and traps Tab inside its contents', () => {
+    const onClose = vi.fn();
+    render(
+      <DomainDetailDrawer open title="Identity detail" onClose={onClose} footer={<button type="button">Approve</button>}>
+        <a href="/inventory">View inventory</a>
+      </DomainDetailDrawer>
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Identity detail' });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    const closeButton = screen.getByRole('button', { name: 'Close detail drawer' });
+    const approveButton = screen.getByRole('button', { name: 'Approve' });
+    approveButton.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(approveButton);
+  });
+
+  it('restores focus to the prior element when the drawer closes', () => {
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          <DomainDetailDrawer open={open} title="Identity detail" onClose={() => setOpen(false)}>
+            <p>payload</p>
+          </DomainDetailDrawer>
+        </>
+      );
+    }
+    render(<Host />);
+
+    const opener = screen.getByRole('button', { name: 'Open' });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close detail drawer' }));
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('does not render the drawer when closed', () => {
+    const { queryByRole } = render(
+      <DomainDetailDrawer open={false} title="Hidden" onClose={() => undefined}>
+        <p>nope</p>
+      </DomainDetailDrawer>
+    );
+    expect(queryByRole('dialog')).toBeNull();
   });
 
   it('always prevents native submit in filter bar handlers', () => {
