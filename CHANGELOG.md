@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Extended the shared domain page framework in `web/src/components/app/DomainFoundation.tsx`
+  with typed `DomainStatusBadge` variants (connected, disconnected, needs-attention,
+  degraded, running-scan, missing-permissions, coming-soon), `DomainCoverageCard`
+  with an accessible progress bar, `DomainFindingSummaryCard` keyed to severity,
+  `DomainTimeline` rows, a `DomainGraphPlaceholder` panel, a
+  `DomainRemediationQueue` with primary/secondary affordances, a `DomainSortControl`
+  with a direction toggle, and a focus-trapped `DomainDetailDrawer`. Empty and error
+  states now accept `nextAction` and `retryAction` slots so the operational
+  states feel like a security product rather than a generic toast. The new
+  primitives are reusable across AWS, GitHub, and Kubernetes domain shells and
+  follow the WorkOS/GitHub-style premium dark direction without reintroducing
+  Projects or global Findings concepts.
 - Renamed the hosted API production release workflow to `Deploy to prod` and
   made the normal release path one-click from the `dev` branch. The workflow now
   resolves the current commit's immutable API and worker image tags, verifies CI
