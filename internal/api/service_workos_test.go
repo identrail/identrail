@@ -852,3 +852,77 @@ func TestUpsertWorkOSUserSignInPastGraceReturnsNotFound(t *testing.T) {
 		t.Fatalf("expected ErrAuthAccountNotFound past grace, got %v", err)
 	}
 }
+
+func TestUpsertWorkOSUserCancelDeletionEmailResolvedRevives(t *testing.T) {
+	// The email-resolved branch (no matching identity row, but a user with
+	// the same primary email) must also honor the cancel_deletion intent:
+	// revive the soft-deleted row, mint the identity, complete sign-in.
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-24 * time.Hour)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	user, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "email-revive@example.com",
+		DisplayName:  "Email Revive",
+		Status:       "deleted",
+		DeletedAt:    &deletedAt,
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	result, err := svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:            "user_workos_email_revive",
+		Email:         "email-revive@example.com",
+		FirstName:     "Email",
+		LastName:      "Revive",
+		EmailVerified: true,
+	}, "cancel_deletion")
+	if err != nil {
+		t.Fatalf("cancel_deletion intent (email-resolved): %v", err)
+	}
+	if result.User.Status != "active" {
+		t.Fatalf("expected active status, got %q", result.User.Status)
+	}
+	if result.User.DeletedAt != nil {
+		t.Fatalf("expected DeletedAt cleared, got %v", result.User.DeletedAt)
+	}
+	stored, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("get stored: %v", err)
+	}
+	if stored.Status != "active" || stored.DeletedAt != nil {
+		t.Fatalf("expected stored row revived, got %+v", stored)
+	}
+}
+
+func TestUpsertWorkOSUserLoginIntentRefusesPendingDeletionEmailResolved(t *testing.T) {
+	// Mirror of TestUpsertWorkOSUserLoginIntentRefusesPendingDeletion but on
+	// the email-resolved branch — no matching identity row exists, only a
+	// soft-deleted user with the same primary email. The login intent must
+	// still surface ErrAuthAccountPendingDeletion so the UI can branch to
+	// cancellation rather than reactivation.
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-24 * time.Hour)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	ctx := context.Background()
+	if _, err := store.UpsertUser(ctx, db.User{
+		PrimaryEmail: "email-pending@example.com",
+		DisplayName:  "Email Pending",
+		Status:       "deleted",
+		DeletedAt:    &deletedAt,
+	}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	_, err := svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+		ID:            "user_workos_email_pending",
+		Email:         "email-pending@example.com",
+		EmailVerified: true,
+	}, "login")
+	if !errors.Is(err, ErrAuthAccountPendingDeletion) {
+		t.Fatalf("expected ErrAuthAccountPendingDeletion, got %v", err)
+	}
+}

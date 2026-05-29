@@ -669,9 +669,11 @@ func (p *PostgresStore) TouchSession(ctx context.Context, sessionIDHash []byte, 
 }
 
 // TouchSessionAllowingPendingDeletion is TouchSession with the user-lifecycle
-// gate widened so cookies pointing to a soft-deleted-within-grace user resolve.
-// It is mounted only on `/v1/me/cancel-deletion`; every other route uses
-// TouchSession and continues to refuse deleted users.
+// gate widened so cookies pointing to a soft-deleted user resolve. The 30-day
+// grace gate is enforced at the handler layer (the cancel-deletion route
+// returns 410 past the window) rather than here, so the past-grace branch
+// remains reachable to produce a well-formed `grace_period_expired` response.
+// Mounted only on `/v1/me/cancel-deletion`; every other route uses TouchSession.
 func (p *PostgresStore) TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
 	row := p.queryRowContextAnyScope(
 		ctx,
@@ -689,12 +691,9 @@ func (p *PostgresStore) TouchSessionAllowingPendingDeletion(ctx context.Context,
 		   FROM touched s
 		   JOIN users u ON u.id = s.user_id
 		   WHERE (u.deleted_at IS NULL AND u.status = 'active')
-		      OR (u.status = 'deleted'
-		          AND u.deleted_at IS NOT NULL
-		          AND u.deleted_at + ($3::bigint * INTERVAL '1 second') > $2::timestamptz)`,
+		      OR (u.status = 'deleted' AND u.deleted_at IS NOT NULL)`,
 		sessionIDHash,
 		now.UTC(),
-		int64(UserDeletionGracePeriod/time.Second),
 	)
 	return scanSessionWithUser(row)
 }

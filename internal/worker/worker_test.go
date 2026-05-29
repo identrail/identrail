@@ -314,3 +314,32 @@ func TestRecordWorkerAutomationRun(t *testing.T) {
 		t.Fatalf("scheduled kubernetes partial metric = %v, want 1", got)
 	}
 }
+
+func TestRunRegistersUserPurgeRunner(t *testing.T) {
+	// Exercise the user-purge runner registration code path: with the worker
+	// scan disabled and user purge enabled, the cancellable Run() must still
+	// boot cleanly and exit on cancellation.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cfg := config.Config{
+		AllowMemoryStore:         true,
+		LogLevel:                 "info",
+		ServiceName:              "identrail-test",
+		Provider:                 "aws",
+		WorkerScanEnabled:        false,
+		WorkerScanPolicyEnabled:  false,
+		WorkerAPIJobQueueEnabled: false,
+		WorkerUserPurgeEnabled:   true,
+		WorkerUserPurgeInterval:  10 * time.Millisecond,
+		WorkerUserPurgeBatchSize: 50,
+		LockNamespace:            "test-ns",
+		APIKeys:                  []string{"test-read"},
+		WriteAPIKeys:             []string{"test-read"},
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	if err := Run(ctx, cfg, sigCh); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}

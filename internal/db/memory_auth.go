@@ -442,13 +442,12 @@ func (m *MemoryStore) touchSessionInternal(sessionIDHash []byte, now time.Time, 
 		if !allowPendingDeletion {
 			return Session{}, ErrNotFound
 		}
-		// Lenient path: accept only soft-deleted accounts still within their
-		// grace window. A purged tombstone row or an account past the grace
-		// has no business surfacing as an authenticated session.
+		// Lenient path: accept soft-deleted accounts so the cancel-deletion
+		// handler can serve them. The 30-day grace gate is enforced at the
+		// handler level (returning 410 past the window) rather than here, so
+		// the past-grace branch stays reachable for callers to receive a
+		// well-formed `grace_period_expired` response instead of a bare 401.
 		if user.Status != "deleted" || user.DeletedAt == nil {
-			return Session{}, ErrNotFound
-		}
-		if !now.UTC().Before(user.DeletedAt.UTC().Add(UserDeletionGracePeriod)) {
 			return Session{}, ErrNotFound
 		}
 	}

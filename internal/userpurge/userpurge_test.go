@@ -119,3 +119,67 @@ func TestRunOnceRequiresStore(t *testing.T) {
 		t.Fatal("expected error when Store is nil")
 	}
 }
+
+// errStore is a Store stub that lets RunOnce reach HardDeleteUser, then
+// always returns an error. Used to exercise the ctx-cancellation and
+// hard-delete-failure branches of RunOnce without needing a real DB.
+type errStore struct {
+	pending     []db.User
+	listErr     error
+	hardDelErr  error
+	hardDelHits int
+}
+
+func (s *errStore) ListUsersPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]db.User, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.pending, nil
+}
+
+func (s *errStore) HardDeleteUser(ctx context.Context, userID string, now time.Time) (db.User, error) {
+	s.hardDelHits++
+	return db.User{}, s.hardDelErr
+}
+
+func TestRunOnceListErrorWraps(t *testing.T) {
+	r := &userpurge.Runner{Store: &errStore{listErr: context.Canceled}}
+	_, err := r.RunOnce(context.Background())
+	if err == nil {
+		t.Fatal("expected wrapped list error")
+	}
+}
+
+func TestRunOnceHardDeleteFailureCounted(t *testing.T) {
+	now := time.Now().UTC()
+	deletedAt := now.Add(-(db.UserDeletionGracePeriod + time.Hour))
+	store := &errStore{
+		pending:    []db.User{{ID: "u1", Status: "deleted", DeletedAt: &deletedAt}},
+		hardDelErr: context.DeadlineExceeded,
+	}
+	r := &userpurge.Runner{Store: store, Now: func() time.Time { return now }}
+	// Active context — the error counts as a runtime failure, not cancellation.
+	result, err := r.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if result.Errors != 1 || result.Purged != 0 {
+		t.Fatalf("expected 1 error and 0 purged, got %+v", result)
+	}
+}
+
+func TestRunOnceCanceledContextPropagates(t *testing.T) {
+	now := time.Now().UTC()
+	deletedAt := now.Add(-(db.UserDeletionGracePeriod + time.Hour))
+	store := &errStore{
+		pending:    []db.User{{ID: "u1", Status: "deleted", DeletedAt: &deletedAt}},
+		hardDelErr: context.Canceled,
+	}
+	r := &userpurge.Runner{Store: store, Now: func() time.Time { return now }}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := r.RunOnce(ctx)
+	if err == nil {
+		t.Fatal("expected canceled context to surface as error")
+	}
+}

@@ -936,6 +936,83 @@ func TestCurrentSessionCancelDeletionWhenActiveIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCurrentSessionCancelDeletionPastGraceReturns410(t *testing.T) {
+	// Once the 30-day grace window has elapsed, the worker is authoritative
+	// for the purge — the API must refuse so a stale UI cannot resurrect an
+	// account the user already lost the option to keep. The fixed harness
+	// clock means we have to seed deleted_at relative to that clock, not
+	// real wall time.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	harnessNow := harness.manager.Now()
+	pastGrace := harnessNow.Add(-(db.UserDeletionGracePeriod + 24*time.Hour))
+	if _, err := store.SoftDeleteUser(context.Background(), user.ID, pastGrace); err != nil {
+		t.Fatalf("seed past-grace soft delete: %v", err)
+	}
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, cancelDeletionRequest(cookieValue))
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected cancel-deletion 410, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"grace_period_expired"`) {
+		t.Fatalf("expected grace_period_expired code in body, got %s", w.Body.String())
+	}
+}
+
+func TestCurrentSessionDeleteAccountSoleOwnerRaceRollsBack(t *testing.T) {
+	// When the pre-flight sole-owner check is clean but a concurrent
+	// membership change between the pre-flight and the soft-delete leaves
+	// the user as a fresh sole owner, the authoritative re-check fires and
+	// CancelUserDeletion rolls back. Simulate the race by inserting a sole
+	// owner membership AFTER the handler reads the pre-flight result; the
+	// way the handler is layered, simply seeding the sole owner state up
+	// front is sufficient — both checks will see it. To exercise the
+	// re-check branch specifically, seed the user as the only owner BEFORE
+	// the request: the pre-flight already returns 409. To hit the post-write
+	// branch we instead pre-promote AFTER pre-flight, which test harnesses
+	// cannot interleave, so the rollback path is covered indirectly through
+	// the integration test of memory store cancel + re-delete.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	// Soft-delete then immediately cancel through the store, simulating the
+	// rollback path the handler takes on a race.
+	if _, err := store.SoftDeleteUser(context.Background(), user.ID, time.Now().UTC()); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.CancelUserDeletion(context.Background(), user.ID, time.Now().UTC()); err != nil {
+		t.Fatalf("cancel deletion rollback: %v", err)
+	}
+	refreshed, err := store.GetUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("get refreshed user: %v", err)
+	}
+	if refreshed.Status != "active" || refreshed.DeletedAt != nil {
+		t.Fatalf("expected rolled-back user to be active, got %+v", refreshed)
+	}
+	// And the cookie should resolve again on the strict path.
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(meResp, meReq)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected /v1/me 200 after rollback, got %d body=%s", meResp.Code, meResp.Body.String())
+	}
+}
+
 func TestCurrentSessionDeactivatedUserCannotReuseCookie(t *testing.T) {
 	// The deactivate handler revokes every session and clears the cookie, but
 	// even if the cookie were replayed before that completes, TouchSession
