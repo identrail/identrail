@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -330,17 +331,66 @@ describe('DomainFoundation', () => {
     expect(onChange).toHaveBeenCalledWith({ key: 'risk', direction: 'asc' });
   });
 
-  it('opens, traps, and closes the detail drawer with keyboard-friendly controls', () => {
+  it('focuses the drawer and closes via the explicit close affordance', () => {
     const onClose = vi.fn();
     render(
-      <DomainDetailDrawer open title="Identity detail" eyebrow="Inventory" onClose={onClose} footer={<button type="button">Close</button>}>
+      <DomainDetailDrawer open title="Identity detail" eyebrow="Inventory" onClose={onClose} footer={<button type="button">Approve</button>}>
         <p>Identity payload</p>
+        <a href="/inventory">View inventory</a>
       </DomainDetailDrawer>
     );
 
     expect(screen.getByRole('dialog', { name: 'Identity detail' })).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Close detail drawer' })[0]);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close detail drawer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close detail drawer' }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the drawer on Escape and traps Tab inside its contents', () => {
+    const onClose = vi.fn();
+    render(
+      <DomainDetailDrawer open title="Identity detail" onClose={onClose} footer={<button type="button">Approve</button>}>
+        <a href="/inventory">View inventory</a>
+      </DomainDetailDrawer>
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Identity detail' });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    const closeButton = screen.getByRole('button', { name: 'Close detail drawer' });
+    const approveButton = screen.getByRole('button', { name: 'Approve' });
+    approveButton.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(approveButton);
+  });
+
+  it('restores focus to the prior element when the drawer closes', () => {
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          <DomainDetailDrawer open={open} title="Identity detail" onClose={() => setOpen(false)}>
+            <p>payload</p>
+          </DomainDetailDrawer>
+        </>
+      );
+    }
+    render(<Host />);
+
+    const opener = screen.getByRole('button', { name: 'Open' });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close detail drawer' }));
+    expect(document.activeElement).toBe(opener);
   });
 
   it('does not render the drawer when closed', () => {

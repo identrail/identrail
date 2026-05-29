@@ -1,5 +1,5 @@
-import { useId } from 'react';
-import type { FormEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef } from 'react';
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DOMAIN_ASSET_ORDER, getDomainAsset, type DomainAssetKey } from '../../design/domainAssets';
 
@@ -817,6 +817,18 @@ export function DomainSortControl({
   );
 }
 
+const DOMAIN_DRAWER_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function getDomainDrawerFocusable(root: HTMLElement | null): HTMLElement[] {
+  if (!root) {
+    return [];
+  }
+  return Array.from(root.querySelectorAll<HTMLElement>(DOMAIN_DRAWER_FOCUSABLE_SELECTOR)).filter(
+    (el) => el.getAttribute('aria-hidden') !== 'true'
+  );
+}
+
 export function DomainDetailDrawer({
   open,
   title,
@@ -834,13 +846,64 @@ export function DomainDetailDrawer({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    restoreFocusRef.current = (document.activeElement as HTMLElement | null) ?? null;
+    const focusables = getDomainDrawerFocusable(drawerRef.current);
+    (focusables[0] ?? drawerRef.current)?.focus();
+    return () => {
+      restoreFocusRef.current?.focus?.();
+    };
+  }, [open]);
+
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      onCloseRef.current();
+      return;
+    }
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const focusables = getDomainDrawerFocusable(drawerRef.current);
+    if (focusables.length === 0) {
+      event.preventDefault();
+      drawerRef.current?.focus();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (event.shiftKey) {
+      if (active === first || !drawerRef.current?.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+      return;
+    }
+    if (active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
+
   if (!open) {
     return null;
   }
   return (
-    <div className="idt-domain-drawer-root" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" className="idt-domain-drawer-scrim" aria-label={closeLabel} onClick={onClose} />
-      <aside className="idt-domain-drawer">
+    <div className="idt-domain-drawer-root" role="dialog" aria-modal="true" aria-label={title} onKeyDown={handleKeyDown}>
+      <button type="button" className="idt-domain-drawer-scrim" aria-hidden="true" tabIndex={-1} onClick={onClose} />
+      <aside className="idt-domain-drawer" ref={drawerRef} tabIndex={-1}>
         <header>
           <div>
             {eyebrow ? <p className="idt-app-kicker">{eyebrow}</p> : null}
