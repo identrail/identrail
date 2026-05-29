@@ -1240,3 +1240,58 @@ func TestMemoryStoreListWorkspaceMembershipsByUserUUIDAndTenantID(t *testing.T) 
 		t.Fatalf("expected no memberships for unknown tenant, got %v", empty)
 	}
 }
+
+func TestMemoryStoreListSoleOwnerWorkspaces(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	for _, workspaceID := range []string{"ws-sole", "ws-shared", "ws-other"} {
+		scoped := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: workspaceID})
+		if err := store.UpsertWorkspace(scoped, TenancyWorkspace{WorkspaceID: workspaceID, DisplayName: workspaceID, Slug: workspaceID}); err != nil {
+			t.Fatalf("upsert workspace %s: %v", workspaceID, err)
+		}
+	}
+	userUUID := "11111111-1111-1111-1111-111111111111"
+	other := "22222222-2222-2222-2222-222222222222"
+
+	scopedSole := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-sole"})
+	if err := store.UpsertWorkspaceMember(scopedSole, TenancyWorkspaceMember{
+		WorkspaceID: "ws-sole", MemberID: "m-sole", UserID: "subj-sole", UserUUID: userUUID,
+		Role: "owner", Status: "active", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert sole owner: %v", err)
+	}
+
+	scopedShared := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-shared"})
+	if err := store.UpsertWorkspaceMember(scopedShared, TenancyWorkspaceMember{
+		WorkspaceID: "ws-shared", MemberID: "m-shared-1", UserID: "subj-shared-1", UserUUID: userUUID,
+		Role: "owner", Status: "active", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert shared owner 1: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedShared, TenancyWorkspaceMember{
+		WorkspaceID: "ws-shared", MemberID: "m-shared-2", UserID: "subj-shared-2", UserUUID: other,
+		Role: "owner", Status: "active", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert shared owner 2: %v", err)
+	}
+
+	scopedOther := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-other"})
+	if err := store.UpsertWorkspaceMember(scopedOther, TenancyWorkspaceMember{
+		WorkspaceID: "ws-other", MemberID: "m-other", UserID: "subj-other", UserUUID: other,
+		Role: "owner", Status: "active", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert other workspace: %v", err)
+	}
+
+	results, err := store.ListSoleOwnerWorkspaces(context.Background(), userUUID)
+	if err != nil {
+		t.Fatalf("list sole owner: %v", err)
+	}
+	if len(results) != 1 || results[0].WorkspaceID != "ws-sole" {
+		t.Fatalf("expected only ws-sole, got %+v", results)
+	}
+}

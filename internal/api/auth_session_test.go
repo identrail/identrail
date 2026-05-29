@@ -801,6 +801,112 @@ func TestCurrentSessionAccountLifecycleRoutesRequireSession(t *testing.T) {
 	}
 }
 
+// deleteAccountRequest issues DELETE /v1/me with the supplied session cookie.
+func deleteAccountRequest(cookieValue string) *http.Request {
+	req := httptest.NewRequest(http.MethodDelete, "/v1/me", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	return req
+}
+
+// cancelDeletionRequest issues POST /v1/me/cancel-deletion with the cookie.
+func cancelDeletionRequest(cookieValue string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/v1/me/cancel-deletion", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	return req
+}
+
+func TestCurrentSessionDeleteAccountSchedulesPurgeAndRevokesSessions(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deleteAccountRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"status":"deleted"`) {
+		t.Fatalf("expected deleted status in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"hard_delete_after"`) {
+		t.Fatalf("expected hard_delete_after in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Set-Cookie"), sessionauth.CookieName+"=;") {
+		t.Fatalf("expected delete to clear session cookie, got %q", w.Header().Get("Set-Cookie"))
+	}
+	// Cookie should be revoked at the store layer too.
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meW := httptest.NewRecorder()
+	harness.router.ServeHTTP(meW, meReq)
+	if meW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected /v1/me 401 after delete, got %d body=%s", meW.Code, meW.Body.String())
+	}
+}
+
+func TestCurrentSessionDeleteAccountRefusesSoleOwner(t *testing.T) {
+	// Promote the seeded membership to owner so the sole-owner guard fires.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "oidc-subject-a",
+		UserUUID:    user.ID,
+		Email:       user.PrimaryEmail,
+		Role:        "owner",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("promote to owner: %v", err)
+	}
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deleteAccountRequest(cookieValue))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected delete 409 sole_owner, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"sole_owner"`) {
+		t.Fatalf("expected sole_owner code in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"workspace_id":"workspace-a"`) {
+		t.Fatalf("expected workspace listed in body, got %s", w.Body.String())
+	}
+	// The user must remain active so they can transfer ownership and retry.
+	refreshed, err := store.GetUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("get refreshed user: %v", err)
+	}
+	if refreshed.Status != "active" {
+		t.Fatalf("expected user still active after sole-owner block, got %q", refreshed.Status)
+	}
+	if refreshed.DeletedAt != nil {
+		t.Fatalf("expected DeletedAt unset after sole-owner block, got %v", refreshed.DeletedAt)
+	}
+}
+
+func TestCurrentSessionCancelDeletionWhenActiveIsIdempotent(t *testing.T) {
+	// Cancel-deletion against an already-active account is a no-op success.
+	// In production a deleted user's cookie cannot reach this endpoint
+	// (CreateSession refuses non-active users), so this idempotent shape is
+	// what UIs holding a stale "deletion pending" view will hit after a
+	// cross-tab cancellation lands.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, cancelDeletionRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected cancel-deletion 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"status":"active"`) {
+		t.Fatalf("expected active status in body, got %s", w.Body.String())
+	}
+}
+
 func TestCurrentSessionDeactivatedUserCannotReuseCookie(t *testing.T) {
 	// The deactivate handler revokes every session and clears the cookie, but
 	// even if the cookie were replayed before that completes, TouchSession

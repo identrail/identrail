@@ -130,6 +130,139 @@ func (m *MemoryStore) SetUserStatus(ctx context.Context, userID string, status s
 	return user, nil
 }
 
+// SoftDeleteUser flips the account to status=deleted and stamps deleted_at to
+// open the reversible grace window. Re-deleting an already-deleted account is a
+// no-op that preserves the original deleted_at so the purge deadline cannot be
+// pushed back by repeat calls.
+func (m *MemoryStore) SoftDeleteUser(ctx context.Context, userID string, now time.Time) (User, error) {
+	id := strings.TrimSpace(userID)
+	when := now.UTC()
+	m.mu.Lock()
+	user, exists := m.users[id]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	if user.DeletedAt == nil {
+		deletedAt := when
+		user.DeletedAt = &deletedAt
+	}
+	user.Status = "deleted"
+	user.UpdatedAt = when
+	m.users[id] = user
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.delete",
+		ResourceType: "user",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return user, nil
+}
+
+// CancelUserDeletion reverses a soft delete: it clears deleted_at and returns
+// the account to active.
+func (m *MemoryStore) CancelUserDeletion(ctx context.Context, userID string, now time.Time) (User, error) {
+	id := strings.TrimSpace(userID)
+	when := now.UTC()
+	m.mu.Lock()
+	user, exists := m.users[id]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	user.Status = "active"
+	user.DeletedAt = nil
+	user.UpdatedAt = when
+	m.users[id] = user
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.delete.cancel",
+		ResourceType: "user",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return user, nil
+}
+
+// ListUsersPendingHardDelete returns soft-deleted accounts whose grace window
+// closed and whose PII has not already been purged.
+func (m *MemoryStore) ListUsersPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]User, error) {
+	cutoff := deletedBefore.UTC()
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.RLock()
+	pending := make([]User, 0)
+	for _, user := range m.users {
+		if user.Status != "deleted" || user.DeletedAt == nil {
+			continue
+		}
+		if !user.DeletedAt.UTC().Before(cutoff) {
+			continue
+		}
+		if IsHardDeletedTombstoneEmail(user.PrimaryEmail) {
+			continue
+		}
+		pending = append(pending, user)
+	}
+	m.mu.RUnlock()
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].DeletedAt.Equal(*pending[j].DeletedAt) {
+			return pending[i].ID < pending[j].ID
+		}
+		return pending[i].DeletedAt.Before(*pending[j].DeletedAt)
+	})
+	if len(pending) > limit {
+		pending = pending[:limit]
+	}
+	return pending, nil
+}
+
+// HardDeleteUser purges PII from a soft-deleted account while keeping the row
+// so audit references by UUID remain valid. It deletes provider identities
+// (which carry raw IdP claims) and any session rows, and is safely re-runnable.
+func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now time.Time) (User, error) {
+	id := strings.TrimSpace(userID)
+	when := now.UTC()
+	m.mu.Lock()
+	user, exists := m.users[id]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	user.PrimaryEmail = HardDeletedTombstoneEmail(id)
+	user.DisplayName = ""
+	user.AvatarURL = ""
+	user.Status = "deleted"
+	user.UpdatedAt = when
+	m.users[id] = user
+	for identityID, identity := range m.userIdentityByID {
+		if identity.UserID != id {
+			continue
+		}
+		delete(m.userIdentityByID, identityID)
+		for key, mappedID := range m.userIdentityByProviderSubject {
+			if mappedID == identityID {
+				delete(m.userIdentityByProviderSubject, key)
+			}
+		}
+	}
+	for key, session := range m.sessions {
+		if session.UserID == id {
+			delete(m.sessions, key)
+		}
+	}
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.hard_delete",
+		ResourceType: "user",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return user, nil
+}
+
 // UpsertUserIdentity persists one provider identity mapping.
 func (m *MemoryStore) UpsertUserIdentity(ctx context.Context, identity UserIdentity) (UserIdentity, error) {
 	normalized, err := NormalizeUserIdentityForWrite(identity)

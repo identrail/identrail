@@ -673,6 +673,8 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodPost, Path: "/v1/me/sessions/revoke-others", Action: policyActionMeWrite, ResourceType: "session"},
 		{Method: http.MethodPost, Path: "/v1/me/deactivate", Action: policyActionMeWrite, ResourceType: "user"},
 		{Method: http.MethodPost, Path: "/v1/me/reactivate", Action: policyActionMeWrite, ResourceType: "user"},
+		{Method: http.MethodDelete, Path: "/v1/me", Action: policyActionMeWrite, ResourceType: "user"},
+		{Method: http.MethodPost, Path: "/v1/me/cancel-deletion", Action: policyActionMeWrite, ResourceType: "user"},
 		{Method: http.MethodPost, Path: "/v1/onboarding/start", Action: policyActionOnboardingWrite, ResourceType: "onboarding_state"},
 		{Method: http.MethodGet, Path: "/v1/onboarding/state", Action: policyActionOnboardingRead, ResourceType: "onboarding_state"},
 		{Method: http.MethodPost, Path: "/v1/onboarding/state", Action: policyActionOnboardingWrite, ResourceType: "onboarding_state"},

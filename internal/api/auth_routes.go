@@ -464,6 +464,10 @@ func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manag
 			writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonReactivationNeeded, http.StatusForbidden, "account reactivation requires signup")
 			return "", false
 		}
+		if errors.Is(err, ErrAuthAccountPendingDeletion) {
+			writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonAccountDeleted, http.StatusForbidden, "account is scheduled for permanent deletion")
+			return "", false
+		}
 		if logger != nil {
 			logger.Error("upsert workos user", telemetry.ZapError(err))
 		}
@@ -1415,6 +1419,163 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			}
 		}
 		auditAuthAction(c.Request.Context(), "auth.account.reactivate", user.ID, "success")
+		c.JSON(http.StatusOK, gin.H{"status": "active"})
+	})
+
+	v1.DELETE("/me", func(c *gin.Context) {
+		current, ok := sessionauth.CurrentFromGin(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session required"})
+			return
+		}
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		user, err := svc.Store.GetUser(c.Request.Context(), current.Session.UserID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+				return
+			}
+			if logger != nil {
+				logger.Error("delete account get user", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+			return
+		}
+		if user.Status == "deleted" {
+			// Idempotent: a repeat DELETE returns the originally-scheduled
+			// purge date so the UI does not silently extend the window.
+			scheduled := time.Time{}
+			if user.DeletedAt != nil {
+				scheduled = user.DeletedAt.UTC().Add(db.UserDeletionGracePeriod)
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"status":             "deleted",
+				"deleted_at":         user.DeletedAt,
+				"hard_delete_after":  scheduled,
+				"grace_period_hours": int(db.UserDeletionGracePeriod / time.Hour),
+			})
+			return
+		}
+		// Sole-owner check runs before any state mutation: a 409 here must
+		// leave the account untouched so the user can transfer ownership and
+		// retry. Returning the workspaces in the body lets the UI render the
+		// transfer prompt without a second round-trip.
+		soleOwned, err := svc.Store.ListSoleOwnerWorkspaces(c.Request.Context(), user.ID)
+		if err != nil {
+			if logger != nil {
+				logger.Error("delete account sole owner lookup", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+			return
+		}
+		if len(soleOwned) > 0 {
+			workspaces := make([]gin.H, 0, len(soleOwned))
+			for _, ws := range soleOwned {
+				workspaces = append(workspaces, gin.H{
+					"tenant_id":    ws.TenantID,
+					"workspace_id": ws.WorkspaceID,
+					"display_name": ws.DisplayName,
+					"slug":         ws.Slug,
+				})
+			}
+			auditAuthAction(c.Request.Context(), "auth.account.delete", user.ID, "denied")
+			c.JSON(http.StatusConflict, gin.H{
+				"error":      "user is the sole owner of one or more workspaces",
+				"code":       "sole_owner",
+				"workspaces": workspaces,
+			})
+			return
+		}
+		// Mirror the deactivate three-step sandwich: revoke sessions, persist
+		// the soft-delete (with deleted_at), revoke again. Step 3 closes the
+		// race where a concurrent sign-in committed a new session row in the
+		// gap between (1) and (2), since the deletion check happens at sign-in
+		// rather than session creation for the cancel_deletion intent.
+		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+			if logger != nil {
+				logger.Error("delete account revoke sessions", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+			return
+		}
+		saved, err := svc.Store.SoftDeleteUser(c.Request.Context(), user.ID, now)
+		if err != nil {
+			if logger != nil {
+				logger.Error("delete account soft delete", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+			return
+		}
+		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+			if logger != nil {
+				logger.Error("delete account revoke sessions post-status", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+			return
+		}
+		auditAuthAction(c.Request.Context(), "auth.account.delete", saved.ID, "success")
+		http.SetCookie(c.Writer, manager.ClearCookie())
+		hardDeleteAfter := now.Add(db.UserDeletionGracePeriod)
+		if saved.DeletedAt != nil {
+			hardDeleteAfter = saved.DeletedAt.UTC().Add(db.UserDeletionGracePeriod)
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":             "deleted",
+			"deleted_at":         saved.DeletedAt,
+			"hard_delete_after":  hardDeleteAfter,
+			"grace_period_hours": int(db.UserDeletionGracePeriod / time.Hour),
+		})
+	})
+
+	v1.POST("/me/cancel-deletion", func(c *gin.Context) {
+		current, ok := sessionauth.CurrentFromGin(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session required"})
+			return
+		}
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		user, err := svc.Store.GetUser(c.Request.Context(), current.Session.UserID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+				return
+			}
+			if logger != nil {
+				logger.Error("cancel deletion get user", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel deletion"})
+			return
+		}
+		// Past the grace window the worker is authoritative for the purge; the
+		// API must refuse so a stale UI cannot resurrect an account the user
+		// already lost the option to keep.
+		if user.DeletedAt != nil && userDeletionGraceExpired(user, now) {
+			auditAuthAction(c.Request.Context(), "auth.user.delete.cancel", user.ID, "denied")
+			c.JSON(http.StatusGone, gin.H{
+				"error": "deletion grace period has expired",
+				"code":  "grace_period_expired",
+			})
+			return
+		}
+		if user.Status == "active" && user.DeletedAt == nil {
+			c.JSON(http.StatusOK, gin.H{"status": "active"})
+			return
+		}
+		saved, err := svc.Store.CancelUserDeletion(c.Request.Context(), user.ID, now)
+		if err != nil {
+			if logger != nil {
+				logger.Error("cancel deletion store", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel deletion"})
+			return
+		}
+		auditAuthAction(c.Request.Context(), "auth.account.delete.cancel", saved.ID, "success")
 		c.JSON(http.StatusOK, gin.H{"status": "active"})
 	})
 }

@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- Added self-serve account permanent deletion with a 30-day reversible grace
+  window. `DELETE /v1/me` soft-deletes the authenticated user (status flips to
+  `deleted`, `deleted_at` is stamped, every session is revoked, the cookie is
+  cleared) and returns the scheduled hard-delete date. `POST /v1/me/cancel-deletion`
+  reverses the soft-delete during the grace window. The endpoints refuse with a
+  structured `409 sole_owner` listing affected workspaces when the user is the
+  sole owner of any workspace, so deletion never orphans an unowned tenant.
+  WorkOS sign-in with `intent=login` against a soft-deleted account is refused
+  with `ErrAuthAccountPendingDeletion` (mapped to `403 account_pending_deletion`)
+  so the frontend can offer cancellation; a new `intent=cancel_deletion` revives
+  the row server-side as part of the sign-in. A daily worker pass
+  (`IDENTRAIL_WORKER_USER_PURGE_ENABLED`, default on) hard-deletes accounts past
+  the grace window: PII is tombstoned (synthetic `deleted-user+<uuid>` email,
+  display name and avatar cleared), provider identities and session rows are
+  removed, the users row stays so audit references by UUID remain valid. The
+  pass is idempotent — already-tombstoned rows are filtered out so re-running
+  is a no-op. New audit actions: `auth.account.delete`, `auth.account.delete.cancel`,
+  `auth.account.pending_deletion`, `auth.user.delete`, `auth.user.delete.cancel`,
+  `auth.user.hard_delete`.
 - Renamed the hosted API production release workflow to `Deploy to prod` and
   made the normal release path one-click from the `dev` branch. The workflow now
   resolves the current commit's immutable API and worker image tags, verifies CI

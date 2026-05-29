@@ -183,6 +183,137 @@ func (p *PostgresStore) SetUserStatus(ctx context.Context, userID string, status
 	return saved, nil
 }
 
+// SoftDeleteUser flips the account to status=deleted and stamps deleted_at to
+// open the reversible grace window. COALESCE keeps any existing deleted_at so a
+// repeat delete cannot push the purge deadline back.
+func (p *PostgresStore) SoftDeleteUser(ctx context.Context, userID string, now time.Time) (User, error) {
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE users
+		 SET status = 'deleted',
+		     deleted_at = COALESCE(deleted_at, $2::timestamptz),
+		     updated_at = $2::timestamptz
+		 WHERE id = NULLIF($1, '')::uuid
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
+		strings.TrimSpace(userID),
+		now.UTC(),
+	)
+	saved, err := scanUser(row)
+	if err != nil {
+		return User{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.delete",
+		ResourceType: "user",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
+}
+
+// CancelUserDeletion reverses a soft delete: clears deleted_at and returns the
+// account to active.
+func (p *PostgresStore) CancelUserDeletion(ctx context.Context, userID string, now time.Time) (User, error) {
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE users
+		 SET status = 'active',
+		     deleted_at = NULL,
+		     updated_at = $2::timestamptz
+		 WHERE id = NULLIF($1, '')::uuid
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
+		strings.TrimSpace(userID),
+		now.UTC(),
+	)
+	saved, err := scanUser(row)
+	if err != nil {
+		return User{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.delete.cancel",
+		ResourceType: "user",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
+}
+
+// ListUsersPendingHardDelete returns soft-deleted accounts whose grace window
+// closed (deleted_at < deletedBefore) and whose PII has not already been purged.
+func (p *PostgresStore) ListUsersPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]User, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at
+		 FROM users
+		 WHERE status = 'deleted'
+		   AND deleted_at IS NOT NULL
+		   AND deleted_at < $1::timestamptz
+		   AND primary_email::text NOT LIKE $2
+		 ORDER BY deleted_at ASC, id ASC
+		 LIMIT $3`,
+		deletedBefore.UTC(),
+		hardDeletedEmailPrefix+"%",
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := make([]User, 0)
+	for rows.Next() {
+		user, scanErr := scanUser(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+// HardDeleteUser purges PII from a soft-deleted account while keeping the row
+// so audit references by UUID stay valid. Provider identities (raw IdP claims)
+// and session rows are removed first, then the users row is tombstoned, so an
+// interrupted run leaves the account marked pending and gets safely reprocessed.
+func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now time.Time) (User, error) {
+	id := strings.TrimSpace(userID)
+	if _, err := p.execContextAnyScope(ctx, `DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
+		return User{}, err
+	}
+	if _, err := p.execContextAnyScope(ctx, `DELETE FROM sessions WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
+		return User{}, err
+	}
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE users
+		 SET primary_email = $2::citext,
+		     display_name = '',
+		     avatar_url = '',
+		     updated_at = $3::timestamptz
+		 WHERE id = NULLIF($1, '')::uuid
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
+		id,
+		HardDeletedTombstoneEmail(id),
+		now.UTC(),
+	)
+	saved, err := scanUser(row)
+	if err != nil {
+		return User{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.hard_delete",
+		ResourceType: "user",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
+}
+
 // UpsertUserIdentity persists one provider identity mapping.
 func (p *PostgresStore) UpsertUserIdentity(ctx context.Context, identity UserIdentity) (UserIdentity, error) {
 	normalized, err := NormalizeUserIdentityForWrite(identity)

@@ -15,14 +15,16 @@ import (
 )
 
 var (
-	ErrAuthIdentityConflict     = errors.New("auth identity conflicts with existing user")
-	ErrAuthAccountNotFound      = errors.New("auth account not found")
-	ErrAuthReactivationRequired = errors.New("auth account reactivation requires signup")
+	ErrAuthIdentityConflict       = errors.New("auth identity conflicts with existing user")
+	ErrAuthAccountNotFound        = errors.New("auth account not found")
+	ErrAuthReactivationRequired   = errors.New("auth account reactivation requires signup")
+	ErrAuthAccountPendingDeletion = errors.New("auth account is scheduled for permanent deletion")
 )
 
 const (
-	workOSAuthIntentLogin  = "login"
-	workOSAuthIntentSignup = "signup"
+	workOSAuthIntentLogin          = "login"
+	workOSAuthIntentSignup         = "signup"
+	workOSAuthIntentCancelDeletion = "cancel_deletion"
 )
 
 // CurrentUserContext is the response model for GET /v1/me.
@@ -124,9 +126,26 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		} else if emailErr != nil && !errors.Is(emailErr, db.ErrNotFound) {
 			return WorkOSLoginResult{}, emailErr
 		}
+		if userIsPendingDeletion(user) {
+			if userDeletionGraceExpired(user, now) {
+				auditAuthAction(ctx, "auth.account.pending_deletion", user.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthAccountNotFound
+			}
+			// intent=login is refused with a code distinct from
+			// reactivation_required so the frontend can offer cancellation
+			// rather than the deactivated-account flow. signup and
+			// cancel_deletion both revive the row through the reactivation
+			// branch below; cancel_deletion is the canonical UX, signup
+			// preserves backward compatibility with the pre-#1418 contract.
+			if intent == workOSAuthIntentLogin {
+				auditAuthAction(ctx, "auth.account.pending_deletion", user.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthAccountPendingDeletion
+			}
+			auditAuthAction(ctx, "auth.user.delete.cancel", user.ID, "success")
+		}
 		mustReactivate := workOSUserCanBeReactivated(user)
 		if mustReactivate {
-			if intent != workOSAuthIntentSignup {
+			if intent != workOSAuthIntentSignup && intent != workOSAuthIntentCancelDeletion {
 				auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthReactivationRequired
 			}
@@ -180,12 +199,23 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		} else {
 			return WorkOSLoginResult{}, getErr
 		}
+		if userIsPendingDeletion(existing) {
+			if userDeletionGraceExpired(existing, now) {
+				auditAuthAction(ctx, "auth.account.pending_deletion", existing.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthAccountNotFound
+			}
+			if intent == workOSAuthIntentLogin {
+				auditAuthAction(ctx, "auth.account.pending_deletion", existing.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthAccountPendingDeletion
+			}
+			auditAuthAction(ctx, "auth.user.delete.cancel", existing.ID, "success")
+		}
 		if workOSUserCanBeReactivated(existing) {
 			if !profile.EmailVerified {
 				auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthIdentityConflict
 			}
-			if intent != workOSAuthIntentSignup {
+			if intent != workOSAuthIntentSignup && intent != workOSAuthIntentCancelDeletion {
 				auditAuthAction(ctx, "auth.account.reactivation_required", existing.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthReactivationRequired
 			}
@@ -268,10 +298,33 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 }
 
 func normalizeWorkOSAuthIntent(intent string) string {
-	if strings.EqualFold(strings.TrimSpace(intent), workOSAuthIntentLogin) {
+	trimmed := strings.TrimSpace(intent)
+	if strings.EqualFold(trimmed, workOSAuthIntentLogin) {
 		return workOSAuthIntentLogin
 	}
+	if strings.EqualFold(trimmed, workOSAuthIntentCancelDeletion) {
+		return workOSAuthIntentCancelDeletion
+	}
 	return workOSAuthIntentSignup
+}
+
+// userIsPendingDeletion reports whether the account is in the soft-deleted
+// grace window and not yet hard-deleted (deleted_at is still set, status flags
+// the row as scheduled for purge). The sign-in path uses this to refuse login
+// with a distinct error code so the frontend can offer cancellation rather
+// than the deactivated-account reactivation flow.
+func userIsPendingDeletion(user db.User) bool {
+	return strings.EqualFold(strings.TrimSpace(user.Status), "deleted") && user.DeletedAt != nil
+}
+
+// userDeletionGraceExpired reports whether the user's soft-delete grace window
+// has elapsed. Once expired, cancel-deletion must refuse and the worker is
+// authoritative for the purge, even if the row has not been hard-deleted yet.
+func userDeletionGraceExpired(user db.User, now time.Time) bool {
+	if user.DeletedAt == nil {
+		return false
+	}
+	return !now.UTC().Before(user.DeletedAt.UTC().Add(db.UserDeletionGracePeriod))
 }
 
 func workOSUserCanBeReactivated(user db.User) bool {
