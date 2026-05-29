@@ -1459,10 +1459,10 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			})
 			return
 		}
-		// Sole-owner check runs before any state mutation: a 409 here must
-		// leave the account untouched so the user can transfer ownership and
-		// retry. Returning the workspaces in the body lets the UI render the
-		// transfer prompt without a second round-trip.
+		// First sole-owner check: cheap pre-flight that returns the structured
+		// 409 to the UI immediately when ownership transfer is already
+		// required. The authoritative check happens after the soft-delete
+		// below to close the race window.
 		soleOwned, err := svc.Store.ListSoleOwnerWorkspaces(c.Request.Context(), user.ID)
 		if err != nil {
 			if logger != nil {
@@ -1489,12 +1489,16 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			})
 			return
 		}
-		// Mirror the deactivate three-step sandwich: revoke sessions, persist
-		// the soft-delete (with deleted_at), revoke again. Step 3 closes the
-		// race where a concurrent sign-in committed a new session row in the
-		// gap between (1) and (2), since the deletion check happens at sign-in
-		// rather than session creation for the cancel_deletion intent.
-		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+		// Revoke every OTHER session and persist the soft-delete. The calling
+		// session is intentionally preserved so the user can still reach
+		// `/v1/me/cancel-deletion` from the same browser within the grace
+		// window — that route is mounted with the lenient
+		// `TouchSessionAllowingPendingDeletion` lookup and accepts cookies
+		// belonging to deleted-within-grace users. The "active" guarantee
+		// from the issue still holds for every other device: their session
+		// rows are revoked here, and a sign-in attempt from anywhere is
+		// refused with `account_pending_deletion` regardless of cookie state.
+		if _, err := svc.Store.RevokeOtherUserSessions(c.Request.Context(), user.ID, current.IDHash, now); err != nil {
 			if logger != nil {
 				logger.Error("delete account revoke sessions", telemetry.ZapError(err))
 			}
@@ -1509,7 +1513,46 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 			return
 		}
-		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+		// Authoritative sole-owner re-check: between the pre-flight and the
+		// soft-delete a concurrent membership change (another owner being
+		// removed, or this user being promoted to owner of a new workspace)
+		// can leave the account as a fresh sole owner. Detect it and revert
+		// the soft delete, restoring sessions is impractical so we surface
+		// 409 and rely on the caller to re-sign-in to recover the session
+		// (which will succeed since status is back to active).
+		soleOwnedAfter, recheckErr := svc.Store.ListSoleOwnerWorkspaces(c.Request.Context(), user.ID)
+		if recheckErr != nil {
+			if logger != nil {
+				logger.Error("delete account sole owner re-check", telemetry.ZapError(recheckErr))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+			return
+		}
+		if len(soleOwnedAfter) > 0 {
+			if _, err := svc.Store.CancelUserDeletion(c.Request.Context(), saved.ID, now); err != nil && logger != nil {
+				logger.Error("delete account rollback after sole-owner race", telemetry.ZapError(err))
+			}
+			workspaces := make([]gin.H, 0, len(soleOwnedAfter))
+			for _, ws := range soleOwnedAfter {
+				workspaces = append(workspaces, gin.H{
+					"tenant_id":    ws.TenantID,
+					"workspace_id": ws.WorkspaceID,
+					"display_name": ws.DisplayName,
+					"slug":         ws.Slug,
+				})
+			}
+			auditAuthAction(c.Request.Context(), "auth.account.delete", user.ID, "denied")
+			c.JSON(http.StatusConflict, gin.H{
+				"error":      "user became sole owner of one or more workspaces concurrently with deletion",
+				"code":       "sole_owner",
+				"workspaces": workspaces,
+			})
+			return
+		}
+		// Second-pass other-session revoke closes the race where a concurrent
+		// sign-in committed a new session row in the gap between the first
+		// revoke and the status flip.
+		if _, err := svc.Store.RevokeOtherUserSessions(c.Request.Context(), user.ID, current.IDHash, now); err != nil {
 			if logger != nil {
 				logger.Error("delete account revoke sessions post-status", telemetry.ZapError(err))
 			}
@@ -1517,7 +1560,10 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			return
 		}
 		auditAuthAction(c.Request.Context(), "auth.account.delete", saved.ID, "success")
-		http.SetCookie(c.Writer, manager.ClearCookie())
+		// The calling session's cookie is intentionally not cleared: it is
+		// the recovery cookie that the cancel-deletion route accepts via
+		// `TouchSessionAllowingPendingDeletion`. The cookie is invalidated
+		// server-side when the hard-delete worker purges the session row.
 		hardDeleteAfter := now.Add(db.UserDeletionGracePeriod)
 		if saved.DeletedAt != nil {
 			hardDeleteAfter = saved.DeletedAt.UTC().Add(db.UserDeletionGracePeriod)

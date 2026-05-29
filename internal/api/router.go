@@ -298,6 +298,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 	sessionManager := sessionauth.Manager{
 		PublicBaseURL: opts.PublicBaseURL,
+		// The recovery endpoint must accept cookies whose user is soft-deleted
+		// within the grace window; every other route uses the strict path and
+		// keeps refusing.
+		PendingDeletionPaths: map[string]struct{}{
+			"/v1/me/cancel-deletion": {},
+		},
 	}
 	if svc != nil {
 		sessionManager.Store = svc.Store

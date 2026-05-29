@@ -1560,13 +1560,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     delete:
       tags: [Authorization]
-      summary: Permanently delete the current user account
+      summary: Schedule the current user account for permanent deletion
       description: |
         Soft-deletes the authenticated user account: transitions status to
-        `deleted`, stamps `deleted_at`, revokes every active session, clears
-        the session cookie, and schedules a hard-delete worker pass 30 days
-        out. Idempotent — a repeat call against an already-deleted account
-        returns the originally-scheduled `hard_delete_after` timestamp.
+        `deleted`, stamps `deleted_at`, revokes every other active session,
+        soft-deletes the row, and schedules a hard-delete worker pass 30 days
+        out. The calling session is intentionally preserved as the recovery
+        cookie — every other route refuses it (status is no longer `active`)
+        but `POST /v1/me/cancel-deletion` accepts it through a lenient
+        session lookup so the user can reverse the deletion from the same
+        browser without needing to re-authenticate. Idempotent — a repeat
+        call against an already-deleted account returns the
+        originally-scheduled `hard_delete_after` timestamp.
 
         Returns 409 with code `sole_owner` and the affected workspaces when
         the account is the sole owner of one or more workspaces, so ownership

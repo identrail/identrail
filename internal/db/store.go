@@ -163,23 +163,32 @@ var validUserStatuses = map[string]struct{}{
 // honor.
 const UserDeletionGracePeriod = 30 * 24 * time.Hour
 
-// hardDeletedEmailPrefix marks the synthetic primary_email a user row carries
-// after PII purge. It keeps the NOT NULL / UNIQUE / length constraints on the
-// column satisfied while guaranteeing the value holds no real address, and lets
-// the pending-hard-delete query skip rows that were already purged so the daily
-// worker pass is idempotent rather than perpetual.
-const hardDeletedEmailPrefix = "deleted-user+"
+// hardDeletedEmailPrefix and hardDeletedEmailSuffix bracket the synthetic
+// primary_email a user row carries after PII purge. They keep the NOT NULL /
+// UNIQUE / length constraints on the column satisfied while guaranteeing the
+// value holds no real address, and let the pending-hard-delete query skip rows
+// that were already purged so the daily worker pass is idempotent rather than
+// perpetual. The suffix is part of the match so a real user whose email
+// legitimately starts with "deleted-user+" (the local part can be anything in
+// RFC 5321) is not misclassified as already tombstoned.
+const (
+	hardDeletedEmailPrefix = "deleted-user+"
+	hardDeletedEmailSuffix = "@accounts.invalid"
+)
 
 // HardDeletedTombstoneEmail returns the deterministic, PII-free placeholder
 // address assigned to a user row when its account is hard-deleted.
 func HardDeletedTombstoneEmail(userID string) string {
-	return hardDeletedEmailPrefix + strings.ToLower(strings.TrimSpace(userID)) + "@accounts.invalid"
+	return hardDeletedEmailPrefix + strings.ToLower(strings.TrimSpace(userID)) + hardDeletedEmailSuffix
 }
 
 // IsHardDeletedTombstoneEmail reports whether a primary_email is the synthetic
-// placeholder left behind by a completed hard delete.
+// placeholder left behind by a completed hard delete. Both the prefix and the
+// reserved `accounts.invalid` suffix must match — the prefix alone would
+// misclassify legitimate `deleted-user+...` addresses on real domains.
 func IsHardDeletedTombstoneEmail(email string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(email)), hardDeletedEmailPrefix)
+	normalized := strings.ToLower(strings.TrimSpace(email))
+	return strings.HasPrefix(normalized, hardDeletedEmailPrefix) && strings.HasSuffix(normalized, hardDeletedEmailSuffix)
 }
 
 var validSessionAuthMethods = map[string]struct{}{
@@ -2636,6 +2645,12 @@ type Store interface {
 	DeleteUserIdentity(ctx context.Context, provider string, subject string) error
 	CreateSession(ctx context.Context, session Session) (Session, error)
 	TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
+	// TouchSessionAllowingPendingDeletion is TouchSession with the lifecycle
+	// gate relaxed so cookies pointing to a soft-deleted-within-grace user
+	// resolve to their session. It is the single-purpose authentication path
+	// for `/v1/me/cancel-deletion` — every other route uses TouchSession and
+	// continues to refuse deleted users.
+	TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
 	UpdateSessionContext(ctx context.Context, userID string, sessionIDHash []byte, orgID string, workspaceID string, projectID string, now time.Time) (Session, error)
 	ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error)
 	RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error)

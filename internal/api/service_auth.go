@@ -126,6 +126,7 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		} else if emailErr != nil && !errors.Is(emailErr, db.ErrNotFound) {
 			return WorkOSLoginResult{}, emailErr
 		}
+		cancelledDeletion := false
 		if userIsPendingDeletion(user) {
 			if userDeletionGraceExpired(user, now) {
 				auditAuthAction(ctx, "auth.account.pending_deletion", user.ID, "denied")
@@ -141,7 +142,11 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 				auditAuthAction(ctx, "auth.account.pending_deletion", user.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthAccountPendingDeletion
 			}
-			auditAuthAction(ctx, "auth.user.delete.cancel", user.ID, "success")
+			// Defer the cancel audit until the profile/status/identity writes
+			// have all landed — emitting it here would record a successful
+			// cancellation even when a downstream write fails and leaves the
+			// row in its soft-deleted state.
+			cancelledDeletion = true
 		}
 		mustReactivate := workOSUserCanBeReactivated(user)
 		if mustReactivate {
@@ -188,6 +193,9 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		if saveIdentityErr != nil {
 			return WorkOSLoginResult{}, saveIdentityErr
 		}
+		if cancelledDeletion {
+			auditAuthAction(ctx, "auth.user.delete.cancel", savedUser.ID, "success")
+		}
 		return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: savedUser, Identity: savedIdentity}, profile.OrganizationID)
 	}
 	if !errors.Is(err, db.ErrNotFound) {
@@ -199,7 +207,11 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		} else {
 			return WorkOSLoginResult{}, getErr
 		}
-		if userIsPendingDeletion(existing) {
+		// Defer the cancel audit until every write below succeeds: a bad
+		// email-verified state or a store conflict must not record a
+		// cancellation that never actually flipped the row.
+		cancelledDeletion := userIsPendingDeletion(existing)
+		if cancelledDeletion {
 			if userDeletionGraceExpired(existing, now) {
 				auditAuthAction(ctx, "auth.account.pending_deletion", existing.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthAccountNotFound
@@ -208,7 +220,6 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 				auditAuthAction(ctx, "auth.account.pending_deletion", existing.ID, "denied")
 				return WorkOSLoginResult{}, ErrAuthAccountPendingDeletion
 			}
-			auditAuthAction(ctx, "auth.user.delete.cancel", existing.ID, "success")
 		}
 		if workOSUserCanBeReactivated(existing) {
 			if !profile.EmailVerified {
@@ -252,6 +263,9 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 			})
 			if identityErr != nil {
 				return WorkOSLoginResult{}, identityErr
+			}
+			if cancelledDeletion {
+				auditAuthAction(ctx, "auth.user.delete.cancel", existing.ID, "success")
 			}
 			auditAuthAction(ctx, "auth.user.reactivate", existing.ID, "success")
 			return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: existing, Identity: identity}, profile.OrganizationID)

@@ -296,12 +296,19 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		})
 	}
 	if cfg.WorkerUserPurgeEnabled {
+		// Namespace the lock key the same way the scan-policy runner does, so
+		// two deployments sharing a Postgres lock backend cannot collide on a
+		// global "user-purge" advisory lock and silently starve each other.
+		userPurgeRunnerKey := "user-purge"
+		if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+			userPurgeRunnerKey = namespace + ":" + userPurgeRunnerKey
+		}
 		runners = append(runners, scheduledRunner{
 			name:   "user-purge",
 			runNow: false,
 			runner: scheduler.Runner{
 				Interval:     cfg.WorkerUserPurgeInterval,
-				Key:          "user-purge",
+				Key:          userPurgeRunnerKey,
 				Locker:       svc.Locker,
 				Trigger:      userPurgeTrigger,
 				MaxAttempts:  defaultWorkerQueueMaxAttempts,

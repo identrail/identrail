@@ -251,11 +251,12 @@ func (p *PostgresStore) ListUsersPendingHardDelete(ctx context.Context, deletedB
 		 WHERE status = 'deleted'
 		   AND deleted_at IS NOT NULL
 		   AND deleted_at < $1::timestamptz
-		   AND primary_email::text NOT LIKE $2
+		   AND NOT (primary_email::text LIKE $2 AND primary_email::text LIKE $3)
 		 ORDER BY deleted_at ASC, id ASC
-		 LIMIT $3`,
+		 LIMIT $4`,
 		deletedBefore.UTC(),
 		hardDeletedEmailPrefix+"%",
+		"%"+hardDeletedEmailSuffix,
 		limit,
 	)
 	if err != nil {
@@ -288,12 +289,16 @@ func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now t
 	if _, err := p.execContextAnyScope(ctx, `DELETE FROM sessions WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
 		return User{}, err
 	}
+	// status stays at 'deleted' explicitly so the lifecycle column never drifts
+	// off the tombstoned row (matches the memory store contract: a hard-deleted
+	// user is still 'deleted', just with PII purged).
 	row := p.queryRowContextAnyScope(
 		ctx,
 		`UPDATE users
 		 SET primary_email = $2::citext,
 		     display_name = '',
 		     avatar_url = '',
+		     status = 'deleted',
 		     updated_at = $3::timestamptz
 		 WHERE id = NULLIF($1, '')::uuid
 		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
@@ -659,6 +664,37 @@ func (p *PostgresStore) TouchSession(ctx context.Context, sessionIDHash []byte, 
 		     AND u.status = 'active'`,
 		sessionIDHash,
 		now.UTC(),
+	)
+	return scanSessionWithUser(row)
+}
+
+// TouchSessionAllowingPendingDeletion is TouchSession with the user-lifecycle
+// gate widened so cookies pointing to a soft-deleted-within-grace user resolve.
+// It is mounted only on `/v1/me/cancel-deletion`; every other route uses
+// TouchSession and continues to refuse deleted users.
+func (p *PostgresStore) TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`WITH touched AS (
+		     UPDATE sessions
+		     SET idle_expires_at = LEAST($2::timestamptz + INTERVAL '15 minutes', absolute_expires_at),
+		         last_seen_at = $2::timestamptz
+		     WHERE id = $1
+		       AND revoked_at IS NULL
+		       AND idle_expires_at > $2::timestamptz
+		       AND absolute_expires_at > $2::timestamptz
+		     RETURNING *
+		   )
+		   SELECT `+sessionUserSelect+`
+		   FROM touched s
+		   JOIN users u ON u.id = s.user_id
+		   WHERE (u.deleted_at IS NULL AND u.status = 'active')
+		      OR (u.status = 'deleted'
+		          AND u.deleted_at IS NOT NULL
+		          AND u.deleted_at + ($3::bigint * INTERVAL '1 second') > $2::timestamptz)`,
+		sessionIDHash,
+		now.UTC(),
+		int64(UserDeletionGracePeriod/time.Second),
 	)
 	return scanSessionWithUser(row)
 }

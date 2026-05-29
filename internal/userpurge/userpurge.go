@@ -70,6 +70,14 @@ func (r *Runner) RunOnce(ctx context.Context) (Result, error) {
 			return result, ctx.Err()
 		}
 		if _, hardErr := r.Store.HardDeleteUser(ctx, user.ID, now); hardErr != nil {
+			// A canceled or timed-out context surfaces through HardDeleteUser
+			// as an error on the dropped DB write. Propagate it so the runner
+			// signals "interrupted" rather than "completed with errors": a
+			// quiet "Errors++" on the last item would let a caller treat the
+			// pass as having genuinely finished.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return result, ctxErr
+			}
 			result.Errors++
 			audit.WriteAction(ctx, audit.AuditEvent{
 				Action:       "auth.user.hard_delete",

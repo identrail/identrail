@@ -411,6 +411,18 @@ func (m *MemoryStore) CreateSession(ctx context.Context, session Session) (Sessi
 
 // TouchSession renews idle expiry and returns the joined session/user row.
 func (m *MemoryStore) TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
+	return m.touchSessionInternal(sessionIDHash, now, false)
+}
+
+// TouchSessionAllowingPendingDeletion is the lenient variant the cancel-deletion
+// route mounts: it accepts cookies belonging to users whose status is `deleted`
+// and whose grace window has not closed yet, so a freshly-soft-deleted user can
+// still hit `/v1/me/cancel-deletion` while every other route keeps refusing.
+func (m *MemoryStore) TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
+	return m.touchSessionInternal(sessionIDHash, now, true)
+}
+
+func (m *MemoryStore) touchSessionInternal(sessionIDHash []byte, now time.Time, allowPendingDeletion bool) (Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := sessionHashKey(sessionIDHash)
@@ -421,16 +433,31 @@ func (m *MemoryStore) TouchSession(ctx context.Context, sessionIDHash []byte, no
 	if session.RevokedAt != nil || !session.IdleExpiresAt.After(now) || !session.AbsoluteExpiresAt.After(now) {
 		return Session{}, ErrNotFound
 	}
+	user, exists := m.users[session.UserID]
+	if !exists {
+		return Session{}, ErrNotFound
+	}
+	userActive := user.DeletedAt == nil && user.Status == "active"
+	if !userActive {
+		if !allowPendingDeletion {
+			return Session{}, ErrNotFound
+		}
+		// Lenient path: accept only soft-deleted accounts still within their
+		// grace window. A purged tombstone row or an account past the grace
+		// has no business surfacing as an authenticated session.
+		if user.Status != "deleted" || user.DeletedAt == nil {
+			return Session{}, ErrNotFound
+		}
+		if !now.UTC().Before(user.DeletedAt.UTC().Add(UserDeletionGracePeriod)) {
+			return Session{}, ErrNotFound
+		}
+	}
 	session.LastSeenAt = now.UTC()
 	nextIdle := now.Add(15 * time.Minute).UTC()
 	if nextIdle.After(session.AbsoluteExpiresAt) {
 		nextIdle = session.AbsoluteExpiresAt
 	}
 	session.IdleExpiresAt = nextIdle
-	user, exists := m.users[session.UserID]
-	if !exists || user.DeletedAt != nil || user.Status != "active" {
-		return Session{}, ErrNotFound
-	}
 	session.User = &user
 	m.sessions[key] = session
 	return session, nil

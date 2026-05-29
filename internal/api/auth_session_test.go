@@ -830,16 +830,45 @@ func TestCurrentSessionDeleteAccountSchedulesPurgeAndRevokesSessions(t *testing.
 	if !strings.Contains(w.Body.String(), `"hard_delete_after"`) {
 		t.Fatalf("expected hard_delete_after in body, got %s", w.Body.String())
 	}
-	if !strings.Contains(w.Header().Get("Set-Cookie"), sessionauth.CookieName+"=;") {
-		t.Fatalf("expected delete to clear session cookie, got %q", w.Header().Get("Set-Cookie"))
-	}
-	// Cookie should be revoked at the store layer too.
+	// The calling cookie is intentionally preserved as the recovery cookie:
+	// strict-mode routes still refuse it (status=deleted), but the
+	// pending-deletion-allowlisted cancel-deletion route accepts it.
 	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
 	meW := httptest.NewRecorder()
 	harness.router.ServeHTTP(meW, meReq)
 	if meW.Code != http.StatusUnauthorized {
 		t.Fatalf("expected /v1/me 401 after delete, got %d body=%s", meW.Code, meW.Body.String())
+	}
+}
+
+func TestCurrentSessionCancelDeletionViaRecoveryCookieAfterDelete(t *testing.T) {
+	// Cubic review (#1435): DELETE /v1/me must leave the recovery cookie
+	// usable for the cancel-deletion endpoint, otherwise the documented
+	// post-delete reversal path is unreachable from the browser that did the
+	// deletion. The lenient TouchSessionAllowingPendingDeletion lookup mounted
+	// only on this route makes the cookie work within the grace window.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	deleteResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(deleteResp, deleteAccountRequest(cookieValue))
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+	cancelResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(cancelResp, cancelDeletionRequest(cookieValue))
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("expected cancel-deletion 200 via recovery cookie, got %d body=%s", cancelResp.Code, cancelResp.Body.String())
+	}
+	if !strings.Contains(cancelResp.Body.String(), `"status":"active"`) {
+		t.Fatalf("expected active status in body, got %s", cancelResp.Body.String())
+	}
+	// After cancellation the cookie regains full access; /v1/me must succeed.
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(meResp, meReq)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected /v1/me 200 after cancellation, got %d body=%s", meResp.Code, meResp.Body.String())
 	}
 }
 

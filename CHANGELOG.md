@@ -3,9 +3,13 @@
 ## Unreleased
 - Added self-serve account permanent deletion with a 30-day reversible grace
   window. `DELETE /v1/me` soft-deletes the authenticated user (status flips to
-  `deleted`, `deleted_at` is stamped, every session is revoked, the cookie is
-  cleared) and returns the scheduled hard-delete date. `POST /v1/me/cancel-deletion`
-  reverses the soft-delete during the grace window. The endpoints refuse with a
+  `deleted`, `deleted_at` is stamped, every other session is revoked, and the
+  sole-owner workspace check is rerun atomically after the write to close the
+  pre-flight race) and returns the scheduled hard-delete date. The calling
+  cookie is intentionally preserved as the recovery cookie: every other route
+  refuses it (status is no longer `active`) but `POST /v1/me/cancel-deletion`
+  accepts it through a path-scoped lenient session lookup so the user can
+  reverse the deletion from the same browser without re-authenticating. The endpoints refuse with a
   structured `409 sole_owner` listing affected workspaces when the user is the
   sole owner of any workspace, so deletion never orphans an unowned tenant.
   WorkOS sign-in with `intent=login` against a soft-deleted account is refused
