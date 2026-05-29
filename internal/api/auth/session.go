@@ -135,7 +135,11 @@ func (m Manager) LookupRequest(r *http.Request) (CurrentSession, error) {
 }
 
 func (m Manager) touch(r *http.Request, hash []byte) (db.Session, error) {
-	if r != nil && m.PendingDeletionPaths != nil {
+	// r and r.URL are both guarded: callers from production go through
+	// `http.Request` instances whose URL is always populated, but defensive
+	// programming here keeps a malformed or synthetic *http.Request from
+	// panicking in the middleware path.
+	if r != nil && r.URL != nil && m.PendingDeletionPaths != nil {
 		if _, ok := m.PendingDeletionPaths[r.URL.Path]; ok {
 			return m.Store.TouchSessionAllowingPendingDeletion(r.Context(), hash, m.now())
 		}
