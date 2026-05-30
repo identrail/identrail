@@ -1809,6 +1809,7 @@ describe('GitHub domain pages (#1382)', () => {
     options: {
       githubConnection?: GitHubConnectionStatus | null;
       scans?: RepoScanRecord[];
+      listRepoScans?: () => Promise<{ items: RepoScanRecord[]; next_cursor?: string }>;
       githubFeatureFlag?: boolean;
       githubBackend?: BackendFeatureState;
       runRepoScanError?: { message: string; status: number };
@@ -1825,9 +1826,12 @@ describe('GitHub domain pages (#1382)', () => {
     const getGitHubConnectorStatus = vi
       .spyOn(api.apiClient, 'getGitHubConnectorStatus')
       .mockResolvedValue({ connection: options.githubConnection ?? connectedGitHub });
-    const listRepoScans = vi
-      .spyOn(api.apiClient, 'listRepoScans')
-      .mockResolvedValue({ items: options.scans ?? [] });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans');
+    if (options.listRepoScans) {
+      listRepoScans.mockImplementation(() => options.listRepoScans?.() ?? Promise.resolve({ items: [] }));
+    } else {
+      listRepoScans.mockResolvedValue({ items: options.scans ?? [] });
+    }
     const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
     if (options.runRepoScanError) {
       runRepoScan.mockRejectedValue(new api.ApiError(options.runRepoScanError.message, options.runRepoScanError.status));
@@ -2177,13 +2181,114 @@ describe('GitHub domain pages (#1382)', () => {
     expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
   });
 
+  it('Repositories page fetches additional scan pages until selected-repository activity is available', async () => {
+    const unrelatedRepoScans: RepoScanRecord[] = Array.from({ length: 3 }).map((_, index) => ({
+      ...succeededRepoScan,
+      id: `repo-scan-unrelated-${index}`,
+      repository: `team-${index + 1}/unrelated`
+    }));
+    const selectedRepoScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-selected',
+      repository: 'identrail/identrail',
+      status: 'completed',
+      started_at: '2026-05-18T10:00:00Z',
+      finished_at: '2026-05-18T10:03:00Z',
+      finding_count: 2,
+      files_scanned: 17
+    };
+
+    let pageCalls = 0;
+    const mocks = await renderGitHubPage('repositories', {
+      listRepoScans: () => {
+        pageCalls += 1;
+        if (pageCalls === 1) {
+          return Promise.resolve({
+            items: unrelatedRepoScans,
+            next_cursor: 'repo-page-2'
+          });
+        }
+        return Promise.resolve({
+          items: [selectedRepoScan]
+        });
+      }
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/1 scan loaded/i)).toBeInTheDocument());
+    expect(screen.getAllByText(/identrail\/identrail/i)).toHaveLength(2);
+  });
+
+  it('Repositories page clears stale GitHub connection data when a reloading environment status fails', async () => {
+    const api = await import('./api/client');
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+
+    const activeProject = productionProject;
+    const staleProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [activeProject, staleProject]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation(async (_workspaceID, projectID) => ({
+      project:
+        projectID === staleProject.project_id
+          ? staleProject
+          : activeProject
+    }));
+
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValueOnce({ connection: connectedGitHub })
+      .mockRejectedValue(new api.ApiError('status endpoint unavailable', 503));
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [queuedRepoScan] });
+    vi.spyOn(api.apiClient, 'runRepoScan').mockResolvedValue({ repo_scan: queuedRepoScan });
+    vi.spyOn(api.apiClient, 'cancelRepoScan').mockResolvedValue({ repo_scan: canceledRepoScan });
+
+    const { ProductGitHubRepositoriesPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<ProductGitHubRepositoriesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('production-platform'));
+    expect(await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), {
+        target: { value: 'staging-platform' }
+      });
+    });
+
+    await screen.findByRole('heading', { level: 3, name: /Unable to load repository status/i });
+    expect(screen.queryByRole('button', { name: 'Queue scan for identrail/identrail' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Connect GitHub to manage repositories/i })).toBeInTheDocument();
+
+    expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2);
+  });
+
   it('Repositories page disables Queue scan while environment data is reloading', async () => {
     const mocks = await renderGitHubPage('repositories', { scans: [] });
 
-    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
-    expect(queueButton).not.toBeDisabled();
+    expect(await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' })).not.toBeDisabled();
 
+    let resolveQueued: ((value: { repo_scan: RepoScanRecord }) => void) | null = null;
     let resolvePending: ((value: { items: RepoScanRecord[] }) => void) | null = null;
+    mocks.runRepoScan.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveQueued = resolve;
+        })
+    );
     mocks.listRepoScans.mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -2191,12 +2296,17 @@ describe('GitHub domain pages (#1382)', () => {
         })
     );
 
-    fireEvent.click(queueButton);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' }));
+    });
     await waitFor(() => expect(mocks.runRepoScan).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' })).toHaveTextContent(/Refreshing|Queuing/i);
 
-    await waitFor(() => expect(queueButton).toBeDisabled());
-    expect(queueButton).toHaveTextContent(/Refreshing|Queuing/i);
-
+    await act(async () => {
+      resolveQueued?.({ repo_scan: queuedRepoScan });
+      await Promise.resolve();
+    });
     await act(async () => {
       resolvePending?.({ items: [] });
       await Promise.resolve();

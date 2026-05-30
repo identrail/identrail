@@ -2676,6 +2676,55 @@ type GitHubDomainDataState = {
   reload: () => void;
 };
 
+async function listRepoScansForSelectedRepositories(
+  selectedRepositories: string[],
+  scanLimit: number,
+  auth: RequestAuthContext
+): Promise<RepoScanRecord[]> {
+  if (!selectedRepositories.length || scanLimit <= 0) {
+    return [];
+  }
+
+  const allowed = new Set(selectedRepositories.map((repository) => canonicalGitHubRepositoryDisplay(repository).toLowerCase()));
+  const matches: RepoScanRecord[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  do {
+    const response = (await apiClient.listRepoScans(
+      {
+        limit: scanLimit,
+        cursor,
+        sort_by: 'started_at',
+        sort_order: 'desc'
+      },
+      auth
+    )) as { items: RepoScanRecord[]; next_cursor?: string };
+
+    for (const scan of response.items) {
+      if (allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())) {
+        matches.push(scan);
+      }
+    }
+
+    if (matches.length >= scanLimit) {
+      break;
+    }
+
+    const nextCursor = response.next_cursor?.trim();
+    if (!nextCursor) {
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('Repository scan pagination returned a repeated cursor');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  return matches.slice(0, scanLimit);
+}
+
 function useGitHubDomainData(
   scope: ProductSession | null,
   projectID: string | undefined,
@@ -2701,40 +2750,53 @@ function useGitHubDomainData(
     let active = true;
     setLoading(true);
     setError('');
+    setConnection(null);
+    setScans([]);
     const auth = buildProductAuthContext(scope);
     const trimmedProject = normalizeValue(projectID);
     const statusRequest = trimmedProject
       ? apiClient.getGitHubConnectorStatus(scope.workspaceID, trimmedProject, auth)
       : Promise.resolve<{ connection: GitHubConnectionStatus | null }>({ connection: null });
-    const scansRequest = apiClient.listRepoScans({ limit: scanLimit }, auth);
-    Promise.allSettled([statusRequest, scansRequest])
-      .then((results) => {
+
+    statusRequest
+      .then((statusResult) => statusResult.connection ?? null)
+      .then(async (connectionResult) => {
         if (!active) {
           return;
         }
-        const statusResult = results[0];
-        const scansResult = results[1];
         let nextError = '';
-        if (statusResult.status === 'fulfilled') {
-          setConnection(statusResult.value.connection ?? null);
-        } else if (trimmedProject) {
-          nextError = formatAPIError(statusResult.reason, 'Unable to load GitHub connection status.');
+        const nextConnection = connectionResult;
+
+        let nextScans: RepoScanRecord[] = [];
+        try {
+          nextScans = await listRepoScansForSelectedRepositories(
+            nextConnection?.selected_repositories ?? [],
+            scanLimit,
+            auth
+          );
+        } catch (error) {
+          nextError = formatAPIError(error, 'Unable to load recent repository scans.');
         }
-        if (scansResult.status === 'fulfilled') {
-          setScans(scansResult.value.items ?? []);
-        } else {
-          setScans([]);
-          if (!nextError) {
-            nextError = formatAPIError(scansResult.reason, 'Unable to load recent repository scans.');
-          }
+
+        if (!active) {
+          return;
         }
+        setConnection(nextConnection);
+        setScans(nextScans);
         setError(nextError);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        setError(formatAPIError(error, 'Unable to load GitHub connection status.'));
       })
       .finally(() => {
         if (active) {
           setLoading(false);
         }
       });
+
     return () => {
       active = false;
     };
