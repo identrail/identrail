@@ -10,7 +10,13 @@
   outcome rather than preferring an older successful one. The Connect page
   renders an `Open GitHub` fallback link with the App install URL when the
   browser blocks `window.open` after the install request. The Repositories
-  activity timeline is scoped to selected repositories.
+  activity timeline is scoped to selected repositories. The Connect page
+  also forwards `redirect_uri` (`${origin}/app/github/callback`) when
+  starting the GitHub App install so completion lands back on the Identrail
+  callback handler instead of GitHub's default setup URL. The Repositories
+  page disables `Queue scan` and `Cancel scan` while environment data is
+  reloading to prevent acting on stale repository rows after switching
+  environments.
 - Moved GitHub setup, repository scan operation, and the Actions/OIDC
   posture surface out of the legacy `/projects/:projectID` source tab into a
   domain-owned GitHub section. The new `/app/:tenant/:workspace/github`

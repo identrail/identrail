@@ -1958,7 +1958,11 @@ describe('GitHub domain pages (#1382)', () => {
 
     await waitFor(() =>
       expect(mocks.startGitHubConnector).toHaveBeenCalledWith(
-        expect.objectContaining({ project_id: 'production-platform', install_account_type: 'any' }),
+        expect.objectContaining({
+          project_id: 'production-platform',
+          install_account_type: 'any',
+          redirect_uri: expect.stringMatching(/\/app\/github\/callback$/)
+        }),
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
@@ -2171,5 +2175,31 @@ describe('GitHub domain pages (#1382)', () => {
     await screen.findByRole('heading', { level: 3, name: /Recent repository scan activity/i });
     expect(screen.getByText(/0 scans loaded/i)).toBeInTheDocument();
     expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
+  });
+
+  it('Repositories page disables Queue scan while environment data is reloading', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [] });
+
+    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
+    expect(queueButton).not.toBeDisabled();
+
+    let resolvePending: ((value: { items: RepoScanRecord[] }) => void) | null = null;
+    mocks.listRepoScans.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePending = resolve;
+        })
+    );
+
+    fireEvent.click(queueButton);
+    await waitFor(() => expect(mocks.runRepoScan).toHaveBeenCalledTimes(1));
+
+    await waitFor(() => expect(queueButton).toBeDisabled());
+    expect(queueButton).toHaveTextContent(/Refreshing|Queuing/i);
+
+    await act(async () => {
+      resolvePending?.({ items: [] });
+      await Promise.resolve();
+    });
   });
 });

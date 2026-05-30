@@ -3281,10 +3281,13 @@ export function ProductGitHubConnectPage() {
     setPendingInstallURL('');
     setInstalling(true);
     try {
+      const redirectURI =
+        typeof window !== 'undefined' ? `${window.location.origin}/app/github/callback` : undefined;
       const response = await apiClient.startGitHubConnector(
         {
           project_id: selectedEnvironmentID,
-          install_account_type: 'any'
+          install_account_type: 'any',
+          redirect_uri: redirectURI
         },
         buildProductAuthContext(scope)
       );
@@ -3653,17 +3656,23 @@ export function ProductGitHubRepositoriesPage() {
                       type="button"
                       className="idt-btn idt-btn-primary"
                       onClick={() => launchScan(row.repository)}
-                      disabled={submitting || Boolean(row.activeScan)}
+                      disabled={submitting || Boolean(row.activeScan) || data.loading}
                       aria-label={`Queue scan for ${row.repository}`}
                     >
-                      {submitting ? 'Queuing...' : row.activeScan ? 'Scan in progress' : 'Queue scan'}
+                      {data.loading && !submitting
+                        ? 'Refreshing...'
+                        : submitting
+                          ? 'Queuing...'
+                          : row.activeScan
+                            ? 'Scan in progress'
+                            : 'Queue scan'}
                     </button>
                     {canCancel && row.activeScan ? (
                       <button
                         type="button"
                         className="idt-btn idt-btn-ghost"
                         onClick={() => cancelScan(row.activeScan as RepoScanRecord)}
-                        disabled={cancelingThis}
+                        disabled={cancelingThis || data.loading}
                         aria-label={`Cancel scan for ${row.repository}`}
                       >
                         {cancelingThis ? 'Canceling...' : 'Cancel scan'}
