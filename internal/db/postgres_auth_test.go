@@ -5,11 +5,26 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestCreateSessionQueryCastsUserIDParameterConsistently(t *testing.T) {
+	if strings.Contains(createSessionQuery, "SELECT $1, $2,") {
+		t.Fatal("create session query must not use raw $2 alongside NULLIF($2, '')::uuid")
+	}
+	for _, want := range []string{
+		"NULLIF($2::text, '')::uuid",
+		"WHERE u.id = NULLIF($2::text, '')::uuid",
+	} {
+		if !strings.Contains(createSessionQuery, want) {
+			t.Fatalf("create session query is missing %q", want)
+		}
+	}
+}
 
 func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 	rawDB, mock, err := sqlmock.New()
