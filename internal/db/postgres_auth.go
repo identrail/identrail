@@ -454,6 +454,24 @@ const sessionUserSelect = `s.id, s.user_id::text, s.current_org_id, s.current_wo
        s.last_seen_at, s.revoked_at, s.created_at,
        u.id::text, u.primary_email::text, u.display_name, u.avatar_url, u.status, u.created_at, u.updated_at, u.deleted_at`
 
+const createSessionQuery = `WITH inserted AS (
+		     INSERT INTO sessions (
+		       id, user_id, current_org_id, current_workspace_id, current_project_id, auth_method,
+		       ip, user_agent, idle_expires_at, absolute_expires_at, last_seen_at, revoked_at, created_at
+		     )
+		     SELECT $1::bytea, NULLIF($2::text, '')::uuid, NULLIF($3::text, ''), NULLIF($4::text, ''), NULLIF($5::text, ''),
+		            $6::text, NULLIF($7::text, '')::inet, NULLIF($8::text, ''), $9::timestamptz, $10::timestamptz,
+		            $11::timestamptz, $12::timestamptz, $13::timestamptz
+		     FROM users u
+		     WHERE u.id = NULLIF($2::text, '')::uuid
+		       AND u.deleted_at IS NULL
+		       AND u.status = 'active'
+		     RETURNING *
+		   )
+		   SELECT ` + sessionUserSelect + `
+		   FROM inserted s
+		   JOIN users u ON u.id = s.user_id`
+
 // CreateSession persists one server-side session.
 func (p *PostgresStore) CreateSession(ctx context.Context, session Session) (Session, error) {
 	normalized, err := NormalizeSessionForWrite(session)
@@ -462,21 +480,7 @@ func (p *PostgresStore) CreateSession(ctx context.Context, session Session) (Ses
 	}
 	row := p.queryRowContextAnyScope(
 		ctx,
-		`WITH inserted AS (
-		     INSERT INTO sessions (
-		       id, user_id, current_org_id, current_workspace_id, current_project_id, auth_method,
-		       ip, user_agent, idle_expires_at, absolute_expires_at, last_seen_at, revoked_at, created_at
-		     )
-		     SELECT $1, $2, $3, $4, $5, $6, NULLIF($7, '')::inet, $8, $9, $10, $11, $12, $13
-		     FROM users u
-		     WHERE u.id = NULLIF($2, '')::uuid
-		       AND u.deleted_at IS NULL
-		       AND u.status = 'active'
-		     RETURNING *
-		   )
-		   SELECT `+sessionUserSelect+`
-		   FROM inserted s
-		   JOIN users u ON u.id = s.user_id`,
+		createSessionQuery,
 		normalized.ID,
 		normalized.UserID,
 		nullString(normalized.CurrentOrgID),
