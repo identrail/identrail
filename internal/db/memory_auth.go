@@ -130,6 +130,147 @@ func (m *MemoryStore) SetUserStatus(ctx context.Context, userID string, status s
 	return user, nil
 }
 
+// SoftDeleteUser flips the account to status=deleted and stamps deleted_at to
+// open the reversible grace window. Re-deleting an already-deleted account is a
+// no-op that preserves the original deleted_at so the purge deadline cannot be
+// pushed back by repeat calls.
+func (m *MemoryStore) SoftDeleteUser(ctx context.Context, userID string, now time.Time) (User, error) {
+	id := strings.TrimSpace(userID)
+	when := now.UTC()
+	m.mu.Lock()
+	user, exists := m.users[id]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	if user.DeletedAt == nil {
+		deletedAt := when
+		user.DeletedAt = &deletedAt
+	}
+	user.Status = "deleted"
+	user.UpdatedAt = when
+	m.users[id] = user
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.delete",
+		ResourceType: "user",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return user, nil
+}
+
+// CancelUserDeletion reverses a soft delete: it clears deleted_at and returns
+// the account to active.
+func (m *MemoryStore) CancelUserDeletion(ctx context.Context, userID string, now time.Time) (User, error) {
+	id := strings.TrimSpace(userID)
+	when := now.UTC()
+	m.mu.Lock()
+	user, exists := m.users[id]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	user.Status = "active"
+	user.DeletedAt = nil
+	user.UpdatedAt = when
+	m.users[id] = user
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.delete.cancel",
+		ResourceType: "user",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return user, nil
+}
+
+// ListUsersPendingHardDelete returns soft-deleted accounts whose grace window
+// closed and whose PII has not already been purged.
+func (m *MemoryStore) ListUsersPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]User, error) {
+	cutoff := deletedBefore.UTC()
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.RLock()
+	pending := make([]User, 0)
+	for _, user := range m.users {
+		if user.Status != "deleted" || user.DeletedAt == nil {
+			continue
+		}
+		if !user.DeletedAt.UTC().Before(cutoff) {
+			continue
+		}
+		if IsHardDeletedTombstoneEmailForUser(user.PrimaryEmail, user.ID) {
+			continue
+		}
+		pending = append(pending, user)
+	}
+	m.mu.RUnlock()
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].DeletedAt.Equal(*pending[j].DeletedAt) {
+			return pending[i].ID < pending[j].ID
+		}
+		return pending[i].DeletedAt.Before(*pending[j].DeletedAt)
+	})
+	if len(pending) > limit {
+		pending = pending[:limit]
+	}
+	return pending, nil
+}
+
+// HardDeleteUser purges PII from a soft-deleted account while keeping the row
+// so audit references by UUID remain valid. It deletes provider identities
+// (which carry raw IdP claims) and any session rows, and is safely re-runnable.
+func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now time.Time) (User, error) {
+	id := strings.TrimSpace(userID)
+	when := now.UTC()
+	m.mu.Lock()
+	user, exists := m.users[id]
+	if !exists {
+		m.mu.Unlock()
+		return User{}, ErrNotFound
+	}
+	// Refuse unless the row is actually pending deletion. Without this guard
+	// a misuse against an active account would silently purge PII. The worker
+	// only ever invokes this on rows returned by ListUsersPendingHardDelete,
+	// but the defense keeps a programming error from being unrecoverable.
+	if user.Status != "deleted" || user.DeletedAt == nil {
+		m.mu.Unlock()
+		return User{}, fmt.Errorf("hard delete: user %s is not pending deletion (status=%q)", id, user.Status)
+	}
+	user.PrimaryEmail = HardDeletedTombstoneEmail(id)
+	user.DisplayName = ""
+	user.AvatarURL = ""
+	user.Status = "deleted"
+	user.UpdatedAt = when
+	m.users[id] = user
+	for identityID, identity := range m.userIdentityByID {
+		if identity.UserID != id {
+			continue
+		}
+		delete(m.userIdentityByID, identityID)
+		for key, mappedID := range m.userIdentityByProviderSubject {
+			if mappedID == identityID {
+				delete(m.userIdentityByProviderSubject, key)
+			}
+		}
+	}
+	for key, session := range m.sessions {
+		if session.UserID == id {
+			delete(m.sessions, key)
+		}
+	}
+	m.mu.Unlock()
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.hard_delete",
+		ResourceType: "user",
+		ResourceID:   id,
+		Outcome:      "success",
+	})
+	return user, nil
+}
+
 // UpsertUserIdentity persists one provider identity mapping.
 func (m *MemoryStore) UpsertUserIdentity(ctx context.Context, identity UserIdentity) (UserIdentity, error) {
 	normalized, err := NormalizeUserIdentityForWrite(identity)
@@ -278,6 +419,18 @@ func (m *MemoryStore) CreateSession(ctx context.Context, session Session) (Sessi
 
 // TouchSession renews idle expiry and returns the joined session/user row.
 func (m *MemoryStore) TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
+	return m.touchSessionInternal(sessionIDHash, now, false)
+}
+
+// TouchSessionAllowingPendingDeletion is the lenient variant the cancel-deletion
+// route mounts: it accepts cookies belonging to users whose status is `deleted`
+// and whose grace window has not closed yet, so a freshly-soft-deleted user can
+// still hit `/v1/me/cancel-deletion` while every other route keeps refusing.
+func (m *MemoryStore) TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
+	return m.touchSessionInternal(sessionIDHash, now, true)
+}
+
+func (m *MemoryStore) touchSessionInternal(sessionIDHash []byte, now time.Time, allowPendingDeletion bool) (Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := sessionHashKey(sessionIDHash)
@@ -288,16 +441,30 @@ func (m *MemoryStore) TouchSession(ctx context.Context, sessionIDHash []byte, no
 	if session.RevokedAt != nil || !session.IdleExpiresAt.After(now) || !session.AbsoluteExpiresAt.After(now) {
 		return Session{}, ErrNotFound
 	}
+	user, exists := m.users[session.UserID]
+	if !exists {
+		return Session{}, ErrNotFound
+	}
+	userActive := user.DeletedAt == nil && user.Status == "active"
+	if !userActive {
+		if !allowPendingDeletion {
+			return Session{}, ErrNotFound
+		}
+		// Lenient path: accept soft-deleted accounts so the cancel-deletion
+		// handler can serve them. The 30-day grace gate is enforced at the
+		// handler level (returning 410 past the window) rather than here, so
+		// the past-grace branch stays reachable for callers to receive a
+		// well-formed `grace_period_expired` response instead of a bare 401.
+		if user.Status != "deleted" || user.DeletedAt == nil {
+			return Session{}, ErrNotFound
+		}
+	}
 	session.LastSeenAt = now.UTC()
 	nextIdle := now.Add(15 * time.Minute).UTC()
 	if nextIdle.After(session.AbsoluteExpiresAt) {
 		nextIdle = session.AbsoluteExpiresAt
 	}
 	session.IdleExpiresAt = nextIdle
-	user, exists := m.users[session.UserID]
-	if !exists || user.DeletedAt != nil || user.Status != "active" {
-		return Session{}, ErrNotFound
-	}
 	session.User = &user
 	m.sessions[key] = session
 	return session, nil

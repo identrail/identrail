@@ -85,12 +85,13 @@ func setupSessionRouter(t *testing.T) (*ginlessSessionHarness, string, string) {
 		RateLimitRPM:   1000,
 		RateLimitBurst: 1000,
 	})
-	return &ginlessSessionHarness{router: router, manager: manager}, cookieValue, sessionauth.EncodePublicSessionID(current.ID)
+	return &ginlessSessionHarness{router: router, manager: manager, svc: svc}, cookieValue, sessionauth.EncodePublicSessionID(current.ID)
 }
 
 type ginlessSessionHarness struct {
 	router  http.Handler
 	manager sessionauth.Manager
+	svc     *Service
 }
 
 func TestCurrentSessionMeAndSessionList(t *testing.T) {
@@ -798,6 +799,275 @@ func TestCurrentSessionAccountLifecycleRoutesRequireSession(t *testing.T) {
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("expected unauthenticated %s 401, got %d body=%s", path, w.Code, w.Body.String())
 		}
+	}
+}
+
+// deleteAccountRequest issues DELETE /v1/me with the supplied session cookie.
+func deleteAccountRequest(cookieValue string) *http.Request {
+	req := httptest.NewRequest(http.MethodDelete, "/v1/me", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	return req
+}
+
+// cancelDeletionRequest issues POST /v1/me/cancel-deletion with the cookie.
+func cancelDeletionRequest(cookieValue string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/v1/me/cancel-deletion", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	return req
+}
+
+func TestCurrentSessionDeleteAccountSchedulesPurgeAndRevokesSessions(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deleteAccountRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"status":"deleted"`) {
+		t.Fatalf("expected deleted status in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"hard_delete_after"`) {
+		t.Fatalf("expected hard_delete_after in body, got %s", w.Body.String())
+	}
+	// The calling cookie is intentionally preserved as the recovery cookie:
+	// strict-mode routes still refuse it (status=deleted), but the
+	// pending-deletion-allowlisted cancel-deletion route accepts it.
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meW := httptest.NewRecorder()
+	harness.router.ServeHTTP(meW, meReq)
+	if meW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected /v1/me 401 after delete, got %d body=%s", meW.Code, meW.Body.String())
+	}
+}
+
+func TestCurrentSessionCancelDeletionViaRecoveryCookieAfterDelete(t *testing.T) {
+	// Cubic review (#1435): DELETE /v1/me must leave the recovery cookie
+	// usable for the cancel-deletion endpoint, otherwise the documented
+	// post-delete reversal path is unreachable from the browser that did the
+	// deletion. The lenient TouchSessionAllowingPendingDeletion lookup mounted
+	// only on this route makes the cookie work within the grace window.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	deleteResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(deleteResp, deleteAccountRequest(cookieValue))
+	if deleteResp.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+	// The recovery cookie must NOT be cleared on DELETE — if the handler
+	// regresses to issuing `manager.ClearCookie()` here, the browser drops
+	// the cookie and the subsequent cancel-deletion request can no longer
+	// authenticate. Parse every Set-Cookie via http.Response so we catch
+	// every form of "clear this cookie": empty value, zero/negative MaxAge,
+	// or a past Expires timestamp. A textual MaxAge-only check would miss
+	// the Expires variant, which is exactly the regression worth catching.
+	parsed := (&http.Response{Header: deleteResp.Header()}).Cookies()
+	for _, ck := range parsed {
+		if ck.Name != sessionauth.CookieName {
+			continue
+		}
+		if ck.Value == "" {
+			t.Fatalf("DELETE /v1/me must not clear the recovery cookie (empty value), got %+v", ck)
+		}
+		if ck.MaxAge < 0 {
+			t.Fatalf("DELETE /v1/me must not negate the cookie MaxAge, got %+v", ck)
+		}
+		if !ck.Expires.IsZero() && !ck.Expires.After(time.Now()) {
+			t.Fatalf("DELETE /v1/me must not set the cookie Expires in the past, got %+v", ck)
+		}
+	}
+	cancelResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(cancelResp, cancelDeletionRequest(cookieValue))
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("expected cancel-deletion 200 via recovery cookie, got %d body=%s", cancelResp.Code, cancelResp.Body.String())
+	}
+	if !strings.Contains(cancelResp.Body.String(), `"status":"active"`) {
+		t.Fatalf("expected active status in body, got %s", cancelResp.Body.String())
+	}
+	// After cancellation the cookie regains full access; /v1/me must succeed.
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(meResp, meReq)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected /v1/me 200 after cancellation, got %d body=%s", meResp.Code, meResp.Body.String())
+	}
+}
+
+func TestCurrentSessionDeleteAccountRefusesSoleOwner(t *testing.T) {
+	// Promote the seeded membership to owner so the sole-owner guard fires.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "oidc-subject-a",
+		UserUUID:    user.ID,
+		Email:       user.PrimaryEmail,
+		Role:        "owner",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("promote to owner: %v", err)
+	}
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deleteAccountRequest(cookieValue))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected delete 409 sole_owner, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"sole_owner"`) {
+		t.Fatalf("expected sole_owner code in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"workspace_id":"workspace-a"`) {
+		t.Fatalf("expected workspace listed in body, got %s", w.Body.String())
+	}
+	// The user must remain active so they can transfer ownership and retry.
+	refreshed, err := store.GetUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("get refreshed user: %v", err)
+	}
+	if refreshed.Status != "active" {
+		t.Fatalf("expected user still active after sole-owner block, got %q", refreshed.Status)
+	}
+	if refreshed.DeletedAt != nil {
+		t.Fatalf("expected DeletedAt unset after sole-owner block, got %v", refreshed.DeletedAt)
+	}
+}
+
+func TestCurrentSessionCancelDeletionWhenActiveIsIdempotent(t *testing.T) {
+	// Cancel-deletion against an already-active account is a no-op success.
+	// In production a deleted user's cookie cannot reach this endpoint
+	// (CreateSession refuses non-active users), so this idempotent shape is
+	// what UIs holding a stale "deletion pending" view will hit after a
+	// cross-tab cancellation lands.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, cancelDeletionRequest(cookieValue))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected cancel-deletion 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"status":"active"`) {
+		t.Fatalf("expected active status in body, got %s", w.Body.String())
+	}
+}
+
+func TestCurrentSessionCancelDeletionPastGraceReturns410(t *testing.T) {
+	// Once the 30-day grace window has elapsed, the worker is authoritative
+	// for the purge — the API must refuse so a stale UI cannot resurrect an
+	// account the user already lost the option to keep. The fixed harness
+	// clock means we have to seed deleted_at relative to that clock, not
+	// real wall time.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store, ok := harness.manager.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+	}
+	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	harnessNow := harness.manager.Now()
+	pastGrace := harnessNow.Add(-(db.UserDeletionGracePeriod + 24*time.Hour))
+	if _, err := store.SoftDeleteUser(context.Background(), user.ID, pastGrace); err != nil {
+		t.Fatalf("seed past-grace soft delete: %v", err)
+	}
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, cancelDeletionRequest(cookieValue))
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected cancel-deletion 410, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"grace_period_expired"`) {
+		t.Fatalf("expected grace_period_expired code in body, got %s", w.Body.String())
+	}
+}
+
+// raceSoleOwnerStore wraps a db.Store and stages a sole-owner race: the first
+// ListSoleOwnerWorkspaces call (the handler's pre-flight) returns clean, while
+// the second (the authoritative post-soft-delete re-check) returns one
+// workspace — simulating a concurrent membership change between the two
+// checks. Every other Store method delegates to the embedded backend.
+type raceSoleOwnerStore struct {
+	db.Store
+	callCount int
+	racedWith []db.TenancyWorkspace
+}
+
+func (s *raceSoleOwnerStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID string) ([]db.TenancyWorkspace, error) {
+	s.callCount++
+	if s.callCount == 1 {
+		return nil, nil
+	}
+	return s.racedWith, nil
+}
+
+func TestCurrentSessionDeleteAccountSoleOwnerRaceRollsBack(t *testing.T) {
+	// When the pre-flight sole-owner check is clean but a concurrent
+	// membership change leaves the user as a fresh sole owner before the
+	// authoritative re-check, the handler must roll back the soft-delete via
+	// CancelUserDeletion and return 409 sole_owner. Exercises DELETE /v1/me
+	// end-to-end with a wrapping store that stages the race deterministically.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	inner, ok := harness.svc.Store.(*db.MemoryStore)
+	if !ok {
+		t.Fatalf("expected memory store, got %T", harness.svc.Store)
+	}
+	user, err := inner.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	racer := &raceSoleOwnerStore{
+		Store: inner,
+		racedWith: []db.TenancyWorkspace{{
+			TenantID:    "tenant-a",
+			WorkspaceID: "workspace-a",
+			DisplayName: "Workspace A",
+			Slug:        "workspace-a",
+		}},
+	}
+	harness.svc.Store = racer
+
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deleteAccountRequest(cookieValue))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected delete 409, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"sole_owner"`) {
+		t.Fatalf("expected sole_owner code in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"workspace_id":"workspace-a"`) {
+		t.Fatalf("expected racing workspace in body, got %s", w.Body.String())
+	}
+	if racer.callCount < 2 {
+		t.Fatalf("expected handler to hit pre-flight + re-check sole-owner calls, got %d", racer.callCount)
+	}
+
+	// The handler must have rolled the soft-delete back through CancelUserDeletion.
+	refreshed, err := inner.GetUser(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("get refreshed user: %v", err)
+	}
+	if refreshed.Status != "active" || refreshed.DeletedAt != nil {
+		t.Fatalf("expected rolled-back user to be active, got %+v", refreshed)
+	}
+
+	// And the cookie should resolve again on the strict path. Restore the
+	// underlying store so the strict /v1/me lookup uses the unwrapped backend
+	// (avoiding the stubbed sole-owner method, which is irrelevant here).
+	harness.svc.Store = inner
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	meResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(meResp, meReq)
+	if meResp.Code != http.StatusOK {
+		t.Fatalf("expected /v1/me 200 after rollback, got %d body=%s", meResp.Code, meResp.Body.String())
 	}
 }
 

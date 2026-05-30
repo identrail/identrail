@@ -243,3 +243,78 @@ func TestMiddlewareOnlyAddsActiveWorkspaceMemberRole(t *testing.T) {
 		t.Fatalf("expected authenticated role to remain, got %s", w.Body.String())
 	}
 }
+
+func TestMiddlewareLenientLookupAcceptsPendingDeletionUserOnAllowlistedPath(t *testing.T) {
+	// The PendingDeletionPaths allowlist routes the cookie lookup through
+	// TouchSessionAllowingPendingDeletion, so a soft-deleted-within-grace
+	// user can still reach the recovery endpoint while every other path
+	// keeps refusing.
+	gin.SetMode(gin.TestMode)
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	user, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "alice@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	manager := Manager{
+		Store: store,
+		Now:   func() time.Time { return now },
+		PendingDeletionPaths: map[string]struct{}{
+			"/recovery": {},
+		},
+	}
+	cookieValue, _, err := manager.CreateSession(context.Background(), db.Session{
+		UserID:     user.ID,
+		AuthMethod: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	// Flip the user to soft-deleted-within-grace AFTER session creation; the
+	// strict TouchSession would refuse the cookie now.
+	deletedAt := now.Add(-time.Hour)
+	if _, err := store.SoftDeleteUser(context.Background(), user.ID, deletedAt); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	router := gin.New()
+	router.Use(manager.Middleware())
+	router.GET("/recovery", func(c *gin.Context) {
+		current, ok := CurrentFromGin(c)
+		if !ok {
+			c.String(http.StatusUnauthorized, "no session")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"user_id": current.Session.UserID})
+	})
+	router.GET("/strict", func(c *gin.Context) {
+		current, ok := CurrentFromGin(c)
+		if !ok {
+			c.String(http.StatusUnauthorized, "no session")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"user_id": current.Session.UserID})
+	})
+
+	// Allowlisted path: the lenient lookup admits the deleted-within-grace user.
+	recoveryReq := httptest.NewRequest(http.MethodGet, "/recovery", nil)
+	recoveryReq.AddCookie(manager.Cookie(cookieValue))
+	recoveryResp := httptest.NewRecorder()
+	router.ServeHTTP(recoveryResp, recoveryReq)
+	if recoveryResp.Code != http.StatusOK {
+		t.Fatalf("expected lenient lookup 200, got %d body=%s", recoveryResp.Code, recoveryResp.Body.String())
+	}
+
+	// Strict path: the standard TouchSession refuses the deleted user.
+	strictReq := httptest.NewRequest(http.MethodGet, "/strict", nil)
+	strictReq.AddCookie(manager.Cookie(cookieValue))
+	strictResp := httptest.NewRecorder()
+	router.ServeHTTP(strictResp, strictReq)
+	if strictResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected strict lookup 401, got %d body=%s", strictResp.Code, strictResp.Body.String())
+	}
+}

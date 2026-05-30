@@ -175,6 +175,14 @@ x-identrail-route-authorizations:
     path: /v1/me/reactivate
     action: me.write
     resource_type: user
+  - method: DELETE
+    path: /v1/me
+    action: me.write
+    resource_type: user
+  - method: POST
+    path: /v1/me/cancel-deletion
+    action: me.write
+    resource_type: user
   - method: POST
     path: /v1/onboarding/start
     action: onboarding.write
@@ -1550,6 +1558,114 @@ paths:
                     $ref: "#/components/schemas/CurrentUserContext"
         "401":
           $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Authorization]
+      summary: Schedule the current user account for permanent deletion
+      description: |
+        Soft-deletes the authenticated user account: transitions status to
+        `deleted`, stamps `deleted_at`, revokes every other active session,
+        soft-deletes the row, and schedules a hard-delete worker pass 30 days
+        out. The calling session is intentionally preserved as the recovery
+        cookie — every other route refuses it (status is no longer `active`)
+        but `POST /v1/me/cancel-deletion` accepts it through a lenient
+        session lookup so the user can reverse the deletion from the same
+        browser without needing to re-authenticate. Idempotent — a repeat
+        call against an already-deleted account returns the
+        originally-scheduled `hard_delete_after` timestamp.
+
+        Returns 409 with code `sole_owner` and the affected workspaces when
+        the account is the sole owner of one or more workspaces, so ownership
+        must be transferred before deletion can proceed.
+      operationId: deleteCurrentUser
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Account scheduled for permanent deletion
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [deleted]
+                  deleted_at:
+                    type: string
+                    format: date-time
+                  hard_delete_after:
+                    type: string
+                    format: date-time
+                  grace_period_hours:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Account is sole owner of one or more workspaces
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                    enum: [sole_owner]
+                  workspaces:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tenant_id:
+                          type: string
+                        workspace_id:
+                          type: string
+                        display_name:
+                          type: string
+                        slug:
+                          type: string
+  /v1/me/cancel-deletion:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Authorization]
+      summary: Cancel a pending account deletion
+      description: |
+        Reverses a pending soft-delete during the 30-day grace window:
+        transitions status back to `active` and clears `deleted_at`. Requires
+        a signed-in session; the typical flow for a signed-out deleted user is
+        to re-authenticate through the WorkOS `cancel_deletion` intent.
+        Returns 410 once the grace window has elapsed.
+      operationId: cancelCurrentUserDeletion
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Deletion cancelled, account reactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [active]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "410":
+          description: Grace period has expired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                    enum: [grace_period_expired]
   /v1/me/sessions:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

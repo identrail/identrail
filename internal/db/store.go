@@ -156,6 +156,41 @@ var validUserStatuses = map[string]struct{}{
 	"deleted":     {},
 }
 
+// UserDeletionGracePeriod is the window between the soft-delete request and the
+// hard-delete worker pass during which the user can cancel deletion. It is a
+// const so the API and worker agree on the same number — drifting between them
+// would mean the cancel-deletion endpoint advertises a date the worker does not
+// honor.
+const UserDeletionGracePeriod = 30 * 24 * time.Hour
+
+// hardDeletedEmailPrefix and hardDeletedEmailSuffix bracket the synthetic
+// primary_email a user row carries after PII purge. They keep the NOT NULL /
+// UNIQUE / length constraints on the column satisfied while guaranteeing the
+// value holds no real address, and let the pending-hard-delete query skip rows
+// that were already purged so the daily worker pass is idempotent rather than
+// perpetual. The suffix is part of the match so a real user whose email
+// legitimately starts with "deleted-user+" (the local part can be anything in
+// RFC 5321) is not misclassified as already tombstoned.
+const (
+	hardDeletedEmailPrefix = "deleted-user+"
+	hardDeletedEmailSuffix = "@accounts.invalid"
+)
+
+// HardDeletedTombstoneEmail returns the deterministic, PII-free placeholder
+// address assigned to a user row when its account is hard-deleted.
+func HardDeletedTombstoneEmail(userID string) string {
+	return hardDeletedEmailPrefix + strings.ToLower(strings.TrimSpace(userID)) + hardDeletedEmailSuffix
+}
+
+// IsHardDeletedTombstoneEmailForUser reports whether `email` is exactly the
+// deterministic tombstone for `userID`. Exact per-user matching avoids the
+// false positives a generic prefix+suffix scan would invite — a malicious
+// signup with the right shape could otherwise convince the worker that an
+// active account had already been purged and exclude it from future runs.
+func IsHardDeletedTombstoneEmailForUser(email string, userID string) bool {
+	return strings.EqualFold(strings.TrimSpace(email), HardDeletedTombstoneEmail(userID))
+}
+
 var validSessionAuthMethods = map[string]struct{}{
 	"workos": {},
 	"oidc":   {},
@@ -2587,6 +2622,22 @@ type Store interface {
 	GetUser(ctx context.Context, userID string) (User, error)
 	GetUserByPrimaryEmail(ctx context.Context, email string) (User, error)
 	SetUserStatus(ctx context.Context, userID string, status string, now time.Time) (User, error)
+	// SoftDeleteUser flips the account to status=deleted and stamps deleted_at
+	// to start the reversible grace window. Idempotent: an already-deleted row
+	// keeps its original deleted_at so repeat calls cannot extend the deadline.
+	SoftDeleteUser(ctx context.Context, userID string, now time.Time) (User, error)
+	// CancelUserDeletion reverses a soft delete during the grace window: it
+	// clears deleted_at and returns the account to status=active.
+	CancelUserDeletion(ctx context.Context, userID string, now time.Time) (User, error)
+	// ListUsersPendingHardDelete returns soft-deleted accounts whose grace
+	// window closed (deleted_at < deletedBefore) and whose PII has not already
+	// been purged, so the worker can hard-delete them.
+	ListUsersPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]User, error)
+	// HardDeleteUser purges PII from a soft-deleted account (email tombstoned,
+	// display name and avatar cleared) and deletes its provider identities and
+	// sessions, while keeping the users row so audit references by UUID stay
+	// intact. Idempotent and safely re-runnable.
+	HardDeleteUser(ctx context.Context, userID string, now time.Time) (User, error)
 	UpsertUserIdentity(ctx context.Context, identity UserIdentity) (UserIdentity, error)
 	GetUserIdentity(ctx context.Context, provider string, subject string) (UserIdentity, error)
 	GetUserIdentityByProviderUserID(ctx context.Context, provider string, userID string) (UserIdentity, error)
@@ -2594,6 +2645,12 @@ type Store interface {
 	DeleteUserIdentity(ctx context.Context, provider string, subject string) error
 	CreateSession(ctx context.Context, session Session) (Session, error)
 	TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
+	// TouchSessionAllowingPendingDeletion is TouchSession with the lifecycle
+	// gate relaxed so cookies pointing to a soft-deleted-within-grace user
+	// resolve to their session. It is the single-purpose authentication path
+	// for `/v1/me/cancel-deletion` — every other route uses TouchSession and
+	// continues to refuse deleted users.
+	TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
 	UpdateSessionContext(ctx context.Context, userID string, sessionIDHash []byte, orgID string, workspaceID string, projectID string, now time.Time) (Session, error)
 	ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error)
 	RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error)
@@ -2604,6 +2661,10 @@ type Store interface {
 	FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error)
 	FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) (TenancyWorkspaceMember, error)
 	ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) ([]TenancyWorkspaceMember, error)
+	// ListSoleOwnerWorkspaces returns every workspace, across all tenants, in
+	// which the user is the only active owner. Account deletion uses this to
+	// refuse with a structured 409 until ownership is transferred.
+	ListSoleOwnerWorkspaces(ctx context.Context, userUUID string) ([]TenancyWorkspace, error)
 	CreateInvitation(ctx context.Context, invitation Invitation) (Invitation, error)
 	GetInvitation(ctx context.Context, orgID string, invitationID string) (Invitation, error)
 	ListInvitations(ctx context.Context, orgID string, limit int) ([]Invitation, error)

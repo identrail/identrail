@@ -1250,3 +1250,48 @@ func TestPostgresStoreScheduledScanPolicyListAndClaim(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+func TestPostgresStoreListSoleOwnerWorkspaces(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "created_at", "updated_at"}).
+		AddRow("tenant-a", "ws-sole", "Sole-owned", "ws-sole", now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.created_at, w.updated_at
+		 FROM tenancy_workspaces w
+		 JOIN tenancy_workspace_members caller
+		   ON caller.tenant_id = w.tenant_id
+		  AND caller.workspace_id = w.workspace_id
+		  AND caller.user_uuid = NULLIF($1, '')::uuid
+		  AND caller.status = 'active'
+		  AND caller.role = 'owner'
+		 WHERE NOT EXISTS (
+		     SELECT 1
+		     FROM tenancy_workspace_members other
+		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
+		     WHERE other.tenant_id = w.tenant_id
+		       AND other.workspace_id = w.workspace_id
+		       AND other.user_uuid <> NULLIF($1, '')::uuid
+		       AND other.status = 'active'
+		       AND other.role = 'owner'
+		       AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+		 )
+		 ORDER BY w.workspace_id ASC`)).
+		WithArgs("11111111-1111-1111-1111-111111111111").
+		WillReturnRows(rows)
+
+	results, err := store.ListSoleOwnerWorkspaces(context.Background(), "11111111-1111-1111-1111-111111111111")
+	if err != nil {
+		t.Fatalf("list sole owner: %v", err)
+	}
+	if len(results) != 1 || results[0].WorkspaceID != "ws-sole" {
+		t.Fatalf("unexpected payload: %+v", results)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}

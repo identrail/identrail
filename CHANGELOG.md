@@ -32,6 +32,29 @@
   `startGitHubConnector`, `listRepoScans`, `runRepoScan`, and
   `cancelRepoScan` endpoints, including the internal `project_id` scope, so
   backend behavior is unchanged.
+- Added self-serve account permanent deletion with a 30-day reversible grace
+  window. `DELETE /v1/me` soft-deletes the authenticated user (status flips to
+  `deleted`, `deleted_at` is stamped, every other session is revoked, and the
+  sole-owner workspace check is rerun atomically after the write to close the
+  pre-flight race) and returns the scheduled hard-delete date. The calling
+  cookie is intentionally preserved as the recovery cookie: every other route
+  refuses it (status is no longer `active`) but `POST /v1/me/cancel-deletion`
+  accepts it through a path-scoped lenient session lookup so the user can
+  reverse the deletion from the same browser without re-authenticating. The endpoints refuse with a
+  structured `409 sole_owner` listing affected workspaces when the user is the
+  sole owner of any workspace, so deletion never orphans an unowned tenant.
+  WorkOS sign-in with `intent=login` against a soft-deleted account is refused
+  with `ErrAuthAccountPendingDeletion` (mapped to `403 account_pending_deletion`)
+  so the frontend can offer cancellation; a new `intent=cancel_deletion` revives
+  the row server-side as part of the sign-in. A daily worker pass
+  (`IDENTRAIL_WORKER_USER_PURGE_ENABLED`, default on) hard-deletes accounts past
+  the grace window: PII is tombstoned (synthetic `deleted-user+<uuid>` email,
+  display name and avatar cleared), provider identities and session rows are
+  removed, the users row stays so audit references by UUID remain valid. The
+  pass is idempotent — already-tombstoned rows are filtered out so re-running
+  is a no-op. New audit actions: `auth.account.delete`, `auth.account.delete.cancel`,
+  `auth.account.pending_deletion`, `auth.user.delete`, `auth.user.delete.cancel`,
+  `auth.user.hard_delete`.
 - Extended the shared domain page framework in `web/src/components/app/DomainFoundation.tsx`
   with typed `DomainStatusBadge` variants (connected, disconnected, needs-attention,
   degraded, running-scan, missing-permissions, coming-soon), `DomainCoverageCard`

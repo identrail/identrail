@@ -35,6 +35,12 @@ type Manager struct {
 	Store         db.Store
 	PublicBaseURL string
 	Now           func() time.Time
+	// PendingDeletionPaths lists request paths that may accept session
+	// cookies belonging to a soft-deleted-within-grace user. The default is
+	// the strict policy (every path refuses deleted users); the router opts
+	// in `/v1/me/cancel-deletion` so the post-delete recovery flow can reach
+	// its handler. Keys are exact match against `r.URL.Path`.
+	PendingDeletionPaths map[string]struct{}
 }
 
 func (m Manager) now() time.Time {
@@ -105,7 +111,10 @@ func (m Manager) CreateSession(ctx context.Context, session db.Session) (string,
 	return cookieValue, saved, nil
 }
 
-// LookupRequest resolves the request cookie into a current session.
+// LookupRequest resolves the request cookie into a current session. When the
+// request path is on the Manager's pending-deletion allowlist, the lookup uses
+// the lenient TouchSessionAllowingPendingDeletion variant so users in their
+// soft-delete grace window can reach the recovery endpoint.
 func (m Manager) LookupRequest(r *http.Request) (CurrentSession, error) {
 	if m.Store == nil || r == nil {
 		return CurrentSession{}, db.ErrNotFound
@@ -118,11 +127,24 @@ func (m Manager) LookupRequest(r *http.Request) (CurrentSession, error) {
 	if err != nil {
 		return CurrentSession{}, err
 	}
-	session, err := m.Store.TouchSession(r.Context(), hash, m.now())
+	session, err := m.touch(r, hash)
 	if err != nil {
 		return CurrentSession{}, err
 	}
 	return CurrentSession{Session: session, IDHash: hash}, nil
+}
+
+func (m Manager) touch(r *http.Request, hash []byte) (db.Session, error) {
+	// r and r.URL are both guarded: callers from production go through
+	// `http.Request` instances whose URL is always populated, but defensive
+	// programming here keeps a malformed or synthetic *http.Request from
+	// panicking in the middleware path.
+	if r != nil && r.URL != nil && m.PendingDeletionPaths != nil {
+		if _, ok := m.PendingDeletionPaths[r.URL.Path]; ok {
+			return m.Store.TouchSessionAllowingPendingDeletion(r.Context(), hash, m.now())
+		}
+	}
+	return m.Store.TouchSession(r.Context(), hash, m.now())
 }
 
 // Cookie returns the Set-Cookie value for a live session.

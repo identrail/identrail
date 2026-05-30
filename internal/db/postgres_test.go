@@ -50,6 +50,42 @@ func TestPostgresStoreCreateAndCompleteScan(t *testing.T) {
 	}
 }
 
+func TestPostgresHardDeleteUserDoesNotPurgeActiveUser(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	now := time.Now().UTC()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE users
+		 SET primary_email = $2::citext,
+		     display_name = '',
+		     avatar_url = '',
+		     status = 'deleted',
+		     updated_at = $3::timestamptz
+		 WHERE id = NULLIF($1, '')::uuid
+		   AND status = 'deleted'
+		   AND deleted_at IS NOT NULL
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`)).
+		WithArgs("user-1", HardDeletedTombstoneEmail("user-1"), now).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "primary_email", "display_name", "avatar_url", "status", "created_at", "updated_at", "deleted_at"}))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status, deleted_at FROM users WHERE id = NULLIF($1, '')::uuid`)).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "deleted_at"}).AddRow("active", sql.NullTime{}))
+	mock.ExpectRollback()
+
+	if _, err := store.HardDeleteUser(context.Background(), "user-1", now); err == nil {
+		t.Fatal("expected active user hard delete to fail")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreUpsertFindings(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

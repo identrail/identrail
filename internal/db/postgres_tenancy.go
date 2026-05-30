@@ -540,6 +540,70 @@ func (p *PostgresStore) ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx contex
 	return memberships, nil
 }
 
+// ListSoleOwnerWorkspaces returns every workspace, across all tenants, in which
+// the user is the only active owner. Account deletion uses this to refuse with
+// a structured 409 until ownership is transferred, so a workspace never ends up
+// without a live owner once its current sole owner leaves.
+func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID string) ([]TenancyWorkspace, error) {
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	if normalizedUserUUID == "" {
+		return []TenancyWorkspace{}, nil
+	}
+	// A workspace is "sole-owned" by the caller iff (a) the caller holds an
+	// active owner membership, and (b) no OTHER user holds an active owner
+	// membership backed by a non-deleted user row. Soft-deleted owners cannot
+	// transfer ownership, so counting them would let the caller delete their
+	// account while leaving the workspace with no live owner — exactly the
+	// invariant this guard exists to enforce.
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.created_at, w.updated_at
+		 FROM tenancy_workspaces w
+		 JOIN tenancy_workspace_members caller
+		   ON caller.tenant_id = w.tenant_id
+		  AND caller.workspace_id = w.workspace_id
+		  AND caller.user_uuid = NULLIF($1, '')::uuid
+		  AND caller.status = 'active'
+		  AND caller.role = 'owner'
+		 WHERE NOT EXISTS (
+		     SELECT 1
+		     FROM tenancy_workspace_members other
+		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
+		     WHERE other.tenant_id = w.tenant_id
+		       AND other.workspace_id = w.workspace_id
+		       AND other.user_uuid <> NULLIF($1, '')::uuid
+		       AND other.status = 'active'
+		       AND other.role = 'owner'
+		       AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+		 )
+		 ORDER BY w.workspace_id ASC`,
+		normalizedUserUUID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	workspaces := make([]TenancyWorkspace, 0)
+	for rows.Next() {
+		var workspace TenancyWorkspace
+		if err := rows.Scan(
+			&workspace.TenantID,
+			&workspace.WorkspaceID,
+			&workspace.DisplayName,
+			&workspace.Slug,
+			&workspace.CreatedAt,
+			&workspace.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		workspaces = append(workspaces, workspace)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return workspaces, nil
+}
+
 // ListWorkspaceMembers lists members for one scoped workspace.
 func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error) {
 	scope, err := RequireScope(ctx)

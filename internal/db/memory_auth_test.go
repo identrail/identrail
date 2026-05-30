@@ -499,3 +499,118 @@ func TestMemorySetUserStatusRejectsInvalidInput(t *testing.T) {
 		t.Fatalf("expected ErrNotFound for missing user, got %v", err)
 	}
 }
+
+func TestMemorySoftDeleteUserPreservesOriginalDeletedAt(t *testing.T) {
+	// Repeat soft deletes must not push the purge deadline back: deleted_at is
+	// pinned on the first call so a frantic click of "Delete account" twice
+	// cannot accidentally extend the user's grace window.
+	store := NewMemoryStore()
+	ctx := context.Background()
+	first := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	second := first.Add(48 * time.Hour)
+	user, err := store.UpsertUser(ctx, User{PrimaryEmail: "soft@example.com", CreatedAt: first})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	one, err := store.SoftDeleteUser(ctx, user.ID, first)
+	if err != nil {
+		t.Fatalf("first soft delete: %v", err)
+	}
+	if one.DeletedAt == nil || !one.DeletedAt.Equal(first) {
+		t.Fatalf("expected DeletedAt=%v, got %v", first, one.DeletedAt)
+	}
+	two, err := store.SoftDeleteUser(ctx, user.ID, second)
+	if err != nil {
+		t.Fatalf("second soft delete: %v", err)
+	}
+	if two.DeletedAt == nil || !two.DeletedAt.Equal(first) {
+		t.Fatalf("expected DeletedAt preserved at %v after repeat, got %v", first, two.DeletedAt)
+	}
+}
+
+func TestMemoryCancelUserDeletionRestoresActive(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	user, err := store.UpsertUser(ctx, User{PrimaryEmail: "cancel@example.com", CreatedAt: now})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.SoftDeleteUser(ctx, user.ID, now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	cancelled, err := store.CancelUserDeletion(ctx, user.ID, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if cancelled.Status != "active" || cancelled.DeletedAt != nil {
+		t.Fatalf("expected restored to active, got %+v", cancelled)
+	}
+}
+
+func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	user, err := store.UpsertUser(ctx, User{
+		PrimaryEmail: "purge@example.com",
+		DisplayName:  "Purge Me",
+		AvatarURL:    "https://cdn.example/x.png",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := store.UpsertUserIdentity(ctx, UserIdentity{
+		UserID:              user.ID,
+		Provider:            "workos",
+		Subject:             "subject-purge",
+		Email:               "purge@example.com",
+		LastAuthenticatedAt: now,
+		CreatedAt:           now,
+	}); err != nil {
+		t.Fatalf("seed identity: %v", err)
+	}
+	if _, err := store.SoftDeleteUser(ctx, user.ID, now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	purged, err := store.HardDeleteUser(ctx, user.ID, now.Add(31*24*time.Hour))
+	if err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	if !IsHardDeletedTombstoneEmailForUser(purged.PrimaryEmail, purged.ID) {
+		t.Fatalf("expected tombstone email for user %s, got %q", purged.ID, purged.PrimaryEmail)
+	}
+	if purged.DisplayName != "" || purged.AvatarURL != "" {
+		t.Fatalf("expected PII cleared, got %+v", purged)
+	}
+	if _, err := store.GetUserIdentity(ctx, "workos", "subject-purge"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected identity removed, got %v", err)
+	}
+}
+
+func TestMemoryListUsersPendingHardDeleteRespectsCutoff(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	past := now.Add(-(UserDeletionGracePeriod + 24*time.Hour))
+	future := now.Add(-(UserDeletionGracePeriod / 2))
+	pastUser, err := store.UpsertUser(ctx, User{PrimaryEmail: "past@example.com", CreatedAt: now, Status: "deleted", DeletedAt: &past})
+	if err != nil {
+		t.Fatalf("seed past: %v", err)
+	}
+	if _, err := store.UpsertUser(ctx, User{PrimaryEmail: "future@example.com", CreatedAt: now, Status: "deleted", DeletedAt: &future}); err != nil {
+		t.Fatalf("seed future: %v", err)
+	}
+	if _, err := store.UpsertUser(ctx, User{PrimaryEmail: "active@example.com", CreatedAt: now}); err != nil {
+		t.Fatalf("seed active: %v", err)
+	}
+	cutoff := now.Add(-UserDeletionGracePeriod)
+	pending, err := store.ListUsersPendingHardDelete(ctx, cutoff, 10)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != pastUser.ID {
+		t.Fatalf("expected only past-grace user, got %+v", pending)
+	}
+}

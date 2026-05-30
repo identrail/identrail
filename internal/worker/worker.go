@@ -13,6 +13,7 @@ import (
 	"github.com/identrail/identrail/internal/runtime"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/userpurge"
 )
 
 const (
@@ -169,6 +170,35 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			},
 		)
 	}
+	userPurgeRunner := &userpurge.Runner{
+		Store:     svc.Store,
+		Now:       svc.Now,
+		BatchSize: cfg.WorkerUserPurgeBatchSize,
+	}
+	userPurgeTrigger := func(runCtx context.Context) error {
+		writeHeartbeat()
+		result, runErr := userPurgeRunner.RunOnce(runCtx)
+		if runErr != nil {
+			logger.Error(
+				"user purge pass failed",
+				telemetry.StandardLogFields("worker", "user_purge",
+					telemetry.String("outcome", "failed"),
+					telemetry.ZapError(runErr),
+				)...,
+			)
+			return runErr
+		}
+		logger.Info(
+			"user purge pass completed",
+			telemetry.StandardLogFields("worker", "user_purge",
+				telemetry.String("examined", fmt.Sprint(result.Examined)),
+				telemetry.String("purged", fmt.Sprint(result.Purged)),
+				telemetry.String("errors", fmt.Sprint(result.Errors)),
+				telemetry.String("outcome", "completed"),
+			)...,
+		)
+		return nil
+	}
 	scanPolicyTrigger := func(runCtx context.Context) error {
 		writeHeartbeat()
 		result, runErr := svc.EnqueueDueScanPolicies(runCtx)
@@ -261,6 +291,35 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				OnError: func(_ context.Context, err error) {
 					metrics.WorkerRetriesTotal.WithLabelValues("api_queue").Inc()
 					logger.Error("api queue runner iteration failed", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
+	if cfg.WorkerUserPurgeEnabled {
+		// Namespace the lock key the same way the scan-policy runner does, so
+		// two deployments sharing a Postgres lock backend cannot collide on a
+		// global "user-purge" advisory lock and silently starve each other.
+		userPurgeRunnerKey := "user-purge"
+		if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+			userPurgeRunnerKey = namespace + ":" + userPurgeRunnerKey
+		}
+		runners = append(runners, scheduledRunner{
+			name:   "user-purge",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     cfg.WorkerUserPurgeInterval,
+				Key:          userPurgeRunnerKey,
+				Locker:       svc.Locker,
+				Trigger:      userPurgeTrigger,
+				MaxAttempts:  defaultWorkerQueueMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("user_purge").Inc()
+					logger.Error("user purge exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("user_purge").Inc()
+					logger.Error("user purge iteration failed", telemetry.ZapError(err))
 				},
 			},
 		})

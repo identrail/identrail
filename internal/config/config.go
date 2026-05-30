@@ -38,6 +38,9 @@ const (
 	defaultWorkerAPIJobQueueEnabled    = true
 	defaultWorkerAPIJobQueueInterval   = 2 * time.Second
 	defaultWorkerAPIJobQueueBatchSize  = 5
+	defaultWorkerUserPurgeEnabled      = true
+	defaultWorkerUserPurgeInterval     = 24 * time.Hour
+	defaultWorkerUserPurgeBatchSize    = 100
 	defaultLockBackend                 = "auto"
 	defaultLockNamespace               = "identrail"
 	defaultPostgresRLSEnforced         = false
@@ -151,6 +154,9 @@ type Config struct {
 	WorkerAPIJobQueueEnabled     bool
 	WorkerAPIJobQueueInterval    time.Duration
 	WorkerAPIJobQueueBatchSize   int
+	WorkerUserPurgeEnabled       bool
+	WorkerUserPurgeInterval      time.Duration
+	WorkerUserPurgeBatchSize     int
 	LockBackend                  string
 	LockNamespace                string
 	DefaultTenantID              string
@@ -303,6 +309,9 @@ func Load() Config {
 		WorkerAPIJobQueueEnabled:     boolEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", defaultWorkerAPIJobQueueEnabled),
 		WorkerAPIJobQueueInterval:    durationEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", defaultWorkerAPIJobQueueInterval),
 		WorkerAPIJobQueueBatchSize:   parseInt(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "5"), defaultWorkerAPIJobQueueBatchSize),
+		WorkerUserPurgeEnabled:       boolEnv("IDENTRAIL_WORKER_USER_PURGE_ENABLED", defaultWorkerUserPurgeEnabled),
+		WorkerUserPurgeInterval:      durationEnv("IDENTRAIL_WORKER_USER_PURGE_INTERVAL", defaultWorkerUserPurgeInterval),
+		WorkerUserPurgeBatchSize:     parseInt(getEnv("IDENTRAIL_WORKER_USER_PURGE_BATCH_SIZE", "100"), defaultWorkerUserPurgeBatchSize),
 		WorkerHeartbeatPath:          strings.TrimSpace(getEnv("IDENTRAIL_WORKER_HEARTBEAT_PATH", "")),
 		LockBackend:                  strings.ToLower(getEnv("IDENTRAIL_LOCK_BACKEND", defaultLockBackend)),
 		LockNamespace:                getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),
