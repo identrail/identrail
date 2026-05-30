@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Moved GitHub setup, repository scan operation, and the Actions/OIDC
+  posture surface out of the legacy `/projects/:projectID` source tab into a
+  domain-owned GitHub section. The new `/app/:tenant/:workspace/github`
+  Control Center surfaces connection status, installation summary, selected
+  repository coverage, recent scan activity, and recommended next actions.
+  `/github/connect` owns the GitHub App install entry point and the
+  Enterprise/PAT fallback link; `/github/repositories` owns selected
+  repository inventory plus repository scan launch and cancel; and
+  `/github/actions` is the premium waiting-for-coverage shell for workflow
+  permissions, OIDC trust paths, and runner posture. Existing GitHub
+  connector, repository scan, and project-scoped API contracts are preserved
+  — the new pages call the same `getGitHubConnectorStatus`,
+  `startGitHubConnector`, `listRepoScans`, `runRepoScan`, and
+  `cancelRepoScan` endpoints, including the internal `project_id` scope, so
+  backend behavior is unchanged.
 - Extended the shared domain page framework in `web/src/components/app/DomainFoundation.tsx`
   with typed `DomainStatusBadge` variants (connected, disconnected, needs-attention,
   degraded, running-scan, missing-permissions, coming-soon), `DomainCoverageCard`
