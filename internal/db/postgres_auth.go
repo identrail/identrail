@@ -287,36 +287,21 @@ func (p *PostgresStore) ListUsersPendingHardDelete(ctx context.Context, deletedB
 // interrupted run leaves the account marked pending and gets safely reprocessed.
 func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now time.Time) (User, error) {
 	id := strings.TrimSpace(userID)
-	// Pre-flight: refuse unless the row is actually in pending-deletion state.
-	// Without this, a code path that calls HardDeleteUser against an active
-	// account would silently purge PII. The worker's selection query already
-	// guarantees the precondition, but this defense keeps a misuse from
-	// being unrecoverable.
-	var status string
-	var deletedAt sql.NullTime
-	if err := p.queryRowContextAnyScope(
-		ctx,
-		`SELECT status, deleted_at FROM users WHERE id = NULLIF($1, '')::uuid`,
-		id,
-	).Scan(&status, &deletedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return User{}, ErrNotFound
+	when := now.UTC()
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
 		}
-		return User{}, err
-	}
-	if status != "deleted" || !deletedAt.Valid {
-		return User{}, fmt.Errorf("hard delete: user %s is not pending deletion (status=%q deleted_at=%v)", id, status, deletedAt.Valid)
-	}
-	if _, err := p.execContextAnyScope(ctx, `DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
-		return User{}, err
-	}
-	if _, err := p.execContextAnyScope(ctx, `DELETE FROM sessions WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
-		return User{}, err
-	}
-	// status stays at 'deleted' explicitly so the lifecycle column never drifts
-	// off the tombstoned row (matches the memory store contract: a hard-deleted
-	// user is still 'deleted', just with PII purged).
-	row := p.queryRowContextAnyScope(
+	}()
+	// The pending-deletion predicate lives on the destructive UPDATE itself so
+	// a concurrent cancel-deletion cannot reactivate the row between a separate
+	// pre-check and the PII purge.
+	row := tx.QueryRowContext(
 		ctx,
 		`UPDATE users
 		 SET primary_email = $2::citext,
@@ -325,15 +310,42 @@ func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now t
 		     status = 'deleted',
 		     updated_at = $3::timestamptz
 		 WHERE id = NULLIF($1, '')::uuid
+		   AND status = 'deleted'
+		   AND deleted_at IS NOT NULL
 		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
 		id,
 		HardDeletedTombstoneEmail(id),
-		now.UTC(),
+		when,
 	)
 	saved, err := scanUser(row)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			var status string
+			var deletedAt sql.NullTime
+			if lookupErr := tx.QueryRowContext(
+				ctx,
+				`SELECT status, deleted_at FROM users WHERE id = NULLIF($1, '')::uuid`,
+				id,
+			).Scan(&status, &deletedAt); lookupErr != nil {
+				if errors.Is(lookupErr, sql.ErrNoRows) {
+					return User{}, ErrNotFound
+				}
+				return User{}, lookupErr
+			}
+			return User{}, fmt.Errorf("hard delete: user %s is not pending deletion (status=%q deleted_at=%v)", id, status, deletedAt.Valid)
+		}
 		return User{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return User{}, err
+	}
+	committed = true
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "auth.user.hard_delete",
 		ResourceType: "user",
