@@ -2713,15 +2713,22 @@ function useGitHubDomainData(
           return;
         }
         const statusResult = results[0];
+        const scansResult = results[1];
+        let nextError = '';
         if (statusResult.status === 'fulfilled') {
           setConnection(statusResult.value.connection ?? null);
         } else if (trimmedProject) {
-          setError(formatAPIError(statusResult.reason, 'Unable to load GitHub connection status.'));
+          nextError = formatAPIError(statusResult.reason, 'Unable to load GitHub connection status.');
         }
-        const scansResult = results[1];
         if (scansResult.status === 'fulfilled') {
           setScans(scansResult.value.items ?? []);
+        } else {
+          setScans([]);
+          if (!nextError) {
+            nextError = formatAPIError(scansResult.reason, 'Unable to load recent repository scans.');
+          }
         }
+        setError(nextError);
       })
       .finally(() => {
         if (active) {
@@ -2736,13 +2743,16 @@ function useGitHubDomainData(
   return { loading, error, connection, scans, reload };
 }
 
-function gitHubRecentScans(scans: RepoScanRecord[], selectedRepositories: string[], limit: number): RepoScanRecord[] {
+function gitHubScansForSelectedRepositories(scans: RepoScanRecord[], selectedRepositories: string[]): RepoScanRecord[] {
   if (!selectedRepositories.length) {
-    return scans.slice(0, limit);
+    return [];
   }
   const allowed = new Set(selectedRepositories.map((repo) => canonicalGitHubRepositoryDisplay(repo).toLowerCase()));
-  const filtered = scans.filter((scan) => allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase()));
-  return filtered.length > 0 ? filtered.slice(0, limit) : scans.slice(0, limit);
+  return scans.filter((scan) => allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase()));
+}
+
+function gitHubRecentScans(scans: RepoScanRecord[], selectedRepositories: string[], limit: number): RepoScanRecord[] {
+  return gitHubScansForSelectedRepositories(scans, selectedRepositories).slice(0, limit);
 }
 
 function gitHubRecentScansTimeline(scans: RepoScanRecord[]): DomainTimelineEntry[] {
@@ -2820,8 +2830,8 @@ function buildGitHubControlCenterMetrics(
   recentScans: RepoScanRecord[]
 ) {
   const activeScans = recentScans.filter((scan) => isActiveScanStatus(scan.status)).length;
-  const latestSucceeded = recentScans.find((scan) => isCompletedScanStatus(scan.status) && !isFailedScanStatus(scan.status));
-  const latestFailed = recentScans.find((scan) => isFailedScanStatus(scan.status));
+  const latestCompleted = recentScans.find((scan) => isCompletedScanStatus(scan.status));
+  const latestCompletedFailed = latestCompleted ? isFailedScanStatus(latestCompleted.status) : false;
   return [
     {
       label: 'Connection',
@@ -2843,17 +2853,15 @@ function buildGitHubControlCenterMetrics(
     },
     {
       label: 'Latest scan',
-      value: latestSucceeded
-        ? formatRelativeTime(latestSucceeded.finished_at || latestSucceeded.started_at)
-        : latestFailed
-          ? formatRelativeTime(latestFailed.finished_at || latestFailed.started_at)
-          : '—',
-      detail: latestSucceeded
-        ? `${latestSucceeded.finding_count} findings · ${canonicalGitHubRepositoryDisplay(latestSucceeded.repository) || latestSucceeded.repository}`
-        : latestFailed
-          ? summarizeScanFailure(latestFailed)
-          : 'Run a scan from the Repositories page.',
-      tone: latestSucceeded ? 'success' : latestFailed ? 'danger' : 'neutral'
+      value: latestCompleted
+        ? formatRelativeTime(latestCompleted.finished_at || latestCompleted.started_at)
+        : '—',
+      detail: latestCompleted
+        ? latestCompletedFailed
+          ? summarizeScanFailure(latestCompleted)
+          : `${latestCompleted.finding_count} findings · ${canonicalGitHubRepositoryDisplay(latestCompleted.repository) || latestCompleted.repository}`
+        : 'Run a scan from the Repositories page.',
+      tone: latestCompleted ? (latestCompletedFailed ? 'danger' : 'success') : 'neutral'
     }
   ] as const;
 }
@@ -3213,6 +3221,7 @@ export function ProductGitHubConnectPage() {
   const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT);
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
+  const [pendingInstallURL, setPendingInstallURL] = useState('');
 
   if (!scope) {
     return (
@@ -3269,6 +3278,7 @@ export function ProductGitHubConnectPage() {
 
   const handleInstall = async () => {
     setInstallError('');
+    setPendingInstallURL('');
     setInstalling(true);
     try {
       const response = await apiClient.startGitHubConnector(
@@ -3278,8 +3288,15 @@ export function ProductGitHubConnectPage() {
         },
         buildProductAuthContext(scope)
       );
-      if (typeof window !== 'undefined' && response.install_url) {
-        window.open(response.install_url, '_blank', 'noopener,noreferrer');
+      const installURL = response.install_url ?? '';
+      if (installURL) {
+        let opened: Window | null = null;
+        if (typeof window !== 'undefined') {
+          opened = window.open(installURL, '_blank', 'noopener,noreferrer');
+        }
+        if (!opened) {
+          setPendingInstallURL(installURL);
+        }
       }
       data.reload();
     } catch (error) {
@@ -3332,6 +3349,24 @@ export function ProductGitHubConnectPage() {
       }
     >
       {installError ? <DomainErrorState title="Unable to start install" body={installError} retryAction={{ label: 'Try again', onClick: handleInstall }} /> : null}
+      {pendingInstallURL ? (
+        <DomainStatusPanel
+          eyebrow="Install GitHub App"
+          title="Browser blocked the install popup"
+          tone="warning"
+        >
+          <p>Open the GitHub App install page directly to finish connecting Identrail.</p>
+          <a
+            className="idt-btn idt-btn-primary"
+            href={pendingInstallURL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open GitHub"
+          >
+            Open GitHub
+          </a>
+        </DomainStatusPanel>
+      ) : null}
       {data.error ? <DomainErrorState title="Unable to load connection status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
       <DomainStatusPanel
         eyebrow="Status"
@@ -3479,6 +3514,7 @@ export function ProductGitHubRepositoriesPage() {
   const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const rows = buildGitHubRepositoryRows(selectedRepositories, data.scans);
+  const selectedRepositoryScans = gitHubScansForSelectedRepositories(data.scans, selectedRepositories);
 
   const connected = Boolean(data.connection?.connected);
   const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
@@ -3647,16 +3683,16 @@ export function ProductGitHubRepositoriesPage() {
               <p className="idt-app-kicker">Activity</p>
               <h3>Recent repository scan activity</h3>
             </div>
-            <span>{`${data.scans.length} scan${data.scans.length === 1 ? '' : 's'} loaded`}</span>
+            <span>{`${selectedRepositoryScans.length} scan${selectedRepositoryScans.length === 1 ? '' : 's'} loaded`}</span>
           </header>
-          {data.scans.length === 0 ? (
+          {selectedRepositoryScans.length === 0 ? (
             <DomainEmptyState
               eyebrow="No activity"
               title="No repository scans recorded yet"
               body="Queue a scan for a selected repository to seed activity here."
             />
           ) : (
-            <DomainTimeline label="Recent repository scan activity" entries={gitHubRecentScansTimeline(data.scans.slice(0, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT * 2))} />
+            <DomainTimeline label="Recent repository scan activity" entries={gitHubRecentScansTimeline(selectedRepositoryScans.slice(0, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT * 2))} />
           )}
         </section>
       ) : null}

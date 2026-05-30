@@ -2070,4 +2070,106 @@ describe('GitHub domain pages (#1382)', () => {
     await screen.findByRole('heading', { level: 2, name: 'GitHub Actions / OIDC' });
     await screen.findByRole('heading', { level: 3, name: /GitHub is not available on this API/i });
   });
+
+  it('Control Center surfaces an error when listing repository scans fails', async () => {
+    const api = await import('./api/client');
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockRejectedValue(
+      new api.ApiError('rate limited', 429)
+    );
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findByRole('heading', { level: 3, name: /Unable to load GitHub status/i });
+  });
+
+  it('Control Center hides recent scans when no repositories are selected', async () => {
+    const unrelatedScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-unrelated',
+      repository: 'someone-else/other-repo'
+    };
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: [] },
+      scans: [unrelatedScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    expect(screen.queryByText(/Last \d+ repository scans/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
+    await screen.findByRole('heading', { level: 3, name: /No repository scans yet/i });
+  });
+
+  it('Control Center latest-scan KPI reflects the newest scan even when it failed', async () => {
+    const olderSucceeded: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-older-success',
+      started_at: '2026-05-16T10:00:00Z',
+      finished_at: '2026-05-16T10:05:00Z'
+    };
+    const newerFailed: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-newer-failed',
+      status: 'failed',
+      started_at: '2026-05-17T12:00:00Z',
+      finished_at: '2026-05-17T12:05:00Z',
+      error_message: 'scan exploded',
+      finding_count: 0
+    };
+    await renderGitHubPage('control-center', { scans: [newerFailed, olderSucceeded] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findAllByText(/scan exploded/i);
+    const kpiStrip = screen.getByLabelText('GitHub control center metrics');
+    expect(within(kpiStrip).getByText(/scan exploded/i)).toBeInTheDocument();
+  });
+
+  it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    await renderGitHubPage('connect', {
+      githubConnection: {
+        ...connectedGitHub,
+        connected: false,
+        account_login: undefined,
+        installation_id: undefined,
+        selected_repositories: []
+      }
+    });
+
+    const installButton = (await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0];
+    fireEvent.click(installButton);
+
+    const fallback = await screen.findByRole('link', { name: 'Open GitHub' });
+    expect(fallback.getAttribute('href')).toBe(
+      'https://github.com/apps/identrail/installations/select_target?state=github-state'
+    );
+    expect(openSpy).toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('Repositories page activity timeline ignores scans for unselected repositories', async () => {
+    const unrelatedScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-unrelated',
+      repository: 'someone-else/other-repo'
+    };
+    await renderGitHubPage('repositories', { scans: [unrelatedScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 3, name: /Recent repository scan activity/i });
+    expect(screen.getByText(/0 scans loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
+  });
 });

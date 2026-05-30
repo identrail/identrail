@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Hardened the new GitHub domain pages to address review feedback: the
+  Control Center now surfaces a `Unable to load GitHub status` error when
+  listing recent repository scans fails instead of silently showing an empty
+  timeline, scopes the `Recent scans` panel and `Latest scan` KPI strictly to
+  scans for the selected GitHub App repositories (no fallback to all scans),
+  and the `Latest scan` KPI reflects the newest completed scan's actual
+  outcome rather than preferring an older successful one. The Connect page
+  renders an `Open GitHub` fallback link with the App install URL when the
+  browser blocks `window.open` after the install request. The Repositories
+  activity timeline is scoped to selected repositories.
 - Moved GitHub setup, repository scan operation, and the Actions/OIDC
   posture surface out of the legacy `/projects/:projectID` source tab into a
   domain-owned GitHub section. The new `/app/:tenant/:workspace/github`
