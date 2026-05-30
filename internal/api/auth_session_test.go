@@ -85,12 +85,13 @@ func setupSessionRouter(t *testing.T) (*ginlessSessionHarness, string, string) {
 		RateLimitRPM:   1000,
 		RateLimitBurst: 1000,
 	})
-	return &ginlessSessionHarness{router: router, manager: manager}, cookieValue, sessionauth.EncodePublicSessionID(current.ID)
+	return &ginlessSessionHarness{router: router, manager: manager, svc: svc}, cookieValue, sessionauth.EncodePublicSessionID(current.ID)
 }
 
 type ginlessSessionHarness struct {
 	router  http.Handler
 	manager sessionauth.Manager
+	svc     *Service
 }
 
 func TestCurrentSessionMeAndSessionList(t *testing.T) {
@@ -981,44 +982,79 @@ func TestCurrentSessionCancelDeletionPastGraceReturns410(t *testing.T) {
 	}
 }
 
+// raceSoleOwnerStore wraps a db.Store and stages a sole-owner race: the first
+// ListSoleOwnerWorkspaces call (the handler's pre-flight) returns clean, while
+// the second (the authoritative post-soft-delete re-check) returns one
+// workspace — simulating a concurrent membership change between the two
+// checks. Every other Store method delegates to the embedded backend.
+type raceSoleOwnerStore struct {
+	db.Store
+	callCount int
+	racedWith []db.TenancyWorkspace
+}
+
+func (s *raceSoleOwnerStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID string) ([]db.TenancyWorkspace, error) {
+	s.callCount++
+	if s.callCount == 1 {
+		return nil, nil
+	}
+	return s.racedWith, nil
+}
+
 func TestCurrentSessionDeleteAccountSoleOwnerRaceRollsBack(t *testing.T) {
 	// When the pre-flight sole-owner check is clean but a concurrent
-	// membership change between the pre-flight and the soft-delete leaves
-	// the user as a fresh sole owner, the authoritative re-check fires and
-	// CancelUserDeletion rolls back. Simulate the race by inserting a sole
-	// owner membership AFTER the handler reads the pre-flight result; the
-	// way the handler is layered, simply seeding the sole owner state up
-	// front is sufficient — both checks will see it. To exercise the
-	// re-check branch specifically, seed the user as the only owner BEFORE
-	// the request: the pre-flight already returns 409. To hit the post-write
-	// branch we instead pre-promote AFTER pre-flight, which test harnesses
-	// cannot interleave, so the rollback path is covered indirectly through
-	// the integration test of memory store cancel + re-delete.
+	// membership change leaves the user as a fresh sole owner before the
+	// authoritative re-check, the handler must roll back the soft-delete via
+	// CancelUserDeletion and return 409 sole_owner. Exercises DELETE /v1/me
+	// end-to-end with a wrapping store that stages the race deterministically.
 	harness, cookieValue, _ := setupSessionRouter(t)
-	store, ok := harness.manager.Store.(*db.MemoryStore)
+	inner, ok := harness.svc.Store.(*db.MemoryStore)
 	if !ok {
-		t.Fatalf("expected memory store, got %T", harness.manager.Store)
+		t.Fatalf("expected memory store, got %T", harness.svc.Store)
 	}
-	user, err := store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+	user, err := inner.GetUserByPrimaryEmail(context.Background(), "user@example.com")
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
-	// Soft-delete then immediately cancel through the store, simulating the
-	// rollback path the handler takes on a race.
-	if _, err := store.SoftDeleteUser(context.Background(), user.ID, time.Now().UTC()); err != nil {
-		t.Fatalf("soft delete: %v", err)
+	racer := &raceSoleOwnerStore{
+		Store: inner,
+		racedWith: []db.TenancyWorkspace{{
+			TenantID:    "tenant-a",
+			WorkspaceID: "workspace-a",
+			DisplayName: "Workspace A",
+			Slug:        "workspace-a",
+		}},
 	}
-	if _, err := store.CancelUserDeletion(context.Background(), user.ID, time.Now().UTC()); err != nil {
-		t.Fatalf("cancel deletion rollback: %v", err)
+	harness.svc.Store = racer
+
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, deleteAccountRequest(cookieValue))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected delete 409, got %d body=%s", w.Code, w.Body.String())
 	}
-	refreshed, err := store.GetUser(context.Background(), user.ID)
+	if !strings.Contains(w.Body.String(), `"code":"sole_owner"`) {
+		t.Fatalf("expected sole_owner code in body, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"workspace_id":"workspace-a"`) {
+		t.Fatalf("expected racing workspace in body, got %s", w.Body.String())
+	}
+	if racer.callCount < 2 {
+		t.Fatalf("expected handler to hit pre-flight + re-check sole-owner calls, got %d", racer.callCount)
+	}
+
+	// The handler must have rolled the soft-delete back through CancelUserDeletion.
+	refreshed, err := inner.GetUser(context.Background(), user.ID)
 	if err != nil {
 		t.Fatalf("get refreshed user: %v", err)
 	}
 	if refreshed.Status != "active" || refreshed.DeletedAt != nil {
 		t.Fatalf("expected rolled-back user to be active, got %+v", refreshed)
 	}
-	// And the cookie should resolve again on the strict path.
+
+	// And the cookie should resolve again on the strict path. Restore the
+	// underlying store so the strict /v1/me lookup uses the unwrapped backend
+	// (avoiding the stubbed sole-owner method, which is irrelevant here).
+	harness.svc.Store = inner
 	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
 	meReq.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
 	meResp := httptest.NewRecorder()

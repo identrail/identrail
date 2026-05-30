@@ -2,6 +2,7 @@ package userpurge_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -171,15 +172,23 @@ func TestRunOnceHardDeleteFailureCounted(t *testing.T) {
 func TestRunOnceCanceledContextPropagates(t *testing.T) {
 	now := time.Now().UTC()
 	deletedAt := now.Add(-(db.UserDeletionGracePeriod + time.Hour))
+	// Distinct sentinel so the assertion can prove RunOnce surfaced the
+	// context-cancellation error rather than the unrelated HardDeleteUser
+	// failure. If both errors were context.Canceled the test could not
+	// distinguish the ctx-check branch from the post-write error branch.
+	forcedHardDelErr := errors.New("forced hard delete failure")
 	store := &errStore{
 		pending:    []db.User{{ID: "u1", Status: "deleted", DeletedAt: &deletedAt}},
-		hardDelErr: context.Canceled,
+		hardDelErr: forcedHardDelErr,
 	}
 	r := &userpurge.Runner{Store: store, Now: func() time.Time { return now }}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := r.RunOnce(ctx)
-	if err == nil {
-		t.Fatal("expected canceled context to surface as error")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if errors.Is(err, forcedHardDelErr) {
+		t.Fatalf("expected ctx error to take precedence over HardDeleteUser error, got %v", err)
 	}
 }
