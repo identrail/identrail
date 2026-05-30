@@ -1269,14 +1269,17 @@ func TestPostgresStoreListSoleOwnerWorkspaces(t *testing.T) {
 		  AND caller.user_uuid = NULLIF($1, '')::uuid
 		  AND caller.status = 'active'
 		  AND caller.role = 'owner'
-		 WHERE (
-		     SELECT COUNT(*)
+		 WHERE NOT EXISTS (
+		     SELECT 1
 		     FROM tenancy_workspace_members other
+		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		     WHERE other.tenant_id = w.tenant_id
 		       AND other.workspace_id = w.workspace_id
+		       AND other.user_uuid <> NULLIF($1, '')::uuid
 		       AND other.status = 'active'
 		       AND other.role = 'owner'
-		 ) = 1
+		       AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+		 )
 		 ORDER BY w.workspace_id ASC`)).
 		WithArgs("11111111-1111-1111-1111-111111111111").
 		WillReturnRows(rows)

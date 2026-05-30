@@ -201,7 +201,7 @@ func (m *MemoryStore) ListUsersPendingHardDelete(ctx context.Context, deletedBef
 		if !user.DeletedAt.UTC().Before(cutoff) {
 			continue
 		}
-		if IsHardDeletedTombstoneEmail(user.PrimaryEmail) {
+		if IsHardDeletedTombstoneEmailForUser(user.PrimaryEmail, user.ID) {
 			continue
 		}
 		pending = append(pending, user)
@@ -230,6 +230,14 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	if !exists {
 		m.mu.Unlock()
 		return User{}, ErrNotFound
+	}
+	// Refuse unless the row is actually pending deletion. Without this guard
+	// a misuse against an active account would silently purge PII. The worker
+	// only ever invokes this on rows returned by ListUsersPendingHardDelete,
+	// but the defense keeps a programming error from being unrecoverable.
+	if user.Status != "deleted" || user.DeletedAt == nil {
+		m.mu.Unlock()
+		return User{}, fmt.Errorf("hard delete: user %s is not pending deletion (status=%q)", id, user.Status)
 	}
 	user.PrimaryEmail = HardDeletedTombstoneEmail(id)
 	user.DisplayName = ""

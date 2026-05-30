@@ -426,21 +426,30 @@ func (m *MemoryStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID stri
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	ownerCounts := map[string]int{}
+	// A workspace is sole-owned by the caller iff (a) the caller holds an
+	// active owner membership and (b) no OTHER user holds an active owner
+	// membership backed by a non-deleted user. Soft-deleted owners cannot
+	// transfer ownership; counting them would let the caller delete their
+	// account and leave the workspace with no live owner.
+	otherLiveOwners := map[string]int{}
 	userOwns := map[string]struct{}{}
 	for _, member := range m.members {
 		if member.Status != "active" || member.Role != "owner" {
 			continue
 		}
 		key := tenancyWorkspaceKey(member.TenantID, member.WorkspaceID)
-		ownerCounts[key]++
 		if member.UserUUID == normalizedUserUUID {
 			userOwns[key] = struct{}{}
+			continue
 		}
+		if owner, ok := m.users[member.UserUUID]; ok && owner.Status == "deleted" {
+			continue
+		}
+		otherLiveOwners[key]++
 	}
 	workspaces := make([]TenancyWorkspace, 0)
 	for key := range userOwns {
-		if ownerCounts[key] != 1 {
+		if otherLiveOwners[key] > 0 {
 			continue
 		}
 		if workspace, exists := m.workspaces[key]; exists {

@@ -58,7 +58,7 @@ func TestRunOncePurgesAccountsPastGrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get user A: %v", err)
 	}
-	if !db.IsHardDeletedTombstoneEmail(storedA.PrimaryEmail) {
+	if !db.IsHardDeletedTombstoneEmailForUser(storedA.PrimaryEmail, storedA.ID) {
 		t.Fatalf("expected user A to be tombstoned, got email %q", storedA.PrimaryEmail)
 	}
 	if storedA.DisplayName != "" || storedA.AvatarURL != "" {
@@ -129,6 +129,11 @@ type errStore struct {
 	listErr     error
 	hardDelErr  error
 	hardDelHits int
+	// onHardDel runs at the top of HardDeleteUser, before the canned error is
+	// returned. Tests use it to simulate a context cancellation that arrives
+	// *during* the call (after RunOnce passed the per-iteration ctx check),
+	// which is the only way to exercise the post-write ctx-error branch.
+	onHardDel func()
 }
 
 func (s *errStore) ListUsersPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]db.User, error) {
@@ -140,14 +145,22 @@ func (s *errStore) ListUsersPendingHardDelete(ctx context.Context, deletedBefore
 
 func (s *errStore) HardDeleteUser(ctx context.Context, userID string, now time.Time) (db.User, error) {
 	s.hardDelHits++
+	if s.onHardDel != nil {
+		s.onHardDel()
+	}
 	return db.User{}, s.hardDelErr
 }
 
 func TestRunOnceListErrorWraps(t *testing.T) {
-	r := &userpurge.Runner{Store: &errStore{listErr: context.Canceled}}
+	// Use a distinct sentinel so the assertion can prove RunOnce *preserved*
+	// (wrapped) the underlying error instead of swallowing or replacing it.
+	// `err != nil` alone would pass even if the runner returned a generic
+	// "list failed" string with no causal link to listErr.
+	sentinel := errors.New("synthetic list failure")
+	r := &userpurge.Runner{Store: &errStore{listErr: sentinel}}
 	_, err := r.RunOnce(context.Background())
-	if err == nil {
-		t.Fatal("expected wrapped list error")
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected wrapped sentinel error, got %v", err)
 	}
 }
 
@@ -170,25 +183,35 @@ func TestRunOnceHardDeleteFailureCounted(t *testing.T) {
 }
 
 func TestRunOnceCanceledContextPropagates(t *testing.T) {
+	// Exercises the post-write ctx-error branch in RunOnce: HardDeleteUser
+	// fails AND the context was canceled mid-call. The runner must surface
+	// the context error rather than counting the iteration as Errors++.
+	// Cancelling the context BEFORE RunOnce would short-circuit on the
+	// per-iteration ctx check and bypass HardDeleteUser entirely, which is
+	// not the branch we want to exercise. Cancelling INSIDE HardDeleteUser
+	// (via onHardDel) is the only way to land in the post-write branch.
 	now := time.Now().UTC()
 	deletedAt := now.Add(-(db.UserDeletionGracePeriod + time.Hour))
-	// Distinct sentinel so the assertion can prove RunOnce surfaced the
-	// context-cancellation error rather than the unrelated HardDeleteUser
-	// failure. If both errors were context.Canceled the test could not
-	// distinguish the ctx-check branch from the post-write error branch.
 	forcedHardDelErr := errors.New("forced hard delete failure")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store := &errStore{
 		pending:    []db.User{{ID: "u1", Status: "deleted", DeletedAt: &deletedAt}},
 		hardDelErr: forcedHardDelErr,
+		onHardDel:  cancel,
 	}
 	r := &userpurge.Runner{Store: store, Now: func() time.Time { return now }}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := r.RunOnce(ctx)
+	result, err := r.RunOnce(ctx)
+	if store.hardDelHits != 1 {
+		t.Fatalf("expected HardDeleteUser to be invoked once, got %d", store.hardDelHits)
+	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 	if errors.Is(err, forcedHardDelErr) {
 		t.Fatalf("expected ctx error to take precedence over HardDeleteUser error, got %v", err)
+	}
+	if result.Errors != 0 {
+		t.Fatalf("expected ctx-interrupted iteration not to count as an error, got %+v", result)
 	}
 }

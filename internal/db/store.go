@@ -182,13 +182,13 @@ func HardDeletedTombstoneEmail(userID string) string {
 	return hardDeletedEmailPrefix + strings.ToLower(strings.TrimSpace(userID)) + hardDeletedEmailSuffix
 }
 
-// IsHardDeletedTombstoneEmail reports whether a primary_email is the synthetic
-// placeholder left behind by a completed hard delete. Both the prefix and the
-// reserved `accounts.invalid` suffix must match — the prefix alone would
-// misclassify legitimate `deleted-user+...` addresses on real domains.
-func IsHardDeletedTombstoneEmail(email string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(email))
-	return strings.HasPrefix(normalized, hardDeletedEmailPrefix) && strings.HasSuffix(normalized, hardDeletedEmailSuffix)
+// IsHardDeletedTombstoneEmailForUser reports whether `email` is exactly the
+// deterministic tombstone for `userID`. Exact per-user matching avoids the
+// false positives a generic prefix+suffix scan would invite — a malicious
+// signup with the right shape could otherwise convince the worker that an
+// active account had already been purged and exclude it from future runs.
+func IsHardDeletedTombstoneEmailForUser(email string, userID string) bool {
+	return strings.EqualFold(strings.TrimSpace(email), HardDeletedTombstoneEmail(userID))
 }
 
 var validSessionAuthMethods = map[string]struct{}{

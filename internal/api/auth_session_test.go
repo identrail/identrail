@@ -858,16 +858,23 @@ func TestCurrentSessionCancelDeletionViaRecoveryCookieAfterDelete(t *testing.T) 
 	// The recovery cookie must NOT be cleared on DELETE — if the handler
 	// regresses to issuing `manager.ClearCookie()` here, the browser drops
 	// the cookie and the subsequent cancel-deletion request can no longer
-	// authenticate. Asserting on the Set-Cookie header pins that contract.
-	for _, setCookie := range deleteResp.Header().Values("Set-Cookie") {
-		if strings.HasPrefix(setCookie, sessionauth.CookieName+"=;") {
-			t.Fatalf("DELETE /v1/me must not clear the recovery cookie, got Set-Cookie=%q", setCookie)
+	// authenticate. Parse every Set-Cookie via http.Response so we catch
+	// every form of "clear this cookie": empty value, zero/negative MaxAge,
+	// or a past Expires timestamp. A textual MaxAge-only check would miss
+	// the Expires variant, which is exactly the regression worth catching.
+	parsed := (&http.Response{Header: deleteResp.Header()}).Cookies()
+	for _, ck := range parsed {
+		if ck.Name != sessionauth.CookieName {
+			continue
 		}
-		// A zeroed MaxAge or a far-past Expires also clears the cookie in
-		// most browsers; treat either as a regression.
-		if strings.Contains(setCookie, sessionauth.CookieName+"=") &&
-			(strings.Contains(setCookie, "Max-Age=0") || strings.Contains(setCookie, "Max-Age=-1")) {
-			t.Fatalf("DELETE /v1/me must not zero the cookie max-age, got Set-Cookie=%q", setCookie)
+		if ck.Value == "" {
+			t.Fatalf("DELETE /v1/me must not clear the recovery cookie (empty value), got %+v", ck)
+		}
+		if ck.MaxAge < 0 {
+			t.Fatalf("DELETE /v1/me must not negate the cookie MaxAge, got %+v", ck)
+		}
+		if !ck.Expires.IsZero() && !ck.Expires.After(time.Now()) {
+			t.Fatalf("DELETE /v1/me must not set the cookie Expires in the past, got %+v", ck)
 		}
 	}
 	cancelResp := httptest.NewRecorder()

@@ -817,39 +817,47 @@ func TestUpsertWorkOSUserCancelDeletionIntentRevivesAccount(t *testing.T) {
 
 func TestUpsertWorkOSUserSignInPastGraceReturnsNotFound(t *testing.T) {
 	// Past the 30-day grace window the worker is authoritative for the purge.
-	// Sign-in must refuse with ErrAuthAccountNotFound so the frontend cannot
-	// offer cancellation against a row that is already eligible for hard
-	// delete.
-	store := db.NewMemoryStore()
-	now := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
-	deletedAt := now.Add(-(db.UserDeletionGracePeriod + 24*time.Hour))
-	svc := NewService(store, fakeScanner{}, "aws")
-	svc.Now = func() time.Time { return now }
-	ctx := context.Background()
-	user, err := store.UpsertUser(ctx, db.User{
-		PrimaryEmail: "expired@example.com",
-		Status:       "deleted",
-		DeletedAt:    &deletedAt,
-	})
-	if err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
-	if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
-		UserID:              user.ID,
-		Provider:            sessionauth.WorkOSProvider,
-		Subject:             "user_workos_expired",
-		Email:               "expired@example.com",
-		LastAuthenticatedAt: now.Add(-time.Hour),
-	}); err != nil {
-		t.Fatalf("seed identity: %v", err)
-	}
-	_, err = svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
-		ID:            "user_workos_expired",
-		Email:         "expired@example.com",
-		EmailVerified: true,
-	}, "cancel_deletion")
-	if !errors.Is(err, ErrAuthAccountNotFound) {
-		t.Fatalf("expected ErrAuthAccountNotFound past grace, got %v", err)
+	// Sign-in must refuse with ErrAuthAccountNotFound for every intent so the
+	// frontend cannot offer cancellation against a row that is already
+	// eligible for hard delete. The canonical `login` intent (the one the
+	// hosted-login button uses) is exercised explicitly — `cancel_deletion`
+	// and `signup` get sub-cases for completeness since each takes a
+	// different branch through UpsertWorkOSUserForIntent.
+	intents := []string{"login", "cancel_deletion", "signup"}
+	for _, intent := range intents {
+		t.Run(intent, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			now := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
+			deletedAt := now.Add(-(db.UserDeletionGracePeriod + 24*time.Hour))
+			svc := NewService(store, fakeScanner{}, "aws")
+			svc.Now = func() time.Time { return now }
+			ctx := context.Background()
+			user, err := store.UpsertUser(ctx, db.User{
+				PrimaryEmail: "expired@example.com",
+				Status:       "deleted",
+				DeletedAt:    &deletedAt,
+			})
+			if err != nil {
+				t.Fatalf("seed user: %v", err)
+			}
+			if _, err := store.UpsertUserIdentity(ctx, db.UserIdentity{
+				UserID:              user.ID,
+				Provider:            sessionauth.WorkOSProvider,
+				Subject:             "user_workos_expired",
+				Email:               "expired@example.com",
+				LastAuthenticatedAt: now.Add(-time.Hour),
+			}); err != nil {
+				t.Fatalf("seed identity: %v", err)
+			}
+			_, err = svc.UpsertWorkOSUserForIntent(ctx, sessionauth.WorkOSProfile{
+				ID:            "user_workos_expired",
+				Email:         "expired@example.com",
+				EmailVerified: true,
+			}, intent)
+			if !errors.Is(err, ErrAuthAccountNotFound) {
+				t.Fatalf("intent=%q: expected ErrAuthAccountNotFound past grace, got %v", intent, err)
+			}
+		})
 	}
 }
 

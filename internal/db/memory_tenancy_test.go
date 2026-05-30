@@ -1295,3 +1295,53 @@ func TestMemoryStoreListSoleOwnerWorkspaces(t *testing.T) {
 		t.Fatalf("expected only ws-sole, got %+v", results)
 	}
 }
+
+func TestMemoryStoreListSoleOwnerWorkspacesIgnoresDeletedOwners(t *testing.T) {
+	// A workspace with one active owner (the caller) and one membership row
+	// pointing at a soft-deleted user must be flagged as sole-owned by the
+	// caller. A deleted user cannot transfer ownership, so counting them as
+	// a live owner would let the caller delete their own account and leave
+	// the workspace with zero live owners — exactly the invariant the
+	// sole-owner guard exists to enforce.
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	caller, err := store.UpsertUser(context.Background(), User{PrimaryEmail: "caller@example.com"})
+	if err != nil {
+		t.Fatalf("upsert caller: %v", err)
+	}
+	ghost, err := store.UpsertUser(context.Background(), User{PrimaryEmail: "ghost@example.com"})
+	if err != nil {
+		t.Fatalf("upsert ghost: %v", err)
+	}
+	if _, err := store.SoftDeleteUser(context.Background(), ghost.ID, now.Add(-24*time.Hour)); err != nil {
+		t.Fatalf("soft delete ghost: %v", err)
+	}
+
+	scoped := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-shared"})
+	if err := store.UpsertOrganization(scoped, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	if err := store.UpsertWorkspace(scoped, TenancyWorkspace{WorkspaceID: "ws-shared", DisplayName: "Shared", Slug: "ws-shared"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scoped, TenancyWorkspaceMember{
+		WorkspaceID: "ws-shared", MemberID: "m-caller", UserID: "subj-caller", UserUUID: caller.ID,
+		Role: "owner", Status: "active", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert caller membership: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scoped, TenancyWorkspaceMember{
+		WorkspaceID: "ws-shared", MemberID: "m-ghost", UserID: "subj-ghost", UserUUID: ghost.ID,
+		Role: "owner", Status: "active", JoinedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert ghost membership: %v", err)
+	}
+
+	results, err := store.ListSoleOwnerWorkspaces(context.Background(), caller.ID)
+	if err != nil {
+		t.Fatalf("list sole owner: %v", err)
+	}
+	if len(results) != 1 || results[0].WorkspaceID != "ws-shared" {
+		t.Fatalf("expected ws-shared flagged with deleted co-owner excluded, got %+v", results)
+	}
+}

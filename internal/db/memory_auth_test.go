@@ -578,8 +578,8 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hard delete: %v", err)
 	}
-	if !IsHardDeletedTombstoneEmail(purged.PrimaryEmail) {
-		t.Fatalf("expected tombstone email, got %q", purged.PrimaryEmail)
+	if !IsHardDeletedTombstoneEmailForUser(purged.PrimaryEmail, purged.ID) {
+		t.Fatalf("expected tombstone email for user %s, got %q", purged.ID, purged.PrimaryEmail)
 	}
 	if purged.DisplayName != "" || purged.AvatarURL != "" {
 		t.Fatalf("expected PII cleared, got %+v", purged)

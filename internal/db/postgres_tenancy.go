@@ -549,6 +549,12 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 	if normalizedUserUUID == "" {
 		return []TenancyWorkspace{}, nil
 	}
+	// A workspace is "sole-owned" by the caller iff (a) the caller holds an
+	// active owner membership, and (b) no OTHER user holds an active owner
+	// membership backed by a non-deleted user row. Soft-deleted owners cannot
+	// transfer ownership, so counting them would let the caller delete their
+	// account while leaving the workspace with no live owner — exactly the
+	// invariant this guard exists to enforce.
 	rows, err := p.queryContextAnyScope(
 		ctx,
 		`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.created_at, w.updated_at
@@ -559,14 +565,17 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 		  AND caller.user_uuid = NULLIF($1, '')::uuid
 		  AND caller.status = 'active'
 		  AND caller.role = 'owner'
-		 WHERE (
-		     SELECT COUNT(*)
+		 WHERE NOT EXISTS (
+		     SELECT 1
 		     FROM tenancy_workspace_members other
+		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		     WHERE other.tenant_id = w.tenant_id
 		       AND other.workspace_id = w.workspace_id
+		       AND other.user_uuid <> NULLIF($1, '')::uuid
 		       AND other.status = 'active'
 		       AND other.role = 'owner'
-		 ) = 1
+		       AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+		 )
 		 ORDER BY w.workspace_id ASC`,
 		normalizedUserUUID,
 	)

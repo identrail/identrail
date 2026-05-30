@@ -1444,21 +1444,12 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 			return
 		}
-		if user.Status == "deleted" {
-			// Idempotent: a repeat DELETE returns the originally-scheduled
-			// purge date so the UI does not silently extend the window.
-			scheduled := time.Time{}
-			if user.DeletedAt != nil {
-				scheduled = user.DeletedAt.UTC().Add(db.UserDeletionGracePeriod)
-			}
-			c.JSON(http.StatusOK, gin.H{
-				"status":             "deleted",
-				"deleted_at":         user.DeletedAt,
-				"hard_delete_after":  scheduled,
-				"grace_period_hours": int(db.UserDeletionGracePeriod / time.Hour),
-			})
-			return
-		}
+		// Repeat-call idempotency: a soft-deleted user's cookie cannot reach
+		// this strict-mode route — TouchSession refuses pending-deletion
+		// sessions, and the cancel-deletion route is the only one in the
+		// lenient PendingDeletionPaths allowlist. The store-level COALESCE in
+		// SoftDeleteUser still guarantees that a concurrent re-entry preserves
+		// the original deleted_at and therefore the hard-delete deadline.
 		// First sole-owner check: cheap pre-flight that returns the structured
 		// 409 to the UI immediately when ownership transfer is already
 		// required. The authoritative check happens after the soft-delete
@@ -1529,8 +1520,16 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			return
 		}
 		if len(soleOwnedAfter) > 0 {
-			if _, err := svc.Store.CancelUserDeletion(c.Request.Context(), saved.ID, now); err != nil && logger != nil {
-				logger.Error("delete account rollback after sole-owner race", telemetry.ZapError(err))
+			if _, cancelErr := svc.Store.CancelUserDeletion(c.Request.Context(), saved.ID, now); cancelErr != nil {
+				// Rollback failed — the account is still soft-deleted but we
+				// cannot honor the sole-owner contract for the caller. Surface
+				// 500 instead of 409 so the client does not conclude the
+				// account is still active when it is not.
+				if logger != nil {
+					logger.Error("delete account rollback after sole-owner race", telemetry.ZapError(cancelErr))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+				return
 			}
 			workspaces := make([]gin.H, 0, len(soleOwnedAfter))
 			for _, ws := range soleOwnedAfter {
