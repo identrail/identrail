@@ -434,6 +434,11 @@ export type CurrentUserContext = {
   project?: ProjectRecord;
 };
 
+export type CurrentUserProfileUpdate = {
+  display_name?: string;
+  avatar_url?: string;
+};
+
 export type OnboardingStep = 'org' | 'workspace' | 'connect' | 'scan' | 'invite' | 'complete';
 
 export type OnboardingState = {
@@ -1169,6 +1174,12 @@ export const apiClient = {
   getMe(options: { redirectOnUnauthorized?: boolean } = {}) {
     return request<{ me: CurrentUserContext }>('/v1/me', undefined, {
       redirectOnUnauthorized: options.redirectOnUnauthorized ?? false
+    });
+  },
+  updateMe(payload: CurrentUserProfileUpdate) {
+    return request<{ me: CurrentUserContext }>('/v1/me', undefined, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
     });
   },
   listCurrentUserSessions() {

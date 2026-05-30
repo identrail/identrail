@@ -668,6 +668,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodPost, Path: "/v1/authz/policies/simulate", Action: policyActionAuthzSimulate, ResourceType: "authz_policy"},
 		{Method: http.MethodPost, Path: "/v1/authz/policies/rollback", Action: policyActionAuthzRollback, ResourceType: "authz_policy"},
 		{Method: http.MethodGet, Path: "/v1/me", Action: policyActionMeRead, ResourceType: "user"},
+		{Method: http.MethodPatch, Path: "/v1/me", Action: policyActionMeWrite, ResourceType: "user"},
 		{Method: http.MethodGet, Path: "/v1/me/sessions", Action: policyActionMeRead, ResourceType: "session"},
 		{Method: http.MethodDelete, Path: "/v1/me/sessions/:session_id", Action: policyActionMeWrite, ResourceType: "session", ResourceIDParam: "session_id"},
 		{Method: http.MethodPost, Path: "/v1/me/sessions/revoke-others", Action: policyActionMeWrite, ResourceType: "session"},

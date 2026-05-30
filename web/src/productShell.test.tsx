@@ -2,11 +2,13 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AuthConfigResponse,
   AWSConnectionStatus,
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
-  RepoScanRecord
+  RepoScanRecord,
+  WhoAmIResponse
 } from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
 
@@ -16,6 +18,30 @@ const loggedInWithoutWorkspace: CurrentUserContext = {
     primary_email: 'owner@example.com',
     display_name: 'Owner User',
     status: 'active',
+    created_at: '2026-05-16T10:00:00Z',
+    updated_at: '2026-05-16T10:00:00Z'
+  }
+};
+
+const loggedInWithWorkspace: CurrentUserContext = {
+  user: {
+    id: 'user-1',
+    primary_email: 'owner@example.com',
+    display_name: 'Owner User',
+    avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4',
+    status: 'active',
+    created_at: '2026-05-16T10:00:00Z',
+    updated_at: '2026-05-16T10:00:00Z'
+  },
+  org_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'project-a',
+  role: 'admin',
+  workspace: {
+    tenant_id: 'tenant-a',
+    workspace_id: 'workspace-a',
+    display_name: 'Workspace A',
+    slug: 'workspace-a',
     created_at: '2026-05-16T10:00:00Z',
     updated_at: '2026-05-16T10:00:00Z'
   }
@@ -168,6 +194,94 @@ function mockConnectorFeatureFlags({
       FEATURE_ONBOARDING_CONNECTOR_K8S: kubernetes
     };
   });
+}
+
+const settingsAuthConfig: AuthConfigResponse = {
+  auth: {
+    manual_mode: false,
+    workos_login_enabled: true,
+    native_saml_enabled: false,
+    providers: ['github_oauth', 'google_oauth']
+  },
+  features: {
+    onboarding_wizard: true,
+    connectors: { github: true, aws: true, kubernetes: true }
+  }
+};
+
+function settingsWhoAmI(me: CurrentUserContext): WhoAmIResponse {
+  const workspace = me.workspace ?? {
+    tenant_id: 'tenant-a',
+    workspace_id: 'workspace-a',
+    display_name: 'Workspace A',
+    slug: 'workspace-a',
+    created_at: '2026-05-16T10:00:00Z',
+    updated_at: '2026-05-16T10:00:00Z'
+  };
+  const member = {
+    tenant_id: workspace.tenant_id,
+    workspace_id: workspace.workspace_id,
+    member_id: 'member-a',
+    user_id: 'oidc-subject-a',
+    email: me.user.primary_email,
+    role: me.role ?? 'admin',
+    status: 'active' as const,
+    joined_at: '2026-05-16T10:00:00Z',
+    updated_at: '2026-05-16T10:00:00Z'
+  };
+  return {
+    principal: { type: 'subject', id: 'oidc-subject-a' },
+    roles: [member.role],
+    scopes: ['me:read', 'me:write'],
+    scope: { tenant_id: workspace.tenant_id, workspace_id: workspace.workspace_id },
+    active_workspace: { workspace, member, is_active: true },
+    workspaces: [{ workspace, member, is_active: true }]
+  };
+}
+
+async function renderProductSettingsPage(options: {
+  me?: CurrentUserContext;
+  updateMe?: CurrentUserContext | Error;
+} = {}) {
+  vi.resetModules();
+  const me = options.me ?? loggedInWithWorkspace;
+  const primeMeCache = vi.fn();
+  vi.doMock('./hooks/useMe', () => ({
+    useMe: () => ({
+      me,
+      loading: false,
+      error: '',
+      unauthenticated: false,
+      refresh: vi.fn()
+    }),
+    primeMeCache,
+    clearMeCache: vi.fn()
+  }));
+
+  const api = await import('./api/client');
+  const whoAmI = settingsWhoAmI(me);
+  vi.spyOn(api.apiClient, 'getWhoAmI').mockResolvedValue(whoAmI);
+  vi.spyOn(api.apiClient, 'listWorkspaceMembers').mockResolvedValue({
+    items: whoAmI.active_workspace?.member ? [whoAmI.active_workspace.member] : []
+  });
+  vi.spyOn(api.apiClient, 'getAuthConfig').mockResolvedValue(settingsAuthConfig);
+  const updateMe = vi.spyOn(api.apiClient, 'updateMe');
+  if (options.updateMe instanceof Error) {
+    updateMe.mockRejectedValue(options.updateMe);
+  } else {
+    updateMe.mockResolvedValue({ me: options.updateMe ?? me });
+  }
+
+  const { ProductSettingsPage } = await import('./productShell');
+  render(
+    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/settings']}>
+      <Routes>
+        <Route path="/app/:tenantID/:workspaceID/settings" element={<ProductSettingsPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+  return { primeMeCache, updateMe };
 }
 
 async function renderProjectDetail(
@@ -348,6 +462,81 @@ describe('ProductAppIndexRedirect', () => {
     await renderProductIndexRedirect(false, undefined);
 
     expect(await screen.findByRole('heading', { level: 1, name: /No workspace is attached yet/i })).toBeInTheDocument();
+  });
+});
+
+describe('ProductSettingsPage profile', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useMe');
+    vi.resetModules();
+  });
+
+  it('updates profile fields optimistically from settings', async () => {
+    const updatedMe: CurrentUserContext = {
+      ...loggedInWithWorkspace,
+      user: {
+        ...loggedInWithWorkspace.user,
+        display_name: 'Updated Owner',
+        avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4',
+        updated_at: '2026-05-17T10:00:00Z'
+      }
+    };
+    const { primeMeCache, updateMe } = await renderProductSettingsPage({ updateMe: updatedMe });
+
+    expect(await screen.findByRole('heading', { name: 'Owner User' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '  Updated Owner  ' } });
+    fireEvent.change(screen.getByLabelText('Avatar URL'), {
+      target: { value: 'https://avatars.githubusercontent.com/u/42?v=4' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    await waitFor(() =>
+      expect(updateMe).toHaveBeenCalledWith({
+        display_name: 'Updated Owner',
+        avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4'
+      })
+    );
+    expect(primeMeCache).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        user: expect.objectContaining({
+          display_name: 'Updated Owner',
+          avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4'
+        })
+      })
+    );
+    await waitFor(() => expect(primeMeCache).toHaveBeenLastCalledWith(updatedMe));
+  });
+
+  it('rolls back the optimistic profile update when saving fails', async () => {
+    const { primeMeCache, updateMe } = await renderProductSettingsPage({
+      updateMe: new Error('avatar_url host is not allowed')
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Owner User' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Blocked Owner' } });
+    fireEvent.change(screen.getByLabelText('Avatar URL'), { target: { value: 'https://example.com/avatar.png' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    await waitFor(() => expect(updateMe).toHaveBeenCalled());
+    expect(await screen.findByRole('alert')).toHaveTextContent('avatar_url host is not allowed');
+    expect(primeMeCache).toHaveBeenLastCalledWith(loggedInWithWorkspace);
+  });
+
+  it('validates display name before submitting a profile update', async () => {
+    const { primeMeCache, updateMe } = await renderProductSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Owner User' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Display name must be 1-80 characters.');
+    expect(updateMe).not.toHaveBeenCalled();
+    expect(primeMeCache).not.toHaveBeenCalled();
   });
 });
 

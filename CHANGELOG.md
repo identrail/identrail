@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Added self-serve account profile editing in Settings. Authenticated users can
+  now `PATCH /v1/me` with `display_name` and/or `avatar_url`; the endpoint
+  rejects unknown fields, trims and validates display names, restricts avatars
+  to blank or allowed `https://` hosts, registers `me:write` authz coverage,
+  and returns the refreshed `CurrentUserContext`. The Settings page now shows an
+  Account profile card before workspace settings, with inline editing,
+  optimistic cache updates, and rollback on save failure.
 - Added self-serve account permanent deletion with a 30-day reversible grace
   window. `DELETE /v1/me` soft-deletes the authenticated user (status flips to
   `deleted`, `deleted_at` is stamped, every other session is revoked, and the
