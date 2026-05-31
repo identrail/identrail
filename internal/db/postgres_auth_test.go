@@ -519,6 +519,33 @@ func TestPostgresUpdateUserProfilePreservesStatus(t *testing.T) {
 	}
 }
 
+func TestPostgresUpdateCurrentUserProfileGuardsActiveStatus(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 16, 0, 0, 0, time.UTC)
+	userID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery("(?s)UPDATE users.*AND status = 'active'").
+		WithArgs(userID, "Active Profile", "https://avatars.githubusercontent.com/u/1", now.Add(time.Minute)).
+		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "active@example.com", "Active Profile", "https://avatars.githubusercontent.com/u/1", "active", now, now.Add(time.Minute), nil))
+	updated, err := store.UpdateCurrentUserProfile(ctx, userID, "Active Profile", "https://avatars.githubusercontent.com/u/1", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("update current user profile: %v", err)
+	}
+	if updated.PrimaryEmail != "active@example.com" || updated.Status != "active" || updated.DeletedAt != nil {
+		t.Fatalf("expected lifecycle fields returned from existing row, got %+v", updated)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func postgresAuthUserRows(time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "primary_email", "display_name", "avatar_url", "status", "created_at", "updated_at", "deleted_at"})
 }

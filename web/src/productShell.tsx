@@ -1243,13 +1243,8 @@ function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?
   if (!displayName || Array.from(displayName).length > 80) {
     return 'Display name must be 1-80 characters.';
   }
-  if (
-    Array.from(displayName).some((char) => {
-      const code = char.charCodeAt(0);
-      return code < 32 || code === 127;
-    })
-  ) {
-    return 'Display name cannot contain control characters.';
+  if (Array.from(displayName).some(isUnsafeProfileNameCharacter)) {
+    return 'Display name cannot contain control or bidirectional formatting characters.';
   }
   const avatarUrl = draft.avatarUrl.trim();
   if (options.validateAvatarUrl === false) {
@@ -1270,6 +1265,18 @@ function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?
     return 'Avatar URL must be a valid https URL.';
   }
   return '';
+}
+
+function isUnsafeProfileNameCharacter(char: string): boolean {
+  const code = char.codePointAt(0) ?? 0;
+  return (
+    code < 32 ||
+    code === 127 ||
+    code === 0x200e ||
+    code === 0x200f ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069)
+  );
 }
 
 function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse | null): boolean {

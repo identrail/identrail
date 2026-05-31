@@ -172,6 +172,7 @@ func TestCurrentSessionUpdateCurrentUserProfileRejectsInvalidPayloads(t *testing
 		{name: "other user id", body: `{"id":"00000000-0000-0000-0000-000000000000","display_name":"User Two"}`},
 		{name: "blank display name", body: `{"display_name":"   "}`},
 		{name: "control character display name", body: `{"display_name":"Bad\nName"}`},
+		{name: "bidirectional formatting display name", body: `{"display_name":"evil\u202eadmin"}`},
 		{name: "data uri avatar", body: `{"avatar_url":"data:image/png;base64,abc"}`},
 		{name: "http avatar", body: `{"avatar_url":"http://avatars.githubusercontent.com/u/1"}`},
 		{name: "disallowed avatar host", body: `{"avatar_url":"https://example.com/avatar.png"}`},

@@ -4888,11 +4888,11 @@ components:
           type: string
           minLength: 1
           maxLength: 80
-          description: Trimmed display name. Control characters are rejected.
+          description: Trimmed display name. Control and bidirectional formatting characters are rejected.
         avatar_url:
           type: string
-          pattern: "^$|^https://"
-          description: Blank to clear, otherwise an allowed https avatar URL.
+          pattern: '^$|^[Hh][Tt][Tt][Pp][Ss]://([A-Za-z0-9-]+\.)*(avatars\.githubusercontent\.com|githubusercontent\.com|googleusercontent\.com|gravatar\.com|identrail\.com|identrail\.io)(:[0-9]+)?(/.*)?$'
+          description: Blank to clear, otherwise an allowed https avatar URL hosted under githubusercontent.com, googleusercontent.com, gravatar.com, identrail.com, or identrail.io.
     CurrentUserContext:
       type: object
       properties:

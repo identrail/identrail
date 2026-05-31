@@ -964,8 +964,7 @@ func (s *Service) UpdateCurrentUserProfile(ctx context.Context, current sessiona
 	if s.Now != nil {
 		now = s.Now().UTC()
 	}
-	user.UpdatedAt = now
-	updated, err := s.Store.UpdateUserProfile(ctx, user)
+	updated, err := s.Store.UpdateCurrentUserProfile(ctx, user.ID, user.DisplayName, user.AvatarURL, now)
 	if err != nil {
 		return CurrentUserContext{}, err
 	}
@@ -982,11 +981,18 @@ func normalizeCurrentUserDisplayName(raw string) (string, error) {
 		return "", invalidCurrentUserProfileUpdate("display_name must be 1-80 characters")
 	}
 	for _, r := range displayName {
-		if unicode.IsControl(r) {
-			return "", invalidCurrentUserProfileUpdate("display_name cannot contain control characters")
+		if unicode.IsControl(r) || isBidirectionalFormattingRune(r) {
+			return "", invalidCurrentUserProfileUpdate("display_name cannot contain control or bidirectional formatting characters")
 		}
 	}
 	return displayName, nil
+}
+
+func isBidirectionalFormattingRune(r rune) bool {
+	return r == '\u200e' ||
+		r == '\u200f' ||
+		(r >= '\u202a' && r <= '\u202e') ||
+		(r >= '\u2066' && r <= '\u2069')
 }
 
 var currentUserAvatarAllowedHostSuffixes = []string{

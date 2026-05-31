@@ -354,6 +354,39 @@ func TestMemoryUpdateUserProfilePreservesStatus(t *testing.T) {
 	}
 }
 
+func TestMemoryUpdateCurrentUserProfileRequiresActiveUserAndPreservesDeletionState(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 13, 0, 0, 0, time.UTC)
+	user, err := store.UpsertUser(ctx, User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "race@example.com",
+		DisplayName:  "Race User",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	deleted, err := store.SoftDeleteUser(ctx, user.ID, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("soft delete user: %v", err)
+	}
+	if _, err := store.UpdateCurrentUserProfile(ctx, user.ID, "Profile Race", "https://avatars.githubusercontent.com/u/1", now.Add(2*time.Minute)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected inactive profile update to return ErrNotFound, got %v", err)
+	}
+	stored, err := store.GetUser(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if stored.Status != "deleted" || stored.DeletedAt == nil || deleted.DeletedAt == nil || !stored.DeletedAt.Equal(*deleted.DeletedAt) {
+		t.Fatalf("expected deleted lifecycle fields to survive profile update race, got %+v", stored)
+	}
+	if stored.DisplayName != "Race User" || stored.AvatarURL != "" {
+		t.Fatalf("inactive profile update changed mutable fields: %+v", stored)
+	}
+}
+
 func TestAuthNormalizationRejectsInvalidInputs(t *testing.T) {
 	now := time.Date(2026, 5, 12, 11, 0, 0, 0, time.UTC)
 	if _, err := NormalizeUserForWrite(User{ID: "not-a-uuid", PrimaryEmail: "user@example.com"}); err == nil {
