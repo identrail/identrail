@@ -2621,8 +2621,8 @@ function AWSConnectionDiagnostics({
           {check.remediation ? <small>{check.remediation}</small> : null}
         </article>
       ))}
-      {diagnostics.map((diagnostic) => (
-        <article key={diagnostic.code}>
+      {diagnostics.map((diagnostic, index) => (
+        <article key={`${diagnostic.code}-${index}`}>
           <strong>{formatTokenLabel(diagnostic.code)}</strong>
           <span className="idt-source-status-pill is-warning">Diagnostic</span>
           <p>{diagnostic.message}</p>
@@ -2644,33 +2644,50 @@ export function ProductAWSControlCenterPage() {
   const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState('');
+  const connectionRequestRef = useRef(0);
+  const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
+  selectedEnvironmentIDRef.current = selectedEnvironmentID;
 
   const refreshConnection = useCallback(async () => {
-    if (!scope || !selectedEnvironmentID) {
+    const requestID = ++connectionRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!scope || !requestEnvironmentID) {
       setConnection(null);
       setConnectionError('');
       setConnectionLoading(false);
       return;
     }
+    const isStale = () => requestID !== connectionRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
     setConnectionLoading(true);
     setConnectionError('');
     try {
       const response = await apiClient.getAWSProjectConnection(
         scope.workspaceID,
-        selectedEnvironmentID,
+        requestEnvironmentID,
         buildProductAuthContext(scope)
       );
+      if (isStale()) {
+        return;
+      }
       setConnection(response.connection);
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       setConnection(null);
       setConnectionError(formatAPIError(error, 'Unable to load AWS connection status.'));
     } finally {
-      setConnectionLoading(false);
+      if (!isStale()) {
+        setConnectionLoading(false);
+      }
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
   useEffect(() => {
     void refreshConnection();
+    return () => {
+      connectionRequestRef.current += 1;
+    };
   }, [refreshConnection]);
 
   if (!scope) {
@@ -2684,6 +2701,9 @@ export function ProductAWSControlCenterPage() {
   }
 
   const handleEnvironmentChange = (environmentID: string) => {
+    connectionRequestRef.current += 1;
+    setConnection(null);
+    setConnectionError('');
     navigate(
       {
         pathname: location.pathname,
@@ -3114,16 +3134,30 @@ export function ProductAWSConnectPage() {
   const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
   const [awsPermissionTiers, setAWSPermissionTiers] = useState<AWSCapabilityPermissionTier[]>([]);
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
+  const connectionRequestRef = useRef(0);
+  const awsStartRequestRef = useRef(0);
+  const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
+  const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
+  const scopeKeyRef = useRef(scopeKey);
+  selectedEnvironmentIDRef.current = selectedEnvironmentID;
+  scopeKeyRef.current = scopeKey;
 
   const refreshConnection = useCallback(
     async (mode: 'initial' | 'manual' = 'initial') => {
-      if (!scope || !selectedEnvironmentID) {
+      const requestID = ++connectionRequestRef.current;
+      const requestEnvironmentID = selectedEnvironmentID;
+      const requestScopeKey = scopeKeyRef.current;
+      if (!scope || !requestEnvironmentID) {
         setConnection(null);
         setErrorMessage('');
         setLoadingConnection(false);
         setRefreshingConnection(false);
         return;
       }
+      const isStale = () =>
+        requestID !== connectionRequestRef.current ||
+        selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+        scopeKeyRef.current !== requestScopeKey;
       if (mode === 'manual') {
         setRefreshingConnection(true);
       } else {
@@ -3133,36 +3167,57 @@ export function ProductAWSConnectPage() {
       try {
         const response = await apiClient.getAWSProjectConnection(
           scope.workspaceID,
-          selectedEnvironmentID,
+          requestEnvironmentID,
           buildProductAuthContext(scope)
         );
+        if (isStale()) {
+          return;
+        }
         setConnection(response.connection);
         setAWSForm((current) => ({
           ...current,
-          roleARN: response.connection.role_arn ?? current.roleARN,
-          region: response.connection.region ?? current.region,
-          displayName: response.connection.display_name ?? current.displayName
+          roleARN: response.connection.role_arn ?? '',
+          region: response.connection.region ?? 'us-east-1',
+          displayName: response.connection.display_name ?? ''
         }));
       } catch (error) {
+        if (isStale()) {
+          return;
+        }
         setConnection(null);
         setErrorMessage(formatAPIError(error, 'Unable to load AWS connection.'));
       } finally {
-        setLoadingConnection(false);
-        setRefreshingConnection(false);
+        if (!isStale()) {
+          setLoadingConnection(false);
+          setRefreshingConnection(false);
+        }
       }
     },
     [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]
   );
 
   useEffect(() => {
+    connectionRequestRef.current += 1;
+    awsStartRequestRef.current += 1;
     setSuccessMessage('');
     setErrorMessage('');
+    setSubmitting(false);
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
     setAWSPermissionTiers([]);
     setAWSPreviewOpen(false);
-    setAWSForm((current) => ({ ...current, externalID: '' }));
+    setAWSForm((current) => ({
+      ...current,
+      roleARN: '',
+      externalID: '',
+      region: 'us-east-1',
+      displayName: ''
+    }));
     void refreshConnection('initial');
+    return () => {
+      connectionRequestRef.current += 1;
+      awsStartRequestRef.current += 1;
+    };
   }, [refreshConnection]);
 
   if (!scope) {
@@ -3176,6 +3231,9 @@ export function ProductAWSConnectPage() {
   }
 
   const handleEnvironmentChange = (environmentID: string) => {
+    connectionRequestRef.current += 1;
+    awsStartRequestRef.current += 1;
+    setConnection(null);
     navigate(
       {
         pathname: location.pathname,
@@ -3199,11 +3257,18 @@ export function ProductAWSConnectPage() {
     setSubmitting(true);
     setSuccessMessage('');
     setErrorMessage('');
+    const requestID = ++awsStartRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    const isStale = () =>
+      requestID !== awsStartRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
     try {
       const response = await apiClient.startAWSConnector(
         {
           workspace_id: scope.workspaceID,
-          project_id: selectedEnvironmentID,
+          project_id: requestEnvironmentID,
           display_name: normalizeValue(awsForm.displayName) || undefined,
           region: normalizeValue(awsForm.region) || 'us-east-1',
           role_name: normalizeValue(awsForm.roleName) || undefined,
@@ -3211,6 +3276,9 @@ export function ProductAWSConnectPage() {
         },
         buildProductAuthContext(scope)
       );
+      if (isStale()) {
+        return;
+      }
       setAWSCloudFormationStart(response);
       setAWSPermissionPreview(response.permission_preview);
       setAWSPermissionTiers(response.permission_tiers ?? []);
@@ -3221,9 +3289,14 @@ export function ProductAWSConnectPage() {
         window.open(response.launch_url, '_blank', 'noopener,noreferrer');
       }
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       setErrorMessage(formatAPIError(error, 'Unable to start AWS connector setup.'));
     } finally {
-      setSubmitting(false);
+      if (!isStale()) {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -3363,7 +3436,7 @@ export function ProductAWSConnectPage() {
           eyebrow="Environment required"
           title="Create an environment before connecting AWS"
           body="The AWS connector still writes through workspace and project-scoped APIs. Pick or create an environment, then return to this page."
-          nextAction={{ label: 'Open environments', to: buildProjectsPath(scope) }}
+          nextAction={{ label: 'Open environments', to: appendSourceQuery(buildProjectsPath(scope), 'aws') }}
         />
       ) : null}
 
