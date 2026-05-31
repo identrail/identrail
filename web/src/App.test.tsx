@@ -3115,6 +3115,102 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
   });
 
+  it('retries the same WorkOS MFA code after a silent challenge failure recovers', async () => {
+    type MockedErrorResponse = ReturnType<typeof errorJSON>;
+    let resolveChallenge: (value: MockedErrorResponse) => void = () => {};
+    const failedChallenge = new Promise<MockedErrorResponse>((resolve) => {
+      resolveChallenge = resolve;
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          mode: 'challenge',
+          user_email: 'owner@example.com',
+          challenge_started: false,
+          factors: [{ id: 'auth_factor_1', type: 'totp' }]
+        })
+      )
+      .mockReturnValueOnce(failedChallenge)
+      .mockResolvedValueOnce(okJSON({ challenge_started: true, factor_id: 'auth_factor_1' }))
+      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
+      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/auth/mfa?return_to=%2Fapp');
+    render(<App />);
+
+    const input = await screen.findByLabelText(/Authentication code/i);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8080/auth/mfa/challenge',
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+    fireEvent.change(input, { target: { value: '123456' } });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.anything()
+    );
+
+    resolveChallenge(errorJSON(503, 'challenge temporarily unavailable'));
+
+    expect(await screen.findByText(/challenge temporarily unavailable/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.anything()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Use authenticator app/i }));
+
+    await waitFor(() => {
+      const challengeCalls = fetchMock.mock.calls.filter(([input]) => input === 'http://localhost:8080/auth/mfa/challenge');
+      expect(challengeCalls).toHaveLength(2);
+    });
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/auth/mfa/verify',
+      expect.objectContaining({ body: JSON.stringify({ code: '123456' }), credentials: 'include', method: 'POST' })
+    );
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+  });
+
+  it('shows an explicit retry action for the same WorkOS MFA code after verification fails', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJSON({
+          mode: 'challenge',
+          user_email: 'owner@example.com',
+          challenge_started: true,
+          factors: [{ id: 'auth_factor_1', type: 'totp' }]
+        })
+      )
+      .mockResolvedValueOnce(errorJSON(401, 'invalid verification code'))
+      .mockResolvedValueOnce(okJSON({ ok: true, redirect_to: '/app/tenant-a/workspace-a' }))
+      .mockResolvedValueOnce(okJSON(currentMePayload('tenant-a', 'workspace-a')));
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/auth/mfa?return_to=%2Fapp');
+    render(<App />);
+
+    const input = await screen.findByLabelText(/Authentication code/i);
+    fireEvent.change(input, { target: { value: '123456' } });
+
+    expect(await screen.findByText(/invalid verification code/i)).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchMock.mock.calls.filter(([input]) => input === 'http://localhost:8080/auth/mfa/verify')).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /Try again/i }));
+
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => input === 'http://localhost:8080/auth/mfa/verify')).toHaveLength(2);
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
+  });
+
   it('lists account security sessions and revokes other browsers', async () => {
     const fetchMock = vi
       .fn()

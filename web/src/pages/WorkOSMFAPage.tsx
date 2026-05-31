@@ -132,6 +132,7 @@ export function WorkOSMFAPage() {
       setPending((current) => (current ? { ...current, challenge_started: true } : current));
       deferred?.resolve(true);
     } catch (challengeError) {
+      lastAutoSubmittedCodeRef.current = '';
       setError(mfaErrorMessage(challengeError));
       deferred?.resolve(false);
     } finally {
@@ -161,6 +162,7 @@ export function WorkOSMFAPage() {
     if (verificationCode.length < 6) {
       return;
     }
+    lastAutoSubmittedCodeRef.current = verificationCode;
     setBusy(true);
     setError('');
     try {
@@ -176,12 +178,14 @@ export function WorkOSMFAPage() {
         const challengeOk = await inFlightChallenge.promise;
         if (!challengeOk) {
           // startChallenge already surfaced the error to state; abort verify.
+          lastAutoSubmittedCodeRef.current = '';
           return;
         }
       }
       const response = await apiClient.verifyWorkOSMFA(verificationCode);
       redirectToCompletedSession(response.redirect_to || returnTo, navigate);
     } catch (verifyError) {
+      lastAutoSubmittedCodeRef.current = '';
       setError(mfaErrorMessage(verifyError));
     } finally {
       setBusy(false);
@@ -222,12 +226,32 @@ export function WorkOSMFAPage() {
     if (loading || !pending || busy || (!canEnterCode && !autoChallengeStarting)) {
       return;
     }
+    if (error) {
+      return;
+    }
     if (lastAutoSubmittedCodeRef.current === verificationCode) {
       return;
     }
     lastAutoSubmittedCodeRef.current = verificationCode;
     void verifyCode(verificationCode);
-  }, [autoChallengeStarting, busy, canEnterCode, code, loading, pending, verifyCode]);
+  }, [autoChallengeStarting, busy, canEnterCode, code, error, loading, pending, verifyCode]);
+
+  const retryVerification = () => {
+    lastAutoSubmittedCodeRef.current = '';
+    void verifyCode(code);
+  };
+
+  const updateCode = (nextCode: string) => {
+    setCode(nextCode);
+    if (error && canEnterCode) {
+      setError('');
+    }
+    if (nextCode.trim().length < 6) {
+      lastAutoSubmittedCodeRef.current = '';
+    }
+  };
+
+  const canRetryVerification = Boolean(error && canEnterCode && code.trim().length === 6 && !busy);
 
   return (
     <section className="idt-auth-page idt-auth-page-login">
@@ -292,7 +316,7 @@ export function WorkOSMFAPage() {
               disabled={busy}
               inputMode="numeric"
               maxLength={6}
-              onChange={setCode}
+              onChange={updateCode}
               pattern={REGEXP_ONLY_DIGITS}
               pushPasswordManagerStrategy="none"
               value={code}
@@ -321,6 +345,12 @@ export function WorkOSMFAPage() {
               {busy ? 'Verifying code.' : ''}
             </p>
           </form>
+        ) : null}
+
+        {canRetryVerification ? (
+          <button className="idt-btn idt-btn-secondary idt-auth-mfa-full" type="button" onClick={retryVerification}>
+            Try again
+          </button>
         ) : null}
 
       </article>
