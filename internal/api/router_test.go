@@ -3832,14 +3832,31 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 		t.Fatalf("expected member delete 204, got %d body=%s", deleteMemberResp.Code, deleteMemberResp.Body.String())
 	}
 
+	// DELETE /v1/workspaces/:id is now a soft delete with a 30-day grace
+	// window (see migration 000035 and #1420). It returns the saved
+	// workspace + `hard_delete_after`, and a subsequent GET still resolves
+	// the row (status="deleted") so the cancel-deletion flow can revive it.
 	deleteWorkspaceResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a", "")
-	if deleteWorkspaceResp.Code != http.StatusNoContent {
-		t.Fatalf("expected workspace delete 204, got %d body=%s", deleteWorkspaceResp.Code, deleteWorkspaceResp.Body.String())
+	if deleteWorkspaceResp.Code != http.StatusOK {
+		t.Fatalf("expected workspace delete 200, got %d body=%s", deleteWorkspaceResp.Code, deleteWorkspaceResp.Body.String())
+	}
+	var deletedBody struct {
+		Status          string `json:"status"`
+		HardDeleteAfter string `json:"hard_delete_after"`
+	}
+	if err := json.Unmarshal(deleteWorkspaceResp.Body.Bytes(), &deletedBody); err != nil {
+		t.Fatalf("unmarshal delete response: %v", err)
+	}
+	if deletedBody.Status != "deleted" {
+		t.Fatalf("expected workspace status=deleted after soft delete, got %q", deletedBody.Status)
+	}
+	if deletedBody.HardDeleteAfter == "" {
+		t.Fatalf("expected hard_delete_after in delete response body=%s", deleteWorkspaceResp.Body.String())
 	}
 
-	notFoundResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a", "")
-	if notFoundResp.Code != http.StatusNotFound {
-		t.Fatalf("expected workspace get 404 after delete, got %d", notFoundResp.Code)
+	postDeleteGet := doRequest(http.MethodGet, "/v1/workspaces/workspace-a", "")
+	if postDeleteGet.Code != http.StatusOK {
+		t.Fatalf("expected workspace still readable after soft delete, got %d body=%s", postDeleteGet.Code, postDeleteGet.Body.String())
 	}
 }
 

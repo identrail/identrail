@@ -29,6 +29,15 @@ const (
 	MemberStatusRemoved   MemberStatus = "removed"
 )
 
+// WorkspaceStatus tracks workspace lifecycle state.
+type WorkspaceStatus string
+
+const (
+	WorkspaceStatusActive    WorkspaceStatus = "active"
+	WorkspaceStatusSuspended WorkspaceStatus = "suspended"
+	WorkspaceStatusDeleted   WorkspaceStatus = "deleted"
+)
+
 // ConnectorType identifies one onboarded source connector.
 type ConnectorType string
 
@@ -98,12 +107,15 @@ type Organization struct {
 
 // Workspace models one collaboration boundary within an organization.
 type Workspace struct {
-	ID             string    `json:"id"`
-	OrganizationID string    `json:"organization_id"`
-	Name           string    `json:"name"`
-	Slug           string    `json:"slug"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string          `json:"id"`
+	OrganizationID string          `json:"organization_id"`
+	Name           string          `json:"name"`
+	Slug           string          `json:"slug"`
+	Status         WorkspaceStatus `json:"status,omitempty"`
+	SuspendedAt    *time.Time      `json:"suspended_at,omitempty"`
+	DeletedAt      *time.Time      `json:"deleted_at,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 // WorkspaceMember models one user assignment in a workspace.
@@ -215,7 +227,18 @@ func (w Workspace) Validate() error {
 	if err := validateAppModeIdentifier("workspace.slug", w.Slug); err != nil {
 		return err
 	}
+	if w.Status != "" && !validWorkspaceStatus(w.Status) {
+		return fmt.Errorf("workspace.status is invalid")
+	}
 	return nil
+}
+
+func validWorkspaceStatus(status WorkspaceStatus) bool {
+	switch status {
+	case WorkspaceStatusActive, WorkspaceStatusSuspended, WorkspaceStatusDeleted:
+		return true
+	}
+	return false
 }
 
 func (m WorkspaceMember) Validate() error {

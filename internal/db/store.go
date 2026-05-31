@@ -195,6 +195,19 @@ var validUserDataExportStatuses = map[string]struct{}{
 	UserDataExportStatusExpired: {},
 }
 
+// WorkspaceDeletionGracePeriod mirrors UserDeletionGracePeriod for workspace
+// lifecycle. The window between a workspace soft-delete and the worker hard
+// purge. See migration 000035_workspace_lifecycle.
+const WorkspaceDeletionGracePeriod = 30 * 24 * time.Hour
+
+// Workspace lifecycle statuses persisted on tenancy_workspaces.status.
+const (
+	WorkspaceStatusActive    = "active"
+	WorkspaceStatusSuspended = "suspended"
+	WorkspaceStatusDeleted   = "deleted"
+)
+
+
 // hardDeletedEmailPrefix and hardDeletedEmailSuffix bracket the synthetic
 // primary_email a user row carries after PII purge. They keep the NOT NULL /
 // UNIQUE / length constraints on the column satisfied while guaranteeing the
@@ -609,12 +622,15 @@ type TenancyOrganization struct {
 
 // TenancyWorkspace stores one workspace metadata record.
 type TenancyWorkspace struct {
-	TenantID    string    `json:"tenant_id"`
-	WorkspaceID string    `json:"workspace_id"`
-	DisplayName string    `json:"display_name"`
-	Slug        string    `json:"slug"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	TenantID    string     `json:"tenant_id"`
+	WorkspaceID string     `json:"workspace_id"`
+	DisplayName string     `json:"display_name"`
+	Slug        string     `json:"slug"`
+	Status      string     `json:"status,omitempty"`
+	SuspendedAt *time.Time `json:"suspended_at,omitempty"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // TenancyWorkspaceMember stores one workspace member assignment.
@@ -1326,6 +1342,23 @@ func NormalizeTenancyWorkspaceForWrite(workspace TenancyWorkspace) (TenancyWorks
 	}
 	if err := validateTenancySlug(normalized.Slug, "slug"); err != nil {
 		return TenancyWorkspace{}, err
+	}
+	normalized.Status = strings.TrimSpace(workspace.Status)
+	if normalized.Status == "" {
+		normalized.Status = WorkspaceStatusActive
+	}
+	switch normalized.Status {
+	case WorkspaceStatusActive, WorkspaceStatusSuspended, WorkspaceStatusDeleted:
+	default:
+		return TenancyWorkspace{}, fmt.Errorf("workspace status %q is invalid", normalized.Status)
+	}
+	if normalized.SuspendedAt != nil {
+		t := normalized.SuspendedAt.UTC()
+		normalized.SuspendedAt = &t
+	}
+	if normalized.DeletedAt != nil {
+		t := normalized.DeletedAt.UTC()
+		normalized.DeletedAt = &t
 	}
 	if normalized.CreatedAt.IsZero() {
 		normalized.CreatedAt = time.Now().UTC()
@@ -2645,6 +2678,27 @@ type Store interface {
 	GetWorkspace(ctx context.Context, workspaceID string) (TenancyWorkspace, error)
 	ListWorkspaces(ctx context.Context, limit int) ([]TenancyWorkspace, error)
 	DeleteWorkspace(ctx context.Context, workspaceID string) error
+	// SuspendWorkspace flips the workspace to status=suspended and stamps
+	// suspended_at. Idempotent: a repeat call preserves the original
+	// suspended_at so an over-eager UI cannot drift the timestamp.
+	SuspendWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error)
+	// ReactivateWorkspace flips a suspended workspace back to active and
+	// clears suspended_at. A no-op on an already-active workspace.
+	ReactivateWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error)
+	// SoftDeleteWorkspace flips the workspace to status=deleted and stamps
+	// deleted_at to start the reversible grace window. Idempotent: a repeat
+	// call preserves the original deleted_at so the purge deadline cannot
+	// be pushed back.
+	SoftDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error)
+	// CancelWorkspaceDeletion reverses a soft delete during the grace
+	// window: clears deleted_at and returns the workspace to status=active.
+	CancelWorkspaceDeletion(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error)
+	// ListWorkspaceStrandedActiveMembers returns the OTHER active members
+	// in the workspace iff the caller is the sole active owner. An empty
+	// slice means no stranding would occur — either there are co-owners,
+	// or the caller is the only member. Used to gate suspend/delete with
+	// the structured `sole_owner_requires_transfer` 409 from #1420.
+	ListWorkspaceStrandedActiveMembers(ctx context.Context, workspaceID string, userUUID string) ([]TenancyWorkspaceMember, error)
 	UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error
 	GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (TenancyWorkspaceMember, error)
 	GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error)

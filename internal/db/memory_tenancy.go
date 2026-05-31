@@ -143,7 +143,17 @@ func (m *MemoryStore) UpsertWorkspace(ctx context.Context, workspace TenancyWork
 		m.mu.Unlock()
 		return ErrNotFound
 	}
-	m.workspaces[tenancyWorkspaceKey(normalized.TenantID, normalized.WorkspaceID)] = normalized
+	// Preserve lifecycle fields on upsert so a casual rename of an existing
+	// workspace cannot revive a deleted or suspended row. Lifecycle writes
+	// go through the dedicated Suspend/Reactivate/SoftDelete/Cancel methods.
+	key := tenancyWorkspaceKey(normalized.TenantID, normalized.WorkspaceID)
+	if existing, exists := m.workspaces[key]; exists {
+		normalized.Status = existing.Status
+		normalized.SuspendedAt = existing.SuspendedAt
+		normalized.DeletedAt = existing.DeletedAt
+		normalized.CreatedAt = existing.CreatedAt
+	}
+	m.workspaces[key] = normalized
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -202,6 +212,224 @@ func (m *MemoryStore) ListWorkspaces(ctx context.Context, limit int) ([]TenancyW
 		workspaces = workspaces[:limit]
 	}
 	return workspaces, nil
+}
+
+// SuspendWorkspace flips the workspace status to suspended and stamps
+// suspended_at. Idempotent on an already-suspended workspace: the stored
+// suspended_at is preserved.
+func (m *MemoryStore) SuspendWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	key := tenancyWorkspaceKey(scope.TenantID, resolvedWorkspaceID)
+	workspace, exists := m.workspaces[key]
+	if !exists {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, ErrNotFound
+	}
+	whenUTC := now.UTC()
+	workspace.Status = WorkspaceStatusSuspended
+	if workspace.SuspendedAt == nil {
+		t := whenUTC
+		workspace.SuspendedAt = &t
+	}
+	workspace.UpdatedAt = whenUTC
+	m.workspaces[key] = workspace
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.suspend",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// ReactivateWorkspace flips a suspended workspace back to active and clears
+// suspended_at. A no-op (idempotent) on an already-active workspace.
+func (m *MemoryStore) ReactivateWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	key := tenancyWorkspaceKey(scope.TenantID, resolvedWorkspaceID)
+	workspace, exists := m.workspaces[key]
+	if !exists {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, ErrNotFound
+	}
+	whenUTC := now.UTC()
+	workspace.Status = WorkspaceStatusActive
+	workspace.SuspendedAt = nil
+	workspace.UpdatedAt = whenUTC
+	m.workspaces[key] = workspace
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.reactivate",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// SoftDeleteWorkspace flips the workspace to status=deleted and stamps
+// deleted_at to open the reversible grace window. Idempotent: an existing
+// deleted_at is preserved so repeat calls cannot extend the grace deadline.
+func (m *MemoryStore) SoftDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	key := tenancyWorkspaceKey(scope.TenantID, resolvedWorkspaceID)
+	workspace, exists := m.workspaces[key]
+	if !exists {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, ErrNotFound
+	}
+	whenUTC := now.UTC()
+	workspace.Status = WorkspaceStatusDeleted
+	if workspace.DeletedAt == nil {
+		t := whenUTC
+		workspace.DeletedAt = &t
+	}
+	workspace.UpdatedAt = whenUTC
+	m.workspaces[key] = workspace
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// CancelWorkspaceDeletion reverses a soft delete during the grace window:
+// clears deleted_at and returns the workspace to status=active.
+func (m *MemoryStore) CancelWorkspaceDeletion(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, err
+	}
+	key := tenancyWorkspaceKey(scope.TenantID, resolvedWorkspaceID)
+	workspace, exists := m.workspaces[key]
+	if !exists {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, ErrNotFound
+	}
+	whenUTC := now.UTC()
+	workspace.Status = WorkspaceStatusActive
+	workspace.DeletedAt = nil
+	workspace.UpdatedAt = whenUTC
+	m.workspaces[key] = workspace
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.delete.cancel",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// ListWorkspaceStrandedActiveMembers returns the other active members in the
+// workspace iff the caller is the sole active owner. Empty slice means no
+// stranding would occur — either the caller has co-owners, or there are no
+// other active members to strand.
+func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, workspaceID string, userUUID string) ([]TenancyWorkspaceMember, error) {
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	if normalizedUserUUID == "" {
+		return []TenancyWorkspaceMember{}, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if _, exists := m.workspaces[tenancyWorkspaceKey(scope.TenantID, resolvedWorkspaceID)]; !exists {
+		return nil, ErrNotFound
+	}
+	callerIsOwner := false
+	otherLiveOwners := 0
+	otherActive := make([]TenancyWorkspaceMember, 0)
+	for _, member := range m.members {
+		if member.TenantID != scope.TenantID || member.WorkspaceID != resolvedWorkspaceID {
+			continue
+		}
+		if member.Status != "active" {
+			continue
+		}
+		if member.UserUUID == normalizedUserUUID {
+			if member.Role == "owner" {
+				callerIsOwner = true
+			}
+			continue
+		}
+		if member.Role == "owner" {
+			if owner, ok := m.users[member.UserUUID]; ok && owner.Status == "deleted" {
+				continue
+			}
+			otherLiveOwners++
+		}
+		otherActive = append(otherActive, member)
+	}
+	if !callerIsOwner || otherLiveOwners > 0 || len(otherActive) == 0 {
+		return []TenancyWorkspaceMember{}, nil
+	}
+	sort.Slice(otherActive, func(i, j int) bool { return otherActive[i].MemberID < otherActive[j].MemberID })
+	return otherActive, nil
 }
 
 // DeleteWorkspace removes one scoped workspace and all child records.

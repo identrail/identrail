@@ -305,7 +305,22 @@ x-identrail-route-authorizations:
     resource_id_param: workspace_id
   - method: DELETE
     path: /v1/workspaces/{workspace_id}
-    action: tenancy.write
+    action: tenancy.owner
+    resource_type: workspace
+    resource_id_param: workspace_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/suspend
+    action: tenancy.owner
+    resource_type: workspace
+    resource_id_param: workspace_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/reactivate
+    action: tenancy.owner
+    resource_type: workspace
+    resource_id_param: workspace_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/cancel-deletion
+    action: tenancy.owner
     resource_type: workspace
     resource_id_param: workspace_id
   - method: GET
@@ -571,6 +586,10 @@ x-identrail-action-role-grants:
     - analyst
     - viewer
   tenancy.write:
+    - write
+    - admin
+    - owner
+  tenancy.owner:
     - write
     - admin
     - owner
@@ -2287,7 +2306,12 @@ paths:
           $ref: "#/components/responses/NotFound"
     delete:
       tags: [Tenancy]
-      summary: Delete workspace
+      summary: Soft-delete workspace
+      description: |
+        Owner-only. Flips the workspace into the `deleted` state with a
+        30-day reversible grace window and returns the scheduled hard-delete
+        deadline. Refuses with `409 sole_owner_requires_transfer` when the
+        caller is the only active owner and other active members remain.
       operationId: deleteWorkspace
       parameters:
         - in: path
@@ -2295,12 +2319,126 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        "204":
-          description: Workspace deleted
+        "200":
+          description: Workspace marked for deletion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDeletionResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Sole-owner guard refused the destructive action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceSoleOwnerConflict"
+  /v1/workspaces/{workspace_id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Tenancy]
+      summary: Suspend workspace
+      description: |
+        Owner-only. Flips the workspace into `suspended`; scheduled scans
+        and connector lifecycle transitions pause. Same sole-owner guard
+        semantics as delete.
+      operationId: suspendWorkspace
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Workspace suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceLifecycleResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Sole-owner guard refused the destructive action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceSoleOwnerConflict"
+  /v1/workspaces/{workspace_id}/reactivate:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Tenancy]
+      summary: Reactivate workspace
+      description: Owner-only. Reverses a suspend; clears `suspended_at`.
+      operationId: reactivateWorkspace
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Workspace reactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceLifecycleResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{workspace_id}/cancel-deletion:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Tenancy]
+      summary: Cancel workspace deletion
+      description: |
+        Owner-only. Reverses a soft delete within the 30-day grace window.
+        Returns `410 grace_period_expired` once the worker is authoritative
+        for the purge.
+      operationId: cancelWorkspaceDeletion
+      parameters:
+        - in: path
+          name: workspace_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Workspace deletion cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceLifecycleResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          description: Grace period has expired; worker is authoritative
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [grace_period_expired] }
   /v1/workspaces/{workspace_id}/members:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -5137,12 +5275,74 @@ components:
         workspace_id: { type: string }
         display_name: { type: string }
         slug: { type: string }
+        status:
+          type: string
+          enum: [active, suspended, deleted]
+        suspended_at:
+          type: string
+          format: date-time
+          nullable: true
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+    WorkspaceLifecycleResponse:
+      type: object
+      properties:
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        status:
+          type: string
+          enum: [active, suspended, deleted]
+        suspended_at:
+          type: string
+          format: date-time
+          nullable: true
+    WorkspaceDeletionResponse:
+      type: object
+      properties:
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        status:
+          type: string
+          enum: [deleted]
+        deleted_at:
+          type: string
+          format: date-time
+        hard_delete_after:
+          type: string
+          format: date-time
+        grace_period_hours:
+          type: integer
+    WorkspaceSoleOwnerConflict:
+      type: object
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [sole_owner_requires_transfer]
+        workspace:
+          type: object
+          properties:
+            tenant_id: { type: string }
+            workspace_id: { type: string }
+            display_name: { type: string }
+            slug: { type: string }
+        affected_members:
+          type: array
+          items:
+            type: object
+            properties:
+              member_id: { type: string }
+              user_id: { type: string }
+              email: { type: string }
+              role: { type: string }
     WorkspaceUpsertRequest:
       type: object
       required: [workspace_id, display_name, slug]

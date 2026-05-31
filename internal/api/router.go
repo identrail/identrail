@@ -1518,9 +1518,19 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			tenancyServiceUnavailable(c)
 			return
 		}
-		if err := svc.DeleteWorkspace(c.Request.Context(), c.Param("workspace_id")); err != nil {
+		callerUUID := callerSessionUserUUID(c)
+		stranding, saved, err := svc.SoftDeleteWorkspace(c.Request.Context(), c.Param("workspace_id"), callerUUID)
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceSoleOwnerRequiresTransfer) {
+				c.JSON(http.StatusConflict, workspaceSoleOwnerConflict(stranding))
+				return
+			}
 			if errors.Is(err, db.ErrNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace id"})
 				return
 			}
 			if logger != nil {
@@ -1529,7 +1539,107 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete workspace"})
 			return
 		}
-		c.Status(http.StatusNoContent)
+		c.JSON(http.StatusOK, gin.H{
+			"workspace":          saved,
+			"status":             saved.Status,
+			"deleted_at":         saved.DeletedAt,
+			"hard_delete_after":  WorkspaceDeletionGraceDeadline(saved),
+			"grace_period_hours": int(db.WorkspaceDeletionGracePeriod / time.Hour),
+		})
+	})
+
+	v1.POST("/workspaces/:workspace_id/suspend", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		callerUUID := callerSessionUserUUID(c)
+		stranding, saved, err := svc.SuspendWorkspace(c.Request.Context(), c.Param("workspace_id"), callerUUID)
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceSoleOwnerRequiresTransfer) {
+				c.JSON(http.StatusConflict, workspaceSoleOwnerConflict(stranding))
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace id"})
+				return
+			}
+			if logger != nil {
+				logger.Error("suspend workspace", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to suspend workspace"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"workspace":    saved,
+			"status":       saved.Status,
+			"suspended_at": saved.SuspendedAt,
+		})
+	})
+
+	v1.POST("/workspaces/:workspace_id/reactivate", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		saved, err := svc.ReactivateWorkspace(c.Request.Context(), c.Param("workspace_id"))
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace id"})
+				return
+			}
+			if logger != nil {
+				logger.Error("reactivate workspace", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reactivate workspace"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"workspace": saved,
+			"status":    saved.Status,
+		})
+	})
+
+	v1.POST("/workspaces/:workspace_id/cancel-deletion", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		saved, err := svc.CancelWorkspaceDeletion(c.Request.Context(), c.Param("workspace_id"))
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceDeletionGraceExpired) {
+				c.JSON(http.StatusGone, gin.H{
+					"error": "workspace deletion grace period has expired",
+					"code":  "grace_period_expired",
+				})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+				return
+			}
+			if errors.Is(err, ErrInvalidTenancyRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace id"})
+				return
+			}
+			if logger != nil {
+				logger.Error("cancel workspace deletion", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel workspace deletion"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"workspace": saved,
+			"status":    saved.Status,
+		})
 	})
 
 	v1.GET("/workspaces/:workspace_id/members", func(c *gin.Context) {
@@ -2395,6 +2505,47 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 
 func tenancyServiceUnavailable(c *gin.Context) {
 	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "service unavailable"})
+}
+
+// callerSessionUserUUID returns the user UUID of the session-authenticated
+// caller, or empty string when the request authenticated with an API key
+// (or no caller could be resolved). Workspace lifecycle handlers use the
+// empty value as a signal to bypass the sole-owner guard for platform-admin
+// API-key callers, who legitimately have no workspace membership.
+func callerSessionUserUUID(c *gin.Context) string {
+	current, ok := sessionauth.CurrentFromGin(c)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(current.Session.UserID)
+}
+
+// workspaceSoleOwnerConflict renders the structured 409 body returned by the
+// suspend and delete handlers when the caller is the sole active owner of a
+// workspace that still has other active members. The body lists the workspace
+// and the affected members so the UI can deep-link to the member-management
+// screen for ownership transfer.
+func workspaceSoleOwnerConflict(stranding WorkspaceSoleOwnerStranding) gin.H {
+	members := make([]gin.H, 0, len(stranding.StrandedMembers))
+	for _, m := range stranding.StrandedMembers {
+		members = append(members, gin.H{
+			"member_id": m.MemberID,
+			"user_id":   m.UserID,
+			"email":     m.Email,
+			"role":      m.Role,
+		})
+	}
+	return gin.H{
+		"error": "workspace has additional active members but only one owner; transfer ownership before suspending or deleting",
+		"code":  "sole_owner_requires_transfer",
+		"workspace": gin.H{
+			"tenant_id":    stranding.Workspace.TenantID,
+			"workspace_id": stranding.Workspace.WorkspaceID,
+			"display_name": stranding.Workspace.DisplayName,
+			"slug":         stranding.Workspace.Slug,
+		},
+		"affected_members": members,
+	}
 }
 
 func repoScanEnqueueErrorResponse(err error) (int, gin.H) {

@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- Added workspace lifecycle backend for owner-driven suspend, soft-delete with
+  30-day grace, and cancel-deletion. New endpoints
+  `POST /v1/workspaces/:workspace_id/suspend`,
+  `POST /v1/workspaces/:workspace_id/reactivate`,
+  `POST /v1/workspaces/:workspace_id/cancel-deletion`, and the existing
+  `DELETE /v1/workspaces/:workspace_id` now route through a new
+  `policyActionTenancyOwner` authz action and gate destructive transitions
+  behind a sole-owner guard that returns `409 sole_owner_requires_transfer`
+  with the affected-member list when the only active owner would strand other
+  active members. **Behavior change:** `DELETE /v1/workspaces/:workspace_id`
+  is now a soft delete that returns `200` with the saved workspace +
+  `hard_delete_after` (was a hard delete returning `204`). Migration `000035`
+  adds `tenancy_workspaces.status`, `suspended_at`, and `deleted_at`. The
+  authenticated lifecycle middleware (`requireCentralPolicyMiddleware`) and
+  the public Kubernetes agent routes (`POST /v1/connectors/k8s/enroll` and
+  `POST /v1/connectors/k8s/heartbeat`) now both refuse traffic for
+  suspended or soft-deleted workspaces with `409 workspace_inactive`, so a
+  workspace pause genuinely stops every connector state-change pathway —
+  including agents already deployed in remote clusters. The matching
+  hard-delete worker and frontend Danger Zone card ship in follow-up PRs
+  for #1420.
 - Added self-serve "Download my data" exports. `POST /v1/me/export`
   enqueues an authenticated user export, `GET /v1/me/export/:job_id`
   polls job state and returns a 24-hour signed download URL once ready, and

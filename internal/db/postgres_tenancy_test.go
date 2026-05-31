@@ -749,9 +749,9 @@ func TestPostgresStoreListAndDeleteWorkspaceScoped(t *testing.T) {
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	now := time.Now().UTC()
 
-	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "created_at", "updated_at"}).
-		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", now, now)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, created_at, updated_at
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "active", nil, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
 		 FROM tenancy_workspaces
 		 WHERE tenant_id = $1
 		 ORDER BY created_at DESC
@@ -977,7 +977,7 @@ func TestPostgresStoreWorkspaceAndMemberNotFoundPaths(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, created_at, updated_at
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
 		 FROM tenancy_workspaces
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2`)).
@@ -1259,9 +1259,9 @@ func TestPostgresStoreListSoleOwnerWorkspaces(t *testing.T) {
 	defer db.Close()
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "created_at", "updated_at"}).
-		AddRow("tenant-a", "ws-sole", "Sole-owned", "ws-sole", now, now)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.created_at, w.updated_at
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "ws-sole", "Sole-owned", "ws-sole", "active", nil, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.status, w.suspended_at, w.deleted_at, w.created_at, w.updated_at
 		 FROM tenancy_workspaces w
 		 JOIN tenancy_workspace_members caller
 		   ON caller.tenant_id = w.tenant_id

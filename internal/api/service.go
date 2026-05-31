@@ -517,6 +517,18 @@ var ErrInvalidTenancyRequest = errors.New("invalid tenancy request")
 // ErrWorkspaceAccessDenied indicates the caller cannot switch to target workspace.
 var ErrWorkspaceAccessDenied = errors.New("workspace access denied")
 
+// ErrWorkspaceSoleOwnerRequiresTransfer indicates a workspace suspend or
+// delete was refused because the caller is the only active owner of a
+// workspace that still has other active members. The structured 409 surfaced
+// to the caller carries the affected-member list so the UI can deep-link to
+// the member-management screen for ownership transfer.
+var ErrWorkspaceSoleOwnerRequiresTransfer = errors.New("workspace sole owner requires transfer")
+
+// ErrWorkspaceDeletionGraceExpired indicates a cancel-deletion request
+// arrived after the grace window closed. The hard-delete worker is
+// authoritative past the deadline.
+var ErrWorkspaceDeletionGraceExpired = errors.New("workspace deletion grace period has expired")
+
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
 	svc := &Service{
@@ -2584,6 +2596,127 @@ func (s *Service) GetWorkspace(ctx context.Context, workspaceID string) (db.Tena
 func (s *Service) DeleteWorkspace(ctx context.Context, workspaceID string) error {
 	ctx = s.scopeContext(ctx)
 	return s.Store.DeleteWorkspace(ctx, strings.TrimSpace(workspaceID))
+}
+
+// WorkspaceSoleOwnerStranding is the structured result of the sole-owner
+// guard. When StrandedMembers is non-empty the caller is the only active
+// owner and there are other active members who would lose their access if
+// the workspace were suspended or deleted.
+type WorkspaceSoleOwnerStranding struct {
+	Workspace       db.TenancyWorkspace
+	StrandedMembers []db.TenancyWorkspaceMember
+}
+
+// SuspendWorkspace flips the workspace into the suspended state. The caller's
+// user UUID is required so the sole-owner guard can compare ownership; pass
+// the empty string to bypass the guard (only useful for platform-admin
+// callers exercising the route via API key without a workspace membership).
+func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	stranding, err := s.checkWorkspaceSoleOwnerStranding(ctx, normalizedWorkspaceID, callerUserUUID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	if len(stranding.StrandedMembers) > 0 {
+		return stranding, db.TenancyWorkspace{}, ErrWorkspaceSoleOwnerRequiresTransfer
+	}
+	saved, err := s.Store.SuspendWorkspace(ctx, normalizedWorkspaceID, s.now())
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	return WorkspaceSoleOwnerStranding{}, saved, nil
+}
+
+// ReactivateWorkspace reverses a suspend. No sole-owner guard — reactivation
+// can only widen access, not strand anyone.
+func (s *Service) ReactivateWorkspace(ctx context.Context, workspaceID string) (db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	return s.Store.ReactivateWorkspace(ctx, normalizedWorkspaceID, s.now())
+}
+
+// SoftDeleteWorkspace flips the workspace into the deleted state with a
+// reversible grace window. Same sole-owner guard semantics as Suspend.
+func (s *Service) SoftDeleteWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	stranding, err := s.checkWorkspaceSoleOwnerStranding(ctx, normalizedWorkspaceID, callerUserUUID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	if len(stranding.StrandedMembers) > 0 {
+		return stranding, db.TenancyWorkspace{}, ErrWorkspaceSoleOwnerRequiresTransfer
+	}
+	saved, err := s.Store.SoftDeleteWorkspace(ctx, normalizedWorkspaceID, s.now())
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	return WorkspaceSoleOwnerStranding{}, saved, nil
+}
+
+// CancelWorkspaceDeletion reverses a soft delete inside the grace window.
+// Refuses with ErrWorkspaceDeletionGraceExpired once the worker is
+// authoritative for the purge so a stale UI cannot resurrect a workspace
+// the caller has already lost the option to keep.
+func (s *Service) CancelWorkspaceDeletion(ctx context.Context, workspaceID string) (db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, normalizedWorkspaceID)
+	if err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	if workspace.DeletedAt != nil && s.now().UTC().Sub(workspace.DeletedAt.UTC()) > db.WorkspaceDeletionGracePeriod {
+		return db.TenancyWorkspace{}, ErrWorkspaceDeletionGraceExpired
+	}
+	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
+		return workspace, nil
+	}
+	return s.Store.CancelWorkspaceDeletion(ctx, normalizedWorkspaceID, s.now())
+}
+
+// WorkspaceDeletionGraceDeadline returns the wall-clock deadline by which the
+// hard-delete worker will purge the workspace. Returns the zero time when the
+// workspace is not pending deletion.
+func WorkspaceDeletionGraceDeadline(workspace db.TenancyWorkspace) time.Time {
+	if workspace.DeletedAt == nil {
+		return time.Time{}
+	}
+	return workspace.DeletedAt.UTC().Add(db.WorkspaceDeletionGracePeriod)
+}
+
+func (s *Service) checkWorkspaceSoleOwnerStranding(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, error) {
+	workspace, err := s.Store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, err
+	}
+	if strings.TrimSpace(callerUserUUID) == "" {
+		return WorkspaceSoleOwnerStranding{Workspace: workspace}, nil
+	}
+	stranded, err := s.Store.ListWorkspaceStrandedActiveMembers(ctx, workspaceID, callerUserUUID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, err
+	}
+	return WorkspaceSoleOwnerStranding{Workspace: workspace, StrandedMembers: stranded}, nil
+}
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // ListWorkspaceMembers returns members for one scoped workspace with optional role/status filters.

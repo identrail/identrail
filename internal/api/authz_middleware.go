@@ -34,6 +34,7 @@ const (
 	policyActionOnboardingWrite = "onboarding.write"
 	policyActionTenancyRead     = "tenancy.read"
 	policyActionTenancyWrite    = "tenancy.write"
+	policyActionTenancyOwner    = "tenancy.owner"
 	policyActionEnterpriseRead  = "enterprise.read"
 	policyActionEnterpriseWrite = "enterprise.write"
 
@@ -71,6 +72,14 @@ func defaultRouteActionRoleGrants() map[string][]string {
 	writeRoles := []string{scopeWrite, scopeAdmin}
 	tenancyReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	tenancyWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
+	// tenancy.owner gates destructive workspace lifecycle actions (suspend,
+	// delete, cancel-deletion). At the workspace-membership level the admin
+	// role is intentionally excluded — only the owner role can flip a
+	// workspace's lifecycle from the product UI. API key callers retain
+	// access via the platform-issued scopes (write/admin) because their
+	// authorization is enforced upstream at key issuance rather than by
+	// workspace membership.
+	tenancyOwnerRoles := []string{scopeWrite, scopeAdmin, "owner"}
 	enterpriseReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	enterpriseWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	authenticatedRoles := []string{"authenticated", scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
@@ -91,6 +100,7 @@ func defaultRouteActionRoleGrants() map[string][]string {
 		policyActionOnboardingWrite: authenticatedRoles,
 		policyActionTenancyRead:     tenancyReadRoles,
 		policyActionTenancyWrite:    tenancyWriteRoles,
+		policyActionTenancyOwner:    tenancyOwnerRoles,
 		policyActionEnterpriseRead:  enterpriseReadRoles,
 		policyActionEnterpriseWrite: enterpriseWriteRoles,
 	}
@@ -124,6 +134,7 @@ func defaultRouteActionABACPolicies() map[string]abacActionPolicy {
 		policyActionOnboardingWrite: passThroughPolicy,
 		policyActionTenancyRead:     passThroughPolicy,
 		policyActionTenancyWrite:    passThroughPolicy,
+		policyActionTenancyOwner:    passThroughPolicy,
 		policyActionEnterpriseRead:  passThroughPolicy,
 		policyActionEnterpriseWrite: passThroughPolicy,
 		policyActionFindingsTriage: {
