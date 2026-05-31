@@ -178,6 +178,7 @@ func TestCurrentSessionUpdateCurrentUserProfileRejectsInvalidPayloads(t *testing
 		{name: "http avatar", body: `{"avatar_url":"http://avatars.githubusercontent.com/u/1"}`},
 		{name: "disallowed avatar host", body: `{"avatar_url":"https://example.com/avatar.png"}`},
 		{name: "empty body", body: ``},
+		{name: "trailing json value", body: `{"display_name":"Trailing"} {}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

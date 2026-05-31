@@ -1231,7 +1231,7 @@ func decodeCurrentUserProfileUpdateRequest(body io.Reader) (CurrentUserProfileUp
 		}
 		return CurrentUserProfileUpdate{}, err
 	}
-	if err := decoder.Decode(&struct{}{}); err != nil && !errors.Is(err, io.EOF) {
+	if err := decoder.Decode(&struct{}{}); err == nil || !errors.Is(err, io.EOF) {
 		return CurrentUserProfileUpdate{}, errors.New("profile update request must contain a single JSON object")
 	}
 	return CurrentUserProfileUpdate{
