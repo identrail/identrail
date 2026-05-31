@@ -515,6 +515,73 @@ func TestPostgresStoreFailStaleRunningUserDataExports(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreClaimQueuedUserDataExport(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	if _, err := store.ClaimQueuedUserDataExport(ctx, "", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for blank job id, got %v", err)
+	}
+	if _, err := store.ClaimQueuedUserDataExport(ctx, "not-a-uuid", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for malformed job id, got %v", err)
+	}
+
+	jobID := "11111111-1111-1111-1111-111111111111"
+	userID := "22222222-2222-2222-2222-222222222222"
+	mock.ExpectQuery("UPDATE user_data_exports").
+		WithArgs(jobID, now).
+		WillReturnRows(postgresUserDataExportRows().AddRow(postgresUserDataExportRow(UserDataExport{
+			ID:          jobID,
+			UserID:      userID,
+			Status:      UserDataExportStatusRunning,
+			RequestedAt: now,
+			StartedAt:   ptrTime(now),
+		})...))
+	claimed, err := store.ClaimQueuedUserDataExport(ctx, " "+jobID+" ", now)
+	if err != nil {
+		t.Fatalf("claim queued export: %v", err)
+	}
+	if claimed.ID != jobID || claimed.Status != UserDataExportStatusRunning || claimed.StartedAt == nil {
+		t.Fatalf("unexpected claimed export: %+v", claimed)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreFailUserDataExportTerminalError(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := context.Background()
+
+	jobID := "33333333-3333-3333-3333-333333333333"
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("UPDATE user_data_exports").
+		WithArgs(jobID, "still running", now).
+		WillReturnRows(postgresUserDataExportRows())
+	_, err = store.FailUserDataExport(ctx, " "+jobID+" ", "still running", now)
+	if err == nil || err.Error() != "user_data_export  "+jobID+"  not in queued/running state" {
+		t.Fatalf("expected terminal-state failure, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
 func ptrTime(t time.Time) *time.Time {
 	utc := t.UTC()
 	return &utc

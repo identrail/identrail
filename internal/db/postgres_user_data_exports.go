@@ -14,6 +14,9 @@ import (
 const userDataExportColumns = `id::text, user_id::text, status, bundle_path, bundle_size_bytes, bundle_sha256,
 		error_message, requested_at, started_at, completed_at,
 		download_expires_at, purge_after, purged_at`
+const userDataExportColumnsFromExports = `exports.id::text, exports.user_id::text, exports.status, exports.bundle_path, exports.bundle_size_bytes, exports.bundle_sha256,
+		exports.error_message, exports.requested_at, exports.started_at, exports.completed_at,
+		exports.download_expires_at, exports.purge_after, exports.purged_at`
 
 func scanUserDataExport(row rowScanner) (UserDataExport, error) {
 	var export UserDataExport
@@ -84,7 +87,7 @@ func (p *PostgresStore) CreateUserDataExport(ctx context.Context, export UserDat
 		`INSERT INTO user_data_exports
 		   (id, user_id, status, requested_at)
 		 VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, $3, $4)
-		 RETURNING `+userDataExportColumns,
+			 RETURNING `+userDataExportColumns,
 		normalized.ID,
 		normalized.UserID,
 		normalized.Status,
@@ -292,7 +295,7 @@ func (p *PostgresStore) FailStaleRunningUserDataExports(ctx context.Context, sta
 			   completed_at = $2::timestamptz
 			   FROM stale
 			   WHERE exports.id = stale.id
-			   RETURNING `+userDataExportColumns,
+			   RETURNING `+userDataExportColumnsFromExports,
 		startedBefore.UTC(),
 		failedAt.UTC(),
 		errMsg,

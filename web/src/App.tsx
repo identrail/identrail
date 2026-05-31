@@ -4803,7 +4803,7 @@ export function RoutedSite() {
               path="github/agentic-risk/workflow-trust-paths"
               element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-workflow-trust-paths" />}
             />
-            <Route path="github/agentic-risk/findings" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-findings" />} />
+            <Route path="github/agentic-risk/findings" element={<ProductFindingsPage />} />
             <Route path="kubernetes" element={<ProductDomainRoutePage domain="kubernetes" />} />
             <Route path="kubernetes/connect" element={<ProductKubernetesConnectPage />} />
             <Route path="kubernetes/clusters" element={<ProductDomainRoutePage domain="kubernetes" routeID="clusters" />} />
