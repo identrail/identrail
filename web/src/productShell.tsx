@@ -1,4 +1,4 @@
-import { Component, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -65,11 +65,17 @@ import { PermissionPreviewModal } from './components/connector/PermissionPreview
 import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './components/settings/DangerZone';
 import {
   DomainDetailPanel,
+  DomainEmptyState,
+  DomainErrorState,
   DomainKpiStrip,
+  DomainLoadingState,
   DomainLogoMark,
   DomainLogoStack,
   DomainPageShell,
-  DomainStatusPanel
+  DomainStatusBadge,
+  DomainStatusPanel,
+  DomainTimeline,
+  type DomainTimelineEntry
 } from './components/app/DomainFoundation';
 import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
 import { clearMeCache, primeMeCache, useMe } from './hooks/useMe';
@@ -2641,16 +2647,1338 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
   );
 }
 
-export function ProductGitHubConnectPage() {
-  return <ProductConnectorConnectPage provider="github" providerLabel="GitHub" />;
-}
-
 export function ProductAWSConnectPage() {
   return <ProductConnectorConnectPage provider="aws" providerLabel="AWS" />;
 }
 
 export function ProductKubernetesConnectPage() {
   return <ProductConnectorConnectPage provider="kubernetes" providerLabel="Kubernetes" />;
+}
+
+// =====================================================
+// GitHub domain pages (issue #1382 — GitHub Control Center)
+// -----------------------------------------------------
+// These four pages move GitHub setup, repository scan operation, and the
+// Actions/OIDC posture surface out of the legacy /projects/:projectID source
+// tab and into a domain-owned section. The repository scan launch, cancel,
+// and connector status APIs are unchanged — these pages call them with the
+// existing project_id-scoped contract so backend behavior is preserved.
+// =====================================================
+
+const GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT = 5;
+const GITHUB_REPOSITORIES_SCANS_LIMIT = 50;
+const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
+
+type GitHubAvailability = {
+  loading: boolean;
+  available: boolean;
+  unavailableMessage?: string;
+};
+
+function useGitHubAvailability(): GitHubAvailability {
+  const { features, loading } = useBackendFeatures({ enabled: FEATURE_CONNECTOR_GITHUB_V2 });
+  const availability = useMemo(() => buildSourceAvailability(features), [features]);
+  return {
+    loading,
+    available: availability.github.available,
+    unavailableMessage: availability.github.unavailableMessage
+  };
+}
+
+type GitHubDomainScopeState = {
+  scope: ProductSession | null;
+  environmentScope: EnvironmentScopeState;
+  selectedEnvironmentID: string;
+  onChangeEnvironment: (environmentID: string) => void;
+};
+
+function useGitHubDomainScope(): GitHubDomainScopeState {
+  const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
+  const environmentScope = useEnvironmentScope(scope, requestedEnvironmentID);
+  const onChangeEnvironment = useCallback(
+    (environmentID: string) => {
+      navigate(
+        {
+          pathname: location.pathname,
+          search: environmentSearch(location.search, environmentID)
+        },
+        { replace: false }
+      );
+    },
+    [location.pathname, location.search, navigate]
+  );
+  return {
+    scope,
+    environmentScope,
+    selectedEnvironmentID: environmentScope.selectedID,
+    onChangeEnvironment
+  };
+}
+
+type GitHubSectionLink = {
+  id: string;
+  label: string;
+  description: string;
+  to: string;
+};
+
+function buildGitHubSectionLinks(scope: ProductSession, environmentID: string | undefined): GitHubSectionLink[] {
+  const link = (id: string, suffix: string, label: string, description: string): GitHubSectionLink => ({
+    id,
+    label,
+    description,
+    to: appendEnvironmentQuery(buildScopedPath(scope, `github/${suffix}`), environmentID)
+  });
+  return [
+    link('connect', 'connect', 'Connect GitHub', 'Manage the GitHub App installation, account scope, and PAT fallback.'),
+    link('repositories', 'repositories', 'Repositories', 'Launch, monitor, and cancel repository scans for the connected installation.'),
+    link('actions', 'actions', 'Actions / OIDC', 'Workflow permissions, runner posture, and OIDC trust path coverage.'),
+    link('findings', 'findings', 'Findings', 'Repository, workflow, and secret findings detected by Identrail.'),
+    link('remediation', 'remediation', 'Remediation', 'Stage repository fix PRs, lifecycle review, and verification.'),
+    link('agentic-risk', 'agentic-risk', 'AI / Agentic Risk', 'Agent identities, MCP tools, prompts, secrets, and workflow trust paths.')
+  ];
+}
+
+type GitHubDomainDataState = {
+  loading: boolean;
+  error: string;
+  connection: GitHubConnectionStatus | null;
+  scans: RepoScanRecord[];
+  reload: () => void;
+};
+
+async function listRepoScansForSelectedRepositories(
+  selectedRepositories: string[],
+  scanLimit: number,
+  auth: RequestAuthContext
+): Promise<RepoScanRecord[]> {
+  if (!selectedRepositories.length || scanLimit <= 0) {
+    return [];
+  }
+
+  const allowed = new Set(selectedRepositories.map((repository) => canonicalGitHubRepositoryDisplay(repository).toLowerCase()));
+  const matches: RepoScanRecord[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  let pagesFetched = 0;
+
+  do {
+    if (pagesFetched >= GITHUB_MAX_SCAN_PAGE_FETCHES) {
+      break;
+    }
+    pagesFetched += 1;
+
+    const response = (await apiClient.listRepoScans(
+      {
+        limit: scanLimit,
+        cursor,
+        sort_by: 'started_at',
+        sort_order: 'desc'
+      },
+      auth
+    )) as { items: RepoScanRecord[]; next_cursor?: string };
+
+    for (const scan of response.items) {
+      if (allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())) {
+        matches.push(scan);
+      }
+    }
+
+    if (matches.length >= scanLimit) {
+      break;
+    }
+
+    const nextCursor = response.next_cursor?.trim();
+    if (!nextCursor) {
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('Repository scan pagination returned a repeated cursor');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  return matches.slice(0, scanLimit);
+}
+
+function useGitHubDomainData(
+  scope: ProductSession | null,
+  projectID: string | undefined,
+  available: boolean,
+  scanLimit: number
+): GitHubDomainDataState {
+  const [connection, setConnection] = useState<GitHubConnectionStatus | null>(null);
+  const [scans, setScans] = useState<RepoScanRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const reload = useCallback(() => setReloadToken((current) => current + 1), []);
+
+  useEffect(() => {
+    if (!scope || !available) {
+      setConnection(null);
+      setScans([]);
+      setError('');
+      setLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setLoading(true);
+    setError('');
+    setConnection(null);
+    setScans([]);
+    const auth = buildProductAuthContext(scope);
+    const trimmedProject = normalizeValue(projectID);
+    const statusRequest = trimmedProject
+      ? apiClient.getGitHubConnectorStatus(scope.workspaceID, trimmedProject, auth)
+      : Promise.resolve<{ connection: GitHubConnectionStatus | null }>({ connection: null });
+
+    statusRequest
+      .then((statusResult) => statusResult.connection ?? null)
+      .then(async (connectionResult) => {
+        if (!active) {
+          return;
+        }
+        let nextError = '';
+        const nextConnection = connectionResult;
+
+        let nextScans: RepoScanRecord[] = [];
+        try {
+          nextScans = await listRepoScansForSelectedRepositories(
+            nextConnection?.selected_repositories ?? [],
+            scanLimit,
+            auth
+          );
+        } catch (error) {
+          nextError = formatAPIError(error, 'Unable to load recent repository scans.');
+        }
+
+        if (!active) {
+          return;
+        }
+        setConnection(nextConnection);
+        setScans(nextScans);
+        setError(nextError);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        setError(formatAPIError(error, 'Unable to load GitHub connection status.'));
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [available, projectID, reloadToken, scanLimit, scope?.tenantID, scope?.workspaceID]);
+
+  return { loading, error, connection, scans, reload };
+}
+
+function gitHubScansForSelectedRepositories(scans: RepoScanRecord[], selectedRepositories: string[]): RepoScanRecord[] {
+  if (!selectedRepositories.length) {
+    return [];
+  }
+  const allowed = new Set(selectedRepositories.map((repo) => canonicalGitHubRepositoryDisplay(repo).toLowerCase()));
+  return scans.filter((scan) => allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase()));
+}
+
+function gitHubRecentScans(scans: RepoScanRecord[], selectedRepositories: string[], limit: number): RepoScanRecord[] {
+  return gitHubScansForSelectedRepositories(scans, selectedRepositories).slice(0, limit);
+}
+
+function gitHubRecentScansTimeline(scans: RepoScanRecord[]): DomainTimelineEntry[] {
+  return scans.map((scan) => {
+    const repo = canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository;
+    const tone = repoScanStatusTone(scan.status);
+    const statusLabel = formatTokenLabel(scan.status);
+    const detail = isCompletedScanStatus(scan.status)
+      ? scan.error_message
+        ? summarizeScanFailure(scan)
+        : `${scan.finding_count} findings · ${scan.files_scanned} files`
+      : `${scan.scan_mode ?? 'scan'} queued`;
+    return {
+      id: scan.id,
+      timestamp: formatRelativeTime(scan.finished_at || scan.started_at),
+      title: (
+        <>
+          <strong>{repo}</strong> · {statusLabel}
+        </>
+      ),
+      detail,
+      tone: tone === 'warning' ? 'warning' : tone === 'error' ? 'danger' : tone === 'success' ? 'success' : 'neutral'
+    };
+  });
+}
+
+function gitHubConnectionTone(status: GitHubConnectionStatus | null, loading: boolean): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (loading) {
+    return 'neutral';
+  }
+  if (!status || !status.connected) {
+    return 'neutral';
+  }
+  const tone = connectionTone(status);
+  if (tone === 'error') {
+    return 'danger';
+  }
+  return tone;
+}
+
+function gitHubConnectionSummary(status: GitHubConnectionStatus | null): string {
+  if (!status || !status.connected) {
+    return 'GitHub is not connected for this environment yet.';
+  }
+  const account = normalizeValue(status.account_login);
+  const installation = status.installation_id ? `installation ${status.installation_id}` : '';
+  const parts = [account ? `Connected as ${account}` : 'Connected'];
+  if (installation) {
+    parts.push(installation);
+  }
+  parts.push(`health ${formatTokenLabel(connectionHealth(status))}`);
+  return `${parts.join(' · ')}.`;
+}
+
+function gitHubConnectionStatusVariantFor(status: GitHubConnectionStatus | null, loading: boolean) {
+  if (loading) {
+    return 'coming-soon' as const;
+  }
+  if (!status || !status.connected) {
+    return 'disconnected' as const;
+  }
+  const tone = connectionTone(status);
+  if (tone === 'error') {
+    return 'missing-permissions' as const;
+  }
+  if (tone === 'warning') {
+    return 'needs-attention' as const;
+  }
+  return 'connected' as const;
+}
+
+function buildGitHubControlCenterMetrics(
+  status: GitHubConnectionStatus | null,
+  selectedRepositories: string[],
+  recentScans: RepoScanRecord[]
+) {
+  const activeScans = recentScans.filter((scan) => isActiveScanStatus(scan.status)).length;
+  const latestCompleted = recentScans.find((scan) => isCompletedScanStatus(scan.status));
+  const latestCompletedFailed = latestCompleted ? isFailedScanStatus(latestCompleted.status) : false;
+  return [
+    {
+      label: 'Connection',
+      value: status?.connected ? formatTokenLabel(connectionLifecycle(status)) : 'Not connected',
+      detail: status?.connected ? `Health ${formatTokenLabel(connectionHealth(status))}` : 'Install the GitHub App to begin.',
+      tone: gitHubConnectionTone(status, false) === 'danger' ? 'danger' : status?.connected ? 'success' : 'neutral'
+    },
+    {
+      label: 'Repositories',
+      value: selectedRepositories.length,
+      detail: selectedRepositories.length === 0 ? 'No repositories selected yet.' : `${formatCountLabel(selectedRepositories.length, 'repo')} in scope.`,
+      tone: selectedRepositories.length > 0 ? 'success' : 'neutral'
+    },
+    {
+      label: 'Active scans',
+      value: activeScans,
+      detail: activeScans > 0 ? 'Queued or running right now.' : 'No scans waiting.',
+      tone: activeScans > 0 ? 'warning' : 'neutral'
+    },
+    {
+      label: 'Latest scan',
+      value: latestCompleted
+        ? formatRelativeTime(latestCompleted.finished_at || latestCompleted.started_at)
+        : '—',
+      detail: latestCompleted
+        ? latestCompletedFailed
+          ? summarizeScanFailure(latestCompleted)
+          : `${latestCompleted.finding_count} findings · ${canonicalGitHubRepositoryDisplay(latestCompleted.repository) || latestCompleted.repository}`
+        : 'Run a scan from the Repositories page.',
+      tone: latestCompleted ? (latestCompletedFailed ? 'danger' : 'success') : 'neutral'
+    }
+  ] as const;
+}
+
+function GitHubSectionLinksGrid({ links }: { links: GitHubSectionLink[] }) {
+  return (
+    <section className="idt-domain-status-panel idt-github-section-links" aria-label="GitHub subsections">
+      <header>
+        <div>
+          <p className="idt-app-kicker">Domain map</p>
+          <h3>Where to go next inside GitHub</h3>
+        </div>
+        <span>{`${links.length} sections`}</span>
+      </header>
+      <div className="idt-domain-readiness-items">
+        {links.map((link) => (
+          <Link key={link.id} to={link.to} className="idt-github-section-link" aria-label={link.label}>
+            <div>
+              <strong>{link.label}</strong>
+              <p>{link.description}</p>
+            </div>
+            <span aria-hidden="true">→</span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function GitHubControlCenterNextActions({
+  connected,
+  selectedRepositories,
+  recentScans,
+  connectPath,
+  repositoriesPath,
+  findingsPath
+}: {
+  connected: boolean;
+  selectedRepositories: string[];
+  recentScans: RepoScanRecord[];
+  connectPath: string;
+  repositoriesPath: string;
+  findingsPath: string;
+}) {
+  const failedScan = recentScans.find((scan) => isFailedScanStatus(scan.status));
+  const actions: Array<{ id: string; title: string; detail: string; to: string }> = [];
+  if (!connected) {
+    actions.push({
+      id: 'connect',
+      title: 'Connect GitHub',
+      detail: 'Install the GitHub App or paste an Enterprise PAT to enable repository scanning.',
+      to: connectPath
+    });
+  }
+  if (connected && selectedRepositories.length === 0) {
+    actions.push({
+      id: 'select-repositories',
+      title: 'Select repositories to scan',
+      detail: 'Pick the repositories Identrail should watch for exposure, secrets, and workflow risk.',
+      to: connectPath
+    });
+  }
+  if (connected && selectedRepositories.length > 0 && !recentScans.some((scan) => isCompletedScanStatus(scan.status))) {
+    actions.push({
+      id: 'run-first-scan',
+      title: 'Run a first repository scan',
+      detail: 'Queue a scan to seed the findings pipeline for the selected repositories.',
+      to: repositoriesPath
+    });
+  }
+  if (failedScan) {
+    actions.push({
+      id: 'review-failed-scan',
+      title: 'Investigate the most recent failed scan',
+      detail: `${canonicalGitHubRepositoryDisplay(failedScan.repository) || failedScan.repository}: ${summarizeScanFailure(failedScan)}`,
+      to: repositoriesPath
+    });
+  }
+  if (connected && recentScans.some((scan) => isCompletedScanStatus(scan.status) && scan.finding_count > 0)) {
+    actions.push({
+      id: 'triage-findings',
+      title: 'Triage GitHub findings',
+      detail: 'Open the GitHub findings queue to review repository and workflow risk.',
+      to: findingsPath
+    });
+  }
+  if (actions.length === 0) {
+    return null;
+  }
+  return (
+    <section className="idt-domain-status-panel idt-github-next-actions" aria-label="GitHub next actions">
+      <header>
+        <div>
+          <p className="idt-app-kicker">Next actions</p>
+          <h3>{`${actions.length} thing${actions.length === 1 ? '' : 's'} to do`}</h3>
+        </div>
+        <span>Recommended</span>
+      </header>
+      <ol className="idt-github-next-actions-list">
+        {actions.map((action) => (
+          <li key={action.id}>
+            <Link to={action.to}>
+              <strong>{action.title}</strong>
+              <p>{action.detail}</p>
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function legacyProjectSetupPath(scope: ProductSession, projectID: string | undefined): string {
+  const trimmed = normalizeValue(projectID);
+  if (!trimmed) {
+    return appendSourceQuery(buildProjectsPath(scope), 'github');
+  }
+  return appendSourceQuery(buildProjectPath(scope, trimmed), 'github');
+}
+
+function GitHubUnavailableShell({
+  title,
+  scope,
+  environmentScope,
+  selectedEnvironmentID,
+  onEnvironmentChange,
+  unavailableMessage
+}: {
+  title: string;
+  scope: ProductSession;
+  environmentScope: EnvironmentScopeState;
+  selectedEnvironmentID: string;
+  onEnvironmentChange: (id: string) => void;
+  unavailableMessage?: string;
+}) {
+  const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="GitHub"
+      title={title}
+      description="The GitHub connector is not enabled on this Identrail build."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onEnvironmentChange} />}
+      status={<DomainStatusBadge variant="coming-soon" label="Unavailable" />}
+      statusTone="neutral"
+      primaryAction={{ label: 'GitHub home', to: basePath, variant: 'secondary' }}
+    >
+      <DomainErrorState
+        title="GitHub is not available on this API"
+        body={unavailableMessage ?? 'Ask your operator to enable the GitHub connector to unlock this page.'}
+      />
+      <OnboardingUnavailableNotice />
+    </DomainPageShell>
+  );
+}
+
+function GitHubMissingEnvironmentShell({
+  title,
+  scope,
+  environmentScope,
+  selectedEnvironmentID,
+  onEnvironmentChange
+}: {
+  title: string;
+  scope: ProductSession;
+  environmentScope: EnvironmentScopeState;
+  selectedEnvironmentID: string;
+  onEnvironmentChange: (id: string) => void;
+}) {
+  const projectsPath = appendSourceQuery(buildProjectsPath(scope), 'github');
+  const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="GitHub"
+      title={title}
+      description="Pick an environment to scope GitHub to a project boundary."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onEnvironmentChange} />}
+      status={<DomainStatusBadge variant="coming-soon" label="Pick environment" />}
+      statusTone="neutral"
+      primaryAction={{ label: 'Create environment', to: projectsPath, variant: 'primary' }}
+      secondaryActions={[{ label: 'GitHub home', to: basePath }]}
+    >
+      <DomainEmptyState
+        eyebrow="Environment required"
+        title="Choose an environment for GitHub"
+        body="GitHub installations are scoped per project. Create or pick an environment to load connection status, repository coverage, and scan activity."
+      />
+    </DomainPageShell>
+  );
+}
+
+export function ProductGitHubControlCenterPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const availability = useGitHubAvailability();
+  const data = useGitHubDomainData(
+    scope,
+    selectedEnvironmentID,
+    availability.available,
+    GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT
+  );
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading the GitHub control center.</p>
+      </section>
+    );
+  }
+
+  if (availability.loading) {
+    return (
+      <DomainPageShell
+        domain="github"
+        eyebrow="GitHub"
+        title="GitHub Control Center"
+        description="Loading GitHub availability for this build."
+        scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      >
+        <DomainLoadingState label="Loading GitHub availability" />
+      </DomainPageShell>
+    );
+  }
+
+  if (!availability.available) {
+    return (
+      <GitHubUnavailableShell
+        title="GitHub Control Center"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+        unavailableMessage={availability.unavailableMessage}
+      />
+    );
+  }
+
+  if (!selectedEnvironmentID) {
+    return (
+      <GitHubMissingEnvironmentShell
+        title="GitHub Control Center"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+      />
+    );
+  }
+
+  const links = buildGitHubSectionLinks(scope, selectedEnvironmentID);
+  const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
+  const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
+  const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
+  const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
+  const recentScans = gitHubRecentScans(data.scans, selectedRepositories, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT);
+  const metrics = buildGitHubControlCenterMetrics(data.connection, selectedRepositories, recentScans);
+  const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="GitHub"
+      title="GitHub Control Center"
+      description="Operate repository, workflow, OIDC, and AI/agentic risk coverage from one premium control surface."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      status={
+        <DomainStatusBadge
+          variant={statusVariant}
+          detail={data.connection?.account_login ? `@${data.connection.account_login}` : undefined}
+        />
+      }
+      statusTone={gitHubConnectionTone(data.connection, data.loading)}
+      primaryAction={
+        data.connection?.connected
+          ? { label: 'Open Repositories', to: repositoriesPath, variant: 'primary' }
+          : { label: 'Connect GitHub', to: connectPath, variant: 'primary' }
+      }
+      secondaryActions={[{ label: 'GitHub findings', to: findingsPath }]}
+      aside={
+        <DomainDetailPanel title="What GitHub owns" eyebrow="Domain charter">
+          <ul className="idt-domain-charter-list">
+            <li>Repository exposure and secret risk</li>
+            <li>GitHub Actions workflow permissions</li>
+            <li>OIDC trust paths and runner identity posture</li>
+            <li>AI/agentic repo configuration risk</li>
+          </ul>
+        </DomainDetailPanel>
+      }
+    >
+      {data.error ? <DomainErrorState title="Unable to load GitHub status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
+      <DomainKpiStrip label="GitHub control center metrics" items={metrics.map((metric) => ({ ...metric }))} />
+      <DomainStatusPanel
+        eyebrow="Connection"
+        title={data.connection?.connected ? `${data.connection.account_login ?? 'GitHub'} installation` : 'GitHub not connected'}
+        status={<DomainStatusBadge variant={statusVariant} />}
+        tone={gitHubConnectionTone(data.connection, data.loading) === 'danger' ? 'danger' : data.connection?.connected ? 'success' : 'neutral'}
+      >
+        <p>{gitHubConnectionSummary(data.connection)}</p>
+        {data.connection?.connected ? (
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Account</dt>
+              <dd>{data.connection.account_login ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Installation</dt>
+              <dd>{data.connection.installation_id ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Lifecycle</dt>
+              <dd>{formatTokenLabel(connectionLifecycle(data.connection))}</dd>
+            </div>
+            <div>
+              <dt>Health</dt>
+              <dd>{formatTokenLabel(connectionHealth(data.connection))}</dd>
+            </div>
+          </dl>
+        ) : null}
+      </DomainStatusPanel>
+      {recentScans.length > 0 ? (
+        <section className="idt-domain-status-panel" aria-label="Recent repository scans">
+          <header>
+            <div>
+              <p className="idt-app-kicker">Recent scans</p>
+              <h3>Last {recentScans.length} repository scans</h3>
+            </div>
+            <Link to={repositoriesPath}>Manage scans</Link>
+          </header>
+          <DomainTimeline label="Recent repository scans" entries={gitHubRecentScansTimeline(recentScans)} />
+        </section>
+      ) : (
+        <DomainEmptyState
+          eyebrow="Recent scans"
+          title="No repository scans yet"
+          body="Connect GitHub and queue the first repository scan to populate the activity timeline."
+          nextAction={{ label: 'Open Repositories', to: repositoriesPath }}
+        />
+      )}
+      <GitHubControlCenterNextActions
+        connected={Boolean(data.connection?.connected)}
+        selectedRepositories={selectedRepositories}
+        recentScans={recentScans}
+        connectPath={connectPath}
+        repositoriesPath={repositoriesPath}
+        findingsPath={findingsPath}
+      />
+      <GitHubSectionLinksGrid links={links} />
+    </DomainPageShell>
+  );
+}
+
+export function ProductGitHubConnectPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const availability = useGitHubAvailability();
+  const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT);
+  const [installError, setInstallError] = useState('');
+  const [installing, setInstalling] = useState(false);
+  const [pendingInstallURL, setPendingInstallURL] = useState('');
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Connect GitHub</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading the GitHub connector setup.</p>
+      </section>
+    );
+  }
+
+  if (availability.loading) {
+    return (
+      <DomainPageShell
+        domain="github"
+        eyebrow="GitHub"
+        title="Connect GitHub"
+        description="Loading GitHub availability for this build."
+        scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      >
+        <DomainLoadingState label="Loading GitHub availability" />
+      </DomainPageShell>
+    );
+  }
+
+  if (!availability.available) {
+    return (
+      <GitHubUnavailableShell
+        title="Connect GitHub"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+        unavailableMessage={availability.unavailableMessage}
+      />
+    );
+  }
+
+  if (!selectedEnvironmentID) {
+    return (
+      <GitHubMissingEnvironmentShell
+        title="Connect GitHub"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+      />
+    );
+  }
+
+  const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
+  const legacyPath = legacyProjectSetupPath(scope, selectedEnvironmentID);
+  const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
+
+  const handleInstall = async () => {
+    setInstallError('');
+    setPendingInstallURL('');
+    setInstalling(true);
+    try {
+      const redirectURI =
+        typeof window !== 'undefined' ? `${window.location.origin}/app/github/callback` : undefined;
+      const response = await apiClient.startGitHubConnector(
+        {
+          project_id: selectedEnvironmentID,
+          install_account_type: 'any',
+          redirect_uri: redirectURI
+        },
+        buildProductAuthContext(scope)
+      );
+      const installURL = response.install_url ?? '';
+      if (installURL) {
+        let opened: Window | null = null;
+        if (typeof window !== 'undefined') {
+          opened = window.open(installURL, '_blank', 'noopener,noreferrer');
+        }
+        if (!opened) {
+          setPendingInstallURL(installURL);
+        }
+      }
+      data.reload();
+    } catch (error) {
+      setInstallError(formatAPIError(error, 'Unable to start GitHub App installation.'));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
+  const connected = Boolean(data.connection?.connected);
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="GitHub App onboarding"
+      title="Connect GitHub"
+      description="GitHub App installation, account scope, and Enterprise/PAT fallback live in the GitHub section."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      status={
+        <DomainStatusBadge
+          variant={statusVariant}
+          detail={data.connection?.account_login ? `@${data.connection.account_login}` : undefined}
+        />
+      }
+      statusTone={gitHubConnectionTone(data.connection, data.loading)}
+      primaryAction={
+        connected
+          ? { label: 'Open Repositories', to: repositoriesPath, variant: 'primary' }
+          : {
+              label: installing ? 'Opening install...' : 'Install GitHub App',
+              onClick: handleInstall,
+              disabled: installing,
+              variant: 'primary'
+            }
+      }
+      secondaryActions={[
+        { label: 'Manage Enterprise / PAT', to: legacyPath },
+        { label: 'GitHub home', to: basePath }
+      ]}
+      aside={
+        <DomainDetailPanel title="Why connect GitHub" eyebrow="Coverage">
+          <ul className="idt-domain-charter-list">
+            <li>Inventory repositories Identrail should monitor.</li>
+            <li>Queue repository scans for exposure and secret risk.</li>
+            <li>Detect risky GitHub Actions workflow permissions.</li>
+            <li>Map OIDC trust paths used by deploy automation.</li>
+          </ul>
+        </DomainDetailPanel>
+      }
+    >
+      {installError ? <DomainErrorState title="Unable to start install" body={installError} retryAction={{ label: 'Try again', onClick: handleInstall }} /> : null}
+      {pendingInstallURL ? (
+        <DomainStatusPanel
+          eyebrow="Install GitHub App"
+          title="Browser blocked the install popup"
+          tone="warning"
+        >
+          <p>Open the GitHub App install page directly to finish connecting Identrail.</p>
+          <a
+            className="idt-btn idt-btn-primary"
+            href={pendingInstallURL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open GitHub"
+          >
+            Open GitHub
+          </a>
+        </DomainStatusPanel>
+      ) : null}
+      {data.error ? <DomainErrorState title="Unable to load connection status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
+      <DomainStatusPanel
+        eyebrow="Status"
+        title={connected ? `${data.connection?.account_login ?? 'GitHub'} installation` : 'Not connected yet'}
+        status={<DomainStatusBadge variant={statusVariant} />}
+        tone={connected ? 'success' : 'neutral'}
+      >
+        <p>{gitHubConnectionSummary(data.connection)}</p>
+        {connected ? (
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Account</dt>
+              <dd>{data.connection?.account_login ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Installation</dt>
+              <dd>{data.connection?.installation_id ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Selected repositories</dt>
+              <dd>{uniqueGitHubRepositories(data.connection?.selected_repositories ?? []).length}</dd>
+            </div>
+          </dl>
+        ) : null}
+      </DomainStatusPanel>
+      <section className="idt-domain-status-panel" aria-label="Connection paths">
+        <header>
+          <div>
+            <p className="idt-app-kicker">Connection paths</p>
+            <h3>Pick how to attach GitHub</h3>
+          </div>
+          <span>{`Environment ${selectedEnvironmentID}`}</span>
+        </header>
+        <div className="idt-domain-connection-paths">
+          <article>
+            <h4>GitHub App (recommended)</h4>
+            <p>Install the Identrail GitHub App to grant scoped repository and Actions access.</p>
+            <button
+              type="button"
+              className="idt-btn idt-btn-primary"
+              onClick={handleInstall}
+              disabled={installing}
+              aria-label="Install GitHub App"
+            >
+              {installing ? 'Opening install...' : 'Install GitHub App'}
+            </button>
+          </article>
+          <article>
+            <h4>Enterprise host or PAT</h4>
+            <p>For GitHub Enterprise Server or PAT-only environments, manage credentials on the project setup view.</p>
+            <Link to={legacyPath} className="idt-btn idt-btn-dark">
+              Open Enterprise / PAT setup
+            </Link>
+          </article>
+          <article>
+            <h4>Selected repositories</h4>
+            <p>Repository selection lives on the project setup view today and will move into this section in a follow-up PR.</p>
+            <Link to={legacyPath} className="idt-btn idt-btn-ghost">
+              Manage selected repositories
+            </Link>
+          </article>
+        </div>
+      </section>
+    </DomainPageShell>
+  );
+}
+
+type GitHubRepositoryRow = {
+  repository: string;
+  scans: RepoScanRecord[];
+  latest?: RepoScanRecord;
+  activeScan?: RepoScanRecord;
+};
+
+function buildGitHubRepositoryRows(selectedRepositories: string[], scans: RepoScanRecord[]): GitHubRepositoryRow[] {
+  return selectedRepositories.map((repository) => {
+    const lower = repository.toLowerCase();
+    const matching = scans.filter((scan) => canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() === lower);
+    const latest = [...matching].sort((left, right) => scanCompletionSortValue(right) - scanCompletionSortValue(left))[0];
+    const activeScan = matching.find((scan) => isActiveScanStatus(scan.status));
+    return { repository, scans: matching, latest, activeScan };
+  });
+}
+
+export function ProductGitHubRepositoriesPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const availability = useGitHubAvailability();
+  const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, GITHUB_REPOSITORIES_SCANS_LIMIT);
+  const [scanError, setScanError] = useState('');
+  const [scanInfo, setScanInfo] = useState('');
+  const [submittingRepository, setSubmittingRepository] = useState('');
+  const [cancelingScanID, setCancelingScanID] = useState('');
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub repositories</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading the GitHub repositories page.</p>
+      </section>
+    );
+  }
+
+  if (availability.loading) {
+    return (
+      <DomainPageShell
+        domain="github"
+        eyebrow="GitHub"
+        title="GitHub repositories"
+        description="Loading GitHub availability for this build."
+        scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      >
+        <DomainLoadingState label="Loading GitHub availability" />
+      </DomainPageShell>
+    );
+  }
+
+  if (!availability.available) {
+    return (
+      <GitHubUnavailableShell
+        title="GitHub repositories"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+        unavailableMessage={availability.unavailableMessage}
+      />
+    );
+  }
+
+  if (!selectedEnvironmentID) {
+    return (
+      <GitHubMissingEnvironmentShell
+        title="GitHub repositories"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+      />
+    );
+  }
+
+  const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
+  const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
+  const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
+  const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
+  const rows = buildGitHubRepositoryRows(selectedRepositories, data.scans);
+  const selectedRepositoryScans = gitHubScansForSelectedRepositories(data.scans, selectedRepositories);
+
+  const connected = Boolean(data.connection?.connected);
+  const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
+  const hasRepositories = selectedRepositories.length > 0;
+
+  const launchScan = async (repository: string) => {
+    if (!data.connection?.connected) {
+      setScanError('Connect GitHub before queueing a repository scan.');
+      return;
+    }
+    setScanError('');
+    setScanInfo('');
+    setSubmittingRepository(repository);
+    try {
+      const request: RepoScanRequest = { repository };
+      if (data.connection.provider === 'github_app') {
+        request.project_id = selectedEnvironmentID;
+        if (data.connection.connector_id) {
+          request.connector_id = data.connection.connector_id;
+        }
+      }
+      await apiClient.runRepoScan(request, buildProductAuthContext(scope));
+      setScanInfo(`Repository scan queued for ${repository}.`);
+      data.reload();
+    } catch (error) {
+      setScanError(formatRepoScanSubmitError(error));
+    } finally {
+      setSubmittingRepository((current) => (current === repository ? '' : current));
+    }
+  };
+
+  const cancelScan = async (scan: RepoScanRecord) => {
+    if (!isActiveScanStatus(scan.status)) {
+      setScanError('Only queued or running repository scans can be canceled.');
+      return;
+    }
+    setScanError('');
+    setScanInfo('');
+    setCancelingScanID(scan.id);
+    try {
+      await apiClient.cancelRepoScan(scan.id, buildProductAuthContext(scope));
+      setScanInfo(`Repository scan canceled for ${canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository}.`);
+      data.reload();
+    } catch (error) {
+      setScanError(formatRepoScanCancelError(error));
+    } finally {
+      setCancelingScanID((current) => (current === scan.id ? '' : current));
+    }
+  };
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="Repository inventory"
+      title="GitHub repositories"
+      description="Launch, monitor, and cancel repository scans for the selected installation."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      status={
+        <DomainStatusBadge
+          variant={statusVariant}
+          detail={data.connection?.account_login ? `@${data.connection.account_login}` : undefined}
+        />
+      }
+      statusTone={gitHubConnectionTone(data.connection, data.loading)}
+      primaryAction={
+        connected
+          ? { label: 'Manage connection', to: connectPath, variant: 'secondary' }
+          : { label: 'Connect GitHub', to: connectPath, variant: 'primary' }
+      }
+      secondaryActions={[{ label: 'GitHub findings', to: findingsPath }, { label: 'GitHub home', to: basePath }]}
+      aside={
+        <DomainDetailPanel title="Scan operations" eyebrow="Reference">
+          <ul className="idt-domain-charter-list">
+            <li>Scans use the existing repository scan APIs.</li>
+            <li>Cancel is only available while a scan is queued or running.</li>
+            <li>Repository scope mirrors the GitHub App selection.</li>
+          </ul>
+        </DomainDetailPanel>
+      }
+    >
+      {data.error ? <DomainErrorState title="Unable to load repository status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
+      {scanError ? <DomainErrorState title="Repository scan error" body={scanError} /> : null}
+      {scanInfo ? (
+        <DomainStatusPanel eyebrow="Scan activity" title="Update" tone="info">
+          <p>{scanInfo}</p>
+        </DomainStatusPanel>
+      ) : null}
+      {!connected ? (
+        <DomainEmptyState
+          eyebrow="Not connected"
+          title="Connect GitHub to manage repositories"
+          body="Install the GitHub App or paste an Enterprise PAT to populate the repository inventory."
+          nextAction={{ label: 'Connect GitHub', to: connectPath }}
+        />
+      ) : !hasRepositories ? (
+        <DomainEmptyState
+          eyebrow="No repositories selected"
+          title="Select repositories for Identrail to watch"
+          body="Pick repositories on the connection page so Identrail can queue scans and detect risk."
+          nextAction={{ label: 'Select repositories', to: connectPath }}
+        />
+      ) : (
+        <section className="idt-domain-status-panel" aria-label="Selected repositories">
+          <header>
+            <div>
+              <p className="idt-app-kicker">Selected repositories</p>
+              <h3>{`${rows.length} ${rows.length === 1 ? 'repository' : 'repositories'} in scope`}</h3>
+            </div>
+            <span>{`Environment ${selectedEnvironmentID}`}</span>
+          </header>
+          <ul className="idt-github-repository-list">
+            {rows.map((row) => {
+              const submitting = submittingRepository === row.repository;
+              const canCancel = Boolean(row.activeScan);
+              const cancelingThis = canCancel && cancelingScanID === row.activeScan?.id;
+              return (
+                <li key={row.repository} className="idt-github-repository-row">
+                  <div>
+                    <strong>{row.repository}</strong>
+                    {row.latest ? (
+                      <small>
+                        Last scan {formatRelativeTime(row.latest.finished_at || row.latest.started_at)} ·{' '}
+                        {formatTokenLabel(row.latest.status)} ·{' '}
+                        {isCompletedScanStatus(row.latest.status) && !isFailedScanStatus(row.latest.status)
+                          ? `${row.latest.finding_count} findings`
+                          : isFailedScanStatus(row.latest.status)
+                            ? summarizeScanFailure(row.latest)
+                            : `${row.latest.scan_mode ?? 'scan'} in flight`}
+                      </small>
+                    ) : (
+                      <small>No scans yet.</small>
+                    )}
+                  </div>
+                  <div className="idt-inline-actions">
+                    <button
+                      type="button"
+                      className="idt-btn idt-btn-primary"
+                      onClick={() => launchScan(row.repository)}
+                      disabled={submitting || Boolean(row.activeScan) || data.loading}
+                      aria-label={`Queue scan for ${row.repository}`}
+                    >
+                      {data.loading && !submitting
+                        ? 'Refreshing...'
+                        : submitting
+                          ? 'Queuing...'
+                          : row.activeScan
+                            ? 'Scan in progress'
+                            : 'Queue scan'}
+                    </button>
+                    {canCancel && row.activeScan ? (
+                      <button
+                        type="button"
+                        className="idt-btn idt-btn-ghost"
+                        onClick={() => cancelScan(row.activeScan as RepoScanRecord)}
+                        disabled={cancelingThis || data.loading}
+                        aria-label={`Cancel scan for ${row.repository}`}
+                      >
+                        {cancelingThis ? 'Canceling...' : 'Cancel scan'}
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+      {connected && hasRepositories ? (
+        <section className="idt-domain-status-panel" aria-label="Recent repository scan activity">
+          <header>
+            <div>
+              <p className="idt-app-kicker">Activity</p>
+              <h3>Recent repository scan activity</h3>
+            </div>
+            <span>{`${selectedRepositoryScans.length} scan${selectedRepositoryScans.length === 1 ? '' : 's'} loaded`}</span>
+          </header>
+          {selectedRepositoryScans.length === 0 ? (
+            <DomainEmptyState
+              eyebrow="No activity"
+              title="No repository scans recorded yet"
+              body="Queue a scan for a selected repository to seed activity here."
+            />
+          ) : (
+            <DomainTimeline label="Recent repository scan activity" entries={gitHubRecentScansTimeline(selectedRepositoryScans.slice(0, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT * 2))} />
+          )}
+        </section>
+      ) : null}
+    </DomainPageShell>
+  );
+}
+
+export function ProductGitHubActionsPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const availability = useGitHubAvailability();
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub Actions / OIDC</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading GitHub Actions / OIDC.</p>
+      </section>
+    );
+  }
+
+  if (availability.loading) {
+    return (
+      <DomainPageShell
+        domain="github"
+        eyebrow="Workflow trust"
+        title="GitHub Actions / OIDC"
+        description="Loading GitHub availability for this build."
+        scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      >
+        <DomainLoadingState label="Loading GitHub availability" />
+      </DomainPageShell>
+    );
+  }
+
+  if (!availability.available) {
+    return (
+      <GitHubUnavailableShell
+        title="GitHub Actions / OIDC"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+        unavailableMessage={availability.unavailableMessage}
+      />
+    );
+  }
+
+  const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
+  const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
+  const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
+  const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
+
+  const surfaces = [
+    {
+      id: 'workflows',
+      title: 'Workflow inventory',
+      body: 'Track which repositories run GitHub Actions, what triggers them, and which workflows ship secrets to runners.'
+    },
+    {
+      id: 'permissions',
+      title: 'Actions permissions',
+      body: 'Surface repositories that allow write workflow tokens, broad GITHUB_TOKEN scopes, or unrestricted action sources.'
+    },
+    {
+      id: 'oidc',
+      title: 'OIDC trust paths',
+      body: 'Map AWS, GCP, and Azure roles that trust GitHub Actions OIDC claims, including branch and environment scoping.'
+    },
+    {
+      id: 'runners',
+      title: 'Runner posture',
+      body: 'Inventory self-hosted runners, label scoping, and ephemerality posture so risky reuse is easy to spot.'
+    }
+  ];
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="Workflow trust"
+      title="GitHub Actions / OIDC"
+      description="Workflow permissions, OIDC trust paths, Actions runners, and automation identity posture for GitHub."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      status={<DomainStatusBadge variant="coming-soon" label="Coverage incoming" />}
+      statusTone="neutral"
+      primaryAction={{ label: 'Connect GitHub', to: connectPath, variant: 'primary' }}
+      secondaryActions={[
+        { label: 'Open Repositories', to: repositoriesPath },
+        { label: 'GitHub findings', to: findingsPath },
+        { label: 'GitHub home', to: basePath }
+      ]}
+      aside={
+        <DomainDetailPanel title="Why this page exists" eyebrow="Domain charter">
+          <p>
+            GitHub Actions own the most powerful CI identities in many environments. Identrail will track workflow tokens,
+            OIDC trust, and runner posture here so security teams can reason about them as first-class machine identities.
+          </p>
+        </DomainDetailPanel>
+      }
+    >
+      <DomainStatusPanel
+        eyebrow="Coverage status"
+        title="Workflow and OIDC posture is rolling out"
+        status={<DomainStatusBadge variant="coming-soon" label="Premium preview" />}
+        tone="info"
+      >
+        <p>
+          The Identrail GitHub collector already ingests workflow and OIDC signal. The triage UI surfaces — workflow
+          inventory, permission posture, OIDC trust analysis, and runner inventory — land here as they ship so this page
+          stays the single home for Actions and automation identity in GitHub.
+        </p>
+      </DomainStatusPanel>
+      <section className="idt-domain-status-panel" aria-label="Surfaces planned here">
+        <header>
+          <div>
+            <p className="idt-app-kicker">Surfaces in this page</p>
+            <h3>What lands on Actions / OIDC</h3>
+          </div>
+          <span>4 surfaces</span>
+        </header>
+        <div className="idt-domain-readiness-items">
+          {surfaces.map((surface) => (
+            <article key={surface.id}>
+              <div>
+                <strong>{surface.title}</strong>
+                <p>{surface.body}</p>
+              </div>
+              <span>Planned</span>
+            </article>
+          ))}
+        </div>
+      </section>
+    </DomainPageShell>
+  );
 }
 
 export function ProductReportsPage() {

@@ -1960,3 +1960,545 @@ describe('ProductFindingsPage states', () => {
     expect(screen.queryByRole('dialog', { name: /IAM role with wildcard trust/i })).not.toBeInTheDocument();
   });
 });
+
+describe('GitHub domain pages (#1382)', () => {
+  const productionProject = {
+    tenant_id: 'tenant-a',
+    workspace_id: 'workspace-a',
+    project_id: 'production-platform',
+    name: 'Production Platform',
+    slug: 'production-platform',
+    description: 'Production identity boundary.',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z'
+  };
+
+  const succeededRepoScan: RepoScanRecord = {
+    id: 'repo-scan-succeeded',
+    repository: 'identrail/identrail',
+    status: 'succeeded',
+    started_at: '2026-05-17T10:50:00Z',
+    finished_at: '2026-05-17T10:55:00Z',
+    commits_scanned: 12,
+    files_scanned: 340,
+    finding_count: 3,
+    truncated: false,
+    scan_mode: 'quick'
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  async function renderGitHubPage(
+    pageName: 'control-center' | 'connect' | 'repositories' | 'actions',
+    options: {
+      githubConnection?: GitHubConnectionStatus | null;
+      scans?: RepoScanRecord[];
+      listRepoScans?: () => Promise<{ items: RepoScanRecord[]; next_cursor?: string }>;
+      githubFeatureFlag?: boolean;
+      githubBackend?: BackendFeatureState;
+      runRepoScanError?: { message: string; status: number };
+      cancelRepoScanError?: { message: string; status: number };
+      initialEntry?: string;
+    } = {}
+  ) {
+    mockConnectorFeatureFlags({ aws: false, github: options.githubFeatureFlag ?? true, kubernetes: false });
+    mockBackendFeatures({ github: options.githubBackend ?? true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValue({ connection: options.githubConnection ?? connectedGitHub });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans');
+    if (options.listRepoScans) {
+      listRepoScans.mockImplementation(() => options.listRepoScans?.() ?? Promise.resolve({ items: [] }));
+    } else {
+      listRepoScans.mockResolvedValue({ items: options.scans ?? [] });
+    }
+    const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
+    if (options.runRepoScanError) {
+      runRepoScan.mockRejectedValue(new api.ApiError(options.runRepoScanError.message, options.runRepoScanError.status));
+    } else {
+      runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
+    }
+    const cancelRepoScan = vi.spyOn(api.apiClient, 'cancelRepoScan');
+    if (options.cancelRepoScanError) {
+      cancelRepoScan.mockRejectedValue(
+        new api.ApiError(options.cancelRepoScanError.message, options.cancelRepoScanError.status)
+      );
+    } else {
+      cancelRepoScan.mockResolvedValue({ repo_scan: canceledRepoScan });
+    }
+    const startGitHubConnector = vi.spyOn(api.apiClient, 'startGitHubConnector').mockResolvedValue({
+      connection: {
+        provider: 'github_app',
+        connected: false,
+        connector_id: 'github-app',
+        display_name: 'Identrail',
+        status: 'pending',
+        health_status: 'unknown',
+        webhook_secret_rotation_required: false,
+        selected_repositories: []
+      },
+      connector_id: 'github-app',
+      state: 'github-state',
+      install_url: 'https://github.com/apps/identrail/installations/select_target?state=github-state',
+      install_account_type: 'any',
+      webhook_url: '/auth/webhooks/github',
+      expires_at: '2026-05-17T10:10:00Z'
+    });
+
+    const productShell = await import('./productShell');
+    const page =
+      pageName === 'control-center' ? <productShell.ProductGitHubControlCenterPage /> :
+      pageName === 'connect' ? <productShell.ProductGitHubConnectPage /> :
+      pageName === 'repositories' ? <productShell.ProductGitHubRepositoriesPage /> :
+      <productShell.ProductGitHubActionsPage />;
+
+    const routePath =
+      pageName === 'control-center' ? 'github' :
+      pageName === 'connect' ? 'github/connect' :
+      pageName === 'repositories' ? 'github/repositories' :
+      'github/actions';
+
+    render(
+      <MemoryRouter initialEntries={[options.initialEntry ?? `/app/tenant-a/workspace-a/${routePath}`]}>
+        <Routes>
+          <Route path={`/app/:tenantID/:workspaceID/${routePath}`} element={page} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    return { getGitHubConnectorStatus, listRepoScans, runRepoScan, cancelRepoScan, startGitHubConnector };
+  }
+
+  it('Control Center loads the GitHub connection and surfaces premium status', async () => {
+    const mocks = await renderGitHubPage('control-center', { scans: [succeededRepoScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await waitFor(() => expect(mocks.getGitHubConnectorStatus).toHaveBeenCalledWith(
+      'workspace-a',
+      'production-platform',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    ));
+    await screen.findByText(/Connected as identrail/i);
+    await waitFor(() => {
+      const openRepos = screen
+        .getAllByRole('link', { name: /Open Repositories/i })
+        .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/repositories'));
+      expect(openRepos).toBeDefined();
+    });
+    const connectLinks = screen
+      .getAllByRole('link', { name: /Connect GitHub/i })
+      .filter((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/connect'));
+    expect(connectLinks.length).toBeGreaterThan(0);
+    const findingsLinks = screen
+      .getAllByRole('link', { name: /GitHub findings/i })
+      .filter((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/findings'));
+    expect(findingsLinks.length).toBeGreaterThan(0);
+    expect(screen.getByText(/Last 1 repository scans/i)).toBeInTheDocument();
+  });
+
+  it('Control Center prompts to connect when not connected', async () => {
+    await renderGitHubPage('control-center', {
+      githubConnection: {
+        ...connectedGitHub,
+        connected: false,
+        account_login: undefined,
+        installation_id: undefined,
+        selected_repositories: []
+      },
+      scans: []
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findByText(/GitHub is not connected for this environment yet/i);
+    await waitFor(() => {
+      const heroConnect = screen
+        .getAllByRole('link', { name: /Connect GitHub/i })
+        .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/connect'));
+      expect(heroConnect).toBeDefined();
+    });
+  });
+
+  it('Control Center shows the unavailable shell when the GitHub connector is gated off', async () => {
+    await renderGitHubPage('control-center', { githubFeatureFlag: false, githubBackend: false });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findByRole('heading', { level: 3, name: /GitHub is not available on this API/i });
+  });
+
+  it('Connect page calls startGitHubConnector and opens the install URL', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const mocks = await renderGitHubPage('connect', {
+      githubConnection: {
+        ...connectedGitHub,
+        connected: false,
+        account_login: undefined,
+        installation_id: undefined,
+        selected_repositories: []
+      }
+    });
+
+    const installButton = (await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0];
+    fireEvent.click(installButton);
+
+    await waitFor(() =>
+      expect(mocks.startGitHubConnector).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_id: 'production-platform',
+          install_account_type: 'any',
+          redirect_uri: expect.stringMatching(/\/app\/github\/callback$/)
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://github.com/apps/identrail/installations/select_target?state=github-state',
+        '_blank',
+        'noopener,noreferrer'
+      )
+    );
+
+    const enterpriseLinks = screen
+      .getAllByRole('link', { name: /Manage Enterprise \/ PAT/i })
+      .filter((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/projects/production-platform'));
+    expect(enterpriseLinks.length).toBeGreaterThan(0);
+    expect(enterpriseLinks[0].getAttribute('href')).toContain('source=github');
+    openSpy.mockRestore();
+  });
+
+  it('Repositories page launches a scan via the existing API', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
+    fireEvent.click(queueButton);
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'identrail/identrail',
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await screen.findByText(/Repository scan queued for identrail\/identrail/i);
+  });
+
+  it('Repositories page cancels an active scan via the existing API', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [queuedRepoScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    const cancelButton = await screen.findByRole('button', { name: 'Cancel scan for identrail/identrail' });
+    fireEvent.click(cancelButton);
+
+    await waitFor(() =>
+      expect(mocks.cancelRepoScan).toHaveBeenCalledWith(
+        'repo-scan-queued',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await screen.findByText(/Repository scan canceled for identrail\/identrail/i);
+  });
+
+  it('Repositories page shows the empty state when no repositories are selected', async () => {
+    await renderGitHubPage('repositories', {
+      githubConnection: { ...connectedGitHub, selected_repositories: [] }
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 3, name: /Select repositories for Identrail to watch/i });
+    await waitFor(() => {
+      const selectLink = screen
+        .getAllByRole('link')
+        .find((link) => link.textContent?.includes('Select repositories'));
+      expect(selectLink).toBeDefined();
+      expect(selectLink?.getAttribute('href')).toMatch(/^\/app\/tenant-a\/workspace-a\/github\/connect/);
+    });
+  });
+
+  it('Repositories page surfaces a scan error inline without breaking navigation', async () => {
+    await renderGitHubPage('repositories', {
+      runRepoScanError: { message: 'rate limited', status: 429 }
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
+    fireEvent.click(queueButton);
+
+    await screen.findByRole('heading', { level: 3, name: /Repository scan error/i });
+    const homeLink = screen
+      .getAllByRole('link', { name: /GitHub home/i })
+      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github'));
+    expect(homeLink).toBeDefined();
+  });
+
+  it('Actions page renders the premium waiting-for-coverage shell', async () => {
+    await renderGitHubPage('actions');
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Actions / OIDC' });
+    await screen.findByRole('heading', { level: 3, name: /Workflow and OIDC posture is rolling out/i });
+    expect(screen.getAllByText(/Workflow inventory/i).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      const openReposLink = screen
+        .getAllByRole('link', { name: /Open Repositories/i })
+        .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/repositories'));
+      expect(openReposLink).toBeDefined();
+    });
+    const homeLink = screen
+      .getAllByRole('link', { name: /GitHub home/i })
+      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github'));
+    expect(homeLink).toBeDefined();
+  });
+
+  it('Actions page renders the unavailable shell when the GitHub connector is gated off', async () => {
+    await renderGitHubPage('actions', { githubFeatureFlag: false, githubBackend: false });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Actions / OIDC' });
+    await screen.findByRole('heading', { level: 3, name: /GitHub is not available on this API/i });
+  });
+
+  it('Control Center surfaces an error when listing repository scans fails', async () => {
+    const api = await import('./api/client');
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockRejectedValue(
+      new api.ApiError('rate limited', 429)
+    );
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findByRole('heading', { level: 3, name: /Unable to load GitHub status/i });
+  });
+
+  it('Control Center hides recent scans when no repositories are selected', async () => {
+    const unrelatedScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-unrelated',
+      repository: 'someone-else/other-repo'
+    };
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: [] },
+      scans: [unrelatedScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    expect(screen.queryByText(/Last \d+ repository scans/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
+    await screen.findByRole('heading', { level: 3, name: /No repository scans yet/i });
+  });
+
+  it('Control Center latest-scan KPI reflects the newest scan even when it failed', async () => {
+    const olderSucceeded: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-older-success',
+      started_at: '2026-05-16T10:00:00Z',
+      finished_at: '2026-05-16T10:05:00Z'
+    };
+    const newerFailed: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-newer-failed',
+      status: 'failed',
+      started_at: '2026-05-17T12:00:00Z',
+      finished_at: '2026-05-17T12:05:00Z',
+      error_message: 'scan exploded',
+      finding_count: 0
+    };
+    await renderGitHubPage('control-center', { scans: [newerFailed, olderSucceeded] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findAllByText(/scan exploded/i);
+    const kpiStrip = screen.getByLabelText('GitHub control center metrics');
+    expect(within(kpiStrip).getByText(/scan exploded/i)).toBeInTheDocument();
+  });
+
+  it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    await renderGitHubPage('connect', {
+      githubConnection: {
+        ...connectedGitHub,
+        connected: false,
+        account_login: undefined,
+        installation_id: undefined,
+        selected_repositories: []
+      }
+    });
+
+    const installButton = (await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0];
+    fireEvent.click(installButton);
+
+    const fallback = await screen.findByRole('link', { name: 'Open GitHub' });
+    expect(fallback.getAttribute('href')).toBe(
+      'https://github.com/apps/identrail/installations/select_target?state=github-state'
+    );
+    expect(openSpy).toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('Repositories page activity timeline ignores scans for unselected repositories', async () => {
+    const unrelatedScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-unrelated',
+      repository: 'someone-else/other-repo'
+    };
+    await renderGitHubPage('repositories', { scans: [unrelatedScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 3, name: /Recent repository scan activity/i });
+    expect(screen.getByText(/0 scans loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
+  });
+
+  it('Repositories page fetches additional scan pages until selected-repository activity is available', async () => {
+    const unrelatedRepoScans: RepoScanRecord[] = Array.from({ length: 3 }).map((_, index) => ({
+      ...succeededRepoScan,
+      id: `repo-scan-unrelated-${index}`,
+      repository: `team-${index + 1}/unrelated`
+    }));
+    const selectedRepoScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-selected',
+      repository: 'identrail/identrail',
+      status: 'completed',
+      started_at: '2026-05-18T10:00:00Z',
+      finished_at: '2026-05-18T10:03:00Z',
+      finding_count: 2,
+      files_scanned: 17
+    };
+
+    let pageCalls = 0;
+    const mocks = await renderGitHubPage('repositories', {
+      listRepoScans: () => {
+        pageCalls += 1;
+        if (pageCalls === 1) {
+          return Promise.resolve({
+            items: unrelatedRepoScans,
+            next_cursor: 'repo-page-2'
+          });
+        }
+        return Promise.resolve({
+          items: [selectedRepoScan]
+        });
+      }
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/1 scan loaded/i)).toBeInTheDocument());
+    expect(screen.getAllByText(/identrail\/identrail/i)).toHaveLength(2);
+  });
+
+  it('Repositories page clears stale GitHub connection data when a reloading environment status fails', async () => {
+    const api = await import('./api/client');
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+
+    const activeProject = productionProject;
+    const staleProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [activeProject, staleProject]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation(async (_workspaceID, projectID) => ({
+      project:
+        projectID === staleProject.project_id
+          ? staleProject
+          : activeProject
+    }));
+
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValueOnce({ connection: connectedGitHub })
+      .mockRejectedValue(new api.ApiError('status endpoint unavailable', 503));
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [queuedRepoScan] });
+    vi.spyOn(api.apiClient, 'runRepoScan').mockResolvedValue({ repo_scan: queuedRepoScan });
+    vi.spyOn(api.apiClient, 'cancelRepoScan').mockResolvedValue({ repo_scan: canceledRepoScan });
+
+    const { ProductGitHubRepositoriesPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<ProductGitHubRepositoriesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('production-platform'));
+    expect(await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), {
+        target: { value: 'staging-platform' }
+      });
+    });
+
+    await screen.findByRole('heading', { level: 3, name: /Unable to load repository status/i });
+    expect(screen.queryByRole('button', { name: 'Queue scan for identrail/identrail' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Connect GitHub to manage repositories/i })).toBeInTheDocument();
+
+    expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('Repositories page disables Queue scan while environment data is reloading', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [] });
+
+    expect(await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' })).not.toBeDisabled();
+
+    let resolveQueued: ((value: { repo_scan: RepoScanRecord }) => void) | null = null;
+    let resolvePending: ((value: { items: RepoScanRecord[] }) => void) | null = null;
+    mocks.runRepoScan.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveQueued = resolve;
+        })
+    );
+    mocks.listRepoScans.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePending = resolve;
+        })
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' }));
+    });
+    await waitFor(() => expect(mocks.runRepoScan).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Queue scan for identrail/identrail' })).toHaveTextContent(/Refreshing|Queuing/i);
+
+    await act(async () => {
+      resolveQueued?.({ repo_scan: queuedRepoScan });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolvePending?.({ items: [] });
+      await Promise.resolve();
+    });
+  });
+});

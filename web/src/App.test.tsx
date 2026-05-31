@@ -1419,8 +1419,8 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/github/connect');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open GitHub setup/i })).toBeInTheDocument();
-    expect(screen.getByText(/GitHub connector is not available in this build/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^Connect GitHub$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 3, name: /GitHub is not available on this API/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/connect');
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });

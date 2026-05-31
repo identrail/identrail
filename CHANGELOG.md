@@ -9,6 +9,37 @@
   refreshed `CurrentUserContext` without touching account lifecycle fields. The
   Settings page now shows an Account profile card before workspace settings,
   with inline editing, optimistic cache updates, and rollback on save failure.
+- Hardened the new GitHub domain pages to address review feedback: the
+  Control Center now surfaces a `Unable to load GitHub status` error when
+  listing recent repository scans fails instead of silently showing an empty
+  timeline, scopes the `Recent scans` panel and `Latest scan` KPI strictly to
+  scans for the selected GitHub App repositories (no fallback to all scans),
+  and the `Latest scan` KPI reflects the newest completed scan's actual
+  outcome rather than preferring an older successful one. The Connect page
+  renders an `Open GitHub` fallback link with the App install URL when the
+  browser blocks `window.open` after the install request. The Repositories
+  activity timeline is scoped to selected repositories. The Connect page
+  also forwards `redirect_uri` (`${origin}/app/github/callback`) when
+  starting the GitHub App install so completion lands back on the Identrail
+  callback handler instead of GitHub's default setup URL. The Repositories
+  page disables `Queue scan` and `Cancel scan` while environment data is
+  reloading to prevent acting on stale repository rows after switching
+  environments.
+- Moved GitHub setup, repository scan operation, and the Actions/OIDC
+  posture surface out of the legacy `/projects/:projectID` source tab into a
+  domain-owned GitHub section. The new `/app/:tenant/:workspace/github`
+  Control Center surfaces connection status, installation summary, selected
+  repository coverage, recent scan activity, and recommended next actions.
+  `/github/connect` owns the GitHub App install entry point and the
+  Enterprise/PAT fallback link; `/github/repositories` owns selected
+  repository inventory plus repository scan launch and cancel; and
+  `/github/actions` is the premium waiting-for-coverage shell for workflow
+  permissions, OIDC trust paths, and runner posture. Existing GitHub
+  connector, repository scan, and project-scoped API contracts are preserved
+  — the new pages call the same `getGitHubConnectorStatus`,
+  `startGitHubConnector`, `listRepoScans`, `runRepoScan`, and
+  `cancelRepoScan` endpoints, including the internal `project_id` scope, so
+  backend behavior is unchanged.
 - Added self-serve account permanent deletion with a 30-day reversible grace
   window. `DELETE /v1/me` soft-deletes the authenticated user (status flips to
   `deleted`, `deleted_at` is stamped, every other session is revoked, and the
