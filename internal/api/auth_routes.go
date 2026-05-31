@@ -1289,7 +1289,6 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update current user profile"})
 			return
 		}
-		auditAuthAction(c.Request.Context(), "auth.user.profile_update", current.Session.UserID, "success")
 		c.JSON(http.StatusOK, gin.H{"me": contextSnapshot})
 	})
 
