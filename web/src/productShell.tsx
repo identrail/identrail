@@ -3136,6 +3136,8 @@ export function ProductAWSConnectPage() {
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const connectionRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
+  const awsPollRequestRef = useRef(0);
+  const awsValidationRequestRef = useRef(0);
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
   const scopeKeyRef = useRef(scopeKey);
@@ -3199,6 +3201,8 @@ export function ProductAWSConnectPage() {
   useEffect(() => {
     connectionRequestRef.current += 1;
     awsStartRequestRef.current += 1;
+    awsPollRequestRef.current += 1;
+    awsValidationRequestRef.current += 1;
     setSuccessMessage('');
     setErrorMessage('');
     setSubmitting(false);
@@ -3217,6 +3221,8 @@ export function ProductAWSConnectPage() {
     return () => {
       connectionRequestRef.current += 1;
       awsStartRequestRef.current += 1;
+      awsPollRequestRef.current += 1;
+      awsValidationRequestRef.current += 1;
     };
   }, [refreshConnection]);
 
@@ -3233,6 +3239,8 @@ export function ProductAWSConnectPage() {
   const handleEnvironmentChange = (environmentID: string) => {
     connectionRequestRef.current += 1;
     awsStartRequestRef.current += 1;
+    awsPollRequestRef.current += 1;
+    awsValidationRequestRef.current += 1;
     setConnection(null);
     navigate(
       {
@@ -3307,19 +3315,35 @@ export function ProductAWSConnectPage() {
     }
     setSubmitting(true);
     setErrorMessage('');
+    const requestID = ++awsPollRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    const requestConnectorID = activeConnectorID;
+    const isStale = () =>
+      requestID !== awsPollRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
     try {
       const response = await apiClient.pollAWSConnector(
-        activeConnectorID,
+        requestConnectorID,
         scope.workspaceID,
-        selectedEnvironmentID,
+        requestEnvironmentID,
         buildProductAuthContext(scope)
       );
+      if (isStale()) {
+        return;
+      }
       setConnection(response.connection);
       setSuccessMessage(response.connection.connected ? 'AWS connector is active.' : 'AWS status refreshed.');
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       setErrorMessage(formatAPIError(error, 'Unable to poll AWS connector setup.'));
     } finally {
-      setSubmitting(false);
+      if (!isStale()) {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -3332,6 +3356,14 @@ export function ProductAWSConnectPage() {
     setSubmitting(true);
     setSuccessMessage('');
     setErrorMessage('');
+    const requestID = ++awsValidationRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    const requestConnectorID = activeConnectorID;
+    const isStale = () =>
+      requestID !== awsValidationRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
     try {
       const roleARN = normalizeValue(awsForm.roleARN);
       if (!AWS_ROLE_ARN_PATTERN.test(roleARN)) {
@@ -3346,12 +3378,12 @@ export function ProductAWSConnectPage() {
       };
       const auth = buildProductAuthContext(scope);
       const response =
-        FEATURE_CONNECTOR_AWS && activeConnectorID
+        FEATURE_CONNECTOR_AWS && requestConnectorID
           ? await apiClient.validateAWSConnector(
-              activeConnectorID,
+              requestConnectorID,
               {
                 workspace_id: scope.workspaceID,
-                project_id: selectedEnvironmentID,
+                project_id: requestEnvironmentID,
                 role_arn: payload.role_arn,
                 external_id: payload.external_id,
                 region: payload.region,
@@ -3359,15 +3391,23 @@ export function ProductAWSConnectPage() {
               },
               auth
             )
-          : await apiClient.upsertAWSProjectConnection(scope.workspaceID, selectedEnvironmentID, payload, auth);
+          : await apiClient.upsertAWSProjectConnection(scope.workspaceID, requestEnvironmentID, payload, auth);
+      if (isStale()) {
+        return;
+      }
       setConnection(response.connection);
       setSuccessMessage(
         response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
       );
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       setErrorMessage(formatAPIError(error, 'Unable to validate AWS connection.'));
     } finally {
-      setSubmitting(false);
+      if (!isStale()) {
+        setSubmitting(false);
+      }
     }
   };
 

@@ -1241,6 +1241,142 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByRole('button', { name: /Preview permissions/i })).not.toBeInTheDocument();
   });
 
+  it('ignores stale AWS poll responses after switching environments', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ connection: projectID === 'production' ? connectedAWS : disconnectedAWS })
+    );
+    const pollResponse = deferred<{ connection: AWSConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'pollAWSConnector').mockReturnValue(pollResponse.promise);
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
+    const refreshButton = within(screen.getByLabelText('AWS connector setup')).getByRole('button', {
+      name: /Refresh status/i
+    });
+    fireEvent.click(refreshButton);
+    await waitFor(() =>
+      expect(api.apiClient.pollAWSConnector).toHaveBeenCalledWith(
+        'aws-connector-1',
+        'workspace-a',
+        'production',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+
+    await act(async () => {
+      pollResponse.resolve({
+        connection: { ...connectedAWS, display_name: 'Production poll AWS', account_id: '111111111111' }
+      });
+    });
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
+    expect(screen.queryByText('AWS connector is active.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Production poll AWS')).not.toBeInTheDocument();
+  });
+
+  it('ignores stale AWS validation responses after switching environments', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ connection: projectID === 'production' ? connectedAWS : disconnectedAWS })
+    );
+    const validationResponse = deferred<{ connection: AWSConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'validateAWSConnector').mockReturnValue(validationResponse.promise);
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const submitButton = await screen.findByRole('button', { name: /Validate and save AWS/i });
+    fireEvent.click(submitButton);
+    await waitFor(() =>
+      expect(api.apiClient.validateAWSConnector).toHaveBeenCalledWith(
+        'aws-connector-1',
+        expect.objectContaining({ project_id: 'production' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+
+    await act(async () => {
+      validationResponse.resolve({
+        connection: { ...connectedAWS, display_name: 'Validated production AWS', account_id: '111111111111' }
+      });
+    });
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
+    expect(screen.queryByText('AWS connector is active.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Validated production AWS')).not.toBeInTheDocument();
+  });
+
   it('loads AWS connect actions for the selected environment even when it is outside the first page', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
