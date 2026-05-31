@@ -10344,6 +10344,61 @@ function repoFindingMatchesAny(finding: ApiFinding, tokens: string[]): boolean {
   return tokens.some((token) => haystack.includes(token));
 }
 
+const AGENTIC_RISK_SCOPE_TOKENS: string[] = [
+  'ai_agent_surface',
+  'ai_agent_config',
+  'ai agent config',
+  'assistant configuration',
+  '.mcp.json',
+  '.cursor',
+  '.continue',
+  '.codex',
+  '.claude',
+  'copilot-instructions',
+  'agent config',
+  'agent instruction',
+  'mcp',
+  'model context protocol',
+  'tool capability',
+  'dangerous tool',
+  'external capability',
+  'command surface',
+  'stdio',
+  'shell tool',
+  'server inventory',
+  'prompt',
+  'instruction',
+  'prompt injection',
+  'workflow prompt',
+  'untrusted input',
+  'pull request text',
+  'issue body',
+  'ai step',
+  'secret',
+  'token',
+  'credential',
+  'api key',
+  'env var',
+  'environment variable',
+  'github_secret_scanning',
+  'secret scanning',
+  'agentic secret',
+  'github actions',
+  'workflow_ai_agent_prompt_injection',
+  'pull_request_target',
+  'oidc',
+  'id-token',
+  'permissions',
+  'runner',
+  'self-hosted',
+  'bot',
+  'trust path'
+];
+
+function isAgenticRiskFinding(finding: ApiFinding): boolean {
+  return repoFindingMatchesAny(finding, AGENTIC_RISK_SCOPE_TOKENS);
+}
+
 const GITHUB_INTELLIGENCE_CATEGORIES: GitHubIntelligenceCategory[] = [
   {
     id: 'ai-agent-mcp',
@@ -10964,7 +11019,7 @@ export function ProductAIRisksPage() {
   );
 }
 
-export function ProductFindingsPage() {
+export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boolean } = {}) {
   const location = useLocation();
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
@@ -11114,9 +11169,14 @@ export function ProductFindingsPage() {
     [repoScans]
   );
 
+  const scopedRepoFindings = useMemo(
+    () => (agenticOnly ? repoFindings.filter(isAgenticRiskFinding) : repoFindings),
+    [agenticOnly, repoFindings]
+  );
+
   const filteredFindings = useMemo(() => {
     const normalizedAssigneeFilter = normalizeValue(assigneeFilter).toLowerCase();
-    return repoFindings.filter((finding) => {
+    return scopedRepoFindings.filter((finding) => {
       const status = normalizeFindingStatus(finding.triage?.status);
       const assignee = normalizeValue(finding.triage?.assignee ?? '').toLowerCase();
       const matchesStatus = statusFilter === 'all' || status === statusFilter;
@@ -11124,7 +11184,7 @@ export function ProductFindingsPage() {
 
       return matchesStatus && matchesAssignee;
     });
-  }, [repoFindings, statusFilter, assigneeFilter]);
+  }, [scopedRepoFindings, statusFilter, assigneeFilter]);
 
   const findingHierarchy = useMemo(
     () =>
