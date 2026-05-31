@@ -1425,7 +1425,7 @@ describe('App', () => {
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
 
-  it('routes the AWS connect domain entry to the working connector setup', async () => {
+  it('routes the AWS connect domain entry to the AWS-owned setup page', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
@@ -1503,9 +1503,10 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/aws/connect');
     render(<App />);
 
-    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/projects/project-1'));
-    expect(window.location.search).toBe('?source=aws');
-    expect(await screen.findByRole('heading', { level: 1, name: /Connect AWS/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Connect AWS/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/aws/connect');
+    expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /AWS home/i })).toHaveAttribute('href', '/app/tenant-a/workspace-a/aws?environment=project-1');
     expect(screen.queryByLabelText('AWS source')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Source types')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 3, name: 'AWS' })).not.toBeInTheDocument();

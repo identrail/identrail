@@ -2418,6 +2418,446 @@ function ProductRouteReadinessList({ route }: { route: ProductDomainRoute }) {
   );
 }
 
+type AWSCapabilityStage = 'wired' | 'coming' | 'not-available';
+
+type AWSControlCard = {
+  id: string;
+  label: string;
+  routeID: ProductDomainRouteID;
+  stage: AWSCapabilityStage;
+  metric: string;
+  detail: string;
+};
+
+const AWS_CONTROL_CARDS: AWSControlCard[] = [
+  {
+    id: 'connect',
+    label: 'Connection and validation',
+    routeID: 'connect',
+    stage: 'wired',
+    metric: 'Wired now',
+    detail: 'CloudFormation launch, role ARN validation, permission preview, polling, and diagnostics.'
+  },
+  {
+    id: 'accounts',
+    label: 'Accounts and regions',
+    routeID: 'accounts',
+    stage: 'coming',
+    metric: 'Coming wave',
+    detail: 'Organization, account, and region coverage will land after inventory scale support.'
+  },
+  {
+    id: 'identities',
+    label: 'Machine identities',
+    routeID: 'identities',
+    stage: 'coming',
+    metric: 'Coming wave',
+    detail: 'IAM roles, instance profiles, task roles, Lambda roles, EKS identities, and CI/CD roles.'
+  },
+  {
+    id: 'agents',
+    label: 'Agent identities',
+    routeID: 'agents',
+    stage: 'coming',
+    metric: 'Coming wave',
+    detail: 'Bedrock, AgentCore, MCP, tool, and agent-to-role mapping surfaces.'
+  },
+  {
+    id: 'resources',
+    label: 'Resources and secrets',
+    routeID: 'resources',
+    stage: 'coming',
+    metric: 'Coming wave',
+    detail: 'Secrets metadata, SSM parameters, KMS, S3, and sensitive control-plane reachability.'
+  },
+  {
+    id: 'runtime',
+    label: 'Runtime evidence',
+    routeID: 'runtime',
+    stage: 'coming',
+    metric: 'Coming wave',
+    detail: 'CloudTrail, STS session resolution, secret reads, KMS decrypts, and agent tool activity.'
+  },
+  {
+    id: 'findings',
+    label: 'AWS findings',
+    routeID: 'findings',
+    stage: 'not-available',
+    metric: 'Not yet available',
+    detail: 'Domain-scoped findings will appear here after AWS collectors and reasoning engines land.'
+  },
+  {
+    id: 'remediation',
+    label: 'Remediation and governance',
+    routeID: 'remediation',
+    stage: 'not-available',
+    metric: 'Not yet available',
+    detail: 'Approved IAM diffs, trust hardening, verification, and runtime guardrails are staged for later PRs.'
+  }
+];
+
+function awsStageLabel(stage: AWSCapabilityStage): string {
+  if (stage === 'wired') {
+    return 'Wired now';
+  }
+  if (stage === 'coming') {
+    return 'Coming';
+  }
+  return 'Not yet available';
+}
+
+function awsStageTone(stage: AWSCapabilityStage): 'success' | 'warning' | 'neutral' {
+  if (stage === 'wired') {
+    return 'success';
+  }
+  if (stage === 'coming') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function awsDomainTone(connection: AWSConnectionStatus | null, loading = false): 'success' | 'warning' | 'danger' | 'neutral' | 'info' {
+  if (loading) {
+    return 'info';
+  }
+  const tone = connectionTone(connection ?? undefined);
+  if (tone === 'error') {
+    return 'danger';
+  }
+  if (tone === 'success' || tone === 'warning') {
+    return tone;
+  }
+  return 'neutral';
+}
+
+function awsStatusVariant(connection: AWSConnectionStatus | null): 'connected' | 'disconnected' | 'degraded' | 'missing-permissions' {
+  if (!connection) {
+    return 'disconnected';
+  }
+  const failedChecks = connection.permission_checks.filter((check) => !check.passed).length;
+  if (failedChecks > 0) {
+    return 'missing-permissions';
+  }
+  if (connection.health_status === 'warning' || connection.status === 'degraded') {
+    return 'degraded';
+  }
+  return connection.connected ? 'connected' : 'disconnected';
+}
+
+function awsPermissionSummary(connection: AWSConnectionStatus | null): string {
+  if (!connection || connection.permission_checks.length === 0) {
+    return 'Not validated';
+  }
+  const passed = connection.permission_checks.filter((check) => check.passed).length;
+  return `${passed}/${connection.permission_checks.length} passed`;
+}
+
+function awsDiagnosticSummary(connection: AWSConnectionStatus | null): string {
+  if (!connection || connection.diagnostics.length === 0) {
+    return connection?.connected ? 'Clear' : 'No diagnostics';
+  }
+  return formatCountLabel(connection.diagnostics.length, 'item');
+}
+
+function awsAccountRegionLabel(connection: AWSConnectionStatus | null): string {
+  if (!connection?.account_id && !connection?.region) {
+    return 'Pending';
+  }
+  return [connection.account_id ? `Account ${connection.account_id}` : '', connection.region ? `Region ${connection.region}` : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function awsConnectionLabel(connection: AWSConnectionStatus | null): string {
+  if (!connection) {
+    return 'Not loaded';
+  }
+  return connection.connected ? 'Connected' : connectionLifecycle(connection);
+}
+
+function awsRouteLink(scope: ProductSession, routeID: ProductDomainRouteID, environmentID: string): string {
+  return appendEnvironmentQuery(domainRoutePath(scope, 'aws', findDomainRoute('aws', routeID)), environmentID);
+}
+
+function AWSConnectionDiagnostics({
+  connection,
+  emptyLabel = 'No diagnostics reported for this environment.'
+}: {
+  connection: AWSConnectionStatus | null;
+  emptyLabel?: string;
+}) {
+  if (!connection) {
+    return (
+      <article>
+        <strong>Connection not loaded</strong>
+        <span>Waiting</span>
+        <p>Select an environment to load AWS status.</p>
+      </article>
+    );
+  }
+
+  const checks = connection.permission_checks;
+  const diagnostics = connection.diagnostics;
+
+  if (checks.length === 0 && diagnostics.length === 0) {
+    return (
+      <article>
+        <strong>AWS diagnostics</strong>
+        <span>{connection.connected ? 'Clear' : 'Pending'}</span>
+        <p>{emptyLabel}</p>
+      </article>
+    );
+  }
+
+  return (
+    <>
+      {checks.map((check) => (
+        <article key={check.name}>
+          <strong>{check.name}</strong>
+          <span className={`idt-source-status-pill is-${check.passed ? 'success' : 'warning'}`}>
+            {check.passed ? 'Passed' : 'Needs attention'}
+          </span>
+          <p>{check.message}</p>
+          {check.remediation ? <small>{check.remediation}</small> : null}
+        </article>
+      ))}
+      {diagnostics.map((diagnostic) => (
+        <article key={diagnostic.code}>
+          <strong>{formatTokenLabel(diagnostic.code)}</strong>
+          <span className="idt-source-status-pill is-warning">Diagnostic</span>
+          <p>{diagnostic.message}</p>
+          {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+        </article>
+      ))}
+    </>
+  );
+}
+
+export function ProductAWSControlCenterPage() {
+  const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
+  const environmentScope = useEnvironmentScope(scope, requestedEnvironmentID);
+  const selectedEnvironmentID = environmentScope.selectedID;
+  const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
+  const [connectionLoading, setConnectionLoading] = useState(false);
+  const [connectionError, setConnectionError] = useState('');
+
+  const refreshConnection = useCallback(async () => {
+    if (!scope || !selectedEnvironmentID) {
+      setConnection(null);
+      setConnectionError('');
+      setConnectionLoading(false);
+      return;
+    }
+    setConnectionLoading(true);
+    setConnectionError('');
+    try {
+      const response = await apiClient.getAWSProjectConnection(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        buildProductAuthContext(scope)
+      );
+      setConnection(response.connection);
+    } catch (error) {
+      setConnection(null);
+      setConnectionError(formatAPIError(error, 'Unable to load AWS connection status.'));
+    } finally {
+      setConnectionLoading(false);
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  useEffect(() => {
+    void refreshConnection();
+  }, [refreshConnection]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">AWS Control Center</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading AWS.</p>
+      </section>
+    );
+  }
+
+  const handleEnvironmentChange = (environmentID: string) => {
+    navigate(
+      {
+        pathname: location.pathname,
+        search: environmentSearch(location.search, environmentID)
+      },
+      { replace: false }
+    );
+  };
+
+  const connectPath = awsRouteLink(scope, 'connect', selectedEnvironmentID);
+  const accountsPath = awsRouteLink(scope, 'accounts', selectedEnvironmentID);
+  const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
+  const failedChecks = connection?.permission_checks.filter((check) => !check.passed).length ?? 0;
+  const effectiveCapabilities = connection?.capabilities.effective.length ?? 0;
+  const statusTone = awsDomainTone(connection, connectionLoading || environmentScope.loading);
+  const statusLabel = environmentScope.loading
+    ? 'Loading scope'
+    : connectionLoading
+      ? 'Loading status'
+      : connectionError
+        ? 'Needs retry'
+        : awsConnectionLabel(connection);
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow="AWS machine identity"
+      title="AWS Control Center"
+      description="Operate AWS connection health, account and region scope, permission posture, and the AWS machine-identity roadmap from one domain-owned surface."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={handleEnvironmentChange} />}
+      status={statusLabel}
+      statusTone={statusTone}
+      primaryAction={{ label: 'Connect AWS', to: connectPath, variant: 'primary' }}
+      secondaryActions={[
+        { label: 'Accounts', to: accountsPath },
+        { label: 'Findings', to: findingsPath }
+      ]}
+      aside={
+        <DomainDetailPanel title="AWS scope" eyebrow="Workspace contract">
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Environment</dt>
+              <dd>{selectedEnvironmentID ? environmentFallbackLabel(selectedEnvironmentID) : 'Default environment'}</dd>
+            </div>
+            <div>
+              <dt>Account / region</dt>
+              <dd>{awsAccountRegionLabel(connection)}</dd>
+            </div>
+            <div>
+              <dt>Connector</dt>
+              <dd>{connection?.connector_id ?? 'Not assigned'}</dd>
+            </div>
+          </dl>
+        </DomainDetailPanel>
+      }
+    >
+      <DomainKpiStrip
+        label="AWS status summary"
+        items={[
+          {
+            label: 'Connection',
+            value: awsConnectionLabel(connection),
+            detail: connection?.display_name ?? (selectedEnvironmentID ? 'AWS connector status for selected environment' : 'Choose an environment'),
+            tone: statusTone === 'danger' ? 'danger' : statusTone
+          },
+          {
+            label: 'Account / region',
+            value: connection?.account_id ? '1 account' : 'Pending',
+            detail: awsAccountRegionLabel(connection),
+            tone: connection?.account_id ? 'success' : 'warning'
+          },
+          {
+            label: 'Permissions',
+            value: awsPermissionSummary(connection),
+            detail: failedChecks > 0 ? `${failedChecks} check${failedChecks === 1 ? '' : 's'} need attention` : 'Validation status from AWS connector',
+            tone: failedChecks > 0 ? 'warning' : connection?.permission_checks.length ? 'success' : 'neutral'
+          },
+          {
+            label: 'Runtime and actions',
+            value: effectiveCapabilities > 0 ? `${effectiveCapabilities} active` : 'Planned',
+            detail: 'Runtime evidence, remediation, and governance waves are labeled honestly below.',
+            tone: effectiveCapabilities > 0 ? 'success' : 'info'
+          }
+        ]}
+      />
+
+      {environmentScope.loading || connectionLoading ? <DomainLoadingState label="Loading AWS control center status" /> : null}
+
+      {connectionError ? (
+        <DomainErrorState
+          title="AWS status could not load"
+          body={connectionError}
+          retryAction={{ label: 'Retry status', onClick: () => void refreshConnection() }}
+        />
+      ) : null}
+
+      {!selectedEnvironmentID && !environmentScope.loading ? (
+        <DomainEmptyState
+          eyebrow="Environment required"
+          title="Create an environment before connecting AWS"
+          body="AWS connection payloads remain scoped to a workspace environment, so setup needs an environment before validation can run."
+          nextAction={{ label: 'Open environments', to: buildProjectsPath(scope) }}
+        />
+      ) : null}
+
+      <DomainStatusPanel
+        eyebrow="Connection health"
+        title="AWS connector status and diagnostics"
+        status={<DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection?.health_status ?? 'unknown'} />}
+        tone={statusTone === 'danger' ? 'danger' : statusTone}
+        actions={[
+          { label: 'Refresh status', onClick: () => void refreshConnection(), variant: 'secondary', disabled: connectionLoading },
+          { label: 'Open setup', to: connectPath, variant: 'ghost' }
+        ]}
+      >
+        <div className="idt-aws-status-grid">
+          <dl>
+            <div>
+              <dt>Lifecycle</dt>
+              <dd>{connection ? connectionLifecycle(connection) : 'Not connected'}</dd>
+            </div>
+            <div>
+              <dt>Last validation</dt>
+              <dd>{formatConnectionTime(connection?.last_validated_at ?? connection?.updated_at)}</dd>
+            </div>
+            <div>
+              <dt>External ID</dt>
+              <dd>{connection?.external_id_configured ? 'Configured' : 'Not configured'}</dd>
+            </div>
+            <div>
+              <dt>Role ARN</dt>
+              <dd>{connection?.role_arn ?? 'Not saved'}</dd>
+            </div>
+          </dl>
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS diagnostics summary">
+            <AWSConnectionDiagnostics connection={connection} />
+          </div>
+        </div>
+      </DomainStatusPanel>
+
+      <section className="idt-aws-control-grid" aria-label="AWS capability map">
+        {AWS_CONTROL_CARDS.map((card) => (
+          <Link
+            key={card.id}
+            className={`idt-aws-capability-card is-${card.stage}`}
+            to={awsRouteLink(scope, card.routeID, selectedEnvironmentID)}
+          >
+            <span className={`idt-domain-status-badge is-${awsStageTone(card.stage)}`}>
+              <span aria-hidden="true" className="idt-domain-status-dot" />
+              <strong>{awsStageLabel(card.stage)}</strong>
+            </span>
+            <strong>{card.label}</strong>
+            <span>{card.metric}</span>
+            <p>{card.detail}</p>
+          </Link>
+        ))}
+      </section>
+
+      <DomainStatusPanel eyebrow="Next actions" title="What AWS can do today" status={awsDiagnosticSummary(connection)} tone="info">
+        <div className="idt-aws-next-actions">
+          <article>
+            <strong>Wired now</strong>
+            <p>Use Connect AWS to launch the read-only stack, validate the role ARN, inspect permissions, and review diagnostics.</p>
+          </article>
+          <article>
+            <strong>Coming waves</strong>
+            <p>Account and region coverage, identity inventory, resource reachability, runtime evidence, findings, remediation, and governance stay clearly labeled until their APIs land.</p>
+          </article>
+        </div>
+      </DomainStatusPanel>
+    </DomainPageShell>
+  );
+}
+
 export function ProductDomainRoutePage({
   domain,
   routeID = 'overview'
@@ -2648,7 +3088,480 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
 }
 
 export function ProductAWSConnectPage() {
-  return <ProductConnectorConnectPage provider="aws" providerLabel="AWS" />;
+  const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
+  const environmentScope = useEnvironmentScope(scope, requestedEnvironmentID);
+  const selectedEnvironmentID = environmentScope.selectedID;
+  const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
+  const [loadingConnection, setLoadingConnection] = useState(false);
+  const [refreshingConnection, setRefreshingConnection] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [awsForm, setAWSForm] = useState({
+    roleARN: '',
+    externalID: '',
+    region: 'us-east-1',
+    displayName: '',
+    sessionName: 'identrail-connector-validation',
+    roleName: 'IdentrailReadOnly',
+    stackName: 'identrail-readonly-connector'
+  });
+  const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
+  const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
+  const [awsPermissionTiers, setAWSPermissionTiers] = useState<AWSCapabilityPermissionTier[]>([]);
+  const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
+
+  const refreshConnection = useCallback(
+    async (mode: 'initial' | 'manual' = 'initial') => {
+      if (!scope || !selectedEnvironmentID) {
+        setConnection(null);
+        setErrorMessage('');
+        setLoadingConnection(false);
+        setRefreshingConnection(false);
+        return;
+      }
+      if (mode === 'manual') {
+        setRefreshingConnection(true);
+      } else {
+        setLoadingConnection(true);
+      }
+      setErrorMessage('');
+      try {
+        const response = await apiClient.getAWSProjectConnection(
+          scope.workspaceID,
+          selectedEnvironmentID,
+          buildProductAuthContext(scope)
+        );
+        setConnection(response.connection);
+        setAWSForm((current) => ({
+          ...current,
+          roleARN: response.connection.role_arn ?? current.roleARN,
+          region: response.connection.region ?? current.region,
+          displayName: response.connection.display_name ?? current.displayName
+        }));
+      } catch (error) {
+        setConnection(null);
+        setErrorMessage(formatAPIError(error, 'Unable to load AWS connection.'));
+      } finally {
+        setLoadingConnection(false);
+        setRefreshingConnection(false);
+      }
+    },
+    [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]
+  );
+
+  useEffect(() => {
+    setSuccessMessage('');
+    setErrorMessage('');
+    setAWSCloudFormationStart(null);
+    setAWSPermissionPreview([]);
+    setAWSPermissionTiers([]);
+    setAWSPreviewOpen(false);
+    setAWSForm((current) => ({ ...current, externalID: '' }));
+    void refreshConnection('initial');
+  }, [refreshConnection]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Connect AWS</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading AWS setup.</p>
+      </section>
+    );
+  }
+
+  const handleEnvironmentChange = (environmentID: string) => {
+    navigate(
+      {
+        pathname: location.pathname,
+        search: environmentSearch(location.search, environmentID)
+      },
+      { replace: false }
+    );
+  };
+
+  const controlPath = appendEnvironmentQuery(buildScopedPath(scope, 'aws'), selectedEnvironmentID);
+  const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
+  const statusTone = awsDomainTone(connection, loadingConnection || refreshingConnection || environmentScope.loading);
+  const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
+  const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
+
+  const handleAWSCloudFormationStart = async () => {
+    if (!selectedEnvironmentID) {
+      setErrorMessage('Choose an environment before launching the AWS stack.');
+      return;
+    }
+    setSubmitting(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+    try {
+      const response = await apiClient.startAWSConnector(
+        {
+          workspace_id: scope.workspaceID,
+          project_id: selectedEnvironmentID,
+          display_name: normalizeValue(awsForm.displayName) || undefined,
+          region: normalizeValue(awsForm.region) || 'us-east-1',
+          role_name: normalizeValue(awsForm.roleName) || undefined,
+          stack_name: normalizeValue(awsForm.stackName) || undefined
+        },
+        buildProductAuthContext(scope)
+      );
+      setAWSCloudFormationStart(response);
+      setAWSPermissionPreview(response.permission_preview);
+      setAWSPermissionTiers(response.permission_tiers ?? []);
+      setAWSForm((current) => ({ ...current, externalID: response.external_id }));
+      setConnection(response.connection);
+      setSuccessMessage('AWS CloudFormation launch is ready. Open the stack, then refresh status or validate the role.');
+      if (typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
+        window.open(response.launch_url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (error) {
+      setErrorMessage(formatAPIError(error, 'Unable to start AWS connector setup.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAWSPoll = async () => {
+    if (!selectedEnvironmentID || !activeConnectorID) {
+      setErrorMessage('Launch the stack or save a connector before polling AWS status.');
+      return;
+    }
+    setSubmitting(true);
+    setErrorMessage('');
+    try {
+      const response = await apiClient.pollAWSConnector(
+        activeConnectorID,
+        scope.workspaceID,
+        selectedEnvironmentID,
+        buildProductAuthContext(scope)
+      );
+      setConnection(response.connection);
+      setSuccessMessage(response.connection.connected ? 'AWS connector is active.' : 'AWS status refreshed.');
+    } catch (error) {
+      setErrorMessage(formatAPIError(error, 'Unable to poll AWS connector setup.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAWSSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedEnvironmentID) {
+      setErrorMessage('Choose an environment before validating AWS.');
+      return;
+    }
+    setSubmitting(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+    try {
+      const roleARN = normalizeValue(awsForm.roleARN);
+      if (!AWS_ROLE_ARN_PATTERN.test(roleARN)) {
+        throw new Error('Enter a valid IAM role ARN, for example arn:aws:iam::123456789012:role/IdentrailReadOnly.');
+      }
+      const payload = {
+        role_arn: roleARN,
+        external_id: normalizeValue(awsForm.externalID) || undefined,
+        region: normalizeValue(awsForm.region) || 'us-east-1',
+        display_name: normalizeValue(awsForm.displayName) || undefined,
+        session_name: normalizeValue(awsForm.sessionName) || undefined
+      };
+      const auth = buildProductAuthContext(scope);
+      const response =
+        FEATURE_CONNECTOR_AWS && activeConnectorID
+          ? await apiClient.validateAWSConnector(
+              activeConnectorID,
+              {
+                workspace_id: scope.workspaceID,
+                project_id: selectedEnvironmentID,
+                role_arn: payload.role_arn,
+                external_id: payload.external_id,
+                region: payload.region,
+                session_name: payload.session_name
+              },
+              auth
+            )
+          : await apiClient.upsertAWSProjectConnection(scope.workspaceID, selectedEnvironmentID, payload, auth);
+      setConnection(response.connection);
+      setSuccessMessage(
+        response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
+      );
+    } catch (error) {
+      setErrorMessage(formatAPIError(error, 'Unable to validate AWS connection.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow="Read-only account onboarding"
+      title="Connect AWS"
+      description="Connect AWS with the existing read-only role flow while keeping environment scope, permission health, diagnostics, and CloudFormation status visible."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={handleEnvironmentChange} />}
+      status={loadingConnection || environmentScope.loading ? 'Loading status' : awsConnectionLabel(connection)}
+      statusTone={statusTone}
+      primaryAction={{ label: 'AWS home', to: controlPath, variant: 'secondary' }}
+      secondaryActions={[{ label: 'AWS findings', to: findingsPath }]}
+      aside={
+        <DomainDetailPanel title="Setup payload" eyebrow="Scoped contract">
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Workspace</dt>
+              <dd>{scope.workspaceID}</dd>
+            </div>
+            <div>
+              <dt>Environment</dt>
+              <dd>{selectedEnvironmentID || 'Not selected'}</dd>
+            </div>
+            <div>
+              <dt>Connector</dt>
+              <dd>{activeConnectorID || 'Created during setup'}</dd>
+            </div>
+          </dl>
+        </DomainDetailPanel>
+      }
+    >
+      <DomainKpiStrip
+        label="Connect AWS status"
+        items={[
+          {
+            label: 'Connection',
+            value: awsConnectionLabel(connection),
+            detail: connection?.display_name ?? 'Read-only IAM role connector',
+            tone: statusTone === 'danger' ? 'danger' : statusTone
+          },
+          {
+            label: 'Permission checks',
+            value: awsPermissionSummary(connection),
+            detail: 'Role validation and diagnostics stay visible after save.',
+            tone: connection?.permission_checks.some((check) => !check.passed)
+              ? 'warning'
+              : connection?.permission_checks.length
+                ? 'success'
+                : 'neutral'
+          },
+          {
+            label: 'Account / region',
+            value: connection?.account_id ?? 'Pending',
+            detail: connection?.region ? `Default region ${connection.region}` : `Default region ${awsForm.region || 'us-east-1'}`,
+            tone: connection?.account_id ? 'success' : 'info'
+          }
+        ]}
+      />
+
+      {loadingConnection || environmentScope.loading ? <DomainLoadingState label="Loading AWS setup state" /> : null}
+
+      {!selectedEnvironmentID && !environmentScope.loading ? (
+        <DomainEmptyState
+          eyebrow="Environment required"
+          title="Create an environment before connecting AWS"
+          body="The AWS connector still writes through workspace and project-scoped APIs. Pick or create an environment, then return to this page."
+          nextAction={{ label: 'Open environments', to: buildProjectsPath(scope) }}
+        />
+      ) : null}
+
+      {successMessage ? (
+        <p role="status" className="idt-app-alert idt-app-alert-success">
+          {successMessage}
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p role="alert" className="idt-app-alert idt-app-alert-error">
+          {errorMessage}
+        </p>
+      ) : null}
+
+      {selectedEnvironmentID ? (
+        <div className="idt-aws-connect-layout">
+          <section className="idt-source-config idt-aws-connect-panel" aria-label="AWS connector setup">
+            <div className="idt-source-config-header">
+              <div className="idt-source-config-title">
+                <SourceLogoMark provider="aws" className="is-hero" />
+                <div>
+                  <p className="idt-app-kicker">Wired now</p>
+                  <h3>AWS read-only connector</h3>
+                  <p>Launch the role stack or validate an existing role ARN for this environment.</p>
+                </div>
+              </div>
+              <DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection?.health_status ?? 'unknown'} />
+            </div>
+
+            <dl className="idt-source-meta">
+              <div>
+                <dt>Required access</dt>
+                <dd>Read-only IAM role ARN</dd>
+              </div>
+              <div>
+                <dt>Health</dt>
+                <dd>{connectionHealth(connection ?? undefined)}</dd>
+              </div>
+              <div>
+                <dt>Last validation</dt>
+                <dd>{formatConnectionTime(connection?.last_validated_at ?? connection?.updated_at)}</dd>
+              </div>
+            </dl>
+
+            <form className="idt-app-form idt-aws-connect-form" onSubmit={handleAWSSubmit}>
+              {FEATURE_CONNECTOR_AWS ? (
+                <article className="idt-source-install-card idt-aws-launch-card">
+                  <div>
+                    <h4>Launch read-only stack</h4>
+                    <p>
+                      {awsCloudFormationStart
+                        ? 'Stack launch generated with external ID and permission preview.'
+                        : 'Generate the IAM role, trust policy, and read-only permissions for this environment.'}
+                    </p>
+                  </div>
+                  <div className="idt-source-actions">
+                    <button
+                      className="idt-btn idt-btn-dark"
+                      type="button"
+                      onClick={handleAWSCloudFormationStart}
+                      disabled={!canSubmit}
+                    >
+                      {submitting ? 'Preparing...' : 'Launch stack'}
+                    </button>
+                    {awsCloudFormationStart ? (
+                      <a className="idt-btn idt-btn-dark" href={awsCloudFormationStart.launch_url} target="_blank" rel="noreferrer">
+                        <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
+                        <span>Open stack</span>
+                      </a>
+                    ) : null}
+                    {awsPermissionPreview.length > 0 ? (
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
+                        Preview permissions
+                      </button>
+                    ) : null}
+                    {activeConnectorID ? (
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={handleAWSPoll} disabled={submitting}>
+                        {submitting ? 'Refreshing...' : 'Refresh status'}
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              ) : (
+                <article className="idt-source-install-card idt-aws-launch-card">
+                  <div>
+                    <h4>CloudFormation launch unavailable</h4>
+                    <p>This build still supports direct role ARN validation and save.</p>
+                  </div>
+                </article>
+              )}
+
+              <label>
+                Role ARN
+                <input
+                  value={awsForm.roleARN}
+                  onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))}
+                  placeholder="arn:aws:iam::123456789012:role/IdentrailReadOnly"
+                  required
+                />
+              </label>
+              <div className="idt-source-inline-fields">
+                <label>
+                  External ID
+                  <input
+                    value={awsForm.externalID}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, externalID: event.target.value }))}
+                    placeholder="optional trust-policy guard"
+                  />
+                </label>
+                <label>
+                  Region
+                  <input
+                    value={awsForm.region}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, region: event.target.value }))}
+                    placeholder="us-east-1"
+                  />
+                </label>
+              </div>
+              <div className="idt-source-inline-fields">
+                {FEATURE_CONNECTOR_AWS ? (
+                  <>
+                    <label>
+                      Role name
+                      <input
+                        value={awsForm.roleName}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, roleName: event.target.value }))}
+                        placeholder="IdentrailReadOnly"
+                      />
+                    </label>
+                    <label>
+                      Stack name
+                      <input
+                        value={awsForm.stackName}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, stackName: event.target.value }))}
+                        placeholder="identrail-readonly-connector"
+                      />
+                    </label>
+                  </>
+                ) : null}
+                <label>
+                  Display name
+                  <input
+                    value={awsForm.displayName}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, displayName: event.target.value }))}
+                    placeholder="Production AWS"
+                  />
+                </label>
+                <label>
+                  Session name
+                  <input
+                    value={awsForm.sessionName}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, sessionName: event.target.value }))}
+                    placeholder="identrail-connector-validation"
+                  />
+                </label>
+              </div>
+              <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit}>
+                {submitting ? 'Validating...' : 'Validate and save AWS'}
+              </button>
+            </form>
+          </section>
+
+          <div className="idt-aws-connect-side">
+            <DomainStatusPanel
+              eyebrow="Validation"
+              title="Permission health and diagnostics"
+              status={awsDiagnosticSummary(connection)}
+              tone={statusTone === 'danger' ? 'danger' : statusTone}
+              actions={[{ label: 'Refresh status', onClick: () => void refreshConnection('manual'), disabled: refreshingConnection }]}
+            >
+              <div className="idt-source-diagnostics" aria-label="AWS permission diagnostics">
+                <AWSConnectionDiagnostics connection={connection} emptyLabel="Validate the role to populate permission checks." />
+              </div>
+            </DomainStatusPanel>
+
+            <DomainStatusPanel eyebrow="Coming later" title="AWS capability expansion" status="Labeled" tone="info">
+              <div className="idt-aws-mini-roadmap">
+                <span>Accounts / regions</span>
+                <span>Machine identities</span>
+                <span>Resources / secrets</span>
+                <span>Runtime evidence</span>
+                <span>Findings</span>
+                <span>Remediation</span>
+              </div>
+            </DomainStatusPanel>
+          </div>
+        </div>
+      ) : null}
+
+      <PermissionPreviewModal
+        open={awsPreviewOpen}
+        title="AWS read-only connector policy"
+        items={awsPermissionPreview}
+        tiers={awsPermissionTiers}
+        onClose={() => setAWSPreviewOpen(false)}
+      />
+    </DomainPageShell>
+  );
 }
 
 export function ProductKubernetesConnectPage() {
@@ -4199,6 +5112,7 @@ export function ProductGitHubRemediationPage() {
         return;
       }
       setRemediationPreview(preview);
+      setRemediationPreviewFindingKey(selectionKey);
       setRemediationPublishBaseBranch(preview.fix_pr_plan?.base_branch || 'main');
     } catch (requestError) {
       if (requestID !== remediationPreviewRequestRef.current) {
@@ -4306,8 +5220,6 @@ export function ProductGitHubRemediationPage() {
   }, [queueSelectionKeys, remediationQueue, selectedFinding, selectedFindingKey]);
 
   useEffect(() => {
-    remediationPreviewRequestRef.current += 1;
-    remediationPublishRequestRef.current += 1;
     setRemediationPreview(null);
     setRemediationPreviewFindingKey('');
     setRemediationPreviewLoading(false);

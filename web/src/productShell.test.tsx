@@ -104,6 +104,37 @@ const disconnectedAWS: AWSConnectionStatus = {
   capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] }
 };
 
+const connectedAWS: AWSConnectionStatus = {
+  provider: 'aws',
+  connected: true,
+  connector_id: 'aws-connector-1',
+  display_name: 'Production AWS',
+  status: 'active',
+  health_status: 'healthy',
+  role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+  external_id_configured: true,
+  account_id: '123456789012',
+  principal_arn: 'arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail',
+  region: 'us-east-1',
+  permission_checks: [
+    {
+      name: 'iam:GetRole',
+      passed: true,
+      message: 'Role metadata can be inspected.'
+    }
+  ],
+  diagnostics: [
+    {
+      code: 'cloudtrail_pending',
+      message: 'Runtime evidence is not wired for this environment yet.',
+      remediation: 'No action required for connector setup.'
+    }
+  ],
+  capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] },
+  updated_at: '2026-05-17T10:00:00Z',
+  last_validated_at: '2026-05-17T10:00:00Z'
+};
+
 const connectedGitHub: GitHubConnectionStatus = {
   provider: 'github_app',
   connected: true,
@@ -925,23 +956,55 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('preserves the requested domain source when creating the first environment from connect', async () => {
+  it('renders the AWS Control Center with current and future capability labels', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSControlCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws" element={<ProductAWSControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
+    expect((await screen.findAllByText(/Account 123456789012/i)).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/connect?environment=production'
+    );
+    expect(screen.getAllByText('Wired now').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Coming').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Not yet available').length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Resources and secrets/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/resources?environment=production'
+    );
+  });
+
+  it('keeps AWS connect on the domain page when no environment exists', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
-    const project = {
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: 'production-platform',
-      name: 'Production Platform',
-      slug: 'production-platform',
-      description: 'Production identity boundary.',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z'
-    };
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'upsertProject').mockResolvedValue({ project });
 
-    const { ProductAWSConnectPage, ProductProjectsPage } = await import('./productShell');
+    const { ProductAWSConnectPage } = await import('./productShell');
     function LocationProbe() {
       const location = useLocation();
       return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
@@ -950,40 +1013,29 @@ describe('Domain-first app routes', () => {
     render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect']}>
         <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
           <Route
-            path="/app/:tenantID/:workspaceID/projects"
+            path="/app/:tenantID/:workspaceID/aws/connect"
             element={
               <>
                 <LocationProbe />
-                <ProductProjectsPage />
+                <ProductAWSConnectPage />
               </>
             }
           />
-          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/projects?source=aws');
-
-    fireEvent.change(screen.getByLabelText(/Environment name/i), { target: { value: 'Production Platform' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create environment/i }));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        '/app/tenant-a/workspace-a/projects/production-platform?source=aws'
-      )
-    );
-    expect(api.apiClient.upsertProject).toHaveBeenCalledWith(
-      'workspace-a',
-      expect.objectContaining({ project_id: 'production-platform' }),
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/aws/connect');
+    expect(screen.getByRole('heading', { level: 3, name: /Create an environment before connecting AWS/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects'
     );
   });
 
-  it('routes connect actions to the selected environment even when it is outside the first page', async () => {
+  it('loads AWS connect actions for the selected environment even when it is outside the first page', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
     const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -1010,26 +1062,35 @@ describe('Domain-first app routes', () => {
         updated_at: '2025-01-02T00:00:00Z'
       }
     });
+    const getAWSProjectConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockResolvedValue({ connection: connectedAWS });
 
     const { ProductAWSConnectPage } = await import('./productShell');
-    function LocationProbe() {
-      const location = useLocation();
-      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
-    }
 
     render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=older-production']}>
         <Routes>
           <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     );
 
-    expect(await screen.findByTestId('location')).toHaveTextContent(
-      '/app/tenant-a/workspace-a/projects/older-production?source=aws'
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /AWS home/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws?environment=older-production'
     );
-    expect(listProjects).not.toHaveBeenCalled();
+    const setupPayload = screen.getByLabelText('Setup payload');
+    expect(within(setupPayload).getByText('workspace-a')).toBeInTheDocument();
+    expect(within(setupPayload).getByText('older-production')).toBeInTheDocument();
+    expect(listProjects).toHaveBeenCalled();
+    expect(getAWSProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'older-production',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
   });
 
   it('keeps requested environment selected when getProject check fails for a transient error', async () => {
@@ -1067,7 +1128,7 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
   });
 
-  it('does not silently route AWS connect to fallback environment when getProject check fails transiently', async () => {
+  it('does not silently switch AWS connect to a fallback environment when getProject check fails transiently', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
     const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -1085,6 +1146,9 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
+    const getAWSProjectConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockResolvedValue({ connection: disconnectedAWS });
 
     const { ProductAWSConnectPage } = await import('./productShell');
 
@@ -1096,9 +1160,16 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open AWS setup/i })).toBeInTheDocument();
-    expect(screen.getByText(/temporary outage/i)).toBeInTheDocument();
-    expect(listProjects).not.toHaveBeenCalled();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    expect(screen.getByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
+    expect(screen.getByText('older-production')).toBeInTheDocument();
+    expect(listProjects).toHaveBeenCalled();
+    expect(getAWSProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'older-production',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
   });
 
   it('falls back to an active environment when the requested environment is archived', async () => {

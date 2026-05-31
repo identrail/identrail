@@ -23196,10 +23196,181 @@ html[data-theme='light'] .idt-app-shell-screen select {
   justify-content: flex-end;
 }
 
+.idt-aws-status-grid,
+.idt-aws-connect-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(18rem, 0.65fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.idt-aws-status-grid dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.idt-aws-status-grid dl div,
+.idt-aws-next-actions article {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.78rem;
+  background: #050505;
+}
+
+.idt-aws-status-grid dt {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-status-grid dd {
+  min-width: 0;
+  margin: 0.18rem 0 0;
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-control-diagnostics {
+  margin: 0;
+}
+
+.idt-aws-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-aws-capability-card {
+  display: grid;
+  gap: 0.55rem;
+  min-height: 12rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.9rem;
+  background: #080809;
+  color: var(--app-muted);
+  text-decoration: none;
+}
+
+.idt-aws-capability-card:hover,
+.idt-aws-capability-card:focus-visible {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: #111113;
+  color: #ffffff;
+  outline: none;
+}
+
+.idt-aws-capability-card.is-wired {
+  border-color: rgba(88, 214, 141, 0.36);
+}
+
+.idt-aws-capability-card.is-coming {
+  border-color: rgba(255, 153, 0, 0.34);
+}
+
+.idt-aws-capability-card > strong {
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.idt-aws-capability-card > span:not(.idt-domain-status-badge) {
+  color: var(--app-dim);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-capability-card p {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 0.86rem;
+}
+
+.idt-aws-next-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-aws-next-actions strong {
+  color: #ffffff;
+}
+
+.idt-aws-next-actions p {
+  margin-top: 0.22rem;
+}
+
+.idt-aws-connect-panel {
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-aws-connect-panel .idt-source-meta {
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.55fr) minmax(12.5rem, 0.8fr);
+}
+
+.idt-aws-connect-form {
+  gap: 0.85rem;
+}
+
+.idt-aws-connect-side {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.idt-aws-mini-roadmap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.idt-aws-mini-roadmap span {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 999px;
+  padding: 0.3rem 0.55rem;
+  background: #050505;
+  color: var(--app-muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal,
+html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list article,
+html[data-theme='light'] .idt-app-console-layout .idt-permission-tier {
+  border-color: var(--app-border);
+  background: #080809;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal h3,
+html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list strong,
+html[data-theme='light'] .idt-app-console-layout .idt-permission-tier strong {
+  color: #ffffff;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal p,
+html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list p,
+html[data-theme='light'] .idt-app-console-layout .idt-permission-tier p {
+  color: var(--app-muted);
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list code,
+html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge {
+  color: #b9d7ff;
+}
+
 @media (max-width: 1100px) {
   .idt-domain-header,
   .idt-domain-page-body.has-subnav,
-  .idt-domain-page-body.has-subnav.has-aside {
+  .idt-domain-page-body.has-subnav.has-aside,
+  .idt-aws-status-grid,
+  .idt-aws-connect-layout,
+  .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
+  .idt-aws-next-actions {
     grid-template-columns: 1fr;
   }
 

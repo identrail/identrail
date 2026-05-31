@@ -29,6 +29,7 @@ import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
   ProductAIRisksPage,
+  ProductAWSControlCenterPage,
   ProductAgenticRiskSurfacePage,
   ProductDomainRoutePage,
   ProductAWSConnectPage,
@@ -4777,7 +4778,7 @@ export function RoutedSite() {
             <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
             <Route path="findings" element={<LegacyScopedAppRedirect target="github/findings" />} />
             <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
-            <Route path="aws" element={<ProductDomainRoutePage domain="aws" />} />
+            <Route path="aws" element={<ProductAWSControlCenterPage />} />
             <Route path="aws/connect" element={<ProductAWSConnectPage />} />
             <Route path="aws/accounts" element={<ProductDomainRoutePage domain="aws" routeID="accounts" />} />
             <Route path="aws/identities" element={<ProductDomainRoutePage domain="aws" routeID="identities" />} />
