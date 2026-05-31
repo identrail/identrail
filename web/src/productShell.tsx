@@ -8,6 +8,7 @@ import type {
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -18,6 +19,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Search,
   Settings as SettingsIcon,
   X
@@ -1210,6 +1212,78 @@ function countMembersByStatus(members: WorkspaceMemberRecord[], status: Workspac
 
 function countMembersByRole(members: WorkspaceMemberRecord[], role: WorkspaceMemberRole): number {
   return members.filter((member) => member.role === role).length;
+}
+
+type ProfileDraft = {
+  displayName: string;
+  avatarUrl: string;
+};
+
+function profileDraftFromMe(me: CurrentUserContext | null | undefined): ProfileDraft {
+  return {
+    displayName: me?.user.display_name ?? '',
+    avatarUrl: me?.user.avatar_url ?? ''
+  };
+}
+
+function formatProfileDisplayName(me: CurrentUserContext | null | undefined): string {
+  const displayName = me?.user.display_name?.trim();
+  if (displayName) {
+    return displayName;
+  }
+  return me?.user.primary_email ?? 'Current user';
+}
+
+function formatProfileInitials(me: CurrentUserContext | null | undefined): string {
+  const source = formatProfileDisplayName(me).split('@')[0] || 'U';
+  const parts = source
+    .split(/[\s._-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const initials = (parts.length > 1 ? parts[0][0] + parts[1][0] : source.slice(0, 2)).toUpperCase();
+  return initials || 'U';
+}
+
+function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?: boolean } = {}): string {
+  const displayName = draft.displayName.trim();
+  if (!displayName || Array.from(displayName).length > 80) {
+    return 'Display name must be 1-80 characters.';
+  }
+  if (Array.from(displayName).some(isUnsafeProfileNameCharacter)) {
+    return 'Display name cannot contain control or bidirectional formatting characters.';
+  }
+  const avatarUrl = draft.avatarUrl.trim();
+  if (options.validateAvatarUrl === false) {
+    return '';
+  }
+  if (!avatarUrl) {
+    return '';
+  }
+  try {
+    const parsed = new URL(avatarUrl);
+    if (parsed.protocol !== 'https:') {
+      return 'Avatar URL must use https.';
+    }
+    if (parsed.username || parsed.password) {
+      return 'Avatar URL cannot include credentials.';
+    }
+  } catch {
+    return 'Avatar URL must be a valid https URL.';
+  }
+  return '';
+}
+
+function isUnsafeProfileNameCharacter(char: string): boolean {
+  const code = char.codePointAt(0) ?? 0;
+  return (
+    code < 32 ||
+    code === 127 ||
+    code === 0x061c ||
+    code === 0x200e ||
+    code === 0x200f ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069)
+  );
 }
 
 function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse | null): boolean {
@@ -4105,9 +4179,20 @@ export function ProductGitHubRemediationPage() {
     setRemediationPublishResult(null);
     setRemediationPublishError('');
     try {
+      const sourceContent = remediationPublishSourceContent.trim();
+      const previewRequest = {
+        repo_scan_id: selectedFinding.scan_id,
+        finding_url: selectedFinding.source_url || undefined,
+        ...(sourceContent
+          ? {
+              source_content: sourceContent,
+              require_fix_plan: true
+            }
+          : {})
+      };
       const preview = await apiClient.previewRepoFindingRemediation(
         selectedFinding.id,
-        { repo_scan_id: selectedFinding.scan_id, finding_url: selectedFinding.source_url || undefined },
+        previewRequest,
         buildProductAuthContext(scope)
       );
       if (requestID !== remediationPreviewRequestRef.current) {
@@ -4280,7 +4365,6 @@ export function ProductGitHubRemediationPage() {
   }
 
   const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
-  const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
   const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
   const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
   const scansByRecency = [...repoScans].sort((left, right) => scanCompletionSortValue(right) - scanCompletionSortValue(left));
@@ -9859,6 +9943,7 @@ export function ProductAIRisksPage() {
 }
 
 export function ProductFindingsPage() {
+  const location = useLocation();
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const { me } = useMe();
@@ -10312,9 +10397,19 @@ export function ProductFindingsPage() {
     setRemediationPreview(null);
     setRemediationPreviewFindingKey(selectionKey);
     try {
+      const sourceContent = remediationPublishSourceContent.trim();
+      const previewRequest = {
+        repo_scan_id: selectedFinding.scan_id,
+        ...(sourceContent
+          ? {
+              source_content: sourceContent,
+              require_fix_plan: true
+            }
+          : {})
+      };
       const preview = await apiClient.previewRepoFindingRemediation(
         selectedFinding.id,
-        { repo_scan_id: selectedFinding.scan_id },
+        previewRequest,
         buildProductAuthContext(scope)
       );
       if (requestID !== remediationPreviewRequestRef.current) {
@@ -10568,7 +10663,10 @@ export function ProductFindingsPage() {
   };
 
   const connectPath = buildScopedPath(scope, 'github/connect');
-  const remediationPath = buildScopedPath(scope, 'github/remediation');
+  const remediationPath = appendEnvironmentQuery(
+    buildScopedPath(scope, 'github/remediation'),
+    environmentIDFromSearch(location.search)
+  );
   const scansByRecency = [...repoScans].sort(
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
@@ -11503,6 +11601,10 @@ export function ProductSettingsPage() {
   const [suspendModalOpen, setSuspendModalOpen] = useState(false);
   const [suspendPending, setSuspendPending] = useState(false);
   const [suspendError, setSuspendError] = useState('');
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(() => profileDraftFromMe(me));
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
 
   useEffect(() => {
     if (!scope) {
@@ -11547,6 +11649,13 @@ export function ProductSettingsPage() {
     };
   }, [scope?.tenantID, scope?.workspaceID, scope?.projectID]);
 
+  useEffect(() => {
+    if (!profileEditing && !profileSaving) {
+      setProfileDraft(profileDraftFromMe(me));
+      setProfileError('');
+    }
+  }, [me?.user.display_name, me?.user.avatar_url, profileEditing, profileSaving]);
+
   const activeWorkspace = whoAmI?.active_workspace?.workspace ?? me?.workspace;
   const activeMember =
     whoAmI?.active_workspace?.member ??
@@ -11566,6 +11675,75 @@ export function ProductSettingsPage() {
   const githubFindingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
   const kubernetesPath = scope ? buildScopedPath(scope, 'kubernetes') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
+  const profileDisplayName = formatProfileDisplayName(me);
+  const profileAvatarURL = me?.user.avatar_url?.trim() ?? '';
+  const profileInitials = formatProfileInitials(me);
+
+  const handleProfileEdit = () => {
+    setProfileDraft(profileDraftFromMe(me));
+    setProfileError('');
+    setProfileEditing(true);
+  };
+
+  const handleProfileCancel = () => {
+    if (profileSaving) return;
+    setProfileDraft(profileDraftFromMe(me));
+    setProfileError('');
+    setProfileEditing(false);
+  };
+
+  const handleProfileSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!me) {
+      setProfileError('Current user is unavailable.');
+      return;
+    }
+    const previousMe = me;
+    const previousDisplayName = previousMe.user.display_name?.trim() ?? '';
+    const previousAvatarURL = previousMe.user.avatar_url?.trim() ?? '';
+    const nextDisplayName = profileDraft.displayName.trim();
+    const nextAvatarURL = profileDraft.avatarUrl.trim();
+    const displayNameChanged = nextDisplayName !== previousDisplayName;
+    const avatarURLChanged = nextAvatarURL !== previousAvatarURL;
+    const validationError = validateProfileDraft(profileDraft, { validateAvatarUrl: avatarURLChanged });
+    if (validationError) {
+      setProfileError(validationError);
+      return;
+    }
+    if (!displayNameChanged && !avatarURLChanged) {
+      setProfileError('');
+      setProfileEditing(false);
+      return;
+    }
+    const optimisticMe: CurrentUserContext = {
+      ...previousMe,
+      user: {
+        ...previousMe.user,
+        display_name: nextDisplayName,
+        avatar_url: nextAvatarURL,
+        updated_at: new Date().toISOString()
+      }
+    };
+    setProfileSaving(true);
+    setProfileError('');
+    primeMeCache(optimisticMe);
+    try {
+      const payload = {
+        ...(displayNameChanged ? { display_name: nextDisplayName } : {}),
+        ...(avatarURLChanged ? { avatar_url: nextAvatarURL } : {})
+      };
+      const response = await apiClient.updateMe(payload);
+      primeMeCache(response.me);
+      setProfileDraft(profileDraftFromMe(response.me));
+      setProfileEditing(false);
+    } catch (err) {
+      primeMeCache(previousMe);
+      setProfileDraft(profileDraftFromMe(previousMe));
+      setProfileError(err instanceof Error ? err.message : 'Unable to update profile.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -11606,6 +11784,104 @@ export function ProductSettingsPage() {
           </Link>
         </div>
       </header>
+
+      <section className="idt-settings-card idt-profile-card" aria-labelledby="idt-profile-heading">
+        <div className="idt-settings-card-header">
+          <div>
+            <p className="idt-app-kicker">Account profile</p>
+            <h3 id="idt-profile-heading">{profileDisplayName}</h3>
+          </div>
+          {profileEditing ? null : (
+            <button
+              type="button"
+              className="idt-icon-btn idt-profile-icon-btn"
+              aria-label="Edit profile"
+              title="Edit profile"
+              onClick={handleProfileEdit}
+              disabled={!me}
+            >
+              <Pencil size={16} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
+        <div className="idt-profile-body">
+          <div className="idt-profile-avatar" aria-hidden="true">
+            {profileAvatarURL ? <img src={profileAvatarURL} alt="" /> : <span>{profileInitials}</span>}
+          </div>
+
+          {profileEditing ? (
+            <form className="idt-app-form idt-profile-form" onSubmit={handleProfileSubmit}>
+              <label>
+                Display name
+                <input
+                  type="text"
+                  value={profileDraft.displayName}
+                  onChange={(event) => setProfileDraft((draft) => ({ ...draft, displayName: event.target.value }))}
+                  maxLength={80}
+                  disabled={profileSaving}
+                  required
+                />
+              </label>
+              <label>
+                Avatar URL
+                <input
+                  type="url"
+                  value={profileDraft.avatarUrl}
+                  onChange={(event) => setProfileDraft((draft) => ({ ...draft, avatarUrl: event.target.value }))}
+                  disabled={profileSaving}
+                  placeholder="https://..."
+                />
+              </label>
+              <div className="idt-profile-actions">
+                <button
+                  type="submit"
+                  className="idt-icon-btn idt-profile-icon-btn"
+                  aria-label="Save profile"
+                  title="Save profile"
+                  disabled={profileSaving}
+                >
+                  <Check size={16} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="idt-icon-btn idt-profile-icon-btn"
+                  aria-label="Cancel profile editing"
+                  title="Cancel profile editing"
+                  onClick={handleProfileCancel}
+                  disabled={profileSaving}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+              {profileError ? (
+                <p className="idt-app-alert idt-app-alert-error" role="alert">
+                  {profileError}
+                </p>
+              ) : null}
+            </form>
+          ) : (
+            <dl className="idt-settings-facts idt-profile-facts">
+              <div>
+                <dt>Email</dt>
+                <dd>{me?.user.primary_email ?? 'Unavailable'}</dd>
+              </div>
+              <div>
+                <dt>Avatar</dt>
+                <dd>{profileAvatarURL || 'Not set'}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{me?.user.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
+              </div>
+              <div>
+                <dt>Updated</dt>
+                <dd>{me?.user.updated_at ? formatDateLabel(me.user.updated_at) : 'Unavailable'}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </section>
 
       <div className="idt-settings-grid">
         <section className="idt-settings-card">

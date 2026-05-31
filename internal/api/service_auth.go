@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/audit"
@@ -19,6 +21,7 @@ var (
 	ErrAuthAccountNotFound        = errors.New("auth account not found")
 	ErrAuthReactivationRequired   = errors.New("auth account reactivation requires signup")
 	ErrAuthAccountPendingDeletion = errors.New("auth account is scheduled for permanent deletion")
+	ErrAuthInvalidProfileUpdate   = errors.New("invalid current user profile update")
 )
 
 const (
@@ -74,6 +77,27 @@ type ManualLoginResult struct {
 	CurrentWorkspaceID string
 	CurrentProjectID   string
 	RedirectPath       string
+}
+
+type CurrentUserProfileUpdate struct {
+	DisplayName *string
+	AvatarURL   *string
+}
+
+type invalidCurrentUserProfileUpdateError struct {
+	message string
+}
+
+func (e invalidCurrentUserProfileUpdateError) Error() string {
+	return e.message
+}
+
+func (e invalidCurrentUserProfileUpdateError) Is(target error) bool {
+	return target == ErrAuthInvalidProfileUpdate
+}
+
+func invalidCurrentUserProfileUpdate(message string) error {
+	return invalidCurrentUserProfileUpdateError{message: message}
 }
 
 var ErrAuthInvalidManualLogin = errors.New("manual login requires tenant and workspace")
@@ -907,6 +931,110 @@ func (s *Service) GetCurrentUserContext(ctx context.Context, current sessionauth
 		}
 	}
 	return result, nil
+}
+
+// UpdateCurrentUserProfile updates only the authenticated user's mutable
+// profile fields and returns a fresh CurrentUserContext snapshot.
+func (s *Service) UpdateCurrentUserProfile(ctx context.Context, current sessionauth.CurrentSession, update CurrentUserProfileUpdate) (CurrentUserContext, error) {
+	if s == nil || s.Store == nil {
+		return CurrentUserContext{}, errors.New("service unavailable")
+	}
+	if update.DisplayName == nil && update.AvatarURL == nil {
+		return CurrentUserContext{}, invalidCurrentUserProfileUpdate("profile update must include display_name or avatar_url")
+	}
+	var displayName *string
+	if update.DisplayName != nil {
+		normalized, err := normalizeCurrentUserDisplayName(*update.DisplayName)
+		if err != nil {
+			return CurrentUserContext{}, err
+		}
+		displayName = &normalized
+	}
+	var avatarURL *string
+	if update.AvatarURL != nil {
+		normalized, err := normalizeCurrentUserAvatarURL(*update.AvatarURL)
+		if err != nil {
+			return CurrentUserContext{}, err
+		}
+		avatarURL = &normalized
+	}
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+	updated, err := s.Store.UpdateCurrentUserProfile(ctx, current.Session.UserID, displayName, avatarURL, now)
+	if err != nil {
+		return CurrentUserContext{}, err
+	}
+	current.Session.User = &updated
+	return s.GetCurrentUserContext(ctx, current)
+}
+
+func normalizeCurrentUserDisplayName(raw string) (string, error) {
+	displayName := strings.TrimSpace(raw)
+	if displayName == "" {
+		return "", invalidCurrentUserProfileUpdate("display_name must be 1-80 characters")
+	}
+	if utf8.RuneCountInString(displayName) > 80 {
+		return "", invalidCurrentUserProfileUpdate("display_name must be 1-80 characters")
+	}
+	for _, r := range displayName {
+		if unicode.IsControl(r) || isBidirectionalFormattingRune(r) {
+			return "", invalidCurrentUserProfileUpdate("display_name cannot contain control or bidirectional formatting characters")
+		}
+	}
+	return displayName, nil
+}
+
+func isBidirectionalFormattingRune(r rune) bool {
+	return r == '\u061c' ||
+		r == '\u200e' ||
+		r == '\u200f' ||
+		(r >= '\u202a' && r <= '\u202e') ||
+		(r >= '\u2066' && r <= '\u2069')
+}
+
+var currentUserAvatarAllowedHostSuffixes = []string{
+	"avatars.githubusercontent.com",
+	"githubusercontent.com",
+	"googleusercontent.com",
+	"gravatar.com",
+	"identrail.com",
+	"identrail.io",
+}
+
+func normalizeCurrentUserAvatarURL(raw string) (string, error) {
+	avatarURL := strings.TrimSpace(raw)
+	if avatarURL == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(avatarURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", invalidCurrentUserProfileUpdate("avatar_url must be a valid https URL")
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return "", invalidCurrentUserProfileUpdate("avatar_url must use https")
+	}
+	if parsed.User != nil {
+		return "", invalidCurrentUserProfileUpdate("avatar_url cannot include credentials")
+	}
+	if !currentUserAvatarHostAllowed(parsed.Hostname()) {
+		return "", invalidCurrentUserProfileUpdate("avatar_url host is not allowed")
+	}
+	return avatarURL, nil
+}
+
+func currentUserAvatarHostAllowed(rawHost string) bool {
+	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(rawHost), "."))
+	if host == "" {
+		return false
+	}
+	for _, allowed := range currentUserAvatarAllowedHostSuffixes {
+		if host == allowed || strings.HasSuffix(host, "."+allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 // ListCurrentUserSessions returns active sessions scoped to the current user.

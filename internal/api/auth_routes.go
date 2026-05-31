@@ -1216,6 +1216,30 @@ func authReturnToOrigin(raw string) (string, bool) {
 	return strings.ToLower(parsed.Scheme + "://" + parsed.Host), true
 }
 
+type currentUserProfileUpdateRequest struct {
+	DisplayName *string `json:"display_name,omitempty"`
+	AvatarURL   *string `json:"avatar_url,omitempty"`
+}
+
+func decodeCurrentUserProfileUpdateRequest(body io.Reader) (CurrentUserProfileUpdate, error) {
+	var request currentUserProfileUpdateRequest
+	decoder := json.NewDecoder(body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		if errors.Is(err, io.EOF) {
+			return CurrentUserProfileUpdate{}, errors.New("profile update request body is required")
+		}
+		return CurrentUserProfileUpdate{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err == nil || !errors.Is(err, io.EOF) {
+		return CurrentUserProfileUpdate{}, errors.New("profile update request must contain a single JSON object")
+	}
+	return CurrentUserProfileUpdate{
+		DisplayName: request.DisplayName,
+		AvatarURL:   request.AvatarURL,
+	}, nil
+}
+
 func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, manager sessionauth.Manager) {
 	v1.GET("/me", func(c *gin.Context) {
 		current, ok := sessionauth.CurrentFromGin(c)
@@ -1233,6 +1257,36 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 				logger.Error("get current user", telemetry.ZapError(err))
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get current user"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"me": contextSnapshot})
+	})
+
+	v1.PATCH("/me", func(c *gin.Context) {
+		current, ok := sessionauth.CurrentFromGin(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session required"})
+			return
+		}
+		update, err := decodeCurrentUserProfileUpdateRequest(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		contextSnapshot, err := svc.UpdateCurrentUserProfile(c.Request.Context(), current, update)
+		if err != nil {
+			if errors.Is(err, ErrAuthInvalidProfileUpdate) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+				return
+			}
+			if logger != nil {
+				logger.Error("update current user profile", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update current user profile"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"me": contextSnapshot})

@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added self-serve account profile editing in Settings. Authenticated users can
+  now `PATCH /v1/me` with `display_name` and/or `avatar_url`; the endpoint
+  rejects unknown fields, trims and validates display names, blocks control and
+  bidirectional formatting characters, restricts avatars to blank or allowed
+  `https://` hosts, registers `me:write` authz coverage, and returns the
+  refreshed `CurrentUserContext` without touching account lifecycle fields. The
+  Settings page now shows an Account profile card before workspace settings,
+  with inline editing, optimistic cache updates, and rollback on save failure.
 - Hardened the new GitHub domain pages to address review feedback: the
   Control Center now surfaces a `Unable to load GitHub status` error when
   listing recent repository scans fails instead of silently showing an empty

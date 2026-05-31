@@ -17,6 +17,13 @@ func nullString(value string) sql.NullString {
 	return sql.NullString{String: trimmed, Valid: trimmed != ""}
 }
 
+func optionalString(value *string) sql.NullString {
+	if value == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: strings.TrimSpace(*value), Valid: true}
+}
+
 func nullTime(value *time.Time) sql.NullTime {
 	if value == nil {
 		return sql.NullTime{}
@@ -119,6 +126,37 @@ func (p *PostgresStore) UpdateUserProfile(ctx context.Context, user User) (User,
 		if isTenancyUniqueViolation(err) {
 			return User{}, ErrConflict
 		}
+		return User{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "auth.user.profile_update",
+		ResourceType: "user",
+		ResourceID:   saved.ID,
+		Outcome:      "success",
+	})
+	return saved, nil
+}
+
+// UpdateCurrentUserProfile updates only self-service mutable profile fields.
+// It leaves email and lifecycle fields untouched and requires the account to
+// still be active, so a concurrent account delete cannot lose deleted_at.
+func (p *PostgresStore) UpdateCurrentUserProfile(ctx context.Context, userID string, displayName *string, avatarURL *string, updatedAt time.Time) (User, error) {
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE users
+		 SET display_name = COALESCE($2, display_name),
+		     avatar_url = COALESCE($3, avatar_url),
+		     updated_at = $4
+		 WHERE id = NULLIF($1, '')::uuid
+		   AND status = 'active'
+		 RETURNING id::text, primary_email::text, display_name, avatar_url, status, created_at, updated_at, deleted_at`,
+		strings.TrimSpace(userID),
+		optionalString(displayName),
+		optionalString(avatarURL),
+		updatedAt.UTC(),
+	)
+	saved, err := scanUser(row)
+	if err != nil {
 		return User{}, err
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{

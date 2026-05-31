@@ -154,6 +154,10 @@ x-identrail-route-authorizations:
     path: /v1/me
     action: me.read
     resource_type: user
+  - method: PATCH
+    path: /v1/me
+    action: me.write
+    resource_type: user
   - method: GET
     path: /v1/me/sessions
     action: me.read
@@ -1558,6 +1562,36 @@ paths:
                     $ref: "#/components/schemas/CurrentUserContext"
         "401":
           $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Authorization]
+      summary: Update current user profile
+      operationId: updateCurrentUserProfile
+      security:
+        - CookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrentUserProfileUpdateRequest"
+      responses:
+        "200":
+          description: Updated current user and session context
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  me:
+                    $ref: "#/components/schemas/CurrentUserContext"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
     delete:
       tags: [Authorization]
       summary: Schedule the current user account for permanent deletion
@@ -4845,6 +4879,20 @@ components:
         deleted_at:
           type: string
           format: date-time
+    CurrentUserProfileUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Trimmed display name. Control and bidirectional formatting characters are rejected.
+        avatar_url:
+          type: string
+          pattern: '^$|^[Hh][Tt][Tt][Pp][Ss]://([A-Za-z0-9-]+\.)*(avatars\.githubusercontent\.com|githubusercontent\.com|googleusercontent\.com|gravatar\.com|identrail\.com|identrail\.io)(:[0-9]+)?(/.*)?$'
+          description: Blank to clear, otherwise an allowed https avatar URL hosted under githubusercontent.com, googleusercontent.com, gravatar.com, identrail.com, or identrail.io.
     CurrentUserContext:
       type: object
       properties:

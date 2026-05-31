@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -94,6 +95,14 @@ type ginlessSessionHarness struct {
 	svc     *Service
 }
 
+func patchCurrentUserProfileRequest(cookieValue string, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPatch, "/v1/me", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.AddCookie(&http.Cookie{Name: sessionauth.CookieName, Value: cookieValue})
+	return req
+}
+
 func TestCurrentSessionMeAndSessionList(t *testing.T) {
 	harness, cookieValue, currentPublicID := setupSessionRouter(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
@@ -116,6 +125,78 @@ func TestCurrentSessionMeAndSessionList(t *testing.T) {
 	}
 	if !strings.Contains(listW.Body.String(), currentPublicID) || !strings.Contains(listW.Body.String(), `"current":true`) {
 		t.Fatalf("session list did not include current session: %s", listW.Body.String())
+	}
+}
+
+func TestCurrentSessionUpdateCurrentUserProfile(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	req := patchCurrentUserProfileRequest(cookieValue, `{"display_name":"  Updated User  ","avatar_url":"https://avatars.githubusercontent.com/u/1?v=4"}`)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected PATCH /v1/me 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Me CurrentUserContext `json:"me"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("decode profile update response: %v", err)
+	}
+	if response.Me.User.DisplayName != "Updated User" {
+		t.Fatalf("expected trimmed display name, got %q", response.Me.User.DisplayName)
+	}
+	if response.Me.User.AvatarURL != "https://avatars.githubusercontent.com/u/1?v=4" {
+		t.Fatalf("unexpected avatar_url: %q", response.Me.User.AvatarURL)
+	}
+	if response.Me.Role != "admin" || response.Me.WorkspaceID != "workspace-a" {
+		t.Fatalf("expected current context to be preserved, got %+v", response.Me)
+	}
+	stored, err := harness.svc.Store.GetUser(context.Background(), response.Me.User.ID)
+	if err != nil {
+		t.Fatalf("get stored user: %v", err)
+	}
+	if stored.PrimaryEmail != "user@example.com" || stored.Status != "active" {
+		t.Fatalf("profile update changed immutable user fields: %+v", stored)
+	}
+	if stored.DisplayName != "Updated User" || stored.AvatarURL != "https://avatars.githubusercontent.com/u/1?v=4" {
+		t.Fatalf("profile update was not persisted: %+v", stored)
+	}
+}
+
+func TestCurrentSessionUpdateCurrentUserProfileRejectsInvalidPayloads(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "unknown field", body: `{"primary_email":"attacker@example.com","display_name":"User Two"}`},
+		{name: "other user id", body: `{"id":"00000000-0000-0000-0000-000000000000","display_name":"User Two"}`},
+		{name: "blank display name", body: `{"display_name":"   "}`},
+		{name: "control character display name", body: `{"display_name":"Bad\nName"}`},
+		{name: "bidirectional formatting display name", body: `{"display_name":"evil\u202eadmin"}`},
+		{name: "arabic letter mark display name", body: `{"display_name":"evil\u061cadmin"}`},
+		{name: "data uri avatar", body: `{"avatar_url":"data:image/png;base64,abc"}`},
+		{name: "http avatar", body: `{"avatar_url":"http://avatars.githubusercontent.com/u/1"}`},
+		{name: "disallowed avatar host", body: `{"avatar_url":"https://example.com/avatar.png"}`},
+		{name: "empty body", body: ``},
+		{name: "trailing json value", body: `{"display_name":"Trailing"} {}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			harness, cookieValue, _ := setupSessionRouter(t)
+			req := patchCurrentUserProfileRequest(cookieValue, tc.body)
+			w := httptest.NewRecorder()
+			harness.router.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected PATCH /v1/me 400, got %d body=%s", w.Code, w.Body.String())
+			}
+			stored, err := harness.svc.Store.GetUserByPrimaryEmail(context.Background(), "user@example.com")
+			if err != nil {
+				t.Fatalf("get stored user: %v", err)
+			}
+			if stored.DisplayName != "User One" || stored.AvatarURL != "" {
+				t.Fatalf("invalid profile update changed stored user: %+v", stored)
+			}
+		})
 	}
 }
 
