@@ -2689,8 +2689,14 @@ async function listRepoScansForSelectedRepositories(
   const matches: RepoScanRecord[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
+  let pagesFetched = 0;
 
   do {
+    if (pagesFetched >= GITHUB_MAX_SCAN_PAGE_FETCHES) {
+      break;
+    }
+    pagesFetched += 1;
+
     const response = (await apiClient.listRepoScans(
       {
         limit: scanLimit,
