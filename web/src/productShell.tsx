@@ -2667,6 +2667,7 @@ export function ProductKubernetesConnectPage() {
 
 const GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT = 5;
 const GITHUB_REPOSITORIES_SCANS_LIMIT = 50;
+const GITHUB_REMEDIATION_FINDINGS_LIMIT = 100;
 const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
 
 type GitHubAvailability = {
@@ -3977,6 +3978,789 @@ export function ProductGitHubActionsPage() {
           ))}
         </div>
       </section>
+    </DomainPageShell>
+  );
+}
+
+function isGitHubRemediationCandidate(finding: ApiFinding): boolean {
+  const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+  return lifecycle === 'open' || lifecycle === 'reopened';
+}
+
+function gitHubRemediationReadiness(
+  finding: ApiFinding,
+  preview: RepoFindingRemediationPreview | null
+): { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' } {
+  if (preview) {
+    if (preview.remediation.publishable) {
+      return { label: 'Publish-ready', tone: 'success' };
+    }
+    return { label: 'Manual remediation', tone: 'warning' };
+  }
+
+  const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+  if (lifecycle === 'fixed') {
+    return { label: 'Fixed', tone: 'success' };
+  }
+  if (lifecycle === 'suppressed' || lifecycle === 'risk_accepted' || lifecycle === 'false_positive') {
+    return { label: 'Triage-held', tone: 'neutral' };
+  }
+  if (!normalizeValue(finding.source_url ?? '')) {
+    return { label: 'Needs GitHub link', tone: 'warning' };
+  }
+  if (!normalizeValue(finding.file_path ?? '') && !normalizeValue(finding.evidence?.file_path ?? '')) {
+    return { label: 'Needs file evidence', tone: 'warning' };
+  }
+  return { label: 'Preview ready', tone: 'neutral' };
+}
+
+function sortGitHubRemediationQueue(findings: ApiFinding[]): ApiFinding[] {
+  return [...findings].sort((left, right) => {
+    const leftCandidate = isGitHubRemediationCandidate(left) ? 1 : 0;
+    const rightCandidate = isGitHubRemediationCandidate(right) ? 1 : 0;
+    if (rightCandidate !== leftCandidate) {
+      return rightCandidate - leftCandidate;
+    }
+    const severityDelta = severityRank(right.severity) - severityRank(left.severity);
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
+}
+
+export function ProductGitHubRemediationPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const availability = useGitHubAvailability();
+  const data = useGitHubDomainData(
+    scope,
+    selectedEnvironmentID,
+    availability.available,
+    GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT
+  );
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
+  const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const [repoFindingSummary, setRepoFindingSummary] = useState<RepoFindingsSummary | null>(null);
+  const [selectedFindingKey, setSelectedFindingKey] = useState('');
+  const [remediationPreview, setRemediationPreview] = useState<RepoFindingRemediationPreview | null>(null);
+  const [remediationPreviewFindingKey, setRemediationPreviewFindingKey] = useState('');
+  const [remediationPreviewLoading, setRemediationPreviewLoading] = useState(false);
+  const [remediationPreviewError, setRemediationPreviewError] = useState('');
+  const [remediationPublishSourceContent, setRemediationPublishSourceContent] = useState('');
+  const [remediationPublishBaseBranch, setRemediationPublishBaseBranch] = useState('main');
+  const [remediationPublishToken, setRemediationPublishToken] = useState('');
+  const [remediationPublishApproved, setRemediationPublishApproved] = useState(false);
+  const [remediationPublishWritePermsConfirmed, setRemediationPublishWritePermsConfirmed] = useState(false);
+  const [remediationPublishLoading, setRemediationPublishLoading] = useState(false);
+  const [remediationPublishError, setRemediationPublishError] = useState('');
+  const [remediationPublishResult, setRemediationPublishResult] =
+    useState<RepoFindingRemediationPublishResponse | null>(null);
+
+  const requestRef = useRef(0);
+  const remediationPreviewRequestRef = useRef(0);
+  const remediationPublishRequestRef = useRef(0);
+
+  const repoScansByID = useMemo(
+    () =>
+      repoScans.reduce<Record<string, RepoScanRecord>>((acc, scan) => {
+        acc[scan.id] = scan;
+        return acc;
+      }, {}),
+    [repoScans]
+  );
+
+  const remediationQueue = useMemo(() => sortGitHubRemediationQueue(repoFindings), [repoFindings]);
+  const actionableFindings = useMemo(
+    () => remediationQueue.filter((finding) => isGitHubRemediationCandidate(finding)),
+    [remediationQueue]
+  );
+  const selectedFinding = useMemo(
+    () => findRepoFindingBySelectionKey(remediationQueue, selectedFindingKey),
+    [remediationQueue, selectedFindingKey]
+  );
+  const selectedFindingPreviewKey = selectedFinding ? buildRepoFindingSelectionKey(selectedFinding) : '';
+  const activeRemediationPreview =
+    remediationPreview && remediationPreviewFindingKey === selectedFindingPreviewKey ? remediationPreview : null;
+  const repositoryCount = useMemo(() => {
+    const repositories = repoFindings
+      .map((finding) => canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(finding, repoScansByID)))
+      .filter(Boolean);
+    return uniqueGitHubRepositories(repositories).length;
+  }, [repoFindings, repoScansByID]);
+  const highPriorityCount = actionableFindings.filter((finding) => {
+    const severity = normalizeValue(finding.severity).toLowerCase();
+    return severity === 'critical' || severity === 'high';
+  }).length;
+  const publishablePreviewCount = activeRemediationPreview?.remediation.publishable ? 1 : 0;
+  const queueSelectionKeys = remediationQueue.map((finding) => buildRepoFindingSelectionKey(finding)).join('|');
+
+  const resetRemediationPublishState = () => {
+    setRemediationPublishSourceContent('');
+    setRemediationPublishBaseBranch('main');
+    setRemediationPublishToken('');
+    setRemediationPublishApproved(false);
+    setRemediationPublishWritePermsConfirmed(false);
+    setRemediationPublishLoading(false);
+    setRemediationPublishError('');
+    setRemediationPublishResult(null);
+  };
+
+  const selectRemediationFinding = (finding: ApiFinding | null) => {
+    remediationPreviewRequestRef.current += 1;
+    remediationPublishRequestRef.current += 1;
+    setSelectedFindingKey(finding ? buildRepoFindingSelectionKey(finding) : '');
+  };
+
+  const loadRemediationData = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+    const requestID = ++requestRef.current;
+    if (mode === 'initial') {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+    setError('');
+    try {
+      const auth = buildProductAuthContext(targetScope);
+      const [repoScanResponse, repoFindingResponse] = await Promise.all([
+        apiClient.listRepoScans({ limit: 50 }, auth),
+        apiClient.listRepoFindings(
+          {
+            limit: GITHUB_REMEDIATION_FINDINGS_LIMIT,
+            sort_by: 'severity',
+            sort_order: 'desc'
+          },
+          auth
+        )
+      ]);
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setRepoScans(repoScanResponse.items);
+      setRepoFindings(repoFindingResponse.items);
+      setRepoFindingSummary(repoFindingResponse.summary ?? null);
+    } catch (requestError) {
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setError(formatAPIError(requestError, 'Failed to load GitHub remediation queue.'));
+      setRepoScans([]);
+      setRepoFindings([]);
+      setRepoFindingSummary(null);
+    } finally {
+      if (requestID === requestRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  };
+
+  const handleRefresh = () => {
+    if (!scope) {
+      return;
+    }
+    data.reload();
+    void loadRemediationData(scope, 'refresh');
+  };
+
+  const handleLoadRemediationPreview = async () => {
+    if (!scope || !selectedFinding || remediationPreviewLoading) {
+      return;
+    }
+
+    const selectionKey = buildRepoFindingSelectionKey(selectedFinding);
+    const requestID = ++remediationPreviewRequestRef.current;
+    setRemediationPreviewLoading(true);
+    setRemediationPreviewError('');
+    setRemediationPreview(null);
+    setRemediationPreviewFindingKey(selectionKey);
+    setRemediationPublishResult(null);
+    setRemediationPublishError('');
+    try {
+      const sourceContent = remediationPublishSourceContent.trim();
+      const previewRequest = {
+        repo_scan_id: selectedFinding.scan_id,
+        finding_url: selectedFinding.source_url || undefined,
+        ...(sourceContent
+          ? {
+              source_content: sourceContent,
+              require_fix_plan: true
+            }
+          : {})
+      };
+      const preview = await apiClient.previewRepoFindingRemediation(
+        selectedFinding.id,
+        previewRequest,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== remediationPreviewRequestRef.current) {
+        return;
+      }
+      setRemediationPreview(preview);
+      setRemediationPublishBaseBranch(preview.fix_pr_plan?.base_branch || 'main');
+    } catch (requestError) {
+      if (requestID !== remediationPreviewRequestRef.current) {
+        return;
+      }
+      setRemediationPreview(null);
+      setRemediationPreviewError(
+        requestError instanceof Error ? requestError.message : 'Failed to load remediation preview.'
+      );
+    } finally {
+      if (requestID === remediationPreviewRequestRef.current) {
+        setRemediationPreviewLoading(false);
+      }
+    }
+  };
+
+  const handlePublishRemediation = async () => {
+    if (!scope || !selectedFinding || !activeRemediationPreview || remediationPublishLoading) {
+      return;
+    }
+
+    const sourceContent = remediationPublishSourceContent;
+    const token = remediationPublishToken.trim();
+    if (!sourceContent.trim()) {
+      setRemediationPublishError('Current source content is required.');
+      return;
+    }
+    if (!remediationPublishApproved) {
+      setRemediationPublishError('Operator approval is required.');
+      return;
+    }
+    if (!remediationPublishWritePermsConfirmed) {
+      setRemediationPublishError('Confirm the GitHub token is intentionally write-capable.');
+      return;
+    }
+    if (!token) {
+      setRemediationPublishError('A write-capable GitHub token is required.');
+      return;
+    }
+
+    const requestID = ++remediationPublishRequestRef.current;
+    setRemediationPublishLoading(true);
+    setRemediationPublishError('');
+    setRemediationPublishResult(null);
+    try {
+      const response = await apiClient.publishRepoFindingRemediation(
+        selectedFinding.id,
+        {
+          repo_scan_id: selectedFinding.scan_id,
+          source_content: sourceContent,
+          base_branch: remediationPublishBaseBranch.trim() || undefined,
+          finding_url: selectedFinding.source_url || undefined,
+          operator_approved: remediationPublishApproved,
+          write_permissions_configured: remediationPublishWritePermsConfirmed,
+          github_token: token
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== remediationPublishRequestRef.current) {
+        return;
+      }
+      setRemediationPublishResult(response);
+      setRemediationPublishToken('');
+      setRemediationPublishApproved(false);
+      setRemediationPublishWritePermsConfirmed(false);
+    } catch (requestError) {
+      if (requestID !== remediationPublishRequestRef.current) {
+        return;
+      }
+      setRemediationPublishError(
+        requestError instanceof Error ? requestError.message : 'Failed to publish remediation PR.'
+      );
+    } finally {
+      if (requestID === remediationPublishRequestRef.current) {
+        setRemediationPublishLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!scope || !availability.available || !selectedEnvironmentID) {
+      setLoading(false);
+      setRepoScans([]);
+      setRepoFindings([]);
+      setError('');
+      return undefined;
+    }
+    void loadRemediationData(scope, 'initial');
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [availability.available, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  useEffect(() => {
+    if (remediationQueue.length === 0) {
+      if (selectedFindingKey) {
+        selectRemediationFinding(null);
+      }
+      return;
+    }
+
+    if (!selectedFinding || !remediationQueue.some((finding) => buildRepoFindingSelectionKey(finding) === selectedFindingKey)) {
+      selectRemediationFinding(remediationQueue[0]);
+    }
+  }, [queueSelectionKeys, remediationQueue, selectedFinding, selectedFindingKey]);
+
+  useEffect(() => {
+    remediationPreviewRequestRef.current += 1;
+    remediationPublishRequestRef.current += 1;
+    setRemediationPreview(null);
+    setRemediationPreviewFindingKey('');
+    setRemediationPreviewLoading(false);
+    setRemediationPreviewError('');
+    resetRemediationPublishState();
+  }, [selectedFinding?.id, selectedFinding?.scan_id]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub remediation</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading GitHub remediation.</p>
+      </section>
+    );
+  }
+
+  if (availability.loading) {
+    return (
+      <DomainPageShell
+        domain="github"
+        eyebrow="Remediation"
+        title="GitHub remediation"
+        description="Loading GitHub availability for this build."
+        scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      >
+        <DomainLoadingState label="Loading GitHub availability" />
+      </DomainPageShell>
+    );
+  }
+
+  if (!availability.available) {
+    return (
+      <GitHubUnavailableShell
+        title="GitHub remediation"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+        unavailableMessage={availability.unavailableMessage}
+      />
+    );
+  }
+
+  if (!selectedEnvironmentID) {
+    return (
+      <GitHubMissingEnvironmentShell
+        title="GitHub remediation"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+      />
+    );
+  }
+
+  const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
+  const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
+  const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
+  const scansByRecency = [...repoScans].sort((left, right) => scanCompletionSortValue(right) - scanCompletionSortValue(left));
+  const latestScan = scansByRecency[0] ?? null;
+  const failedScans = scansByRecency.filter((scan) => isFailedScanStatus(scan.status));
+  const latestFailedScan = failedScans[0] ?? null;
+  const succeededScanCount = repoScans.filter((scan) => repoScanStatusTone(scan.status) === 'success').length;
+  const hasQueuedOrRunningScan = repoScans.some((scan) => isActiveScanStatus(scan.status));
+  const neverScanned = repoScans.length === 0;
+  const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
+  const summaryFindingTotal = repoFindingSummary
+    ? repoFindingSummary.total_open +
+      repoFindingSummary.fixed_count +
+      repoFindingSummary.reopened_count +
+      repoFindingSummary.suppressed_count
+    : 0;
+  const hasRepoFindings =
+    summaryFindingTotal > 0 || repoFindings.length > 0 || repoScans.some((scan) => (scan.finding_count ?? 0) > 0);
+  const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && !hasRepoFindings && succeededScanCount === 0 && latestScanFailed;
+  const showInitialLoading = loading && repoScans.length === 0 && repoFindings.length === 0;
+  const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
+  const selectedRepository = selectedFinding
+    ? canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(selectedFinding, repoScansByID)) || 'Repository unavailable'
+    : '';
+  const selectedReadiness = selectedFinding
+    ? gitHubRemediationReadiness(selectedFinding, activeRemediationPreview)
+    : { label: 'No finding selected', tone: 'neutral' as const };
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="Remediation"
+      title="GitHub remediation"
+      description="Stage repository fix plans, separate preview from publish, and keep every approval tied to the finding evidence."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      status={
+        <DomainStatusBadge
+          variant={statusVariant}
+          detail={data.connection?.account_login ? `@${data.connection.account_login}` : undefined}
+        />
+      }
+      statusTone={gitHubConnectionTone(data.connection, data.loading)}
+      primaryAction={{ label: 'GitHub findings', to: findingsPath, variant: 'primary' }}
+      secondaryActions={[{ label: 'Repositories', to: repositoriesPath }, { label: 'GitHub home', to: basePath }]}
+      aside={
+        <DomainDetailPanel title="Approval boundary" eyebrow="Fix PRs">
+          <ul className="idt-domain-charter-list">
+            <li>Preview plans are read-only and safe to generate.</li>
+            <li>Publishing requires explicit operator approval.</li>
+            <li>Write-capable GitHub tokens are confirmed per publish.</li>
+            <li>Every case stays tied to finding, scan, file, line, detector, severity, and confidence.</li>
+          </ul>
+        </DomainDetailPanel>
+      }
+    >
+      {data.error ? <DomainErrorState title="Unable to load GitHub status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
+      {error ? <DomainErrorState title="Unable to load remediation queue" body={error} retryAction={{ label: 'Retry', onClick: handleRefresh }} /> : null}
+
+      {showInitialLoading ? (
+        <DomainLoadingState label="Loading GitHub remediation queue" />
+      ) : neverScanned ? (
+        <DomainEmptyState
+          eyebrow="No scans"
+          title="Run your first repository scan"
+          body="Repository findings must exist before Identrail can prepare remediation plans."
+          nextAction={{ label: 'Open Repositories', to: repositoriesPath }}
+        />
+      ) : allScansFailed ? (
+        <DomainErrorState
+          title="Your last repository scan failed"
+          body={latestFailedScan ? summarizeScanFailure(latestFailedScan) : 'The scan did not complete.'}
+          retryAction={{ label: 'Review and re-run scan', to: repositoriesPath }}
+        />
+      ) : !hasRepoFindings ? (
+        <DomainEmptyState
+          eyebrow="No findings"
+          title="No GitHub remediation work"
+          body="The latest repository scan completed without findings that need remediation."
+          nextAction={{ label: 'Open GitHub findings', to: findingsPath }}
+        />
+      ) : (
+        <>
+          {latestScanFailed ? (
+            <DomainErrorState
+              title="Latest scan needs attention"
+              body={latestFailedScan ? summarizeScanFailure(latestFailedScan) : 'The latest scan did not complete.'}
+              retryAction={{ label: 'Review scans', to: repositoriesPath }}
+            />
+          ) : null}
+
+          <DomainKpiStrip
+            label="GitHub remediation metrics"
+            items={[
+              {
+                label: 'Actionable findings',
+                value: actionableFindings.length,
+                detail: `${formatCountLabel(repoFindings.length, 'finding')} loaded`,
+                tone: actionableFindings.length > 0 ? 'warning' : 'neutral'
+              },
+              {
+                label: 'High priority',
+                value: highPriorityCount,
+                detail: 'Critical and high severity',
+                tone: highPriorityCount > 0 ? 'danger' : 'neutral'
+              },
+              {
+                label: 'Repositories',
+                value: repositoryCount,
+                detail: 'With remediation evidence',
+                tone: repositoryCount > 0 ? 'success' : 'neutral'
+              },
+              {
+                label: 'Publish-ready',
+                value: publishablePreviewCount,
+                detail: activeRemediationPreview ? 'Current preview' : 'Preview a finding first',
+                tone: publishablePreviewCount > 0 ? 'success' : 'neutral'
+              }
+            ]}
+          />
+
+          <div className="idt-github-remediation-workspace">
+            <section className="idt-domain-status-panel idt-github-remediation-queue" aria-label="GitHub remediation queue">
+              <header>
+                <div>
+                  <p className="idt-app-kicker">Remediation queue</p>
+                  <h3>{formatCountLabel(remediationQueue.length, 'finding')} in scope</h3>
+                </div>
+                <button
+                  type="button"
+                  className="idt-btn idt-btn-ghost"
+                  onClick={handleRefresh}
+                  disabled={refreshing || data.loading}
+                >
+                  {refreshing || data.loading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </header>
+              <div className="idt-github-remediation-list" role="list">
+                {remediationQueue.map((finding) => {
+                  const selectionKey = buildRepoFindingSelectionKey(finding);
+                  const repository = canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(finding, repoScansByID)) || 'Repository unavailable';
+                  const readiness = gitHubRemediationReadiness(
+                    finding,
+                    selectionKey === selectedFindingPreviewKey ? activeRemediationPreview : null
+                  );
+                  return (
+                    <button
+                      key={selectionKey}
+                      type="button"
+                      role="listitem"
+                      className={`idt-repo-finding-row idt-github-remediation-row${selectedFindingKey === selectionKey ? ' is-selected' : ''}`}
+                      onClick={() => selectRemediationFinding(finding)}
+                    >
+                      <SourceLogoMark provider="github" className="is-row" />
+                      <div className="idt-repo-finding-row-copy">
+                        <div className="idt-repo-finding-row-top">
+                          <strong>{finding.title}</strong>
+                          <span className={repoFindingSeverityClass(finding.severity)}>
+                            {formatTokenLabel(finding.severity)}
+                          </span>
+                        </div>
+                        <p>{finding.remediation || finding.human_summary}</p>
+                        <div className="idt-repo-finding-row-meta">
+                          <span>{repository}</span>
+                          <span>{repoFindingLocationLabel(finding)}</span>
+                          <span>{finding.detector ? formatTokenLabel(finding.detector) : formatTokenLabel(finding.type)}</span>
+                          <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
+                        </div>
+                        <div className="idt-repo-finding-row-meta">
+                          <span className={repoFindingStatusClass(normalizeRepoFindingLifecycleStatus(finding.lifecycle_status))}>
+                            {formatTokenLabel(normalizeRepoFindingLifecycleStatus(finding.lifecycle_status))}
+                          </span>
+                          <span className={`idt-github-remediation-readiness is-${readiness.tone}`}>{readiness.label}</span>
+                          <span>{repoFindingScanDateLabel(finding, repoScansByID)}</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="idt-domain-status-panel idt-github-remediation-plan" aria-label="GitHub remediation plan">
+              <header>
+                <div>
+                  <p className="idt-app-kicker">Plan and publish</p>
+                  <h3>{selectedFinding ? selectedFinding.title : 'No finding selected'}</h3>
+                </div>
+                <span className={`idt-github-remediation-readiness is-${selectedReadiness.tone}`}>
+                  {selectedReadiness.label}
+                </span>
+              </header>
+
+              {!selectedFinding ? (
+                <DomainEmptyState
+                  eyebrow="Empty queue"
+                  title="No remediation candidates loaded"
+                  body="New remediation candidates appear after GitHub scans produce repository findings."
+                  nextAction={{ label: 'Open GitHub findings', to: findingsPath }}
+                />
+              ) : (
+                <>
+                  <div className="idt-github-remediation-finding-header">
+                    <div>
+                      <SourceLogoMark provider="github" className="is-row" />
+                      <div>
+                        <strong>{selectedRepository}</strong>
+                        <p>{selectedFinding.human_summary}</p>
+                      </div>
+                    </div>
+                    <button
+                      className="idt-btn idt-btn-primary"
+                      type="button"
+                      onClick={() => void handleLoadRemediationPreview()}
+                      disabled={remediationPreviewLoading}
+                    >
+                      {remediationPreviewLoading ? 'Loading preview...' : 'Preview fix plan'}
+                    </button>
+                  </div>
+
+                  <dl className="idt-repo-finding-facts">
+                    <div>
+                      <dt>Finding</dt>
+                      <dd>{selectedFinding.id}</dd>
+                    </div>
+                    <div>
+                      <dt>Scan</dt>
+                      <dd>{selectedFinding.scan_id}</dd>
+                    </div>
+                    <div>
+                      <dt>Repository</dt>
+                      <dd>{selectedRepository}</dd>
+                    </div>
+                    <div>
+                      <dt>Location</dt>
+                      <dd>{repoFindingLocationLabel(selectedFinding)}</dd>
+                    </div>
+                    <div>
+                      <dt>Detector</dt>
+                      <dd>{selectedFinding.detector ? formatTokenLabel(selectedFinding.detector) : formatTokenLabel(selectedFinding.type)}</dd>
+                    </div>
+                    <div>
+                      <dt>Severity</dt>
+                      <dd>{formatTokenLabel(selectedFinding.severity)}</dd>
+                    </div>
+                    <div>
+                      <dt>Confidence</dt>
+                      <dd>{formatConfidenceScore(selectedFinding.confidence_score)}</dd>
+                    </div>
+                    <div>
+                      <dt>Lifecycle</dt>
+                      <dd>{formatTokenLabel(normalizeRepoFindingLifecycleStatus(selectedFinding.lifecycle_status))}</dd>
+                    </div>
+                  </dl>
+
+                  {selectedFinding.source_url ? (
+                    <a className="idt-repo-finding-link" href={selectedFinding.source_url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={14} strokeWidth={2} aria-hidden="true" />
+                      Open linked GitHub line
+                    </a>
+                  ) : (
+                    <div className="idt-app-alert">GitHub line link unavailable for this finding.</div>
+                  )}
+
+                  {remediationPreviewError ? (
+                    <div className="idt-app-alert idt-app-alert-error">{remediationPreviewError}</div>
+                  ) : null}
+
+                  {activeRemediationPreview ? (
+                    <div className="idt-repo-remediation-preview">
+                      <h5>{activeRemediationPreview.remediation.summary}</h5>
+                      <p>{activeRemediationPreview.remediation.risk_summary}</p>
+                      <div className="idt-repo-remediation-preview-grid">
+                        <div>
+                          <strong>Steps</strong>
+                          <ul>
+                            {(activeRemediationPreview.remediation.steps ?? []).map((step) => (
+                              <li key={step}>{step}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <strong>Validation</strong>
+                          <ul>
+                            {(activeRemediationPreview.remediation.validation ?? []).map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                      {(activeRemediationPreview.remediation.safety_notes ?? []).length > 0 ? (
+                        <div>
+                          <strong>Safety notes</strong>
+                          <ul>
+                            {(activeRemediationPreview.remediation.safety_notes ?? []).map((note) => (
+                              <li key={note}>{note}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {activeRemediationPreview.fix_pr_plan ? (
+                        <div className="idt-github-remediation-plan-files">
+                          <strong>{activeRemediationPreview.fix_pr_plan.pr_title}</strong>
+                          <span>{`Branch ${activeRemediationPreview.fix_pr_plan.branch_name}`}</span>
+                          <ul>
+                            {activeRemediationPreview.fix_pr_plan.files.map((file) => (
+                              <li key={file.path}>{file.path}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      <p>
+                        {activeRemediationPreview.remediation.publishable
+                          ? 'A fix PR can be published after approval and write-permission confirmation.'
+                          : activeRemediationPreview.remediation.publish_blocked_reason || 'Manual remediation is required.'}
+                      </p>
+                      {activeRemediationPreview.remediation.publishable ? (
+                        <div className="idt-repo-remediation-publish">
+                          {remediationPublishError ? (
+                            <div className="idt-app-alert idt-app-alert-error">{remediationPublishError}</div>
+                          ) : null}
+                          {remediationPublishResult ? (
+                            <div className="idt-app-alert idt-app-alert-success">
+                              PR #{remediationPublishResult.publish.pr_number} opened on{' '}
+                              {remediationPublishResult.publish.branch_name}.{' '}
+                              <a href={remediationPublishResult.publish.pr_url} target="_blank" rel="noreferrer">
+                                View PR
+                              </a>
+                            </div>
+                          ) : null}
+                          <div className="idt-github-remediation-publish-grid">
+                            <label>
+                              Base branch
+                              <input
+                                type="text"
+                                value={remediationPublishBaseBranch}
+                                onChange={(event) => setRemediationPublishBaseBranch(event.target.value)}
+                                placeholder="main"
+                              />
+                            </label>
+                            <label>
+                              GitHub token
+                              <input
+                                type="password"
+                                value={remediationPublishToken}
+                                onChange={(event) => setRemediationPublishToken(event.target.value)}
+                                autoComplete="off"
+                              />
+                            </label>
+                          </div>
+                          <label>
+                            Current source content
+                            <textarea
+                              value={remediationPublishSourceContent}
+                              onChange={(event) => setRemediationPublishSourceContent(event.target.value)}
+                              rows={7}
+                              spellCheck={false}
+                            />
+                          </label>
+                          <label className="idt-repo-remediation-approval">
+                            <input
+                              type="checkbox"
+                              checked={remediationPublishApproved}
+                              onChange={(event) => setRemediationPublishApproved(event.target.checked)}
+                            />
+                            <span>Approved for publish</span>
+                          </label>
+                          <label className="idt-repo-remediation-approval">
+                            <input
+                              type="checkbox"
+                              checked={remediationPublishWritePermsConfirmed}
+                              onChange={(event) => setRemediationPublishWritePermsConfirmed(event.target.checked)}
+                            />
+                            <span>GitHub token is intentionally write-capable</span>
+                          </label>
+                          <button
+                            className="idt-btn idt-btn-primary"
+                            type="button"
+                            onClick={() => void handlePublishRemediation()}
+                            disabled={
+                              remediationPublishLoading ||
+                              !remediationPublishApproved ||
+                              !remediationPublishWritePermsConfirmed
+                            }
+                          >
+                            {remediationPublishLoading ? 'Publishing...' : 'Publish fix PR'}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </section>
+          </div>
+        </>
+      )}
     </DomainPageShell>
   );
 }
@@ -9159,6 +9943,7 @@ export function ProductAIRisksPage() {
 }
 
 export function ProductFindingsPage() {
+  const location = useLocation();
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
   const { me } = useMe();
@@ -9612,9 +10397,19 @@ export function ProductFindingsPage() {
     setRemediationPreview(null);
     setRemediationPreviewFindingKey(selectionKey);
     try {
+      const sourceContent = remediationPublishSourceContent.trim();
+      const previewRequest = {
+        repo_scan_id: selectedFinding.scan_id,
+        ...(sourceContent
+          ? {
+              source_content: sourceContent,
+              require_fix_plan: true
+            }
+          : {})
+      };
       const preview = await apiClient.previewRepoFindingRemediation(
         selectedFinding.id,
-        { repo_scan_id: selectedFinding.scan_id },
+        previewRequest,
         buildProductAuthContext(scope)
       );
       if (requestID !== remediationPreviewRequestRef.current) {
@@ -9868,6 +10663,10 @@ export function ProductFindingsPage() {
   };
 
   const connectPath = buildScopedPath(scope, 'github/connect');
+  const remediationPath = appendEnvironmentQuery(
+    buildScopedPath(scope, 'github/remediation'),
+    environmentIDFromSearch(location.search)
+  );
   const scansByRecency = [...repoScans].sort(
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
@@ -9942,6 +10741,9 @@ export function ProductFindingsPage() {
             <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
           </div>
           <div className="idt-inline-actions">
+            <Link className="idt-btn idt-btn-primary" to={remediationPath}>
+              Open remediation
+            </Link>
             <button
               className="idt-btn idt-btn-ghost"
               type="button"
@@ -10024,6 +10826,9 @@ export function ProductFindingsPage() {
           </div>
         </div>
         <div className="idt-inline-actions">
+          <Link className="idt-btn idt-btn-primary" to={remediationPath}>
+            Open remediation
+          </Link>
           <button
             className="idt-btn idt-btn-ghost"
             type="button"

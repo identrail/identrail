@@ -7,6 +7,8 @@ import type {
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
+  RepoFindingRemediationPreview,
+  RepoFindingRemediationPublishResponse,
   RepoScanRecord,
   WhoAmIResponse
 } from './api/client';
@@ -1994,10 +1996,13 @@ describe('GitHub domain pages (#1382)', () => {
   });
 
   async function renderGitHubPage(
-    pageName: 'control-center' | 'connect' | 'repositories' | 'actions',
+    pageName: 'control-center' | 'connect' | 'repositories' | 'actions' | 'remediation',
     options: {
       githubConnection?: GitHubConnectionStatus | null;
       scans?: RepoScanRecord[];
+      repoFindings?: Finding[];
+      remediationPreview?: RepoFindingRemediationPreview;
+      remediationPublish?: RepoFindingRemediationPublishResponse;
       listRepoScans?: () => Promise<{ items: RepoScanRecord[]; next_cursor?: string }>;
       githubFeatureFlag?: boolean;
       githubBackend?: BackendFeatureState;
@@ -2021,6 +2026,79 @@ describe('GitHub domain pages (#1382)', () => {
     } else {
       listRepoScans.mockResolvedValue({ items: options.scans ?? [] });
     }
+    const listRepoFindings = vi
+      .spyOn(api.apiClient, 'listRepoFindings')
+      .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
+    const previewRepoFindingRemediation = vi
+      .spyOn(api.apiClient, 'previewRepoFindingRemediation')
+      .mockResolvedValue(
+        options.remediationPreview ?? {
+          finding: options.repoFindings?.[0] ?? {
+            id: 'finding-default',
+            scan_id: 'repo-scan-default',
+            type: 'secret_exposure',
+            severity: 'high',
+            title: 'Default remediation finding',
+            human_summary: 'Default remediation finding summary.',
+            remediation: 'Rotate and remove the exposed secret.',
+            created_at: '2026-05-17T11:00:00Z'
+          },
+          remediation: {
+            detector: 'secret_exposure',
+            summary: 'Rotate and remove the exposed secret',
+            risk_summary: 'The exposed credential can be replayed outside GitHub.',
+            steps: ['Rotate the exposed credential', 'Remove the committed value'],
+            safety_notes: ['Confirm the replacement secret is available before merging'],
+            validation: ['Run the repository scan again'],
+            secret_rotation: true,
+            publishable: true,
+            evidence: { finding_id: 'finding-default', scan_id: 'repo-scan-default' }
+          },
+          fix_pr_plan: {
+            base_branch: 'main',
+            branch_name: 'identrail/fix/finding-default',
+            commit_message: 'Remove exposed secret',
+            pr_title: 'Remove exposed secret',
+            pr_body: 'Remediates the exposed repository secret.',
+            files: [{ path: '.github/workflows/deploy.yml', content: 'env: {}' }],
+            finding_id: 'finding-default',
+            finding_type: 'secret_exposure'
+          }
+        }
+      );
+    const publishRepoFindingRemediation = vi
+      .spyOn(api.apiClient, 'publishRepoFindingRemediation')
+      .mockResolvedValue(
+        options.remediationPublish ?? {
+          finding: options.repoFindings?.[0] ?? {
+            id: 'finding-default',
+            scan_id: 'repo-scan-default',
+            type: 'secret_exposure',
+            severity: 'high',
+            title: 'Default remediation finding',
+            human_summary: 'Default remediation finding summary.',
+            remediation: 'Rotate and remove the exposed secret.',
+            created_at: '2026-05-17T11:00:00Z'
+          },
+          remediation: {
+            detector: 'secret_exposure',
+            summary: 'Rotate and remove the exposed secret',
+            risk_summary: 'The exposed credential can be replayed outside GitHub.',
+            steps: ['Rotate the exposed credential'],
+            safety_notes: ['Confirm the replacement secret is available before merging'],
+            validation: ['Run the repository scan again'],
+            secret_rotation: true,
+            publishable: true,
+            evidence: { finding_id: 'finding-default', scan_id: 'repo-scan-default' }
+          },
+          publish: {
+            pr_number: 42,
+            pr_url: 'https://github.com/identrail/identrail/pull/42',
+            branch_name: 'identrail/fix/finding-default',
+            commit_sha: 'abc1234'
+          }
+        }
+      );
     const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
     if (options.runRepoScanError) {
       runRepoScan.mockRejectedValue(new api.ApiError(options.runRepoScanError.message, options.runRepoScanError.status));
@@ -2059,12 +2137,14 @@ describe('GitHub domain pages (#1382)', () => {
       pageName === 'control-center' ? <productShell.ProductGitHubControlCenterPage /> :
       pageName === 'connect' ? <productShell.ProductGitHubConnectPage /> :
       pageName === 'repositories' ? <productShell.ProductGitHubRepositoriesPage /> :
+      pageName === 'remediation' ? <productShell.ProductGitHubRemediationPage /> :
       <productShell.ProductGitHubActionsPage />;
 
     const routePath =
       pageName === 'control-center' ? 'github' :
       pageName === 'connect' ? 'github/connect' :
       pageName === 'repositories' ? 'github/repositories' :
+      pageName === 'remediation' ? 'github/remediation' :
       'github/actions';
 
     render(
@@ -2075,7 +2155,16 @@ describe('GitHub domain pages (#1382)', () => {
       </MemoryRouter>
     );
 
-    return { getGitHubConnectorStatus, listRepoScans, runRepoScan, cancelRepoScan, startGitHubConnector };
+    return {
+      getGitHubConnectorStatus,
+      listRepoScans,
+      listRepoFindings,
+      previewRepoFindingRemediation,
+      publishRepoFindingRemediation,
+      runRepoScan,
+      cancelRepoScan,
+      startGitHubConnector
+    };
   }
 
   it('Control Center loads the GitHub connection and surfaces premium status', async () => {
@@ -2266,6 +2355,168 @@ describe('GitHub domain pages (#1382)', () => {
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub Actions / OIDC' });
     await screen.findByRole('heading', { level: 3, name: /GitHub is not available on this API/i });
+  });
+
+  it('Remediation page shows the never-scanned state', async () => {
+    await renderGitHubPage('remediation', { scans: [], repoFindings: [] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub remediation' });
+    await screen.findByRole('heading', { level: 3, name: /Run your first repository scan/i });
+    const repositoriesLink = screen
+      .getAllByRole('link', { name: /Open Repositories/i })
+      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/repositories'));
+    expect(repositoriesLink).toBeDefined();
+  });
+
+  it('Remediation page surfaces a failed scan state before showing remediation chrome', async () => {
+    const failedScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-remediation-failed',
+      status: 'failed',
+      finding_count: 0,
+      error_message: 'GitHub App installation access revoked'
+    };
+
+    await renderGitHubPage('remediation', { scans: [failedScan], repoFindings: [] });
+
+    await screen.findByRole('heading', { level: 3, name: /Your last repository scan failed/i });
+    expect(screen.getByText(/GitHub App installation access revoked/i)).toBeInTheDocument();
+    expect(screen.queryByText('Actionable findings')).not.toBeInTheDocument();
+  });
+
+  it('Remediation page previews and publishes a fix PR only after approval gates pass', async () => {
+    const finding: Finding = {
+      id: 'finding-deployment-token',
+      scan_id: succeededRepoScan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      confidence_score: 0.96,
+      title: 'Workflow exposes deployment token',
+      human_summary: 'A deployment token is committed into a GitHub Actions workflow.',
+      remediation: 'Move the deployment token into GitHub Actions secrets and rotate it.',
+      repository: 'identrail/identrail',
+      file_path: '.github/workflows/deploy.yml',
+      line_number: 18,
+      detector: 'github_actions_secret',
+      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L18',
+      lifecycle_status: 'open',
+      created_at: '2026-05-17T11:10:00Z'
+    };
+    const preview: RepoFindingRemediationPreview = {
+      finding,
+      remediation: {
+        detector: 'github_actions_secret',
+        summary: 'Rotate leaked deployment token',
+        risk_summary: 'The token can be reused by anyone with repository history access.',
+        steps: ['Create a GitHub Actions secret for the replacement token', 'Remove the inline token from deploy.yml'],
+        safety_notes: ['Confirm the replacement secret exists before merging'],
+        validation: ['Run the repository scan again', 'Confirm the workflow still deploys from the secret'],
+        secret_rotation: true,
+        publishable: true,
+        evidence: {
+          finding_id: finding.id,
+          scan_id: finding.scan_id,
+          repository: 'identrail/identrail',
+          file_path: finding.file_path,
+          line_number: finding.line_number
+        }
+      },
+      fix_pr_plan: {
+        base_branch: 'main',
+        branch_name: 'identrail/fix/deployment-token',
+        commit_message: 'Move deployment token into Actions secrets',
+        pr_title: 'Move deployment token into Actions secrets',
+        pr_body: 'Remediates the exposed deployment token finding.',
+        files: [{ path: '.github/workflows/deploy.yml', content: 'env:\\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}' }],
+        finding_id: finding.id,
+        finding_type: finding.type
+      }
+    };
+    const publish: RepoFindingRemediationPublishResponse = {
+      finding,
+      remediation: preview.remediation,
+      publish: {
+        pr_number: 42,
+        pr_url: 'https://github.com/identrail/identrail/pull/42',
+        branch_name: 'identrail/fix/deployment-token',
+        commit_sha: 'abc1234'
+      }
+    };
+    const mocks = await renderGitHubPage('remediation', {
+      scans: [{ ...succeededRepoScan, finding_count: 1 }],
+      repoFindings: [finding],
+      remediationPreview: preview,
+      remediationPublish: publish
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub remediation' });
+    expect(await screen.findByText('Actionable findings')).toBeInTheDocument();
+    expect(screen.getAllByText('Workflow exposes deployment token').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/.github\/workflows\/deploy.yml:18/i).length).toBeGreaterThan(0);
+
+    const previewButton = await screen.findByRole('button', { name: /Preview fix plan/i });
+    fireEvent.click(previewButton);
+
+    await waitFor(() =>
+      expect(mocks.previewRepoFindingRemediation).toHaveBeenCalledWith(
+        finding.id,
+        expect.objectContaining({
+          repo_scan_id: succeededRepoScan.id,
+          finding_url: finding.source_url
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(screen.getByLabelText('Current source content'), {
+      target: { value: 'env:\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}' }
+    });
+    fireEvent.click(previewButton);
+    await waitFor(() =>
+      expect(mocks.previewRepoFindingRemediation).toHaveBeenCalledWith(
+        finding.id,
+        expect.objectContaining({
+          repo_scan_id: succeededRepoScan.id,
+          finding_url: finding.source_url,
+          source_content: 'env:\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}',
+          require_fix_plan: true
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText('Rotate leaked deployment token')).toBeInTheDocument();
+    expect(screen.getByText('Branch identrail/fix/deployment-token')).toBeInTheDocument();
+
+    const publishButton = await screen.findByRole('button', { name: /Publish fix PR/i });
+    expect(publishButton).toBeDisabled();
+    expect(mocks.publishRepoFindingRemediation).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Current source content'), {
+      target: { value: 'env:\\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}' }
+    });
+    fireEvent.change(screen.getByLabelText('GitHub token'), { target: { value: 'ghp_write_token' } });
+    fireEvent.click(screen.getByLabelText('Approved for publish'));
+    fireEvent.click(screen.getByLabelText('GitHub token is intentionally write-capable'));
+
+    await waitFor(() => expect(publishButton).not.toBeDisabled());
+    fireEvent.click(publishButton);
+
+    await waitFor(() =>
+      expect(mocks.publishRepoFindingRemediation).toHaveBeenCalledWith(
+        finding.id,
+        expect.objectContaining({
+          repo_scan_id: succeededRepoScan.id,
+          source_content: 'env:\\n  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}',
+          base_branch: 'main',
+          finding_url: finding.source_url,
+          operator_approved: true,
+          write_permissions_configured: true,
+          github_token: 'ghp_write_token'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText(/PR #42 opened/i)).toBeInTheDocument();
   });
 
   it('Control Center surfaces an error when listing repository scans fails', async () => {

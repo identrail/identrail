@@ -6124,9 +6124,122 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   height: 1rem;
 }
 
+.idt-github-remediation-workspace {
+  display: grid;
+  grid-template-columns: minmax(22rem, 0.92fr) minmax(0, 1.28fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.idt-github-remediation-queue,
+.idt-github-remediation-plan {
+  min-width: 0;
+}
+
+.idt-github-remediation-list {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.idt-github-remediation-row {
+  width: 100%;
+  text-align: left;
+}
+
+.idt-github-remediation-readiness {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 1.65rem;
+  padding: 0.22rem 0.56rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.08);
+  color: #dbe7f6;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.idt-github-remediation-readiness.is-success {
+  border-color: rgba(52, 211, 153, 0.32);
+  background: rgba(16, 185, 129, 0.12);
+  color: #b7f7d8;
+}
+
+.idt-github-remediation-readiness.is-warning {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fde9b8;
+}
+
+.idt-github-remediation-readiness.is-danger {
+  border-color: rgba(248, 113, 113, 0.34);
+  background: rgba(248, 113, 113, 0.12);
+  color: #ffd2d2;
+}
+
+.idt-github-remediation-finding-header {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.idt-github-remediation-finding-header > div {
+  display: flex;
+  min-width: 0;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+
+.idt-github-remediation-finding-header strong {
+  display: block;
+  color: #f4f8ff;
+}
+
+.idt-github-remediation-finding-header p {
+  margin: 0.25rem 0 0;
+  color: #b8c6da;
+}
+
+.idt-github-remediation-plan .idt-repo-finding-facts {
+  margin: 0.9rem 0;
+}
+
+.idt-github-remediation-plan-files {
+  display: grid;
+  gap: 0.38rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.idt-github-remediation-plan-files span,
+.idt-github-remediation-plan-files li {
+  color: #c8d5e7;
+}
+
+.idt-github-remediation-plan-files ul {
+  margin: 0.2rem 0 0;
+  padding-left: 1rem;
+}
+
+.idt-github-remediation-publish-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
 @media (max-width: 960px) {
   .idt-repo-findings-header,
-  .idt-repo-finding-row-top {
+  .idt-repo-finding-row-top,
+  .idt-github-remediation-finding-header {
     flex-direction: column;
   }
 
@@ -6134,7 +6247,9 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   .idt-repo-finding-filters,
   .idt-repo-finding-layout,
   .idt-repo-finding-facts,
-  .idt-repo-remediation-preview-grid {
+  .idt-repo-remediation-preview-grid,
+  .idt-github-remediation-workspace,
+  .idt-github-remediation-publish-grid {
     grid-template-columns: 1fr;
   }
 

@@ -39,6 +39,7 @@ import {
   ProductGitHubRepositoriesPage,
   ProductKubernetesConnectPage,
   ProductGitHubConnectPage,
+  ProductGitHubRemediationPage,
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
@@ -4791,7 +4792,7 @@ export function RoutedSite() {
             <Route path="github/repositories" element={<ProductGitHubRepositoriesPage />} />
             <Route path="github/actions" element={<ProductGitHubActionsPage />} />
             <Route path="github/findings" element={<ProductFindingsPage />} />
-            <Route path="github/remediation" element={<ProductDomainRoutePage domain="github" routeID="remediation" />} />
+            <Route path="github/remediation" element={<ProductGitHubRemediationPage />} />
             <Route path="github/agentic-risk" element={<ProductAIRisksPage />} />
             <Route path="github/agentic-risk/configs" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-configs" />} />
             <Route path="github/agentic-risk/mcp-tools" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-mcp-tools" />} />
